@@ -95,16 +95,15 @@ function GalleryPathPicker({ mode = "folder", start = HOME, loading = false, fai
             mode={mode}
             list={list}
             locations={async () => ({
-              locations: [
-                ...(mode === "anyFile"
+              locations:
+                mode === "anyFile"
                   ? []
                   : [
                       { kind: "workspace" as const, path: PROJECTS },
                       { kind: "home" as const, path: HOME },
                       { kind: "desktop" as const, path: `${HOME}/Desktop` },
                       { kind: "downloads" as const, path: `${HOME}/Downloads` },
-                    ]),
-              ],
+                    ],
             })}
             strings={strings}
             recents={
