@@ -26,6 +26,9 @@ final class ScreenContentView: NSView {
     private var dividerFrames: [DividerHandleView.Kind: AnimatedFrame] = [:]
     /// Panes growing in from a split's edge (`PaneArrival.presentation`), and the dock columns that change added.
     private var arriving: Set<PaneID> = [], newDockColumns: Set<ColumnID> = []
+    /// A zoom's other panes, left where they showed under the zoomed pane as it grows over them,
+    /// and released once it settles (`releaseCovered`); an unzoom before then takes them back.
+    private(set) var covered: Set<PaneID> = []
 
     /// Column scroll rules and state (`ColumnScrollState.reduce`).
     var scrollState = ColumnScrollState()
@@ -108,15 +111,16 @@ final class ScreenContentView: NSView {
     func update(layout: ScreenLayout, zoomed: Bool = false, animated: Bool) -> Bool {
         let structural = !self.layout.hasSameStructure(as: layout)
         let unzooming = self.zoomed && !zoomed
+        let zooming = !self.zoomed && zoomed
         self.layout = layout
         self.zoomed = zoomed
         // The release's intent is in this layout (or was refused).
         if activeDrag == nil { rowDragPreview = nil }
-        return reconcile(animated: animated, structural: structural, unzooming: unzooming)
+        return reconcile(animated: animated, structural: structural, unzooming: unzooming, zooming: zooming)
     }
 
     @discardableResult
-    func reconcile(animated: Bool, structural: Bool = false, unzooming: Bool = false) -> Bool {
+    func reconcile(animated: Bool, structural: Bool = false, unzooming: Bool = false, zooming: Bool = false) -> Bool {
         let shown = rowDragPreview.map { layout.settingRowHeights($0.heights, for: $0.column) } ?? layout
         let before = geometry
         baseGeometry = ScreenGeometry.compute(shown, viewport: bounds.size, style: context.style, scale: scale)
@@ -127,6 +131,9 @@ final class ScreenContentView: NSView {
         let departing = animate && structural && arrivals.isEmpty && PaneArrival.departing(paneFrames.keys, to: baseGeometry.panes.keys)
         // An unzoom: the other panes come back in place under the zoomed one, which springs back to its slot.
         let revealing = animate && structural && unzooming
+        // A zoom: the other panes stay under the zoomed one until it covers them, rather than leaving a hole.
+        let covering = animate && structural && zooming
+        covered.subtract(baseGeometry.panes.keys)
         let carried = !arrivals.isEmpty || departing || revealing
         // Strip springs run in strip coordinates and fixed ones in the view's: a moved strip origin (a dock
         // that came or went) or a pane changing sides (a zoom shows its pane fixed) keeps it where it showed.
@@ -163,6 +170,10 @@ final class ScreenContentView: NSView {
         }
         for pane in paneFrames.keys where baseGeometry.panes[pane] == nil {
             paneFrames[pane] = nil
+            if covering, context.hosts[pane]?.superview === self {
+                covered.insert(pane)
+                continue
+            }
             // A pane that moved to another screen belongs to that screen now.
             if !context.livePanes.contains(pane) { context.release(pane) }
         }
@@ -218,7 +229,18 @@ final class ScreenContentView: NSView {
         // The scroll follows in `syncScroll`, which the root calls with the
         // focus after every update (ColumnScrollState.reduce).
         applyPresentation()
-        return animate && hasMotion
+        let moving = animate && hasMotion
+        if !moving { releaseCovered() }
+        return moving
+    }
+
+    /// Lets go of a zoom's covered panes once nothing moves over them.
+    private func releaseCovered() {
+        guard !covered.isEmpty else { return }
+        for pane in covered where paneFrames[pane] == nil && !context.livePanes.contains(pane) {
+            context.release(pane)
+        }
+        covered.removeAll()
     }
 
     /// The panes and strip dividers a structural change carried start where they showed before it, now that the
@@ -259,6 +281,8 @@ final class ScreenContentView: NSView {
         for key in Array(paneFrames.keys) {
             if paneFrames[key]?.advance(dt, parameters: Motion.spring(.move)) == true { moving = true }
         }
+        // The zoomed pane covers the others now.
+        if !moving { releaseCovered() }
         for key in Array(dividerFrames.keys) {
             if dividerFrames[key]?.advance(dt, parameters: Motion.spring(.move)) == true { moving = true }
         }
@@ -282,6 +306,7 @@ final class ScreenContentView: NSView {
     func applyPresentation() {
         let strip = stripShift
         let uncovered = uncoveredRect, clip = PaneArrival.stripClip(geometry, docks: growingDocks)
+        var clips: [(host: PaneHostView, scrolls: Bool, revealing: CGRect?)] = []
         for (pane, frame) in paneFrames {
             guard let host = context.hosts[pane], host.superview === self else { continue }
             let scrolls = geometry.scrolls(pane: pane)
@@ -291,7 +316,12 @@ final class ScreenContentView: NSView {
             host.frame = (revealing == nil ? frame.rect : PaneArrival.presentation(shown: frame.rect, target: frame.targetRect)).offsetBy(dx: shift.dx, dy: shift.dy)
             host.alphaValue = frame.alpha.value
             host.isDocked = !scrolls
-            clipToStrip(host, scrolls: scrolls, clip: clip, revealing: revealing)
+            clips.append((host, scrolls, revealing))
+        }
+        // Once every frame is placed: a pane is clipped by the panes in front of it.
+        for (host, scrolls, revealing) in clips { clipToStrip(host, scrolls: scrolls, clip: clip, revealing: revealing) }
+        for pane in covered {
+            if let host = context.hosts[pane], host.superview === self { clipToStrip(host, scrolls: false, clip: nil) }
         }
         for (kind, frame) in dividerFrames {
             guard let view = dividerViews[kind] else { continue }
@@ -402,5 +432,6 @@ final class ScreenContentView: NSView {
             context.release(pane)
         }
         paneFrames.removeAll()
+        releaseCovered()
     }
 }
