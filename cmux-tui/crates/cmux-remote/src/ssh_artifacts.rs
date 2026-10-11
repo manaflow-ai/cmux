@@ -307,14 +307,25 @@ async fn download(payload: &PublishedPayload) -> Result<PathBuf, String> {
         };
         let attempts: Vec<_> =
             if routes.is_empty() { vec![None] } else { routes.iter().map(Some).collect() };
-        let mut result = Ok(());
-        for route in attempts {
-            result = run_curl(payload, &partial, route).await;
-            if result.is_ok() {
-                break;
+        let last = attempts.len() - 1;
+        let mut errors = Vec::new();
+        for (index, route) in attempts.into_iter().enumerate() {
+            match run_curl(payload, &partial, route, index < last).await {
+                Ok(()) => {
+                    errors.clear();
+                    break;
+                }
+                Err(error) => errors.push(match route {
+                    Some(crate::ssh_payload_proxy::ProxyRoute::Via(proxy)) => {
+                        format!("through {proxy}: {error}")
+                    }
+                    _ => error,
+                }),
             }
         }
-        result?;
+        if !errors.is_empty() {
+            return Err(errors.join("; ").chars().take(800).collect());
+        }
         let actual = sha256_of(partial.clone()).await.map_err(|error| error.to_string())?;
         if actual != payload.sha256 {
             let _ = std::fs::remove_file(&partial);
@@ -331,13 +342,20 @@ async fn run_curl(
     payload: &PublishedPayload,
     partial: &Path,
     route: Option<&crate::ssh_payload_proxy::ProxyRoute>,
+    fallback_follows: bool,
 ) -> Result<(), String> {
     let mut command = tokio::process::Command::new("curl");
     // --continue-at - resumes what an earlier connect left. A stalled
     // transfer fails within a minute instead of holding every bootstrap.
-    command.args(["--fail", "--silent", "--show-error", "--location", "--retry", "2"]);
-    command.args(["--connect-timeout", "20", "--speed-limit", "1024", "--speed-time", "60"]);
-    command.args(["--continue-at", "-"]);
+    command.args(["--fail", "--silent", "--show-error", "--location"]);
+    command.args(["--speed-limit", "1024", "--speed-time", "60", "--continue-at", "-"]);
+    // A route with a fallback after it gives up quickly, so an unreachable
+    // proxy does not spend the connect's budget before DIRECT is tried.
+    if fallback_follows {
+        command.args(["--retry", "0", "--connect-timeout", "10"]);
+    } else {
+        command.args(["--retry", "2", "--connect-timeout", "20"]);
+    }
     if payload.url.starts_with("https://") {
         command.args(["--proto", "=https", "--proto-redir", "=https", "--tlsv1.2"]);
     }

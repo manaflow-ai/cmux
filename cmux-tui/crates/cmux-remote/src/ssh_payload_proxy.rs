@@ -7,6 +7,8 @@
 //! including a PAC file's `PROXY a; DIRECT` fallbacks.
 
 /// One way to reach a payload URL.
+// Only the macOS resolver builds routes.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ProxyRoute {
     Direct,
@@ -23,16 +25,22 @@ impl ProxyRoute {
     }
 }
 
-const PROXY_ENVIRONMENT: [&str; 5] =
-    ["https_proxy", "HTTPS_PROXY", "http_proxy", "all_proxy", "ALL_PROXY"];
+/// The variables curl reads for each scheme; it ignores `HTTP_PROXY`.
+const HTTPS_PROXY_ENVIRONMENT: [&str; 4] = ["https_proxy", "HTTPS_PROXY", "all_proxy", "ALL_PROXY"];
+const HTTP_PROXY_ENVIRONMENT: [&str; 3] = ["http_proxy", "all_proxy", "ALL_PROXY"];
 
 /// The routes to try for `url`, in order. Empty leaves the choice to curl: a
 /// proxy set in the environment still wins, and platforms without a system
 /// proxy API connect as curl decides. `pac_script` replaces the system settings
 /// in tests. This blocks while a PAC file is fetched and evaluated.
 pub(crate) fn routes(url: &str, pac_script: Option<&str>) -> Vec<ProxyRoute> {
+    let environment: &[&str] = if url.starts_with("https://") {
+        &HTTPS_PROXY_ENVIRONMENT
+    } else {
+        &HTTP_PROXY_ENVIRONMENT
+    };
     if pac_script.is_none()
-        && PROXY_ENVIRONMENT
+        && environment
             .iter()
             .any(|name| std::env::var_os(name).is_some_and(|value| !value.is_empty()))
     {
