@@ -55,6 +55,16 @@ extension GhosttyRuntime {
         )
     }
 
+    /// The colors of a config made of `text` (Ghostty config lines), for tests.
+    static func themeColors(configText text: String) -> GhosttyThemeColors? {
+        _ = shared // runs ghostty_init, which config_new needs
+        guard let config = ghostty_config_new() else { return nil }
+        defer { ghostty_config_free(config) }
+        text.withCString { ghostty_config_load_string(config, $0, UInt(text.utf8.count), "test") }
+        ghostty_config_finalize(config)
+        return themeColors(of: config, backgroundOpacity: 1)
+    }
+
     private static func color(_ config: ghostty_config_t, _ key: String) -> GhosttyThemeColors.RGB? {
         var color = ghostty_config_color_s()
         guard configGet(config, &color, key: key) else { return nil }
