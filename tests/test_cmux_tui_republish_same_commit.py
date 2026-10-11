@@ -136,12 +136,12 @@ class Sandbox:
         }
         return subprocess.run(["bash", "-e", "-c", script], cwd=self.repo, env=full, text=True, capture_output=True)
 
-    def build(self, generation: str) -> None:
+    def build(self, generation: str, *optional: str) -> None:
         """This run's build outputs for the publish job, as the build job leaves them."""
         assets = self.repo / "assets"
         shutil.rmtree(assets, ignore_errors=True)
         for prefix, names in {
-            "cmux-tui": ["cmux-tui-x86_64-unknown-linux-musl", "cmux-tui-aarch64-apple-darwin"],
+            "cmux-tui": ["cmux-tui-x86_64-unknown-linux-musl", "cmux-tui-aarch64-apple-darwin", *optional],
             "cmux-relay": ["cmux-relay-x86_64-unknown-linux-musl"],
             "chatmux-relay": ["chatmux-relay-x86_64-unknown-linux-musl"],
         }.items():
@@ -149,6 +149,7 @@ class Sandbox:
             d.mkdir(parents=True)
             for n in names:
                 (d / n).write_text(f"{n} build {generation}\n")
+            (d / f"{prefix}-checksums.txt").write_text(f"checksums {generation}\n")
             (d / "manifest.json").write_text(json.dumps({
                 "commit": self.sha,
                 "attestationUrl": f"https://github.com/manaflow-ai/cmux/actions/runs/{generation}",
@@ -192,6 +193,23 @@ class RebuildOfAPublishedCommit(unittest.TestCase):
                 self.assertEqual(path.read_bytes(), earlier[key], key)
         for path in (self.box.repo / "assets-legacy").iterdir():
             self.assertEqual(path.read_bytes(), earlier[f"mux/{self.box.sha}/{path.name}"], path.name)
+
+    def test_a_rebuild_with_other_optional_binaries_keeps_the_published_set(self) -> None:
+        # The agent screen detector is optional: either build may lack it.
+        detector = "cmux-tui-agent-screen-detection-aarch64-apple-darwin"
+        for earlier_has, rebuild_has in ((True, False), (False, True)):
+            with self.subTest(earlier_has=earlier_has):
+                shutil.rmtree(self.box.r2)
+                self.box.r2.mkdir()
+                self.box.build("1", *([detector] if earlier_has else []))
+                self.assertEqual(self.box.run(self.upload).returncode, 0)
+                earlier = self.published()
+                self.box.build("2", *([detector] if rebuild_has else []))
+                result = self.box.run(self.upload)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                local = self.box.repo / "assets" / "cmux-tui"
+                served = {k.rsplit("/", 1)[1] for k in earlier if k.startswith(f"cmux-tui/{self.box.sha}/")}
+                self.assertEqual({p.name for p in local.iterdir()}, served)
 
     def test_the_tree_is_published_from_the_earlier_publication(self) -> None:
         self.box.build("1")

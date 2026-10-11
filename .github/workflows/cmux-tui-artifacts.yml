@@ -1146,11 +1146,29 @@ jobs:
               *) echo "could not check https://files.cmux.com/$1/manifest.json (curl exit $status)" >&2; exit 1 ;;
             esac
           }
+          # The kept publication's file set, from its manifest: two builds of
+          # one commit can differ in optional binaries (the agent screen
+          # detector), so this run's own file list is not it.
           adopt_published() {
-            local directory="$1" prefix="$2" file
-            for file in "$directory"/*; do
-              curl -fsS --proto '=https' --retry 3 --retry-delay 5 --connect-timeout 20 --max-time 300 -o "$file" \
-                "https://files.cmux.com/$prefix/$(basename "$file")?adopt=$GITHUB_RUN_ID"
+            local directory="$1" prefix="$2" name checksums=""
+            fetch_published() {
+              curl -fsS --proto '=https' --retry 3 --retry-delay 5 --connect-timeout 20 --max-time 300 \
+                -o "$directory/$1" "https://files.cmux.com/$prefix/$1?adopt=$GITHUB_RUN_ID"
+            }
+            for name in "$directory"/*-checksums.txt; do
+              [[ -f "$name" ]] && checksums="$checksums $(basename "$name")"
+            done
+            find "$directory" -mindepth 1 -maxdepth 1 -type f -delete
+            fetch_published manifest.json
+            for name in $checksums $(python3 -c '
+          import json, sys
+          m = json.load(open(sys.argv[1]))
+          names = set(m.get("binaries") or {})
+          for target in (m.get("artifacts") or {}).values():
+              names.update(a["name"] for a in target.values())
+          print(" ".join(sorted(names)))
+          ' "$directory/manifest.json"); do
+              [[ "$name" == manifest.json ]] || fetch_published "$name"
             done
           }
           publish_prefix() {
