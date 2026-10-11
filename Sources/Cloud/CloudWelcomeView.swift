@@ -300,7 +300,49 @@ struct CloudWelcomeLayout: Equatable {
     }
 }
 
+/// The "cmux cloud" badge's colors. In dark mode it is the accent on a faint
+/// accent tint. Light mode's glass reads mid-gray behind an inactive window, where
+/// that tint left the accent text too faint, so the text sits on a light, mostly
+/// opaque fill and darkens the accent only as far as WCAG AA needs.
+enum CloudWelcomeBadgeStyle {
+    nonisolated static let lightFillWhite: CGFloat = 1
+    nonisolated static let lightFillOpacity: CGFloat = 0.7
+    /// The darkest gray the glass shows through the fill (checked, with margin).
+    nonisolated static let darkestBackdropWhite: CGFloat = 0.5
+    nonisolated static let minimumContrast: CGFloat = 4.5
+
+    /// The fill as it looks over the darkest backdrop.
+    nonisolated static var worstFill: NSColor {
+        NSColor(white: lightFillWhite * lightFillOpacity + darkestBackdropWhite * (1 - lightFillOpacity), alpha: 1)
+    }
+
+    /// The accent, darkened in small steps until it reads on ``worstFill``.
+    nonisolated static func lightText(accent: NSColor) -> NSColor {
+        let resolved = accent.usingColorSpace(.sRGB) ?? accent
+        let fill = worstFill
+        for step in 0...20 {
+            let fraction = CGFloat(step) * 0.05
+            let candidate = resolved.blended(withFraction: fraction, of: .black) ?? resolved
+            if contrast(candidate, fill) >= minimumContrast { return candidate }
+        }
+        return .black
+    }
+
+    /// The WCAG 2 contrast ratio between two opaque colors.
+    nonisolated static func contrast(_ first: NSColor, _ second: NSColor) -> CGFloat {
+        func luminance(_ color: NSColor) -> CGFloat {
+            guard let c = color.usingColorSpace(.sRGB) else { return 0 }
+            func channel(_ v: CGFloat) -> CGFloat { v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
+            return 0.2126 * channel(c.redComponent) + 0.7152 * channel(c.greenComponent) + 0.0722 * channel(c.blueComponent)
+        }
+        let (a, b) = (luminance(first), luminance(second))
+        return (max(a, b) + 0.05) / (min(a, b) + 0.05)
+    }
+}
+
 private struct CloudWelcomeHeader: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
         VStack(spacing: 10) {
             HStack(spacing: 6) {
@@ -309,16 +351,18 @@ private struct CloudWelcomeHeader: View {
                 Text(String(localized: "cloud.welcome.title.eyebrow", defaultValue: "cmux cloud"))
                     .cmuxFont(size: 13, weight: .semibold)
             }
-            .foregroundStyle(Color.accentColor)
+            .foregroundStyle(isLight ? Color(nsColor: CloudWelcomeBadgeStyle.lightText(accent: .controlAccentColor)) : Color.accentColor)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
             .background(
                 Capsule(style: .continuous)
-                    .fill(Color.accentColor.opacity(0.12))
+                    .fill(isLight
+                        ? Color(white: CloudWelcomeBadgeStyle.lightFillWhite, opacity: CloudWelcomeBadgeStyle.lightFillOpacity)
+                        : Color.accentColor.opacity(0.12))
             )
             .overlay {
                 Capsule(style: .continuous)
-                    .strokeBorder(Color.accentColor.opacity(0.18), lineWidth: 0.5)
+                    .strokeBorder(Color.accentColor.opacity(isLight ? 0.3 : 0.18), lineWidth: 0.5)
             }
             Text(String(localized: "cloud.welcome.title", defaultValue: "Your work, wherever you go"))
                 .cmuxFont(size: 34, weight: .bold)
@@ -329,6 +373,8 @@ private struct CloudWelcomeHeader: View {
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isHeader)
     }
+
+    private var isLight: Bool { colorScheme == .light }
 }
 
 /// The window material before macOS 26 (what the About window uses).

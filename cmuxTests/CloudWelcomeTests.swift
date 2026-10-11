@@ -191,6 +191,29 @@ struct CloudWelcomeTests {
         }
     }
 
+    @Test("the light-mode badge text meets WCAG AA on a gray glass backdrop", arguments: [
+        NSColor.systemBlue, NSColor.systemPurple, NSColor.systemPink, NSColor.systemRed,
+        NSColor.systemOrange, NSColor.systemYellow, NSColor.systemGreen, NSColor.systemGray,
+    ])
+    func lightBadgeContrast(accent: NSColor) throws {
+        let light = try #require(NSAppearance(named: .aqua))
+        var text = NSColor.black
+        light.performAsCurrentDrawingAppearance {
+            text = CloudWelcomeBadgeStyle.lightText(accent: accent)
+        }
+        // The gray an inactive light window's glass shows (~0.67) and darker.
+        for backdrop in [0.67, CloudWelcomeBadgeStyle.darkestBackdropWhite] as [CGFloat] {
+            let alpha = CloudWelcomeBadgeStyle.lightFillOpacity
+            let fill = NSColor(white: CloudWelcomeBadgeStyle.lightFillWhite * alpha + backdrop * (1 - alpha), alpha: 1)
+            let ratio = CloudWelcomeBadgeStyle.contrast(text, fill)
+            #expect(ratio >= 4.5, "\(accent) badge text contrast \(ratio) on backdrop \(backdrop)")
+        }
+        // Blue stays recognizably the accent: darkened, not black.
+        if accent == .systemBlue {
+            #expect(text.usingColorSpace(.sRGB)!.blueComponent > 0.4)
+        }
+    }
+
     @Test("Reduce Motion holds the clip still until the viewer presses Play")
     @MainActor
     func reduceMotionHoldsStill() {
