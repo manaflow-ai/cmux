@@ -29,6 +29,9 @@ final class HomeHostView: NSView {
     private var toggleObserver: (any NSObjectProtocol)?
     /// `home.toggleChiefSettings` (palette, `cmux action run`, preflight).
     static let toggleSettings = Notification.Name("HomeHostView.toggleChiefSettings")
+    /// The Chief's avatar when its profile sets none: the bundled cat
+    /// (160 px, sharp on the 40 pt header disc up to 4x).
+    static let defaultAvatar = Bundle.module.image(forResource: "ChiefAvatar")
     private var firstPage: Task<Void, Never>?
     /// Which brain answers this conversation (this Mac's or a paired server's).
     private let control: HomeChiefControl
@@ -51,11 +54,11 @@ final class HomeHostView: NSView {
         // task-owner: one profile read off the main actor; ends when it is shown
         Task { [weak self] in
             let avatar = await Task.detached { files.headerAvatar() }.value
-            self?.transcript.avatarPicture = avatar.picture.flatMap(NSImage.init(data:))
+            self?.transcript.avatarPicture = avatar.picture.flatMap(NSImage.init(data:)) ?? (avatar.text == nil ? Self.defaultAvatar : nil)
             self?.transcript.avatarText = avatar.text
         }
         sidebar.onAvatar = { [weak self] text in
-            self?.transcript.avatarPicture = nil
+            self?.transcript.avatarPicture = text == nil ? Self.defaultAvatar : nil
             self?.transcript.avatarText = text
         }
         sidebar.onShowMemory = { [weak services] in
