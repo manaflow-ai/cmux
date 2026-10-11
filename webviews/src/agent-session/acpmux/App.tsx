@@ -2943,6 +2943,9 @@ function AcpmuxPane() {
     setNewTab(undefined);
     const start = (folder?: string) =>
       void (async () => {
+        // A chat on another machine starts only with a send (cx-k21v): with no text, the folder
+        // waits for the first send.
+        if (folder && !text && directClient.current?.startsOnSend) return setProjectDraft(folder);
         if (folder) await callNative("chat.new", { cwd: folder });
         if (text) await callNative("chat.send", { text });
       })().catch(() => undefined);
@@ -3020,6 +3023,8 @@ function AcpmuxPane() {
       // The chat starts in its agent-home folder, never the workspace's (AcpmuxPathPolicy).
       // A refused start keeps the folder picked before.
       onNoProject: () => {
+        // A chat on another machine starts only with a send (cx-k21v); it has no agent-home folder here.
+        if (directClient.current?.startsOnSend) return setProjectDraft(undefined);
         void callNative("chat.new", { noProject: true })
           .then(() => setProjectDraft(undefined))
           .catch(() => undefined);
