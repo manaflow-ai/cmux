@@ -60,6 +60,7 @@ export function HarnessHealthNotice({
   const signedOut = health.auth === "signedOut" && health.login ? health.login : undefined;
   const update =
     health.outdated &&
+    health.version &&
     health.latest &&
     health.update &&
     !health.update.elevated &&

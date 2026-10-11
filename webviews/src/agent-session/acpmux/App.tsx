@@ -1552,18 +1552,39 @@ function AcpmuxPane() {
   // another machine or in the cloud gets none (its CLI is not this Mac's).
   const [harnessHealth, setHarnessHealth] = useState<HarnessHealth>();
   const healthHarness = snapshot.summary?.harness;
-  const healthLocal = snapshot.summary?.hostKind !== "cloud";
+  const healthLocal = !snapshot.summary?.peer && snapshot.summary?.hostKind !== "cloud";
+  // After its Log In or Update ran in a terminal tab, coming back to the chat checks again.
+  const healthStale = useRef(false);
+  const [healthRecheck, setHealthRecheck] = useState(0);
   useEffect(() => {
-    setHarnessHealth(undefined);
-    if (!connected || !healthHarness || !healthLocal) return;
+    const recheck = () => {
+      if (!healthStale.current || document.visibilityState === "hidden") return;
+      healthStale.current = false;
+      setHealthRecheck((count) => count + 1);
+    };
+    window.addEventListener("focus", recheck);
+    document.addEventListener("visibilitychange", recheck);
+    return () => {
+      window.removeEventListener("focus", recheck);
+      document.removeEventListener("visibilitychange", recheck);
+    };
+  }, []);
+  useEffect(() => {
+    if (!connected || !healthHarness || !healthLocal) {
+      setHarnessHealth(undefined);
+      return;
+    }
     let live = true;
-    void callNative<{ health?: HarnessHealth | null } | null>("harness.health", { id: healthHarness })
+    void callNative<{ health?: HarnessHealth | null } | null>("harness.health", {
+      id: healthHarness,
+      ...(healthRecheck > 0 ? { refresh: true } : {}),
+    })
       .then((reply) => live && setHarnessHealth(reply?.health ?? undefined))
       .catch(() => undefined);
     return () => {
       live = false;
     };
-  }, [connected, healthHarness, healthLocal]);
+  }, [connected, healthHarness, healthLocal, healthRecheck]);
   // A new chat centers its composer under the hero.
   const handoff = snapshot.handoff?.record;
   const reviewing =
@@ -3261,7 +3282,10 @@ function AcpmuxPane() {
           health={harnessHealth}
           name={catalog.find((entry) => entry.id === healthHarness)?.name ?? healthHarness ?? ""}
           {...(snapshot.summary?.cwd ? { cwd: snapshot.summary.cwd } : {})}
-          open={(params) => void callNative("tab.open", params).catch(() => undefined)}
+          open={(params) => {
+            healthStale.current = true;
+            void callNative("tab.open", params).catch(() => undefined);
+          }}
         />
       )}
       {folderNeeded && !snapshot.sessionId && (

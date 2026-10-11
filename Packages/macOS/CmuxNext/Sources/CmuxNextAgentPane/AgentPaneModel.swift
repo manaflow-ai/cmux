@@ -336,7 +336,7 @@ public final class AgentPaneModel {
             guard let onBrowseProject else { return Self.unsupported("project.browse") }
             guard let cwd = await onBrowseProject() else { return AgentPaneReply.success() }
             return AgentPaneReply.success(["cwd": cwd])
-        case .harnessHealth(let id): return await AgentPaneHarnessHealth.respond(id, remote: remoteChat)
+        case .harnessHealth(let id, let refresh): return await AgentPaneHarnessHealth.respond(id, refresh: refresh, remote: remoteChat)
         case .listProjects(let query):
             guard let onListProjects else { return Self.unsupported("project.list") }
             return AgentPaneReply.success(["projects": await onListProjects(query)])
