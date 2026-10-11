@@ -6,8 +6,8 @@
 A local server serves a slow file (Range requests honoured, as a real server's)
 and a file whose first response breaks off partway. In a WebKit tab and in a
 Chromium tab:
-  1. the slow download can pause (no bytes arrive while paused), resume with
-     a Range request, and lands whole;
+  1. the slow download can pause (no bytes arrive while paused), resume (WebKit
+     with a Range request for the rest), and lands whole;
   2. the broken download fails, offers Retry, and a retry lands whole in its
      place in the list;
   3. (Chromium) a download Chromium resumes by itself after the connection
@@ -214,8 +214,10 @@ try:
             if done:
                 written.append(done.get("destination"))
                 check(done.get("status") == "finished" and landed(done), f"{engine}: the resumed download lands whole ({done})")
-                ranges = [r for _, p, r in requests if p == f"/{slow}" and r]
-                check(bool(ranges), f"{engine}: Resume asks for the rest, not the whole file again ({ranges})")
+                if engine == "webkit":
+                    # WebKit's Pause cancels with resume data; Chromium's holds the connection open.
+                    ranges = [r for _, p, r in requests if p == f"/{slow}" and r]
+                    check(bool(ranges), f"{engine}: Resume asks for the rest, not the whole file again ({ranges})")
 
         broken = f"broken-{engine}-{RUN}.bin"
         rpc("action.run", {"action": f"openBrowser.{engine}", "args": {"url": f"{ORIGIN}/{broken}"}, "focus": True})
