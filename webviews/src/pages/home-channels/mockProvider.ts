@@ -156,13 +156,14 @@ export function addLongThread(home: ReturnType<typeof sampleHome>): void {
   home.conversations.push(conversation(id, "incident", "group", [chief, builder, reviewer], list));
 }
 
-/** The owner's stats of the thread roots in `page`, counted over every message of the conversation. */
+/** The owner's stats of the thread roots in `page`, counted over every reply of the conversation that
+ * is not retracted (as both owners count them). */
 function statsFor(all: readonly HomeMessage[], page: readonly HomeMessage[]): HomeThreadStats[] {
   const roots = new Set(page.filter((m) => !threadOf(m)).map((m) => m.id));
   const stats = new Map<string, HomeThreadStats>();
   for (const message of all) {
     const root = threadOf(message);
-    if (!root || !roots.has(root)) continue;
+    if (!root || !roots.has(root) || message.retracted) continue;
     const entry = stats.get(root) ?? { root, replyCount: 0, authors: [] };
     entry.replyCount += 1;
     entry.lastReplySeq = message.seq;
