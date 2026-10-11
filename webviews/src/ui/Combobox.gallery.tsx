@@ -140,6 +140,15 @@ export default componentEntry<Props>({
     "tab-completion": { props: {}, play: tabCompletion },
     escape: { props: {}, play: escapeCancel },
     disabled: { props: { autoHighlight: "always", disabled: "Beta project" }, play: disabledSkip },
-    inline: { props: { inline: true, autoHighlight: "always" }, play: openSuggestions },
+    inline: {
+      props: { inline: true, autoHighlight: "always" },
+      checks: {
+        layoutShiftMax: {
+          value: 0.25,
+          reason: "Inline suggestions intentionally join document flow; the input anchor itself must remain stable.",
+        },
+      },
+      play: openSuggestions,
+    },
   },
 });
