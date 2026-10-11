@@ -5,6 +5,7 @@
 //! `adoption` (resuming a harness's own session), `models_view` (the picker's model lists).
 
 mod adoption;
+mod aside;
 mod catalog_reload;
 mod cursor_ext;
 mod fork;
@@ -12,6 +13,7 @@ mod fork_at;
 mod handoff;
 mod harness_view;
 mod harness_watch;
+mod health_view;
 mod idle;
 mod launch_roots;
 mod launchers;
@@ -57,6 +59,8 @@ mod remote_sandbox;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub mod rules;
 mod transfer;
+mod transfer_in;
+mod transfer_out;
 mod turns;
 mod warm;
 mod xai;
@@ -261,6 +265,8 @@ pub struct Hub {
     pub(crate) chats_waiters: StdMutex<Vec<crate::chats::ChatsWaiter>>,
     pub(super) harness_watch: harness_watch::HarnessWatchState,
     pub catalog: Arc<crate::catalog::CatalogService>,
+    /// Agent CLI health (`harness_health`, `hub/health_view.rs`).
+    pub health: Arc<crate::harness_health::HealthService>,
     /// The token the web listener checks now (`web_token.rs`).
     pub web_token: WebToken,
     /// This launch's person key (`person.rs`): who may allow and grant.
@@ -312,6 +318,7 @@ impl Hub {
             chats_waiters: StdMutex::new(Vec::new()),
             harness_watch: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
+            health: Arc::new(crate::harness_health::HealthService::new()),
             web_token: WebToken::new(String::new()),
             person: Default::default(),
         });
@@ -430,6 +437,13 @@ impl Hub {
         self.verify_launchers().await;
         self.startup_ready.send_replace(true);
         tracing::info!("startup complete; agents may spawn");
+        // Probes of earlier runs left transcripts in the unattended folder: remove them.
+        let _ = tokio::task::spawn_blocking(|| {
+            crate::probe_cleanup::remove_probe_transcripts(
+                &crate::protected_folders::unattended_cwd(),
+            )
+        })
+        .await;
         // A catalog reload already started fresh probes.
         if !reloaded {
             self.probe_models().await;
@@ -532,6 +546,7 @@ impl Hub {
             queued: AtomicU64::new(0),
             queue: StdMutex::new(Vec::new()),
             queue_moved: Notify::new(),
+            moving: StdMutex::new(None),
             restored: StdMutex::new(Vec::new()),
             stream: StdMutex::new(StreamState::default()),
             permissions: StdMutex::new(permission_groups::PermissionState::default()),
@@ -770,6 +785,9 @@ impl Hub {
                 Self::MAX_COMPOSER_DRAFT_CHARS
             ));
         }
+        if session.moving().is_some() {
+            return Err(queue::moving_error().message);
+        }
         let draft = (!text.trim().is_empty()).then(|| text.to_owned());
         {
             let mut meta = session.meta.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -932,5 +950,13 @@ impl Hub {
 
     pub fn session_dir(&self, id: &str) -> Option<PathBuf> {
         self.store.session_dir(id)
+    }
+}
+
+/// The unsent draft went out as `text`, from whichever client sent it: it is no longer the
+/// chat's draft. Any other prompt leaves the draft as it is.
+fn clear_sent_draft(meta: &mut SessionMeta, text: &str) {
+    if meta.composer_draft.as_deref().is_some_and(|d| d.trim() == text.trim()) {
+        meta.composer_draft = None;
     }
 }

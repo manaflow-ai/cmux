@@ -30,7 +30,9 @@ export const LOCAL_REJECT_CODES = [
   /** The question was already answered or cancelled. */
   "question_closed",
   /** The answer misses an item, names an unknown option, chooses too many, or types Other where the item does not allow it. */
-  "invalid_answer"
+  "invalid_answer",
+  /** `thread_root` names no message of this conversation, or a message that is itself in a thread (one level). */
+  "invalid_thread_root"
 ] as const
 
 export const CLOUD_REJECT_CODES = [

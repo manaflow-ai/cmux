@@ -128,6 +128,17 @@ declare namespace Cmux {
   type Grant = { id: Cmux.GrantId; grantee: string; op_classes: Array<Cmux.OpClass>; approval: "none" | "per_call" | "per_session"; expires_at: number | null; revoked_at: number | null; created_from: "install" | "ui" | "automation" | "standing_rule" }
   type GrantId = string
   type GroupColor = "grey" | "blue" | "red" | "yellow" | "green" | "pink" | "purple" | "cyan" | "orange"
+  type HistoryEntriesListResult = { entries: Array<Cmux.HistoryEntry>; revision: string }
+  type HistoryEntry = { id: string; kind: Cmux.HistoryKind; at_ms: string; title: string; detail?: string; machine?: string; workspace?: string; available: boolean; current?: boolean; running?: boolean; url?: string; profile?: string; closed_kind?: "terminal_tab" | "browser_tab" | "screen" | "workspace"; cwd?: string; command?: string; exit_code?: number; session_id?: string; provider?: string }
+  type HistoryKind = "page" | "location" | "closed" | "command" | "agent"
+  type HistoryPurgeResult = { purged: number }
+  type HistoryRange = "hour" | "today" | "week" | "month" | "all"
+  type HistoryRemovalResult = { removed: number; restore_id: string | null }
+  type HistoryRestoreResult = { restored: number }
+  type HistoryVisitImportResult = { imported: number }
+  type HistoryVisitRecordResult = { id: string }
+  type HistoryVisitSummary = { url: string; title: string | null; visit_count: number; last_visit_ms: string }
+  type HistoryVisitTitleResult = { updated: number }
   type HomeAttachmentPoster = { hash: Cmux.HomeSha256; mime_type: "image/jpeg" | "image/webp"; byte_count: number }
   type HomeAttachmentPreview = { hash: Cmux.HomeSha256; mime_type: "image/jpeg" | "image/webp"; byte_count: number }
   type HomeChief = { id: Cmux.ChiefId; owner_user: string; display_name: string; is_default: boolean; brain: "cloud"; brain_place?: Cmux.ChiefBrainPlace | null; main_conversation: Cmux.ConversationId | null; harness: string | null; rev: unknown; created_at: Cmux.Timestamp; updated_at: Cmux.Timestamp; archived_at: Cmux.Timestamp | null }

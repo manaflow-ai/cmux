@@ -25,7 +25,7 @@ final class CloudMachineProgressView: NSView {
     private var stepRows: [(icon: NSImageView, label: NSTextField)] = []
     private let detailLabel = NSTextField(wrappingLabelWithString: "")
     private let typingLabel = NSTextField(wrappingLabelWithString: "")
-    private let retryButton = NSButton()
+    private let retryButton = ThemedDefaultButton()
     private let copyButton = NSButton()
     private let dismissButton = NSButton()
     private let buttons = NSStackView()

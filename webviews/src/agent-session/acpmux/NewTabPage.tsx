@@ -93,7 +93,7 @@ export type NewTabHost = {
   layout: "a" | "b";
   /// The saved template (`tabs.newTabTemplate`); unset follows `layout` (newtab/templates.ts).
   template?: NewTabTemplate;
-  /// Shows the template dots (Debug Settings `newTab.templateSwitcher`, cx-7qqu); off until styled.
+  /// Shows the template dots (Debug Settings `newTab.templateSwitcher`, on by default since cx-l1jv).
   templateSwitcher?: boolean;
   /// The agent last picked (decision Q3).
   lastAgent?: string;

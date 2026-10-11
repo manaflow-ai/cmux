@@ -517,6 +517,7 @@ export type HomeMessage = {
   readonly author: ParticipantId
   readonly parts: ReadonlyArray<HomePart>
   readonly reply_to?: HomePartRef
+  readonly thread_root?: MessageId
   readonly created_at: Timestamp
   readonly edited_at?: Timestamp
   readonly retracted_at?: Timestamp
@@ -2463,13 +2464,14 @@ export interface CloudOps {
     }
     readonly result: HomeConversationCommit
   }
-  /** Send a message. client_msg_id must equal the idempotency key; a retry with the same key returns the original message. */
+  /** Send a message. client_msg_id must equal the idempotency key; a retry with the same key returns the original message. thread_root replies in the thread of a top-level message (one level). A send moves the sender's read cursor to the new message when the sender had read everything before it. */
   readonly "message.send": {
     readonly params: {
       readonly conversation: ConversationId
       readonly client_msg_id: ClientToken
       readonly parts: ReadonlyArray<HomePart>
       readonly reply_to?: HomePartRef
+      readonly thread_root?: MessageId
     }
     readonly result: HomeConversationCommit
   }

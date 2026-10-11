@@ -236,6 +236,9 @@ impl Hub {
             )
             .with_data(json!({"reason": "steer.unavailable"})));
         }
+        if steer_now && session.moving().is_some() {
+            return Err(super::queue::moving_error());
+        }
         if steer_now {
             let turn_id = running.map(|t| t.turn_id).unwrap_or_default();
             let opts = PromptOptions { prompt_id: Some(prompt_id), on_accepted: None, ..opts };
@@ -268,6 +271,7 @@ impl Hub {
         {
             let mut m = session.meta.lock().unwrap();
             m.last_prompt = Some(short_text(&text, 200));
+            clear_sent_draft(&mut m, &text);
             if m.title.is_none() {
                 let first = text.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
                 if !first.is_empty() {

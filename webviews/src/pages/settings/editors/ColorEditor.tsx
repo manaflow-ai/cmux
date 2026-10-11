@@ -19,19 +19,18 @@ export function ColorEditor({ row, value, disabled, labelId }: EditorProps) {
   const [invalid, setInvalid] = useState(false);
   const stored = typeof value === "string" ? normalized(value) : "";
   const alpha = stored.length === 9 ? stored.slice(7) : "";
-  const commit = (input: string) => {
+  /** Writes `input`; resolves once the write settles (at once when there is nothing to write). */
+  const commit = async (input: string) => {
     setDraft(null);
     if (input.trim() === "" || normalized(input) === stored) return setInvalid(false);
     if (!isHexColor(input.trim())) return setInvalid(true);
     setInvalid(false);
-    void store.set(row.key, normalized(input));
+    await store.set(row.key, normalized(input));
   };
   const wellRef = (well: HTMLInputElement | null) => {
     if (!well) return;
-    const onChange = () => {
-      store.previewEnd(row.key);
-      commit(well.value + alpha);
-    };
+    // Write first, then end the preview, so the app never flashes the old color (as NumberEditor).
+    const onChange = () => void commit(well.value + alpha).finally(() => store.previewEnd(row.key));
     well.addEventListener("change", onChange);
     return () => well.removeEventListener("change", onChange);
   };
@@ -57,9 +56,9 @@ export function ColorEditor({ row, value, disabled, labelId }: EditorProps) {
         aria-labelledby={labelId}
         aria-invalid={invalid}
         onChange={(event) => setDraft(event.currentTarget.value)}
-        onBlur={(event) => commit(event.currentTarget.value)}
+        onBlur={(event) => void commit(event.currentTarget.value)}
         onKeyDown={(event) => {
-          if (event.key === "Enter") commit(event.currentTarget.value);
+          if (event.key === "Enter") void commit(event.currentTarget.value);
         }}
       />
       {invalid && (
