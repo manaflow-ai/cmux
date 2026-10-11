@@ -17,7 +17,7 @@
 
 use std::io;
 use std::io::{BufRead, BufReader, Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -169,6 +169,9 @@ pub(crate) enum EnsureError {
     WrongOwner,
     /// The socket is served by a different session than requested.
     DifferentSession,
+    /// The socket's owner serves another state dir than requested, for
+    /// example one deleted and created again at the same path (cx-t1ok).
+    DifferentState,
     /// The server identity was missing required lifecycle fields.
     InvalidIdentity,
     /// The server speaks a protocol incompatible with this client.
@@ -195,9 +198,7 @@ pub(crate) fn ensure_owner(
 ) -> Result<Ensured, EnsureError> {
     cmux_tui_core::server::prepare_socket_parent(&spec.socket, spec.socket_is_derived)
         .map_err(|error| EnsureError::Spawn(io::Error::other(error)))?;
-    if let Some(ready) =
-        wait_while_starting(&spec.socket, spec.socket_is_derived, expected_session, deadline)?
-    {
+    if let Some(ready) = wait_while_starting(spec, expected_session, deadline)? {
         return Ok(Ensured::Running(ready));
     }
     let owner = {
@@ -205,9 +206,7 @@ pub(crate) fn ensure_owner(
             .map_err(EnsureError::Spawn)?;
         // Re-probe under the lock: a concurrent ensure may have spawned the
         // owner while this call waited for the lock.
-        if let Some(ready) =
-            wait_while_starting(&spec.socket, spec.socket_is_derived, expected_session, deadline)?
-        {
+        if let Some(ready) = wait_while_starting(spec, expected_session, deadline)? {
             return Ok(Ensured::Running(ready));
         }
         // The lock is released once the spawn is issued: the owner's serve
@@ -219,9 +218,7 @@ pub(crate) fn ensure_owner(
     };
     let ready = match owner.ready.as_ref() {
         Some(pipe) => wait_for_spawned_owner(pipe, spec, deadline),
-        None => {
-            wait_until_ready(&spec.socket, spec.socket_is_derived, Some(&spec.session), deadline)
-        }
+        None => wait_until_ready(spec, Some(&spec.session), deadline),
     };
     match ready {
         Ok(Some(ready)) => Ok(Ensured::Started(ready)),
@@ -239,13 +236,12 @@ pub(crate) fn ensure_owner(
 /// Poll while a live server reports it is still starting. `Ok(None)` means
 /// nothing serves the socket; the caller decides whether to spawn.
 fn wait_while_starting(
-    socket: &Path,
-    socket_is_derived: bool,
+    spec: &OwnerSpec,
     expected_session: Option<&str>,
     deadline: Instant,
 ) -> Result<Option<ReadyOwner>, EnsureError> {
     loop {
-        match attempt(socket, socket_is_derived, expected_session, deadline)? {
+        match attempt(spec, expected_session, deadline)? {
             Attempt::Ready(ready) => return Ok(Some(ready)),
             Attempt::Absent => return Ok(None),
             Attempt::Starting => {}
@@ -260,15 +256,12 @@ fn wait_while_starting(
 /// Poll until the freshly spawned owner accepts clients. Absence is
 /// tolerated here because the owner may not have bound the socket yet.
 fn wait_until_ready(
-    socket: &Path,
-    socket_is_derived: bool,
+    spec: &OwnerSpec,
     expected_session: Option<&str>,
     deadline: Instant,
 ) -> Result<Option<ReadyOwner>, EnsureError> {
     loop {
-        if let Attempt::Ready(ready) =
-            attempt(socket, socket_is_derived, expected_session, deadline)?
-        {
+        if let Attempt::Ready(ready) = attempt(spec, expected_session, deadline)? {
             return Ok(Some(ready));
         }
         if Instant::now() >= deadline {
@@ -303,15 +296,12 @@ fn wait_for_spawned_owner(
     }
     let mut byte = [0_u8; 1];
     let signaled = matches!((&*pipe).read(&mut byte), Ok(1));
-    if signaled
-        && let Attempt::Ready(ready) =
-            attempt(&spec.socket, spec.socket_is_derived, expected, deadline)?
-    {
+    if signaled && let Attempt::Ready(ready) = attempt(spec, expected, deadline)? {
         return Ok(Some(ready));
     }
     // End of file: this owner lost the bind to a racing ensure's owner (or
     // crashed). That owner announces readiness only to its own parent.
-    wait_until_ready(&spec.socket, spec.socket_is_derived, expected, deadline)
+    wait_until_ready(spec, expected, deadline)
 }
 
 #[cfg(not(unix))]
@@ -320,19 +310,19 @@ fn wait_for_spawned_owner(
     spec: &OwnerSpec,
     deadline: Instant,
 ) -> Result<Option<ReadyOwner>, EnsureError> {
-    wait_until_ready(&spec.socket, spec.socket_is_derived, Some(&spec.session), deadline)
+    wait_until_ready(spec, Some(&spec.session), deadline)
 }
 
 fn attempt(
-    socket: &Path,
-    socket_is_derived: bool,
+    spec: &OwnerSpec,
     expected_session: Option<&str>,
     deadline: Instant,
 ) -> Result<Attempt, EnsureError> {
-    let stream = match cmux_tui_core::server::connect_session_socket(socket, socket_is_derived) {
-        Ok(stream) => stream,
-        Err(_) => return Ok(Attempt::Absent),
-    };
+    let stream =
+        match cmux_tui_core::server::connect_session_socket(&spec.socket, spec.socket_is_derived) {
+            Ok(stream) => stream,
+            Err(_) => return Ok(Attempt::Absent),
+        };
     let identity = match identify(stream, deadline) {
         Ok(identity) => identity,
         // A timeout is a live but busy server; anything else on a fresh
@@ -362,6 +352,9 @@ fn attempt(
     if expected_session.is_some_and(|expected| session != expected) {
         return Err(EnsureError::DifferentSession);
     }
+    if !serves_requested_state(spec, session, &identity) {
+        return Err(EnsureError::DifferentState);
+    }
     let Some(pid) = identity["pid"].as_u64() else {
         return Err(EnsureError::InvalidIdentity);
     };
@@ -373,6 +366,24 @@ fn attempt(
         pid,
         generation: generation.to_string(),
     }))
+}
+
+/// Whether the owner's registry is the one stored in the requested state
+/// dir. An owner always writes its registry before it is lifecycle-ready, so
+/// a missing registry or another id there means the owner serves other state
+/// (a deleted and recreated home keeps the socket path but not the registry).
+/// An unreadable registry is not proof of a mismatch and keeps the owner.
+fn serves_requested_state(spec: &OwnerSpec, session: &str, identity: &Value) -> bool {
+    let Some(running) = identity.get("registry_id").and_then(Value::as_str) else {
+        return true;
+    };
+    let Some(root) = spec.state.clone().or_else(platform::workspace_state_dir) else {
+        return true;
+    };
+    match cmux_tui_core::WorkspaceRegistry::stored_registry_id(&root, session) {
+        Ok(stored) => stored.as_deref() == Some(running),
+        Err(_) => true,
+    }
 }
 
 enum IdentifyError {

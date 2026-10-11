@@ -2307,10 +2307,10 @@ jobs:
             --expected-commit "$cmux_tui_commit" \
             --require-capability wireguard-hub \
             --require-acpmux
-          # Same local-symbol strip scripts/strip-release-bundle.sh applied when
-          # the client was bundled before the unsigned app was archived.
-          # bin/cmux-tui and bin/acpmux are symlinks to bin/cmux.
-          strip -S -x "$app/Contents/Resources/bin/cmux"
+          # The client and its SSH payloads arrive after the build job's strip, so
+          # strip again; already-stripped binaries are unchanged. bin/cmux-tui and
+          # bin/acpmux are symlinks to bin/cmux.
+          ./scripts/strip-release-bundle.sh "$app"
           ./scripts/cmux-next/write-cmux-tui-version.sh "$app" "$cmux_tui_commit" "$CMUX_TUI_CLIENT_KEY"
           ./scripts/cmux-next/check-daemon-capabilities.sh --binary "$app/Contents/Resources/bin/cmux-tui"
 

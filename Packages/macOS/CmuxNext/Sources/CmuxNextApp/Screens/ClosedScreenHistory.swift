@@ -1,5 +1,6 @@
 import CmuxNextDaemon
 import Foundation
+import Observation
 
 /// Recently closed screens, newest last, for Reopen Closed Screen on a
 /// daemon without closed history (`DaemonClosedHistory` serves the rest). Each
@@ -7,7 +8,7 @@ import Foundation
 /// position) and the directory of its active tab. Reopening creates a new
 /// screen with that metadata at the old position; terminals are not
 /// reattached (a closed screen's terminals are reaped by the daemon).
-@MainActor
+@MainActor @Observable
 final class ClosedScreenHistory {
     struct Record: Equatable {
         var workspaceID: String

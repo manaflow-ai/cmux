@@ -32,7 +32,7 @@ nonisolated extension ActionSurfaceCatalog {
         "workspaceGroup.expandAll", "workspace.mergeInto", "pane.moveToNewWorkspace", "newWorkspaceGroup",
         "moveWorkspaceToGroup", "removeWorkspaceFromGroup", "workspaceGroup.setColor", "workspaceGroup.setIcon", "workspaceGroup.clearIcon", "workspaceGroup.collapse",
         "workspaceGroup.expand", "workspaceGroup.moveUp", "workspaceGroup.moveDown", "workspaceGroup.moveToWindow",
-        "workspaceGroup.closeWorkspaces", "workspaceGroup.moveToNewWindow",
+        "workspaceGroup.closeWorkspaces", "workspaceGroup.moveToNewWindow", "workspaceGroup.addToSection",
         "space.newWindow", "space.newWorkspace", "space.newGroup", "space.rename", "space.setColor", "space.clearColor",
         "space.setIcon", "space.clearIcon", "space.setDefaults", "space.delete", "space.moveLeft",
         "space.moveRight", "space.move", "space.switch", "workspace.moveToSpace", "workspace.duplicateToSpace",
@@ -44,6 +44,7 @@ nonisolated extension ActionSurfaceCatalog {
         "workspace.setTheme", "workspace.clearTheme", "terminal.setTheme", "terminal.clearTheme",
         "splitRight", "newColumn", "newRow", "splitDown", "newPaneAutoLayout", "equalizeSplits", "triggerFlash",
         "palette.swapWithSession", "toggleCanvasLayout", "canvasTidy", "palette.newSimulatorPane", "file.open",
+        "pane.toggleTabBar",
         "newTab.default", "newTab.page", "newTab.submit", "newSurface", "openBrowser", "openBrowser.webkit",
         "openBrowser.chromium", "closeOtherTabsInPane", "closeTabsToLeft", "closeTabsToRight",
         "renameTab", "palette.clearTabName",
@@ -169,7 +170,7 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.pro.upgrade", "sendFeedback", "help.featureFlags",
             "help.documentation", "recentlyFocused", "recentlyClosed", "history.commands", "browserShowHistory",
             "history.search", "bookmark.toggleBar", "bookmark.manager", "browserLinkHints", "browserLinkHintsNewSplit",
-            "sidebar.profileMenu", "browser.downloads.showFolder",
+            "hints.show", "sidebar.profileMenu", "browser.downloads.showFolder",
         ],
         .liveInput: [
             "palette.toggleDictation",
@@ -217,6 +218,7 @@ nonisolated extension ActionSurfaceCatalog {
             "selectWorkspaceByNumber", "workspace.selectFirst",
             "workspace.selectLast", "workspace.selectLastUsed", "space.next", "space.previous", "space.selectByNumber",
             "focusLeft", "focusRight", "focusUp", "focusDown", "focusPreviousPane", "focusNextPane",
+            "focusPaneByNumber", "focusSidebar",
             "canvasRevealFocusedPane", "navigate.next", "navigate.previous", "nextSurface", "prevSurface", "selectSurfaceByNumber",
             "screen.next", "screen.previous", "screen.select", "screen.selectLast", "focusTextBoxInput",
             "focusBrowserAddressBar", "focusLocation", "focusRightSidebar", "vaultFocusSession", "jumpToUnread",
@@ -239,8 +241,9 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.copyPaneLink", "palette.copySurfaceID", "palette.copySurfaceLink", "cloudCopyLink",
             "cloudCopyPort", "cloudCopyMachineID",
         ],
-        // `tab new` (newTab.default) already gives scripts the selected tab's kind.
-        .duplicateOfDefault: ["newTab.ofKind"],
+        // `tab new` (newTab.default) already gives scripts the selected tab's kind, and a pane's tab
+        // whatever its tab bar (New Horizontal Tab), which a script moves where it wants (New Tab to the Right).
+        .duplicateOfDefault: ["newTab.ofKind", "newTab.horizontal", "newTab.toRight"],
         .paletteInternal: [
             "commandPaletteNext", "commandPalettePrevious",
         ],

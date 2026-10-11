@@ -121,7 +121,10 @@ mod admission;
 #[cfg(unix)]
 mod agent_session_attach;
 #[cfg(unix)]
-pub use agent_session_attach::AGENT_SESSION_ATTACH_CAPABILITY;
+pub use agent_session_attach::{
+    AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_START_CAPABILITY, AcpmuxStarter, AgentStartHost,
+    AgentStartHostSource,
+};
 mod app_trust;
 pub use app_trust::{FrontendKey, frontend_proof, install_frontend_key, read_frontend_key};
 mod client_hello;
@@ -366,6 +369,9 @@ pub const WORKSPACE_GROUPS_CAPABILITY: &str = "workspace-groups-v1";
 /// Durable workspace presentation: `set-workspace-metadata`, the
 /// `color`/`icon`/`title` workspace fields, and `workspace-changed` deltas.
 pub const WORKSPACE_METADATA_CAPABILITY: &str = "workspace-metadata-v1";
+/// Live agent presence: the `agent-presence-changed` subscribe event, what
+/// the agent in a surface is touching now (activity, tool, file and line).
+pub const AGENT_PRESENCE_CAPABILITY: &str = "agent-presence-v1";
 /// The sidebar workspace pin: `pinned` on `set-workspace-metadata` and the
 /// `pinned` workspace field.
 pub const WORKSPACE_PIN_CAPABILITY: &str = "workspace-pin-v1";

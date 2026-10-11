@@ -122,25 +122,76 @@ pub(crate) fn configure_home() {
 /// daemon start, without touching acpmux's process-wide config.
 #[cfg(unix)]
 pub(crate) fn daemon_socket_path() -> Option<PathBuf> {
-    let var = |name: &str| std::env::var(name).ok().filter(|value| !value.is_empty());
-    if let Some(socket) = var("ACPMUX_SOCKET") {
+    if let Some(socket) = env_value("ACPMUX_SOCKET") {
         return Some(PathBuf::from(socket));
     }
-    let acpmux_home = match var("ACPMUX_HOME") {
-        Some(home) => PathBuf::from(home),
-        None => {
-            let home = PathBuf::from(var("HOME")?);
-            let identity = crate::app_identity::AppIdentity::detect(
-                |name| std::env::var(name).ok(),
-                std::env::current_exe().ok().as_deref(),
-            );
-            let tag = acpmux_tag(var("CMUX_TAG"), identity);
-            tagged_home(tag.as_deref(), &home).unwrap_or_else(|| home.join(".acpmux"))
-        }
-    };
     // SAFETY: getuid has no preconditions and cannot fail.
     let uid = unsafe { libc::getuid() };
-    Some(socket_in_home(&acpmux_home, uid))
+    Some(socket_in_home(&daemon_acpmux_home()?, uid))
+}
+
+/// How the session daemon starts the acpmux that [`daemon_socket_path`]
+/// names when an `agent-session-start` finds nothing there: this binary's
+/// `acp daemon start` with that home, as `cmux acp` starts it (acpmux bounds
+/// the wait for its socket), without the daemon's terminal identity. None
+/// with `ACPMUX_SOCKET`: a fixed socket belongs to an acpmux this daemon does
+/// not own.
+#[cfg(unix)]
+pub(crate) fn daemon_acpmux_starter() -> Option<cmux_tui_core::server::AcpmuxStarter> {
+    if env_value("ACPMUX_SOCKET").is_some() {
+        return None;
+    }
+    let home = daemon_acpmux_home()?;
+    let exe = std::env::current_exe().ok()?;
+    Some(std::sync::Arc::new(move || {
+        let mut command = std::process::Command::new(&exe);
+        // acpmux and every agent it starts outlive this call: none of them
+        // may claim the terminal this daemon was started from.
+        for name in TERMINAL_IDENTITY_ENV {
+            command.env_remove(name);
+        }
+        let status = command
+            .env("ACPMUX_HOME", &home)
+            .args(["acp", "daemon", "start"])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map_err(|error| format!("acpmux daemon start: {error}"))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("acpmux daemon start exited with {status}"))
+        }
+    }))
+}
+
+/// The cmux terminal a process runs in; a detached acpmux has none (the
+/// same claims the detached owner drops, local_owner.rs; socket and config
+/// variables stay).
+#[cfg(unix)]
+const TERMINAL_IDENTITY_ENV: [&str; 5] =
+    ["CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID", "CMUX_TAB_ID", "CMUX_PANEL_ID", "CMUX_PANE_ID"];
+
+/// The acpmux home `cmux acp` uses: `ACPMUX_HOME`, else the tag's own home,
+/// else `~/.acpmux`.
+#[cfg(unix)]
+fn daemon_acpmux_home() -> Option<PathBuf> {
+    if let Some(home) = env_value("ACPMUX_HOME") {
+        return Some(PathBuf::from(home));
+    }
+    let home = PathBuf::from(env_value("HOME")?);
+    let identity = crate::app_identity::AppIdentity::detect(
+        |name| std::env::var(name).ok(),
+        std::env::current_exe().ok().as_deref(),
+    );
+    let tag = acpmux_tag(env_value("CMUX_TAG"), identity);
+    Some(tagged_home(tag.as_deref(), &home).unwrap_or_else(|| home.join(".acpmux")))
+}
+
+#[cfg(unix)]
+fn env_value(name: &str) -> Option<String> {
+    std::env::var(name).ok().filter(|value| !value.is_empty())
 }
 
 /// acpmux `config::socket_path` for `home`: `<home>/acpmux.sock`, or, for a

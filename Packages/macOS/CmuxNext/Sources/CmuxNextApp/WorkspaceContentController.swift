@@ -147,11 +147,18 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         isApplying = true
         defer { isApplying = wasApplying }
         handles = result.handles
+        // A key the daemon's pane took over from a provisional one keeps its controller (cx-ry0y).
+        for (id, controller) in panes {
+            if let handle = handles.panes[id], let model = daemon.store.pane(handle) { controller.adopt(model) }
+        }
         layoutModel.acceptsEdgeDockDrops = daemon.supports(DaemonCapabilities.shared.edgeDocks)
         // No row op is sent to a daemon without rows-v1 (rows.md step 4).
         let rows = daemon.supports(DaemonCapabilities.shared.rows)
         if layoutModel.acceptsRowOps != rows { layoutModel.acceptsRowOps = rows }
         layoutModel.apply(screens: result.screens)
+        #if DEBUG
+        DebugLayoutCounters.notePanes(layoutModel.screens.reduce(0) { $0 + $1.layout.panes.count }, of: self)
+        #endif
         // The view mounts the panes in this turn: a workspace shown now
         // draws its first frame with them, not one blank frame.
         layoutView.syncWithModel()

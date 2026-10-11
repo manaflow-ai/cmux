@@ -126,13 +126,19 @@ extension UpdaterService {
         applyDownloadPolicy()
     }
 
-    /// Recomputes whether found updates download by themselves.
+    /// Recomputes whether found updates download by themselves: the user's
+    /// `updates.downloadAutomatically` (a managed configuration can force it)
+    /// on the user's metered-network choice, except that an update the
+    /// organization requires (`MinimumVersion`) always downloads, and an app
+    /// off the organization's `UpdateChannel` downloads none of its own.
     func applyDownloadPolicy() {
-        let downloads = UpdateNetworkPolicy.downloadsAutomatically(setting: downloadSetting.enabled, mode: downloadSetting.metered,
+        let required = requiredMinimumVersion != nil
+        let enabled = (downloadSetting.enabled || required) && !isOffManagedChannel
+        let downloads = UpdateNetworkPolicy.downloadsAutomatically(setting: enabled, mode: required ? .download : downloadSetting.metered,
                                                                    constrained: network.constrained, expensive: network.expensive)
         guard let controller, controller.downloadsUpdatesInBackground != downloads else { return }
         controller.downloadsUpdatesInBackground = downloads
-        log.append("automatic downloads \(downloads ? "on" : "deferred") (constrained \(network.constrained), expensive \(network.expensive))")
+        log.append("automatic downloads \(downloads ? "on" : "deferred") (setting \(downloadSetting.enabled), required \(required), off managed channel \(isOffManagedChannel), constrained \(network.constrained), expensive \(network.expensive))")
     }
 
     /// Follows the link's Low Data Mode and cost (path events, no polling).

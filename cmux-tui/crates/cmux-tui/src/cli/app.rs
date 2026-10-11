@@ -258,6 +258,25 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     Ok(Some(command))
 }
 
+/// An action's `path` argument as the app must read it: a relative path
+/// names a folder or file of the caller's working directory, and the app
+/// runs elsewhere, so it is made absolute here (`.` parts dropped). An
+/// absolute path, `~/…`, or a non-string value is sent unchanged.
+fn caller_path(value: Value) -> Value {
+    let Some(text) = value.as_str() else { return value };
+    let path = std::path::Path::new(text);
+    if text.is_empty() || path.is_absolute() || text.starts_with('~') {
+        return value;
+    }
+    let Ok(cwd) = std::env::current_dir() else { return value };
+    let joined: PathBuf = cwd
+        .join(path)
+        .components()
+        .filter(|part| !matches!(part, std::path::Component::CurDir))
+        .collect();
+    json!(joined.to_string_lossy())
+}
+
 /// `cli` when a person runs the command at a terminal, else `script`.
 pub(super) fn action_origin() -> &'static str {
     use std::io::IsTerminal;
@@ -447,7 +466,9 @@ pub(super) fn run_action(
                 arguments.insert(key.into(), json!(value));
             }
             _ => {
-                arguments.insert(argument_name(&name), value);
+                let key = argument_name(&name);
+                let value = if key == "path" { caller_path(value) } else { value };
+                arguments.insert(key, value);
             }
         }
     }

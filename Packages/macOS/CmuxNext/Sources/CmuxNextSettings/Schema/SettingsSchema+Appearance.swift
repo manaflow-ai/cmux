@@ -38,6 +38,24 @@ nonisolated enum AppearanceSettingsSchema {
                 keywords: ["app theme", "accent", "chrome", "interface", "colors", "contrast", "wcag"]
             ),
             SettingDescriptor(
+                AccentSetting().configPath, section: .appearance, group: appTheme,
+                title: SettingsText.keyed("settings.appearance.accent", "Accent"),
+                help: SettingsText.keyed("settings.appearance.accent.help",
+                                        "The color of selection, focus and the Send button. Theme Color takes the theme's own hue, such as Rose Pine's iris."),
+                kind: .choice([
+                    SettingChoice(ThemeAccent.neutral.rawValue, SettingsText.keyed("settings.choice.accent.neutral", "Neutral")),
+                    SettingChoice(ThemeAccent.theme.rawValue, SettingsText.keyed("settings.choice.accent.theme", "Theme Color")),
+                    SettingChoice(ThemeAccent.red.rawValue, SettingsText.keyed("settings.choice.accent.red", "Red")),
+                    SettingChoice(ThemeAccent.green.rawValue, SettingsText.keyed("settings.choice.accent.green", "Green")),
+                    SettingChoice(ThemeAccent.yellow.rawValue, SettingsText.keyed("settings.choice.accent.yellow", "Yellow")),
+                    SettingChoice(ThemeAccent.blue.rawValue, SettingsText.keyed("settings.choice.accent.blue", "Blue")),
+                    SettingChoice(ThemeAccent.magenta.rawValue, SettingsText.keyed("settings.choice.accent.magenta", "Magenta")),
+                    SettingChoice(ThemeAccent.cyan.rawValue, SettingsText.keyed("settings.choice.accent.cyan", "Cyan")),
+                ]),
+                default: .string(ThemeAccent.neutral.rawValue),
+                keywords: ["accent", "color", "colour", "highlight", "selection", "personality", "rose pine", "ansi"]
+            ),
+            SettingDescriptor(
                 BackdropArtSetting().configPath, section: .appearance, group: window,
                 title: SettingsText.keyed("settings.appearance.backdropArt", "Backdrop Art"),
                 help: SettingsText.keyed("settings.appearance.backdropArt.help",

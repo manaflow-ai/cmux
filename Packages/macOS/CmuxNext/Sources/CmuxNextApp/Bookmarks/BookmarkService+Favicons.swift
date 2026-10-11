@@ -1,4 +1,5 @@
 import CmuxNextBookmarks
+import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextTabs
 import Foundation
@@ -12,6 +13,16 @@ extension BookmarkService {
     func favicon(of node: BookmarkNode, tabKey: String) -> TabImage? {
         guard let address = faviconAddress(of: node) else { return nil }
         return services.favicons.image(for: address, profile: services.browserProfiles.engineProfile(forTab: tabKey))
+    }
+
+    /// The favicon of `node` in bookmark profile `profile` (the manager page's rows, which
+    /// fetch it, and Open Bookmark…, which only takes one already here). Reads the store's
+    /// revision, so a view drawn from it redraws when an icon lands.
+    func favicon(of node: BookmarkNode, profile: String, fetching: Bool) -> TabImage? {
+        _ = services.favicons.revision
+        guard let address = faviconAddress(of: node) else { return nil }
+        let engine = BrowserProfileRecord.engineProfile(for: profile) ?? .default
+        return fetching ? services.favicons.image(for: address, profile: engine) : services.favicons.cachedImage(for: address, profile: engine)
     }
 
     /// True while the icon of `node` for tab `tabKey`'s bar is being fetched.

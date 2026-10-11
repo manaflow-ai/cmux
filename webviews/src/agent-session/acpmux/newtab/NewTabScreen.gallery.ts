@@ -83,6 +83,8 @@ export default agentPaneEntry({
     "agent-session/acpmux/NewTabPage.tsx#FolderIcon",
     "agent-session/acpmux/newtab/TemplateDots.tsx#TemplateDots",
     "agent-session/acpmux/newtab/AllChatsList.tsx#AllChatsList",
+    "agent-session/acpmux/newtab/OpenTabsList.tsx#OpenTabsList",
+    "agent-session/acpmux/newtab/ClosedList.tsx#ClosedList",
     "ui/VirtualList.tsx#VirtualList",
   ],
   variants: withAllChats({
@@ -126,6 +128,69 @@ export default agentPaneEntry({
       note: "The reserved Tools region is omitted when no host action can run.",
       ready: newTab({ tools: [] }),
       snapshot: noChat(manySessions(3)),
+    },
+    "split-open-tabs": {
+      note: "Opened by Split Right from a browser tab (cx-jfo7): the workspace's tabs, each one moved into this pane by a click.",
+      ready: newTab({
+        openTabs: [
+          { id: "t1", kind: "terminal", title: "zsh", detail: "~/src/cmux" },
+          { id: "t2", kind: "browser", title: "PR #17516", detail: "github.com/manaflow-ai/cmux", icon: SITE_ICON },
+          { id: "t3", kind: "agent", title: "cmux-next chief" },
+        ],
+      }),
+      snapshot: noChat(manySessions(3)),
+    },
+    "recently-closed": {
+      note: "Recently Closed (cx-d0d.60): the newest closed tabs, screens and workspaces, each reopened by a click; one on a machine that is not connected is dimmed.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(2)),
+      play: async (ctx) => {
+        ctx.document.defaultView?.cmuxAcpmuxBridge?.applyRecentlyClosed?.([
+          {
+            id: "closed:1",
+            kind: "browser",
+            title: "PR #17516",
+            detail: "https://github.com/manaflow-ai/cmux/pull/17516",
+            closedAt: minutesAgo(1),
+            icon: SITE_ICON,
+            available: true,
+          },
+          {
+            id: "closed:2",
+            kind: "terminal",
+            title: "zsh",
+            detail: "~/src/cmux",
+            closedAt: minutesAgo(4),
+            available: true,
+          },
+          {
+            id: "closed:3",
+            kind: "browser",
+            title: "Docs",
+            detail: "https://developer.apple.com/documentation",
+            closedAt: minutesAgo(9),
+            icon: OTHER_SITE_ICON,
+            available: true,
+          },
+          {
+            id: "closed:4",
+            kind: "workspace",
+            title: "cmux-web",
+            detail: "~/src/cmux-web",
+            closedAt: minutesAgo(30),
+            available: true,
+          },
+          {
+            id: "closed:5",
+            kind: "terminal",
+            title: "build",
+            detail: "~/src/relay",
+            closedAt: minutesAgo(60),
+            available: false,
+          },
+        ]);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-closed .nt-open-tab").length === 5);
+      },
     },
     "with-tools": {
       note: "Tools use the host action catalog and shortcut labels.",

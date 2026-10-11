@@ -50,8 +50,13 @@ final class PaletteKeycapsView: NSView {
 }
 
 /// Row background: a rounded gray fill for selection and hover, never the
-/// system accent.
+/// system accent. A fill layer under the cell, so a hover eases in and
+/// clears at once (`ChromeHover.fade`); selection, reuse and redraws paint
+/// at once.
 final class PaletteTableRowView: NSTableRowView {
+    private let fill = CALayer()
+    private var fadesNextFill = false
+
     var isPaletteSelected = false {
         didSet { if isPaletteSelected != oldValue { needsDisplay = true } }
     }
@@ -60,13 +65,39 @@ final class PaletteTableRowView: NSTableRowView {
         didSet { if isHovered != oldValue { needsDisplay = true } }
     }
 
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        fill.cornerRadius = PaletteLayout.rowCornerRadius
+        fill.cornerCurve = .continuous
+        fill.actions = ["bounds": NSNull(), "position": NSNull()]
+        fill.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
+        layer?.insertSublayer(fill, at: 0)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    /// A pointer hover change; `animated` fades it.
+    func setHovered(_ hovered: Bool, animated: Bool) {
+        guard hovered != isHovered else { return }
+        fadesNextFill = animated
+        isHovered = hovered
+    }
+
+    override func layout() {
+        super.layout()
+        fill.frame = bounds.insetBy(dx: PaletteLayout.listInset, dy: 0)
+    }
+
     override func drawBackground(in dirtyRect: NSRect) {
-        guard isPaletteSelected || isHovered else { return }
         performWithTheme {
-            (isPaletteSelected ? Palette.selectionFill : Palette.hoverFill).setFill()
-            let rect = bounds.insetBy(dx: PaletteLayout.listInset, dy: 0)
-            NSBezierPath(roundedRect: rect, xRadius: PaletteLayout.rowCornerRadius, yRadius: PaletteLayout.rowCornerRadius).fill()
+            let color = isPaletteSelected ? Palette.selectionFill : isHovered ? Palette.hoverFill : nil
+            ChromeHover.paint(fill, color, animated: fadesNextFill && window != nil)
         }
+        fadesNextFill = false
     }
 
     override func drawSelection(in dirtyRect: NSRect) {}

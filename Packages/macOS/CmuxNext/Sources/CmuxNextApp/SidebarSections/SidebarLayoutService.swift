@@ -59,9 +59,13 @@ final class SidebarLayoutService {
         self.recentsOffered = recentsOffered
     }
 
-    isolated deinit {
-        observation?.cancel()
-        legacyObservation?.cancel()
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            observation?.cancel()
+            legacyObservation?.cancel()
+        }
     }
 
     /// Follows the owner: fetch when it becomes reachable and after each

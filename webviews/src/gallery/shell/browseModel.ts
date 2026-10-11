@@ -20,6 +20,17 @@ export function nextBrowseVariant(current: string, variants: readonly string[]):
   return variants[(index + 1 + variants.length) % variants.length] ?? variants[0];
 }
 
+/** Keep a card on a real variant after a registry refresh removes its selected state. */
+export function resolveBrowseVariant(
+  current: string,
+  fallback: string | undefined,
+  variants: readonly string[],
+): string | undefined {
+  if (variants.includes(current)) return current;
+  if (fallback && variants.includes(fallback)) return fallback;
+  return variants[0];
+}
+
 /** The variant a contact-sheet card starts on: the recorded recommendation, otherwise the first. */
 export function browseVariant(entry: GalleryEntry): string | undefined {
   const variants = Object.keys(entry.variants);
@@ -44,18 +55,27 @@ export function browseMatches(item: BrowseItem, query: string): boolean {
   return `${item.entry.area} ${item.entry.title} ${item.entry.id} ${variants}`.toLowerCase().includes(needle);
 }
 
+/** Prefer the first variant named by a query so a filtered card shows the state being searched for. */
+function browseMatchedVariant(item: BrowseItem, query: string): string | undefined {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return undefined;
+  return Object.keys(item.entry.variants).find((variant) => variant.toLowerCase().includes(needle));
+}
+
 /** Filter contact-sheet cards by text and available motion, without changing the stable
- * recommended variant for each entry. */
+ * recommended variant for each entry unless the query names one of its variants. */
 export function filterBrowseItems(
   entries: readonly GalleryEntry[],
   query: string,
   kind: BrowseKind = "all",
 ): BrowseItem[] {
-  return browseItems(entries).filter(
-    (item) =>
-      browseMatches(item, query) &&
-      (kind === "all" || (kind === "motion" ? browseHasMotion(item.entry) : !browseHasMotion(item.entry))),
-  );
+  return browseItems(entries)
+    .filter(
+      (item) =>
+        browseMatches(item, query) &&
+        (kind === "all" || (kind === "motion" ? browseHasMotion(item.entry) : !browseHasMotion(item.entry))),
+    )
+    .map((item) => ({ ...item, variant: browseMatchedVariant(item, query) ?? item.variant }));
 }
 
 /** A card's external frame link keeps the same env and tunables as its embedded stage. */

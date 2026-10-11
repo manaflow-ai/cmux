@@ -11,6 +11,11 @@ public final class AgentCursorLayerHost: AgentCursorLayerHosting {
     /// once the vendored package carries it (cmux-cua v0.8.3).
     public typealias Coloring = (String) -> CGColor
 
+    /// How long a cursor stays after its agent's last action: the cmux-cua
+    /// helper's idle fade (`--idle-hide-ms 10000`, cx-ujus), so in-app and
+    /// screen cursors leave together.
+    public static let idleHideDelay: CFTimeInterval = 10
+
     private let hostLayer: CALayer
     private let color: Coloring
     private var cursors: [String: AgentCursorLayer] = [:]
@@ -40,6 +45,7 @@ public final class AgentCursorLayerHost: AgentCursorLayerHosting {
             cursor.root.position = point
             cursor.root.isHidden = false
             cursor.showsIndicator = false
+            cursor.armIdleHide(after: Self.idleHideDelay)
         case let .glide(session, plan):
             let cursor = cursor(for: session)
             cursor.root.isHidden = false
@@ -53,7 +59,9 @@ public final class AgentCursorLayerHost: AgentCursorLayerHosting {
             rotation.values = rotation.values?.compactMap { ($0 as? Double).map { $0 - AgentCursorOverlayModel.restingHeading } }
             cursor.root.add(position, forKey: "agentCursor.glide")
             cursor.root.add(rotation, forKey: "agentCursor.heading")
+            cursor.armIdleHide(after: plan.duration + Self.idleHideDelay)
         case let .pulse(session):
+            // A pulse follows its action's place or glide, which armed the idle hide.
             cursor(for: session).pulse()
         case let .indicate(session, anchor):
             let cursor = cursor(for: session)
@@ -62,6 +70,7 @@ public final class AgentCursorLayerHost: AgentCursorLayerHosting {
             cursor.root.position = anchor
             cursor.root.isHidden = false
             cursor.showsIndicator = true
+            cursor.armIdleHide(after: Self.idleHideDelay)
         case let .hide(session):
             cursors[session]?.root.isHidden = true
         case let .setPaused(session, paused):

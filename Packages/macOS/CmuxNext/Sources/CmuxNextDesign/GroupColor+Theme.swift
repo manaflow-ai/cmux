@@ -33,6 +33,11 @@ extension GroupColor {
     /// one): the member bar and the editor's dot. Nil for grey (none).
     public var themed: NSColor? { themeRGB(ThemeContext.active ?? ThemeScope.app.tokens)?.nsColor }
 
+    /// The color where it marks content (tab tints, space avatars and dots, profile dots): the
+    /// theme's palette color, and for grey a visible mid grey (`swatch`), since a grey screen,
+    /// space or profile is a chosen color there, not the "none" tonal step `headerFill` draws.
+    public var markColor: NSColor { themed ?? swatch }
+
     /// The group chip's fill in the active theme scope: the color washed
     /// into the sidebar so the name stays primary text; none draws the
     /// neutral badge fill.
@@ -42,10 +47,10 @@ extension GroupColor {
         return tokens.sidebarBackground.withAlpha(1).mixed(toward: rgb, tokens.isDark ? 0.34 : 0.26).nsColor
     }
 
-    /// The group header bar's fill and the members' line (cx-q5jw, Leo
-    /// 2026-10-10: theme colors, not pastels): the theme's palette color
-    /// itself, kept readable over the sidebar. None is the sidebar's own
-    /// tonal step, so an uncolored group still reads as a header.
+    /// The group's color where it draws: the header's dot, the members'
+    /// line and the editor's swatch (cx-q5jw, cx-25az, Leo 2026-10-10: theme
+    /// colors, no pastels, no full header fill): the theme's palette color
+    /// itself, kept readable over the sidebar. None is the sidebar's tonal step.
     public var headerFill: NSColor { headerRGB(ThemeContext.active ?? ThemeScope.app.tokens).nsColor }
 
     /// Text and glyphs on `headerFill`: black or white, whichever reads

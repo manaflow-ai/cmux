@@ -837,6 +837,48 @@
    "family": "machine"
   },
   {
+   "name": "media.audio",
+   "meaning": "Tab is playing sound",
+   "sf": "speaker.wave.2",
+   "family": "media"
+  },
+  {
+   "name": "media.hub",
+   "meaning": "Media playing in the browser (media hub)",
+   "sf": "music.note",
+   "family": "media"
+  },
+  {
+   "name": "media.muted",
+   "meaning": "Tab sound muted",
+   "sf": "speaker.slash.fill",
+   "family": "media"
+  },
+  {
+   "name": "media.next",
+   "meaning": "Next track",
+   "sf": "forward.end.fill",
+   "family": "media"
+  },
+  {
+   "name": "media.pause",
+   "meaning": "Pause media",
+   "sf": "pause.fill",
+   "family": "media"
+  },
+  {
+   "name": "media.play",
+   "meaning": "Play media",
+   "sf": "play.fill",
+   "family": "media"
+  },
+  {
+   "name": "media.previous",
+   "meaning": "Previous track",
+   "sf": "backward.end.fill",
+   "family": "media"
+  },
+  {
    "name": "mobile.pair",
    "meaning": "Mobile pairing",
    "sf": "iphone",
