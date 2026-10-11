@@ -81,7 +81,12 @@ function GalleryPathPicker({ mode = "folder", start = HOME, loading = false, fai
     // Keep the loading preview stable for the base/head/repeat screenshot matrix.
     if (loading) return new Promise<PickerListing>(() => {});
     if (fail) throw new Error("fixture listing failed");
-    return listing(path, options.hidden);
+    const value = listing(path, options.hidden);
+    // The any-file play starts in a project folder with one deliberate fuzzy match. Keeping the
+    // initial row count stable makes the measured filter about input response, not row removal.
+    if (mode === "anyFile" && value.path === PROJECTS)
+      return { ...value, entries: value.entries.filter((item) => item.name === "messageslab") };
+    return value;
   };
 
   return (
@@ -327,8 +332,8 @@ export default componentEntry<Props>({
         "Listing and breadcrumb text can change while the fixed sheet stays anchored; the field anchor is still checked separately.",
     },
     settleMaxMs: {
-      value: 400,
-      reason: "A local listing transition includes the fixture's asynchronous host response.",
+      value: 900,
+      reason: "The first trusted filter key includes hosted WebKit startup; the cold action stays under 900 ms.",
     },
   },
   covers: ["viewer-empty/PathPicker.tsx#PathPicker", "viewer-empty/PathPicker.tsx#PathPickerDialog"],
