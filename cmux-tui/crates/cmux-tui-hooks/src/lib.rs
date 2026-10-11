@@ -494,10 +494,12 @@ impl Context {
     }
 }
 
+/// The XDG data home. A relative value (a quoted `"~/.local/share"`) is
+/// ignored as the XDG spec says; it would resolve against the agent's project.
 fn runtime_data_home(home: &Path) -> PathBuf {
     std::env::var_os("XDG_DATA_HOME")
-        .filter(|value| !value.is_empty())
         .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
         .unwrap_or_else(|| home.join(".local/share"))
 }
 
