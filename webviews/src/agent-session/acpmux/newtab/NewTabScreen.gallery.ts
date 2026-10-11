@@ -83,9 +83,26 @@ export default agentPaneEntry({
       snapshot: noChat(manySessions(3)),
     },
     "with-tools": {
-      note: "Tools use the host action catalog and shortcut labels.",
+      note: "Tools use the host action catalog and keep menu focus in keyboard order.",
       ready: newTab(),
       snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        const trigger = { selector: ".nt-tool-menu > button" };
+        await ctx.click(trigger);
+        await ctx.waitFor(() => ctx.document.activeElement?.getAttribute("role") === "menuitem");
+        await ctx.press("ArrowDown");
+        await ctx.press("End");
+        await ctx.press("Home");
+        await ctx.press("Escape");
+        await ctx.waitFor(() => ctx.document.querySelector('.nt-tool-menu > button[aria-expanded="false"]'));
+        await ctx.press("ArrowUp");
+        await ctx.waitFor(() => {
+          const active = ctx.document.activeElement;
+          const items = ctx.document.querySelectorAll('[role="menuitem"]');
+          return active === items[items.length - 1];
+        });
+        await ctx.press("Escape");
+      },
     },
     "typed-prompt": {
       note: "A typed prompt: no rows (Enter asks the agent picked on top, cx-e2aa); the cards stay.",

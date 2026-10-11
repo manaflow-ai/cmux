@@ -199,6 +199,14 @@ test("multi-item tool menus keep roving keyboard focus in menu order", async () 
   });
   expect(dom.window.document.activeElement).toBe(items()[0]);
 
+  await act(async () => {
+    items()[0]!.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  });
+  await act(async () => {
+    trigger.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
+  });
+  expect(dom.window.document.activeElement).toBe(items()[1]);
+
   await act(async () => root.unmount());
 });
 

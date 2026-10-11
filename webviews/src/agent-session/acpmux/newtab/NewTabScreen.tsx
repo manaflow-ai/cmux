@@ -396,6 +396,7 @@ function ToolsSection({
   const openMenu = React.useRef<HTMLDivElement>(null);
   const triggers = React.useRef(new Map<string, HTMLButtonElement>());
   const menuItems = React.useRef(new Map<string, Array<HTMLButtonElement | null>>());
+  const openAtEnd = React.useRef(false);
 
   React.useEffect(() => {
     if (!openTool) return;
@@ -409,7 +410,11 @@ function ToolsSection({
   }, [openTool]);
 
   React.useLayoutEffect(() => {
-    if (openTool) menuItems.current.get(openTool)?.[0]?.focus();
+    if (openTool) {
+      const items = menuItems.current.get(openTool)?.filter(Boolean) as HTMLButtonElement[] | undefined;
+      items?.[openAtEnd.current ? items.length - 1 : 0]?.focus();
+      openAtEnd.current = false;
+    }
   }, [openTool]);
 
   const closeMenu = (toolId: string, restoreFocus = false) => {
@@ -446,10 +451,14 @@ function ToolsSection({
                     aria-haspopup="menu"
                     aria-expanded={menuOpen}
                     aria-controls={menuId}
-                    onClick={() => setOpenTool((current) => (current === tool.id ? null : tool.id))}
+                    onClick={() => {
+                      openAtEnd.current = false;
+                      setOpenTool((current) => (current === tool.id ? null : tool.id));
+                    }}
                     onKeyDown={(event) => {
-                      if (event.key === "ArrowDown" && !menuOpen) {
+                      if ((event.key === "ArrowDown" || event.key === "ArrowUp") && !menuOpen) {
                         event.preventDefault();
+                        openAtEnd.current = event.key === "ArrowUp";
                         setOpenTool(tool.id);
                         return;
                       }
