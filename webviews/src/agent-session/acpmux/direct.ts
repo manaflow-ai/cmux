@@ -966,6 +966,19 @@ export class AcpmuxDirectClient {
     return this.git("git.status", {});
   }
 
+  /// Commits in the selected session's repository (`git.commit`; changes/gitWrite.ts builds
+  /// the params and the idempotency key).
+  gitCommit(params: Record<string, unknown>): Promise<unknown> {
+    if (this.gitRoute === "daemon") return Promise.reject(new Error(translate("error.noFolderChanges")));
+    return this.git("git.commit", params);
+  }
+
+  /// Pushes the selected session's branch (`git.push`); never forced.
+  gitPush(params: Record<string, unknown>): Promise<unknown> {
+    if (this.gitRoute === "daemon") return Promise.reject(new Error(translate("error.noFolderChanges")));
+    return this.git("git.push", params);
+  }
+
   /// Stages (or unstages) files of the selected session's repository, named as `git.diff` names
   /// them. Only the native host on this Mac writes: a chat read through a daemon has no Stage.
   gitStage(paths: string[], unstage: boolean): Promise<unknown> {
@@ -988,7 +1001,15 @@ export class AcpmuxDirectClient {
   }
 
   private git(
-    method: "git.diff" | "git.status" | "git.checkpoint.diff" | "git.stage" | "git.unstage" | "git.pullRequest",
+    method:
+      | "git.diff"
+      | "git.status"
+      | "git.checkpoint.diff"
+      | "git.commit"
+      | "git.push"
+      | "git.stage"
+      | "git.unstage"
+      | "git.pullRequest",
     params: Record<string, unknown>,
   ): Promise<unknown> {
     const sessionId = this.selectedSessionId;
@@ -998,9 +1019,18 @@ export class AcpmuxDirectClient {
     if (!sessionId || !cwd) return Promise.reject(new Error(translate("error.noFolderChanges")));
     // The native host runs the read on the machine whose acpmux runs the session (a Cloud or
     // SSH machine's chat reads through that machine's daemon), so no page-side machine check.
-    return this.gitRoute === "daemon"
-      ? this.request(method, { sessionId, cwd, ...params })
-      : postNative(method, { cwd, ...params });
+    // The host refuses a commit or push whose session folder is not on this Mac.
+    const asked =
+      this.gitRoute === "daemon"
+        ? this.request(method, { sessionId, cwd, ...params })
+        : postNative(method, { cwd, ...params });
+    // A status read names the session it read, so a commit or push built on it says which
+    // session's repository the reader saw; the host refuses one for another session.
+    return method === "git.status"
+      ? asked.then((value) =>
+          value && typeof value === "object" ? { ...(value as object), session_id: sessionId } : value,
+        )
+      : asked;
   }
 
   private request(method: string, params: Record<string, unknown>, deadline?: number): Promise<any> {

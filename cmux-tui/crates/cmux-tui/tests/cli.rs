@@ -3674,6 +3674,8 @@ mod explicit_socket;
 #[cfg(unix)]
 #[path = "cli/feed_local.rs"]
 mod feed_local;
+#[path = "cli/git_write.rs"]
+mod git_write;
 #[path = "cli/icon_assets.rs"]
 mod icon_assets;
 #[path = "cli/launch_credential.rs"]

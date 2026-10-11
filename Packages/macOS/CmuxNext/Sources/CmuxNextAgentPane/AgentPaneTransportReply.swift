@@ -19,7 +19,9 @@ enum AgentPaneTransportReply {
             } catch {
                 return AgentPaneModel.gitFailure(error as? AgentPaneGitFailure ?? .failed)
             }
-        case .invalidGit: return AgentPaneModel.gitFailure(.invalidRequest)
+        case .invalidGit(let method):
+            let message = AgentPaneGitWrite.methods.contains(method) ? AgentPaneModel.gitWriteFailedMessage : AgentPaneModel.gitFailedMessage
+            return AgentPaneModel.gitFailure(.invalidRequest, message: message)
         case .githubRepository(let cwd): return AgentPaneReply.success(["repository": (await AgentPaneGitHubRepository.read(at: cwd)).map { $0 as Any } ?? NSNull()])
         case .transportOpen:
             guard let connection = model.pendingConnection else { return AgentPaneModel.transportFailure(.noConnection) }
