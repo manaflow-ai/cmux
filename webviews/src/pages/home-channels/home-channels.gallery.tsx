@@ -8,7 +8,7 @@ import { UiProvider } from "../../ui/UiProvider";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 import { HomeChannelsPage } from "./HomeChannelsPage";
-import { MockHomeProvider } from "./mockProvider";
+import { MockHomeProvider, type MockDraft } from "./mockProvider";
 import { HomeChannelsStore } from "./store";
 
 type Props = {
@@ -18,11 +18,13 @@ type Props = {
   thread?: string;
   /** No host: the page shows its offline state. */
   offline?: boolean;
+  /** The Chief's running reply in the Chief DM. */
+  draft?: MockDraft;
 };
 
-function HomeChannelsGallery({ select, thread, offline = false }: Props) {
+function HomeChannelsGallery({ select, thread, offline = false, draft }: Props) {
   const [store] = useState(() => {
-    const created = new HomeChannelsStore(offline ? null : new MockHomeProvider());
+    const created = new HomeChannelsStore(offline ? null : new MockHomeProvider(draft));
     if (select)
       void created.select(select).then(() => {
         if (thread) created.openThread(thread);
@@ -71,6 +73,8 @@ export default componentEntry<Props>({
     "pages/home-channels/Composer.tsx#Composer",
     "pages/home-channels/ThreadPanel.tsx#ThreadPanel",
     "pages/home-channels/Switcher.tsx#Switcher",
+    "pages/home-channels/MessageActions.tsx#MessageActions",
+    "pages/home-channels/EmojiPicker.tsx#EmojiPicker",
   ],
   load: async () => HomeChannelsGallery,
   styles: async () => {
@@ -105,9 +109,9 @@ export default componentEntry<Props>({
       checks: {
         longFrameFailMs: openFrame,
         layoutShiftMax: {
-          value: 0.02,
+          value: 0.03,
           reason:
-            "Filtering removes the rows above a match, so the kept rows move up (the same before the primitives).",
+            "Filtering removes the rows above a match, so the kept rows move up (the same before the primitives); rows are 34 px since cx-doy6.",
         },
       },
       play: async (ctx) => {
@@ -131,5 +135,100 @@ export default componentEntry<Props>({
       },
     },
     offline: { note: "No host answers: the page is offline and empty.", props: { offline: true } },
+    hover: {
+      note: "Hovering a message shows its card: quick reactions, Add reaction, Reply in thread, More.",
+      props: { select: "c-release" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-msg .hc-thread-link"));
+        await ctx.hover({ selector: ".hc-msg:has(.hc-thread-link)" });
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-msg:hover .hc-msg-actions"));
+      },
+    },
+    "thread-reply": {
+      note: "A reply sent from the thread panel lands in the thread and the summary counts it.",
+      props: { select: "c-release", thread: "c-release-m2" },
+      checks: {
+        layoutShiftMax: {
+          value: 0.001,
+          reason: "The new reply rewrites the summary's count and last-reply time in place (a few pixels of text).",
+        },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-thread .hc-composer [contenteditable]"));
+        await ctx.type("Shipping it.", { selector: ".hc-thread .hc-composer [contenteditable]" });
+        await ctx.press("Enter");
+        await ctx.waitFor(() =>
+          [...ctx.document.querySelectorAll(".hc-thread .hc-md")].some(
+            (node) => node.textContent?.trim() === "Shipping it.",
+          ),
+        );
+        // The summary had 3 replies (one inline reply, two thread replies); the new one makes 4.
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-main .hc-thread-count")?.textContent?.includes("4"));
+      },
+    },
+    composer: {
+      note: "Formatting: Bold applies a Markdown mark to the typed text; the toolbar shows it pressed.",
+      props: { select: "c-chief" },
+      play: async (ctx) => {
+        const field = { selector: ".hc-main .hc-composer [contenteditable]" };
+        await ctx.waitFor(() => ctx.document.querySelector(field.selector));
+        await ctx.click(field);
+        await ctx.click({ role: "button", name: "Bold" });
+        await ctx.type("Ship the fix today", field);
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-main .hc-composer strong"));
+      },
+    },
+    emoji: {
+      note: "The composer's emoji popover over the bundled emoji table.",
+      props: { select: "c-chief" },
+      checks: {
+        longFrameFailMs: {
+          value: 80,
+          reason: "The first open decodes the bundled emoji table (~290 KB JSON) once; later opens reuse it.",
+        },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector('.hc-main [data-bar="emoji"]'));
+        await ctx.click({ role: "button", name: "Emoji" });
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-emoji-cell"));
+      },
+    },
+    "add-channel": {
+      note: "Channels always shows, with Add channel; the popover asks for a name and members.",
+      props: { select: "c-chief" },
+      checks: {
+        longFrameFailMs: {
+          value: 66,
+          reason:
+            "Cold first open of the shared Popover (Floating UI positioning): one ~54 ms frame on the CPU-only VM.",
+        },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-rail-add"));
+        await ctx.click({ selector: ".hc-rail-add" });
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-add-channel input"));
+        await ctx.type("launch", { selector: ".hc-add-channel input" });
+      },
+    },
+    draft: {
+      note: "The Chief's reply grows in its row while it is written (conversation-draft events).",
+      props: { select: "c-chief", draft: "growing" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-msg.draft"));
+      },
+    },
+    "draft-posted": {
+      note: "The reply posts: its draft row ends, the message shows once, and a late draft item stays hidden.",
+      props: { select: "c-chief", draft: "posted" },
+      play: async (ctx) => {
+        await ctx.waitFor(
+          () =>
+            !ctx.document.querySelector(".hc-msg.draft") &&
+            [...ctx.document.querySelectorAll(".hc-msg .hc-md")].filter((node) =>
+              node.textContent?.startsWith("Checking the release"),
+            ).length === 1,
+        );
+      },
+    },
   },
 });

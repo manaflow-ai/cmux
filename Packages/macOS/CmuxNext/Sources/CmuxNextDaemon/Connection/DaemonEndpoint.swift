@@ -168,6 +168,9 @@ public struct DaemonCapabilities: Sendable {
     public let browserProfiles = "browser-profiles-v1"
     /// Bookmarks per browser profile in personal state (plans/cmux-next/bookmarks.md).
     public let bookmarks = "bookmarks-v1"
+    /// The daemon history module (react-pages.md H3): page visits, the merged read model,
+    /// removal with restore ids, and `history-changed`.
+    public let history = "history-v1"
     /// Local conversations owned by the daemon (Home, plans/cmux-next/home.md):
     /// the `conversation-*` commands and `conversation-changed`/`conversation-typing` events.
     public let localConversations = "local-conversations-v1"
@@ -200,6 +203,10 @@ public struct DaemonCapabilities: Sendable {
     /// Page tabs on the store: the `page` source of a conversation tab (App Store, Settings,
     /// Debug Settings), so they move and split like any tab (cmux-tui/spec/commands.md).
     public let pageTabs = "page-tabs-v1"
+    /// A page tab's `route` (`page-tab-route-v1`): what the page shows (a viewer's file or
+    /// folder), kept with the tab and in its closed-history record, so a reopened or relaunched
+    /// page tab shows it again (plans/cmux-next/reopen-closed.md 3.0).
+    public let pageTabRoute = "page-tab-route-v1"
     /// App workspaces (`workspace.ensure_app`, `Workspace.app`, `Tab.app`).
     public let appScreens = "app-screens-v1"
     /// `conversation-search` on the local conversation owner.
@@ -289,11 +296,11 @@ public struct DaemonCapabilities: Sendable {
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
                                             terminalReap, terminalReaperActive, batchClose, closeReason, browserHostProvider, frontendBrowserActivate, frontendBrowserInsertAfter, loopbackForward, browserRuntime, screenMetadata, screenGroups, profiles,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
-                                            terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, workspacePin, notificationMarkUnread,
+                                            terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, history, workspacePin, notificationMarkUnread,
                                             terminalCommandJournal, dockColumns, edgeDocks, dockColumnRole, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, conversationDraftEvents, tabSplitRespawn, frontendBrowserHistory,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
-                                            workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, pageTabs, appScreens, conversationSearch, conversationThreads, cloudConversations, localAttachments,
+                                            workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, pageTabs, pageTabRoute, appScreens, conversationSearch, conversationThreads, cloudConversations, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
                                             terminalClipboardRead, personalMixedOrder, sidebarLayout, paletteUsage, projectList, splitClientKeys,
                                             workspaceGroupIcon, workspaceGroupPin, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart,

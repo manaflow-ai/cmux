@@ -70,7 +70,8 @@ enum FilePageHandlers {
 
     /// The focused (or targeted) tab's page of `kind`.
     static func page(_ kind: FilePageKind, _ context: AppActionContext, _ invocation: ActionInvocation) throws -> PageWebView {
-        guard let key = context.scope(invocation).tab?.id.rawValue, LocalPageTab.page(of: key) == kind.page,
+        guard let id = context.scope(invocation).tab?.id.rawValue, case let key = providerKey(id, context.services),
+              LocalPageTab.page(of: key) == kind.page,
               let page = service(kind, context.services).pageView(key) else {
             throw ActionFailure(message: FilePageStrings.noFilePage)
         }
@@ -81,15 +82,22 @@ enum FilePageHandlers {
         kind == .markdown ? services.viewers.markdownPages : services.viewers.editorPages
     }
 
+    /// The provider key of strip tab `id`: a store page tab's key, else the id (an app-only tab).
+    static func providerKey(_ id: String, _ services: AppServices) -> String {
+        services.pages.storeKey(of: id) ?? id
+    }
+
     /// The file a file page tab shows (Reveal in Finder, Open With), nil for any other tab.
-    static func file(ofTab key: String, _ services: AppServices) -> URL? {
-        FilePageKind.allCases.lazy.compactMap { kind in
+    static func file(ofTab id: String, _ services: AppServices) -> URL? {
+        let key = providerKey(id, services)
+        return FilePageKind.allCases.lazy.compactMap { kind in
             LocalPageTab.page(of: key) == kind.page ? service(kind, services).file(key) : nil
         }.first
     }
 
     /// Sends a shared find action to an editor page tab; false for any other page.
-    static func sendFind(_ action: String, _ key: String, _ services: AppServices, text: String? = nil) -> Bool {
+    static func sendFind(_ action: String, _ id: String, _ services: AppServices, text: String? = nil) -> Bool {
+        let key = providerKey(id, services)
         guard LocalPageTab.page(of: key) == .editor, let command = EditorPageCommand.forAction[action],
               let page = services.viewers.editorPages.pageView(key) else { return false }
         return page.send(command: command, arguments: text.map { ["text": .string($0)] } ?? [:])

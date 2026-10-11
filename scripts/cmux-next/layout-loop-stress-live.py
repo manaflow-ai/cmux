@@ -7,11 +7,12 @@ overlay plane into the overlay panel), makes 20 splits, columns and rows
 (LAYOUT_STRESS_SPLITS), toggles the sidebar (moves the layout root without
 a layout of the root), drives the command palette over the many-pane
 window (typing, scrolling, Actions menu, scope chips, close and reopen,
-parent resizes under it) and steps the window size 50 times. After every step it reads `debug.layers` and
+parent resizes under it, the palette shown again on app activation) and
+steps the window size 50 times. After every step it reads `debug.layers` and
 fails when:
 
-- one view was laid out more than LayoutPassGuard.bound times in one
-  run-loop turn (`layout_passes.max_in_one_turn`), or the guard caught a loop;
+- one view was laid out more than its window's LayoutPassGuard limit
+  (16, lower in a window of few views) in one window layout (`layout_passes.max_in_one_turn`), or the guard caught a loop;
 - a plane is out of sync with its home (`planes[].in_sync`: the plane's
   frame vs the root's rect in window coordinates; this is the ring offset
   an ancestor move caused), a ring is off its rounded content rect, or the
@@ -75,10 +76,13 @@ def check(step, app, results):
     LAST_PASSES.update(passes)
     if not passes.get("installed"):
         failures.append("LayoutPassGuard not installed")
-    bound = passes.get("bound", 16)
+    # The limit of the window that had the busiest view (lower than
+    # `bound` in a small window, LayoutPassGuard.limit(viewCount:)).
+    bound = passes.get("max_window_limit") or passes.get("bound", 16)
     worst = passes.get("max_in_one_turn", 0)
     if worst > bound:
-        failures.append("%s: a view was laid out %s times in one turn (bound %s)" % (step, worst, bound))
+        failures.append("%s: a %s in %s was laid out %s times in one window layout (window limit %s)" % (
+            step, passes.get("max_view_class"), passes.get("max_window_class"), worst, bound))
     for loop in passes.get("loops") or []:
         failures.append("%s: layout loop in %s (%s)" % (step, loop.get("view_class"), " < ".join(loop.get("ancestry") or [])))
     rings = 0
@@ -171,6 +175,39 @@ def palette_phase(app, results):
         if not step("scope %s type" % scope, key("e")) or not step("scope %s down" % scope, key("down")):
             return failures
     step("close", key("escape"))
+    # The palette shown again when the app becomes active (hidesOnDeactivate;
+    # the nightly crash came 37 s after the app became active). The app
+    # never activates for real (no-activate run): debug.app_activation posts
+    # the app's resign and become-active notifications and orders the
+    # panel out and back in as AppKit does.
+    for i in range(4):
+        if not step("activation %d open" % i, open_palette(query="" if i % 2 == 0 else "new")):
+            return failures
+        if i == 2 and not step("activation %d down" % i, key("down")):
+            return failures
+        if not step("activation %d resign" % i, rpc("debug.app_activation", {"active": False})):
+            return failures
+        if i == 1:
+            target = [x + 30, y, max(800, w - 120), max(560, h - 80)]
+            if not step("activation %d resize while inactive" % i, rpc("debug.window_frame", {"frame": target})):
+                return failures
+        if not step("activation %d become active" % i, rpc("debug.app_activation", {"active": True})):
+            return failures
+        for name in ["down", "down", "up"]:
+            if not step("activation %d %s" % (i, name), key(name)):
+                return failures
+        if not step("activation %d type" % i, key("s")) or not step("activation %d close" % i, key("escape")):
+            return failures
+        rpc("debug.window_frame", {"frame": [x, y, w, h]})
+        # Closed palette: resign and become active again, then open.
+        if not step("activation %d closed resign" % i, rpc("debug.app_activation", {"active": False})):
+            return failures
+        if not step("activation %d closed become active" % i, rpc("debug.app_activation", {"active": True})):
+            return failures
+    # End inactive, as the app really is: the focus state that observers
+    # set from the synthetic notifications matches NSApp again.
+    if not step("activation end resign", rpc("debug.app_activation", {"active": False})):
+        return failures
     # The opaque material (Reduce Transparency) swaps the glass views.
     rpc("debug.reduce_transparency", {"enabled": True})
     if step("reduce transparency open", open_palette(query="new")):
@@ -263,6 +300,10 @@ finally:
 # The browser split must have moved a plane into the overlay panel (the
 # path the deferral and the ancestor-move resync change); a run that never
 # left the root proves nothing about it.
+# The guard counts inside -[NSWindow layoutIfNeeded]; a run that counted
+# nothing means that bracket never fired (the proof would be empty).
+if results and not LAST_PASSES.get("max_in_one_turn"):
+    failures.append("the guard counted no layout inside a window layout (layoutIfNeeded bracket never fired)")
 if results and not any("overlay_panel" in r["placement"] for r in results):
     failures.append("no step ran with the plane in the overlay panel (browser page window never showed)")
 summary = {"tag": TAG, "steps": len(results), "failures": failures,

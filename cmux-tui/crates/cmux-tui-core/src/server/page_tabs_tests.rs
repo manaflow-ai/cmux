@@ -116,7 +116,8 @@ fn page_tab_is_an_ordinary_store_tab() {
     mux.shutdown();
 }
 
-/// Reopen Closed brings a page tab back with its page, from the close record.
+/// Reopen Closed brings a page tab back with its page, from the close record,
+/// and `closed.list` names that page.
 #[test]
 fn reopened_page_tab_keeps_its_page() {
     let mux = test_mux("page-tabs-reopen");
@@ -125,6 +126,10 @@ fn reopened_page_tab_keeps_its_page() {
     run(&mux, json!({"cmd":"close-surface","surface":surface_of(&created)})).unwrap();
     let closed = resource(&mux, "closed.list", json!({}), None);
     let group = closed.as_array().unwrap().first().cloned().expect("the close is recorded");
+    // Recently Closed names the page, not the page tab's `about:blank` address (cx-h7y9).
+    let listed = &group["screens"][0]["tabs"][0];
+    assert_eq!(listed["page"], "settings", "{group}");
+    assert_eq!(group["members"][0]["screens"][0]["tabs"][0]["page"], "settings", "{group}");
     resource(&mux, "closed.reopen", json!({"closed": group["id"]}), Some("page-re-1"));
     let back = pane_tabs(&mux, pane).into_iter().find(|surface| *surface != terminal).unwrap();
     let tab = raw_tab(&mux, back).unwrap();

@@ -199,7 +199,7 @@ final class NewTabSparePool {
     private(set) var lastRecycleRefusal: String?
 
     func recycle(_ view: AgentPaneView) -> Bool {
-        lastRecycleRefusal = !slot.shouldWarm ? "slot full" : !isLikely ? "not likely" : view.model.newTab == nil ? "became a chat"
+        lastRecycleRefusal = view.model.neverPooled ? "another machine's page" : !slot.shouldWarm ? "slot full" : !isLikely ? "not likely" : view.model.newTab == nil ? "became a chat"
             : view.model.userTouched ? "touched by \(view.model.touchedBy ?? "?")" : target == nil ? "no target window" : nil
         guard lastRecycleRefusal == nil else { return false }
         BenchSpans.measure("pool.recycle") {

@@ -17,15 +17,19 @@ nonisolated public struct WhatsNewLastUpdate: Codable, Equatable, Sendable {
     public var stagedAt: Date
     /// The staged update's changelog (the update cards' type, cx-lntk).
     public var changelog: UpdateChangelog
+    /// The staged update's highlights as the popover showed them
+    /// (cx-ncc.45.5); nil in records older builds wrote.
+    public var highlights: UpdateHighlights?
 
     public init(fromVersion: String, fromBuild: String, toVersion: String, toBuild: String, stagedAt: Date,
-                changelog: UpdateChangelog) {
+                changelog: UpdateChangelog, highlights: UpdateHighlights? = nil) {
         self.fromVersion = fromVersion
         self.fromBuild = fromBuild
         self.toVersion = toVersion
         self.toBuild = toBuild
         self.stagedAt = stagedAt
         self.changelog = changelog
+        self.highlights = highlights
     }
 }
 

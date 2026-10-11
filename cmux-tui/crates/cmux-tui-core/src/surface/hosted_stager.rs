@@ -6,7 +6,7 @@ use super::*;
 /// A host frame is not actionable until its wire-level atomicity contract is
 /// satisfied. In particular, a renderer must never expose output or a resize
 /// whose authoritative color state is still sitting in the socket.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[derive(Debug)]
 pub(super) enum HostedTransition {
     Output(Vec<u8>),
@@ -35,7 +35,7 @@ pub(super) enum HostedTransition {
     KittyGraphicsLimits(KittyGraphicsLimits),
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[derive(Debug)]
 enum PendingHostedTransition {
     Output(Vec<u8>),
@@ -49,7 +49,7 @@ enum PendingHostedTransition {
     },
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(super) struct HostedFrameStager {
     protocol_version: u16,
     expected_sequence: u64,
@@ -57,7 +57,7 @@ pub(super) struct HostedFrameStager {
     pending: Option<PendingHostedTransition>,
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 impl HostedFrameStager {
     #[cfg(test)]
     pub(super) fn new(sequence_boundary: u64, smart_renderer: bool) -> Self {

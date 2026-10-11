@@ -14,11 +14,12 @@ export const localCases = (c: Corpus): void => {
   const MUX = "agent_mux"
   const EVE = "user_eve"
   const parts = (...values: Array<string>): Array<Part> => values.map(text)
-  const send = (key: string, p: Array<Part>, reply_to?: { message_id: string; part_index: number }): Op => ({
+  const send = (key: string, p: Array<Part>, reply_to?: { message_id: string; part_index: number }, thread_root?: string): Op => ({
     kind: "message.send",
     client_msg_id: key,
     parts: p,
-    ...(reply_to ? { reply_to } : {})
+    ...(reply_to ? { reply_to } : {}),
+    ...(thread_root ? { thread_root } : {})
   })
   const base = { id: "conv_01J0000000000000000000TEST", actor: ALICE, title: "mux", now: NOW }
 
@@ -80,6 +81,33 @@ export const localCases = (c: Corpus): void => {
   // The 2 s agent gap applies to every head now; step past it before the next agent text.
   host.advance(2_000)
   c.op(host, "send: reply to an existing part", MUX, "c7", send("c7", parts("answer"), { message_id: first.id, part_index: 0 }), "commit")
+
+  // Threads (cx-59n8.4): thread_root names a top-level message of this conversation; a thread
+  // has one level. A send moves the sender's read cursor to its seq only when the sender had read
+  // everything before it (cursor >= last_seq); a sender behind keeps its cursor.
+  const threads = new CoreHost()
+  const root = threads.send(ALICE, "th0", "root")
+  c.op(threads, "thread: the agent reads the root", MUX, "th0r", { kind: "read_cursor.set", seq: 1 }, "commit")
+  c.op(threads, "thread: a caught-up sender's reply carries thread_root and moves its cursor", MUX, "th1", send("th1", parts("in thread"), undefined, root.id), "commit")
+  const reply = threads.messages[1]!
+  threads.advance(2_000)
+  c.op(threads, "thread: a human behind the last seq replies and keeps its cursor", ALICE, "th2", send("th2", parts("me too"), undefined, root.id), "commit")
+  c.op(threads, "thread: read_cursor.set catches the human up", ALICE, "th3", { kind: "read_cursor.set", seq: threads.head.last_seq }, "commit")
+  c.op(threads, "thread: reply_to and thread_root together; the caught-up sender's cursor moves", ALICE, "th4", send("th4", parts("quoting"), { message_id: reply.id, part_index: 0 }, root.id), "commit")
+  c.op(threads, "thread: an unknown root", ALICE, "th5", send("th5", parts("x"), undefined, "msg_nope"), "invalid_thread_root")
+  c.op(threads, "thread: a root that is itself in a thread", ALICE, "th5", send("th5", parts("x"), undefined, reply.id), "invalid_thread_root")
+  c.op(threads, "thread: a root of another conversation", ALICE, "th5", send("th5", parts("x"), undefined, root.id), "invalid_thread_root", {
+    thread_target: { ...root, conversation: "conv_OTHER" }
+  })
+  c.op(threads, "thread: an outsider is refused before the root", EVE, "th5", send("th5", parts("x"), undefined, "msg_nope"), "not_participant")
+  c.op(threads, "thread: a bad reply_to is reported before a bad root", ALICE, "th5", send("th5", parts("x"), { message_id: "msg_nope", part_index: 0 }, "msg_nope"), "unknown_message")
+  c.op(threads, "thread: a loaded root with another id", ALICE, "th5", send("th5", parts("x"), undefined, "msg_other"), "invalid_thread_root", { thread_target: root })
+  c.op(threads, "thread: a null thread_root is no thread", ALICE, "th5", { kind: "message.send", client_msg_id: "th5", parts: parts("plain"), thread_root: null } as unknown as Op, "commit")
+  // A sender behind the last seq keeps its cursor: the agent's unhandled message stays unread to it.
+  threads.advance(2_000)
+  c.op(threads, "thread: a sender behind the last seq keeps its cursor", MUX, "th8", send("th8", parts("late answer"), undefined, root.id), "commit")
+  c.op(threads, "thread: retract the root", ALICE, "th6", { kind: "message.retract", message_id: root.id }, "commit")
+  c.op(threads, "thread: a reply to a retracted root is accepted", ALICE, "th7", send("th7", parts("still here"), undefined, root.id), "commit")
 
   const love = { tapback: "love" as const }
   const workCard = host.messages[2]!

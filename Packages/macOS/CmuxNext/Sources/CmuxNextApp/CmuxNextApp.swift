@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextDaemon
@@ -33,6 +34,8 @@ public struct CmuxNextApp {
         var environment = AppEnvironment.current()
         environment.marksRun = true
         environment.sidebarSnapshotFile = SidebarSnapshotFile.standard(launch: environment.launch)
+        // Where each agent chat rests, beside the snapshot, so a relaunch reopens it there (cx-6bgzj).
+        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
         // The daemon connect overlaps AppKit's start (off the main thread).
         let prestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),

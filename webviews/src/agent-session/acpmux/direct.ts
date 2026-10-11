@@ -278,7 +278,7 @@ function formattedOutput(rawOutput: any): string {
   return typeof text === "string" ? text : "";
 }
 
-function textFromContent(content: any): string {
+export function textFromContent(content: any): string {
   if (typeof content === "string") return content;
   if (content?.type === "text") return String(content.text ?? "");
   // A tool call's content blocks wrap their text: `{ type: "content", content: { type: "text" } }`.
@@ -966,6 +966,13 @@ export class AcpmuxDirectClient {
     return this.git("git.status", {});
   }
 
+  /// Stages (or unstages) files of the selected session's repository, named as `git.diff` names
+  /// them. Only the native host on this Mac writes: a chat read through a daemon has no Stage.
+  gitStage(paths: string[], unstage: boolean): Promise<unknown> {
+    if (this.gitRoute === "daemon") return Promise.reject(new Error(translate("error.noFolderChanges")));
+    return this.git(unstage ? "git.unstage" : "git.stage", { paths });
+  }
+
   /// acpmux serves no git methods: the native host runs them on the session host in the selected
   /// session's folder, and mock mode's in-page daemon answers them by session.
   /// One turn's repository changes: checkpoint `from` against checkpoint `to`.
@@ -974,7 +981,7 @@ export class AcpmuxDirectClient {
   }
 
   private git(
-    method: "git.diff" | "git.status" | "git.checkpoint.diff",
+    method: "git.diff" | "git.status" | "git.checkpoint.diff" | "git.stage" | "git.unstage",
     params: Record<string, unknown>,
   ): Promise<unknown> {
     const sessionId = this.selectedSessionId;
@@ -1459,6 +1466,7 @@ export class AcpmuxDirectClient {
       type: "snapshot",
       protocolVersion: 1,
       rows: this.rows.sorted(),
+      subagentViews: this.subagents.views(),
       sessions: this.sessions.map((session) => {
         let entry = this.sessionEntries.get(session);
         if (!entry) {
@@ -1870,6 +1878,11 @@ export class AcpmuxDirectClient {
   }
   /// acpmux serves `_acpmux/prewarm` to this connection: it lists the method and calls the
   /// connection local. A remote-origin connection is never asked (acpmux refuses it).
+  get startsOnSend(): boolean {
+    // A chat on another machine (the host's remote wire): its `session/new` starts the chat there,
+    // so nothing creates one before the first send (cx-k21v).
+    return this.origin === "remote";
+  }
   get prewarmSupported(): boolean {
     return this.localOrigin && this.extensions.includes(PREWARM_METHOD);
   }

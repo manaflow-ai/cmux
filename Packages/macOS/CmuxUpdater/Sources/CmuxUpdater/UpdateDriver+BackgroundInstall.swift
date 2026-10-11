@@ -18,10 +18,13 @@ extension UpdateDriver {
         log.append("background install: staged, waiting for the user")
         stagedInstall = { reply(.install) }
         stagedCancel = { reply(.skip) }
-        if installsWhenStaged { return installStaged() }
+        if installsWhenStaged {
+            installStaged()
+            return
+        }
         setState(.installing(.init(
             isAutoUpdate: true,
-            retryTerminatingApplication: { [weak self] in self?.installStaged() },
+            retryTerminatingApplication: { [weak self] in _ = self?.installStaged() },
             dismiss: {}
         )))
     }
@@ -40,9 +43,11 @@ extension UpdateDriver {
         }
     }
 
-    /// Sends the held install reply once; Sparkle installs and relaunches.
-    func installStaged() {
-        guard let install = stagedInstall else { return }
+    /// Sends the held install reply once; Sparkle installs and relaunches. False when this driver
+    /// holds no staged update.
+    @discardableResult
+    func installStaged() -> Bool {
+        guard let install = stagedInstall else { return false }
         log.append("background install: installing staged update")
         stagedInstall = nil
         stagedCancel = nil
@@ -50,6 +55,7 @@ extension UpdateDriver {
         backgroundItem = nil
         setState(.installing(.init(retryTerminatingApplication: {}, dismiss: {})))
         install()
+        return true
     }
 
     /// Replies Skip to the held ready prompt once: Sparkle cancels the installer that would run

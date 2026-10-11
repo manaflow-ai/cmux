@@ -7,9 +7,12 @@ does nothing else when an agent chat has the keyboard. The script launches the t
 presses Cmd-K through `debug.key`, and reads the terminal before and after: the app's rendered
 viewport (`debug.surfaces` text) and the daemon's screen and history (`cmux terminal ... read`,
 `history read`). It also presses Cmd-=, Cmd-0, Cmd-Up and Cmd-Shift-G in the terminal and prints
-which owner took each key (`debug.key` handled_by / action / trace).
+which owner took each key (`debug.key` handled_by / action / trace), checks the keys the terminal
+shortcut audit fixed (Cmd-Return, Cmd-Option-W, Cmd-Option-Shift-W, Cmd-C with and without a
+selection, Cmd-[ / Cmd-] focus history; plans/cmux-next/terminal-shortcuts.md) and lists the owner of every other terminal key
+of that table (OWNER lines).
 
-On exit it quits the app with quitEndSessions, stops the tag's cmux-tui session and kills any
+On exit it quits the app with the debug.quit end-sessions fixture, stops the tag's cmux-tui session and kills any
 process left from the tag's bundle by exact PID.
 
 Usage: terminal-keys-e2e.py --tag <tag> --app PATH [--out DIR]
@@ -153,6 +156,77 @@ def clear_check(label, ref):
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"keys-{label.replace(' ', '-')}.png")})
 
 
+def owner(reply):
+    return f"handled_by={reply.get('handled_by')} action={reply.get('action')} trace={str(reply.get('trace'))[-200:]}"
+
+
+def resolve(keys):
+    """keybinding.resolve in the key window (a focused terminal here): outcome and candidates."""
+    reply = rpc("keybinding.resolve", {"keys": keys}) or {}
+    return reply, json.dumps(reply)[:500]
+
+
+def shortcut_checks():
+    """The terminal shortcut audit (plans/cmux-next/terminal-shortcuts.md, bd cx-442): the keys
+    this audit fixed, then an owner listing for the terminal keys the table names."""
+    pane = focused_pane() or {}
+    if pane.get("kind") != "terminal":
+        row("shortcut audit", "a focused terminal", f"focused={pane.get('kind')}", False)
+        return
+    windows = len((rpc("debug.windows") or {}).get("windows") or [])
+    tabs = len(panes())
+    # Cmd-Return: the checklist default yields to the terminal and Ghostty's toggle_fullscreen is
+    # unbound, so the key reaches the program (as in the shipping cmux).
+    report, text = resolve("cmd+enter")
+    row("terminal Cmd-Return binding", "outcome none", text, report.get("outcome") == "none")
+    reply = key("return", ["cmd"])
+    row("terminal Cmd-Return", "the program gets it (no action, no Ghostty binding)", owner(reply),
+        not reply.get("action") and "Ghostty binding no" in str(reply.get("trace")))
+    # Cmd-Option-W and Cmd-Option-Shift-W: no Ghostty close_tab / close_all_windows.
+    for name, mods, label in [("w", ["cmd", "option"], "Cmd-Option-W"), ("w", ["cmd", "option", "shift"], "Cmd-Option-Shift-W")]:
+        reply = key(name, mods)
+        row(f"terminal {label}", "the program gets it (no action, no Ghostty binding)", owner(reply),
+            not reply.get("action") and "Ghostty binding no" in str(reply.get("trace")))
+    time.sleep(1)  # test harness: a close would land now
+    row("nothing closed", f"{windows} windows, {tabs} panes",
+        f"{len((rpc('debug.windows') or {}).get('windows') or [])} windows, {len(panes())} panes",
+        len((rpc("debug.windows") or {}).get("windows") or []) == windows and len(panes()) == tabs)
+    # Cmd-C with nothing selected reaches the program through Ghostty's performable copy keybind;
+    # with a selection it is Copy.
+    # Cmd-K above left this terminal with nothing selected.
+    reply = key("c", ["cmd"])
+    row("terminal Cmd-C, nothing selected", "terminalCopy runs and passes Cmd-C to the program (no refusal)", owner(reply),
+        reply.get("action") == "terminalCopy" and not reply.get("refused_action"))
+    reply = key("a", ["cmd"])
+    print("Cmd-A:", owner(reply), flush=True)
+    reply = key("c", ["cmd"])
+    row("terminal Cmd-C after Cmd-A", "action terminalCopy", owner(reply), reply.get("action") == "terminalCopy")
+    # Cmd-[ / Cmd-]: focus history Back / Forward in a terminal (chief decision, as the shipping
+    # cmux); Ghostty's goto_split default and the browser-only consume no longer take them.
+    for name, label, action in [("[", "Cmd-[", "focusHistoryBack"), ("]", "Cmd-]", "focusHistoryForward")]:
+        report, text = resolve("cmd+" + name)
+        print(f"resolve {label}: {text}", flush=True)
+        reply = key(name, ["cmd"])
+        row(f"terminal {label}", f"{action} (run, or refused when the trail has no step)", owner(reply),
+            action in (reply.get("action"), reply.get("refused_action")))
+        time.sleep(1)  # test harness: a focus move settles
+    # Owner listing (no assertion): what takes each terminal key today, for the audit table.
+    for name, mods, label in [
+        ("a", ["cmd"], "Cmd-A"), ("k", ["cmd", "shift"], "Cmd-Shift-K"),
+        ("-", ["cmd"], "Cmd-Minus"), ("up", ["cmd", "shift"], "Cmd-Shift-Up"), ("down", ["cmd"], "Cmd-Down"),
+        ("home", ["cmd"], "Cmd-Home"), ("end", ["cmd"], "Cmd-End"), ("pageup", ["cmd"], "Cmd-PageUp"),
+        ("pagedown", ["cmd"], "Cmd-PageDown"), ("left", ["cmd"], "Cmd-Left"), ("right", ["cmd"], "Cmd-Right"),
+        ("delete", ["cmd"], "Cmd-Backspace"), ("right", ["option"], "Option-Right"), ("left", ["shift"], "Shift-Left"),
+        ("/", ["control"], "Ctrl-/"), ("return", ["control"], "Ctrl-Return"),
+        ("e", ["cmd"], "Cmd-E"), ("g", ["cmd"], "Cmd-G"),
+        ("g", ["cmd", "option"], "Cmd-Option-G"), ("f", ["cmd"], "Cmd-F"), ("escape", [], "Escape"),
+        # Last: Ctrl-Tab moves to the next tab and Cmd-Z may reopen a closed item.
+        ("tab", ["control"], "Ctrl-Tab"), ("z", ["cmd"], "Cmd-Z"),
+    ]:
+        print(f"OWNER | terminal {label} | {owner(key(name, mods))}", flush=True)
+    rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "keys-shortcuts.png")})
+
+
 app = None
 
 
@@ -160,7 +234,11 @@ def cleanup():
     print("cleanup", flush=True)
     if os.environ.get("KEYS_E2E_KEEP"):
         return
-    rpc("action.run", {"action": "quitEndSessions"}, timeout=10)
+    # Scripts may not confirm quitEndSessions (user-only since cx-zk9t): try the DEBUG fixture first
+    # (lane rule); a build without it answers quitting != "end-sessions" and the action runs.
+    reply = rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
+    if not (isinstance(reply, dict) and reply.get("quitting") == "end-sessions"):
+        rpc("action.run", {"action": "quitEndSessions"}, timeout=10)
     if app:
         try:
             app.wait(timeout=20)
@@ -241,7 +319,10 @@ def main():
                               ("g", ["cmd", "shift"], "Cmd-Shift-G"), ("left", ["option"], "Option-Left")]:
         reply = key(name, mods)
         owner = f"handled_by={reply.get('handled_by')} action={reply.get('action')} trace={str(reply.get('trace'))[-160:]}"
-        row(f"terminal {label}", "the terminal (Ghostty) gets it", owner, not reply.get("action"))
+        # Cmd-=/-/0 run terminal.*FontSize, which run Ghostty's own font size actions on this terminal.
+        ok = not reply.get("action") or str(reply.get("action")).startswith("terminal.") and "FontSize" in str(reply.get("action"))
+        row(f"terminal {label}", "the terminal (Ghostty, or terminal.*FontSize) gets it", owner, ok)
+    shortcut_checks()
     print("newAgentChat:", rpc("action.run", {"action": "palette.newAgentChat"}), flush=True)
     time.sleep(2)  # test harness: a new chat may open in a new workspace (L3)
     for index in range(1, 10):
