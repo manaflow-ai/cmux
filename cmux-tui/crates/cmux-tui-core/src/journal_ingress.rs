@@ -736,10 +736,7 @@ impl JournalIngressSender {
     /// durability receipt. This is used after the bounded capture deadline has
     /// elapsed: a free slot should still preserve the gap marker, but the
     /// reader must not incur a second durability wait on a stalled writer.
-    pub(crate) fn try_send_terminal_gap(
-        &self,
-        event: JournalIngressEvent,
-    ) -> anyhow::Result<()> {
+    pub(crate) fn try_send_terminal_gap(&self, event: JournalIngressEvent) -> anyhow::Result<()> {
         debug_assert!(matches!(&event, JournalIngressEvent::TerminalOutputGap { .. }));
         let Some(sender) = &self.terminal_sender else { return Ok(()) };
         let _admission = self.state.enqueue_admission.lock().unwrap();
