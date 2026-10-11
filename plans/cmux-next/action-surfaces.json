@@ -7858,7 +7858,13 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : null,
+      "default_shortcut" : {
+        "key" : "p",
+        "modifiers" : [
+          "opt",
+          "cmd"
+        ]
+      },
       "id" : "palette.toggleTabPin",
       "mcp" : "offered",
       "palette" : "offered",

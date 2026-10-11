@@ -4398,6 +4398,41 @@
           "aliases": []
         },
         {
+          "id": "palette.toggleTabPin",
+          "title": {
+            "en": "Pin/Unpin Tab",
+            "ar": "تثبيت/إلغاء تثبيت علامة التبويب",
+            "bs": "Zakači/otkači tab",
+            "da": "Fastgør/frigør fane",
+            "de": "Tab anheften/lösen",
+            "es": "Fijar/desfijar pestaña",
+            "fr": "Épingler/désépingler l’onglet",
+            "it": "Fissa/sblocca scheda",
+            "ja": "タブをピン留め/解除",
+            "km": "ខ្ទាស់/ឈប់ខ្ទាស់ថេប",
+            "ko": "탭 고정/고정 해제",
+            "no": "Fest/løsne fane",
+            "pl": "Przypnij/odepnij kartę",
+            "pt-BR": "Fixar/Desafixar Aba",
+            "ru": "Закрепить/открепить вкладку",
+            "th": "ปักหมุด/เลิกปักหมุดแท็บ",
+            "tr": "Sekmeyi Sabitle/Sabitlemeyi Kaldır",
+            "uk": "Закріпити/відкріпити вкладку",
+            "vi": "Ghim/Bỏ ghim tab",
+            "zh-CN": "固定/取消固定标签页",
+            "zh-TW": "釘選／取消釘選標籤頁"
+          },
+          "shortcut": {
+            "key": "p",
+            "modifiers": [
+              "opt",
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
           "id": "reopenClosedBrowserPanel",
           "title": {
             "en": "Reopen Last Closed Tab",
