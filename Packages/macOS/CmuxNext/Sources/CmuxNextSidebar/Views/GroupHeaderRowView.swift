@@ -147,7 +147,7 @@ final class GroupHeaderRowView: SidebarRowView {
             chevron.contentTintColor = Palette.textSecondary
             dot.backgroundColor = (tint == .palette(.grey) ? Palette.textTertiary : tint.headerFill).cgColor
             // Hover and drop fills like a row's, right of the line.
-            pill.backgroundColor = isDropTarget ? Palette.selectionFill.cgColor : isHovered || isEditing ? Palette.hoverFill.cgColor : nil
+            ChromeHover.paint(pill, isDropTarget ? Palette.selectionFill : isHovered || isEditing ? Palette.hoverFill : nil, animated: fadesNextFill)
             pill.borderWidth = 0
             // A collapsed group that holds the selected workspace paints the selection fill around its bar.
             paintFill(isSelected ? Palette.selectionFill : nil)

@@ -114,6 +114,8 @@ export type ThemeTokens = {
   success: ThemeRGB;
   highlight: ThemeRGB;
   highlightText: ThemeRGB;
+  accent: ThemeRGB;
+  onAccent: ThemeRGB;
   hasThemeAccent: boolean;
   ansi: ThemeRGB[];
   backgroundOpacity: number;
@@ -147,14 +149,12 @@ export function deriveTokens(input: ThemeInput): ThemeTokens {
   const bg = input.background;
   const fg = input.foreground;
   const isDark = luminance(bg) < luminance(fg);
-  // The app accent when the setting names one; null keeps the neutral fills.
-  const accent =
+  // The app theme when the setting names an accent; null keeps the neutral fills.
+  const app =
     input.accent && input.accent !== "neutral"
-      ? parseHex(
-          deriveAppTheme({ background: hex(bg), foreground: hex(fg), palette: input.palette.map(hex) }, input.accent)
-            .tokens.accent,
-        )
+      ? deriveAppTheme({ background: hex(bg), foreground: hex(fg), palette: input.palette.map(hex) }, input.accent)
       : null;
+  const accent = app ? parseHex(app.tokens.accent) : null;
   const hover = withAlpha(fg, isDark ? 0.06 : 0.05);
   const selection = accent ? withAlpha(accent, isDark ? 0.26 : 0.16) : withAlpha(fg, isDark ? 0.1 : 0.08);
   const pressed = withAlpha(fg, isDark ? 0.14 : 0.11);
@@ -205,6 +205,8 @@ export function deriveTokens(input: ThemeInput): ThemeTokens {
     success: status(2),
     highlight,
     highlightText,
+    accent: accent ?? primary,
+    onAccent: (app && parseHex(app.tokens.onAccent)) || withAlpha(bg, 1),
     hasThemeAccent: input.palette.length >= 8,
     ansi: palette,
     backgroundOpacity: input.backgroundOpacity,

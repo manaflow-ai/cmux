@@ -83,6 +83,12 @@ public struct ThemeTokens: Hashable, Sendable {
     /// Glyphs and labels on `highlight`, at least 4.5:1: the opaque
     /// background or foreground, whichever contrasts more, else black or white.
     public var highlightText: ThemeRGB
+    /// Selected and active marks (unread dots, the user's messages, Send in the agent pane):
+    /// the primary text by default (no hue), the app theme's accent with `appearance.accent`.
+    public var accent: ThemeRGB
+    /// Glyphs and labels on `accent`, opaque: the background by default, the app theme's
+    /// `onAccent` (at least 4.5:1) with an accent.
+    public var onAccent: ThemeRGB
     /// The theme names its own ANSI palette, so `highlight` is the theme's
     /// accent; false when it fell back to Ghostty's default palette.
     public var hasThemeAccent: Bool
@@ -188,6 +194,8 @@ public struct ThemeTokens: Hashable, Sendable {
             success: status(2),
             highlight: highlight,
             highlightText: highlightText,
+            accent: accent ?? primary,
+            onAccent: accent == nil ? bg.withAlpha(1) : app[.onAccent],
             hasThemeAccent: input.palette.count >= 8,
             ansi: palette,
             backgroundOpacity: input.backgroundOpacity,
