@@ -135,6 +135,11 @@ def real_drag(now):
     state = cua("get_window_state", {"pid": app.pid, "window_id": window_id, "include_accessibility_tree": False})
     width = png_width(state.get("screenshot_png_b64") or "")
     scale = (width / now["window_frame"][2]) if width else 1.0
+    shot = state.get("screenshot_png_b64") or ""
+    if shot:
+        with open(os.path.join(opts.out, "before-drag.png"), "wb") as f:
+            f.write(base64.b64decode(shot))
+    print("window", state.get("window_bounds"), "scale", scale, flush=True)
     titlebar = now["window_frame"][3] - now["content_height"]
     (sx, sy), (ex, ey) = target(now)
     params = {"pid": app.pid, "window_id": window_id, "from_x": round(sx * scale), "from_y": round((sy + titlebar) * scale),
