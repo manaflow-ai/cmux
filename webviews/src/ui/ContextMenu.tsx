@@ -1,4 +1,4 @@
-import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { cx } from "./cx";
 
@@ -39,8 +39,10 @@ export interface ContextMenuProps {
  */
 export function ContextMenu({ items, children, className, selection, onOpen, ignore }: ContextMenuProps) {
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
+  const [menuPosition, setMenuPosition] = useState<{ left: number; top: number } | null>(null);
   const [active, setActive] = useState(0);
   const returnFocus = useRef<HTMLElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const enabled = items.filter((item) => !item.disabled);
   const close = (restoreFocus = false) => {
     setPoint(null);
@@ -66,6 +68,32 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
       run(enabled[active]);
     }
   };
+  useLayoutEffect(() => {
+    if (!point) {
+      setMenuPosition(null);
+      return;
+    }
+    const positionMenu = () => {
+      const menu = menuRef.current;
+      if (!menu) return;
+      const margin = 4;
+      const rect = menu.getBoundingClientRect();
+      // jsdom and the first layout pass can report zero dimensions. The CSS min-width keeps
+      // the fallback conservative, while a real layout uses the measured popup size.
+      const width = rect.width || 180;
+      const height = rect.height;
+      const maxLeft = Math.max(margin, window.innerWidth - width - margin);
+      const maxTop = Math.max(margin, window.innerHeight - height - margin);
+      const left = Math.max(margin, Math.min(point.x, maxLeft));
+      const hasRoomBelow = height === 0 || point.y + height + margin <= window.innerHeight;
+      const preferredTop = hasRoomBelow ? point.y : point.y - height;
+      const top = Math.max(margin, Math.min(preferredTop, maxTop));
+      setMenuPosition((current) => (current?.left === left && current.top === top ? current : { left, top }));
+    };
+    positionMenu();
+    window.addEventListener("resize", positionMenu);
+    return () => window.removeEventListener("resize", positionMenu);
+  }, [point]);
   return (
     <div
       className={cx("ui-context-menu-host", className)}
@@ -75,6 +103,7 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
         event.preventDefault();
         onOpen?.();
         setActive(0);
+        setMenuPosition(null);
         const target = event.target instanceof Element ? event.target : null;
         returnFocus.current =
           target?.closest<HTMLElement>("button, a[href], input, select, textarea, [tabindex]:not([tabindex='-1'])") ??
@@ -94,7 +123,10 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
             >
               <div
                 // Takes focus when it opens, so Up/Down/Return work.
-                ref={(node) => node?.focus()}
+                ref={(node) => {
+                  menuRef.current = node;
+                  node?.focus();
+                }}
                 className="ui-popup ui-context-menu"
                 role="menu"
                 data-focus-ring="rows"
@@ -102,8 +134,8 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
                 style={{
                   position: "fixed",
                   minWidth: 180,
-                  left: Math.max(4, Math.min(point.x, window.innerWidth - 244)),
-                  top: Math.max(4, point.y),
+                  left: `${menuPosition?.left ?? point.x}px`,
+                  top: `${menuPosition?.top ?? Math.max(4, point.y)}px`,
                 }}
                 onPointerDown={(event) => event.stopPropagation()}
                 onKeyDown={(event) => {

@@ -80,13 +80,13 @@ function fixture(selection?: "menu") {
   };
 }
 
-function openContextMenu(target: HTMLElement) {
+function openContextMenu(target: HTMLElement, clientX = 80, clientY = 64) {
   target.dispatchEvent(
     new MouseEvent("contextmenu", {
       bubbles: true,
       cancelable: true,
-      clientX: 80,
-      clientY: 64,
+      clientX,
+      clientY,
     }),
   );
 }
@@ -117,6 +117,42 @@ test("opens at the pointer, skips disabled rows, selects by keyboard, and restor
   await act(async () => reopened.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
   expect(document.querySelector('[role="menu"]')).toBeNull();
   expect(document.activeElement).toBe(target);
+});
+
+test("flips above a low pointer when the menu would leave the viewport", async () => {
+  const container = installDom();
+  Object.defineProperty(dom!.window, "innerWidth", { configurable: true, value: 420 });
+  Object.defineProperty(dom!.window, "innerHeight", { configurable: true, value: 300 });
+  const originalRect = HTMLElement.prototype.getBoundingClientRect;
+  HTMLElement.prototype.getBoundingClientRect = function () {
+    if (this.getAttribute("role") === "menu") {
+      return {
+        bottom: 400,
+        height: 140,
+        left: 0,
+        right: 180,
+        top: 260,
+        width: 180,
+        x: 0,
+        y: 260,
+        toJSON: () => ({}),
+      } as DOMRect;
+    }
+    return originalRect.call(this);
+  };
+  try {
+    const fixtureState = fixture();
+    await act(async () => {
+      root = createRoot(container);
+      root.render(fixtureState.element);
+    });
+    await act(async () => openContextMenu(container.querySelector<HTMLButtonElement>("[data-target]")!, 80, 260));
+    const menu = document.querySelector<HTMLElement>('[role="menu"]')!;
+    expect(menu.style.left).toBe("80px");
+    expect(menu.style.top).toBe("120px");
+  } finally {
+    HTMLElement.prototype.getBoundingClientRect = originalRect;
+  }
 });
 
 test("keeps the native selection menu unless selection mode opts into the app menu", async () => {
