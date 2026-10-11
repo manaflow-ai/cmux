@@ -27,8 +27,6 @@ final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
     var active: Set<ObjectIdentifier> = []
 
     func webView(_ webView: WKWebView, start task: any WKURLSchemeTask) {
-        let diagName = task.request.url?.lastPathComponent ?? "?"
-        AgentPaneLaunchTimings.shared.mark("diag.scheme_start.\(diagName)")
         if task.request.httpMethod.map({ $0 == "GET" }) ?? true,
            let url = task.request.url, AgentPaneRenderFrame.isFrame(url) {
             let data = AgentPaneRenderFrame.document
@@ -69,7 +67,6 @@ final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
             task.didReceive(response ?? URLResponse(url: url, mimeType: nil, expectedContentLength: data.count, textEncodingName: nil))
             task.didReceive(data)
             task.didFinish()
-            AgentPaneLaunchTimings.shared.mark("diag.scheme_done.\(diagName)")
         }
     }
 
