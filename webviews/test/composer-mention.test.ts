@@ -4,6 +4,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { loadGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("composer-mention.test.ts", async () => {
@@ -38,11 +39,10 @@ await requireBrowserLane("composer-mention.test.ts", async () => {
   const play = async (variant: string) => {
     const page = await browser!.newPage({ viewport: { width: 760, height: 560 } });
     const port = (vite!.httpServer!.address() as { port: number }).port;
-    await page.goto(`http://127.0.0.1:${port}/gallery/frame.html?entry=agent-pane.composer&variant=${variant}`);
-    await page.waitForFunction(() => {
-      const ready = document.documentElement.dataset.galleryReady;
-      return ready === "1" || ready === "error";
-    });
+    await loadGalleryFrame(
+      page,
+      `http://127.0.0.1:${port}/gallery/frame.html?entry=agent-pane.composer&variant=${variant}`,
+    );
     await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay));
     const result = await page.evaluate(() => ({
       play: document.documentElement.dataset.galleryPlay,

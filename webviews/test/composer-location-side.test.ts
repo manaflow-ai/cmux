@@ -4,7 +4,8 @@
 // play in Chromium and checks it passed.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
-import { chromium, type Browser, type Page } from "playwright";
+import { chromium, type Browser } from "playwright";
+import { loadGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("composer-location-side.test.ts", async () => {
@@ -30,29 +31,11 @@ await requireBrowserLane("composer-location-side.test.ts", async () => {
     });
     await vite.listen();
     browser = await chromium.launch({ headless: true });
-    // A cold dev server re-optimizes its deps on the first page it serves and can delete chunks
-    // that page is still loading (it reports "error" or never ready). Warm it with a throwaway
-    // page so the measured one loads against settled deps.
-    const warm = await browser.newPage();
-    await load(warm);
-    await warm.close();
   });
 
   const url = () =>
     `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=agent-pane.composer-context-side&variant=filter-keeps-side`;
 
-  /// Loads the gallery frame until it reports ready, again after an error or a timeout.
-  const load = async (page: Page) => {
-    for (let attempt = 1; ; attempt++) {
-      await page.goto(url());
-      const ready = await page
-        .waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 20_000 })
-        .then((handle) => handle.jsonValue())
-        .catch(() => undefined);
-      if (ready === "1") return;
-      if (attempt >= 4) throw new Error(`the gallery frame did not load (${String(ready)})`);
-    }
-  };
   afterAll(async () => {
     await browser?.close();
     await vite?.close();
@@ -60,7 +43,7 @@ await requireBrowserLane("composer-location-side.test.ts", async () => {
 
   test("the folder popover stays on the side it opened on while a filter shrinks it", async () => {
     const page = await browser!.newPage({ viewport: { width: 620, height: 560 } });
-    await load(page);
+    await loadGalleryFrame(page, url());
     await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay));
     const result = await page.evaluate(() => ({
       play: document.documentElement.dataset.galleryPlay,
