@@ -51,8 +51,14 @@ test("a prompt edited in place forks the chat through the turn before it and sen
   const { editableTurns } = await import("../src/agent-session/acpmux/conversation/editPrompt");
   const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
   const sent: [string, number, string][] = [];
+  // The first resend is refused (acpmux would not fork there): the draft stays open.
+  const accept = [false, true];
   const seqs = editableTurns(rows, "claude");
-  const actions = { edit: { seqs, send: (rowId: string, seq: number, text: string) => sent.push([rowId, seq, text]) } };
+  const send = async (rowId: string, seq: number, text: string) => {
+    sent.push([rowId, seq, text]);
+    return accept.shift() ?? true;
+  };
+  const actions = { edit: { seqs, send } };
   const draw = (row: (typeof rows)[number]) =>
     act(() =>
       root!.render(
@@ -77,8 +83,11 @@ test("a prompt edited in place forks the chat through the turn before it and sen
     set.call(editor, "Now cover it with two tests");
     editor.dispatchEvent(new window.Event("input", { bubbles: true }));
   });
-  act(() => button("Send")!.click());
+  await act(async () => button("Send")!.click());
   expect(sent).toEqual([["user-4", 3, "Now cover it with two tests"]]);
+  expect(host.querySelector("textarea")?.value).toBe("Now cover it with two tests");
+  await act(async () => button("Send")!.click());
+  expect(sent.length).toBe(2);
   expect(host.querySelector("textarea")).toBeNull();
 
   // Escape puts the bubble back and sends nothing.
@@ -89,7 +98,7 @@ test("a prompt edited in place forks the chat through the turn before it and sen
       .dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   });
   expect(host.querySelector("textarea")).toBeNull();
-  expect(sent.length).toBe(1);
+  expect(sent.length).toBe(2);
 });
 
 test("only a chat that can fork through an earlier turn offers Edit", async () => {

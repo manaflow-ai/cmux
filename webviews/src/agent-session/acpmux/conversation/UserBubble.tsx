@@ -15,14 +15,18 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
   const [editing, setEditing] = useState(false);
   const [copied, setCopied] = useState(false);
   const through = edit?.seqs.get(row.id);
-  if (editing && edit && through !== undefined) {
+  // An open editor stays while the chat changes under it (a reconnect, a turn starting), so the
+  // draft is kept; Send waits until the prompt can be forked before again. A resend that fails
+  // (the fork refused, the reader opened another chat) leaves the draft open too.
+  if (editing) {
     return (
       <PromptEditor
         initial={row.text ?? text}
+        canSend={edit !== undefined && through !== undefined}
         onCancel={() => setEditing(false)}
-        onSend={(value) => {
-          setEditing(false);
-          edit.send(row.id, through, value);
+        onSend={async (value) => {
+          if (!edit || through === undefined) return;
+          if (await edit.send(row.id, through, value)) setEditing(false);
         }}
       />
     );
@@ -65,15 +69,18 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
 
 function PromptEditor({
   initial,
+  canSend,
   onCancel,
   onSend,
 }: {
   initial: string;
+  canSend: boolean;
   onCancel(): void;
-  onSend(text: string): void;
+  onSend(text: string): Promise<void>;
 }) {
   const t = useT();
   const [value, setValue] = useState(initial);
+  const [sending, setSending] = useState(false);
   const field = useRef<HTMLTextAreaElement>(null);
   // Opened to type in: the caret at the end, the field as tall as the prompt.
   useLayoutEffect(() => {
@@ -88,8 +95,11 @@ function PromptEditor({
     element.style.height = "auto";
     element.style.height = `${element.scrollHeight}px`;
   }, [value]);
+  const ready = canSend && !sending && value.trim() !== "";
   const send = () => {
-    if (value.trim()) onSend(value);
+    if (!ready) return;
+    setSending(true);
+    void onSend(value).finally(() => setSending(false));
   };
   return (
     <div className="cv-user__edit">
@@ -102,7 +112,8 @@ function PromptEditor({
         onChange={(event) => setValue(event.target.value)}
         // ui-allow: the editor's own Enter (send) and Escape (cancel), as the composer's
         onKeyDown={(event) => {
-          if (event.nativeEvent.isComposing) return;
+          // WebKit may end an IME composition before its Enter's keydown, which then says only 229.
+          if (event.nativeEvent.isComposing || event.keyCode === 229) return;
           if (event.key === "Escape") {
             event.preventDefault();
             onCancel();
@@ -120,7 +131,7 @@ function PromptEditor({
           type="button"
           className="cv-user__edit-button cv-user__edit-button--send"
           aria-label={t("message.editSend")}
-          disabled={!value.trim()}
+          disabled={!ready}
           onClick={send}
         >
           {t("message.editSend")}

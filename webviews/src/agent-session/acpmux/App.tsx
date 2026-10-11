@@ -1905,7 +1905,10 @@ function AcpmuxPane() {
         edit: {
           seqs: stableEditSeqs,
           send: (rowId: string, throughSeq: number, text: string) =>
-            void callNative("chat.editResend", { rowId, throughSeq, text }).catch(() => undefined),
+            callNative<boolean>("chat.editResend", { rowId, throughSeq, text }).then(
+              (sent) => sent === true,
+              () => false,
+            ),
         },
       }),
       ...(connected && {
@@ -2769,9 +2772,12 @@ function AcpmuxPane() {
             harnessSwitch.cancel();
             const attachments = client.retryAttachmentsFor(String(rowId ?? ""));
             const forked = await client.fork(Number(throughSeq));
-            if (!forked) return;
+            if (!forked) return false;
             await persistSession(forked);
+            // The reader may open another chat while the fork is saved: the edit belongs to the fork.
+            if (client.selectedSession !== forked) return false;
             await send(String(text ?? ""), attachments);
+            return true;
           },
           "chat.ask": ({ question }) => client.ask(String(question ?? "")),
           "chat.side": async ({ throughSeq }) => {

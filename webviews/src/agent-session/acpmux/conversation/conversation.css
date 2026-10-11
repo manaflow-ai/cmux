@@ -174,7 +174,7 @@
   padding: 0 10px;
   border-radius: 7px;
   font-family: var(--cv-font);
-  font-size: 13px;
+  font-size: var(--text-control);
   line-height: 26px;
   color: var(--cv-text);
   box-shadow: inset 0 0 0 1px var(--cv-rule);

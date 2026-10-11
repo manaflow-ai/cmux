@@ -12,7 +12,10 @@ export type TurnActions = {
   forkSeq?: number;
   /// Edit and resend (cx-ncc.60): the prompts that edit in place, each with the turn its edit forks
   /// through (`editableTurns`), and the send that forks there and sends the edited text.
-  edit?: { seqs: ReadonlyMap<string, number>; send: (rowId: string, throughSeq: number, text: string) => void };
+  edit?: {
+    seqs: ReadonlyMap<string, number>;
+    send: (rowId: string, throughSeq: number, text: string) => Promise<boolean>;
+  };
   /// Send a turn's prompt again (the last turn's Retry), preserving its attachments.
   retry?: (rowId: string, prompt: string) => void;
   /// Re-run the current harness's declared login command after an authentication failure.
