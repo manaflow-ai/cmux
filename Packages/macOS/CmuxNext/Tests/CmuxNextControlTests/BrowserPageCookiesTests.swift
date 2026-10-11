@@ -5,10 +5,12 @@ import Synchronization
 import Testing
 
 /// `browser.page.cookies.*` and `browser.page.storage.*` follow the old
-/// `cmux browser cookies|storage`: listing filters by name, domain substring
-/// and path; clearing takes exactly one of `all` or a scope and matches a
-/// url as a request would; setting takes the domain from the url, the
-/// domain, or the tab's page. Before, app browser tabs had neither.
+/// `cmux browser cookies|storage`: listing filters by name, domain substring,
+/// path, url and the flags; clearing takes a scope, matches a url as a
+/// request would and never leaves the tab's site (the store is the person's
+/// profile, as the driver's `cookies.clear`); setting takes the domain from
+/// the url, the domain, or the tab's page. Before, app browser tabs had
+/// neither.
 @Suite(.timeLimit(.minutes(1))) struct BrowserPageCookiesTests {
     final class CookieEngine: BrowserPageEngine {
         let calls = Mutex<[BrowserPageOperation]>([])
@@ -115,13 +117,39 @@ import Testing
         #expect(deleted(engine) == [Self.admin])
     }
 
-    @Test func clearTakesExactlyOneOfAllOrAScope() async throws {
+    @Test func clearNeedsAScopeAndNeverLeavesTheTabsSite() async throws {
         let (router, engine) = install()
         #expect(await call(router, "browser.page.cookies.clear").failure?.code == "invalid_params")
         #expect(await call(router, "browser.page.cookies.clear", ["all": true, "name": "sid"]).failure?.code == "invalid_params")
+        // Every site of the person's profile is never one clear away.
+        #expect(await call(router, "browser.page.cookies.clear", ["all": true]).failure?.code == "invalid_params")
+        #expect(await call(router, "browser.page.cookies.clear", ["all": "true"]).failure?.data?["param"] == "all")
+        let elsewhere = try await call(router, "browser.page.cookies.clear", ["domain": "other.test"]).get()
+        #expect(elsewhere["cleared"] == 0)
+        #expect(engine.operations.allSatisfy { $0 == .cookies(.list) })
+        // The tab's host, its parent domain and the host-only cookie of that parent.
+        let named = try await call(router, "browser.page.cookies.clear", ["name": "sid"]).get()
+        #expect(named["cleared"] == 2)
+        #expect(Set(deleted(engine)) == [Self.session, Self.admin])
+    }
+
+    @Test func setRefusesACookieThatIsAlreadyExpired() async throws {
+        let (router, engine) = install()
+        let expired = await call(router, "browser.page.cookies.set", ["name": "a", "value": "1", "expires": 1])
+        #expect(expired.failure?.code == "invalid_params")
         #expect(engine.operations.isEmpty)
-        let all = try await call(router, "browser.page.cookies.clear", ["all": true]).get()
-        #expect(all["cleared"] == 4)
+    }
+
+    @Test func listingFiltersByURLAndHTTPOnlyToo() async throws {
+        let (router, _) = install()
+        let httpOnly = try await call(router, "browser.page.cookies.get", ["httpOnly": true]).get()
+        #expect(names(httpOnly) == ["sid@app.example.com"])
+        let script = try await call(router, "browser.page.cookies.get", ["http_only": false, "domain": "example"]).get()
+        #expect(names(script) == ["pref@.example.com", "sid@example.com"])
+        let sent = try await call(router, "browser.page.cookies.get", ["url": "https://example.com/admin/users"]).get()
+        #expect(names(sent) == ["pref@.example.com", "sid@example.com"])
+        #expect(await call(router, "browser.page.cookies.get", ["httpOnly": "yes"]).failure?.data?["param"] == "httpOnly")
+        #expect(await call(router, "browser.page.storage.get", ["key": 3]).failure?.code == "invalid_params")
     }
 
     @Test func setTakesItsDomainFromTheURLTheDomainOrThePage() async throws {

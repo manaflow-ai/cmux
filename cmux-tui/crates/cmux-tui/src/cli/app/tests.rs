@@ -411,6 +411,25 @@ fn browser_cookies_and_storage_reach_the_app_in_the_old_cli_forms() {
             "browser.page.cookies.set",
             json!({ "name": "a", "value": "b" }),
         ),
+        (
+            &["cookies", "get", "--url", "https://cmux.com/", "--http-only"],
+            "browser.page.cookies.get",
+            json!({ "url": "https://cmux.com/", "http_only": true }),
+        ),
+        (
+            &[
+                "cookies",
+                "clear",
+                "--name",
+                "sid",
+                "--value=1",
+                "--expires",
+                "1900000000",
+                "--secure",
+            ],
+            "browser.page.cookies.clear",
+            json!({ "name": "sid", "value": "1", "expires": 1_900_000_000, "secure": true }),
+        ),
         (&["cookies", "clear", "--all"], "browser.page.cookies.clear", json!({ "all": true })),
         (&["storage"], "browser.page.storage.get", json!({})),
         (
