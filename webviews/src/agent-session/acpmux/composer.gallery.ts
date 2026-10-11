@@ -541,6 +541,8 @@ export default agentPaneEntry({
         page.cmuxAcpmuxBridge?.command?.("searchFiles");
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-file-search") !== null);
         await ctx.waitFor(() => ctx.document.activeElement === ctx.document.querySelector(".acpmux-file-search input"));
+      },
+    },
     "mention-picker": {
       note: "Play: type @rea in the prompt; the chat's files that match open under the caret, best first, and Return writes @README.md into the prompt.",
       snapshot: chat(finished),
