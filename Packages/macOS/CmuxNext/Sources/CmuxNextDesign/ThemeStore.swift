@@ -89,12 +89,18 @@ public final class ThemeStore {
     }
 
     /// Sets where the accent comes from and re-derives every scope's tokens with it. Returns
-    /// false when the tokens did not change.
+    /// false when the accent did not change.
     @discardableResult
     public func setAccent(_ accent: ThemeAccent) -> Bool {
         guard accent != self.accent else { return false }
         self.accent = accent
-        return apply(input)
+        // Two accents can give the config's theme the same tokens (`theme` and `magenta` under
+        // Rose Pine) while an overridden scope's theme still differs, so scopes re-derive anyway.
+        if !apply(input), publishesGlobally {
+            ThemeScope.app.storeDidChange()
+            repaintAll()
+        }
+        return true
     }
 
     /// Repaints every window and responder as a theme change does, for a
