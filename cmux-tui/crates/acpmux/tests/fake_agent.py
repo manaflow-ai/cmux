@@ -13,6 +13,9 @@ Behaviour per prompt text:
 FAKE_CODEX_STEER=1: steering as codex-acp 1.10.0 does it. The agent
 advertises steering; a prompt while a turn runs joins that turn, and when
 the turn ends only the last prompt gets an answer (the earlier ones never).
+
+FAKE_SESSION_PREFIX=<p>: session ids are <p><n> instead of fake-<n> (an id as
+long as a real agent's, for checks that refuse short ones).
 """
 import json
 import sys
@@ -30,6 +33,7 @@ known = set()
 
 
 LAST_MCP_SERVERS = None
+SESSION_PREFIX = os.environ.get("FAKE_SESSION_PREFIX", "fake-")
 
 
 def send(obj):
@@ -470,9 +474,9 @@ def main():
                 import time as pause  # main() binds `time` locally
                 pause.sleep(int(os.environ["FAKE_NEW_DELAY_MS"]) / 1000)
             sessions += 1
-            known.add(f"fake-{sessions}")
+            known.add(f"{SESSION_PREFIX}{sessions}")
             result = {
-                "sessionId": f"fake-{sessions}",
+                "sessionId": f"{SESSION_PREFIX}{sessions}",
                 "modes": {"currentModeId": "normal", "availableModes": [{"id": "normal", "name": "Normal"}, {"id": "strict", "name": "Strict"}]},
                 "configOptions": [{"id": "model", "name": "Model", "type": "select", "currentValue": "m1", "options": [{"value": "m1", "name": "m1"}, {"value": "m2", "name": "m2"}]}],
             }
@@ -499,7 +503,7 @@ def main():
             send({"jsonrpc": "2.0", "id": rid, "result": None})
         elif m == "session/fork":
             sessions += 1
-            send({"jsonrpc": "2.0", "id": rid, "result": {"sessionId": f"fake-{sessions}"}})
+            send({"jsonrpc": "2.0", "id": rid, "result": {"sessionId": f"{SESSION_PREFIX}{sessions}"}})
         elif m == "session/set_mode":
             send({"jsonrpc": "2.0", "id": rid, "result": {}})
         elif m == "session/set_config_option":
