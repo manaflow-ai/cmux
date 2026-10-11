@@ -20,8 +20,9 @@
 #      (`scripts/cmux-next/pin-cmux-tui.sh path`). scripts/reload.sh fetches it
 #      before building; by hand, `scripts/cmux-next/pin-cmux-tui.sh fetch`.
 #      Missing, or a sha256 other than the published one, fails the build.
-#   3. pin mode (Release; release jobs then install the pinned commit's
-#      universal client): scripts/cmux-next/cmux-tui.pin, as fetched by
+#   3. pin mode (Release; release and nightly jobs then replace it with the
+#      universal client of their own tree, install-cmux-tui-client.sh, so the
+#      pin is usually not fetched): scripts/cmux-next/cmux-tui.pin, as fetched by
 #      `pin-cmux-tui.sh fetch --pin`; then CMUX_TUI_CLIENT_LOCAL and the newest
 #      release installer cache slice, with a warning. With none of these it
 #      keeps an existing bundled copy, or warns and exits 0.

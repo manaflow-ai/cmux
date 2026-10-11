@@ -1714,7 +1714,9 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             // A thread preview (its outlined root copy, stub and "N Replies") opens the thread too.
             if case let .threadPreview(pv) = spec.kind {
                 let r = cell.convert(cell.bounds, to: self)
-                if p.x <= r.minX + Fixture.leftEdge + max(pv.box.width, 90) { return pv.root }
+                if pv.outgoing {
+                    if p.x >= r.minX + spec.metrics.rightEdge - max(pv.box.width, 90) { return pv.root }
+                } else if p.x <= r.minX + Fixture.leftEdge + max(pv.box.width, 90) { return pv.root }
             }
         }
         return nil

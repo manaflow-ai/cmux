@@ -5,6 +5,10 @@
 
 use super::*;
 
+// Side questions fork the chat too, and share its Claude helpers.
+#[path = "aside.rs"]
+mod aside;
+
 const FORK_OP: &str = "acp.session.fork";
 
 #[tokio::test]

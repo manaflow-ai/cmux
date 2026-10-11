@@ -21,7 +21,9 @@ extension AppBrowserPage {
                 let index = list.current + (operation == .back ? -1 : 1)
                 if list.entries.indices.contains(index) { urls.append(list.entries[index].url) }
             }
-        case .reload, .evaluate, .state: urls = [page.state.url]
+        // A wait scripts the page and a screenshot or the page's cookies read
+        // it, as an evaluate does.
+        case .reload, .evaluate, .evaluateAsync, .screenshot, .cookies, .state: urls = [page.state.url]
         }
         var names: [String] = []
         for url in urls {

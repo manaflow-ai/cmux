@@ -5,8 +5,9 @@ import Foundation
 /// New agent chats in a workspace of another machine (an SSH machine or an owner Cloud VM,
 /// cx-k21v / cx-cmok): the tab records that machine's store as its host
 /// (`registry:<registry id>`), and the chat starts in that machine's own acpmux through its
-/// session daemon (`agent-session-start`, policy `ask`). It never starts on this Mac: a daemon
-/// without the verb, or one that refuses, leaves the tab with the reason.
+/// session daemon (`agent-session-start`, policy `ask`) at the page's first send, never when the
+/// tab opens. It never starts on this Mac: a daemon without the verb, or one that refuses, leaves
+/// the tab with the reason.
 extension AgentTabStore {
     /// `registry:<id>` of `daemon`'s store, the host of a new chat in one of its panes; nil for this
     /// Mac's daemon (its chats record `install:<id>`) or while the remote store has no id yet.
@@ -15,24 +16,42 @@ extension AgentTabStore {
         return AgentTabRemoteStart.registryPrefix + id.lowercased()
     }
 
+    /// Tab `key` as its machine's store lists it: its surface there, and its session once a first
+    /// send started one. Waits for a tab the store is still creating; starts nothing. Nil while the
+    /// store's tree does not list the created tab yet: the page then waits for its first send, and
+    /// the start reads the tab again (a New Tab page opened in a remote pane showed
+    /// `agent_session.unknown_tab` here before the tree caught up).
+    func existingRemoteChat(_ key: String) async throws -> (surface: UInt64, session: String?)? {
+        if let pending = remoteCreations[key] ?? remoteCreations[resolve(key)] { _ = try await pending.value() }
+        let key = resolve(key)
+        guard let (record, store) = lookup(key), let tab = store.tab(id: key), !ProvisionalTab.isProvisional(key) else {
+            return nil
+        }
+        return (tab.surface.rawValue, sessions[key] ?? record.session)
+    }
+
     /// Starts the chat of tab `key` on its machine (`agent-session-start` on that machine's daemon)
-    /// once, and answers its surface in that store and the new session. A tab the store is still
-    /// creating starts once the store answered (the provisional surface names no daemon tab).
-    func startRemoteChat(_ key: String, machine: String, endpoint: @escaping AgentSessionAttachClient.EndpointProvider) async throws
+    /// once, and answers its surface in that store and the new session. Only the page's first
+    /// send calls it (``RemoteAcpmuxWire``), with the page's folder and agent (nil: the tab's seed,
+    /// then a folder of its workspace there). A tab the store is still creating starts once the
+    /// store answered (the provisional surface names no daemon tab).
+    func startRemoteChat(_ key: String, machine: String, cwd: String? = nil, harness: String? = nil,
+                         endpoint: @escaping AgentSessionAttachClient.EndpointProvider) async throws
         -> AgentTabRemoteStart.Started {
         if let running = remoteStarts[resolve(key)] { return try await running.value }
         // task-owner: one start per tab, stored before its first wait, so a ready and a reconnect
         // handshake that overlap share it (the daemon refuses a second start with `limit`)
         let task = Task<AgentTabRemoteStart.Started, any Error> { [weak self] in
             guard let self else { throw CancellationError() }
-            return try await runRemoteStart(key, machine: machine, endpoint: endpoint)
+            return try await runRemoteStart(key, machine: machine, cwd: cwd, harness: harness, endpoint: endpoint)
         }
         remoteStarts[resolve(key)] = task
         defer { if remoteStarts[resolve(key)] == task { remoteStarts[resolve(key)] = nil } }
         return try await task.value
     }
 
-    private func runRemoteStart(_ key: String, machine: String, endpoint: @escaping AgentSessionAttachClient.EndpointProvider) async throws
+    private func runRemoteStart(_ key: String, machine: String, cwd chosen: String?, harness chosenHarness: String?,
+                                endpoint: @escaping AgentSessionAttachClient.EndpointProvider) async throws
         -> AgentTabRemoteStart.Started {
         if let pending = remoteCreations[key] ?? remoteCreations[resolve(key)] { _ = try await pending.value() }
         let key = resolve(key)
@@ -43,12 +62,13 @@ extension AgentTabStore {
         if let session = sessions[key] ?? record.session { return .init(surface: surface, session: session) }
         let seed = await remoteSeeds[key]?.peek()
         // Only an absolute folder of that machine (a `~` or relative one is not its path).
-        guard let cwd = seed?.cwd.flatMap({ $0.hasPrefix("/") ? $0 : nil }) ?? remoteFolder?(key) else {
+        let absolute = { (path: String?) in path.flatMap { $0.hasPrefix("/") ? $0 : nil } }
+        guard let cwd = absolute(chosen) ?? absolute(seed?.cwd) ?? remoteFolder?(key) else {
             throw AgentRemoteStartRefusal.folderNeeded(machine: machine)
         }
         let client = AgentSessionAttachClient(surface: surface, requestTimeout: AgentTabRemoteStart.timeout, endpoint: endpoint)
         let result: Result<String, any Error>
-        do { result = .success(try await client.start(cwd: cwd, harness: seed?.harness)) } catch { result = .failure(error) }
+        do { result = .success(try await client.start(cwd: cwd, harness: chosenHarness ?? seed?.harness)) } catch { result = .failure(error) }
         await client.close()
         switch result {
         case .success(let session):
@@ -96,6 +116,8 @@ nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHostRefusal
     static func startUnsupported(machine: String) -> Self { Self(code: AgentSessionAttachClient.startUnsupported, machine: machine) }
 
     var userMessage: String { errorDescription ?? code }
+
+    var machineName: String? { machine.isEmpty ? nil : machine }
 
     var errorDescription: String? {
         switch code {

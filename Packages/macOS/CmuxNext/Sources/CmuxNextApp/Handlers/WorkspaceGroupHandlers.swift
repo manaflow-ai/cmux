@@ -88,7 +88,9 @@ enum WorkspaceGroupHandlers {
         registry.bind("workspaceGroup.ungroup", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
             try WorkspaceGroupUndo.remove(invocation, context, message: WorkspaceGroupUndo.ungroupedToast)
         })
-        registry.bind("workspaceGroup.closeWorkspaces", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in try edit(invocation, context) { .closeGroup($0) } })
+        registry.bind("workspaceGroup.closeWorkspaces", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
+            try WorkspaceGroupClose.close(invocation, context)
+        })
         registry.bind("workspaceGroup.delete", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
             // RECOVERABLE-BY-DEFAULT: deleting a group keeps its workspaces
             // (Close All Workspaces in Group is the verb that closes them).

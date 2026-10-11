@@ -9,7 +9,7 @@ import { Combobox } from "../../ui/Combobox";
 import { Dialog } from "../../ui/Dialog";
 import type { Strings } from "../shared/i18n";
 import { Avatar } from "./Avatar";
-import { conversationName } from "./model";
+import { channelIds, conversationName } from "./model";
 import type { HomeConversation } from "./types";
 
 export interface SwitcherProps {
@@ -23,6 +23,7 @@ export interface SwitcherProps {
 export function Switcher({ conversations, me, strings, onPick, onClose }: SwitcherProps) {
   const [query, setQuery] = useState("");
   const list = useMemo(() => [...conversations.values()].sort((a, b) => b.updatedAt - a.updatedAt), [conversations]);
+  const channels = useMemo(() => channelIds(conversations.values(), me), [conversations, me]);
   const entries = useMemo<PaletteRankEntry[]>(
     () =>
       list.map((c) => ({
@@ -78,7 +79,7 @@ export function Switcher({ conversations, me, strings, onPick, onClose }: Switch
           if (!c) return null;
           return (
             <>
-              {c.kind === "group" ? (
+              {channels.has(c.id) ? (
                 <span className="hc-hash">#</span>
               ) : (
                 <Avatar participant={c.participants.find((p) => p.id !== me)} size={16} />
@@ -90,6 +91,9 @@ export function Switcher({ conversations, me, strings, onPick, onClose }: Switch
         }}
       />
       {results.length === 0 && <p className="hc-switcher-none">{strings.t("switcher.none")}</p>}
+      <p className="hc-switcher-hint" aria-hidden="true">
+        {strings.t("switcher.hint")}
+      </p>
     </Dialog>
   );
 }

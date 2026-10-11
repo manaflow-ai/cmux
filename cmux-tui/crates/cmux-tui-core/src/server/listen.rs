@@ -5,8 +5,8 @@
 //! owns no protocol handling.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 #[cfg(unix)]
@@ -396,21 +396,33 @@ pub fn bind_session_socket(session: &str, path: Option<PathBuf>) -> anyhow::Resu
 }
 
 /// The session a bound socket's accept loop hands connections to, once the
-/// owner has one. Until then connections get the restoring answer.
+/// owner has one.
+#[derive(Clone)]
 pub(super) struct ServedSession {
     pub(super) mux: Arc<Mux>,
     pub(super) render_service: Arc<RenderService>,
 }
 
+impl ServedSession {
+    /// Serve one accepted connection on its own thread (bounded by the
+    /// session's connection permits).
+    pub(super) fn serve(&self, stream: Box<dyn transport::Stream>) {
+        let Some(permit) = claim_connection(self.mux.connection_stats()) else { return };
+        let mux = self.mux.clone();
+        let render_service = self.render_service.clone();
+        let _ = std::thread::Builder::new().name("mux-conn".into()).spawn(move || {
+            handle_connection_with_permit(mux, stream, render_service, Some(permit));
+        });
+    }
+}
+
 /// Start the accept loop for `listener`. Every accepted connection goes to
-/// the session in `served` when it is set, else to the restoring answer.
+/// `slot`: served by the session once it is attached, parked until then.
 pub(super) fn spawn_accept_loop(
     listener: transport::Listener,
-    served: Arc<OnceLock<ServedSession>>,
+    slot: Arc<super::restoring::SessionSlot>,
     shutdown: Arc<AtomicBool>,
-    session: String,
 ) -> std::io::Result<()> {
-    let restoring = super::restoring::RestoringAnswers::new(session);
     std::thread::Builder::new().name("mux-server".into()).spawn(move || {
         // Resource exhaustion (EMFILE, ENFILE, ENOBUFS) persists across
         // accepts, and an immediate retry ran this thread at 100% CPU until
@@ -436,16 +448,9 @@ pub(super) fn spawn_accept_loop(
             if shutdown.load(Ordering::Acquire) {
                 break;
             }
-            let Some(session) = served.get() else {
-                restoring.answer(stream, &served);
-                continue;
-            };
-            let Some(permit) = claim_connection(session.mux.connection_stats()) else { continue };
-            let mux = session.mux.clone();
-            let render_service = session.render_service.clone();
-            let _ = std::thread::Builder::new().name("mux-conn".into()).spawn(move || {
-                handle_connection_with_permit(mux, stream, render_service, Some(permit));
-            });
+            if let Some((session, stream)) = slot.route(stream) {
+                session.serve(stream);
+            }
         }
     })?;
     Ok(())
@@ -459,7 +464,7 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
 
 /// Serve `mux` on a socket bound earlier, before lifecycle readiness.
 pub fn serve_bound(mux: Arc<Mux>, bound: BoundSocket) -> anyhow::Result<PendingServer> {
-    Ok(bound.serve_restoring(&mux.session)?.attach(mux))
+    Ok(bound.serve_restoring()?.attach(mux))
 }
 
 /// Bind the socket and serve connections on background threads.

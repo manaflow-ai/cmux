@@ -643,7 +643,7 @@ fn install(
 
     // Main's synchronous natives (port plan D1): secrets(op, argsJSON) and
     // policy(op, argsJSON) answer {"ok": value} or {"error": {code, message}}.
-    for name in ["secrets", "policy"] {
+    for name in ["secrets", "policy", "history"] {
         let host = host.clone();
         let sandbox = sandbox.clone();
         let function = Function::new(ctx.clone(), move |op: String, args: String| -> String {

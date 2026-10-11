@@ -156,6 +156,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
             openPopup(child, request: request, openerKey: key, pane: pane)
         case .unhandledKey(let pageKey):
             services.keyRouter.routePageKey(pageKey, from: page)
+        case .webNotification(let notification):
+            services.notifications.postWebNotification(notification, surface: openerTab.surface)
         case .unhandledEscape, .resizePopup:
             break
         case .takeFocus:
