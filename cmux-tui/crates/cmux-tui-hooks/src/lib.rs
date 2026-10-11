@@ -114,6 +114,10 @@ const CODEX_EVENTS: &[&str] = &[
     "SessionEnd",
 ];
 
+/// Leaves out `WorktreeCreate` and `WorktreeRemove`, whose hooks replace Claude
+/// Code's own worktree handling. Claude Code reads the new worktree's path from
+/// a `WorktreeCreate` hook's stdout, and skips its `git worktree remove` when a
+/// `WorktreeRemove` hook exits 0.
 const CLAUDE_EVENTS: &[&str] = &[
     "ConfigChange",
     "CwdChanged",
@@ -142,8 +146,6 @@ const CLAUDE_EVENTS: &[&str] = &[
     "TaskCreated",
     "TaskCompleted",
     "TeammateIdle",
-    "WorktreeCreate",
-    "WorktreeRemove",
 ];
 
 const GEMINI_EVENTS: &[&str] = &[
