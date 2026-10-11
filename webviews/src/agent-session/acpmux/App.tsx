@@ -702,7 +702,12 @@ function RowFrame({
   }, [observer]);
   useLayoutEffect(() => {
     const node = ref.current;
-    if (node) report(row.id, row.version, node.getBoundingClientRect().height);
+    if (node)
+      report(
+        row.id,
+        row.version,
+        acpmuxPerf.timed("row.measure", () => node.getBoundingClientRect().height),
+      );
   }, [row.id, row.version, rowWidth, expanded, report]);
   return (
     <article
@@ -1000,7 +1005,7 @@ export function VirtualTranscript({
             // that did not change render nothing: a synchronous render here for nothing was the
             // "ResizeObserver loop completed with undelivered notifications" while streaming.
             if (!changesDrawn(drawnRef.current, pendingDrawn.current)) pendingDrawn.current = new Map();
-            else flushSync(flushDrawn);
+            else acpmuxPerf.timed("flush.drawn", () => flushSync(flushDrawn));
           }),
     [reportDrawn, flushDrawn],
   );
@@ -1366,10 +1371,12 @@ export function VirtualTranscript({
     pacing.scrolled();
     const next = event.currentTarget.scrollTop;
     scrolledTo.current = scrollPosition(event.currentTarget, layout.totalHeight);
-    flushSync(() => {
-      setScroll((current) => ({ top: next, delta: next - current.top }));
-      setFollowing(scrolledTo.current.atLatest);
-    });
+    acpmuxPerf.timed("flush.scroll", () =>
+      flushSync(() => {
+        setScroll((current) => ({ top: next, delta: next - current.top }));
+        setFollowing(scrolledTo.current.atLatest);
+      }),
+    );
     if (onAnchor) {
       clearTimeout(anchorTimer.current);
       anchorTimer.current = setTimeout(reportAnchor, SCROLL_ANCHOR_SETTLE_MS);
@@ -1877,15 +1884,17 @@ function AcpmuxPane() {
   const transcriptRows = useMemo(() => {
     if (childRows) return childRows;
     const rows = sourceRows;
-    return withMoveRows(
-      withShellRows(
-        withSubagentRows(
-          turnView(rows, expanded, { working: snapshot.isWorking, clockOffset: snapshot.clockOffsetMs }),
-          expanded,
+    return acpmuxPerf.timed("app.rows", () =>
+      withMoveRows(
+        withShellRows(
+          withSubagentRows(
+            turnView(rows, expanded, { working: snapshot.isWorking, clockOffset: snapshot.clockOffsetMs }),
+            expanded,
+          ),
+          chatShellRuns,
         ),
-        chatShellRuns,
+        sessionMoves,
       ),
-      sessionMoves,
     );
   }, [childRows, sourceRows, expanded, snapshot.isWorking, snapshot.clockOffsetMs, chatShellRuns, sessionMoves]);
   /// The summary popover's Lineage: where the shown view sits among the chat's subagents.

@@ -83,7 +83,8 @@ export async function loadRun(
   scroller.scrollTop = scroller.scrollHeight;
   const warmup: number[] = [];
   for (let index = 0; index < 30; index += 1) warmup.push(await frame());
-  const nominal = Math.max(1, median(warmup.slice(1).map((time, index) => time - warmup[index]!)));
+  // A page still busy from the seed stretches the warmup frames; no display here is slower than 60 Hz.
+  const nominal = Math.min(1000 / 60, Math.max(1, median(warmup.slice(1).map((time, index) => time - warmup[index]!))));
   acpmuxPerf.resetFrames();
   const streaming = mock.streamLoadTurn(session, {
     seconds,
@@ -137,7 +138,7 @@ export async function loadRun(
   const sorted = [...work].sort((a, b) => a - b);
   const stats = acpmuxPerf.stats(false) as Record<string, unknown>;
   // The longest frames, in order, with what they spent where.
-  const samples = acpmuxPerf.stats(true).samples as { interval_ms: number; layout_ms: number; react_ms: number }[];
+  const samples = acpmuxPerf.stats(true).samples as Record<string, unknown>[];
   const longest = work
     .map((ms, index) => ({ index, work_ms: round2(ms), ...samples[index - 1] }))
     .sort((a, b) => b.work_ms - a.work_ms)
@@ -169,6 +170,7 @@ export async function loadRun(
     layout_ms: stats.layout,
     react_ms: stats.react,
     other_ms: stats.other,
+    spans: stats.spans,
     longest,
   };
 }

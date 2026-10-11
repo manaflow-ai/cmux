@@ -656,7 +656,7 @@ export class AcpmuxDirectClient {
           onLost();
         } else this.scheduleReconnect();
       };
-      socket.onmessage = (message) => this.receive(String(message.data));
+      socket.onmessage = (message) => acpmuxPerf.timed("client.receive", () => this.receive(String(message.data)));
     });
     try {
       const initialized = await this.request("initialize", {
@@ -1521,6 +1521,10 @@ export class AcpmuxDirectClient {
   }
 
   private emit(connection = "connected"): void {
+    acpmuxPerf.timed("client.emit", () => this.emitNow(connection));
+  }
+
+  private emitNow(connection: string): void {
     // This snapshot carries every event so far, so a snapshot waiting for the frame has nothing left.
     this.frameSnapshot = undefined;
     const summary = this.summary;
