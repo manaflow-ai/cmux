@@ -6,6 +6,7 @@
 #include "include/cef_devtools_message_observer.h"
 #include "include/cef_parser.h"
 #include "command_line_switches.h"
+#include "external_url.h"
 #include "local_file_handoff.h"
 #include "page_scheme_registration.h"
 #include "shim_internal.h"
@@ -139,7 +140,6 @@ class Client : public CefClient,
     if (!frame->IsMain()) return false;
     int id = browser->GetIdentifier();
     std::string url = request->GetURL().ToString();
-    RecordNavigationGesture(id, url, user_gesture && !is_redirect);
     // A sign-in tab's callback never loads: the session ends with its URL.
     if (NavigationIsAuthCallback(id, url)) {
       Emit(CMUX_SHIM_AUTH_CALLBACK, id, 0, is_redirect ? 1 : 0, 0, url);
@@ -151,6 +151,10 @@ class Client : public CefClient,
       Emit(CMUX_SHIM_LOCAL_FILE_HANDOFF, id, 0, 0, 0, url);
       return true;
     }
+    if (IsExternalAppURL(url)) {
+      Emit(CMUX_SHIM_EXTERNAL_URL, id, 0, user_gesture && !is_redirect ? 1 : 0, 0, url);
+      return true;
+    }
     if (!NavigationViolatesGuard(id, url)) return false;
     Emit(CMUX_SHIM_NAVIGATION_REROUTE, id, 0, is_redirect ? 1 : 0, 0, url);
     return true;
@@ -158,10 +162,10 @@ class Client : public CefClient,
 
   // MARK: Chrome Web Store
 
-  CefRefPtr<CefResourceRequestHandler> GetResourceRequestHandler(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame,
-                                                                 CefRefPtr<CefRequest> request, bool is_navigation, bool,
+  CefRefPtr<CefResourceRequestHandler> GetResourceRequestHandler(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>,
+                                                                 CefRefPtr<CefRequest> request, bool, bool,
                                                                  const CefString&, bool&) override {
-    return NavigationRequestHandler(request->GetURL().ToString(), is_navigation && frame && frame->IsMain());
+    return WebStoreRequestHandler(request->GetURL().ToString());
   }
 
   // MARK: Renderer process failures
@@ -335,7 +339,6 @@ class Client : public CefClient,
     int id = browser->GetIdentifier();
     TakeUnresponsiveCallback(id);
     ForgetNavigationGuard(id);
-    ForgetNavigationGesture(id);
     registrations_.erase(id);
     ForgetDevToolsProtocol(id);
     browsers().erase(id);
