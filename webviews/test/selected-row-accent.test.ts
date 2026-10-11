@@ -40,6 +40,10 @@ await requireBrowserLane("selected-row-accent.test.ts", async () => {
     ["New Tab chats row", `<div class="nt-all-row" data-selected>Fix the build</div>`],
     ["omnibar row", `<div class="acpmux-omni-row is-selected">Fix the build</div>`],
     ["session row", `<div class="acpmux-session-row is-selected">Fix the build</div>`],
+    [
+      "checked question mark",
+      `<div class="acpmux-question-row" aria-checked="true"><span class="acpmux-question-mark" data-multi></span></div>`,
+    ],
   ];
   const page = (accent: string) => `<!doctype html><html><head><style>
 ${css}
@@ -57,7 +61,7 @@ ${css}
       const styles = async (accent: string) => {
         const tab = await browser.newPage();
         await tab.setContent(page(accent));
-        const out = await tab.$$eval(".acpmux-shell > *", (nodes) =>
+        const out = await tab.$$eval(".acpmux-shell > :not(.acpmux-question-row), .acpmux-question-mark", (nodes) =>
           nodes.map((node) => {
             const style = getComputedStyle(node);
             return { background: style.backgroundColor, color: style.color };
@@ -66,6 +70,19 @@ ${css}
         await tab.close();
         return out;
       };
+
+      test("before a theme arrives, a selected row is not tinted with the placeholder blue", async () => {
+        const tab = await browser.newPage();
+        await tab.setContent(
+          `<!doctype html><html><head><style>${css}</style></head><body><div class="acpmux-shell">${ROWS[0][1]}</div></body></html>`,
+        );
+        const [accent, text] = await tab.$eval(":root", (root) => {
+          const style = getComputedStyle(root);
+          return [style.getPropertyValue("--agent-accent").trim(), style.getPropertyValue("--agent-text").trim()];
+        });
+        expect(accent).toBe(text);
+        await tab.close();
+      });
 
       test("a theme accent tints the selection; the row text stays the text color", async () => {
         const neutral = await styles(TEXT);
