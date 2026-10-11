@@ -668,6 +668,7 @@ function RowFrame({
       ref={ref}
       id={rowDomId(row.id)}
       data-row-id={row.id}
+      data-row-card={row.ended ? "true" : undefined}
       className={`acpmux-row acpmux-${kind}${entering ? " acpmux-row--enter" : ""}`}
       data-transcript-active={active ? "true" : undefined}
       data-transcript-selected={selected ? "true" : undefined}
@@ -1230,27 +1231,34 @@ export function VirtualTranscript({
   // Find matches the chat's rows; the transcript draws a match's row (or its copy in an open fold)
   // once its fold is open.
   const findIndex = findTarget ? findRowIndex(rows, findTarget.rowId) : -1;
+  const drawnId = rows[findIndex]?.id;
+  const drawnCard = Boolean(rows[findIndex]?.ended);
   const revealing = useRef<string | undefined>(undefined);
   const targetKey =
-    findTarget && findQuery && findIndex >= 0 ? `${findTarget.rowId}:${findTarget.occurrence}:${findQuery}` : undefined;
+    findTarget && findQuery && drawnId !== undefined
+      ? `${drawnId}:${drawnCard}:${findTarget.occurrence}:${findQuery}`
+      : undefined;
   // A group or call that opens to show the match asks for a render here, so the highlights and
   // the scroll below see its text.
   const [, setRevealed] = useState(0);
+  // Keyed on what it names, not the match object, which is new on each update while Find is open:
+  // a new value would open again every group a reader closed.
   const findReveal = useMemo(
     () =>
-      findTarget && findQuery
+      drawnId !== undefined && findQuery
         ? {
-            rowId: findTarget.rowId,
+            rowId: drawnId,
+            card: drawnCard,
             needle: findQuery.toLocaleLowerCase(),
             repaint: () => setRevealed((count) => count + 1),
           }
         : undefined,
-    [findTarget, findQuery],
+    [drawnId, drawnCard, findQuery],
   );
   const revealUntil = useRef(0);
   useLayoutEffect(() => {
     revealing.current = targetKey;
-    revealUntil.current = performance.now() + FIND_REVEAL_MS;
+    revealUntil.current = 0;
     const node = ref.current;
     if (!node || !findTarget || !targetKey) return;
     const top = layout.tops[findIndex];
@@ -1263,10 +1271,17 @@ export function VirtualTranscript({
     const node = ref.current;
     if (!node) return;
     if (!findQuery) return clearFindHighlights();
-    const current = paintFindHighlights(node, findQuery, findTarget);
+    const current = paintFindHighlights(
+      node,
+      findQuery,
+      findTarget && drawnId !== undefined
+        ? { rowId: drawnId, card: drawnCard, occurrence: findTarget.occurrence }
+        : undefined,
+    );
     if (!current || revealing.current !== targetKey) return;
     // A match in a closed group is drawn before the group opens (with no size), and it moves as the
-    // opened parts and the rows above it measure, so it is kept in view for a moment.
+    // opened parts and the rows above it measure, so it is kept in view for a moment once drawn.
+    if (!revealUntil.current) revealUntil.current = performance.now() + FIND_REVEAL_MS;
     if (performance.now() > revealUntil.current) {
       revealing.current = undefined;
       return;

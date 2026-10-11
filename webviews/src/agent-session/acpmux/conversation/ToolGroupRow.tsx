@@ -48,7 +48,7 @@ export function ToolGroupRow({ kind, items }: { kind: ToolGroupKind; items: read
         onClick={() => setOpen((value) => !value)}
       >
         <span className="cv-tool__icon">{running ? <Spinner size={16} /> : groupIcon(kind)}</span>
-        <span className="cv-tool__text">
+        <span className="cv-tool__text" data-find-skip>
           {toolGroupLabel(
             t,
             kind,

@@ -33,7 +33,9 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
         ref={menuPartRef({ command: tool.command, output: tool.output?.replace(/\n$/, "") })}
         onClick={() => setOpen((value) => !value)}
       >
-        <code className="cv-command__line">{tool.command}</code>
+        <code className="cv-command__line" data-find-skip={open || undefined}>
+          {tool.command}
+        </code>
         <span className="cv-command__meta">
           {running ? (
             <Spinner size={12} />

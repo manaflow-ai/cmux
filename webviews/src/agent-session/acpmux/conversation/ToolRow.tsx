@@ -60,7 +60,7 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
   const content = (
     <>
       <span className="cv-tool__icon">{toolIcon(tool.kind)}</span>
-      <span className="cv-tool__text">
+      <span className="cv-tool__text" data-find-skip={(open && shell) || undefined}>
         {label}
         {failed && <span className="cv-tool__detail"> {t("tools.failed")}</span>}
       </span>

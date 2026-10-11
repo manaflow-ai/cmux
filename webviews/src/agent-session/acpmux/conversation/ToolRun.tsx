@@ -37,7 +37,9 @@ export function ToolRun({ items, children }: { items: readonly AcpmuxActivity[];
         onClick={() => setOpen((value) => !value)}
       >
         <span className="cv-tool__icon">{runIcon(toolRunCategories(items)[0])}</span>
-        <span className="cv-tool__text">{toolRunSummary(items)}</span>
+        <span className="cv-tool__text" data-find-skip>
+          {toolRunSummary(items)}
+        </span>
         <ChevronRight
           size={14}
           strokeWidth={1.2}
