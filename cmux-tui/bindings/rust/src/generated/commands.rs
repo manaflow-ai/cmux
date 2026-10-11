@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR d0a42dd548cef14d5af8234261f78079a10780e9a690f24c76e0110d85c41616.
+// cmux-tui mux protocol 12, IR 1d70dc553082c25457ff4d25274ec37ed0e9702006200b44701d01e6eb46e0ce.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1345,6 +1345,15 @@ pub struct ForgetSessionRequest {
 pub type ForgetSessionResult = T::JsonValue;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetBlobRequest {
+    pub blob: String,
+}
+
+#[rustfmt::skip]
+pub type GetBlobResult = T::JsonValue;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct GetBrowserProviderRequest {
 }
@@ -2264,6 +2273,16 @@ pub struct ProcessInfoRequest {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PutBlobRequest {
+    pub data: String,
+    pub media_type: String,
+}
+
+#[rustfmt::skip]
+pub type PutBlobResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PutFrontendProjectionRequest {
     /// Accepted by the current decoder but ignored for projection writes.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -2554,6 +2573,7 @@ pub struct ResolveTerminalRequest {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RestartTabRequest {
+    #[serde(alias = "tab")]
     pub surface: T::TabRef,
 }
 
@@ -3935,6 +3955,10 @@ impl CmuxClient {
         self.execute(&FORGET_SESSION_METADATA, &request)
     }
 
+    pub fn get_blob(&mut self, request: GetBlobRequest) -> Result<GetBlobResult> {
+        self.execute(&GET_BLOB_METADATA, &request)
+    }
+
     pub fn get_browser_provider(&mut self, request: GetBrowserProviderRequest) -> Result<GetBrowserProviderResult> {
         self.execute(&GET_BROWSER_PROVIDER_METADATA, &request)
     }
@@ -4333,6 +4357,10 @@ impl CmuxClient {
 
     pub fn process_info(&mut self, request: ProcessInfoRequest) -> Result<T::ProcessInfoResult> {
         self.execute(&PROCESS_INFO_METADATA, &request)
+    }
+
+    pub fn put_blob(&mut self, request: PutBlobRequest) -> Result<PutBlobResult> {
+        self.execute(&PUT_BLOB_METADATA, &request)
     }
 
     pub fn put_frontend_projection(&mut self, request: PutFrontendProjectionRequest) -> Result<PutFrontendProjectionResult> {

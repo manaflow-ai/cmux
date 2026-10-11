@@ -4,7 +4,8 @@ import Foundation
 nonisolated struct PreviousRun: Codable, Equatable, Sendable {
     var pid: Int32
     var launched: Date
-    /// That run itself was a restart after a problem.
+    /// That run followed a crash or a quick kill
+    /// (`LaunchRecovery.watchesForLoop`).
     var recovery: Bool
     /// That run lived past `LaunchRecovery.quickCrashWindow`.
     var survived: Bool
@@ -31,19 +32,26 @@ nonisolated struct PreviousRun: Codable, Equatable, Sendable {
         if let signal { return LaunchRecovery.requestedQuitSignals.contains(signal) }
         return quitting == true
     }
+
+    /// The run crashed: its fatal signal handler wrote the signal, or it
+    /// ended on an uncaught exception. A run that ended with no handler
+    /// running (`kill -9`, jetsam, power loss) did not crash; its next
+    /// launch restores the same way, without the restart notice.
+    var crashed: Bool { signal != nil || exception != nil }
 }
 
 /// How this launch follows the previous one. Pure: `AppRunMarker` supplies
 /// the inputs.
 nonisolated enum LaunchRecovery: Equatable, Sendable {
-    /// The previous run quit normally, or was asked to: a quit that had
-    /// begun, or a requested-quit signal recorded before `QuitSignal` ran.
+    /// The previous run quit normally, was asked to (a quit that had begun,
+    /// or a requested-quit signal recorded before `QuitSignal` ran), or was
+    /// killed with no handler running (`kill -9`, jetsam, power loss).
     case clean
     /// The previous run ended unexpectedly: restore everything and show the
     /// notice.
     case restarted(PreviousRun)
-    /// The previous run was already a restart and ended again soon after it
-    /// started: restore windows and terminals, but not browser pages, and
+    /// The previous run followed a crash or a quick kill and ended again
+    /// soon after it started: restore windows and terminals, but not browser pages, and
     /// say so (no restart loop through a page that kills the app).
     case restartedSafely(PreviousRun)
 
@@ -58,7 +66,17 @@ nonisolated enum LaunchRecovery: Equatable, Sendable {
     static func decide(previous: PreviousRun?) -> LaunchRecovery {
         guard let previous, !previous.endedAsAsked else { return .clean }
         if previous.recovery, !previous.survived { return .restartedSafely(previous) }
-        return .restarted(previous)
+        return previous.crashed ? .restarted(previous) : .clean
+    }
+
+    /// Whether this launch watches for a restart loop: it follows a crash,
+    /// or a run killed within `quickCrashWindow` of its launch (a hang at
+    /// restore ends in Force Quit, which records no signal). If this run
+    /// also ends early, the next launch restores without browser pages.
+    static func watchesForLoop(previous: PreviousRun?) -> Bool {
+        if decide(previous: previous).isRestart { return true }
+        guard let previous, !previous.endedAsAsked else { return false }
+        return !previous.survived
     }
 
     var previous: PreviousRun? {

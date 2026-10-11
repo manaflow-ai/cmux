@@ -100,6 +100,7 @@ pub(super) fn response_error_code(error: &anyhow::Error) -> Option<String> {
         .or_else(|| crate::mux::feed_local::feed_error_code(error))
         .or_else(|| super::clipboard_read::error_code(error))
         .or_else(|| super::chief_inspect::error_code(error))
+        .or_else(|| super::icon_assets::error_code(error))
         .or_else(|| super::conversations::error_code(error))
         .or_else(|| super::cloud_conversations::error_code(error))
         .or_else(|| super::new_screen::error_code(error))

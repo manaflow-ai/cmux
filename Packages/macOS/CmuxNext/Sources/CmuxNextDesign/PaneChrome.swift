@@ -41,8 +41,6 @@ public nonisolated enum PaneSeparation: String, Sendable, CaseIterable, Codable 
 
     /// Each pane draws its own hairline outline.
     public var drawsPaneBorder: Bool { self == .borders }
-    /// A split divider may draw its line at rest.
-    public var drawsIdleDivider: Bool { self == .dividers }
     /// A divider or column edge shows its line on hover and while dragged.
     public var drawsDividerFeedback: Bool { self != .none }
 }

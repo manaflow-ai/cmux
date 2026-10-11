@@ -152,6 +152,8 @@ pub enum ResourceOperation {
     ConversationEvents,
     #[serde(rename = "git.diff")]
     GitDiff,
+    #[serde(rename = "git.files.list")]
+    GitFilesList,
     #[serde(rename = "git.files.search")]
     GitFilesSearch,
     #[serde(rename = "git.status")]
@@ -596,6 +598,7 @@ impl ResourceOperation {
                 | Self::GitCheckpointGet
                 | Self::GitCheckpointList
                 | Self::GitDiff
+                | Self::GitFilesList
                 | Self::GitFilesSearch
                 | Self::GitStatus
                 | Self::WorkspaceList

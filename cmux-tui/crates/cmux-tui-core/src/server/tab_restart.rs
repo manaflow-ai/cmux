@@ -15,7 +15,9 @@ pub(super) const CAPABILITY: &str = "tab-restart-v1";
 /// `restart-tab`.
 #[derive(Deserialize)]
 pub(super) struct Params {
-    /// The tab: its numeric surface id or its public `tab_...` id.
+    /// The tab: its numeric surface id or its public `tab_...` id (`tab`
+    /// is the CLI's name for the field).
+    #[serde(alias = "tab")]
     surface: TabRef,
 }
 

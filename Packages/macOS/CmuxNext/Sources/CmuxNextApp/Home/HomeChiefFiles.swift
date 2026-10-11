@@ -15,7 +15,7 @@ nonisolated struct HomeChiefSnapshot: Sendable {
 /// This Chief's files under its mux home: `optchat/engine.json` (the engine
 /// optchat-chief reads at each turn start; read only here, the brain is its
 /// one writer and a change goes through `chief.engine.set`),
-/// `optchat/profile.json` (the avatar) and `optchat/traces/` (read only). Blocking file I/O, so it runs
+/// `optchat/profile.json` (the avatar: text, or a picture file beside it) and `optchat/traces/` (read only). Blocking file I/O, so it runs
 /// off the main actor.
 nonisolated struct HomeChiefFiles: Sendable {
     let muxHome: URL
@@ -51,8 +51,24 @@ nonisolated struct HomeChiefFiles: Sendable {
         return configured(object(acpmuxConfigFile)["coderouterClaudeRoute"] as? String)
     }
 
-    /// The avatar alone (the header reads it when Home opens).
+    /// The avatar value alone (text or a picture's file name).
     func avatar() -> String? { snapshot().avatar }
+
+    /// Whether an avatar value names a picture rather than text: a file
+    /// name (no path) with an image extension, e.g. `"avatar": "cat.png"`.
+    static func namesPicture(_ avatar: String) -> Bool {
+        !avatar.contains("/") && ["png", "jpg", "jpeg", "heic"].contains((avatar as NSString).pathExtension.lowercased())
+    }
+
+    /// The header's avatar from one profile read: its text, or the bytes of
+    /// the picture it names (beside profile.json). A picture that cannot be
+    /// read gives neither, so its file name never shows as text.
+    func headerAvatar() -> (text: String?, picture: Data?) {
+        guard let avatar = (object(profileFile)["avatar"] as? String).flatMap({ $0.isEmpty ? nil : $0 }) else { return (nil, nil) }
+        guard Self.namesPicture(avatar) else { return (avatar, nil) }
+        // concurrency-allow: HomeChiefFiles runs only inside Task.detached, never on the main actor
+        return (nil, try? Data(contentsOf: profileFile.deletingLastPathComponent().appendingPathComponent(avatar)))
+    }
 
     func writeAvatar(_ text: String) {
         var profile = object(profileFile)

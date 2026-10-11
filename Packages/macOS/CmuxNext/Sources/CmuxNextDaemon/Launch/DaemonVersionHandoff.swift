@@ -38,8 +38,11 @@ final class DaemonHandoffState: Sendable {
         state.withLock { if $0.exiting == pid { $0.exiting = nil } }
     }
 
-    func takeExiting() -> Int32? {
-        state.withLock { $0.exiting.take() }
+    /// The daemon exiting for a handoff. It stays set until a connect saw
+    /// it exit (`cancel`), so every connect waits it out, including the
+    /// exiting daemon's own connection reconnecting at the same moment.
+    var exiting: Int32? {
+        state.withLock { $0.exiting }
     }
 }
 

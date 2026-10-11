@@ -67,3 +67,30 @@ test("an unset theme previews the Ghostty config's own colors from the host", as
   // The mock's config is Apple System Colors (#1e1e1e); the preview draws its background.
   expect(preview.querySelector("rect")?.getAttribute("fill")).toBe("#1e1e1e");
 });
+
+test("a theme shows as a round ball: its background, its text color and its six hues, the accent hue largest", async () => {
+  page = await renderPage({ path: "/settings/theme", mock: { values: { "appearance.theme": "Dracula" } } });
+  const ball = theme(page).querySelector<SVGElement>("[data-theme-picker] [data-theme-ball]")!;
+  expect(ball.getAttribute("data-theme-ball")).toBe("Dracula");
+  // Only circles: no rounded rectangles or pills.
+  expect(ball.querySelectorAll("rect, path, ellipse").length).toBe(0);
+  const fill = (selector: string) => ball.querySelector(selector)?.getAttribute("fill");
+  expect(fill('[data-ball="surface"]')).toBe("#282a36");
+  expect(fill('[data-ball="text"]')).toBe("#f8f8f2");
+  const dracula = [
+    ["#ff5555", "#ff6e6e"],
+    ["#50fa7b", "#69ff94"],
+    ["#f1fa8c", "#ffffa5"],
+    ["#bd93f9", "#d6acff"],
+    ["#ff79c6", "#ff92df"],
+    ["#8be9fd", "#a4ffff"],
+  ];
+  const ring = [...ball.querySelectorAll("[data-ball-hue]")];
+  expect(ring.map((dot) => dot.getAttribute("data-ball-hue"))).toEqual(["1", "2", "3", "4", "5", "6"]);
+  ring.forEach((dot, index) => expect(dracula[index]).toContain(dot.getAttribute("fill")!));
+  // Dracula's `theme` accent is its magenta: that dot is the largest of the ring.
+  const accent = ball.querySelector("[data-ball-accent]")!;
+  expect(accent.getAttribute("data-ball-hue")).toBe("5");
+  const radius = (dot: Element) => Number(dot.getAttribute("r"));
+  for (const dot of ring) if (dot !== accent) expect(radius(accent)).toBeGreaterThan(radius(dot));
+});
