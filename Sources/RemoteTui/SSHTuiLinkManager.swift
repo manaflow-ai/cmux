@@ -50,9 +50,13 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
     /// `ssh`. Restores and reconnects skip it: the carrier's own retries wait
     /// for a host or an agent that comes back, with one login per link.
     func connected(machineID: String, preflight: Bool, upgrade: Bool = false) async throws -> CloudMachineLink.Connected {
+        try Task.checkCancellation()
         guard machineID == connection.id else { throw CancellationError() }
         guard isEnabled() else { await disconnect(); throw CancellationError() }
-        if let current, await current.isConnected, let ready = await current.connected { return ready }
+        if let current, await current.isConnected, let ready = await current.connected {
+            try Task.checkCancellation()
+            return ready
+        }
         // The preflight spends from a new carrier's startup budget, which the
         // socket call's own deadline was sized around. A carrier a restore
         // started during the check keeps its own budget.
@@ -71,10 +75,18 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
             guard isEnabled() else { await disconnect(); throw CancellationError() }
             // A carrier that logged in meanwhile answers the open, whatever
             // the check reported before it.
-            if let current, await current.isConnected, let ready = await current.connected { return ready }
+            if let current, await current.isConnected, let ready = await current.connected {
+                try Task.checkCancellation()
+                return ready
+            }
             if let failure { throw failure }
         }
-        if let connecting { return try await connecting.value }
+        if let connecting {
+            let ready = try await connecting.value
+            try Task.checkCancellation()
+            return ready
+        }
+        try Task.checkCancellation()
         let link = CloudMachineLink(machineID: machineID, clientURL: clientURL, paths: paths)
         current = link
         var carrier = connection
@@ -89,6 +101,7 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
         defer { if connecting == attempt { connecting = nil } }
         do {
             let ready = try await attempt.value
+            try Task.checkCancellation()
             guard connecting == attempt, !attempt.isCancelled, isEnabled() else { throw CancellationError() }
             return ready
         } catch {

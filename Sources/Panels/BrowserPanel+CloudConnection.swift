@@ -56,7 +56,7 @@ extension BrowserPanel {
         let schemes = ["http", "https", "ws", "wss"]
         let blockedHosts = [
             ("localhost\\.?", true), (".*\\.localhost\\.?", true),
-            ("127\\.", false), ("0\\.0\\.0\\.0", true),
+            ("127(?:\\.[0-9]+){1,3}", true), ("0\\.0\\.0\\.0", true),
             ("\\[::1\\]", true), ("\\[0:0:0:0:0:0:0:1\\]", true),
             ("\\[::ffff:", false), ("[0-9]+", true)
         ]
