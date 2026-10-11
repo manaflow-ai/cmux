@@ -113,10 +113,8 @@ async fn echoes_until(c: &mut TestClient, last: &str) -> Vec<String> {
         .collect_until(|m, p| m == method::SESSION_UPDATE && p["update"]["content"]["text"] == last)
         .await;
     seen.iter()
-        .filter_map(|(m, p)| {
-            (m == method::SESSION_UPDATE).then(|| p["update"]["content"]["text"].as_str())
-        })
-        .flatten()
+        .filter(|(m, _)| m == method::SESSION_UPDATE)
+        .filter_map(|(_, p)| p["update"]["content"]["text"].as_str())
         .filter(|t| t.starts_with("echo: "))
         .map(str::to_owned)
         .collect()

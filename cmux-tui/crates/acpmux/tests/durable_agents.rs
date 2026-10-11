@@ -98,9 +98,13 @@ impl Daemon {
             // SAFETY: the child has its own copy on fd 3.
             unsafe { libc::close(fds[0]) };
         }
+        // The ready line, after any log line the daemon printed first (a catalog refresh warning).
+        let mut stdout = BufReader::new(child.stdout.take().unwrap());
         let mut ready = String::new();
-        BufReader::new(child.stdout.take().unwrap()).read_line(&mut ready).unwrap();
-        assert!(ready.contains("\"ready\":true"), "daemon not ready: {ready}");
+        while stdout.read_line(&mut ready).unwrap() > 0 && !ready.contains("\"ready\":true") {
+            ready.clear();
+        }
+        assert!(ready.contains("\"ready\":true"), "daemon not ready");
         self.child = Some(child);
     }
 
