@@ -167,7 +167,9 @@ def wire_events(token, after_seq, quiet_s=4.0, budget_s=40.0):
     s = ssl.create_default_context().wrap_socket(raw, server_hostname=host)
     key = base64.b64encode(os.urandom(16)).decode()
     s.sendall((f"GET /v1/wire/cloud HTTP/1.1\r\nHost: {host}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
-               f"Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\nUser-Agent: {USER_AGENT}\r\nSec-WebSocket-Protocol: cmux.wire.v1, bearer.{token}\r\n\r\n").encode())
+               f"Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\nUser-Agent: {USER_AGENT}\r\n"
+               # The session in the Authorization header (cx-dgsp): the invocation log masks it, never a subprotocol.
+               f"Authorization: Bearer {token}\r\nSec-WebSocket-Protocol: cmux.wire.v1\r\n\r\n").encode())
     head = b""
     while b"\r\n\r\n" not in head:
         chunk = s.recv(4096)
