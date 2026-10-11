@@ -12,7 +12,9 @@ fails the first prompt with Claude's own "No conversation found" line.
 FAKE_CLAUDE_DIE=1 dies on the first prompt before anything is stored (a
 launcher whose proxy is down); FAKE_CLAUDE_DIE_IF=<path> does so while that
 file exists. With CLAUDE_CONFIG_DIR set (and no FAKE_CLAUDE_STORE), the store
-is Claude Code's own layout: <CLAUDE_CONFIG_DIR>/projects/p/<id>.jsonl.
+is Claude Code's own layout: <CLAUDE_CONFIG_DIR>/projects/p/<id>.jsonl, with
+a user and an assistant line per prompt; "history-probe" replies with the
+prompts the conversation holds (a resumed or forked transcript's included).
 """
 import json
 import os
@@ -70,11 +72,28 @@ for line in sys.stdin:
             sys.stderr.write("No conversation found with session ID: %s\n" % RESUME)
             sys.stderr.flush()
             sys.exit(1)
-        if STORE:
-            open(stored(SESSION), "w").close()
         content = (msg.get("message") or {}).get("content") or []
         said = "".join(b.get("text", "") for b in content if isinstance(b, dict))
+        if STORE and LAYOUT:
+            # Claude Code stamps each line with its UTC time to the millisecond.
+            import datetime
+            at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+            with open(stored(SESSION), "a") as f:
+                f.write(json.dumps({"type": "user", "sessionId": SESSION, "timestamp": at, "message": {"role": "user", "content": said}}) + "\n")
+                f.write(json.dumps({"type": "assistant", "sessionId": SESSION, "timestamp": at, "message": {"role": "assistant", "content": [{"type": "text", "text": "ok"}]}}) + "\n")
+            # The model's reply takes time: a turn's prompt is never stored in
+            # the millisecond its turn ends.
+            import time
+            time.sleep(0.02)
+        elif STORE:
+            open(stored(SESSION), "w").close()
         text = json.dumps(sys.argv[1:])
+        if said.strip() == "history-probe" and STORE and LAYOUT:
+            with open(stored(SESSION)) as f:
+                records = [json.loads(line) for line in f if line.strip()]
+            text = json.dumps({"prompts": [r["message"]["content"] for r in records
+                                           if r.get("type") == "user" and r["message"]["content"] != "history-probe"],
+                               "sessions": sorted({r["sessionId"] for r in records})})
         documents = [b for b in content if isinstance(b, dict) and b.get("type") == "document"]
         if said.strip() == "document-probe":
             text = json.dumps({

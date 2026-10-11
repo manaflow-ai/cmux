@@ -20,7 +20,7 @@ import {
 
 /** What the matrix runner installs for trusted input (Playwright's mouse and keyboard). */
 type InputDriver = (action: {
-  kind: "click" | "hover" | "down" | "move" | "up" | "type" | "press";
+  kind: "click" | "contextmenu" | "hover" | "down" | "move" | "up" | "type" | "press";
   x?: number;
   y?: number;
   text?: string;
@@ -83,7 +83,8 @@ function synthetic(element: Element, kind: string): void {
     composed: true,
     clientX: x,
     clientY: y,
-    button: 0,
+    button: kind === "contextmenu" ? 2 : 0,
+    buttons: kind === "contextmenu" ? 2 : 0,
     pointerId: 1,
     pointerType: "mouse",
     isPrimary: true,
@@ -96,6 +97,7 @@ function synthetic(element: Element, kind: string): void {
   if (kind === "move") ["pointermove", "mousemove"].forEach(fire);
   if (kind === "up" || kind === "click") ["pointerup", "mouseup"].forEach(fire);
   if (kind === "click") fire("click");
+  if (kind === "contextmenu") fire("contextmenu");
 }
 
 const TABBABLE_SELECTOR = [
@@ -401,9 +403,10 @@ export async function runPlay(
     if (!element) throw new Error(`play: no element for ${describeTarget(target)}`);
     return element;
   };
-  const input = async (kind: "click" | "hover" | "down" | "move" | "up", target: PlayTarget) => {
+  const input = async (kind: "click" | "contextmenu" | "hover" | "down" | "move" | "up", target: PlayTarget) => {
     const element = find(target);
-    const action: PlayAction = kind === "click" ? "click" : kind === "hover" ? "hover" : "press-drag";
+    const action: PlayAction =
+      kind === "click" ? "click" : kind === "contextmenu" ? "context-menu" : kind === "hover" ? "hover" : "press-drag";
     await measured(`${kind} ${describeTarget(target)}`, action, element, anchors, checks, async () => {
       if (window.top?.cmuxGalleryInput) await window.top.cmuxGalleryInput({ kind, ...pageCenter(element) });
       else synthetic(element, kind);
@@ -425,6 +428,7 @@ export async function runPlay(
     document,
     find,
     click: (target) => input("click", target),
+    contextMenu: (target) => input("contextmenu", target),
     hover: (target) => input("hover", target),
     focus: async (target) => {
       const element = find(target) as HTMLElement;

@@ -552,8 +552,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "941e062810a92ed32eaedcee3f8a638bfb42da0efd95e68fae344925dd839bee",
-      "size": 67003
+      "sha256": "128ecfc04b99df1760e03e2255cb84acc607a0dfa121cb57c5b84984441a5709",
+      "size": 67219
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -634,6 +634,11 @@
       "path": "ConversationCreateResult.java",
       "sha256": "6205adba0653588ac0a28f4661debe82c97d4f8259ca5c5fa8b0c193908b51e4",
       "size": 2863
+    },
+    {
+      "path": "ConversationDraftEvent.java",
+      "sha256": "c2686c4e6add2e2991edcff8c7f3ed9a8ed6c296ec3d82f74b4795684739ac4a",
+      "size": 3901
     },
     {
       "path": "ConversationDraftRequest.java",
@@ -962,8 +967,8 @@
     },
     {
       "path": "Events.java",
-      "sha256": "84049781c764db094aa1b9a44f1574bcae4ec6e935edd77a552bf21bf6ff40fc",
-      "size": 14507
+      "sha256": "0e9b6ab69ef61445e01f7299376025d299b8b139be8c31a7929f019e90468983",
+      "size": 14733
     },
     {
       "path": "ExportLayoutRequest.java",
@@ -1067,8 +1072,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "5ac943d2202ad675061b30867691fa78fc975eb9ed8d32024902a99ac007e1bb",
-      "size": 58587
+      "sha256": "f91f70a55b0ec13deec0e872e40754eab54226d605d818051e0753e8f01fc5bf",
+      "size": 58795
     },
     {
       "path": "GetBlobRequest.java",
@@ -1712,8 +1717,8 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "fe002b24054c98d3027fc0f620d76aa056e64e46d21c8b8b70b74e6b92a1679e",
-      "size": 6066
+      "sha256": "d5a6aa18efcfd20cf997ae2c8b322b52a82b226ec5ebf2de948a1a4c10df33fa",
+      "size": 6147
     },
     {
       "path": "ProtocolEvent.java",
@@ -1964,6 +1969,11 @@
       "path": "ResourceSelectors.java",
       "sha256": "4e2e6307894a450e4a2ffbbc5f27c795be5ec759abaa895aa14f1a18f4fffac9",
       "size": 11972
+    },
+    {
+      "path": "RestartTabRequest.java",
+      "sha256": "f42e0b9eca4e7127ccc391bb80b7832d3c6f073217a25735338f7614f716dd2a",
+      "size": 2012
     },
     {
       "path": "RowHeight.java",
@@ -2927,7 +2937,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "855180e92dac1d57283a061b75526778f042da86d364e8b24d8c2528f600e7f6",
+  "ir_sha256": "2304aafc2ea0c866da63b1459d38e771c9ca3f8c655dc06fed821ca8d3c6e703",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

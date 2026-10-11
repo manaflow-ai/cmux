@@ -181,6 +181,7 @@ mod cmd_server;
 use cmd_server::{stamped_build_commit, stamped_ghostty_commit};
 mod cmd_frontend;
 mod cmd_sizing;
+use cmd_sizing::{optional_surface_size, paired_surface_size};
 mod cmd_subscribe;
 mod cmd_tabs;
 mod cmd_terminal_io;
@@ -195,6 +196,7 @@ mod session_stream;
 mod split_kind;
 mod split_respawn;
 mod tab_column;
+mod tab_restart;
 mod websocket_listener;
 #[cfg(test)]
 use cmd_subscribe::subscribed_event_json;
@@ -1020,6 +1022,7 @@ enum Command {
     BindConversationTabSession(conversation_tabs_wire::BindSessionParams),
     /// New browser tab whose page the frontend renders (WebKit or CEF).
     NewFrontendBrowserTab(frontend_browser_history::NewTabParams),
+    RestartTab(tab_restart::Params),
     UpdateFrontendBrowserTab(frontend_browser_history::UpdateTabParams),
     SetFrontendBrowserHistory(frontend_browser_history::SetParams),
     GetFrontendBrowserHistory(frontend_browser_history::GetParams),
@@ -2810,22 +2813,6 @@ fn layout_request_to_spec(layout: LayoutRequest) -> anyhow::Result<LayoutSpec> {
     }
 }
 
-fn optional_surface_size(cols: Option<u16>, rows: Option<u16>) -> Option<(u16, u16)> {
-    cols.zip(rows).map(|(cols, rows)| (cols.max(1), rows.max(1)))
-}
-
-fn paired_surface_size(
-    command: &str,
-    cols: Option<u16>,
-    rows: Option<u16>,
-) -> anyhow::Result<Option<(u16, u16)>> {
-    match (cols, rows) {
-        (Some(cols), Some(rows)) => Ok(Some((cols.max(1), rows.max(1)))),
-        (None, None) => Ok(None),
-        _ => anyhow::bail!("{command} cols and rows must be supplied together"),
-    }
-}
-
 fn default_renderer_capability_ttl_ms() -> u64 {
     30_000
 }
@@ -3187,6 +3174,7 @@ fn handle_command_with_cancellation(
         Command::BindConversationTabSession(params) => {
             cmd_tabs::bind_conversation_tab_session(mux, actor, params)
         }
+        Command::RestartTab(params) => tab_restart::restart(mux, params),
         Command::NewFrontendBrowserTab(params) => {
             cmd_tabs::new_frontend_browser_tab(mux, client, params)
         }

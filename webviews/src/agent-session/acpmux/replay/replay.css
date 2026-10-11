@@ -15,3 +15,6 @@
 .acpmux-replay-speed{flex:none;min-width:40px;height:28px;padding:0 8px;border:0;border-radius:14px;background:none;color:var(--agent-soft);font-family:var(--font-mono);font-size:var(--text-detail);font-variant-numeric:tabular-nums;cursor:default}
 .acpmux-replay-speed:hover{background:var(--acpmux-composer-hover);color:var(--agent-text)}
 .acpmux-replay-speed:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
+.acpmux-replay-continue{flex:none;height:28px;margin-left:4px;padding:0 12px;border:0;border-radius:14px;background:var(--agent-accent);color:var(--agent-accent-text,#fff);font:inherit;font-weight:500;white-space:nowrap;cursor:default}
+.acpmux-replay-continue:disabled{opacity:.45}
+.acpmux-replay-continue:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
