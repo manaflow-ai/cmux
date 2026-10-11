@@ -48,17 +48,18 @@ extension AgentTabStore {
         // (``startRemoteChat``), never this Mac's acpmux (cx-k21v). An existing session of this
         // Mac (a link, Duplicate Tab) or an outside chat it resumes stays this Mac's.
         let remote = !daemon.isLocal && host == nil && session == nil && adopt == nil
-        var seed = seed, newTab = newTab, spare = spare
+        var seed = seed, spare = spare
         if remote {
             guard let registry = Self.registryHost(of: daemon) else {
                 if let spare, recycle?(spare) != true { retirer.retire(spare) }
                 throw AgentTabRefusal(message: RefusalStrings.agentTabsDisconnected)
             }
-            // The New Tab page and a prewarmed spare run in this Mac's acpmux: a chat typed there
-            // would start here. The chat opens on its machine in the page's folder instead.
+            // The same New Tab page shows (its terminal and browser choices act in this pane); its
+            // chat starts on that machine at the first send (``RemoteAcpmuxWire``). A prewarmed
+            // spare is connected to this Mac's acpmux, so it is never adopted here.
             if let spare, recycle?(spare) != true { retirer.retire(spare) }
             seed = seed ?? AgentPaneSeedSource(AgentPaneSeed(cwd: newTab?.page.cwd))
-            (newTab, spare) = (nil, nil)
+            spare = nil
             record = AgentSessionRef(host: registry, hostName: remoteMachineName(daemon), session: nil, harness: nil)
         } else {
             record = AgentSessionRef(host: host ?? localHost, hostName: localHostName, session: session, harness: adopt?.harness)
@@ -259,8 +260,10 @@ extension AgentTabStore {
     /// Stops tab `key`'s page and forgets its view state.
     func release(_ key: String) {
         if let view = views.removeValue(forKey: key) {
-            // An untouched new tab page goes back to the pool (no teardown, no rebuild, R81).
-            if newTabPages[key] != nil, recycle?(view) == true {
+            // An untouched new tab page goes back to the pool (no teardown, no rebuild, R81); a
+            // page of another machine's chat never does (cx-k21v).
+            let remote = remoteViews.remove(ObjectIdentifier(view)) != nil
+            if newTabPages[key] != nil, !remote, recycle?(view) == true {
                 standaloneViews.add(view)
             } else {
                 retirer.retire(view)

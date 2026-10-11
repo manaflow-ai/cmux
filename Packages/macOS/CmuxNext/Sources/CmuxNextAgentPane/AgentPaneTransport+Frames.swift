@@ -234,7 +234,7 @@ extension AgentPaneTransport {
 
     /// The main actor's part of one frame: small values only (the frame stays in its box).
     private func decide(_ facts: Facts, _ box: FrameBox, connection id: Int, socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds) async -> Step {
-        if facts.needsPathCheck {
+        if facts.needsPathCheck, !remoteWire {
             var result = await checkPathsInScope(box)
             guard id == current, self.socket === socket else { return .stop(.staleConnection) }
             // A folder outside every root that the user typed: their gesture adds it as a root, at

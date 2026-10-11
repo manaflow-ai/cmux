@@ -113,6 +113,9 @@ final class AgentTabStore {
     var remoteSeeds: [String: AgentPaneSeedSource] = [:]
     /// New chats on another machine whose store tab is still being created: they start once it is.
     var remoteCreations: [String: AgentTabPending] = [:]
+    /// Pages of chats on another machine: never recycled into this Mac's spare pool (their
+    /// connection is that machine's).
+    var remoteViews: Set<ObjectIdentifier> = []
     /// Starts in flight on another machine, so a reconnecting page waits for the same one.
     var remoteStarts: [String: Task<AgentTabRemoteStart.Started, any Error>] = [:]
     /// The folder a new chat on another machine starts in when its seed names none: a folder of
@@ -296,17 +299,27 @@ final class AgentTabStore {
             host: paneHost,
             sessionId: sessions[key] ?? record.session,
             seed: seed,
-            newTab: local ? newTabPages[key]?.page : nil,
+            // A new chat this app opened on another machine shows the same New Tab page (cx-k21v).
+            newTab: local || record.host.hasPrefix(AgentTabRemoteStart.registryPrefix) ? newTabPages[key]?.page : nil,
             allowsTabConversion: local
         )
         model.pendingRevealTurn = pendingTurns.removeValue(forKey: key)
         wire(model, key: key)
         if !local {
-            // The other machine's store keeps its own record of the session (no bind from here).
+            // The other machine's store keeps its own record of the session: its daemon bound it at
+            // the start (no bind from here). The page leaves New Tab for the chat.
             // Its git reads go to that machine's daemon (``gitLink``).
-            model.onSessionChange = nil
+            model.onSessionChange = { [weak self] session in
+                guard let self else { return }
+                let key = resolve(key)
+                newTabPages[key]?.handler.becameChat()
+                newTabPages[key] = nil
+                views[key]?.applyTheme()
+                sessions[key] = session
+            }
         }
         guard let view = makeView(model) else { return nil }
+        if !local { remoteViews.insert(ObjectIdentifier(view)) }
         views[key] = view
         track(key, in: store)
         return view
