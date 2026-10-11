@@ -16,9 +16,7 @@ public nonisolated struct GhosttyThemeColors: Hashable, Sendable {
     public var palette: [RGB]
     /// Only when the config sets a plain color. Ghostty does not expose
     /// `cell-foreground`/`cell-background` selection values through its C
-    /// API; those read as nil. The pinned GhosttyNextKit has no C getter for
-    /// any `TerminalColor` key yet (`c_get.zig` returns false for the union),
-    /// so `selection-*` and `cursor-color` read as nil on the Mac until it does.
+    /// API; those read as nil.
     public var selectionBackground: RGB?
     public var selectionForeground: RGB?
     /// `cursor-color`, only when the config sets a plain color.
