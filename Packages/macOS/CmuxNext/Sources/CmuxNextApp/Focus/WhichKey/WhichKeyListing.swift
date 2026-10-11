@@ -16,7 +16,12 @@ struct WhichKeyRow: Equatable {
 enum WhichKeyListing {
     static func rows(after keys: [Shortcut], table: KeyBindingTable, context: KeyContext, isRunnable: (ActionID) -> Bool,
                      registry: ActionRegistry) -> [WhichKeyRow] {
-        table.nextKeys(after: keys, in: context, isRunnable: isRunnable).map { next in
+        // An action unavailable up front (a preview feature that is off, a
+        // missing capability) is not offered; one this focus cannot run is
+        // listed dimmed.
+        table.nextKeys(after: keys, in: context, isRunnable: isRunnable).filter { next in
+            next.binding.map { registry.unavailableReason(for: $0.command) == nil } ?? true
+        }.map { next in
             let isDigitFamily = next.binding?.argument != nil && next.key.key == "1"
             let key = isDigitFamily ? (next.key.modifierGlyphs + ["1…9"]).joined() : next.key.displayString
             let ranHere = next.binding.map { isRunnable($0.command) && $0.applies(in: context) } ?? false
