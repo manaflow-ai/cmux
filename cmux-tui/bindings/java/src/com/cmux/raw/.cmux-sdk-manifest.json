@@ -552,8 +552,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "941e062810a92ed32eaedcee3f8a638bfb42da0efd95e68fae344925dd839bee",
-      "size": 67003
+      "sha256": "128ecfc04b99df1760e03e2255cb84acc607a0dfa121cb57c5b84984441a5709",
+      "size": 67219
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1067,8 +1067,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "5ac943d2202ad675061b30867691fa78fc975eb9ed8d32024902a99ac007e1bb",
-      "size": 58587
+      "sha256": "f91f70a55b0ec13deec0e872e40754eab54226d605d818051e0753e8f01fc5bf",
+      "size": 58795
     },
     {
       "path": "GetBlobRequest.java",
@@ -1712,7 +1712,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "6f0bd5991c95e1312b289bf589b443ce9244f588baca17c11671ada4ee6eabbf",
+      "sha256": "7f2f2d8699ab73d8d92691d24f3c5c81765865740b88d04ef939ef293c804e27",
       "size": 6066
     },
     {
@@ -1964,6 +1964,11 @@
       "path": "ResourceSelectors.java",
       "sha256": "4e2e6307894a450e4a2ffbbc5f27c795be5ec759abaa895aa14f1a18f4fffac9",
       "size": 11972
+    },
+    {
+      "path": "RestartTabRequest.java",
+      "sha256": "f42e0b9eca4e7127ccc391bb80b7832d3c6f073217a25735338f7614f716dd2a",
+      "size": 2012
     },
     {
       "path": "RowHeight.java",
@@ -2927,7 +2932,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "857bce729ad06d308d44ddb2a8567fd1b9a9eb8ddfb514ae90729c378284fae3",
+  "ir_sha256": "ec10164a46d721f6e9af52e38acb5361a1820e974f32c0dd919196492df7b6d4",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "857bce729ad06d308d44ddb2a8567fd1b9a9eb8ddfb514ae90729c378284fae3";
+inline constexpr std::string_view kProtocolIrSha256 = "ec10164a46d721f6e9af52e38acb5361a1820e974f32c0dd919196492df7b6d4";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -417,6 +417,7 @@ struct ReportFocusRequest;
 struct ResizeAttachedViewRequest;
 struct ResizeSurfaceRequest;
 struct ResolveTerminalRequest;
+struct RestartTabRequest;
 struct RunRequest;
 struct SaveScreenGroupRequest;
 struct SaveTabGroupRequest;
@@ -3914,6 +3915,11 @@ struct ResolveTerminalResult {
     std::uint64_t terminal_revision{};
     std::string workspace_key{};
     friend bool operator==(const ResolveTerminalResult&, const ResolveTerminalResult&) = default;
+};
+
+struct RestartTabRequest {
+    TabRef surface{};
+    friend bool operator==(const RestartTabRequest&, const RestartTabRequest&) = default;
 };
 
 struct RowHeight {
@@ -7545,6 +7551,12 @@ template <>
 struct Codec<ResolveTerminalRequest> {
     static Result<Json> encode(const ResolveTerminalRequest& value);
     static Result<ResolveTerminalRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<RestartTabRequest> {
+    static Result<Json> encode(const RestartTabRequest& value);
+    static Result<RestartTabRequest> decode(const Json& value);
 };
 
 template <>

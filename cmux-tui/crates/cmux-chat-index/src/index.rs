@@ -191,7 +191,10 @@ impl ChatIndex {
         for slot in &self.slots {
             let account = (slot.root.accounts.len() == 1).then(|| slot.root.accounts[0].clone());
             let root_id = slot.root.id();
-            for entry in &slot.scan.entries {
+            // The Chief's own harness sessions are never person chats (cx-eb0m).
+            for entry in
+                slot.scan.entries.iter().filter(|entry| !crate::scan::is_chief_session(entry))
+            {
                 let chat = merged.entry(entry.key()).or_insert_with(|| IndexedChat {
                     entry: entry.clone(),
                     accounts: Vec::new(),

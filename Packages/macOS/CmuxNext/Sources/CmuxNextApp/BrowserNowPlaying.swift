@@ -130,6 +130,7 @@ final class BrowserNowPlaying {
                 return
             }
             // MediaPlayer asks for the image off the main thread.
+            // crash-allow: the image is never mutated after the fetch; MediaPlayer only reads it to draw.
             nonisolated(unsafe) let shown = image
             self.artwork = (url, MPMediaItemArtwork(boundsSize: image.size) { @Sendable _ in shown })
             self.publish()

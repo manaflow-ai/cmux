@@ -8,7 +8,6 @@ import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
 import { ChatCards } from "./ChatCards";
 import { ClosedList } from "./ClosedList";
 import { OpenTabsList } from "./OpenTabsList";
-import { ContextMenu } from "../../../ui/ContextMenu";
 import { defaultModel } from "../harnessSwitch";
 import { useDeviceChats } from "./deviceChats";
 import { useRecentlyClosed } from "./recentlyClosed";
@@ -24,6 +23,7 @@ import {
 import { useNt } from "./strings";
 import { screenSections, type ScreenTemplate } from "./templates";
 import { type Translate, useT } from "../i18n";
+import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 export type NewTabScreenActions = {
@@ -447,7 +447,7 @@ function ownsKeys(element: Element): boolean {
 
 /// The host actions as one quiet row under the field (board principle 5: calm at rest): an icon and
 /// a name, the shortcut in its tooltip. A tool's extra commands (Terminal: split right, split
-/// down) are in its right-click menu. "Integrate a harness" ends the row.
+/// down) are in its trailing disclosure menu. "Integrate a harness" ends the row.
 function ToolsRow({
   tools,
   onRunAction,
@@ -476,13 +476,27 @@ function ToolsRow({
           </button>
         );
         return tool.menu.length > 0 ? (
-          <ContextMenu
-            key={tool.id}
-            className="nt-tool-host"
-            items={tool.menu.map((id) => ({ id, label: toolMenuTitle(t, id), onSelect: () => onRunAction?.(id) }))}
-          >
+          <div className="nt-tool-host nt-tool-host-with-menu" key={tool.id}>
             {button}
-          </ContextMenu>
+            <span className="nt-tool-menu">
+              <Menu>
+                <MenuButton className="nt-tool-menu-button" label={t("newTabPage.moreOptions")} aria-haspopup="menu">
+                  …
+                </MenuButton>
+                <MenuPopup
+                  className="nt-tool-menu-popover"
+                  label={`${toolTitle(t, tool)} ${t("newTabPage.moreOptions")}`}
+                  align="end"
+                >
+                  {tool.menu.map((id) => (
+                    <MenuItem className="nt-tool-menu-item" key={id} onSelect={() => onRunAction?.(id)}>
+                      {toolMenuTitle(t, id)}
+                    </MenuItem>
+                  ))}
+                </MenuPopup>
+              </Menu>
+            </span>
+          </div>
         ) : (
           <React.Fragment key={tool.id}>{button}</React.Fragment>
         );
