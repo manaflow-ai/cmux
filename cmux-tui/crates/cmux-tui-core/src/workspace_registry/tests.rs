@@ -119,10 +119,7 @@ fn existing_registry_migrates_to_incremental_journal_vacuum_once() {
         .query_row("PRAGMA auto_vacuum", [], |row| row.get::<_, i64>(0))
         .unwrap();
     assert_eq!(mode, 2);
-    assert_eq!(
-        required_meta(&reopened.connection, JOURNAL_AUTO_VACUUM_META_KEY).unwrap(),
-        "1"
-    );
+    assert_eq!(required_meta(&reopened.connection, JOURNAL_AUTO_VACUUM_META_KEY).unwrap(), "1");
     drop(reopened);
     fs::remove_dir_all(root).unwrap();
 }
