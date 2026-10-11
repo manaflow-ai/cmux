@@ -85,14 +85,18 @@ public final class GroupCustomSwatchView: NSView {
     }
 }
 
-/// The system color panel for one group's custom color (cx-25az). A group editor bubble closes
+/// The system color panel for a group's custom color (cx-25az). A group editor bubble closes
 /// when the panel takes focus, so `open` keeps where the color goes (its `onColor`); each color
-/// the person settles on goes out once (not while dragging).
+/// the person settles on goes out once (not while dragging). One for the app, like the panel it
+/// borrows: it stays the panel's target after any editor that opened it is gone.
 @MainActor
 public final class GroupColorPanel: NSObject {
+    public static let shared = GroupColorPanel()
+
     private var onColor: ((GroupTint) -> Void)?
     /// The shared panel's settings before it was borrowed, put back when it closes.
     private var borrowed: (showsAlpha: Bool, isContinuous: Bool)?
+    private var closeObserver: NSObjectProtocol?
 
     override public init() {
         super.init()
@@ -103,8 +107,12 @@ public final class GroupColorPanel: NSObject {
         let panel = NSColorPanel.shared
         if borrowed == nil {
             borrowed = (panel.showsAlpha, panel.isContinuous)
-            // The panel is shared: once it closes, its colors no longer go to this group.
-            NotificationCenter.default.addObserver(self, selector: #selector(panelWillClose(_:)), name: NSWindow.willCloseNotification, object: panel)
+        }
+        // The panel is shared: once it closes, its colors no longer go to this group.
+        if closeObserver == nil {
+            closeObserver = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: panel, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.release() } // main-proof: queue: .main delivers on the main thread
+            }
         }
         panel.showsAlpha = false
         panel.isContinuous = false
@@ -114,7 +122,7 @@ public final class GroupColorPanel: NSObject {
         panel.makeKeyAndOrderFront(nil)
     }
 
-    @objc private func panelWillClose(_ notification: Notification) {
+    private func release() {
         let panel = NSColorPanel.shared
         if onColor != nil {
             panel.setTarget(nil)
@@ -126,7 +134,8 @@ public final class GroupColorPanel: NSObject {
         }
         borrowed = nil
         onColor = nil
-        NotificationCenter.default.removeObserver(self, name: NSWindow.willCloseNotification, object: panel)
+        if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }
+        closeObserver = nil
     }
 
     @objc private func changed(_ sender: Any?) {

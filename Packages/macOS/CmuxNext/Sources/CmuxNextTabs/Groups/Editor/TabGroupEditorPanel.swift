@@ -47,7 +47,7 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     private var swatches: [TabGroupSwatchView] = []
     /// After the palette dots: a custom color from the system color panel (cx-wqn5).
     private let customSwatch = GroupCustomSwatchView(label: Strings.editorCustomColor)
-    private let colorPanel = GroupColorPanel()
+    private let colorPanel = GroupColorPanel.shared
     private var saveRow: TabGroupEditorRow?
     private var group: TabGroupItem?
     private var dismissing = false

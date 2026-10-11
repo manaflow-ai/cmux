@@ -3699,7 +3699,6 @@ mod tab_group_hex;
 #[cfg(unix)]
 #[path = "cli/wg_hub.rs"]
 mod wg_hub;
-
 #[path = "cli/state_helpers.rs"]
 mod state_helpers;
 use state_helpers::*;

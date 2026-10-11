@@ -128,7 +128,7 @@ enum TabGroupHandlers {
             run("update-tab-group", pane: pane, ctx) { c, t in _ = try await c.updateTabGroup(group, name: name, transaction: t) }
         }
         bind("tabGroup.setColor") { invocation in
-            // A palette token or a custom `#RRGGBB` (cx-wqn5), the group editor's two kinds.
+            // The catalog offers palette tokens; read as a tint so a custom `#RRGGBB` (cx-wqn5) also lands.
             guard let tint = GroupTint(wire: invocation["color"]?.stringValue ?? "") else {
                 return ctx.refuse(RefusalStrings.colorArgumentRequired)
             }

@@ -58,7 +58,7 @@ enum ScreenGroupHandlers {
         })
         registry.bind("screenGroup.setColor", invoke: { invocation in
             guard let ref = group(invocation, ctx) else { return }
-            // A palette token or a custom `#RRGGBB` (cx-wqn5), the group editor's two kinds.
+            // The catalog offers palette tokens; read as a tint so a custom `#RRGGBB` (cx-wqn5) also lands.
             guard let color = invocation["color"]?.stringValue.flatMap(GroupTint.init(wire:))
                 ?? ctx.refuse(RefusalStrings.colorArgumentRequired) else { return }
             ScreenGroupCommands.update(ref.group.id, color: color, daemon: ref.daemon)

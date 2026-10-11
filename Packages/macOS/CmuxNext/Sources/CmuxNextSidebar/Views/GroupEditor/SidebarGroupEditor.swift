@@ -27,7 +27,7 @@ final class SidebarGroupEditor {
     private var lastClosed: (group: GroupID, time: TimeInterval, click: Int?)?
     /// The shown group's color, where the color panel starts.
     private var shownTint: GroupTint?
-    private let colorPanel = GroupColorPanel()
+    private let colorPanel = GroupColorPanel.shared
 
     var isVisible: Bool { shownGroup != nil }
     /// False in tests: the bubble is laid out but never put on screen.
