@@ -2058,7 +2058,10 @@ final class UpdateChannelSettingsTests: XCTestCase {
     func testResolvedFeedFallsBackWhenInfoFeedMissing() {
         let resolver = UpdateFeedResolver()
         let resolved = resolver.resolve(infoFeedURL: nil)
-        XCTAssertEqual(resolved.url, resolver.fallbackFeedURL)
+        XCTAssertEqual(
+            resolved.url,
+            "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast-\(resolver.hostArchitecture.rawValue).xml"
+        )
         XCTAssertFalse(resolved.isNightly)
         XCTAssertTrue(resolved.usedFallback)
     }
@@ -2066,7 +2069,10 @@ final class UpdateChannelSettingsTests: XCTestCase {
     func testResolvedFeedFallsBackWhenInfoFeedEmpty() {
         let resolver = UpdateFeedResolver()
         let resolved = resolver.resolve(infoFeedURL: "")
-        XCTAssertEqual(resolved.url, resolver.fallbackFeedURL)
+        XCTAssertEqual(
+            resolved.url,
+            "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast-\(resolver.hostArchitecture.rawValue).xml"
+        )
         XCTAssertFalse(resolved.isNightly)
         XCTAssertTrue(resolved.usedFallback)
     }
