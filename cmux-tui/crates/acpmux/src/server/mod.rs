@@ -824,7 +824,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         if rec.dir == "mux" && rec.kind == "permission_request" {
             conn.send(&Message::notification(
                 method::MUX_PERMISSION_PENDING,
-                permission_pending(&ev.session_id, rec, "attach"),
+                permission_pending(hub, &ev.session_id, rec, "attach"),
             ));
         }
     }
@@ -889,17 +889,21 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         if rec.kind == "permission_request" && !attached {
             conn.send(&Message::notification(
                 method::MUX_PERMISSION_PENDING,
-                permission_pending(&ev.session_id, rec, "watch"),
+                permission_pending(hub, &ev.session_id, rec, "watch"),
             ));
         }
     }
 }
 
-fn permission_pending(session_id: &str, rec: &EventRecord, via: &str) -> Value {
+/// The `_acpmux/permission_pending` notification. `decisionNonce` (from the
+/// record) and `personInstance` (this daemon run) are what a relayed allow's
+/// decision proof covers (`hub/person.rs`, cx-0q7o).
+fn permission_pending(hub: &Hub, session_id: &str, rec: &EventRecord, via: &str) -> Value {
     let mut p = rec.msg.clone();
     p["sessionId"] = Value::String(session_id.to_owned());
     p["seq"] = json!(rec.seq);
     p["via"] = Value::String(via.to_owned());
+    p["personInstance"] = Value::String(hub.person.instance().to_owned());
     p
 }
 

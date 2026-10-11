@@ -589,12 +589,10 @@ impl Hub {
         // so its answers are checked like a new ask's.
         super::questions::normalize(&mut request);
         let (tx, rx) = oneshot::channel();
-        session
-            .permissions
-            .lock()
-            .unwrap()
-            .pending
-            .insert(permission_id.clone(), PendingPermission { request, reply: tx });
+        session.permissions.lock().unwrap().pending.insert(
+            permission_id.clone(),
+            PendingPermission { request, reply: tx, decision_nonce: super::person::new_nonce() },
+        );
         self.set_status(session, SessionStatus::Waiting);
         let hub = self.clone();
         let s = session.clone();

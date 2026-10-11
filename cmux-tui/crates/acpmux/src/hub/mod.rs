@@ -112,6 +112,9 @@ pub struct RemoteSession {
 pub(super) struct PendingPermission {
     pub(super) request: Value,
     pub(super) reply: oneshot::Sender<Value>,
+    /// The nonce a relayed allow's decision proof covers (`person.rs`,
+    /// cx-0q7o): new for each prompt, valid only while it is pending.
+    pub(super) decision_nonce: String,
 }
 
 #[derive(Debug, Clone)]
