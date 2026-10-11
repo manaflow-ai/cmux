@@ -149,7 +149,10 @@ write(EMPTY_GHOSTTY, "")
 teardown = TagTeardown(APP)
 teardown.install()
 app = subprocess.Popen([BINARY], env={**BASE_ENV, "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_SCREEN": "last",
-                                      "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": EMPTY_GHOSTTY},
+                                      "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": EMPTY_GHOSTTY,
+                                      # A DEV bundle stores passwords under Chromium's mock Keychain key, so the
+                                      # import is off unless the data is throwaway (DEBUG builds only): it is.
+                                      "CMUX_NEXT_PASSWORD_IMPORT_MOCK_KEY": "throwaway"},
                        stdout=open(os.path.join(opts.out, "app.log"), "w"), stderr=subprocess.STDOUT)
 print(f"app pid {app.pid}, scratch {SCRATCH}, out {opts.out}", flush=True)
 try:
