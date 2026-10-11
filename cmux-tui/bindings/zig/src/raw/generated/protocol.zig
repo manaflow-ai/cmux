@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "58dd2823a9334bd9d991179f015295882bc254df3608a6c29b1fd0eebc0a95ac";
+pub const ir_sha256 = "0a08a875e173efa536624add3aca585497509e759536a0ad1843beadd1574ff8";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1990,6 +1990,8 @@ pub const Tab = struct {
     size: wire.Nullable(Size),
     supports_clear_history_key_fallback: ?bool = null,
     surface: Id,
+    /// Why a terminal will end with something other than its shell although terminal hosts are on: `breakaway_denied` (Windows: the host runs inside the daemon's kill-on-close Job Object and ends when that job closes) or `host_start_failed` (no host; the daemon runs the terminal and it ends with the daemon). Null otherwise and for browser tabs. A string, not an enum: clients read an unknown value as a notice for another reason.
+    terminal_host_fallback: wire.Field([]const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     terminal_incarnation: wire.Field([]const u8) = .absent,
     terminal_resource_id: wire.Field([]const u8) = .absent,

@@ -112,6 +112,9 @@ extension CEFRuntime {
             break
         default:
             if let browser = event.browserID, let tab = tabsByBrowser[browser] {
+                #if DEBUG
+                CEFEventTrace.record(browser, event)
+                #endif
                 tab.handle(event)
             }
         }
