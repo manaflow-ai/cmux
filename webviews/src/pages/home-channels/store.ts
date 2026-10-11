@@ -5,6 +5,7 @@
 // with an idempotency key; the owner's event is what shows them.
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { subscribePageStreams } from "../shared/pageStreams";
+import { DraftBook, type HomeDraft } from "./drafts";
 import { mergeMessages } from "./model";
 import {
   HomeOps,
@@ -35,6 +36,13 @@ export interface HomeSnapshot {
   thread?: string;
   /** Participant ids typing in the open conversation. */
   typing: readonly string[];
+  /** What showed as new when the conversation opened: messages after my read cursor (`after`) up
+   * to the newest one then (`through`). Messages that arrive while it is open are read live. */
+  unseen?: { after: number; through: number };
+  /** Threads opened in this visit: their new replies are read. */
+  threadsSeen: ReadonlySet<string>;
+  /** The open conversation's running agent reply (shown until the reply posts). */
+  draft?: HomeDraft;
   error?: string;
 }
 
@@ -49,6 +57,7 @@ export class HomeChannelsStore {
   private nextKey = 0;
   /** The read cursor this page last sent per conversation (one read per new seq). */
   private readonly readSeq = new Map<string, number>();
+  private readonly drafts = new DraftBook();
 
   constructor(private readonly client: PageClient | null) {
     this.snapshot = {
@@ -59,6 +68,7 @@ export class HomeChannelsStore {
       hasOlder: false,
       loadingOlder: false,
       typing: [],
+      threadsSeen: new Set(),
     };
   }
 
@@ -122,7 +132,16 @@ export class HomeChannelsStore {
   /** Opens a conversation: its newest page, then marks it read. */
   async select(id: string): Promise<void> {
     if (id === this.snapshot.selected && this.snapshot.messages.length > 0) return;
-    this.set({ selected: id, messages: [], hasOlder: false, thread: undefined, typing: [] });
+    this.set({
+      selected: id,
+      messages: [],
+      hasOlder: false,
+      thread: undefined,
+      typing: [],
+      unseen: undefined,
+      threadsSeen: new Set(),
+      draft: this.drafts.draft(id),
+    });
     await this.reloadPage(id);
   }
 
@@ -141,7 +160,21 @@ export class HomeChannelsStore {
         return event && (event.editedAt ?? 0) > (m.editedAt ?? 0) ? event : m;
       });
       const messages = mergeMessages(kept, fresh, WINDOW);
-      this.set({ conversations, messages, hasOlder: (messages[0]?.seq ?? 1) > 1 });
+      const unseen = this.snapshot.unseen ?? {
+        after: page.conversation.lastSeq - page.conversation.unread,
+        through: page.conversation.lastSeq,
+      };
+      // A reply that came in with this page (not as an event: a gap, a large batch) ends its draft.
+      const live = this.drafts.draft(id);
+      const reply = live && messages.find((m) => m.clientMessageId === live.turn && m.author === live.participant);
+      if (reply) this.drafts.posted(reply);
+      this.set({
+        conversations,
+        messages,
+        hasOlder: (messages[0]?.seq ?? 1) > 1,
+        unseen,
+        draft: this.drafts.draft(id),
+      });
       this.markRead(page.conversation, messages.at(-1)?.seq ?? 0);
     } catch (error) {
       if (generation === this.generation) this.set({ error: describe(error) });
@@ -171,7 +204,8 @@ export class HomeChannelsStore {
   }
 
   openThread(root: string | undefined): void {
-    this.set({ thread: root });
+    if (!root || this.snapshot.threadsSeen.has(root)) this.set({ thread: root });
+    else this.set({ thread: root, threadsSeen: new Set(this.snapshot.threadsSeen).add(root) });
   }
 
   /** Sends text to the open conversation (or the open thread). The owner's event shows it. */
@@ -265,6 +299,12 @@ export class HomeChannelsStore {
     if (batch.connection) patch.connection = batch.connection;
     // Typing is ephemeral: a reconnect or an inbox refetch ends every indicator.
     if (batch.connection || batch.inboxStale) patch.typing = [];
+    if (batch.connection === "offline") this.drafts.clear();
+    // Drafts first, then typing off and the posted messages: a reply that posts in the same
+    // batch as its last draft item ends the draft, and a late item cannot bring it back.
+    for (const item of batch.drafts ?? []) this.drafts.apply(item);
+    for (const entry of batch.typing ?? []) if (!entry.on) this.drafts.typingOff(entry.conversation, entry.participant);
+    for (const message of batch.messages ?? []) this.drafts.posted(message);
     let conversations: Map<string, HomeConversation> | undefined;
     for (const conversation of batch.conversations ?? []) {
       conversations ??= new Map(this.snapshot.conversations);
@@ -286,6 +326,10 @@ export class HomeChannelsStore {
         else typing.delete(entry.participant);
       }
       patch.typing = [...typing];
+    }
+    if (selected) {
+      const draft = this.drafts.draft(selected);
+      if (draft?.text !== this.snapshot.draft?.text || draft?.turn !== this.snapshot.draft?.turn) patch.draft = draft;
     }
     this.set(patch);
     const open = selected ? this.snapshot.conversations.get(selected) : undefined;
