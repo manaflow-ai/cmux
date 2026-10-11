@@ -155,7 +155,7 @@ extension AgentPaneHostError {
     static func userMessage(for error: any Error) -> String {
         // A host's own localized refusal (a remote machine's start refusal) is said as it is.
         if !(error is AgentPaneHostError), let described = (error as? any LocalizedError)?.errorDescription { return described }
-        switch error as? AgentPaneHostError {
+        return switch error as? AgentPaneHostError {
         case .acpmuxNotFound:
             String(
                 format: String(localized: "agentPane.error.notInstalled", defaultValue: "acpmux was not found. Install it on your PATH or in one of these folders: %@.", bundle: .module),
