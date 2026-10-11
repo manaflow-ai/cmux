@@ -119,6 +119,10 @@ jobs:
     name: action exports (Mac)
     needs: action-areas
     if: needs.action-areas.outputs.actions == 'true'
+    # A newer push's regeneration replaces this one (autofix's own group cancels too).
+    concurrency:
+      group: cmux-next-base-autofix-action-exports
+      cancel-in-progress: true
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 40
     permissions:
@@ -182,6 +186,7 @@ jobs:
 
       - name: Regenerate the action exports
         id: regenerate
+        continue-on-error: true
         run: |
           set -euo pipefail
           scripts/cmux-next/regenerate-action-exports.sh "$RUNNER_TEMP/action-exports" | tee "$RUNNER_TEMP/action-exports.txt"

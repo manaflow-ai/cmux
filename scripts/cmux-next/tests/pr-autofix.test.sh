@@ -20,6 +20,7 @@ area() { # changed path -> the actions area's value
 for path in Packages/macOS/CmuxNext/Sources/CmuxNextActions/ActionCatalog.swift \
   Packages/macOS/CmuxNext/Sources/CmuxNextActions/ActionCatalog.xcstrings \
   Packages/macOS/CmuxNext/Sources/CmuxNextActions/DeepLink/DeepLinkExport.swift \
+  Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/CloudConfiguration.swift \
   plans/cmux-next/action-surfaces.json plans/cmux-next/actions.md plans/cmux-next/links.json; do
   [[ "$(area "$path")" == true ]] || fail "a change to $path must regenerate the action exports"
 done

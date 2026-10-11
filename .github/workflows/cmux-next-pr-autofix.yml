@@ -171,8 +171,11 @@ jobs:
       - name: Build the web bundles
         run: scripts/cmux-next/build-web-bundles.sh
 
+      # A catalog that does not build is the pull request's own red elsewhere;
+      # this job then hands over nothing and the other repairs still run.
       - name: Regenerate the action exports
         id: regenerate
+        continue-on-error: true
         run: |
           set -euo pipefail
           # The base's copy, or the pull request's before the base has one.
@@ -392,7 +395,9 @@ jobs:
   push:
     name: push the repairs
     needs: repair
-    if: needs.repair.outputs.patch == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+    # An explicit status check: the implicit success() would also require the
+    # action-exports job above repair, which most pull requests skip.
+    if: ${{ !cancelled() && needs.repair.result == 'success' && needs.repair.outputs.patch == 'true' && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for a pull request branch; ephemeral Blacksmith VM
     timeout-minutes: 10
     permissions:
