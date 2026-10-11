@@ -8923,6 +8923,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let context = livePreferredContext
             ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)
 
+        // A configured action is an explicit override for New Workspace. Resolve
+        // it before the remote fallback so a custom action (for example a named
+        // workspace layout) keeps its existing meaning on a selected mirror.
+        // The built-in `.newWorkspace` action is the default and deliberately
+        // continues through the remote route below.
+        let configuredNewWorkspaceAction = initialSurface == .terminal && !skipConfiguredAction
+            ? context?.cmuxConfigStore?.resolvedNewWorkspaceAction()
+            : nil
+        let hasCustomConfiguredNewWorkspaceAction: Bool = {
+            guard let action = configuredNewWorkspaceAction else { return false }
+            if case .builtIn(.newWorkspace) = action.action { return false }
+            return true
+        }()
+
+        // An explicit placement override is the caller's own decision about
+        // where the workspace lands, so it outranks the selection-derived group
+        // target: `createWorkspaceInGroup` takes a group placement instead and
+        // would drop the override, filing a sidebar empty-area double-click
+        // into the selected workspace's group rather than after the last row.
+        let workspaceGroupTarget = placementOverride == nil
+            ? context.flatMap { workspaceGroupNewWorkspaceTarget(in: $0) }
+            : nil
+
+        if hasCustomConfiguredNewWorkspaceAction,
+           let context,
+           executeConfiguredNewWorkspaceActionIfAvailable(
+               in: context,
+               debugSource: debugSource,
+               workspaceGroupTarget: workspaceGroupTarget,
+               appendsToEnd: placementOverride == .end
+           ) {
+            return true
+        }
+
         // On a remote-tmux mirror workspace, a new terminal workspace means
         // "create a new tmux session on that workspace's host" — route it to the
         // remote and mirror it back instead of creating a local workspace. The
@@ -8933,23 +8967,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if initialSurface == .terminal,
            !forceLocal,
            let context,
+           !hasCustomConfiguredNewWorkspaceAction,
            remoteTmuxController.handleNewWorkspaceRequested(in: context.tabManager) {
             return true
         }
 
-        // An explicit placement override is the caller's own decision about
-        // where the workspace lands, so it outranks the selection-derived group
-        // target: `createWorkspaceInGroup` takes a group placement instead and
-        // would drop the override, filing a sidebar empty-area double-click
-        // into the selected workspace's group rather than after the last row.
-        let workspaceGroupTarget = placementOverride == nil
-            ? context.flatMap { workspaceGroupNewWorkspaceTarget(in: $0) }
-            : nil
         // The configured new-workspace action is the user's override for the
         // plain New Workspace behavior; the browser variant keeps its own
         // fixed semantics and skips it.
         if initialSurface == .terminal,
            !skipConfiguredAction,
+           !hasCustomConfiguredNewWorkspaceAction,
            let context,
            executeConfiguredNewWorkspaceActionIfAvailable(
                in: context,

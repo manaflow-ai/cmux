@@ -156,6 +156,11 @@ extension RemoteTmuxController {
                    AppDelegate.shared?.mainWindowContexts.values.contains(where: { context in
                        context.tabManager.tabs.contains(where: { $0.id == existingWorkspace.id })
                    }) == true {
+                    // A concurrent attach may have won the race, but a newer
+                    // request for this manager still owns the user-facing
+                    // completion. Leave the live mirror in place without letting
+                    // a superseded request run placement/selection callbacks.
+                    guard requestIsCurrent() else { return }
                     onCreated?()
                     return
                 }

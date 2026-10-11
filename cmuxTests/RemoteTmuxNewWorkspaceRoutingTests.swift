@@ -136,6 +136,78 @@ struct RemoteTmuxNewWorkspaceRoutingTests {
         }
     }
 
+    /// A configured New Workspace action remains an explicit override on a
+    /// mirror. Only the built-in default action is allowed to fall through to
+    /// remote tmux routing.
+    @Test func configuredNewWorkspaceActionWinsOverRemoteFallbackOnMirror() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            _ = NSApplication.shared
+            let appDelegate = try #require(AppDelegate.shared)
+            let controller = appDelegate.remoteTmuxController
+            let restoreSSH = RemoteTmuxRoutingFixture.pinStubSSH("/usr/bin/false")
+            defer { restoreSSH() }
+
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "cmux-new-workspace-action-\(UUID().uuidString)",
+                isDirectory: true
+            )
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let configURL = root.appendingPathComponent("cmux.json")
+            try """
+            {
+              "actions": {
+                "configured-workspace": {
+                  "type": "workspace",
+                  "title": "Configured Workspace",
+                  "workspace": { "name": "Configured Workspace" }
+                }
+              },
+              "ui": { "newWorkspace": { "action": "configured-workspace" } }
+            }
+            """.write(to: configURL, atomically: true, encoding: .utf8)
+            let configStore = CmuxConfigStore(
+                globalConfigPath: configURL.path,
+                localConfigPath: nil,
+                startFileWatchers: false
+            )
+            configStore.loadAll()
+
+            let manager = TabManager()
+            _ = try RemoteTmuxRoutingFixture.mirrorSelectedSession(
+                controller: controller,
+                host: host,
+                sessionName: "configured-host",
+                into: manager
+            )
+            let (windowId, window) = RemoteTmuxRoutingFixture.registerWindowedContext(
+                appDelegate: appDelegate,
+                manager: manager
+            )
+            let context = try #require(
+                appDelegate.mainWindowContexts.values.first { $0.windowId == windowId }
+            )
+            context.cmuxConfigStore = configStore
+            defer {
+                window.close()
+                manager.window = nil
+                if controller.sessionMirror(host: host, sessionName: "configured-host") != nil {
+                    controller.detach(host: host, sessionName: "configured-host")
+                }
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            }
+
+            let before = Set(manager.tabs.map(\.id))
+            #expect(appDelegate.performNewWorkspaceAction(
+                tabManager: manager,
+                debugSource: "test.configured-action"
+            ))
+            let created = try #require(manager.tabs.first { !before.contains($0.id) })
+            #expect(!created.isRemoteTmuxMirror)
+            #expect(created.customTitle == "Configured Workspace")
+        }
+    }
+
     /// With remote routing disabled, a sidebar empty-area creation on a mirror
     /// follows the ordinary local end-of-list placement instead of taking the
     /// remote placement path and inserting after the selected mirror.
