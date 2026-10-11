@@ -177,7 +177,9 @@ async fn records(c: &mut TestClient, id: &str, kind: &str) -> Vec<Value> {
 async fn listen(hub: &Arc<Hub>) -> std::path::PathBuf {
     static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let path = std::env::temp_dir().join(format!("acpmux-move-{}-{n}.sock", std::process::id()));
+    // `/tmp`, not the temp dir: a worker's can be too long for a socket path.
+    let path = std::path::PathBuf::from("/tmp")
+        .join(format!("acpmux-move-{}-{n}.sock", std::process::id()));
     let listener = acpmux::server::bind_unix(&path).await.unwrap();
     tokio::spawn(acpmux::server::serve_unix(hub.clone(), listener));
     path
