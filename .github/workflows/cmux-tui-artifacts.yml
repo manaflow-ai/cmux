@@ -1131,9 +1131,11 @@ jobs:
           # request branch push, then its cmux-tui-pin-* branch after that run
           # finished). A rebuild is not byte-identical, so uploading it would
           # stop with immutable-r2-conflict and leave the tree unpublished:
-          # keep the earlier publication instead. Each prefix's manifest.json
-          # sorts after its binaries, so it exists only for a complete upload;
-          # the verify step below checks that publication against it.
+          # keep the earlier publication instead, and make it this run's local
+          # copy so the rolling latest publish and the verify steps use the
+          # bytes the commit prefix serves. Each prefix's manifest.json sorts
+          # after its binaries (all named c*), so it exists only for a
+          # complete upload; the verify step below checks it.
           published_before() {
             local status=0
             curl -fsS --proto '=https' --retry 3 --retry-delay 5 --connect-timeout 20 --max-time 60 -o /dev/null \
@@ -1144,12 +1146,20 @@ jobs:
               *) echo "could not check https://files.cmux.com/$1/manifest.json (curl exit $status)" >&2; exit 1 ;;
             esac
           }
+          adopt_published() {
+            local directory="$1" prefix="$2" file
+            for file in "$directory"/*; do
+              curl -fsS --proto '=https' --retry 3 --retry-delay 5 --connect-timeout 20 --max-time 300 -o "$file" \
+                "https://files.cmux.com/$prefix/$(basename "$file")?adopt=$GITHUB_RUN_ID"
+            done
+          }
           publish_prefix() {
             local directory="$1"
             local prefix="$2"
             local cache="$3"
             local write_once="$4"
             if [[ "$write_once" == "true" ]] && published_before "$prefix"; then
+              adopt_published "$directory" "$prefix"
               return
             fi
             for file in "$directory"/*; do
@@ -1226,6 +1236,7 @@ jobs:
             local prefix="$1"
             local cache="$2"
             if published_before "$prefix"; then
+              adopt_published "$legacy_assets" "$prefix"
               return
             fi
             for file in "$legacy_assets"/*; do
@@ -1721,12 +1732,14 @@ jobs:
               fetch "https://files.cmux.com/cmux-tui/$GITHUB_SHA/$asset" "assets/tree/$asset"
             done
             python3 - "$KEY" "$GITHUB_SHA" manifest.json > tree/source.json <<'PY'
-          import json, os, subprocess, sys
+          import json, os, re, subprocess, sys
           key, commit, manifest_path = sys.argv[1:]
           manifest = json.load(open(manifest_path))
           names = subprocess.check_output([sys.executable, "scripts/ci/publish-cmux-tui-tree.py", "--list-companions"], text=True).split()
           def rev(spec):
               return subprocess.check_output(["git", "rev-parse", spec], text=True).strip()
+          built = re.search(r"/actions/runs/(\d+)", manifest.get("attestationUrl") or "")
+          built_by = built.group(1) if built else os.environ["GITHUB_RUN_ID"]
           print(json.dumps({
               "key": key,
               "cmuxTuiTree": rev("HEAD:cmux-tui"),
@@ -1737,8 +1750,10 @@ jobs:
               # head) are the R2 pruner's candidates; trunk trees are kept.
               "ref": os.environ["GITHUB_REF"],
               "family": "trunk" if os.environ["GITHUB_REF"] in ("refs/heads/main", "refs/heads/feat-cmux-next") else "branch",
-              "run": os.environ["GITHUB_RUN_ID"],
-              "runUrl": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+              # The run that built the published binaries: an earlier run
+              # when the publish job kept that run's publication.
+              "run": built_by,
+              "runUrl": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{built_by}",
               "binaries": {name: manifest["binaries"][name] for name in names},
           }, indent=2))
           PY

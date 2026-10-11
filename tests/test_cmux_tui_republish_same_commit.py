@@ -184,6 +184,14 @@ class RebuildOfAPublishedCommit(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertNotIn("immutable-r2-conflict", result.stdout + result.stderr)
         self.assertEqual(self.published(), earlier)
+        # The rolling latest publish and the verify steps read the local
+        # copy, so it must be the bytes the commit prefix serves.
+        for path in (self.box.repo / "assets").rglob("*"):
+            if path.is_file():
+                key = f"{path.parent.name}/{self.box.sha}/{path.name}"
+                self.assertEqual(path.read_bytes(), earlier[key], key)
+        for path in (self.box.repo / "assets-legacy").iterdir():
+            self.assertEqual(path.read_bytes(), earlier[f"mux/{self.box.sha}/{path.name}"], path.name)
 
     def test_the_tree_is_published_from_the_earlier_publication(self) -> None:
         self.box.build("1")
@@ -196,7 +204,9 @@ class RebuildOfAPublishedCommit(unittest.TestCase):
         for n in names:
             (commit / n).write_text(f"{n} build 1\n")
         (commit / "manifest.json").write_text(json.dumps({
-            "commit": self.box.sha, "binaries": {n: sha256(commit / n) for n in names},
+            "commit": self.box.sha,
+            "attestationUrl": "https://github.com/manaflow-ai/cmux/actions/runs/1",
+            "binaries": {n: sha256(commit / n) for n in names},
         }))
         # This run's build (the tree job's downloaded artifacts) differs.
         tree = self.box.repo / "assets" / "tree"
@@ -210,6 +220,8 @@ class RebuildOfAPublishedCommit(unittest.TestCase):
         self.assertTrue((published / "completion.json").is_file())
         for n in names:
             self.assertEqual((published / n).read_bytes(), (commit / n).read_bytes(), n)
+        # Provenance names the run that built them (bundle-cmux-tui.sh stamps it).
+        self.assertEqual(json.loads((published / "source.json").read_text())["run"], "1")
 
 
 if __name__ == "__main__":
