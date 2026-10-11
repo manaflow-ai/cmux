@@ -53,8 +53,8 @@ await requireBrowserLane("files-panel-coverage.test.ts", async () => {
     await new Promise<void>((resolve, reject) => {
       // With CI set the banner is colored, with an escape between the host and the port.
       const onData = (chunk: Buffer) =>
-        // oxlint-disable-next-line no-control-regex -- strips ANSI color escapes
         String(chunk)
+          // oxlint-disable-next-line no-control-regex -- strips ANSI color escapes
           .replace(/\x1b\[[0-9;]*m/g, "")
           .includes(`127.0.0.1:${port}`)
           ? resolve()
