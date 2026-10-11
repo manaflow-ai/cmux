@@ -2360,7 +2360,7 @@ def test_computer_use_auth_token_reaches_mcp_child(failures: list[str]) -> None:
             if source == "file-over-stale-environment":
                 env["CMUX_CUA_SOCKET_AUTH_TOKEN"] = "stale-token"
             make_executable(
-                tmp / "cmux.app/Contents/Resources/bin/cmux-cua",
+                installed_helper_executable(tmp / "home"),
                 "#!/bin/bash\n"
                 '[[ "$1" == mcp && "$2" == --socket ]] || exit 2\n'
                 'if [[ "${CMUX_CUA_SOCKET_AUTH_TOKEN:-}" == cmux-test-auth-token ]]; then\n'
