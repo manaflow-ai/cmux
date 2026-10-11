@@ -35,6 +35,27 @@
   background: color-mix(in srgb, var(--agent-highlight, var(--agent-text)) 28%, transparent);
 }
 
+/* Steer (or Interrupt) beside Send while a turn runs: a quiet pill, as Plan is; Send queues. */
+.acpmux-steer {
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 14px;
+  background: none;
+  color: var(--agent-muted);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.acpmux-steer:hover {
+  background: var(--acpmux-composer-hover);
+  color: var(--agent-text);
+}
+.acpmux-steer:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 2px;
+}
+
 /* Send and Stop: the one filled control, in the accent (the terminal theme's text color, or its own
    hue with appearance.accent; never the ANSI blue); it steps toward the base on hover and further on press. */
 .acpmux-send.acpmux-send-ready:hover,

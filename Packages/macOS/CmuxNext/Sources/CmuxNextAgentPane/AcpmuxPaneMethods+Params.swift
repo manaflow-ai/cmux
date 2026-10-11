@@ -9,7 +9,7 @@ nonisolated extension AcpmuxPaneMethods {
         "initialize": (["protocolVersion", "clientInfo", "clientCapabilities"], []),
         // `noProject` is the pane's own (Do not work in a project): AcpmuxPathPolicy reads and strips it.
         "session/new": (["cwd", "mcpServers", "_meta"], ["harness", "adopt", "peer", "noProject"]),
-        "session/prompt": (["sessionId", "prompt", "_meta"], ["promptId"]),
+        "session/prompt": (["sessionId", "prompt", "_meta"], ["promptId", "steer", "interrupt"]),
         "session/set_model": (["sessionId", "modelId"], []),
         "session/cancel": (["sessionId"], []),
         "_acpmux/watch": (["enabled"], []),
