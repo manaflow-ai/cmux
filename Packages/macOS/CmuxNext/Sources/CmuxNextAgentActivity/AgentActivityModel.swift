@@ -113,11 +113,6 @@ public final class AgentActivityModel {
 
     public var allSessions: [AgentActivitySession] { sessionsByMachine.values.flatMap(\.self) }
 
-    /// Live sessions on this Mac, for the titlebar indicator.
-    public var liveLocalCount: Int {
-        (sessionsByMachine[Self.localMachine] ?? []).filter(\.status.isLive).count
-    }
-
     public var selectedSession: AgentActivitySession? {
         guard let selectedSessionID else { return nil }
         return allSessions.first { $0.id == selectedSessionID }
@@ -142,9 +137,6 @@ public final class AgentActivityModel {
         guard let current = currentEvent, let index = events.firstIndex(of: current) else { return nil }
         return events[...index].last { $0.displayFrame != nil }
     }
-
-    /// Whether the scrubber follows new events.
-    public var isFollowingNewest: Bool { scrubSeq == nil }
 
     // MARK: View state (user actions in this client)
 

@@ -9,14 +9,6 @@ import Foundation
 // with the Settings label) move to the minimal footer too; for R53's grid
 // only the bottom section must be untouched.
 extension SidebarLayoutDocument {
-    /// What an old exact default migrates to: the sections default of that
-    /// time, which still held CodeRouter. A stored layout keeps its items;
-    /// only new defaults leave CodeRouter out (FIRST-PARTY-APPS).
-    public nonisolated static var migrationTarget: SidebarLayoutDocument {
-        var target = defaults
-        target.sections[0].items.append(LayoutItem(id: LayoutItemID("itm_app_coderouter"), ref: .app("cmux/coderouter")))
-        return target
-    }
 
     /// The ops that move a layout equal to an older default to the current
     /// one, or none. The revision does not matter. They are ordinary layout
@@ -123,10 +115,6 @@ extension SidebarLayoutDocument {
     /// Built-ins that are first-party apps now (R63/R64).
     public nonisolated static let firstPartyApps: [SidebarBuiltIn: String] = [.home: "cmux/home", .appStore: "cmux/app-store"]
 
-    /// The large-tiles arrangement (#17349). It is no longer the default
-    /// top (Lawrence 2026-10-05: rows); a user can still choose it.
-    public nonisolated static let tilesArrangement = SectionArrangement(layout: .tiles, columns: 4)
-
     /// Every migration in order (sections, then app refs, then Recents, then
     /// retired items), as
     /// one op list that applies to this layout. No migration turns a
@@ -142,9 +130,6 @@ extension SidebarLayoutDocument {
         let earlier = offeringRecents ? sections + appRefs + applying(sections + appRefs).recentsMigrationOps : sections + appRefs
         return earlier + applying(earlier).retiredItemOps
     }
-
-    /// This layout with `layoutMigrationOps` applied.
-    public nonisolated var layoutMigration: SidebarLayoutDocument { applying(layoutMigrationOps) }
 
     /// This layout with `ops` applied by the reducer; the layout itself when one is refused.
     nonisolated func applying(_ ops: [SidebarLayoutOp]) -> SidebarLayoutDocument {

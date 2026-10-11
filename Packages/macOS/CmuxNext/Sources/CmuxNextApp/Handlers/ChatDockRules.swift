@@ -7,13 +7,6 @@ import CmuxNextLayout
 /// (every split, auto layout and split drop goes through `splitRoom`) and
 /// holds only agent chats, so tools dropped or moved into it are refused.
 enum ChatDockRules {
-    static func refusesSplit(of pane: LayoutPaneID, columns: [LayoutColumn]) -> Bool {
-        isChatDock(pane, columns)
-    }
-
-    static func refusesTab(isChat: Bool, into pane: LayoutPaneID, columns: [LayoutColumn]) -> Bool {
-        !isChat && isChatDock(pane, columns)
-    }
 
     private static func isChatDock(_ pane: LayoutPaneID, _ columns: [LayoutColumn]) -> Bool {
         columns.first { $0.root.contains(pane) }?.dock?.role == .agentChat

@@ -15,10 +15,6 @@ import Observation
 /// two on-screen widths, frame by frame (`WindowRootView.layout`).
 final class TitlebarToolbarBand: NSView {
     let sidebarToggle = TitlebarBandButton(symbol: SidebarToggleIcon.currentCollapseSymbol)
-    /// The toggle's glyph while the sidebar shows (the default icon).
-    static var collapseSymbol: String { SidebarToggleIcon.currentCollapseSymbol }
-    /// The toggle's glyph while the sidebar is hidden (the default icon).
-    static var expandSymbol: String { SidebarToggleIcon.currentExpandSymbol }
     /// How much of the band shows: 1 with the sidebar shown, 0 with it
     /// hidden, in between while the sidebar's width (or the corner hover's
     /// `CollapsedBandReveal`) animates. The items close up toward the band's

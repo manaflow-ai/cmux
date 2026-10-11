@@ -36,12 +36,6 @@ nonisolated enum ChiefMigration {
 
     static let recordName = "migration.json"
 
-    /// Whether the Chief owner is published after `outcome`: always. Home's
-    /// availability never waits for the move; a blocked move shows a notice
-    /// and the next launch tries again (the owner then refuses history older
-    /// than what it holds, and the old homes stay as they are).
-    static func publishesOwner(after outcome: Outcome) -> Bool { true }
-
     /// Home's one-line notice for `outcome`, if any.
     static func notice(for outcome: Outcome) -> String? {
         if case .blocked = outcome { return HomeStrings.chiefMergeBlocked }

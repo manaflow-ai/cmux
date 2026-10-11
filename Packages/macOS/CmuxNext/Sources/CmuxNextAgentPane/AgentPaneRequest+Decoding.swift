@@ -13,6 +13,14 @@ extension AgentPaneRequest {
         return .preview(url: text, toggle: toggle)
     }
 
+    /// The chat folder a header action names: an absolute path, or one written from the home
+    /// folder (`~/code/cmux`, as acpmux may record it), expanded (cx-awk8). Else none.
+    private static func headerFolder(_ text: String) -> String? {
+        guard !text.contains("\0") else { return nil }
+        let path = text == "~" || text.hasPrefix("~/") ? NSHomeDirectory() + text.dropFirst() : text
+        return path.hasPrefix("/") ? String(path.prefix(maximumOpenTabText)) : nil
+    }
+
     /// Decodes a `WKScriptMessage.body` (a dictionary once bridged).
     public init(body: Any) {
         guard let object = body as? [String: Any], let method = object["method"] as? String else {
@@ -163,7 +171,7 @@ extension AgentPaneRequest {
             if params?["id"] as? String == AgentPaneModel.previewAction {
                 self = Self.preview(params, method: method)
             } else if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128 {
-                let cwd = (params?["cwd"] as? String).flatMap { $0.hasPrefix("/") ? String($0.prefix(Self.maximumOpenTabText)) : nil }
+                let cwd = (params?["cwd"] as? String).flatMap(Self.headerFolder)
                 self = .paneAction(id, cwd: cwd, toggle: params?["mode"] as? String == "toggle")
             } else {
                 self = .unsupported(method)

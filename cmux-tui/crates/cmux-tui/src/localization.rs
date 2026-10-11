@@ -24,6 +24,7 @@ mod session;
 mod session_reset;
 mod shortcuts;
 mod sidebar;
+mod skew;
 mod startup;
 mod terminal;
 mod terminal_input;
@@ -51,6 +52,7 @@ pub(crate) use session::SessionMessages;
 pub(crate) use session_reset::SessionResetMessages;
 pub(crate) use shortcuts::ShortcutMessages;
 pub(crate) use sidebar::SidebarMessages;
+pub(crate) use skew::SkewMessages;
 pub(crate) use startup::StartupMessages;
 pub(crate) use terminal::TerminalMessages;
 pub(crate) use terminal_input::TerminalInputMessages;
@@ -108,6 +110,7 @@ pub(crate) struct Catalog {
     japanese: bool,
     pub startup: StartupMessages,
     pub local_server: LocalServerMessages,
+    pub skew: SkewMessages,
     pub terminal_input: TerminalInputMessages,
     pub pairing: PairingMessages,
     pub foreign_viewport: ForeignViewportMessages,
@@ -147,6 +150,7 @@ static ENGLISH: Catalog = Catalog {
     startup: startup::ENGLISH,
     terminal_input: terminal_input::ENGLISH,
     local_server: local_server::ENGLISH,
+    skew: skew::ENGLISH,
     pairing: pairing::ENGLISH,
     foreign_viewport: foreign_viewport::ENGLISH,
     graphics: graphics::ENGLISH,
@@ -175,6 +179,7 @@ static JAPANESE: Catalog = Catalog {
     startup: startup::JAPANESE,
     terminal_input: terminal_input::JAPANESE,
     local_server: local_server::JAPANESE,
+    skew: skew::JAPANESE,
     pairing: pairing::JAPANESE,
     foreign_viewport: foreign_viewport::JAPANESE,
     graphics: graphics::JAPANESE,

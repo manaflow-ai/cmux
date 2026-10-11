@@ -3,6 +3,7 @@ import Foundation
 import os
 import Security
 import CmuxNextCompat
+import CmuxNextWakeups
 
 /// Who answers on an acpmux socket path (cx-fcaq). Any same-uid process can shut the daemon down
 /// (`_acpmux/shutdown` stays open to scripts) and bind its path, so before the app enrolls a
@@ -69,8 +70,6 @@ nonisolated enum AcpmuxServerPeer {
     /// Paths already logged as refused (one line each per launch).
     private static let refusedPaths = Mutex<Set<String>>([])
 
-    /// `LOCAL_PEERTOKEN` (sys/un.h): the peer's audit token at connect.
-    private static let localPeerToken: Int32 = 0x006
 
     /// `initialize`, then `method` with `params`, on one connection to `socketPath` whose server
     /// peer passed ``check(descriptor:executable:)``. Nothing is written before the check.
@@ -244,29 +243,16 @@ nonisolated enum AcpmuxServerPeer {
 
     /// The check on a connected unix socket.
     static func check(descriptor: Int32, executable: URL, allowForeign: Bool = false) -> Result<Match, Refusal> {
-        var pid: pid_t = 0
-        var size = socklen_t(MemoryLayout<pid_t>.size)
-        guard getsockopt(descriptor, SOL_LOCAL, LOCAL_PEERPID, &pid, &size) == 0, pid > 1 else {
-            return .failure(.noPeer)
-        }
-        var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
-        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return .failure(.noPeer) }
-        let peer = URL(fileURLWithPath: String(cString: buffer)).resolvingSymlinksInPath().path
-        let own = peer == executable.resolvingSymlinksInPath().path
+        // The peer's facts on this very descriptor (UnixSocketPeer, shared with the CUA client).
+        guard let peer = UnixSocketPeer(descriptor: descriptor) else { return .failure(.noPeer) }
+        let own = peer.runs(executable)
         // DEV (ad hoc): the path alone decides; another install is never accepted.
-        guard let team = ownTeam else { return own ? .success(.own) : .failure(.otherExecutable(peer)) }
-        guard own || allowForeign else { return .failure(.otherExecutable(peer)) }
-        var token = audit_token_t()
-        var tokenSize = socklen_t(MemoryLayout<audit_token_t>.size)
-        guard getsockopt(descriptor, SOL_LOCAL, localPeerToken, &token, &tokenSize) == 0 else { return .failure(.noPeer) }
-        let tokenData = withUnsafeBytes(of: &token) { Data($0) }
-        var code: SecCode?
-        guard SecCodeCopyGuestWithAttributes(nil, [kSecGuestAttributeAudit: tokenData] as CFDictionary, [], &code)
-                == errSecSuccess, let code else { return .failure(.notTeamSigned) }
+        guard let team = ownTeam else { return own ? .success(.own) : .failure(.otherExecutable(peer.executablePath)) }
+        guard own || allowForeign else { return .failure(.otherExecutable(peer.executablePath)) }
         // Another install: rule 1, the exact identifier of this app's own acpmux.
         let identifier = own ? nil : ownIdentifier(executable)
         if !own, identifier == nil { return .failure(.notTeamSigned) }
-        guard satisfies(code, team: team, identifier: identifier) else { return .failure(.notTeamSigned) }
+        guard peer.signed(team: team, identifier: identifier) else { return .failure(.notTeamSigned) }
         return .success(own ? .own : .foreign)
     }
 
