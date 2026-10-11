@@ -31,9 +31,12 @@ struct DaemonHandoffAttachTests {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         services.windows.ordersWindowsIn = false
-        services.daemon.start(afterConnect: { connection, identity in
+        services.daemon.start(handOff: { connection, identity in
             // As if the app had been updated to another build.
-            _ = await launcher.handOffIfStale(identity: identity, using: connection, bundledCommit: "0000000")
+            if case .restart = await launcher.handOffIfStale(identity: identity, using: connection, bundledCommit: "0000000") {
+                return true
+            }
+            return false
         }) {
             DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)
         }
