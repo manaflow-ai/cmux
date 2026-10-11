@@ -51,6 +51,9 @@ final class CloudBrowserAccessState {
     @ObservationIgnored private let desktopRetry: MainActorDeferredActionScheduler
     @ObservationIgnored private var desktopRetries = 0
     @ObservationIgnored private var hasConnectedOnRoute = false
+    /// Installed by BrowserPanel so route teardown can discard request bodies
+    /// that must never be replayed against a later local destination.
+    @ObservationIgnored var onRouteLeft: (@MainActor () -> Void)?
     static let desktopRetryDelays: [Duration] = [.milliseconds(500), .seconds(1), .seconds(2)]
 
     init(clock: any Clock<Duration> = ContinuousClock()) {
@@ -522,6 +525,7 @@ final class CloudBrowserAccessState {
     }
 
     func leave() {
+        onRouteLeft?()
         cancelUnavailableRetry()
         resetDesktopRetries()
         observationGeneration &+= 1

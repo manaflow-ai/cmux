@@ -35,6 +35,10 @@ extension BrowserPanel {
                 } catch {
                     guard self.cloudLoopbackProtectionGeneration == generation,
                           self.cloudAccess.model === model, self.cloudAccess.owns(url) else { return }
+                    // The request that triggered this route may contain a
+                    // body or credentials. Once the managed route is gone it
+                    // must never be replayed by a later local navigation.
+                    self.pendingCloudNavigationRequest = nil
                     self.cloudAccess.showUnavailable(String(
                         localized: "cloud.portAccess.loopbackProtectionUnavailable",
                         defaultValue: "cmux could not safely open this SSH loopback preview. Reload to try again."
@@ -206,6 +210,9 @@ extension BrowserPanel {
     func configureCloudBrowser(model: CloudPortAccessModel, url: URL, resourceID: SurfaceResourceID? = nil,
                                request: URLRequest? = nil) {
         guard !isClosingWebViewLifecycle else { return }
+        cloudAccess.onRouteLeft = { [weak self] in
+            self?.pendingCloudNavigationRequest = nil
+        }
         if model.route != .loopback { removeManagedSSHLoopbackProtection(restoreGeneralBridge: true) }
         webView.stopLoading()
         pendingCloudNavigationRequest = request
@@ -226,6 +233,7 @@ extension BrowserPanel {
     /// provenance from this panel.
     func leaveCloudResourceForLocalNavigation() {
         removeManagedSSHLoopbackProtection()
+        pendingCloudNavigationRequest = nil
         pendingCloudRestoreURL = nil
         if retainsCloudResourceForDuplication {
             SurfaceCatalog.shared.endProjections(panelID: id, reason: .replaced)

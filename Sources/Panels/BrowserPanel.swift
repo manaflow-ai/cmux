@@ -5214,6 +5214,7 @@ final class BrowserPanel: Panel, ObservableObject {
     func close() {
         BrowserReplTabAttachments.shared.panelDidClose(id)
         removeManagedSSHLoopbackProtection()
+        pendingCloudNavigationRequest = nil
         cloudAccess.leave()
         cancelHiddenWebViewDiscard()
         isClosingWebViewLifecycle = true

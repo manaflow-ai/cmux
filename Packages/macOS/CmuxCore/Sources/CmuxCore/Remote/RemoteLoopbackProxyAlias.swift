@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// Host-alias mapping between the localhost family and the public
@@ -36,8 +37,40 @@ public struct RemoteLoopbackProxyAlias {
         guard let normalizedHost = normalizeHost(host) else {
             return false
         }
-        return exactLoopbackHosts.contains(normalizedHost)
-            || normalizedHost.hasSuffix(".\(canonicalLoopbackHost)")
+        if exactLoopbackHosts.contains(normalizedHost)
+            || normalizedHost.hasSuffix(".\(canonicalLoopbackHost)") {
+            return true
+        }
+
+        // URL parsers accept legacy IPv4 spellings (decimal, octal, hex and
+        // short forms), and IPv6 may carry an IPv4 loopback in mapped or
+        // NAT64 form. Treat every spelling of the loopback/unspecified
+        // interface as SSH-owned so a navigation cannot fall through to the
+        // client WebKit process.
+        var ipv4 = in_addr()
+        if inet_aton(normalizedHost, &ipv4) == 1 {
+            let address = UInt32(bigEndian: ipv4.s_addr)
+            return address >> 24 == 127 || address == 0
+        }
+
+        var ipv6 = in6_addr()
+        guard inet_pton(AF_INET6, normalizedHost, &ipv6) == 1 else { return false }
+        let bytes = withUnsafeBytes(of: &ipv6) { Array($0) }
+        if bytes.prefix(10).allSatisfy({ $0 == 0 }) {
+            if bytes[10] == 0xFF, bytes[11] == 0xFF {
+                let mapped = bytes[12..<16].reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
+                return mapped >> 24 == 127 || mapped == 0
+            }
+            return bytes.dropLast().allSatisfy { $0 == 0 } && bytes[15] <= 1
+        }
+        // NAT64 embeds an IPv4 address in 64:ff9b::/96. It is still a
+        // loopback destination when that embedded address is loopback.
+        if bytes[0..<4] == [0x00, 0x64, 0xFF, 0x9B],
+           bytes[4..<12].allSatisfy({ $0 == 0 }) {
+            let embedded = bytes[12..<16].reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
+            return embedded >> 24 == 127 || embedded == 0
+        }
+        return false
     }
 
     /// The alias host a browser should use for `host`, falling back to the
