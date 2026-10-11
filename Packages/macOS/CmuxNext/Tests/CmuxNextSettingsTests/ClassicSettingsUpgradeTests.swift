@@ -48,7 +48,6 @@ import Testing
         (["layout", "paneBorderColor"], .string("#112233")),
         (["focusRing", "color"], .string("#445566")),
         (["notifications", "attention", "color"], .string("#778899")),
-        (["app", "uiScale"], .number(1.2)),
         (["workspaces", "newPlacement"], .string("bottom")),
         (["layout", "splitSizing"], .string("even")),
         (["window", "titlebar"], .string("standard")),
@@ -86,8 +85,46 @@ import Testing
         }
         // Moved keys are gone; one next can't express (the ring on: next's default) stays.
         #expect(try await settings.file.value(at: ["app", "newWorkspacePlacement"]) == nil)
+        #expect(try await settings.file.value(at: ["app", "globalFontMagnification"]) == .number(120))
         #expect(try await settings.file.value(at: ["diffViewer", "defaultLayout"]) == nil)
         #expect(try await settings.file.value(at: ["notifications", "unreadPaneRing"]) == .bool(true))
         #expect(try await settings.file.value(at: ["notifications", "attention", "style"]) == nil)
+    }
+
+    /// Classic values next would only approximate stay in classic's key
+    /// rather than change what the person gets.
+    @Test func approximateClassicValuesStay() async throws {
+        let home = FileManager.default.temporaryDirectory.appending(path: "cn-classic-settings-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let config = home.appending(path: ".config/cmux")
+        try FileManager.default.createDirectory(at: config, withIntermediateDirectories: true)
+        try Data("""
+        {
+          "app": { "globalFontMagnification": 200 },
+          "browser": { "defaultSearchEngine": "custom", "customSearchEngineURLTemplate": "https://search.example/?q={query}" },
+          "notifications": { "unreadPaneRing": false },
+          "sidebar": { "showBranchDirectory": true }
+        }
+        """.utf8).write(to: config.appending(path: "cmux.json"))
+
+        let url = try CmuxConfigFile.prepareDefaultURL(home: home, environment: [:])
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()),
+                                          managedWatchFiles: [])
+        await settings.reload()
+        try await settings.migrateClassicSettings()
+
+        // Classic magnified terminals too; next's UI scale is chrome only.
+        #expect(try await settings.file.value(at: ["app", "uiScale"]) == nil)
+        #expect(try await settings.file.value(at: ["app", "globalFontMagnification"]) == .number(200))
+        // A custom engine without its template would search with Google.
+        #expect(try await settings.file.value(at: ["browser", "searchEngine"]) == nil)
+        #expect(try await settings.file.value(at: ["browser", "defaultSearchEngine"]) == .string("custom"))
+        // Classic's ring off kept the flash.
+        #expect(try await settings.file.value(at: ["notifications", "attention", "persist"]) == .bool(false))
+        #expect(try await settings.file.value(at: ["notifications", "attention", "style"]) == nil)
+        // "Show Branch + Directory" is two rows in next.
+        #expect(try await settings.file.value(at: ["sidebar", "workspaceRow", "branch"]) == .bool(true))
+        #expect(try await settings.file.value(at: ["sidebar", "workspaceRow", "directory"]) == .bool(true))
     }
 }
