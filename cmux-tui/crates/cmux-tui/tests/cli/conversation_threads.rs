@@ -70,13 +70,22 @@ impl Conn {
     }
 }
 
-fn send(conn: &mut Conn, conversation: &str, key: &str, text: &str, thread_root: Option<&str>) -> Value {
+fn send(
+    conn: &mut Conn,
+    conversation: &str,
+    key: &str,
+    text: &str,
+    thread_root: Option<&str>,
+) -> Value {
     let mut op = json!({"kind": "message.send", "client_msg_id": key,
                         "parts": [{"type": "text", "text": text}]});
     if let Some(root) = thread_root {
         op["thread_root"] = json!(root);
     }
-    conn.reply("conversation-op", json!({"conversation": conversation, "idempotency_key": key, "op": op}))
+    conn.reply(
+        "conversation-op",
+        json!({"conversation": conversation, "idempotency_key": key, "op": op}),
+    )
 }
 
 /// Unread messages of `participant`: last_seq minus its read cursor, as
@@ -110,11 +119,11 @@ fn thread_replies_carry_thread_root_and_a_send_reads_only_for_its_sender() {
                    {"id": "agent_mux", "kind": "agent", "display_name": "mux", "agent_class": "mux"}]}),
     );
     let conversation = created["conversation"]["id"].as_str().unwrap().to_owned();
-    let token = home.request("conversation-agent-token", json!({"participant": "agent_mux"}))
-        ["token"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    let token =
+        home.request("conversation-agent-token", json!({"participant": "agent_mux"}))["token"]
+            .as_str()
+            .unwrap()
+            .to_owned();
     let mut agent = Conn::open(&server.socket);
     agent.request("conversation-bind", json!({"participant": "agent_mux", "token": token}));
     home.request("subscribe", json!({}));
@@ -141,7 +150,8 @@ fn thread_replies_carry_thread_root_and_a_send_reads_only_for_its_sender() {
     let nested = send(&mut home, &conversation, "nested-1", "nested", Some(&reply_id));
     assert_eq!(nested["ok"], false, "{nested}");
     assert!(nested.to_string().contains("invalid_thread_root"), "{nested}");
-    let unknown = send(&mut home, &conversation, "unknown-1", "lost", Some("msg_00000000000000000000000000"));
+    let unknown =
+        send(&mut home, &conversation, "unknown-1", "lost", Some("msg_00000000000000000000000000"));
     assert_eq!(unknown["ok"], false, "{unknown}");
     assert!(unknown.to_string().contains("invalid_thread_root"), "{unknown}");
 
@@ -150,7 +160,8 @@ fn thread_replies_carry_thread_root_and_a_send_reads_only_for_its_sender() {
         "conversation-history",
         json!({"conversation": conversation, "before_seq": 100, "limit": 10}),
     );
-    let snapshot = home.request("conversation-snapshot", json!({"conversation": conversation, "tail": 10}));
+    let snapshot =
+        home.request("conversation-snapshot", json!({"conversation": conversation, "tail": 10}));
     for messages in [&history["messages"], &snapshot["messages"]] {
         let messages = messages.as_array().unwrap();
         assert_eq!(messages.len(), 2, "{messages:?}");
