@@ -67,9 +67,9 @@ public struct HomeTurnDraft: Hashable, Sendable {
 }
 
 /// HomeStore's live drafts: at most one running turn per conversation. A turn
-/// ends with its `done` item, its posted reply (same author and key) or its
-/// author's typing off; a draft of an ended turn that arrives late is
-/// dropped, so a posted reply never gets its draft back.
+/// ends with its `done` item, its posted reply (same author and key), its
+/// author's typing off, or a new turn that replaces it; a draft of an ended
+/// turn that arrives late is dropped, so its bubble never comes back.
 struct HomeDraftBook {
     private(set) var live: [ConversationID: HomeTurnDraft] = [:]
     /// Turns that ended, newest last (bounded).
@@ -82,9 +82,11 @@ struct HomeDraftBook {
         if update.done {
             return end(update.conversation) { $0.turn == update.turn }
         }
-        var draft = live[update.conversation].flatMap { $0.turn == update.turn ? $0 : nil }
-            ?? HomeTurnDraft(participant: update.participant, turn: update.turn)
         let before = live[update.conversation]
+        // A new turn replaces the live one: the old turn ended, so its late items stay dropped.
+        if let before, before.turn != update.turn { remember(before.turn) }
+        var draft = before.flatMap { $0.turn == update.turn ? $0 : nil }
+            ?? HomeTurnDraft(participant: update.participant, turn: update.turn)
         draft.apply(update)
         live[update.conversation] = draft
         return before?.text != draft.text || before?.turn != draft.turn
