@@ -69,6 +69,9 @@ type Props = NewTabScreenActions & {
   now?: number;
   /// The folder the tab inherited: the project picker starts there.
   cwd?: string;
+  /// The folder a prompt with no pick starts in (the host's start folder, a private folder in a
+  /// fresh workspace); the composer chip names it, not the inherited `cwd` (nxdog91 F0).
+  startCwd?: string;
   /// The projects the picker offers (App's newTabProjects).
   projects?: Project[];
   /// The host's folder panel; resolves with the folder picked, if any.
@@ -292,7 +295,8 @@ export function NewTabScreen(props: Props) {
       }
     : undefined;
   const Chips = props.chips;
-  const chatFolder = project ?? props.cwd;
+  // A real pick names its folder; else the folder the chat really starts in (screenActions onAsk).
+  const chatFolder = project && project !== props.cwd ? project : (props.startCwd ?? project ?? props.cwd);
 
   return (
     <div
