@@ -551,8 +551,10 @@ pub(crate) struct HostLaunch {
 impl HostLaunch {
     /// The scrollback a host keeps: only what its bounded replay
     /// (`VT_REPLAY_MAX_BYTES`, sent on daemon adopt and reconnect) can carry.
-    /// The replay budgets 32 bytes a cell and Ghostty stores about 8, so this
-    /// keeps some 4x the rows a replay sends. The daemon's terminal holds the
+    /// The replay budgets 32 bytes a cell and Ghostty stores about 8 for plain
+    /// text, so this keeps some 4x the rows a replay sends; pages dense with
+    /// unique styles, graphemes or hyperlinks store more per cell, and a
+    /// restart then restores fewer rows. The daemon's terminal holds the
     /// full scrollback every client reads; a second full copy here cost up
     /// to 50 MB per busy terminal.
     pub(crate) fn host_scrollback(daemon_scrollback: usize) -> usize {
