@@ -445,6 +445,10 @@
       "scope": "conversation:read",
       "class": "read"
     },
+    "conversation.thread": {
+      "scope": "conversation:read",
+      "class": "read"
+    },
     "conversation.typing": {
       "scope": "conversation:write",
       "class": "mutation"
@@ -1684,6 +1688,17 @@
     "firewall.list",
     "frontend_projection.get",
     "frontend_projection.put",
+    "history.backups.purge",
+    "history.clear",
+    "history.entries.list",
+    "history.entries.remove",
+    "history.restore",
+    "history.site.remove",
+    "history.visit.import",
+    "history.visit.record",
+    "history.visit.remove",
+    "history.visit.summaries",
+    "history.visit.title",
     "home.settings.set",
     "host.enroll",
     "host.remove",

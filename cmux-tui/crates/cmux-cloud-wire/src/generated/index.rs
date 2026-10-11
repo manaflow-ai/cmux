@@ -55,6 +55,7 @@ pub mod op_names {
     pub const CONVERSATION_IMPORT_COMMIT: &str = "conversation.import.commit";
     pub const CONVERSATION_SETTINGS_SET: &str = "conversation.settings.set";
     pub const CONVERSATION_SNAPSHOT: &str = "conversation.snapshot";
+    pub const CONVERSATION_THREAD: &str = "conversation.thread";
     pub const DM_OPEN: &str = "dm.open";
     pub const DOMAIN_CLAIM: &str = "domain.claim";
     pub const DOMAIN_LIST: &str = "domain.list";
@@ -238,6 +239,7 @@ pub mod op_names {
         CONVERSATION_IMPORT_COMMIT,
         CONVERSATION_SETTINGS_SET,
         CONVERSATION_SNAPSHOT,
+        CONVERSATION_THREAD,
         DM_OPEN,
         DOMAIN_CLAIM,
         DOMAIN_LIST,
@@ -424,6 +426,7 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "conversation.import.commit" => visitor.visit::<ConversationImportCommitOp>(),
         "conversation.settings.set" => visitor.visit::<ConversationSettingsSetOp>(),
         "conversation.snapshot" => visitor.visit::<ConversationSnapshotOp>(),
+        "conversation.thread" => visitor.visit::<ConversationThreadOp>(),
         "dm.open" => visitor.visit::<DmOpenOp>(),
         "domain.claim" => visitor.visit::<DomainClaimOp>(),
         "domain.list" => visitor.visit::<DomainListOp>(),

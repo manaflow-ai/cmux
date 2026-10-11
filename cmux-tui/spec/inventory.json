@@ -60,6 +60,17 @@
     "git.files.list",
     "git.files.search",
     "git.status",
+    "history.backups.purge",
+    "history.clear",
+    "history.entries.list",
+    "history.entries.remove",
+    "history.restore",
+    "history.site.remove",
+    "history.visit.import",
+    "history.visit.record",
+    "history.visit.remove",
+    "history.visit.summaries",
+    "history.visit.title",
     "machine.get",
     "machine.list",
     "notification.ack",
@@ -468,6 +479,7 @@
       "conversation-create",
       "conversation-snapshot",
       "conversation-history",
+      "conversation-thread",
       "conversation-search",
       "history-search",
       "conversation-op",
@@ -484,6 +496,7 @@
       "cloud-inbox-list",
       "cloud-conversation-snapshot",
       "cloud-conversation-history",
+      "cloud-conversation-thread",
       "cloud-conversation-op",
       "cloud-inbox-subscribe",
       "cloud-inbox-unsubscribe",
@@ -525,6 +538,12 @@
     },
     {
       "name": "bookmarks-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "history-changed",
       "streams": [
         "subscribe"
       ]

@@ -389,6 +389,6 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 surfaces: [.keyboard], requires: [.diffViewerFocused], targets: [.pane],
                 cliName: "browser diff-previous-file"
             ),
-        ] + vscodeServerDescriptors() + agentGuardDescriptors()
+        ] + vscodeServerDescriptors() + agentGuardDescriptors() + importFilesDescriptors()
     }
 }

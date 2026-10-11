@@ -2,19 +2,18 @@ public import AppKit
 import CmuxNextDesign
 
 /// Small label over a terminal whose link is down: the last screen stays
-/// visible behind it. Hidden while connected. Subtle gray, no accent.
+/// visible behind it. Hidden while connected. The theme's raised surface and
+/// secondary text, no accent.
 final class TerminalStatusBanner: NSView {
-    private let label = NSTextField(labelWithString: "")
+    private let label = ThemedLabel(labelWithString: "")
 
     init() {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerRadius = 8
-        layer?.backgroundColor = NSColor(white: 0.12, alpha: 0.88).cgColor
-        layer?.borderColor = NSColor(white: 1, alpha: 0.08).cgColor
         layer?.borderWidth = Metrics.lineWidth(1)
         label.font = .systemFont(ofSize: 12, weight: .medium)
-        label.textColor = NSColor(white: 0.85, alpha: 1)
+        label.ink = .secondary
         label.lineBreakMode = .byTruncatingTail
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
@@ -31,6 +30,23 @@ final class TerminalStatusBanner: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyThemeColors()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyThemeColors()
+    }
+
+    private func applyThemeColors() {
+        performWithTheme {
+            layer?.backgroundColor = Palette.elevatedBackground.cgColor
+            layer?.borderColor = Palette.separator.cgColor
+        }
     }
 
     /// Clicks go to the terminal below (a click there re-attaches).

@@ -121,4 +121,25 @@ extension BrowserTab {
         if let tab = self as? CEFTab { return try await CEFFullPageCapture(tab: tab).run() }
         throw BrowserTabError.snapshotUnavailable
     }
+
+    /// Every cookie of the tab's profile (automation).
+    public func cookies() async throws -> [BrowserCookie] {
+        if let tab = self as? WebKitTab { return await WebKitCookieStore(tab: tab).cookies() }
+        if let tab = self as? CEFTab { return try await CEFCookieStore(tab: tab).cookies() }
+        throw BrowserTabError.unsupported("cookies")
+    }
+
+    /// Stores `cookie` in the tab's profile.
+    public func setCookie(_ cookie: BrowserCookie) async throws {
+        if let tab = self as? WebKitTab { return try await WebKitCookieStore(tab: tab).set(cookie) }
+        if let tab = self as? CEFTab { return try await CEFCookieStore(tab: tab).set(cookie) }
+        throw BrowserTabError.unsupported("cookies")
+    }
+
+    /// Deletes the cookies with each one's name, domain and path.
+    public func deleteCookies(_ cookies: [BrowserCookie]) async throws {
+        if let tab = self as? WebKitTab { return await WebKitCookieStore(tab: tab).delete(cookies) }
+        if let tab = self as? CEFTab { return try await CEFCookieStore(tab: tab).delete(cookies) }
+        throw BrowserTabError.unsupported("cookies")
+    }
 }

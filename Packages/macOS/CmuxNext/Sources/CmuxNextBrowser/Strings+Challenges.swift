@@ -24,10 +24,6 @@ extension Strings {
     static var certificateWarningNotShown: String {
         String(localized: "browser.certificate.notShown", defaultValue: "No certificate warning is showing on this page.", bundle: .module)
     }
-    /// A certificate warning action run on a Chromium page.
-    static var certificateWarningChromium: String {
-        String(localized: "browser.certificate.chromium", defaultValue: "Chromium shows its own certificate warning page. Use its buttons, or Back.", bundle: .module)
-    }
     static var authRemember: String { String(localized: "browser.auth.remember", defaultValue: "Remember password", bundle: .module) }
     static var certificateBackToSafety: String {
         String(localized: "browser.certificate.backToSafety", defaultValue: "Back to Safety", bundle: .module)

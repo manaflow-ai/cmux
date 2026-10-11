@@ -44,7 +44,7 @@ impl Surface {
         // releasing it: the surface's reader delivers that acknowledgement,
         // and after a reconnect it takes the runtime lock before it reads
         // the new stream.
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         {
             let pending = match &*pty.runtime.lock().unwrap() {
                 PtyRuntime::Hosted(host) => Some(host.begin_clear_history(fallback_key)?),

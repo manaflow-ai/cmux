@@ -13,6 +13,7 @@ mod fork_at;
 mod handoff;
 mod harness_view;
 mod harness_watch;
+mod health_view;
 mod idle;
 mod launch_roots;
 mod launchers;
@@ -60,6 +61,7 @@ pub mod rules;
 mod transfer;
 mod transfer_in;
 mod transfer_out;
+mod transfer_watch;
 mod turns;
 mod warm;
 mod xai;
@@ -264,10 +266,14 @@ pub struct Hub {
     pub(crate) chats_waiters: StdMutex<Vec<crate::chats::ChatsWaiter>>,
     pub(super) harness_watch: harness_watch::HarnessWatchState,
     pub catalog: Arc<crate::catalog::CatalogService>,
+    /// Agent CLI health (`harness_health`, `hub/health_view.rs`).
+    pub health: Arc<crate::harness_health::HealthService>,
     /// The token the web listener checks now (`web_token.rs`).
     pub web_token: WebToken,
     /// This launch's person key (`person.rs`): who may allow and grant.
     pub person: person::PersonGate,
+    /// How long a move may go without its client (`transfer_watch.rs`).
+    pub(super) transfer_lease: StdMutex<std::time::Duration>,
 }
 
 impl Hub {
@@ -315,8 +321,10 @@ impl Hub {
             chats_waiters: StdMutex::new(Vec::new()),
             harness_watch: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
+            health: Arc::new(crate::harness_health::HealthService::new()),
             web_token: WebToken::new(String::new()),
             person: Default::default(),
+            transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
         });
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);
@@ -325,6 +333,7 @@ impl Hub {
         if tokio::runtime::Handle::try_current().is_ok() {
             let h = hub.clone();
             tokio::spawn(async move { h.peer_notice_loop().await });
+            hub.watch_transfers();
             for (name, pc) in peers_cfg {
                 hub.start_peer(&name, &pc);
             }

@@ -85,6 +85,20 @@ const panelsOpen: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-header-tool[aria-pressed="true"]'));
 };
 
+// The App found the chat branch's pull request: open, 3 of 5 checks passed, one failing (cx-tcwj).
+const pullRequestChip: Play = async (ctx) => {
+  const { setHeaderState } = await import("./headerState");
+  setHeaderState({
+    pullRequest: {
+      url: "https://github.com/manaflow-ai/cmux/pull/19375",
+      number: 19375,
+      state: "open",
+      checks: { state: "failing", passed: 3, total: 5 },
+    },
+  });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-header-pr"));
+};
+
 // Right-click Browser: the menu to move it, pick toggle or open, and show or hide each button (#19156).
 const customizeMenu: Play = async (ctx) => {
   const button = ctx.find({ selector: '[data-quick-action="browser"]' });
@@ -183,6 +197,11 @@ export default componentEntry<HeaderToolsProps>({
         onPreview: () => undefined,
       },
       play: panelsOpen,
+    },
+    "pull-request": {
+      note: "The chat branch's pull request leads the tools: its number, its state and how its checks stand (cx-tcwj).",
+      props: { ...base, hasChanges: true, onChanges: () => undefined },
+      play: pullRequestChip,
     },
     "customize-menu": {
       note: "Right-clicking a quick action moves it, picks toggle or open, and shows or hides each button (cx-00n1).",

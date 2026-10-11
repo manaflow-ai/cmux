@@ -8,17 +8,21 @@ import { sessionSummary } from "./sessionSummary";
 import { SummaryPopover } from "./SummaryPopover";
 import { Popover } from "../../../ui/Popover";
 import { registerPicker } from "../pickerOpeners";
+import { Lineage } from "../subagents/Lineage";
+import { subagentsIn } from "../subagents/subagentRows";
 
 /// The header's summary button and its popover: what this chat has produced so far. The
 /// summary is read from the transcript only while the popover is open, so a live turn pays
 /// nothing for it while it is closed. Its Outputs section opens the chat's gallery; an image
-/// there opens the image viewer (`onOpenImage`) in the gallery's place.
+/// there opens the image viewer (`onOpenImage`) in the gallery's place. With `lineage`, its
+/// Lineage section opens a subagent's view, or the chat's, and closes the popover.
 export function SummaryButton({
   rows,
   onOpenOutput,
   onOpenImage,
   changes,
   onOpenChanges,
+  lineage,
 }: {
   rows: readonly AcpmuxRow[];
   onOpenOutput?: (path: string) => void;
@@ -26,6 +30,13 @@ export function SummaryButton({
   /// The last turn that edited files, with its counts; the popover's Changes row opens it.
   changes?: { additions: number; deletions: number };
   onOpenChanges?: () => void;
+  lineage?: {
+    /// The subagents' own views (the snapshot's `subagentViews`), for their nested subagents.
+    views: Record<string, AcpmuxRow[]> | undefined;
+    current: string | undefined;
+    chat: string;
+    onOpen: (id: string | undefined) => void;
+  };
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -44,6 +55,12 @@ export function SummaryButton({
     setGallery(false);
   };
   const summary = useMemo(() => (open ? sessionSummary(rows) : undefined), [open, rows]);
+  const hasLineage = lineage !== undefined;
+  const lineageViews = lineage?.views;
+  const lineageAgents = useMemo(
+    () => (open && hasLineage ? [...subagentsIn(rows, lineageViews).values()] : []),
+    [open, rows, hasLineage, lineageViews],
+  );
   const galleryCount = useMemo(() => (open ? chatGallery(rows).length : 0), [open, rows]);
   useEffect(() => {
     if (!open) return;
@@ -103,6 +120,21 @@ export function SummaryButton({
               onOpenChanges?.();
             }}
             onFollow={() => setOpen(false)}
+            lineage={
+              lineage &&
+              lineageAgents.length > 0 && (
+                <Lineage
+                  agents={lineageAgents}
+                  current={lineage.current}
+                  chat={lineage.chat}
+                  onOpen={(id) => {
+                    button.current?.focus();
+                    setOpen(false);
+                    lineage.onOpen(id);
+                  }}
+                />
+              )
+            }
             onOpenOutput={
               onOpenOutput &&
               ((path) => {

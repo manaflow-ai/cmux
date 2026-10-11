@@ -13,6 +13,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The page switched to or created `sessionId`; the host keeps it so a
     /// reload or relaunch of the pane shows the same session.
     case persistSession(String)
+    /// A new chat's typed text before it has a session (`chat.unsentDraft`, cx-z5vd): the App
+    /// keeps it with the tab, so a relaunch opens the chat with it.
+    case unsentDraft(String)
     /// A settled transcript scroll's frame intervals in milliseconds, at
     /// most ``maximumPacingFrames``; returns the native display interval and rate mode.
     case framePacing([Double])
@@ -74,6 +77,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case chooseChatFolder
     /// Returns bounded recent project paths for the new-tab picker.
     case listProjects(String?)
+    /// `harness.health {id, refresh?}` (cx-ny85): this Mac's acpmux health row for the chat's
+    /// agent CLI; `refresh` checks again (after its Log In or Update).
+    case harnessHealth(String, refresh: Bool)
     /// `chats.open {key}`: a device chat card (`harness:sessionId`) the New Tab page shows,
     /// opened through the app's shared Open Chat path.
     case openChat(String)
@@ -134,6 +140,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case quickSetCollapsed(Bool)
     /// `quick.floatingState`: the page, once loaded, reads the floating chat's state.
     case quickFloatingState
+    /// `quick.context`: Include focused tab asks what the user is looking at in cmux.
+    case quickContext
     /// `git.diff` or `git.status` with `{cwd, …}`: the changes view's reads of
     /// the session's repository, which the App runs on the session host.
     case git(AgentPaneGitRequest)
@@ -146,6 +154,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case turnUndo(AgentPaneTurnUndo)
     /// `turn.undo` whose params break its contract; nothing is read or written.
     case invalidTurnUndo
+    /// `git.stage` / `git.unstage`: the Changes view's Stage and Unstage (AgentPaneGitStage.swift);
+    /// nil when its params break the contract, and nothing runs.
+    case gitStage(AgentPaneGitStage?)
+    /// `git.pullRequest`: the Changes view's Create PR (AgentPaneGitPullRequest.swift); nil when its
+    /// params break the contract, and nothing runs.
+    case gitPullRequest(AgentPaneGitPullRequest?)
     /// `transport.open`: open the host's acpmux socket named by the last handshake
     /// (``AgentPaneTransport``); answers `{connection}` once it is open.
     case transportOpen
