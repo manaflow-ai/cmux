@@ -11,8 +11,9 @@ keep printing and --browsers Chromium tabs, and samples every --sample seconds:
     the soak on a host where nothing else uses WebKit);
   - control-socket round trips (system.ping, snapshot.get): a reply slower than --hang-after
     seconds is a hang;
-  - crashes: a new DiagnosticReports .ips of cmux, cmux-tui or acpmux, or the app, daemon or
-    acpmux PID changing;
+  - crashes: a new DiagnosticReports .ips of this app copy (its bundle ID) or of a process it
+    started (the app, daemon or acpmux PIDs it saw), or the app, daemon or acpmux PID changing.
+    Other builds crashing on the same host (a capture mini's tagged builds) do not count;
   - agent turns: every agent gets a streaming turn ("slow") every --turn-every seconds; a turn
     still running after 5 minutes is stuck.
 
@@ -148,6 +149,7 @@ class Soak:
         self.args = args
         self.app = os.path.realpath(args.app)
         self.tag, executable = bundle_tag(self.app)
+        self.bundle_id = f"com.cmuxterm.app.debug.{self.tag}"
         self.binary = os.path.join(self.app, "Contents/MacOS", executable)
         self.tui = os.path.join(self.app, "Contents/Resources/bin/cmux-tui")
         self.socket = args.socket or f"/tmp/cmux-debug-{self.tag}.sock"
@@ -162,6 +164,7 @@ class Soak:
         self.agents = {}  # session id -> {"started": monotonic or None, "turns": n, "done": n}
         self.started = time.time()
         self.pids = {}
+        self.seen_pids = set()  # every app, daemon and acpmux PID of this copy, for crash reports
         self.webkit_before = set()
 
     def event(self, kind, detail):
@@ -314,12 +317,24 @@ class Soak:
         return round((time.monotonic() - started) * 1000, 1), ok
 
     def crash_reports(self):
+        """This copy's crash reports since the soak started (other builds' reports do not count)."""
         found = []
         for path in glob.glob(os.path.expanduser("~/Library/Logs/DiagnosticReports/*.ips")):
             name = os.path.basename(path).lower()
-            if any(n in name for n in CRASH_NAMES) and os.path.getmtime(path) >= self.started:
+            if any(n in name for n in CRASH_NAMES) and os.path.getmtime(path) >= self.started and self.owns_report(path):
                 found.append(path)
         return sorted(found)
+
+    def owns_report(self, path):
+        """Whether an .ips names this copy's bundle ID or a PID of this copy. A report still being
+        written does not parse yet; it counts on a later tick, once it does."""
+        try:
+            with open(path, errors="replace") as handle:
+                header = json.loads(handle.readline())
+                body = json.loads(handle.read())
+        except (OSError, ValueError):
+            return False
+        return header.get("bundleID") == self.bundle_id or body.get("pid") in self.seen_pids
 
     def sample(self, before, kinds, wall):
         rows = {}
@@ -343,6 +358,7 @@ class Soak:
         before = {pid: usage(pid) for pid in kinds}
         for key in ("app", "daemon", "acpmux"):
             self.pids[key] = sorted(pid for pid, kind in kinds.items() if kind == key)
+            self.seen_pids.update(self.pids[key])
         tick = time.monotonic()
         while time.monotonic() < end:
             time.sleep(self.args.sample)  # soak script: the sampling interval
@@ -356,6 +372,7 @@ class Soak:
                 if pids != self.pids[key]:
                     self.event("crash" if not pids or key == "app" else "restart", f"{key} pids {self.pids[key]} -> {pids}")
                     self.pids[key] = pids
+                self.seen_pids.update(pids)
             reports = set(self.crash_reports())
             for path in sorted(reports - seen_reports):
                 self.event("crash", f"crash report {os.path.basename(path)}")
