@@ -23,7 +23,7 @@ export type SettingKind =
   // Only page-hidden keys use it today (`notifications.mutedWorkspaces`); the page never renders it.
   | "string_list";
 
-export type NumberUnit = "points" | "seconds" | "minutes" | "count" | "fraction";
+export type NumberUnit = "points" | "seconds" | "minutes" | "days" | "count" | "fraction";
 
 export type NumberRange = { min: number; max: number; step: number; unit: NumberUnit; placeholder: number };
 

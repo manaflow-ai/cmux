@@ -1687,9 +1687,38 @@ class TerminalColors:
 
 
 @dataclass(frozen=True)
+class TerminalCommandDeleteResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalCommandDeleteResult'
+    deleted: int
+
+
+@dataclass(frozen=True)
 class TerminalCommandHistoryResult:
     __cmux_schema_path__: ClassVar[str] = 'types/TerminalCommandHistoryResult'
     enabled: bool
+    retention_days: int
+
+
+@dataclass(frozen=True)
+class TerminalCommandList:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalCommandList'
+    commands: List[TerminalCommandRecord]
+    deletions: str
+    registry_id: str
+    retention_days: int
+    truncated: bool
+
+
+@dataclass(frozen=True)
+class TerminalCommandRecord:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalCommandRecord'
+    terminal_id: str
+    command: Union[str, None]
+    cwd: Union[str, None]
+    duration_ms: str
+    exit_code: Union[int, None]
+    id: str
+    started_at_ms: str
 
 
 @dataclass(frozen=True)
@@ -2767,6 +2796,14 @@ class DeleteSavedTabGroupResult:
 
 
 @dataclass(frozen=True)
+class DeleteTerminalCommandsRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/delete-terminal-commands/request'
+    all: Union[bool, MissingType] = field(default=MISSING)
+    ids: Union[List[str], None, MissingType] = field(default=MISSING)
+    started_since_ms: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class DeleteWorkspaceGroupRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/delete-workspace-group/request'
     group: str
@@ -3023,6 +3060,13 @@ class ListTabGroupsResult:
     __cmux_schema_path__: ClassVar[str] = 'commands/list-tab-groups/result'
     groups: List[TabGroupRun]
     extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
+
+
+@dataclass(frozen=True)
+class ListTerminalCommandsRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/list-terminal-commands/request'
+    after_id: Union[str, None, MissingType] = field(default=MISSING)
+    limit: Union[int, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -3941,6 +3985,7 @@ class SetTabPinnedRequest:
 class SetTerminalCommandHistoryRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/set-terminal-command-history/request'
     enabled: bool
+    retention_days: Union[int, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -5276,7 +5321,10 @@ __all__ = [
     'TerminalClipboardSubscribeResult',
     'TerminalColorOverrides',
     'TerminalColors',
+    'TerminalCommandDeleteResult',
     'TerminalCommandHistoryResult',
+    'TerminalCommandList',
+    'TerminalCommandRecord',
     'TerminalEventsResult',
     'TerminalExit',
     'TerminalExitOutcomeExit',
@@ -5399,6 +5447,7 @@ __all__ = [
     'DeleteSavedScreenGroupRequest',
     'DeleteSavedTabGroupRequest',
     'DeleteSavedTabGroupResult',
+    'DeleteTerminalCommandsRequest',
     'DeleteWorkspaceGroupRequest',
     'DetachAttachedViewRequest',
     'DetachClientRequest',
@@ -5437,6 +5486,7 @@ __all__ = [
     'ListSavedTabGroupsResult',
     'ListTabGroupsRequest',
     'ListTabGroupsResult',
+    'ListTerminalCommandsRequest',
     'ListTerminalsRequest',
     'ListWorkspaceGroupsRequest',
     'ListWorkspacesRequest',
