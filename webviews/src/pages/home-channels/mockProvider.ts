@@ -137,14 +137,18 @@ export function sampleHome(): { conversations: HomeConversation[]; messages: Map
 }
 
 /** #incident (gallery `longThread`): a root whose 130 thread replies reach past one page, then a
- * newer top-level message, so the newest page holds neither the root nor its first replies. */
+ * newer top-level message, so the newest page holds neither the root nor its first replies. Reply
+ * 50 is retracted: it stays in the thread as deleted but does not count (129 replies). */
 export function addLongThread(home: ReturnType<typeof sampleHome>): void {
   const id = "c-incident";
   const list = [text(id, 1, chief, BASE - 120 * MINUTE, "Incident: the build queue is stuck. Updates in the thread.")];
   for (let index = 1; index <= 130; index += 1) {
     const author = index % 2 ? builder : reviewer;
     list.push(
-      text(id, index + 1, author, BASE - 119 * MINUTE + index * 10_000, `Update ${index}.`, { threadRoot: `${id}-m1` }),
+      text(id, index + 1, author, BASE - 119 * MINUTE + index * 10_000, `Update ${index}.`, {
+        threadRoot: `${id}-m1`,
+        ...(index === 50 ? { retracted: true, parts: [] } : {}),
+      }),
     );
   }
   list.push(text(id, 132, chief, BASE - 90 * MINUTE, "Queue is moving again."));
