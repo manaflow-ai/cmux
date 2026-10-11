@@ -121,7 +121,8 @@ describe("Home conversation ops over HTTP (two people)", { timeout: 60_000 }, ()
     expect((await op(bob.token, "read_cursor.set", { conversation: id, seq: 3 }, "read:3")).json.ok).toBe(false)
     const state = await head(alice.token, id)
     expect(state.read_cursors[bob.user]).toBe(2)
-    expect(state.read_cursors[alice.user] ?? 0).toBe(0)
+    // A send moves the sender's own cursor (cx-59n8.4): Alice has read her two messages.
+    expect(state.read_cursors[alice.user]).toBe(2)
   })
 
   it("title.set: any member of a group; refused in a DM", async () => {

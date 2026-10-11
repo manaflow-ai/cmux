@@ -314,6 +314,11 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
                 reactions: Vec::new(),
                 origin: None,
             };
+            // The sender has read its own message (and what came before it),
+            // for every client of this owner. The change stays `message`;
+            // clients read the cursor from the head (corpus notes, cx-59n8.4).
+            let cursor = next.read_cursors.entry(request.actor.to_string()).or_insert(0);
+            *cursor = (*cursor).max(next.last_seq);
             let change = Change::Message { message: message.clone() };
             (Some(message), change)
         }

@@ -1480,7 +1480,7 @@
      "created_at": "2026-09-21T14:13:20.000Z",
      "updated_at": "2026-09-21T14:13:20.000Z",
      "read_cursors": {
-      "user_me": 3
+      "user_me": 6
      },
      "kind": "chief",
      "created_by": "user_me",
