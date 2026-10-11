@@ -14,6 +14,7 @@
 
 pub mod adopt;
 pub mod adopt_live;
+pub mod adopt_replay;
 pub mod agent;
 pub mod agent_host;
 pub mod agent_tools;

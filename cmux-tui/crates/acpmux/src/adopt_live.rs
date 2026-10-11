@@ -101,6 +101,23 @@ pub fn live_use(id: &str, transcript: &Path, procs: &[Proc], now: SystemTime) ->
         let command: String = p.command.chars().take(120).collect();
         return Some(LiveUse::Process { pid: p.pid, command });
     }
+    // A recent write means live only while a harness process (outside acpmux) runs at all: a
+    // transcript touched minutes ago by a process that has ended is not open anywhere (the
+    // freshly written chat showed "still open in another process", Lawrence P0 2026-10-11).
+    let harness_runs = procs.iter().any(|p| {
+        !ours.contains(&p.pid) && {
+            let command = p.command.to_ascii_lowercase();
+            command.split_whitespace().take(2).any(|t| {
+                Path::new(t)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n.contains("claude") || n.contains("codex"))
+            })
+        }
+    });
+    if !harness_runs {
+        return None;
+    }
     let written = std::fs::metadata(transcript).and_then(|m| m.modified()).ok()?;
     let ago = now.duration_since(written).unwrap_or_default();
     (ago < RECENT_WRITE).then_some(LiveUse::RecentWrite { ago })
