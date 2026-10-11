@@ -32,10 +32,6 @@ function validatePath(raw: string | null): string | Response {
   return path;
 }
 
-// Mirrors VM_ROUTE_DEADLINES (services/vms/routeDeadline.ts): work past the
-// route's answer deadline continues through after() until this limit.
-export const maxDuration = 120;
-
 export async function GET(request: Request, { params }: { params: Promise<Params> }): Promise<Response> {
   const { id, operation } = await params;
   return withAuthedVmApiRoute(request, "/api/vm/[id]/fs/[operation]", { "cmux.vm.operation": `fs_${operation}` }, "/api/vm/[id]/fs GET failed", async ({ user, span }) => {
@@ -46,10 +42,10 @@ export async function GET(request: Request, { params }: { params: Promise<Params
     if (!account.ok) return account.response;
     const base = { userId: user.id, billingTeamId: account.entitlements.billingTeamId, callerPlanId: account.entitlements.planId, maxActiveVms: account.entitlements.maxActiveVms, teamIds: user.teamIds, providerVmId: id };
     const run = operation === "dir"
-      ? await runVmRoute(listVmFiles(base, path), { request, deadline: { operation: "filesRead" } })
+      ? await runVmRoute(listVmFiles(base, path), { request })
       : operation === "read"
-        ? await runVmRoute(readVmFile(base, path), { request, deadline: { operation: "filesRead" } })
-        : await runVmRoute(statVmFile(base, path), { request, deadline: { operation: "filesRead" } });
+        ? await runVmRoute(readVmFile(base, path), { request })
+        : await runVmRoute(statVmFile(base, path), { request });
     if (!run.ok) return run.response;
     setSpanPath(span, id, path);
     if (operation === "read") {
@@ -75,7 +71,7 @@ export async function POST(request: Request, { params }: { params: Promise<Param
     if (!account.ok) return account.response;
     const base = { userId: user.id, billingTeamId: account.entitlements.billingTeamId, callerPlanId: account.entitlements.planId, maxActiveVms: account.entitlements.maxActiveVms, teamIds: user.teamIds, providerVmId: id };
     const run = operation === "mkdir"
-      ? await runVmRoute(mkdirVmFile(base, path), { request, deadline: { operation: "filesWrite" } })
+      ? await runVmRoute(mkdirVmFile(base, path), { request })
       : await writeFromBody(request, base, path, raw.dataBase64, raw.mode);
     if (!run.ok) return run.response;
     setSpanPath(span, id, path);
@@ -91,7 +87,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<Par
     if (typeof path !== "string") return path;
     const account = resolveVmRouteAccountScope(user, request);
     if (!account.ok) return account.response;
-    const run = await runVmRoute(removeVmFile({ userId: user.id, billingTeamId: account.entitlements.billingTeamId, callerPlanId: account.entitlements.planId, maxActiveVms: account.entitlements.maxActiveVms, teamIds: user.teamIds, providerVmId: id }, path), { request, deadline: { operation: "filesWrite" } });
+    const run = await runVmRoute(removeVmFile({ userId: user.id, billingTeamId: account.entitlements.billingTeamId, callerPlanId: account.entitlements.planId, maxActiveVms: account.entitlements.maxActiveVms, teamIds: user.teamIds, providerVmId: id }, path), { request });
     if (!run.ok) return run.response;
     setSpanPath(span, id, path);
     return jsonResponse({ ok: true, path });
@@ -109,7 +105,7 @@ async function writeFromBody(request: Request, base: Parameters<typeof writeVmFi
     return { ok: false as const, response: vmErrorResponse({ error: "vm_invalid_file_mode", status: 400, message: "mode must be an integer from 0 through 4095.", action: "Pass an octal file mode between 0 and 4095." }) };
   }
   const mode = rawMode as number | undefined;
-  return runVmRoute(writeVmFile(base, path, data, mode), { request, deadline: { operation: "filesWrite" } });
+  return runVmRoute(writeVmFile(base, path, data, mode), { request });
 }
 
 function setSpanPath(span: { setAttribute: (key: string, value: string | number) => void }, id: string, path: string): void {

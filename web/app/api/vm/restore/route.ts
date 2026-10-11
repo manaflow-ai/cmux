@@ -124,7 +124,6 @@ export async function POST(request: Request): Promise<Response> {
         timing,
       }), {
         request,
-        deadline: { operation: "restore" },
         onError: vmCreateLikeErrorResponders({
           operation: "restore",
           planId: entitlements.planId,
