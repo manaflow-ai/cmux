@@ -582,7 +582,8 @@ async function execWithStdin(fs: Freestyle, vmId: string, command: string, timeo
   } catch {
     throw new FreestyleStdinExecError(null, "network");
   }
-  if (!response.ok) {
+  // 202 is the provider's background answer, which it stores: never accepted for a stdin call.
+  if (!response.ok || response.status === 202) {
     void response.body?.cancel();
     throw new FreestyleStdinExecError(response.status, "http");
   }
