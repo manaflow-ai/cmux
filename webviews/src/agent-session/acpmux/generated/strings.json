@@ -879,6 +879,7 @@
     "turn.previous.other": "{n} previous messages",
     "turn.retry": "Retry",
     "turn.retryLabel": "Send this prompt again",
+    "turn.retryWith": "Retry with another model",
     "turn.signInAgain": "Sign in again",
     "turn.stopped": "You stopped after {time}",
     "turn.worked": "Worked for {time}"
@@ -1763,6 +1764,7 @@
     "turn.previous.other": "{n} رسائل سابقة",
     "turn.retry": "إعادة المحاولة",
     "turn.retryLabel": "إرسال هذا الـ prompt مرة أخرى",
+    "turn.retryWith": "إعادة المحاولة بنموذج آخر",
     "turn.signInAgain": "سجّل الدخول مرة أخرى",
     "turn.stopped": "أوقفت بعد {time}",
     "turn.worked": "عمل لمدة {time}"
@@ -2647,6 +2649,7 @@
     "turn.previous.other": "{n} prethodnih poruka",
     "turn.retry": "Pokušaj ponovo",
     "turn.retryLabel": "Pošalji ovaj prompt ponovo",
+    "turn.retryWith": "Pokušaj ponovo s drugim modelom",
     "turn.signInAgain": "Ponovo se prijavi",
     "turn.stopped": "Zaustavili ste nakon {time}",
     "turn.worked": "Radio {time}"
@@ -3531,6 +3534,7 @@
     "turn.previous.other": "{n} tidligere beskeder",
     "turn.retry": "Prøv igen",
     "turn.retryLabel": "Send denne prompt igen",
+    "turn.retryWith": "Prøv igen med en anden model",
     "turn.signInAgain": "Log ind igen",
     "turn.stopped": "Du stoppede efter {time}",
     "turn.worked": "Arbejdede i {time}"
@@ -4415,6 +4419,7 @@
     "turn.previous.other": "{n} vorherige Nachrichten",
     "turn.retry": "Erneut versuchen",
     "turn.retryLabel": "Diesen Prompt erneut senden",
+    "turn.retryWith": "Mit anderem Modell wiederholen",
     "turn.signInAgain": "Erneut anmelden",
     "turn.stopped": "Du hast nach {time} gestoppt",
     "turn.worked": "Gearbeitet für {time}"
@@ -5299,6 +5304,7 @@
     "turn.previous.other": "{n} mensajes anteriores",
     "turn.retry": "Reintentar",
     "turn.retryLabel": "Enviar este prompt de nuevo",
+    "turn.retryWith": "Reintentar con otro modelo",
     "turn.signInAgain": "Volver a iniciar sesión",
     "turn.stopped": "Detuviste tras {time}",
     "turn.worked": "Trabajó durante {time}"
@@ -6183,6 +6189,7 @@
     "turn.previous.other": "{n} messages précédents",
     "turn.retry": "Réessayer",
     "turn.retryLabel": "Renvoyer ce prompt",
+    "turn.retryWith": "Réessayer avec un autre modèle",
     "turn.signInAgain": "Se reconnecter",
     "turn.stopped": "Vous avez arrêté après {time}",
     "turn.worked": "A travaillé pendant {time}"
@@ -7067,6 +7074,7 @@
     "turn.previous.other": "{n} messaggi precedenti",
     "turn.retry": "Riprova",
     "turn.retryLabel": "Invia di nuovo questo prompt",
+    "turn.retryWith": "Riprova con un altro modello",
     "turn.signInAgain": "Accedi di nuovo",
     "turn.stopped": "Hai interrotto dopo {time}",
     "turn.worked": "Ha lavorato per {time}"
@@ -7951,6 +7959,7 @@
     "turn.previous.other": "以前のメッセージ {n} 件",
     "turn.retry": "再試行",
     "turn.retryLabel": "このプロンプトをもう一度送信",
+    "turn.retryWith": "別のモデルで再試行",
     "turn.signInAgain": "もう一度サインイン",
     "turn.stopped": "{time} 後に停止しました",
     "turn.worked": "{time} 作業しました"
@@ -8835,6 +8844,7 @@
     "turn.previous.other": "សារមុន {n}",
     "turn.retry": "ព្យាយាមម្តងទៀត",
     "turn.retryLabel": "ផ្ញើប្រអប់បញ្ចូលនេះម្តងទៀត",
+    "turn.retryWith": "ព្យាយាមម្តងទៀតជាមួយម៉ូដែលផ្សេង",
     "turn.signInAgain": "ចូលគណនីម្ដងទៀត",
     "turn.stopped": "អ្នកបានបញ្ឈប់បន្ទាប់ពី {time}",
     "turn.worked": "បានធ្វើការរយៈពេល {time}"
@@ -9719,6 +9729,7 @@
     "turn.previous.other": "이전 메시지 {n}개",
     "turn.retry": "다시 시도",
     "turn.retryLabel": "이 프롬프트를 다시 보내기",
+    "turn.retryWith": "다른 모델로 다시 시도",
     "turn.signInAgain": "다시 로그인",
     "turn.stopped": "{time} 후에 중지함",
     "turn.worked": "{time} 동안 작업함"
@@ -10603,6 +10614,7 @@
     "turn.previous.other": "{n} tidligere meldinger",
     "turn.retry": "Prøv igjen",
     "turn.retryLabel": "Send denne prompten på nytt",
+    "turn.retryWith": "Prøv igjen med en annen modell",
     "turn.signInAgain": "Logg inn på nytt",
     "turn.stopped": "Du stoppet etter {time}",
     "turn.worked": "Jobbet i {time}"
@@ -11487,6 +11499,7 @@
     "turn.previous.other": "Poprzednie wiadomości: {n}",
     "turn.retry": "Ponów",
     "turn.retryLabel": "Wyślij ten prompt ponownie",
+    "turn.retryWith": "Ponów z innym modelem",
     "turn.signInAgain": "Zaloguj się ponownie",
     "turn.stopped": "Zatrzymano po {time}",
     "turn.worked": "Pracował przez {time}"
@@ -12371,6 +12384,7 @@
     "turn.previous.other": "{n} mensagens anteriores",
     "turn.retry": "Tentar novamente",
     "turn.retryLabel": "Enviar este prompt novamente",
+    "turn.retryWith": "Tentar novamente com outro modelo",
     "turn.signInAgain": "Entrar novamente",
     "turn.stopped": "Você interrompeu após {time}",
     "turn.worked": "Trabalhou por {time}"
@@ -13255,6 +13269,7 @@
     "turn.previous.other": "Предыдущих сообщений: {n}",
     "turn.retry": "Повторить",
     "turn.retryLabel": "Отправить этот запрос снова",
+    "turn.retryWith": "Повторить с другой моделью",
     "turn.signInAgain": "Войти снова",
     "turn.stopped": "Вы остановили через {time}",
     "turn.worked": "Работал {time}"
@@ -14139,6 +14154,7 @@
     "turn.previous.other": "ข้อความก่อนหน้า {n} รายการ",
     "turn.retry": "ลองอีกครั้ง",
     "turn.retryLabel": "ส่งพรอมต์นี้อีกครั้ง",
+    "turn.retryWith": "ลองใหม่ด้วยโมเดลอื่น",
     "turn.signInAgain": "ลงชื่อเข้าใช้อีกครั้ง",
     "turn.stopped": "คุณหยุดหลังจาก {time}",
     "turn.worked": "ทำงานเป็นเวลา {time}"
@@ -15023,6 +15039,7 @@
     "turn.previous.other": "{n} önceki mesaj",
     "turn.retry": "Yeniden dene",
     "turn.retryLabel": "Bu istemi tekrar gönder",
+    "turn.retryWith": "Başka bir modelle yeniden dene",
     "turn.signInAgain": "Tekrar giriş yap",
     "turn.stopped": "{time} sonra durdurdunuz",
     "turn.worked": "Şu kadar çalıştı: {time}"
@@ -15907,6 +15924,7 @@
     "turn.previous.other": "{n} попередніх повідомлень",
     "turn.retry": "Повторити",
     "turn.retryLabel": "Надіслати цей запит ще раз",
+    "turn.retryWith": "Повторити з іншою моделлю",
     "turn.signInAgain": "Увійти знову",
     "turn.stopped": "Ви зупинили через {time}",
     "turn.worked": "Працював {time}"
@@ -16791,6 +16809,7 @@
     "turn.previous.other": "{n} tin nhắn trước đó",
     "turn.retry": "Thử lại",
     "turn.retryLabel": "Gửi lại lời nhắc này",
+    "turn.retryWith": "Thử lại với mô hình khác",
     "turn.signInAgain": "Đăng nhập lại",
     "turn.stopped": "Bạn đã dừng sau {time}",
     "turn.worked": "Đã làm việc trong {time}"
@@ -17675,6 +17694,7 @@
     "turn.previous.other": "{n} 条之前的消息",
     "turn.retry": "重试",
     "turn.retryLabel": "再次发送此提示",
+    "turn.retryWith": "使用其他模型重试",
     "turn.signInAgain": "重新登录",
     "turn.stopped": "你在 {time} 后停止了",
     "turn.worked": "已工作 {time}"
@@ -18559,6 +18579,7 @@
     "turn.previous.other": "{n} 則先前的訊息",
     "turn.retry": "重試",
     "turn.retryLabel": "再次傳送此提示",
+    "turn.retryWith": "使用其他模型重試",
     "turn.signInAgain": "重新登入",
     "turn.stopped": "你在 {time} 後停止了",
     "turn.worked": "已工作 {time}"
