@@ -591,7 +591,14 @@ jobs:
             ./
           # create-dmg emits an LZFSE (ULFO) image. Re-encode to LZMA (ULMO), as
           # nightly does: about a quarter smaller, and macOS 14+ mounts it.
-          CREATED_DMG="$(find . -maxdepth 1 -name 'cmux*.dmg' ! -name "$DMG_RELEASE" -print -quit)"
+          CREATED_DMGS=()
+          while IFS= read -r -d '' dmg; do CREATED_DMGS+=("$dmg"); done \
+            < <(find . -maxdepth 1 -name 'cmux*.dmg' ! -name "$DMG_RELEASE" -print0)
+          if [ "${#CREATED_DMGS[@]}" -ne 1 ]; then
+            echo "Expected exactly one create-dmg image, found ${#CREATED_DMGS[@]}" >&2
+            exit 1
+          fi
+          CREATED_DMG="${CREATED_DMGS[0]}"
           hdiutil convert "$CREATED_DMG" -quiet -format ULMO -ov -o "$DMG_RELEASE"
           rm -f "$CREATED_DMG"
           DMG_FORMAT="$(hdiutil imageinfo "$DMG_RELEASE" | awk -F': *' '/^Format:/ {print $2; exit}')"
