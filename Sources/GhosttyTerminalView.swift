@@ -6750,16 +6750,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     // MARK: - Input Handling
 
-    /// The AppKit Copy action runs before a fullscreen TUI can receive Cmd+C.
-    /// If cmux could not copy a native terminal selection, forward the same
-    /// semantic key only while an alternate-screen application owns the view.
-    /// A primary-screen shell with no selection remains a harmless no-op.
+    /// The AppKit Copy action runs before a terminal application can receive
+    /// Cmd+C. If cmux could not copy a native terminal selection, forward the
+    /// same semantic key while an application owns the view: a fullscreen TUI
+    /// on the alternate screen, or an inline one that reports mouse events and
+    /// draws its own selection (#18812). A plain shell with no selection
+    /// remains a harmless no-op.
     static func shouldForwardMenuCopyToTerminalApplication(
         copiedNativeSelection: Bool,
         isAlternateScreenActive: Bool,
         isMouseCaptured: Bool
     ) -> Bool {
-        !copiedNativeSelection && isAlternateScreenActive
+        !copiedNativeSelection && (isAlternateScreenActive || isMouseCaptured)
     }
 
     @IBAction func copy(_ sender: Any?) {
