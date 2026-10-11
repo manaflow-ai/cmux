@@ -10,9 +10,13 @@ first time, and B. Later loads of A stay on A, so only cmux can bring Back
 back. Every page reports its own path to the server (nothing reads a page
 through the socket). For a WebKit tab and a Chromium tab:
   1. the tab reaches B, and the person closes it (closeTab);
-  2. after the quit and relaunch, the person's Reopen Last Closed Tab
+  2. Reopen Last Closed Tab in the same session brings it back at B, Back
+     goes to A, and a second Back loads nothing (no Back entry twice: the
+     app's in-memory history and the daemon's copy meet there); Forward
+     returns to B and the person closes it again;
+  3. after the quit and relaunch, the person's Reopen Last Closed Tab
      brings it back at B;
-  3. Back (the person's browserBack) goes to A.
+  4. Back (the person's browserBack) goes to A.
 
 Quits through the quit action (the daemon keeps the closed history),
 relaunches, then quits the app through the socket (by PID if it hangs) and
@@ -61,7 +65,8 @@ def page_html(engine, name):
     return f"""<!doctype html><title>{name.upper()} {engine} {RUN}</title>
 <body>{name.upper()} {engine}
 <script>{act}
-setInterval(() => navigator.sendBeacon('/report', JSON.stringify({{engine: '{engine}', path: location.pathname, chromium: /Chrome\\//.test(navigator.userAgent)}})), 250);
+const load = Math.random().toString(36).slice(2);
+setInterval(() => navigator.sendBeacon('/report', JSON.stringify({{engine: '{engine}', path: location.pathname, load: load, chromium: /Chrome\\//.test(navigator.userAgent)}})), 250);
 </script>"""
 
 
@@ -159,6 +164,14 @@ def tab_at(path):
     return next((t for t in tabs if path in (t.get("url") or "")), None)
 
 
+def close(engine, tab):
+    rpc("action.run", {"action": "tab.focus", "target": f"tab:{tab['id']}", "focus": True})
+    reply = rpc("debug.toast", {"perform": "closeTab"})
+    check(reply.get("performed") is True, f"{engine}: a person's Close Tab runs ({reply})")
+    check(wait_for(lambda: tab_at(f"/b-{engine}-{RUN}") is None, f"{engine}: the tab closes", 10) is not None,
+          f"{engine}: the tab is closed")
+
+
 app = None
 
 
@@ -199,11 +212,29 @@ try:
         check(tab is not None, f"{engine}: the tab at B is listed")
         if tab is None:
             continue
-        rpc("action.run", {"action": "tab.focus", "target": f"tab:{tab['id']}", "focus": True})
-        reply = rpc("debug.toast", {"perform": "closeTab"})
-        check(reply.get("performed") is True, f"{engine}: a person's Close Tab runs ({reply})")
-        check(wait_for(lambda: tab_at(f"/b-{engine}-{RUN}") is None, f"{engine}: the tab closes", 10) is not None,
-              f"{engine}: the tab is closed")
+        close(engine, tab)
+        reply = rpc("debug.toast", {"perform": "reopenClosedBrowserPanel"})
+        check(reply.get("performed") is True, f"{engine}: a person's Reopen Last Closed Tab runs in the session ({reply})")
+        check(wait_for(lambda: at(engine, f"/b-{engine}-{RUN}"), f"{engine}: the tab reopens at B", 30) is not None,
+              f"{engine}: the tab reopened in the session shows B ({reports.get(engine)})")
+        time.sleep(1)  # the saved history reaches the page
+        rpc("debug.toast", {"perform": "browserBack"})
+        first = wait_for(lambda: at(engine, f"/a-{engine}-{RUN}"), f"{engine}: Back reaches A in the session", 15)
+        check(first is not None, f"{engine}: Back after an in-session reopen goes to A ({reports.get(engine)})")
+        if first is not None:
+            rpc("debug.toast", {"perform": "browserBack"})
+            time.sleep(3)  # a duplicated A entry would load again by now
+            again = reports.get(engine) or {}
+            check(again.get("path") == f"/a-{engine}-{RUN}" and again.get("load") == first.get("load"),
+                  f"{engine}: a second Back loads nothing, A is not listed twice ({again})")
+        rpc("debug.toast", {"perform": "browserForward"})
+        check(wait_for(lambda: at(engine, f"/b-{engine}-{RUN}"), f"{engine}: Forward returns to B", 15) is not None,
+              f"{engine}: Forward returns to B ({reports.get(engine)})")
+        time.sleep(2)  # the history write-back's debounce
+        tab = tab_at(f"/b-{engine}-{RUN}")
+        check(tab is not None, f"{engine}: the reopened tab at B is listed")
+        if tab is not None:
+            close(engine, tab)
     end("quit")
     reports.clear()
     launch()
