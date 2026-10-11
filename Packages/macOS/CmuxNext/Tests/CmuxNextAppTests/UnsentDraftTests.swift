@@ -19,8 +19,10 @@ struct UnsentDraftTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appending(path: AgentUnsentDrafts.fileName)
 
+        // This run's drafts, held as the tab store holds them.
+        let drafts = AgentUnsentDrafts(file: file)
         let model = AgentPaneModel(host: MockAgentPaneHost())
-        AgentUnsentDrafts(file: file).wire(model) { "tab-1" }
+        drafts.wire(model) { "tab-1" }
         _ = await model.respond(to: Self.request("chat.unsentDraft", ["text": "compare the two retry policies"]))
 
         // The next run's tab, still without a session, opens as the chat with its draft.
@@ -35,5 +37,6 @@ struct UnsentDraftTests {
         #expect(AgentUnsentDrafts(file: file).seed(for: "tab-1", session: nil) == nil)
         _ = await model.respond(to: Self.request("chat.unsentDraft", ["text": "later"]))
         #expect(AgentUnsentDrafts(file: file).seed(for: "tab-1", session: nil) == nil)
+        withExtendedLifetime(drafts) {}
     }
 }
