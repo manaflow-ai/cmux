@@ -30,12 +30,14 @@ export function newTabScreenActions(deps: {
     onAsk(harness, text, picked) {
       remember(harness);
       deps.leave();
-      const start = (folder?: string) =>
-        ignore(
-          callNative("chat.new", { harness, ...(folder ? { cwd: folder } : {}) }).then(() =>
-            text ? callNative("chat.send", { text }) : undefined,
-          ),
-        );
+      // The prompt goes in the same turn as the switch: the switch queues it, and a folder trust
+      // refusal then holds it with the send's gesture (holdPrompt), so Trust sends it. Sending
+      // after `chat.new` settled lost it: the switch had stopped on the refusal with nothing
+      // queued ("Not sent").
+      const start = (folder?: string) => {
+        ignore(callNative("chat.new", { harness, ...(folder ? { cwd: folder } : {}) }));
+        if (text) ignore(callNative("chat.send", { text }));
+      };
       // The page seeds its project with the inherited folder (`~` in a fresh workspace): that is no
       // pick, so the chat starts in its start folder (the host named it). A real pick goes through
       // the host first (cx-nn3e).
