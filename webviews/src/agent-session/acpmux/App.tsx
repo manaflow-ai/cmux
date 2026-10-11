@@ -2614,6 +2614,7 @@ function AcpmuxPane() {
             return sessionId;
           },
           leave: () => client.leave(),
+          startsOnSend: () => client.startsOnSend,
           open: (sessionId) => client.select(sessionId),
           // A prompt held behind the trust question goes with the gesture its send kept.
           send: (text, attachments, promptId) => {

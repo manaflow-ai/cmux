@@ -99,7 +99,7 @@ extension AgentTabStore {
                 if let sequence { store.noteSettled(transaction, at: sequence) } else { store.noteSettledAtNextSnapshot(transaction) }
                 if let close = pendingCloses.removeValue(forKey: key) {
                     close(created.key)
-                } else if let started = sessions[created.key], started != session {
+                } else if let started = sessions[created.key], started != session, !remote {
                     // A chat its page started before the store answered binds now.
                     sendSession(started, for: created.key)
                 }
@@ -231,6 +231,13 @@ extension AgentTabStore {
         }
     }
 
+    /// Whether tab `key`'s session is bound from this app: not for a chat of another machine,
+    /// whose daemon binds the session it starts (cx-k21v).
+    func bindsHere(_ key: String) -> Bool {
+        remoteSeeds[key] == nil && remoteCreations[key] == nil
+            && lookup(key)?.record.host.hasPrefix(AgentTabRemoteStart.registryPrefix) != true
+    }
+
     /// Close on a tab the store is still creating: it closes when the store answers (its
     /// provisional surface names no daemon tab). False for any other tab.
     func closeWhenCreated(_ key: String, close: @escaping @MainActor (String) -> Void) -> Bool {
@@ -266,9 +273,8 @@ extension AgentTabStore {
     func release(_ key: String) {
         if let view = views.removeValue(forKey: key) {
             // An untouched new tab page goes back to the pool (no teardown, no rebuild, R81); a
-            // page of another machine's chat never does (cx-k21v).
-            let remote = remoteViews.remove(ObjectIdentifier(view)) != nil
-            if newTabPages[key] != nil, !remote, recycle?(view) == true {
+            // page of another machine's chat never does (NewTabSparePool.recycle, cx-k21v).
+            if newTabPages[key] != nil, recycle?(view) == true {
                 standaloneViews.add(view)
             } else {
                 retirer.retire(view)

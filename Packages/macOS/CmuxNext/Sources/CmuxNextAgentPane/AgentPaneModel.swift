@@ -124,6 +124,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onShowContextUsage: (@MainActor (Bool) async throws -> Void)?
 
     @ObservationIgnored private let host: any AgentPaneHostProviding
+    /// The page's host is another machine's (cx-k21v): it never becomes this Mac's prewarmed spare.
+    @ObservationIgnored public var neverPooled = false
     /// What a new chat inherits from the tab it was opened from.
     @ObservationIgnored let seed: AgentPaneSeedSource?
 
