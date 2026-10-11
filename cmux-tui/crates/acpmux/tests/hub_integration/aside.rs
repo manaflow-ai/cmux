@@ -2,7 +2,6 @@
 //! answered from the chat's finished turns and leaves no trace in the chat,
 //! in the session list or in Claude's own store.
 
-use super::fork_through::{claude_history, claude_setup};
 use super::*;
 
 const ASK: &str = "_acpmux/ask";

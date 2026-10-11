@@ -2,6 +2,8 @@
 
 use super::*;
 
+mod composer;
+
 /// Subscribe the connection to a session and, when that is new, count it
 /// as attached (remote sessions are not counted; their host does that).
 pub(super) fn attach(hub: &Hub, conn: &Conn, id: &str) {
@@ -842,27 +844,8 @@ async fn dispatch_request(
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
             Ok(json!({"sessionId": s.id, "turns": hub.history(&s, limit)}))
         }
-        method::MUX_DRAFT_GET => {
-            let s = hub.resolve(session_key(&params)?)?;
-            Ok(json!({"sessionId": s.id, "draft": s.meta().composer_draft}))
-        }
-        method::MUX_DRAFT_SET => {
-            let s = hub.resolve(session_key(&params)?)?;
-            let text = str_param(&params, "text")
-                .ok_or_else(|| RpcError::invalid_params("text is required"))?;
-            let draft = hub.set_composer_draft(&s, text).map_err(RpcError::invalid_params)?;
-            Ok(json!({"sessionId": s.id, "draft": draft}))
-        }
-        method::MUX_ASK => {
-            let s = hub.resolve(session_key(&params)?)?;
-            let text = str_param(&params, "text")
-                .ok_or_else(|| RpcError::invalid_params("text is required"))?;
-            let opts = crate::hub::PromptOptions {
-                control: super::remote_guard::control_of(conn.origin, &params),
-                trust_gate: super::trust_gate::gated(conn.origin, &params),
-                ..Default::default()
-            };
-            hub.ask_aside(&s, text, &conn.label(), opts).await
+        method::MUX_DRAFT_GET | method::MUX_DRAFT_SET | method::MUX_ASK => {
+            composer::handle(hub, conn, m, &params).await
         }
         method::MUX_TAG => {
             let s = hub.resolve(session_key(&params)?)?;

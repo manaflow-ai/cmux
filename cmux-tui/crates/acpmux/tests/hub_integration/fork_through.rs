@@ -5,6 +5,10 @@
 
 use super::*;
 
+// Side questions fork the chat too, and share its Claude helpers.
+#[path = "aside.rs"]
+mod aside;
+
 const FORK_OP: &str = "acp.session.fork";
 
 #[tokio::test]
@@ -77,10 +81,7 @@ async fn a_fork_through_the_latest_turn_opens_a_new_session_and_an_earlier_turn_
 
 /// A hub whose default agent is a Claude stdio profile keeping Claude Code's
 /// own store layout under `claude` (fake_claude.py with CLAUDE_CONFIG_DIR).
-pub(super) async fn claude_setup(
-    claude: &std::path::Path,
-    env: &[(&str, &str)],
-) -> (Arc<Hub>, TestClient) {
+async fn claude_setup(claude: &std::path::Path, env: &[(&str, &str)]) -> (Arc<Hub>, TestClient) {
     let fake_claude = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
     let mut env: BTreeMap<String, String> =
         env.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
@@ -118,7 +119,7 @@ pub(super) async fn claude_setup(
 
 /// What the session's Claude conversation holds: fake_claude.py answers
 /// "history-probe" with the prompts in its stored transcript.
-pub(super) async fn claude_history(hub: &Arc<Hub>, c: &mut TestClient, id: &str) -> Value {
+async fn claude_history(hub: &Arc<Hub>, c: &mut TestClient, id: &str) -> Value {
     let before = hub.events(id, 0, 10_000).unwrap().last().map_or(0, |e| e.seq);
     c.request(
         method::SESSION_PROMPT,
