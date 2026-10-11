@@ -159,8 +159,8 @@ final class AgentTabStore {
     /// A link's turn for a tab whose view is not made yet.
     var pendingTurns: [String: String] = [:]
     /// The git link of tab `key`: the session host of the tab's own machine (AgentPaneGitReads.swift),
-    /// so a Cloud or SSH chat reads its folder there; nil answers the page `native.not_connected`.
-    var gitLink: (@MainActor (String) -> AgentPaneGitLink?)?, openFiles: (@MainActor (_ chat: String, _ folder: String, _ target: String?) -> Void)?
+    /// so a Cloud or SSH chat reads its folder there; nil answers the page `native.not_connected`. Move to Floating Chat puts a session in Start Agent's panel.
+    var gitLink: (@MainActor (String) -> AgentPaneGitLink?)?, openFiles: (@MainActor (_ chat: String, _ folder: String, _ target: String?) -> Void)?, moveToFloatingChat: (@MainActor (String) -> Bool)?
 
     /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``)
     /// (AppDelegate makes it before any agent tab).
@@ -407,10 +407,10 @@ final class AgentTabStore {
     /// The tab still shows the new tab page (it has not become a chat).
     func isNewTabPage(_ key: String) -> Bool { newTabPages[resolve(key)] != nil }
 
-    /// A new chat outside any pane (onboarding's first task), on the same
-    /// daemon and page as the tabs. The caller owns it and closes it.
-    func standaloneView(seed: AgentPaneSeed) -> AgentPaneView? {
-        guard let view = makeView(AgentPaneModel(host: host, seed: AgentPaneSeedSource(seed))) else { return nil }
+    /// A chat outside any pane (onboarding's first task, Start Agent's panel), new or on `session`,
+    /// on the same daemon and page as the tabs. The caller owns it and closes it.
+    func standaloneView(seed: AgentPaneSeed, session: String? = nil) -> AgentPaneView? {
+        guard let view = makeView(AgentPaneModel(host: host, sessionId: session, seed: AgentPaneSeedSource(seed))) else { return nil }
         standaloneViews.add(view)
         return view
     }
