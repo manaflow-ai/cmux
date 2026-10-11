@@ -1,6 +1,6 @@
 // Agent chat palette actions (cx-ncc.72, Codex desktop app parity): the app sends the page
-// `copyLastCodeBlock` or `archiveChat`, and the page copies the latest reply's last code block or
-// archives the chat the way its menu does. The transcript gallery's plays send them in Chromium.
+// `archiveChat` or reads `lastCodeBlock()`, and the page archives the chat the way its menu does
+// or answers the latest reply's last code block. The transcript gallery's plays drive both in Chromium.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
@@ -68,7 +68,7 @@ await requireBrowserLane("chat-palette-actions.test.ts", async () => {
     return result;
   };
 
-  test("Copy Last Code Block copies the latest reply's last code block", async () => {
+  test("Copy Last Code Block hands the app the latest reply's last code block", async () => {
     const result = await play("copy-last-code-block");
     expect(result.play, result.report).toBe("pass");
   });

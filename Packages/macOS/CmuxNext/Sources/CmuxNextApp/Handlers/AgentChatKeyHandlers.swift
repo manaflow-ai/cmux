@@ -1,5 +1,7 @@
+import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
+import WebKit
 
 /// Copy Last Code Block (Opt-Cmd-;) and Archive Chat (Ctrl-Cmd-A), as in the Codex app (cx-ncc.72):
 /// the focused agent chat's page copies its latest answer's last code block, or archives the chat
@@ -7,7 +9,13 @@ import CmuxNextAgentPane
 enum AgentChatKeyHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("agentPane.copyLastCodeBlock", run: { invocation in
-            chatView(context, invocation, refusal: MiscHandlerStrings.copyCodeNeedsAgentChat)?.copyLastCodeBlock()
+            guard let view = chatView(context, invocation, refusal: MiscHandlerStrings.copyCodeNeedsAgentChat) else { return }
+            Task {
+                let script = "return window.cmuxAcpmuxBridge?.lastCodeBlock?.() ?? null;"
+                guard let code = try? await view.webView.callAsyncJavaScript(script, arguments: [:], contentWorld: .page) as? String else { return }
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(code, forType: .string)
+            }
         })
         registry.bind("agentPane.archiveChat", run: { invocation in
             chatView(context, invocation, refusal: MiscHandlerStrings.archiveChatNeedsAgentChat)?.archiveChat()

@@ -363,7 +363,7 @@ export default agentPaneEntry({
       ),
     },
     "copy-last-code-block": {
-      note: "Play: Copy Last Code Block (cx-ncc.72, Codex parity) copies the last fenced block of the latest reply, not an earlier one.",
+      note: "Play: Copy Last Code Block (cx-ncc.72, Codex parity) hands the app the last fenced block of the latest reply, not an earlier one.",
       snapshot: chat([
         user(prompt, 6),
         assistant("First try:\n\n```ts\nretry(fetch, 3);\n```", 5),
@@ -377,19 +377,10 @@ export default agentPaneEntry({
       ]),
       play: async (ctx) => {
         await ctx.focus({ selector: "[contenteditable='true']" });
-        const page = ctx.document.defaultView as unknown as {
-          cmuxAcpmuxBridge?: { command?(name: string): void };
-          navigator: Navigator;
-          copiedForPlay?: string;
-        };
-        Object.defineProperty(page.navigator, "clipboard", {
-          configurable: true,
-          value: { writeText: async (text: string) => void (page.copiedForPlay = text) },
-        });
-        page.cmuxAcpmuxBridge?.command?.("copyLastCodeBlock");
-        await ctx.waitFor(() => page.copiedForPlay !== undefined);
-        if (page.copiedForPlay !== "retry(fetch, { attempts: 3, cap: 8000 });")
-          throw new Error(`copied ${JSON.stringify(page.copiedForPlay)}`);
+        const page = ctx.document.defaultView as unknown as { cmuxAcpmuxBridge?: { lastCodeBlock?(): string | null } };
+        await ctx.waitFor(() => page.cmuxAcpmuxBridge?.lastCodeBlock !== undefined);
+        const copied = page.cmuxAcpmuxBridge?.lastCodeBlock?.();
+        if (copied !== "retry(fetch, { attempts: 3, cap: 8000 });") throw new Error(`copied ${JSON.stringify(copied)}`);
       },
     },
     "archive-chat-key": {

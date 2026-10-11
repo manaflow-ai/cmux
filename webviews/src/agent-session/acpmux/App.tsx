@@ -128,6 +128,7 @@ import { DateLine } from "./conversation/DateLine";
 import { ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
 import { FALLBACK_LINK_SCHEME, revealTurnWhenShown, setLinkScheme } from "./links";
 import { copyText, copyTextResult } from "./conversation/clipboard";
+import { lastCodeBlock } from "./conversation/lastCodeBlock";
 import { transcriptCopyText, transcriptRangeText } from "./conversation/transcriptCopy";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 import { chatImages, type ChatImage } from "./conversation/chatImages";
@@ -139,7 +140,7 @@ import { ChatHeaderTools, HEADER_ACTIONS, menuGroups, type ChatMenuItem } from "
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import { archiveRow } from "./header/archiveRow";
-import { copyRow, lastCodeBlock } from "./header/copyRow";
+import { copyRow } from "./header/copyRow";
 import { instructionsRow } from "./header/instructionsRow";
 import { sideChatRow } from "./header/sideChatRow";
 import { Thinking } from "./conversation/Thinking";
@@ -206,6 +207,9 @@ declare global {
       }): void;
       /// An app action for the page (CmuxNextAgentPane AgentPaneView), such as "continueIn".
       command?(name: string): void;
+      /// Copy Last Code Block (Opt-Cmd-;): the app reads the block and writes the pasteboard itself,
+      /// since a script it runs here is no gesture the page's clipboard accepts.
+      lastCodeBlock?(): string | null;
       /// The app's shortcuts as the user bound them, keyed by action id (shortcuts.ts).
       applyShortcuts?(labels: Record<string, string>): void;
       /// Preview features on or off (Settings > Advanced > Labs, `labs.previewFeatures`, off by
@@ -2444,6 +2448,7 @@ function AcpmuxPane() {
     };
     window.cmuxAcpmuxBridge = {
       toggleInspector,
+      lastCodeBlock: () => lastCodeBlock(snapshotRef.current?.rows ?? []) ?? null,
       command(name) {
         if (name === "createCheckpoint") showCheckpoint.current();
         // Find, Find Next, Find Previous and Hide Find on an agent pane (the app's Edit menu, Cmd-F).
@@ -2454,12 +2459,8 @@ function AcpmuxPane() {
         // Switch Model… (Ctrl-Cmd-M): the model picker opens on the path every opener uses, which
         // ends with the keyboard in its search field.
         if (name === "openModelPicker") openPicker(translate(PICKER_LABELS.model));
-        // Copy Last Code Block (Opt-Cmd-;) and Archive Chat (Ctrl-Cmd-A), as in the Codex app; Archive
-        // runs the chat menu's row, so it does nothing where the menu has none or the chat is archived.
-        if (name === "copyLastCodeBlock") {
-          const code = lastCodeBlock(snapshotRef.current?.rows ?? []);
-          if (code !== undefined) void copyText(code).catch(() => undefined);
-        }
+        // Archive Chat (Ctrl-Cmd-A), as in the Codex app: the chat menu's row, so it does nothing where
+        // the menu has none or the chat is archived.
         if (name === "archiveChat") archiveChatRef.current?.();
         if (name === "gitCommit" || name === "gitPush") runGitIntent.current(name === "gitCommit" ? "commit" : "push");
         if (

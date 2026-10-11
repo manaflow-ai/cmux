@@ -6,9 +6,7 @@ extension AgentPaneView {
     /// Opens the frontend's Continue in… chooser. The chooser owns target selection and
     /// preparation; native actions do not create a second handoff pipeline.
     public func showContinueIn() { send("continueIn") }
-    /// Copy Last Code Block (Opt-Cmd-;) and Archive Chat (Ctrl-Cmd-A, cx-ncc.72): the page copies the
-    /// latest answer's last code block, or archives the chat the way its menu's Archive does.
-    public func copyLastCodeBlock() { send("copyLastCodeBlock") }
+    /// Archive Chat (Ctrl-Cmd-A, cx-ncc.72): the page archives the chat the way its menu's Archive does.
     public func archiveChat() { send("archiveChat") }
     private func send(_ command: String) {
         deliver([.command(command)], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"\(command)\");"])
