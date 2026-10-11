@@ -24,4 +24,9 @@ struct WebThemeCaretSelectionTests {
         let tokens = ThemeTokens.derive(from: ThemeInput(background: background, foreground: foreground))
         #expect(WebTheme(tokens).variables["--cmux-caret"] == WebTheme.css(tokens.textPrimary))
     }
+
+    @Test @MainActor func theConfigsCursorColorIsTheCaret() {
+        let input = ThemeInput(background: background, foreground: foreground, cursor: ThemeRGB(hex: 0xFF8800))
+        #expect(WebTheme(ThemeTokens.derive(from: input)).variables["--cmux-caret"] == WebTheme.css(ThemeRGB(hex: 0xFF8800)))
+    }
 }
