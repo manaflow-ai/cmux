@@ -84,7 +84,11 @@ impl Hub {
         v["usage"] = m.usage.clone().unwrap_or(Value::Null);
         v["forkSeq"] = json!(m.fork_seq);
         v["rulesJson"] = m.permission_rules.clone().unwrap_or(Value::Null);
-        v["pending"] = Value::Array(session.permissions.lock().unwrap().pending_records());
+        let mut pending = session.permissions.lock().unwrap().pending_records();
+        for p in &mut pending {
+            p["personInstance"] = Value::String(self.person.instance().to_owned());
+        }
+        v["pending"] = Value::Array(pending);
         v
     }
 
