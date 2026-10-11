@@ -488,12 +488,16 @@ body {
   gap: 7px;
   min-width: 0;
   height: 100%;
-  padding: 0 30px 0 10px;
+  padding-inline-start: 10px;
+  padding-inline-end: 6px;
   border: 0;
   border-radius: 7px 0 0 7px;
   background: none;
   color: inherit;
   text-align: left;
+}
+.proto-tab.has-close .proto-tab-select {
+  padding-inline-end: 30px;
 }
 .proto-tab-select span {
   overflow: hidden;
