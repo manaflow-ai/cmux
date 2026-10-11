@@ -88,6 +88,9 @@ extension AgentPaneGitPullRequest {
                defaultValue: "Push this branch first; the pull request opens from what's on the remote.", bundle: .module)
     }
 
+    /// The branch is behind its upstream.
+    nonisolated static var pullFirstMessage: String { pushFirstMessage }
+
     /// `git.pullRequest` arrived without a real click or key press in the pane.
     nonisolated static var needsGestureMessage: String {
         String(localized: "agentPane.error.gitPullRequestGesture",

@@ -39,13 +39,17 @@ struct AgentPaneGitPullRequestTests {
         try git(repo, "checkout", "-q", "-b", "feature")
         try "two\n".write(toFile: repo + "/a.txt", atomically: true, encoding: .utf8)
         try git(repo, "commit", "-q", "-am", "Say two")
-        // `gh pr view` answers once `gh pr create` made the pull request.
+        // `gh pr view` answers once `gh pr create` made the pull request. `<gh>.viewerr` and
+        // `<gh>.createerr` make that step fail with their text, as gh does on stderr (create also
+        // warns about uncommitted changes first).
         let script = """
             #!/bin/sh
             echo "$*" >> "$0.calls"
             case "$1 $2" in
-            "pr view") [ -f "$0.pr" ] && cat "$0.pr" && exit 0; echo "no pull requests found for branch" >&2; exit 1 ;;
-            "pr create") echo "https://github.com/o/r/pull/7"; echo '{"number":7,"url":"https://github.com/o/r/pull/7"}' > "$0.pr" ;;
+            "pr view") [ -f "$0.viewerr" ] && { cat "$0.viewerr" >&2; exit 1; }
+                [ -f "$0.pr" ] && cat "$0.pr" && exit 0; echo 'no pull requests found for branch "feature"' >&2; exit 1 ;;
+            "pr create") [ -f "$0.createerr" ] && { echo "Warning: 3 uncommitted changes" >&2; cat "$0.createerr" >&2; exit 1; }
+                echo "https://github.com/o/r/pull/7"; echo '{"number":7,"url":"https://github.com/o/r/pull/7","state":"OPEN"}' > "$0.pr" ;;
             *) exit 2 ;;
             esac
             """
@@ -80,10 +84,32 @@ struct AgentPaneGitPullRequestTests {
         #expect(first == .opened(url: "https://github.com/o/r/pull/7", number: 7))
         let again = await AgentPaneGitPullRequest.run(try Self.request(rig.repo), roots: [rig.repo], gh: rig.gh)
         #expect(again == .opened(url: "https://github.com/o/r/pull/7", number: 7))
-        #expect(rig.calls == ["pr view --json url,number", "pr create --fill", "pr view --json url,number"])
+        #expect(rig.calls == ["pr view --json url,number,state", "pr create --fill", "pr view --json url,number,state"])
     }
 
-    /// No GitHub CLI, no branch checked out, a branch never pushed, or commits not pushed yet:
+    /// The branch's merged or closed pull request is not its open one: a new one is created. A
+    /// view that fails for another reason (auth, network) creates nothing and says gh's reason; a
+    /// create that fails says why, not gh's warning before it.
+    @Test func onlyAnOpenPullRequestIsReusedAndGitHubsReasonShows() async throws {
+        let rig = try Self.rig()
+        try Self.git(rig.repo, "push", "-q", "--set-upstream", "origin", "feature")
+        let request = try Self.request(rig.repo)
+        try #"{"number":3,"url":"https://github.com/o/r/pull/3","state":"MERGED"}"#.write(toFile: rig.gh + ".pr", atomically: true, encoding: .utf8)
+        #expect(await AgentPaneGitPullRequest.run(request, roots: [rig.repo], gh: rig.gh) == .opened(url: "https://github.com/o/r/pull/7", number: 7))
+        try FileManager.default.removeItem(atPath: rig.gh + ".pr")
+        try "HTTP 401: Bad credentials (https://api.github.com/graphql)\n".write(toFile: rig.gh + ".viewerr", atomically: true, encoding: .utf8)
+        #expect(await AgentPaneGitPullRequest.run(request, roots: [rig.repo], gh: rig.gh)
+            == .refused("HTTP 401: Bad credentials (https://api.github.com/graphql)"))
+        try FileManager.default.removeItem(atPath: rig.gh + ".viewerr")
+        try "pull request create failed: GraphQL: No commits between main and feature\n"
+            .write(toFile: rig.gh + ".createerr", atomically: true, encoding: .utf8)
+        #expect(await AgentPaneGitPullRequest.run(request, roots: [rig.repo], gh: rig.gh)
+            == .refused("pull request create failed: GraphQL: No commits between main and feature"))
+        #expect(rig.calls.filter { $0.hasPrefix("pr create") }.count == 2)
+    }
+
+    /// No GitHub CLI, no branch checked out, a branch never pushed, commits not pushed yet, or a
+    /// branch behind its upstream:
     /// nothing reaches `gh` or the remote, and the reply says why.
     @Test func refusalsNeverPushOrAskGitHub() async throws {
         let rig = try Self.rig()
@@ -95,6 +121,10 @@ struct AgentPaneGitPullRequestTests {
         try "three\n".write(toFile: rig.repo + "/a.txt", atomically: true, encoding: .utf8)
         try Self.git(rig.repo, "commit", "-q", "-am", "Say three")
         #expect(await AgentPaneGitPullRequest.run(request, roots: [rig.repo], gh: rig.gh) == .refused(AgentPaneGitPullRequest.pushFirstMessage))
+        // Behind its upstream (pushed from elsewhere): gh would want to push, so it is refused too.
+        try Self.git(rig.repo, "push", "-q", "origin", "feature")
+        try Self.git(rig.repo, "reset", "-q", "--hard", "HEAD~1")
+        #expect(await AgentPaneGitPullRequest.run(request, roots: [rig.repo], gh: rig.gh) == .refused(AgentPaneGitPullRequest.pullFirstMessage))
         try Self.git(rig.repo, "checkout", "-q", "--detach")
         #expect(await AgentPaneGitPullRequest.run(request, roots: [rig.repo], gh: rig.gh) == .refused(AgentPaneGitPullRequest.detachedMessage))
         #expect(rig.calls.isEmpty)
