@@ -104,9 +104,10 @@ final class SessionTransferService {
     /// Moves the selected sessions (all of them when `ids` is empty) from the one
     /// peer named by `source` (its socket path or tag). A terminal's move opens a new
     /// shell in the same folder and ends the source's process; a chat's moves the chat
-    /// itself (``moveChat(_:interrupt:)``), refused while it runs a turn unless `interrupt`.
+    /// itself (``moveChat(_:interrupt:cwd:)``), refused while it runs a turn unless `interrupt`, and
+    /// into folder `cwd` here when given (a chat whose folder is not on this machine).
     /// One item's failure never stops the others; each is reported.
-    func pull(source: String, ids: Set<String> = [], interrupt: Bool = false) async throws -> TransferJSONValue {
+    func pull(source: String, ids: Set<String> = [], interrupt: Bool = false, cwd: String? = nil) async throws -> TransferJSONValue {
         let peers = try await discover(only: source)
         let selected = peers.flatMap { peer -> [(SessionTransferPeer, SessionTransferItem)] in
             guard source == peer.path || source == peer.tag else { return [] }
@@ -119,10 +120,13 @@ final class SessionTransferService {
             // A pull past its deadline (the control router cancels it) moves nothing more.
             try Task.checkCancellation()
             do {
-                try await move(item, from: peer, interrupt: interrupt)
+                try await move(item, from: peer, interrupt: interrupt, cwd: cwd)
                 moved.append(item.json)
             } catch {
-                failed.append(["surface": .string(item.id), "source": .string(peer.path), "error": .string(Self.message(for: error))])
+                var entry: [String: TransferJSONValue] = ["surface": .string(item.id), "source": .string(peer.path), "error": .string(Self.message(for: error))]
+                // Pulled again with `cwd`, it moves into that folder instead.
+                if case Failure.chatFolderMissing(let folder) = error { entry["missing_folder"] = .string(folder) }
+                failed.append(.object(entry))
             }
         }
         return ["moved": .array(moved), "failed": .array(failed)]
@@ -187,8 +191,8 @@ final class SessionTransferService {
         return (info.st_mode & S_IFMT) == S_IFSOCK && info.st_uid == getuid()
     }
 
-    private func move(_ item: SessionTransferItem, from peer: SessionTransferPeer, interrupt: Bool) async throws {
-        if item.kind == .chat { return try await moveChat(item, from: peer, interrupt: interrupt) }
+    private func move(_ item: SessionTransferItem, from peer: SessionTransferPeer, interrupt: Bool, cwd: String?) async throws {
+        if item.kind == .chat { return try await moveChat(item, from: peer, interrupt: interrupt, cwd: cwd) }
         _ = try await create(item)
         try await completeOnPeer(item: item, peer: peer)
     }
@@ -339,6 +343,10 @@ final class SessionTransferService {
         case Failure.sourceAgentsStopped:
             String(localized: "sessionTransfer.error.sourceAgentsStopped",
                    defaultValue: "The other build's agent service is not running. Open that build's chat once, then try again.", bundle: .module)
+        case Failure.chatFolderMissing(let folder):
+            String(localized: "sessionTransfer.error.chatFolderMissing",
+                   defaultValue: "This chat works in \(folder), which isn't on this Mac, so it stayed in the other build. Create that folder here, then move the chat again.",
+                   bundle: .module)
         case Failure.chatNotMoved(let reason):
             String(localized: "sessionTransfer.error.chatNotMoved", defaultValue: "The agent chat did not move: \(reason)", bundle: .module)
         case Failure.invalidSurfaces:
@@ -354,6 +362,8 @@ final class SessionTransferService {
         case noSessions, missingAgentID, unavailable, invalidSurfaces, peerRefused, agentNotOpened
         /// acpmux refused or failed the move (its message); the chat stays in the source build.
         case chatNotMoved(String)
+        /// The chat's folder (its path) is not on this machine; the chat stays in the source build.
+        case chatFolderMissing(String)
         /// The chat is (or is still moving) here, with no tab yet.
         case chatInChats
         /// The source build's acpmux does not answer.

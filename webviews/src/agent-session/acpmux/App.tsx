@@ -46,6 +46,7 @@ import { composerDraft, notifyDraftActionsChanged } from "./composerDraft";
 import { paneContext } from "./paneContext";
 import { createPaneQueryClient, followHarnessChanges, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
 import { usePickerCatalog } from "./modelCatalogHost";
+import { isDefaultChoice } from "./defaultChoice";
 import { applySwitch, HarnessSwitch, type SwitchPort } from "./harnessSwitch";
 import { harnessProfiles } from "./harnessProfiles";
 import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
@@ -93,6 +94,8 @@ import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { SessionRowsContext } from "./turnChanges/sessionRows";
 import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
+import { UserBubble } from "./conversation/UserBubble";
+import { editableKey, editableSeqs, editableTurns } from "./conversation/editPrompt";
 import { clearFindHighlights, paintFindHighlights, useChatFind, type ChatFind } from "./conversation/chatFind";
 import { ChatFindBar } from "./conversation/ChatFindBar";
 import { DATE, PREVIEW, RENDER, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
@@ -108,6 +111,8 @@ import {
 } from "./conversation/messageMenu";
 import { callChipHost } from "./chips/host";
 import { RenderCard, canRender } from "./conversation/RenderCard";
+import { ArtifactPanel } from "./conversation/ArtifactPanel";
+import { ArtifactContext, type Artifact } from "./conversation/artifactPreview";
 import { renderCall } from "./conversation/renderCall";
 import { DateLine } from "./conversation/DateLine";
 import { ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
@@ -365,7 +370,11 @@ const MessageRow = memo(
               <pre className="cv-user__context-text selectable">{envelope.context}</pre>
             </details>
           )}
-          <div className="cv-user__bubble selectable">{envelope ? envelope.task : (row.text ?? "")}</div>
+          {envelope ? (
+            <div className="cv-user__bubble selectable">{envelope.task}</div>
+          ) : (
+            <UserBubble row={row} text={row.text ?? ""} />
+          )}
           <FailedPrompt row={row} />
           {row.status && (
             <div className="cv-user__status">
@@ -1552,6 +1561,16 @@ function AcpmuxPane() {
   if (replaying && snapshot.sessionId !== replaying) setReplaying(undefined);
   // A side question belongs to its chat: another chat drops it.
   if (aside && snapshot.sessionId !== aside.sessionId) setAside(undefined);
+  // The side preview panel (cx-ncc.63) shows a document from the open chat; another chat closes it.
+  // Each open is its own panel (`opened`), which starts on its preview.
+  const [artifact, setArtifact] = useState<Artifact & { sessionId?: string; opened: number }>();
+  if (artifact && snapshot.sessionId !== artifact.sessionId) setArtifact(undefined);
+  const artifactSession = snapshot.sessionId;
+  const openArtifact = useCallback(
+    (next: Artifact) =>
+      setArtifact((current) => ({ ...next, sessionId: artifactSession, opened: (current?.opened ?? 0) + 1 })),
+    [artifactSession],
+  );
   // Repository context follows the selected session, connection origin and cwd. A reconnect
   // handshake for an existing session deliberately omits cwd, so key this lookup from the live
   // snapshot instead of clearing a valid repository while the daemon is being replaced.
@@ -1605,6 +1624,10 @@ function AcpmuxPane() {
   const connected = snapshot.connection !== "disconnected" && !snapshot.connection.startsWith("connecting");
   const forkable = canFork(snapshot);
   const forkSeq = latestForkSeq(snapshot.rows);
+  // Edit and resend (cx-ncc.60): rebuilt when the editable prompts change, not on every streamed row.
+  const editSeqs = editableTurns(forkable ? snapshot.rows : [], snapshot.summary?.family);
+  const editSeqsKey = editableKey(editSeqs);
+  const stableEditSeqs = useMemo(() => editableSeqs(editSeqsKey), [editSeqsKey]);
   const loginCommand = catalog.find((entry) => entry.id === (snapshot.summary?.harness ?? ""))?.auth?.login;
   // The chat's agent CLI health (cx-ny85), from this Mac's acpmux through the host; a chat on
   // another machine or in the cloud gets none (its CLI is not this Mac's).
@@ -1885,12 +1908,48 @@ function AcpmuxPane() {
   }, [hunkDecisions]);
   // Tool call ids belong to one session.
   useEffect(() => setHunkDecisions((current) => (current.size ? new Map() : current)), [snapshot.sessionId]);
+  // Retry with another model (cx-ncc.62): the models the composer's picker lists for the chat's
+  // harness (user-hidden ones left out, aliases folded, the session's own choices added) that it can
+  // run now, kept the same array while they stay the same.
+  const pickerSession = useMemo(
+    () => ({ harness: snapshot.summary?.harness, configOptions: snapshot.summary?.configOptions }),
+    [snapshot.summary?.harness, snapshot.summary?.configOptions],
+  );
+  const pickerCatalog = usePickerCatalog(snapshot.catalog, pickerSession).catalog;
+  const retryModelsKey = (
+    pickerCatalog.harnesses.find(
+      (entry) => entry.acpmuxHarness === snapshot.summary?.harness || entry.id === snapshot.summary?.harness,
+    )?.models ?? []
+  )
+    .filter((model) => !model.unavailable && !isDefaultChoice(model))
+    .map((model) => `${model.id}\t${model.name || model.id}`)
+    .join("\n");
+  const retryModels = useMemo(
+    () =>
+      retryModelsKey
+        ? retryModelsKey.split("\n").map((line) => {
+            const [id = "", name = ""] = line.split("\t");
+            return { id, name: name || id };
+          })
+        : [],
+    [retryModelsKey],
+  );
   // Retry sends the turn's prompt as the composer would; a failed send shows in the transcript.
   const turnActions = useMemo<TurnActions>(
     () => ({
       ...(forkable && {
         fork: (throughSeq: number) => void callNative("chat.fork", { throughSeq }).catch(() => undefined),
         forkSeq,
+      }),
+      ...(stableEditSeqs.size > 0 && {
+        edit: {
+          seqs: stableEditSeqs,
+          send: (rowId: string, throughSeq: number, text: string) =>
+            callNative<boolean>("chat.editResend", { rowId, throughSeq, text }).then(
+              (sent) => sent === true,
+              () => false,
+            ),
+        },
       }),
       ...(connected && {
         retry: (rowId: string, prompt: string) =>
@@ -1899,6 +1958,15 @@ function AcpmuxPane() {
             attachments: directClient.current?.retryAttachmentsFor(rowId) ?? [],
           }).catch(() => undefined),
       }),
+      ...(connected &&
+        retryModels.length > 1 && {
+          retryWith: {
+            models: retryModels,
+            current: snapshot.summary?.model,
+            retry: (rowId: string, prompt: string, model: string) =>
+              void callNative("chat.retryWith", { rowId, prompt, model }).catch(() => undefined),
+          },
+        }),
       ...(connected &&
         loginCommand &&
         snapshot.summary?.hostKind !== "cloud" && {
@@ -1920,12 +1988,15 @@ function AcpmuxPane() {
     [
       forkable,
       forkSeq,
+      stableEditSeqs,
       connected,
       hunkReview,
       loginCommand,
       snapshot.summary?.hostKind,
       snapshot.summary?.cwd,
       snapshot.summary?.harness,
+      snapshot.summary?.model,
+      retryModels,
       catalog,
     ],
   );
@@ -2711,6 +2782,18 @@ function AcpmuxPane() {
             ),
           "chat.harness.cancelPrompt": async ({ promptId }) => harnessSwitch.cancelQueued(String(promptId)),
           "chat.retryPrompt": ({ rowId }) => client.retryPrompt(String(rowId)),
+          // Retry with another model (cx-ncc.62): the chat moves to the model as the picker moves it,
+          // then the prompt goes again with its attachments. A refused move sends nothing (its notice
+          // says why), so the retry never runs on the old model.
+          "chat.retryWith": async ({ rowId, prompt, model }) => {
+            const summary = snapshotRef.current?.summary;
+            const next = String(model ?? "");
+            if (summary?.model !== next) {
+              const live = summary?.sessionId ? { sessionId: summary.sessionId, model: summary.model } : undefined;
+              if (!(await harnessSwitch.pickModel(next, live))) return;
+            }
+            await send(String(prompt ?? ""), client.retryAttachmentsFor(String(rowId ?? "")));
+          },
           // Edit and Resend (the message menu): the prompt goes back into the composer, before
           // anything typed since, with the caret in it.
           "chat.editPrompt": async ({ text }) => {
@@ -2745,6 +2828,19 @@ function AcpmuxPane() {
           "chat.fork": async ({ throughSeq }) => {
             harnessSwitch.cancel();
             return persistSession(await client.fork(Number(throughSeq)));
+          },
+          // Edit and resend (cx-ncc.60): a fork through the turn before the prompt, which then gets the
+          // edited text with the prompt's attachments; the original chat stays as it was.
+          "chat.editResend": async ({ rowId, throughSeq, text }) => {
+            harnessSwitch.cancel();
+            const attachments = client.retryAttachmentsFor(String(rowId ?? ""));
+            const forked = await client.fork(Number(throughSeq));
+            if (!forked) return false;
+            await persistSession(forked);
+            // The reader may open another chat while the fork is saved: the edit belongs to the fork.
+            if (client.selectedSession !== forked) return false;
+            await send(String(text ?? ""), attachments);
+            return true;
           },
           "chat.ask": ({ question }) => client.ask(String(question ?? "")),
           "chat.side": async ({ throughSeq }) => {
@@ -3245,44 +3341,47 @@ function AcpmuxPane() {
     [replaying],
   );
   const transcript = (
-    <ImageViewerContext.Provider value={openImage}>
-      <ShellActionsContext.Provider value={shellActions}>
-        <TurnActionsContext.Provider value={turnActions}>
-          <TurnCountsContext.Provider value={turnCountsFor}>
-            <SessionRowsContext.Provider value={snapshot.rows}>
-              <SubagentNavContext.Provider value={setSubagentView}>
-                <VirtualTranscript
-                  rows={transcriptRows}
-                  working={snapshot.isWorking}
-                  // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
-                  jumpButton={!quick}
-                  focusComposer={() => composerHandle.current?.focus()}
-                  find={quick ? undefined : find}
-                  sessionId={childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId}
-                  canLoadOlder={!childRows && snapshot.canLoadOlder}
-                  openAt={
-                    !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
-                      ? scrollAnchor
-                      : undefined
-                  }
-                  onAnchor={
-                    quick || childRows || !shownSessionId
-                      ? undefined
-                      : (anchor) => postScrollAnchor(shownSessionId, anchor)
-                  }
-                  expanded={expanded}
-                  registry={registry}
-                  githubRepository={githubRepository}
-                  // The Quick Composer has no room for the changes view; its file rows stay plain.
-                  onOpenDiff={quick ? undefined : openDiff}
-                  onToggleActivity={toggleActivity}
-                />
-              </SubagentNavContext.Provider>
-            </SessionRowsContext.Provider>
-          </TurnCountsContext.Provider>
-        </TurnActionsContext.Provider>
-      </ShellActionsContext.Provider>
-    </ImageViewerContext.Provider>
+    // Quick Chat's panel has no room beside it: its fences have no Open preview.
+    <ArtifactContext.Provider value={quick ? undefined : openArtifact}>
+      <ImageViewerContext.Provider value={openImage}>
+        <ShellActionsContext.Provider value={shellActions}>
+          <TurnActionsContext.Provider value={turnActions}>
+            <TurnCountsContext.Provider value={turnCountsFor}>
+              <SessionRowsContext.Provider value={snapshot.rows}>
+                <SubagentNavContext.Provider value={setSubagentView}>
+                  <VirtualTranscript
+                    rows={transcriptRows}
+                    working={snapshot.isWorking}
+                    // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
+                    jumpButton={!quick}
+                    focusComposer={() => composerHandle.current?.focus()}
+                    find={quick ? undefined : find}
+                    sessionId={childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId}
+                    canLoadOlder={!childRows && snapshot.canLoadOlder}
+                    openAt={
+                      !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
+                        ? scrollAnchor
+                        : undefined
+                    }
+                    onAnchor={
+                      quick || childRows || !shownSessionId
+                        ? undefined
+                        : (anchor) => postScrollAnchor(shownSessionId, anchor)
+                    }
+                    expanded={expanded}
+                    registry={registry}
+                    githubRepository={githubRepository}
+                    // The Quick Composer has no room for the changes view; its file rows stay plain.
+                    onOpenDiff={quick ? undefined : openDiff}
+                    onToggleActivity={toggleActivity}
+                  />
+                </SubagentNavContext.Provider>
+              </SessionRowsContext.Provider>
+            </TurnCountsContext.Provider>
+          </TurnActionsContext.Provider>
+        </ShellActionsContext.Provider>
+      </ImageViewerContext.Provider>
+    </ArtifactContext.Provider>
   );
   const asks = (
     <>
@@ -3951,6 +4050,7 @@ function AcpmuxPane() {
             </>
           )}
         </div>
+        {artifact && <ArtifactPanel key={artifact.opened} artifact={artifact} onClose={() => setArtifact(undefined)} />}
         {imageView && (
           <ImageViewer
             images={imageView.images}

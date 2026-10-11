@@ -103,6 +103,8 @@ impl Hub {
             .map_err(|e| RpcError::invalid_params(format!("read session.json: {e}")))?;
         let mut meta: SessionMeta = serde_json::from_str(&meta_text)
             .map_err(|e| RpcError::invalid_params(format!("parse session.json: {e}")))?;
+        // A store comes from this machine's chat index, never from a bundle.
+        meta.chat_store = None;
         // The id becomes a directory name under the sessions root.
         if !is_plain_id(&meta.id) {
             return Err(RpcError::invalid_params(format!(
@@ -141,10 +143,12 @@ impl Hub {
             )));
         }
         if !meta.cwd.is_dir() {
-            return Err(RpcError::invalid_params(format!(
+            // `reason` and `cwd` let a client say it in its own words (`cli/errors.rs` `detail`).
+            let e = RpcError::invalid_params(format!(
                 "cwd {} does not exist here; pass a new cwd via fork or edit session.json",
                 meta.cwd.display()
-            )));
+            ));
+            return Err(e.with_data(json!({"reason": "cwd_missing", "cwd": meta.cwd})));
         }
         meta.status = SessionStatus::Idle;
         let session = self.make_session(meta.clone());

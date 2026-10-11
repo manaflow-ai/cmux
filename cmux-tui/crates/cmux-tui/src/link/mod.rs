@@ -59,7 +59,8 @@ fn locked<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// `enabled` (`--link-entry`): only the link may connect, and its gate
 /// ([`link_entry_gate`]) admits only the seven `fs-v1` ops. On a Cloud host
 /// this also installs the daemon's file owner (`cloud_fs`); elsewhere the
-/// admitted fs ops answer `fs.unavailable`.
+/// admitted fs ops answer `fs.unavailable`. Every host also learns how it
+/// guards chats moved in (`agent-transfer-v1`).
 pub(crate) fn start_link_entry(
     enabled: bool,
     mux: &Arc<cmux_tui_core::Mux>,
@@ -67,6 +68,7 @@ pub(crate) fn start_link_entry(
 ) -> anyhow::Result<Option<cmux_tui_core::server::RemoteEntryServer>> {
     use cmux_tui_core::server::{LinkVerifier, serve_remote_entry};
     cloud_fs::install_if_cloud_host();
+    mux.set_agent_transfer_host(cloud_fs::agent_transfer_host());
     // What a stamp's `check` means is fixed here, at daemon start, from the
     // config `main` took from the environment (G4); a real verifier is
     // refused until G1 and G2 hold. The mode is logged once (G3).

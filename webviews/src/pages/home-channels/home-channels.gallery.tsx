@@ -96,7 +96,7 @@ export default componentEntry<Props>({
       props: { select: "c-release", thread: "c-release-m2" },
     },
     "thread-long": {
-      note: "A thread past one page: the panel counts every reply (the owner's stats), then loads the rest.",
+      note: "A thread past one page: the panel counts every reply that is not retracted (the owner's stats), then loads the rest.",
       props: { select: "c-incident", thread: "c-incident-m1", longThread: true },
       play: async (ctx) => {
         const panelText = (selector: string) =>
@@ -106,9 +106,9 @@ export default componentEntry<Props>({
         await ctx.waitFor(
           () => panelText(".hc-md").includes("Update 100.") && ctx.document.querySelector(".hc-thread-more"),
         );
-        // The count is the owner's (every reply), not the loaded ones.
+        // The count is the owner's (every reply that is not retracted), not the loaded ones.
         await ctx.scroll(scroller, "top");
-        await ctx.waitFor(() => panelText(".hc-replies-line").some((line) => line.includes("130")));
+        await ctx.waitFor(() => panelText(".hc-replies-line").some((line) => line.includes("129")));
         await ctx.click({ selector: ".hc-thread-more" });
         await ctx.waitFor(() => !ctx.document.querySelector(".hc-thread-more"));
         await ctx.scroll(scroller, "bottom");
