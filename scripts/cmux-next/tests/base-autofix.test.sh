@@ -53,4 +53,20 @@ grep -q 'schemas/new' "$repo/scripts/cmux-next/cmux-tui-tree-inputs.txt" "$repo/
 git -C "$repo" add -A && git -C "$repo" -c user.name=t -c user.email=t@t commit -qm fixed
 bash "$FIX" --no-fmt --generated "$gen" "$repo" > "$tmp/out" 2>&1 || fail "a second run must succeed"
 [[ -z "$(git -C "$repo" status --porcelain)" ]] || fail "a current tree must stay unchanged"
+# Dependency order: the docs shortcuts and app-host files are rewritten from
+# action-surfaces.json, so while the action exports are unverified (their Mac
+# job failed or did not run on this tree) neither is regenerated from a
+# possibly stale export: a branch that merged its base but kept a stale export
+# lost the base's newer shortcuts that way.
+mkdir -p "$repo/web/scripts" "$repo/web/data" "$repo/cmux-tui/crates/cmux-app-host/tools"
+printf 'require("fs").writeFileSync("web/data/cmux-shortcuts.generated.json", "from-stale-export\\n")\n' > "$repo/web/scripts/export-docs-shortcuts.ts"
+printf 'require("fs").writeFileSync("cmux-tui/crates/cmux-app-host/generated/scopes.json", "from-stale-export\\n")\n' > "$repo/cmux-tui/crates/cmux-app-host/tools/gen-cmux-global.ts"
+mkdir -p "$repo/cmux-tui/crates/cmux-app-host/generated"
+echo current > "$repo/web/data/cmux-shortcuts.generated.json"
+echo current > "$repo/cmux-tui/crates/cmux-app-host/generated/scopes.json"
+git -C "$repo" add -A && git -C "$repo" -c user.name=t -c user.email=t@t commit -qm generators
+bash "$FIX" --no-fmt --docs-shortcuts --app-host --unverified-exports "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed with unverified exports"
+[[ "$(cat "$repo/web/data/cmux-shortcuts.generated.json")" == current ]] || fail "the docs shortcuts must wait for verified action exports"
+[[ "$(cat "$repo/cmux-tui/crates/cmux-app-host/generated/scopes.json")" == current ]] || fail "the app-host files must wait for verified action exports"
+grep -q '^left: web/data/cmux-shortcuts.generated.json' "$tmp/out" || fail "the waiting docs shortcuts must be reported"
 echo "base autofix: ok"
