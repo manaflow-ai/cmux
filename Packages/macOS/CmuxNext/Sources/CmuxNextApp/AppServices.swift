@@ -172,6 +172,8 @@ final class AppServices {
     let popups: BrowserPopupPanels
     /// The link-hint session (`f`, `F`) on a focused Chromium page.
     let linkHints = LinkHintController()
+    /// Click by Hint over the whole window (`hints.show`, Cmd-J).
+    let windowHints = WindowHintController()
     /// Browser profiles: records, the new-tab cascade, each tab's store.
     private(set) lazy var browserProfiles = BrowserProfileService(services: self)
     /// Agent chat tabs and their shared acpmux host (New Agent Chat).
@@ -337,6 +339,7 @@ final class AppServices {
             self?.browserHost?.noteInput(event)
             // A click anywhere ends link hints and a waiting chord (it may move the keyboard).
             self?.linkHints.cancel()
+            self?.windowHints.cancel()
             self?.keyRouter.cancelChord()
         }
     }

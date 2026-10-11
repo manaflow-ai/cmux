@@ -47,8 +47,12 @@ pub fn agent_hook_journal_ingress(
     validate_agent_source(source)?;
     validate_native_event(native_event)?;
     let terminal_id = terminal_id.map(TerminalPublicId::parse).transpose()?;
+    // Read before redaction: `tool_input` is redacted whole, and live
+    // presence needs only its file target.
+    let tool_target = tool_target_fields(&native);
     let native = redact_agent_native(native_event, native);
     let mut normalized = normalized_fields(&native);
+    normalized.extend(tool_target);
     add_agent_topology(source, native_event, terminal_id.as_ref(), &mut normalized);
     let kind = semantic_kind(source, native_event, &normalized);
     let mut subjects = Vec::with_capacity(4);
@@ -131,6 +135,78 @@ pub(crate) fn journal_plugin_exit_journal_ingress(
         }),
         causation_id: None,
         correlation_id: None,
+    })
+}
+
+const MAX_TOOL_TARGET_PATH_BYTES: usize = 1024;
+
+/// The file a tool call targets, copied from the tool input before it is
+/// redacted: `tool_target_path` and, when the input names one,
+/// `tool_target_line`. Only these two values are kept. Commands, contents and
+/// patches stay redacted; a Codex `apply_patch` contributes only the first
+/// file header it names.
+fn tool_target_fields(native: &Value) -> Map<String, Value> {
+    const CONTAINERS: [&[&str]; 9] = [
+        &["tool_input"],
+        &["toolInput"],
+        &["input"],
+        &["args"],
+        &["arguments"],
+        &["params"],
+        &["event", "properties", "args"],
+        &["event", "properties", "input"],
+        &[],
+    ];
+    const PATH_KEYS: [&str; 6] =
+        ["file_path", "filePath", "notebook_path", "absolute_path", "path", "target_file"];
+    const LINE_KEYS: [&str; 5] = ["line", "offset", "start_line", "startLine", "line_number"];
+    let mut fields = Map::new();
+    for container in CONTAINERS {
+        let Some(Value::Object(input)) = value_at(native, container) else { continue };
+        let path = PATH_KEYS
+            .iter()
+            .find_map(|key| input.get(*key).and_then(Value::as_str))
+            .or_else(|| {
+                ["command", "patch", "input"]
+                    .iter()
+                    .find_map(|key| input.get(*key).and_then(Value::as_str))
+                    .and_then(apply_patch_first_path)
+            })
+            .filter(|path| tool_target_path_is_valid(path));
+        let Some(path) = path else { continue };
+        fields.insert("tool_target_path".into(), Value::String(path.to_owned()));
+        if let Some(line) = LINE_KEYS
+            .iter()
+            .find_map(|key| input.get(*key).and_then(Value::as_u64))
+            .filter(|line| *line > 0)
+        {
+            fields.insert("tool_target_line".into(), Value::from(line));
+        }
+        break;
+    }
+    fields
+}
+
+fn value_at<'a>(value: &'a Value, path: &[&str]) -> Option<&'a Value> {
+    path.iter().try_fold(value, |value, key| value.get(*key))
+}
+
+fn tool_target_path_is_valid(path: &str) -> bool {
+    !path.trim().is_empty()
+        && path.len() <= MAX_TOOL_TARGET_PATH_BYTES
+        && !path.chars().any(char::is_control)
+}
+
+/// The first file an `apply_patch` envelope adds, updates or deletes.
+fn apply_patch_first_path(patch: &str) -> Option<&str> {
+    if !patch.trim_start().starts_with("*** Begin Patch") {
+        return None;
+    }
+    patch.lines().find_map(|line| {
+        ["*** Update File: ", "*** Add File: ", "*** Delete File: "]
+            .iter()
+            .find_map(|header| line.strip_prefix(header))
+            .map(str::trim)
     })
 }
 
@@ -829,7 +905,7 @@ fn truncate_utf8(value: &str, max_bytes: usize) -> String {
     value[..boundary].into()
 }
 
-fn semantic_key(value: &str) -> String {
+pub(crate) fn semantic_key(value: &str) -> String {
     value
         .bytes()
         .filter(|byte| byte.is_ascii_alphanumeric())

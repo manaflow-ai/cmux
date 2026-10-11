@@ -19,6 +19,7 @@ import CmuxNextTabs
 final class BrowserPageRequests: BrowserTabDelegate {
     weak var services: AppServices? {
         didSet {
+            nowPlaying.follow(services)
             // A popup panel's page gets the same rows, acting for its opener's tab.
             services?.popups.hitItems = { [weak self] target, openerKey in self?.hitItems(for: target, tab: openerKey) ?? [] }
             // A tab an agent-driven page opens is agent-driven from birth,
@@ -38,6 +39,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
     let downloads = BrowserDownloadList()
     /// Every tab's media, for the toolbar's media hub.
     let media = BrowserMediaHub()
+    /// The playing tab in macOS Now Playing and on the media keys.
+    let nowPlaying = BrowserNowPlaying()
     /// Where a page's new tab goes next to its opener.
     let openers = BrowserTabOpeners()
     /// Background tabs whose title changed (the strip's unread dot).

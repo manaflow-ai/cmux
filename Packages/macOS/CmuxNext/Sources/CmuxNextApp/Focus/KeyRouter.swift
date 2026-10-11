@@ -180,6 +180,11 @@ final class KeyRouter: BrowserKeyRouting {
             cancelChord()
             return true
         }
+        // Window hints are showing (Click by Hint): the same keys.
+        if let hints = services?.windowHints, hints.isActive, hints.interceptKeyDown(event, in: window) {
+            cancelChord()
+            return true
+        }
         let isChord = Self.isChord(event.modifierFlags)
         if isChord { dropTypeAhead() }
         guard chords.isPending || isChord else {
