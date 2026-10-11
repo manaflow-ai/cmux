@@ -4,7 +4,7 @@ use super::*;
 
 /// True when `id` is a single plain path component, so it can name a
 /// directory under the sessions root (no separator, `.`, `..` or root).
-fn is_plain_id(id: &str) -> bool {
+pub(super) fn is_plain_id(id: &str) -> bool {
     let mut parts = Path::new(id).components();
     matches!(
         (parts.next(), parts.next()),

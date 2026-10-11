@@ -97,6 +97,11 @@ impl Hub {
                     None => return Err(Ok(withdrawn_reply(p.prompt_id, &turn_id))),
                 }
             }
+            // A chat being moved takes no prompt: its new daemon does (`transfer_out.rs`).
+            None if session.moving().is_some() => {
+                let e = "transfer.moving: this chat is being moved to another daemon";
+                return Err(Err(RpcError::new(-32000, e)));
+            }
             None => {
                 let turn_id = uuid::Uuid::now_v7().to_string();
                 // Prompts a failed turn holds (`pause_queue`) do not hold up a new one.
@@ -261,7 +266,8 @@ impl Hub {
                 let held = queue.iter().any(|q| q.turn_id == turn_id && q.held);
                 (queue.iter().find(|q| !q.held).is_none_or(|q| q.turn_id == turn_id), held)
             };
-            if head && !held && session.turn().is_none() {
+            let moving = session.moving().is_some();
+            if head && !held && !moving && session.turn().is_none() {
                 if !self.shutting_down() {
                     return Wait::Turn(guard);
                 }
@@ -397,96 +403,101 @@ impl Hub {
     /// one meanwhile waits for that run (the ledger entry made here).
     pub(super) fn restore_queues(&self) {
         for session in self.sessions() {
-            if session.meta().status == SessionStatus::Closed {
-                continue;
-            }
-            let mut waiting: Vec<EventRecord> = Vec::new();
-            let mut order: Vec<Value> = Vec::new();
-            let mut held: Vec<Value> = Vec::new();
-            let scanned = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
-                let turn_id = e.msg.get("turnId");
-                match e.kind.as_str() {
-                    "queued" => waiting.push(e),
-                    "dequeued" | "queue_removed" | "user_message" | "turn_started" => {
-                        waiting.retain(|q| q.msg.get("turnId") != turn_id);
-                    }
-                    // An edit (`queue_edit.rs`): the prompt and its rules replace the queued ones.
-                    "queue_updated" => {
-                        if let Some(q) = waiting.iter_mut().find(|q| q.msg.get("turnId") == turn_id)
-                        {
-                            for k in ["text", "prompt", "control", "trustGate"] {
-                                q.msg[k] = e.msg.get(k).cloned().unwrap_or(Value::Null);
-                            }
-                        }
-                    }
-                    "queue_paused" => {
-                        let ids = e.msg.get("held").and_then(Value::as_array);
-                        held.extend(ids.into_iter().flatten().cloned());
-                    }
-                    "queue_resumed" => held.clear(),
-                    "queue_order" => {
-                        // Sent now (`put_next`): no longer held.
-                        if e.msg.get("next") == Some(&Value::Bool(true)) {
-                            held.retain(|id| Some(id) != e.msg.get("promptId"));
-                        }
-                        order = e
-                            .msg
-                            .get("order")
-                            .and_then(Value::as_array)
-                            .cloned()
-                            .unwrap_or_default()
-                    }
-                    _ => {}
-                }
-                true
-            });
-            if scanned.is_err() || waiting.is_empty() {
-                continue;
-            }
-            // The last reorder holds; a prompt queued after it keeps its place at the end.
-            waiting.sort_by_key(|q| {
-                order.iter().position(|id| Some(id) == q.msg.get("promptId")).unwrap_or(order.len())
-            });
-            let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            let mut ledger = session.prompts.lock().unwrap();
-            let mut restored = session.restored.lock().unwrap();
-            for e in waiting {
-                let field = |k: &str| e.msg.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
-                let (prompt_id, turn_id, text) =
-                    (field("promptId"), field("turnId"), field("text"));
-                if prompt_id.is_empty() || turn_id.is_empty() {
-                    continue;
-                }
-                // A record from before the prompt was logged has its text only.
-                let blocks = match e.msg.get("prompt").and_then(Value::as_array) {
-                    Some(blocks) => blocks.clone(),
-                    None => vec![json!({"type": "text", "text": text})],
-                };
-                let control = Control::from_recorded(e.msg.get("control").and_then(Value::as_str));
-                let trust_gate = e.msg.get("trustGate").and_then(Value::as_bool).unwrap_or(false);
-                restored.push((prompt_id.clone(), turn_id.clone()));
-                queue.push(QueuedPrompt {
-                    prompt_id: prompt_id.clone(),
-                    turn_id,
-                    client: field("client"),
-                    preview: short_text(&text, 200),
-                    queued_at: e.at,
-                    withdraw: Arc::new(Notify::new()),
-                    run: Arc::new(PromptRun { blocks, control, trust_gate }),
-                    restored: true,
-                    resume: true,
-                    steer: false,
-                    held: held.iter().any(|id| id.as_str() == Some(&prompt_id)),
-                    sent_now: false,
-                });
-                session.queued.fetch_add(1, Ordering::SeqCst);
-                ledger.push_back((prompt_id, Arc::new(tokio::sync::watch::channel(None).0)));
-                if ledger.len() > PROMPT_LEDGER {
-                    ledger.pop_front();
-                }
-            }
-            tracing::info!(session = %session.id, queued = queue.len(), "restored queued prompts");
+            self.restore_queue(&session);
         }
+    }
+
+    /// One session's queue, from its log (also a chat moved here, `transfer_in.rs`).
+    pub(super) fn restore_queue(&self, session: &Arc<Session>) {
+        if session.meta().status == SessionStatus::Closed {
+            return;
+        }
+        let mut waiting: Vec<EventRecord> = Vec::new();
+        let mut order: Vec<Value> = Vec::new();
+        let mut held: Vec<Value> = Vec::new();
+        // A move that began and neither committed nor aborted (`transfer_out.rs`); a chat
+        // moved here was the source's until its `imported` record.
+        let mut moving: Option<String> = None;
+        let scanned = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+            let turn_id = e.msg.get("turnId");
+            match e.kind.as_str() {
+                "queued" => waiting.push(e),
+                "transfer_out" => moving = e.msg["transferId"].as_str().map(str::to_owned),
+                "transfer_aborted" | "imported" => moving = None,
+                "dequeued" | "queue_removed" | "user_message" | "turn_started" => {
+                    waiting.retain(|q| q.msg.get("turnId") != turn_id);
+                }
+                // An edit (`queue_edit.rs`): the prompt and its rules replace the queued ones.
+                "queue_updated" => {
+                    if let Some(q) = waiting.iter_mut().find(|q| q.msg.get("turnId") == turn_id) {
+                        for k in ["text", "prompt", "control", "trustGate"] {
+                            q.msg[k] = e.msg.get(k).cloned().unwrap_or(Value::Null);
+                        }
+                    }
+                }
+                "queue_paused" => {
+                    let ids = e.msg.get("held").and_then(Value::as_array);
+                    held.extend(ids.into_iter().flatten().cloned());
+                }
+                "queue_resumed" => held.clear(),
+                "queue_order" => {
+                    // Sent now (`put_next`): no longer held.
+                    if e.msg.get("next") == Some(&Value::Bool(true)) {
+                        held.retain(|id| Some(id) != e.msg.get("promptId"));
+                    }
+                    order =
+                        e.msg.get("order").and_then(Value::as_array).cloned().unwrap_or_default()
+                }
+                _ => {}
+            }
+            true
+        });
+        session.moving.lock().unwrap().clone_from(&moving);
+        if scanned.is_err() || waiting.is_empty() {
+            return;
+        }
+        // The last reorder holds; a prompt queued after it keeps its place at the end.
+        waiting.sort_by_key(|q| {
+            order.iter().position(|id| Some(id) == q.msg.get("promptId")).unwrap_or(order.len())
+        });
+        let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut ledger = session.prompts.lock().unwrap();
+        let mut restored = session.restored.lock().unwrap();
+        for e in waiting {
+            let field = |k: &str| e.msg.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
+            let (prompt_id, turn_id, text) = (field("promptId"), field("turnId"), field("text"));
+            if prompt_id.is_empty() || turn_id.is_empty() {
+                continue;
+            }
+            // A record from before the prompt was logged has its text only.
+            let blocks = match e.msg.get("prompt").and_then(Value::as_array) {
+                Some(blocks) => blocks.clone(),
+                None => vec![json!({"type": "text", "text": text})],
+            };
+            let control = Control::from_recorded(e.msg.get("control").and_then(Value::as_str));
+            let trust_gate = e.msg.get("trustGate").and_then(Value::as_bool).unwrap_or(false);
+            restored.push((prompt_id.clone(), turn_id.clone()));
+            queue.push(QueuedPrompt {
+                prompt_id: prompt_id.clone(),
+                turn_id,
+                client: field("client"),
+                preview: short_text(&text, 200),
+                queued_at: e.at,
+                withdraw: Arc::new(Notify::new()),
+                run: Arc::new(PromptRun { blocks, control, trust_gate }),
+                restored: true,
+                resume: true,
+                steer: false,
+                held: held.iter().any(|id| id.as_str() == Some(&prompt_id)),
+                sent_now: false,
+            });
+            session.queued.fetch_add(1, Ordering::SeqCst);
+            ledger.push_back((prompt_id, Arc::new(tokio::sync::watch::channel(None).0)));
+            if ledger.len() > PROMPT_LEDGER {
+                ledger.pop_front();
+            }
+        }
+        tracing::info!(session = %session.id, queued = queue.len(), "restored queued prompts");
     }
 
     /// Runs the prompts `restore_queues` put back, each in its place in the queue (after any

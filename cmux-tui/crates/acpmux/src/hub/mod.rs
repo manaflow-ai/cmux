@@ -56,6 +56,8 @@ mod remote_sandbox;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub mod rules;
 mod transfer;
+mod transfer_in;
+mod transfer_out;
 mod turns;
 mod warm;
 mod xai;
@@ -531,6 +533,7 @@ impl Hub {
             queued: AtomicU64::new(0),
             queue: StdMutex::new(Vec::new()),
             queue_moved: Notify::new(),
+            moving: StdMutex::new(None),
             restored: StdMutex::new(Vec::new()),
             stream: StdMutex::new(StreamState::default()),
             permissions: StdMutex::new(permission_groups::PermissionState::default()),
