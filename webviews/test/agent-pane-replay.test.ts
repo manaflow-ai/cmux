@@ -86,16 +86,29 @@ await requireBrowserLane("agent-pane-replay.test.ts", async () => {
     });
     await vite.listen();
     browser = await chromium.launch({ headless: true });
-    // A cold dev server compiles the whole pane on its first load, which can outlast a step's
-    // wait on a busy CI runner; load it once here so the tests time only the replay.
-    const warm = await browser.newPage();
+    // In CI the first load of a cold dev server never showed the chat, while every later load
+    // did within seconds. Load it here, again if it stalls, so the tests time only the replay;
+    // a stalled load's page errors go to the log.
     const { port } = vite.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon.port}/`;
-    await warm.goto(
-      `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${REPLAY_SESSION}`,
-    );
-    await warm.getByText("All 12 tests in api/client.test.ts pass.").waitFor({ timeout: 90_000 });
-    await warm.close();
+    for (let attempt = 1; ; attempt++) {
+      const warm = await browser.newPage();
+      const errors: string[] = [];
+      warm.on("pageerror", (error) => errors.push(error.message));
+      warm.on("console", (message) => message.type() === "error" && errors.push(message.text()));
+      await warm.goto(
+        `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${REPLAY_SESSION}`,
+      );
+      try {
+        await warm.getByText("All 12 tests in api/client.test.ts pass.").waitFor({ timeout: 25_000 });
+        await warm.close();
+        break;
+      } catch (error) {
+        console.warn(`agent-pane-replay: load ${attempt} stalled`, errors);
+        await warm.close();
+        if (attempt === 3) throw error;
+      }
+    }
     eventRequests.length = 0;
   });
   afterAll(async () => {
