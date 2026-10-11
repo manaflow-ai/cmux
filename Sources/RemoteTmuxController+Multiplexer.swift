@@ -509,7 +509,20 @@ extension RemoteTmuxController {
             // mirrors, but must not create every other session that the stream
             // publishes. Keep updates/removals for existing mirrors intact so a
             // later bulk attach or remote rename cannot leave stale workspaces.
-            plan.create.removeAll { $0.view.sessionName != requested }
+            let pendingPrefix = "\(hostHash)\u{1}"
+            let pendingRoutedSessionNames = Set(
+                pendingMultiplexNewSessionCompletions.keys.compactMap { key -> String? in
+                    guard key.hasPrefix(pendingPrefix) else { return nil }
+                    return String(key.dropFirst(pendingPrefix.count))
+                }
+            )
+            plan.create.removeAll {
+                !Self.multiplexedCreateShouldBeAdmitted(
+                    sessionName: $0.view.sessionName,
+                    requestedSessionName: requested,
+                    pendingRoutedSessionNames: pendingRoutedSessionNames
+                )
+            }
         }
         storeMultiplexIntents(result.survivingIntents, hostHash: hostHash)
 
@@ -680,6 +693,19 @@ extension RemoteTmuxController {
             self.finishStoppingMultiplexedHost(host: host, view: view)
         }
         return true
+    }
+
+    /// A narrow attach admits its explicitly requested session plus any routed
+    /// New Workspace session already owned by this controller. The latter must
+    /// survive the narrow filter so its completion can mirror it and finish the
+    /// user's action on the shared stream.
+    nonisolated static func multiplexedCreateShouldBeAdmitted(
+        sessionName: String,
+        requestedSessionName: String?,
+        pendingRoutedSessionNames: Set<String>
+    ) -> Bool {
+        guard let requestedSessionName else { return true }
+        return sessionName == requestedSessionName
     }
 
     private func finishStoppingMultiplexedHost(

@@ -95,6 +95,44 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
         return (failures, argv, manager.tabs.count - tabsBefore)
     }
 
+    /// Runs the same create path with an attach that reports a non-throwing miss.
+    /// `mirrorSession` uses `false` when another attach got there first, but a
+    /// newly created session still needs an explicit cleanup/report if no mirror
+    /// actually exists by the time this request finishes.
+    private func runCreateThenSilentAttach(
+        sessionName: String
+    ) async throws -> (failures: [RemoteTmuxController.NewSessionFailure], argv: String, tabs: Int) {
+        _ = NSApplication.shared
+        let appDelegate = try #require(AppDelegate.shared)
+        let argvLog = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-create-silent-attach-argv-\(UUID().uuidString).log").path
+        let stub = try makeCreateThenKillStub(sessionName: sessionName, killExit: 0, argvLog: argvLog)
+        let restoreSSH = RemoteTmuxRoutingFixture.pinStubSSH(stub)
+        defer {
+            restoreSSH()
+            try? FileManager.default.removeItem(atPath: stub)
+            try? FileManager.default.removeItem(atPath: argvLog)
+        }
+        var failures: [RemoteTmuxController.NewSessionFailure] = []
+        var environment = RemoteTmuxNewSessionEnvironment.live
+        environment.attach = { _, _, _, _, _ in false }
+        environment.reportFailure = { _, failure, _ in failures.append(failure) }
+        let controller = RemoteTmuxController(newSessionEnvironment: environment)
+        let manager = TabManager()
+        _ = try RemoteTmuxRoutingFixture.mirrorSelectedSession(controller: controller, host: hostA, sessionName: "dev", into: manager)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            controller.detach(host: hostA, sessionName: "dev")
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+        }
+
+        let tabsBefore = manager.tabs.count
+        let request = try #require(controller.newSessionRequest(in: manager))
+        await controller.createAndMirrorSession(request, in: manager)
+        let argv = (try? String(contentsOfFile: argvLog, encoding: .utf8)) ?? ""
+        return (failures, argv, manager.tabs.count - tabsBefore)
+    }
+
     /// The session exists on the host once `new-session` succeeds. When the
     /// attach then fails, that is not a creation failure, and the session cmux
     /// just made is removed instead of being left with nothing showing it.
@@ -119,6 +157,17 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
                 .attach(sessionName: "stuck", removed: false),
             ])
             #expect(run.argv.contains("'kill-session' '-t' '=stuck'"))
+            #expect(run.tabs == 0)
+        }
+    }
+
+    @Test func aSilentAttachMissRemovesTheSessionItCreatedAndReportsAnAttachFailure() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let run = try await runCreateThenSilentAttach(sessionName: "silent-miss")
+            #expect(run.failures == [
+                .attach(sessionName: "silent-miss", removed: true),
+            ])
+            #expect(run.argv.contains("'kill-session' '-t' '=silent-miss'"))
             #expect(run.tabs == 0)
         }
     }
@@ -385,6 +434,19 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
         let key = SettingCatalog().betaFeatures.remoteTmuxNewWorkspaceOnHost
         #expect(key.defaultValue)
         #expect(key.userDefaultsKey == "remoteTmux.beta.newWorkspaceOnHost.enabled")
+    }
+
+    @Test func aNarrowAttachStillAdmitsAConcurrentRoutedSession() {
+        #expect(RemoteTmuxController.multiplexedCreateShouldBeAdmitted(
+            sessionName: "cmux-new-routed",
+            requestedSessionName: "requested",
+            pendingRoutedSessionNames: ["cmux-new-routed"]
+        ))
+        #expect(!RemoteTmuxController.multiplexedCreateShouldBeAdmitted(
+            sessionName: "other-session",
+            requestedSessionName: "requested",
+            pendingRoutedSessionNames: ["cmux-new-routed"]
+        ))
     }
 
     // MARK: - performNewWorkspaceAction hook
