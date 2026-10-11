@@ -231,7 +231,19 @@ def popups():
         snapshot("sidebar-closed")
 
 
-SURFACES = {"tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts, "popups": popups}
+def dock():
+    # A tab moved into a new dock column (the chat dock's path: a lone chat
+    # moves into a left dock when it opens a tool), then the column undocks.
+    save_layout("dock")
+    for _ in range(2):
+        action("newSurface")
+        time.sleep(0.5)  # test harness: one tab at a time
+    for edge in ("left", "right"):
+        record("dock", "dock-" + edge, lambda: rpc("action.run", {"action": "tab.moveToNewDockColumn", "args": {"edge": edge}}))
+        record("dock", "undock-" + edge, lambda: action("column.undock"))
+
+
+SURFACES = {"tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts, "popups": popups, "dock": dock}
 
 
 def main():

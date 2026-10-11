@@ -108,12 +108,16 @@ final class ScreenContentView: NSView {
     @discardableResult
     func reconcile(animated: Bool, structural: Bool = false) -> Bool {
         let shown = rowDragPreview.map { layout.settingRowHeights($0.heights, for: $0.column) } ?? layout
+        let before = geometry
         baseGeometry = ScreenGeometry.compute(shown, viewport: bounds.size, style: context.style, scale: scale)
         geometry = baseGeometry.shiftingRows(rowOffsets)
         let animate = animated && !context.reduceMotion && bounds.width > 0
         // A split grows its new pane in from the edge (`PaneArrival`); other
         // structural changes (close, move, a new strip column) land in one frame.
-        let arrivals = animate && structural ? PaneArrival.split(paneFrames.mapValues(\.targetRect), baseGeometry.panes) : [:]
+        let arrivals = animate && structural
+            ? PaneArrival.split(paneFrames.mapValues(\.targetRect), from: before, to: baseGeometry, offset: scroll.value) : [:]
+        // A dock moves the strip's origin: strip frames keep their place on screen and spring from there.
+        let drift = arrivals.isEmpty ? 0 : before.viewShift(offset: scroll.value) - baseGeometry.viewShift(offset: scroll.value)
         let animateFrames = animate && (!structural || !arrivals.isEmpty)
         if structural { arriving = Set(arrivals.keys) }
 
@@ -121,6 +125,7 @@ final class ScreenContentView: NSView {
         let style = context.style
         for (pane, target) in baseGeometry.panes {
             if var existing = paneFrames[pane] {
+                if before.scrolls(pane: pane) { existing.x.value += drift }
                 existing.setTarget(target, alpha: 1)
                 if !animateFrames { existing.snap() }
                 paneFrames[pane] = existing
@@ -165,6 +170,7 @@ final class ScreenContentView: NSView {
             view.showsIdleLine = context.style.showsDividerLine
             view.showsActiveLine = context.style.showsDividerFeedback
             if var frame = dividerFrames[kind] {
+                if scrolls(kind) { frame.x.value += drift }
                 frame.setTarget(target.rect, alpha: 1)
                 if !animateFrames { frame.snap() }
                 dividerFrames[kind] = frame

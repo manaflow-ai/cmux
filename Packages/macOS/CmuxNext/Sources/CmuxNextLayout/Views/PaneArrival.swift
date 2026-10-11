@@ -43,13 +43,26 @@ struct PaneArrival: Equatable {
         return nil
     }
 
-    /// The arrivals of a split: exactly one new pane, nothing removed, and
-    /// an existing pane gave up its space. Empty otherwise.
-    static func split(_ previous: [PaneID: CGRect], _ next: [PaneID: CGRect]) -> [PaneID: PaneArrival] {
-        let added = next.keys.filter { previous[$0] == nil }
-        guard added.count == 1, previous.keys.allSatisfy({ next[$0] != nil }), let pane = added.first, let target = next[pane],
-              let arrival = of(target: target, previous: previous, next: next) else { return [:] }
+    /// The arrivals of a split or a new dock column: exactly one new pane,
+    /// nothing removed, and an existing pane gave up its space. Empty
+    /// otherwise. Compared where the panes show (strip panes shift with the
+    /// scroll `offset` and the strip's origin, which a dock moves); the seed
+    /// is in the new pane's own coordinates.
+    static func split(_ previous: [PaneID: CGRect], from old: ScreenGeometry, to new: ScreenGeometry,
+                      offset: CGFloat) -> [PaneID: PaneArrival] {
+        let before = shown(previous, in: old, offset: offset), after = shown(new.panes, in: new, offset: offset)
+        let added = after.keys.filter { before[$0] == nil }
+        guard added.count == 1, before.keys.allSatisfy({ after[$0] != nil }), let pane = added.first, let target = after[pane],
+              var arrival = of(target: target, previous: before, next: after) else { return [:] }
+        if new.scrolls(pane: pane) { arrival.seed.origin.x -= new.viewShift(offset: offset) }
         return [pane: arrival]
+    }
+
+    private static func shown(_ rects: [PaneID: CGRect], in geometry: ScreenGeometry, offset: CGFloat) -> [PaneID: CGRect] {
+        let shift = geometry.viewShift(offset: offset)
+        return Dictionary(uniqueKeysWithValues: rects.map { pane, rect in
+            (pane, geometry.scrolls(pane: pane) ? rect.offsetBy(dx: shift, dy: 0) : rect)
+        })
     }
 
     /// Where an arriving pane's host sits while its frame springs from the
