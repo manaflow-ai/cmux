@@ -1,5 +1,5 @@
 import CmuxAgentBrands
-import CmuxNextDaemon
+public import CmuxNextDaemon
 import CmuxNextSidebar
 import Foundation
 
