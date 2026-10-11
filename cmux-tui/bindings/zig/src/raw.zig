@@ -36,6 +36,9 @@ pub const ProviderRenameWorkspaceOptions = provider.RenameWorkspaceOptions;
 pub const ProviderCloseWorkspaceOptions = provider.CloseWorkspaceOptions;
 
 test {
+    // refAllDecls walks every generated command type at comptime; the
+    // protocol has outgrown the default 1000 backwards-branch quota.
+    @setEvalBranchQuota(100_000);
     std.testing.refAllDecls(capabilities);
     std.testing.refAllDecls(provider);
     _ = @import("raw/provider_test.zig");
