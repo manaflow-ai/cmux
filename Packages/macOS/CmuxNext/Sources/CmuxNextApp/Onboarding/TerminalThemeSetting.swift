@@ -57,18 +57,24 @@ final class TerminalThemeSetting {
     /// first window, which must not draw a frame in the defaults), then
     /// follows their changes.
     func follow(_ settings: SettingsController) {
-        take(settings.snapshot)
+        // The theme follows `applied`, so a theme picker's live preview shows; the rest follows the
+        // loaded settings, so a slider's preview (font size, opacity) never reloads Ghostty per tick.
+        take(settings.snapshot, theme: settings.applied.appTheme)
         observation = Task { [weak self] in
-            for await snapshot in ObservationStream({ settings.snapshot }) { self?.take(snapshot) }
+            for await (snapshot, theme) in ObservationStream({ (settings.snapshot, settings.applied.appTheme) }) {
+                self?.take(snapshot, theme: theme)
+            }
         }
     }
 
-    private func take(_ snapshot: CmuxConfigSnapshot) {
+    private func take(_ snapshot: CmuxConfigSnapshot, theme: String?) {
         backdropScope.setBackdropSelection(snapshot.backdropSelection)
         backdropScope.setAppearanceTuning(snapshot.experimentalAppearance ? snapshot.appearanceTuning : .identity)
         // Per-surface backgrounds (R55): every owner repaints from them.
         backdropScope.setSurfaceBackgrounds(snapshot.surfaceBackgrounds)
-        apply(State(snapshot))
+        var state = State(snapshot)
+        state.theme = theme
+        apply(state)
     }
 
     /// Puts `snapshot`'s appearance on the Ghostty overrides before the
