@@ -248,11 +248,11 @@ final class SessionTransferService {
     private func hasConversationTab(_ workspace: String) async throws -> Bool {
         guard let store = services?.daemon.store else { throw Failure.unavailable }
         let listed = Task { @MainActor () -> Bool in
-            let opened = {
+            let opened = Observations({
                 store.workspaces.first(where: { $0.key?.rawValue == workspace })?.screens
                     .flatMap(\.panes).flatMap(\.tabs).contains(where: { $0.kind == .conversation }) ?? false
-            }
-            for await found in Observations(opened) where found { return true }
+            })
+            for await found in opened where found { return true }
             return false
         }
         let bound = DemandTimer(owner: "SessionTransfer.conversationTab")
