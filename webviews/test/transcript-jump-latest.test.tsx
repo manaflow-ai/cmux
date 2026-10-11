@@ -141,3 +141,50 @@ test("scrolled up, a button above the composer jumps to the latest message, with
     await act(async () => root.unmount());
   }
 });
+
+test("a keyboard jump hands focus to the composer instead of losing it with the hidden button", async () => {
+  const doc = dom.window.document;
+  const composer = doc.createElement("textarea");
+  doc.body.append(composer);
+  const root = createRoot(doc.getElementById("root")!);
+  const rows = turnView(turns, new Set());
+  try {
+    await act(async () =>
+      root.render(
+        <VirtualTranscript
+          rows={rows}
+          jumpButton
+          focusComposer={() => composer.focus()}
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
+      ),
+    );
+    const scroller = doc.querySelector<HTMLElement>(".acpmux-scroll")!;
+    const button = doc.querySelector<HTMLButtonElement>(".acpmux-jump-latest")!;
+    scroller.scrollTop = 0;
+    await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+    expect(button.dataset.shown).toBe("");
+
+    // A pointer click (WebKit does not focus the button) leaves focus where the reader had it.
+    const elsewhere = doc.createElement("input");
+    doc.body.append(elsewhere);
+    elsewhere.focus();
+    await act(async () => button.click());
+    expect(doc.activeElement).toBe(elsewhere);
+
+    // Tab to the button and press Return or Space: it hides once there, so the composer takes focus.
+    scroller.scrollTop = 0;
+    await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+    button.focus();
+    expect(doc.activeElement).toBe(button);
+    await act(async () => button.click());
+    await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+    expect(button.hasAttribute("inert")).toBe(true);
+    expect(doc.activeElement).toBe(composer);
+    elsewhere.remove();
+  } finally {
+    await act(async () => root.unmount());
+    composer.remove();
+  }
+});
