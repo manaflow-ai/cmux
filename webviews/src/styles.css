@@ -2160,11 +2160,27 @@ svg[data-icon-fill] {
   --cmux-file-icon-blue: light-dark(var(--cmux-syntax-light-function), var(--cmux-syntax-dark-function));
   --cmux-file-icon-purple: light-dark(var(--cmux-syntax-light-keyword), var(--cmux-syntax-dark-keyword));
   --cmux-file-icon-vermilion: var(--cmux-file-icon-red);
-  --cmux-file-icon-orange: color-mix(in oklab, var(--cmux-file-icon-red), var(--cmux-file-icon-yellow));
-  --cmux-file-icon-teal: color-mix(in oklab, var(--cmux-file-icon-cyan) 70%, var(--cmux-file-icon-green));
-  --cmux-file-icon-indigo: color-mix(in oklab, var(--cmux-file-icon-blue), var(--cmux-file-icon-purple));
-  --cmux-file-icon-pink: color-mix(in oklab, var(--cmux-file-icon-purple), var(--cmux-file-icon-red));
-  --cmux-file-icon-mauve: color-mix(in oklab, var(--cmux-file-icon-purple), var(--cmux-file-icon-gray));
+  /* Mixed within each scheme, not light-dark() nested in color-mix(), which no page here relies on. */
+  --cmux-file-icon-orange: light-dark(
+    color-mix(in oklab, var(--cmux-syntax-light-tag) 50%, var(--cmux-syntax-light-constant)),
+    color-mix(in oklab, var(--cmux-syntax-dark-tag) 50%, var(--cmux-syntax-dark-constant))
+  );
+  --cmux-file-icon-teal: light-dark(
+    color-mix(in oklab, var(--cmux-syntax-light-type) 70%, var(--cmux-syntax-light-string)),
+    color-mix(in oklab, var(--cmux-syntax-dark-type) 70%, var(--cmux-syntax-dark-string))
+  );
+  --cmux-file-icon-indigo: light-dark(
+    color-mix(in oklab, var(--cmux-syntax-light-function) 50%, var(--cmux-syntax-light-keyword)),
+    color-mix(in oklab, var(--cmux-syntax-dark-function) 50%, var(--cmux-syntax-dark-keyword))
+  );
+  --cmux-file-icon-pink: light-dark(
+    color-mix(in oklab, var(--cmux-syntax-light-keyword) 50%, var(--cmux-syntax-light-tag)),
+    color-mix(in oklab, var(--cmux-syntax-dark-keyword) 50%, var(--cmux-syntax-dark-tag))
+  );
+  --cmux-file-icon-mauve: light-dark(
+    color-mix(in oklab, var(--cmux-syntax-light-keyword) 50%, var(--cmux-syntax-light-comment)),
+    color-mix(in oklab, var(--cmux-syntax-dark-keyword) 50%, var(--cmux-syntax-dark-comment))
+  );
 }
 .cmux-file-icon[data-icon-hue="gray"] { color: var(--cmux-file-icon-gray); }
 .cmux-file-icon[data-icon-hue="red"] { color: var(--cmux-file-icon-red); }
