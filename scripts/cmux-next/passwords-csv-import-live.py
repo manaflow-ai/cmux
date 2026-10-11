@@ -13,9 +13,11 @@ mock Keychain and CMUX_NEXT_PASSWORD_IMPORT_MOCK_KEY=throwaway (DEBUG builds
 only), so nothing touches a real Keychain item or a real password store.
 
 The person path, with no socket shortcut:
-  1. Cmd-Shift-P, "Import Passwords from CSV" and Return through Computer Use
-     (cua-driver: the tagged app frontmost, real key events);
-     the action is person-only, so the socket cannot start it;
+  1. Cmd-Shift-P, "Passwords" and a pixel click on the palette row, then a
+     pixel click on the Passwords page's Import CSV… button, all through
+     Computer Use (cua-driver real key and mouse events, the tagged app
+     frontmost in its own window); the action is person-only, so the socket
+     cannot start it;
   2. the source sheet and the export steps sheet (cmux dialogs, pressed with
      debug.dialog, the same path as a click);
   3. the open panel: Go to Folder (Cmd-Shift-G), the file path, Return, Return
@@ -62,6 +64,8 @@ BASE_ENV = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMP
 BASE_ENV.update({k: os.environ[k] for k in ("NX_JOB_ID", "NX_JOB_DIR") if k in os.environ})
 CLI_ENV = {**BASE_ENV, "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1"}
 failures = []
+# One cua-driver session for the run: a pixel click needs that session's window capture.
+SESSION = f"pwcsv-{opts.tag}"
 report = {"tag": opts.tag, "checks": []}
 
 
@@ -207,7 +211,8 @@ def capture(name):
     for w in [main] + [w for w in reversed(listed) if w is not main]:
         part = os.path.join(opts.out, "layers", f"{name}-{w['window_id']}.png")
         os.makedirs(os.path.dirname(part), exist_ok=True)
-        cua("get_window_state", {"pid": app.pid, "window_id": w["window_id"], "max_elements": 1, "screenshot_out_file": part})
+        cua("get_window_state", {"pid": app.pid, "window_id": w["window_id"], "max_elements": 1, "screenshot_out_file": part,
+                                 "session": SESSION})
         if os.path.exists(part):
             b = w["bounds"]
             layers += [part, str((b["x"] - main["bounds"]["x"]) * scale), str((b["y"] - main["bounds"]["y"]) * scale),
@@ -246,35 +251,89 @@ def pick_in_open_panel(path, before_ids):
     return wid
 
 
+def ax_elements(wid):
+    """cua-driver's AX snapshot of one window: (elements, snapshot reply)."""
+    _, state = cua("get_window_state", {"pid": app.pid, "window_id": wid, "max_elements": 400, "session": SESSION})
+    st = structured(state)
+    return st.get("elements") or [], st
+
+
+def element_text(e):
+    return " ".join(str(e.get(k) or "") for k in ("label", "title", "name", "value", "description", "role_description"))
+
+
+def element_frame(e):
+    """(x, y, w, h) of an element in window-local screenshot pixels, from whichever field the driver gives."""
+    for key in ("screenshot_frame", "frame_px", "pixel_frame", "frame", "bounds", "rect"):
+        f = e.get(key)
+        if isinstance(f, dict) and all(k in f for k in ("x", "y")):
+            return f["x"], f["y"], f.get("width", f.get("w", 0)), f.get("height", f.get("h", 0)), key
+        if isinstance(f, list) and len(f) == 4:
+            return (*f, key)
+    return None
+
+
+def pixel_click(wid, label, what, roles=None):
+    """A real left click (CGEvent) at the center of the AX element whose text contains `label`."""
+    elements, st = ax_elements(wid)
+    matches = [e for e in elements if label in element_text(e) and element_frame(e)
+               and (not roles or any(r in str(e.get("role", "")) for r in roles))]
+    report.setdefault("clicks", []).append({"what": what, "window": wid, "matches": matches[:3],
+                                            "sample": elements[:4] if not matches else None,
+                                            "keys": sorted(st.keys())})
+    if not matches:
+        return check(False, f"{what}: no AX element with {label!r} in window {wid} ({len(elements)} elements)")
+    x, y, w, h, key = element_frame(matches[0])
+    code, clicked = cua("click", {"pid": app.pid, "window_id": wid, "x": x + w / 2, "y": y + h / 2, "session": SESSION,
+                                  "delivery_mode": "foreground"})
+    report["clicks"][-1]["click"] = {"exit": code, "frame_key": key, "reply": structured(clicked)}
+    return check(code == 0, f"{what}: pixel click at {x + w / 2:.0f},{y + h / 2:.0f} ({key}) exit {code}")
+
+
+def open_palette(wid):
+    """Cmd-Shift-P to the frontmost tagged window; returns the palette panel window."""
+    for attempt in range(3):
+        before = {w["window_id"] for w in windows()}
+        cua("bring_to_front", {"pid": app.pid})
+        cua("hotkey", {"pid": app.pid, "window_id": wid, "delivery_mode": "foreground", "keys": ["cmd", "shift", "p"]})
+        deadline = time.monotonic() + 4
+        while time.monotonic() < deadline:  # bounded wait for the panel window
+            panel = next((w for w in windows() if w["window_id"] not in before and w.get("is_on_screen")), None)
+            if panel:
+                return panel
+            time.sleep(0.2)
+    return None
+
+
 def start_import(mode, wid):
-    """The person's own input starts the import: Cmd-Shift-P (the command palette), the action's
-    title and Return through cua-driver as real key events, with the tagged app frontmost (GUI
-    host only)."""
-    code, fronted = cua("bring_to_front", {"pid": app.pid})
-    steps = {"front": {"exit": code, "reply": structured(fronted)}}
-    # Cmd-Shift-P to the main window; then the title and Return go to the palette's own panel.
-    before = {w["window_id"] for w in windows()}
-    code, sent = cua("hotkey", {"pid": app.pid, "window_id": wid, "delivery_mode": "foreground", "keys": ["cmd", "shift", "p"]})
-    panel = wait_for(lambda: next((w for w in windows() if w["window_id"] not in before), None), f"{mode}: palette panel", 10)
-    fg = {"pid": app.pid, "window_id": panel["window_id"] if panel else wid, "delivery_mode": "foreground"}
-    steps["palette"] = {"exit": code, "reply": structured(sent)}
-    time.sleep(0.5)  # the palette field takes focus (no app-side signal for it)
-    code, typed = cua("type_text", {**fg, "text": "Import Passwords from CSV"})
-    steps["type"] = {"exit": code, "reply": structured(typed)}
+    """The person path, with real input only: Cmd-Shift-P, "Passwords" typed, a pixel click on the
+    palette's Passwords row; then a pixel click on the page's Import CSV… button (a real mouse-down
+    in the page view is the user gesture the person-only action needs). The tagged app is frontmost
+    in its own window (GUI host only)."""
+    panel = open_palette(wid)
+    if not check(panel is not None, f"{mode}: Cmd-Shift-P opens the command palette"):
+        return
+    cua("type_text", {"pid": app.pid, "window_id": panel["window_id"], "delivery_mode": "foreground", "text": "Passwords"})
     time.sleep(0.5)  # the palette filters
+    # The palette panel exposes no AX elements, so its first row (selected after the filter) is
+    # clicked where the panel draws it: centered, 16% down the panel (the search field, then the row) (measured on the panel
+    # capture of this tagged build at the fixed test window frame).
     capture(f"palette-{mode}")
-    # The palette panel never becomes "focused" for cua-driver's foreground HID check (it is a
-    # non-activating panel), so Return goes as a background key to the panel, then as a typed
-    # newline if the sheet has not opened.
-    code, pressed = cua("press_key", {"pid": app.pid, "window_id": fg["window_id"], "key": "return"})
-    steps["return"] = {"exit": code, "reply": structured(pressed)}
-    deadline = time.monotonic() + 3
-    while time.monotonic() < deadline and not dialog("cmux.dialog.passwordCSV.source"):
-        time.sleep(0.2)  # bounded wait for the app's own dialog state
-    if not dialog("cmux.dialog.passwordCSV.source"):
-        code, typed = cua("type_text", {**fg, "text": "\n"})
-        steps["newline"] = {"exit": code, "reply": structured(typed)}
-    report[f"{mode}_start"] = steps
+    _, st = ax_elements(panel["window_id"])  # the click below needs this snapshot of the panel
+    width, height = st.get("screenshot_width") or 0, st.get("screenshot_height") or 0
+    report.setdefault("clicks", []).append({"what": f"{mode}: palette first row", "panel": panel, "size": [width, height]})
+    if not check(width > 0 and height > 0, f"{mode}: palette panel capture size {width}x{height}"):
+        return
+    code, clicked = cua("click", {"pid": app.pid, "window_id": panel["window_id"], "x": width * 0.5, "y": height * 0.16,
+                                  "session": SESSION, "delivery_mode": "foreground"})
+    report["clicks"][-1]["click"] = {"exit": code, "reply": structured(clicked)}
+    check(code == 0, f"{mode}: pixel click on the palette's Passwords row (exit {code})")
+    page = wait_for(lambda: (lambda st: st if st.get("painted") else None)(rpc("debug.page", {"page": "cmux.passwords"})),
+                    f"{mode}: Passwords page painted", 20)
+    if not page:
+        return
+    capture(f"page-{mode}")
+    pixel_click(wid, "Import CSV", f"{mode}: the page's Import CSV\u2026 button")
 
 
 def import_round(mode, path, source, expect_lines, trash):
