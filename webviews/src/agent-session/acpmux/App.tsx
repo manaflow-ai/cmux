@@ -140,6 +140,7 @@ import { headerState, setHeaderState, useHeaderState } from "./header/headerStat
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import { archiveRow } from "./header/archiveRow";
 import { copyRow } from "./header/copyRow";
+import { instructionsRow } from "./header/instructionsRow";
 import { sideChatRow } from "./header/sideChatRow";
 import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
@@ -2457,6 +2458,8 @@ function AcpmuxPane() {
             // Previous Turn and Next Turn (Ctrl-Opt-Up, Ctrl-Opt-Down): the thread minimap steps the transcript.
             "previousTurn",
             "nextTurn",
+            // Search Files… (Cmd-P): the composer opens its file search.
+            "searchFiles",
           ].includes(name)
         ) {
           window.dispatchEvent(new CustomEvent(`cmux-acpmux-${name}`));
@@ -3217,8 +3220,15 @@ function AcpmuxPane() {
             },
           ]
         : [];
+    // The chat folder's CLAUDE.md or AGENTS.md, in a file tab beside the chat (a tab: not Quick Chat).
+    const instructions = quick
+      ? undefined
+      : instructionsRow({ cwd: localCwd, family: summary?.family || summary?.harness }, (cwd, name) =>
+          ignoreFailure(callNative("project.instructions", { cwd, name })),
+        );
     const tools: ChatMenuItem[] = [
       ...replay,
+      ...(instructions ? [instructions] : []),
       {
         key: "inspector",
         label: t("inspector.title"),

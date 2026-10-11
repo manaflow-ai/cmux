@@ -163,6 +163,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `git.pullRequest`: the Changes view's Create PR (AgentPaneGitPullRequest.swift); nil when its
     /// params break the contract, and nothing runs.
     case gitPullRequest(AgentPaneGitPullRequest?)
+    /// `project.instructions`: the chat menu's Edit CLAUDE.md (AgentPaneProjectInstructions.swift);
+    /// nil when its params break the contract.
+    case projectInstructions(AgentPaneProjectInstructions?)
     /// `transport.open`: open the host's acpmux socket named by the last handshake
     /// (``AgentPaneTransport``); answers `{connection}` once it is open.
     case transportOpen

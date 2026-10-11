@@ -347,6 +347,33 @@ public final class MessagesLabHomeView: NSView {
     /// Automation (DEBUG socket): Esc through the field's path (`ChatController.escape`).
     public func debugEscape() { controller.escape() }
 
+    /// Automation (DEBUG socket): Reply… in the context menu at the newest text bubble (mine or
+    /// incoming), built and chosen by the right-click's path. The open thread's root after it.
+    public func debugReplyNewest(mine: Bool) -> String? {
+        guard let hit = controller.demo?.lastTextRow(mine: mine),
+              let menu = controller.menu(at: CGPoint(x: hit.body.midX, y: hit.body.midY)) else { return nil }
+        controller.menuHighlight?.discard(); controller.menuHighlight = nil // never shown
+        guard let item = menu.items.first(where: { ($0 as? MenuAction)?.label == Strings.menuReplyEllipsis }),
+              let action = item.action else { return nil }
+        NSApp.sendAction(action, to: item.target, from: item)
+        return debugOpenThread
+    }
+
+    /// Automation (DEBUG socket): a real Esc key press posted to the app's event queue (local
+    /// monitors see it), with the key focus on the window itself (`outside`, as when a terminal
+    /// or the sidebar has it) or where it is.
+    public func debugPostEscape(outside: Bool) {
+        guard let window else { return }
+        if outside { window.makeFirstResponder(nil) }
+        for type in [NSEvent.EventType.keyDown, .keyUp] {
+            if let e = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                        windowNumber: window.windowNumber, context: nil, characters: "\u{1b}",
+                                        charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53) {
+                NSApp.postEvent(e, atStart: false)
+            }
+        }
+    }
+
     /// Automation (DEBUG socket): scrolls the transcript by `dy` points
     /// through AppKit's scroll view.
     public func debugScroll(by dy: CGFloat) {

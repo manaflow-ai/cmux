@@ -51,6 +51,30 @@ const HIDDEN_ANCHOR_STYLE: CSSProperties = {
 };
 
 /**
+ * The side an overlay opens on, the one rule every anchored overlay uses: the requested side when
+ * the overlay fits there or that side has at least the other's room, else the other side. A
+ * portaled popover takes it once, when it opens (`useOpenSide`), so it never flips while open.
+ */
+export function resolveUiSide(
+  anchor: Pick<UiAnchorBox, "top" | "bottom">,
+  height: number,
+  viewportHeight: number,
+  options: Pick<UiAnchorOptions, "side" | "gap" | "margin"> = {},
+): UiAnchorSide {
+  const gap = options.gap ?? UI_ANCHOR_GAP;
+  const margin = options.margin ?? 8;
+  const below = Math.max(0, viewportHeight - anchor.bottom - gap - margin);
+  const above = Math.max(0, anchor.top - gap - margin);
+  return (options.side ?? "below") === "below"
+    ? below >= height || below >= above
+      ? "below"
+      : "above"
+    : above >= height || above >= below
+      ? "above"
+      : "below";
+}
+
+/**
  * Resolve an overlay in viewport coordinates. Both inputs are DOM rects, so a
  * page zoom or a device scale factor cannot introduce a second coordinate
  * space. The requested side is preferred, then flipped when the other side
@@ -70,14 +94,7 @@ export function resolveUiOverlayPosition(
   const direction = options.direction ?? "ltr";
   const spaceBelow = Math.max(0, viewport.height - anchor.bottom - gap - margin);
   const spaceAbove = Math.max(0, anchor.top - gap - margin);
-  const resolvedSide =
-    side === "below"
-      ? spaceBelow >= overlay.height || spaceBelow >= spaceAbove
-        ? "below"
-        : "above"
-      : spaceAbove >= overlay.height || spaceAbove >= spaceBelow
-        ? "above"
-        : "below";
+  const resolvedSide = resolveUiSide(anchor, overlay.height, viewport.height, { side, gap, margin });
   const available = resolvedSide === "below" ? spaceBelow : spaceAbove;
   const idealLeft =
     align === "start"
