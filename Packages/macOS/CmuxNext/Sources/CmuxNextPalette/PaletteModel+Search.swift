@@ -66,7 +66,7 @@ extension PaletteModel {
         case .list(let page):
             searchGeneration += 1
             let searchID = searchGeneration
-            if FuzzyQuery(state.query).isEmpty || !page.filtersByQuery {
+            if state.query.allSatisfy(\.isWhitespace) || !page.filtersByQuery {
                 searchEmpty(state, page: page, generation: generation, searchID: searchID)
                 return
             }

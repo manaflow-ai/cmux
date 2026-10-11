@@ -306,7 +306,7 @@ pub enum Command {
     Status,
     /// `daemon start`: status, starting a daemon first when none runs.
     #[command(hide = true)]
-    DaemonStart,
+    DaemonStart { person_key_fd: Option<i32> },
     #[command(hide = true, alias = "kill-server")]
     Shutdown {
         /// Leave hosted agents running for the next daemon to adopt.
@@ -601,7 +601,14 @@ pub enum DaemonCmd {
     /// Daemon status, hosts, and the web URL.
     Status,
     /// Start the daemon unless one runs, wait until it accepts clients, and print its status.
-    Start,
+    Start {
+        /// Read this launch's person key (64 hex characters, one line) from
+        /// this descriptor (0: stdin) and hand it to the daemon it starts,
+        /// once that daemon is not dumpable. Only the cmux app's own ssh exec
+        /// or VM provisioning passes it; refused while a daemon runs.
+        #[arg(long)]
+        person_key_fd: Option<i32>,
+    },
     /// Stop the daemon and every agent process, agent hosts included;
     /// returns once they all exited, and fails naming any host left.
     /// `--keep-agents` leaves hosted agents running for the next daemon to
@@ -760,7 +767,7 @@ pub fn flatten(c: Command) -> Command {
                 dev,
             },
             DaemonCmd::Status => Command::Status,
-            DaemonCmd::Start => Command::DaemonStart,
+            DaemonCmd::Start { person_key_fd } => Command::DaemonStart { person_key_fd },
             DaemonCmd::Shutdown { keep_agents } => Command::Shutdown { keep_agents },
             DaemonCmd::Config => Command::Config,
             DaemonCmd::Harnesses => Command::Harnesses,

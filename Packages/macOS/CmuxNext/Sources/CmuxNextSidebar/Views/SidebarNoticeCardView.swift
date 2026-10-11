@@ -246,12 +246,6 @@ final class SidebarNoticeCardView: NSView {
 
     // MARK: Tests
 
-    /// The text lines shown (heading, title, detail, shortcut).
-    var lineViews: [NSView] { [eyebrowLabel, titleLabel, detailLabel, shortcutLabel].filter { !$0.isHidden } }
-
-    /// Whether the icon (or the spinner) shows beside the title.
-    var showsSymbol: Bool { !icon.isHidden || !spinner.isHidden }
-
     /// Every line as shown, top to bottom.
     var shownText: [String] {
         [eyebrowLabel, titleLabel, detailLabel].filter { !$0.isHidden }.map(\.stringValue) + actionButtons.map(\.title)

@@ -479,6 +479,7 @@
       "history-search",
       "conversation-op",
       "conversation-typing",
+      "conversation-draft",
       "conversation-bind",
       "conversation-agent-token",
       "conversation-import",

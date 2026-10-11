@@ -14,8 +14,6 @@ nonisolated struct CloudAppOpFailure: Error, Equatable, Sendable, CustomStringCo
     var details: JSONValue?
 
     static let approvalPending = "cmux.cloud.approval_pending"
-    static let approvalDenied = "cmux.cloud.approval_denied"
-    static let approvalExpired = "cmux.cloud.approval_expired"
 
     /// The approval request id (`apr_…`) of an approval code.
     var approvalRequest: String? { details?["request"]?.stringValue }

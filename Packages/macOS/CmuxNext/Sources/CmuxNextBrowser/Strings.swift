@@ -101,7 +101,6 @@ nonisolated enum Strings {
         String(localized: "browser.dialog.from", defaultValue: "\(origin) says", bundle: .module)
     }
     static var allow: String { String(localized: "browser.prompt.allow", defaultValue: "Allow", bundle: .module) }
-    static var dontAllow: String { String(localized: "browser.prompt.deny", defaultValue: "Don’t Allow", bundle: .module) }
     static var ok: String { String(localized: "browser.prompt.ok", defaultValue: "OK", bundle: .module) }
     static var cancel: String { String(localized: "browser.prompt.cancel", defaultValue: "Cancel", bundle: .module) }
 

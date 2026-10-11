@@ -99,7 +99,9 @@ final class AcpmuxPermissionFeedBridge {
         connect()
     }
 
-    isolated deinit {
+    // Not an isolated deinit: its runtime hop traps when the bridge is released inside an action's
+    // task-local scope (cx-t7hu). Both fields are Sendable, so teardown needs no main actor.
+    nonisolated deinit {
         reconnect?.cancel()
         connection?.cancel()
     }
