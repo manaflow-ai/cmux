@@ -9,6 +9,45 @@ export type BrowseItem = {
 export type BrowseKind = "all" | "static" | "motion";
 export type BrowseMode = "entries" | "variants";
 
+export type BrowseState = {
+  filter: string;
+  kind: BrowseKind;
+  mode: BrowseMode;
+  cycle: boolean;
+};
+
+export const DEFAULT_BROWSE: BrowseState = {
+  filter: "",
+  kind: "all",
+  mode: "entries",
+  cycle: false,
+};
+
+const BROWSE_QUERY_KEYS = ["browse-filter", "browse-kind", "browse-mode", "browse-cycle"] as const;
+
+/** Read the contact-sheet controls that make a Browse URL reproducible. */
+export function readBrowse(params: URLSearchParams): BrowseState {
+  const kind = params.get("browse-kind");
+  const mode = params.get("browse-mode");
+  return {
+    filter: (params.get("browse-filter") ?? "").trim(),
+    kind: kind === "static" || kind === "motion" ? kind : DEFAULT_BROWSE.kind,
+    mode: mode === "variants" ? mode : DEFAULT_BROWSE.mode,
+    cycle: params.get("browse-cycle") === "1" || params.get("browse-cycle") === "true",
+  };
+}
+
+/** Write only non-default contact-sheet controls, preserving unrelated query keys. */
+export function writeBrowse(state: BrowseState, params = new URLSearchParams()): URLSearchParams {
+  for (const key of BROWSE_QUERY_KEYS) params.delete(key);
+  const filter = state.filter.trim();
+  if (filter) params.set("browse-filter", filter);
+  if (state.kind !== DEFAULT_BROWSE.kind) params.set("browse-kind", state.kind);
+  if (state.mode !== DEFAULT_BROWSE.mode) params.set("browse-mode", state.mode);
+  if (state.cycle) params.set("browse-cycle", "1");
+  return params;
+}
+
 /** Whether an entry has a recorded play sequence in any of its variants. */
 export function browseHasMotion(entry: GalleryEntry): boolean {
   return Object.values(entry.variants).some((variant) => Boolean(variant.play));
