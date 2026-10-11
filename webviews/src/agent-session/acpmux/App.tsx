@@ -3279,9 +3279,10 @@ function AcpmuxPane() {
                     const screen = document.querySelector<HTMLElement>(".nt-screen");
                     const before = templatePlaces(screen);
                     flushSync(() => setNewTab((current) => current && { ...current, template: next }));
-                    playTemplateSwitch(document.querySelector<HTMLElement>(".nt-screen"), before);
-                    // The dot took focus; the field gets it back (the screen listens for this event).
+                    // The dot took focus; the field gets it back (the screen listens for this event),
+                    // before the parts slide, so focusing never scrolls toward where they were.
                     window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT));
+                    playTemplateSwitch(document.querySelector<HTMLElement>(".nt-screen"), before);
                   },
                 })
               }

@@ -203,32 +203,30 @@ def drag():
 
 def newtab():
     # The New Tab page's template dots switch its layout in place. The dots
-    # show with newTab.templateSwitcher on; a page prewarmed after the tunable
-    # write has them: the first new tab adopts the page warmed at launch, the
-    # second one warmed since (newTabPage would reuse the open page). Clicks land on the
-    # dots: 18 pt wide, 4 pt apart, centered at the pane's bottom (screen.css).
-    # A pick saves tabs.newTabTemplate to the host user's shared settings, so
-    # the run ends on "default", the value it had.
+    # show with newTab.templateSwitcher on, in a page warmed after it is set:
+    # the tunable stays on in this build tag's own slot store, so record on a
+    # second launch of the same tag (the first only sets it). Clicks land on
+    # the dots: 18 pt wide, 4 pt apart, centered at the pane's bottom
+    # (screen.css). A pick saves tabs.newTabTemplate to the host user's
+    # shared settings, so the run ends on "default", the value it had.
     rpc("debug.tunables", {"action": "set", "key": "newTab.templateSwitcher", "value": True})
     rpc("debug.motion", {"action": "speed", "value": "fast"})  # the tunable write reloads settings
-    try:
-        for _ in range(2):
-            action("newTab")
-            time.sleep(2.0)  # test harness: the page loads and the next one warms
-        save_layout("newtab")
-        panes = [pane for window in (rpc("debug.pane_chrome") or {}).get("windows") or [] for pane in window.get("panes") or []]
-        if not panes:
-            print("newtab: skipped, pane_chrome reports no pane", flush=True)
-            return
-        left, top, width, height = panes[0]["border"]
-        dots = ["default", "composer", "threads", "console", "classic", "terminal"]
-        def pick(template):
-            x = left + width / 2 - 55 + 22 * dots.index(template)
-            return rpc("debug.mouse", {"action": "click", "x": x, "y": top + height - 21})
-        for template in ("threads", "composer", "console", "default"):
-            record("newtab", template, lambda: pick(template))
-    finally:
-        rpc("debug.tunables", {"action": "set", "key": "newTab.templateSwitcher", "value": None})
+    action("newTabPage")
+    time.sleep(2.0)  # test harness: the page loads
+    save_layout("newtab")
+    panes = [pane for window in (rpc("debug.pane_chrome") or {}).get("windows") or [] for pane in window.get("panes") or []]
+    if not panes:
+        print("newtab: skipped, pane_chrome reports no pane", flush=True)
+        return
+    left, top, width, height = panes[0]["border"]
+    dots = ["default", "composer", "threads", "console", "classic", "terminal"]
+
+    def pick(template):
+        x = left + width / 2 - 55 + 22 * dots.index(template)
+        return rpc("debug.mouse", {"action": "click", "x": x, "y": top + height - 21})
+
+    for template in ("threads", "composer", "console", "default"):
+        record("newtab", template, lambda: pick(template))
 
 
 def key(name, *modifiers):
