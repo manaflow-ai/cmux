@@ -96,6 +96,8 @@ extension ScreenContentView {
     private func rank(_ view: NSView) -> Int {
         switch view {
         case let host as PaneHostView:
+            // A zoom's covered panes stay under every pane.
+            if covered.contains(host.pane) { return -1 }
             return geometry.scrolls(pane: host.pane) ? 0 : 3 + cornerRank(geometry.dockFrame(containing: host.pane))
         case let divider as DividerHandleView:
             guard !scrolls(divider.kind) else { return 1 }
