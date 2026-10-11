@@ -2080,7 +2080,7 @@ impl Drop for ServedMuxCleanup {
     fn drop(&mut self) {
         if let Some(mux) = self.mux.take() {
             mux.shutdown();
-            cmux_tui_core::server::cleanup(&self.socket_path);
+            mux.release_ownership(&self.socket_path);
         }
     }
 }
@@ -2587,7 +2587,7 @@ fn run_server(
     {
         drop(websocket_server);
         mux.shutdown();
-        cmux_tui_core::server::cleanup(&socket_path);
+        mux.release_ownership(&socket_path);
         served_mux_cleanup.disarm();
         drop(served_mux_cleanup);
         result.and(owner_event_result)
@@ -2651,7 +2651,7 @@ fn finish_server_shutdown<W, R>(
 ) -> anyhow::Result<()> {
     drop(websocket_server);
     mux.shutdown();
-    cmux_tui_core::server::cleanup(socket_path);
+    mux.release_ownership(socket_path);
     remote_shutdown.map(|_| ())?;
     result
 }

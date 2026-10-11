@@ -145,6 +145,9 @@ enum RowDraw {
 
     /// The typing bubble without its dots (dots are layers that animate).
     static let typingBubble = CGRect(x: 20, y: margin + 4, width: 44, height: 27.5)
+    /// The point the typing bubble grows from (row coordinates): Messages' fitted scale centre,
+    /// 19.1 pt left of and 8.7 pt above the bubble's centre (tools/evidence/ANIMATIONS.md section 6).
+    static var typingAnchor: CGPoint { CGPoint(x: typingBubble.midX - 19.07, y: typingBubble.midY - 8.71) }
     static func drawTypingBubble(_ ctx: CGContext, top: CGFloat) {
         let b = CGRect(x: 20, y: top, width: 44, height: 27.5)
         Fixture.incoming.setFill()

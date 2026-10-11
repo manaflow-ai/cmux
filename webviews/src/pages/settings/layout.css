@@ -13,7 +13,7 @@
   --accent: var(--cmux-accent, var(--text));
   /* A highlighted list row (desktop.css --cmux-row-focus): hover's family, a touch stronger. */
   --row-focus: var(--cmux-row-focus, var(--accent-soft));
-  --on-accent: var(--cmux-on-accent, var(--cmux-app-window, var(--cmux-surface-token, Canvas)));
+  --on-accent: var(--cmux-on-accent, var(--cmux-app-window, var(--cmux-surface-solid, Canvas)));
   --accent-text: var(--text);
   --column: 720px;
   --row-pad-y: 7px;
@@ -409,7 +409,7 @@
   height: 0;
   border: 3.5px solid var(--text);
   border-radius: 50%;
-  box-shadow: 0 0 0 1.5px var(--cmux-surface-token, Canvas);
+  box-shadow: 0 0 0 1.5px var(--cmux-surface-solid, Canvas);
 }
 
 .token-tuner-body {
@@ -460,7 +460,7 @@
 .token-tuner-slider input::-webkit-slider-thumb {
   width: 14px;
   height: 14px;
-  border: 2px solid var(--cmux-surface-token, Canvas);
+  border: 2px solid var(--cmux-surface-solid, Canvas);
   border-radius: 50%;
   background: var(--accent);
   appearance: none;

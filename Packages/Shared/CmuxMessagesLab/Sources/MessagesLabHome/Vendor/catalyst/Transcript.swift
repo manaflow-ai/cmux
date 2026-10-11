@@ -847,11 +847,19 @@ final class RowCell: UICollectionViewCell {
         typingContainer.isHidden = !on
         guard on else { return }
         if typingContainer.superlayer == nil { contentView.layer.addSublayer(typingContainer) }
-        // Scale about the small tail circle at the bubble's lower left.
+        // macOS: scale about RowDraw.typingAnchor (Messages' growth point, near the bubble's upper
+        // left). The iOS app (ios/Sources/ChatColumn.swift, typing.pop) scales about the small tail
+        // circle at the bubble's lower left.
         let b = RowDraw.typingBubble
-        typingContainer.anchorPoint = CGPoint(x: 0, y: 1)
-        typingContainer.bounds = CGRect(x: 0, y: 0, width: 140, height: b.maxY + 8)
-        typingContainer.position = CGPoint(x: 0, y: b.maxY + 8)
+        let size = CGSize(width: 140, height: b.maxY + 8)
+#if os(iOS) && !targetEnvironment(macCatalyst)
+        let a = CGPoint(x: 0, y: size.height)
+#else
+        let a = RowDraw.typingAnchor
+#endif
+        typingContainer.anchorPoint = CGPoint(x: a.x / size.width, y: a.y / size.height)
+        typingContainer.bounds = CGRect(origin: .zero, size: size)
+        typingContainer.position = a
         typingContainer.sublayerTransform = CATransform3DIdentity
         // The bubble bitmap goes UNDER the dots. It used to be re-appended on every
         // configure: after a palette change (the window losing or regaining key

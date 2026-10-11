@@ -1,0 +1,18 @@
+.path-picker-gallery-host {
+  min-height: 620px;
+  background: var(--cmux-background, Canvas);
+}
+
+.path-picker-gallery-receipt {
+  position: fixed;
+  inset-block-end: 12px;
+  inset-inline-end: 16px;
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
+  border-radius: 5px;
+  background: color-mix(in srgb, Canvas 90%, transparent);
+  color: color-mix(in srgb, CanvasText 68%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}

@@ -3,14 +3,23 @@
 //! without store state; each request runs git on its own connection thread,
 //! bounded by a deadline and output limits. `git.checkpoint.*` captures
 //! immutable checkpoints through a separate write runner (`checkpoint`).
+//! `git.commit` and `git.push` are the user's own actions and run git in the
+//! user's environment (`user_run`), keyed in the mutation ledger
+//! (`mutation`).
 
 mod checkpoint;
+mod commit;
+mod commit_args;
 mod diff;
 mod files;
+mod journal;
 mod list;
+mod mutation;
 mod parse;
+mod push;
 mod run;
 mod target;
+mod user_run;
 mod write_run;
 
 use std::collections::BTreeSet;
@@ -37,6 +46,12 @@ pub(crate) const FILES_SEARCH_CAPABILITY: &str = "git-files-search-v1";
 /// Advertised in identify: the session host answers `git.files.list`.
 pub(crate) const FILES_LIST_CAPABILITY: &str = "git-files-list-v1";
 
+/// Advertised in identify: the session host owns `git.commit`.
+pub(crate) const COMMIT_CAPABILITY: &str = "git-commit-v1";
+
+/// Advertised in identify: the session host owns `git.push`.
+pub(crate) const PUSH_CAPABILITY: &str = "git-push-v1";
+
 pub(crate) fn handles(operation: ResourceOperation) -> bool {
     matches!(
         operation,
@@ -44,6 +59,8 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | ResourceOperation::GitStatus
             | ResourceOperation::GitFilesSearch
             | ResourceOperation::GitFilesList
+            | ResourceOperation::GitCommit
+            | ResourceOperation::GitPush
     ) || checkpoint::handles(operation)
 }
 
@@ -54,6 +71,11 @@ pub(crate) fn dispatch(
     debug_assert!(handles(request.envelope.operation));
     if checkpoint::handles(request.envelope.operation) {
         return checkpoint::dispatch(mux, request);
+    }
+    match request.envelope.operation {
+        ResourceOperation::GitCommit => return commit::dispatch(mux, &request),
+        ResourceOperation::GitPush => return push::dispatch(mux, &request),
+        _ => {}
     }
     let operation = match request.envelope.operation {
         ResourceOperation::GitDiff => "git.diff",

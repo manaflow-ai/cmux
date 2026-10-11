@@ -195,6 +195,38 @@ import Testing
         let differing = zip(a.frames, b.frames).enumerated().filter { !Self.sameVisible($0.element.0, $0.element.1) }.map(\.offset)
         #expect(differing.isEmpty, "presented layer trees differ at ticks \(differing.prefix(10))")
     }
+
+    /// The Home path's typing bubble and Delivered -> Read motion against a recorded golden
+    /// (Golden/home-motion.ndjson: the committed animations of the delivered, read and typing
+    /// transitions, MessagesLab's motion-gate rows row[receipt:...] from 1.6 s and row[typing]
+    /// from 3.2 s). The test above compares Home with MessagesLab on the same vendored code, so
+    /// a new pin that changes this motion keeps it green; this one fails until the golden is
+    /// recorded again on purpose (HOME_HARNESS_WRITE_GOLDEN=1, named in the pin's commit).
+    /// Recorded with the harness host's OS (scripts/cmux-next/home-messageslab-harness.sh).
+    static let motionTransitions = ["delivered", "delivered -> read", "typing indicator"]
+
+    @Test func theHomePathKeepsItsTypingAndReceiptMotion() throws {
+        let b = Self.home()
+        let lines = Self.motionTransitions.compactMap { name in
+            Self.transitions.firstIndex { $0.name == name }.flatMap { b.animations[checked: $0] }
+        }
+        #expect(lines.count == Self.motionTransitions.count)
+        let golden = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Golden/home-motion.ndjson")
+        let now = lines.joined(separator: "\n") + "\n"
+        if ProcessInfo.processInfo.environment["HOME_HARNESS_WRITE_GOLDEN"] == "1" {
+            try FileManager.default.createDirectory(at: golden.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try now.write(to: golden, atomically: true, encoding: .utf8)
+            return
+        }
+        let recorded = try String(contentsOf: golden, encoding: .utf8)
+        if let dir = ProcessInfo.processInfo.environment["HOME_HARNESS_OUT"] {
+            try now.write(toFile: dir + "/home-motion.ndjson", atomically: true, encoding: .utf8)
+        }
+        for (i, name) in Self.motionTransitions.enumerated() {
+            let want = recorded.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)[checked: i]
+            #expect(lines[checked: i] == want, "the Home motion of \(name) differs from Golden/home-motion.ndjson")
+        }
+    }
 }
 
 /// The presented layer tree and the committed animations of a window view,

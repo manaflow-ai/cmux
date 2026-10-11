@@ -236,6 +236,7 @@ extension AgentPaneRequest {
         case "git.stage", "git.unstage":
             self = .gitStage(AgentPaneGitStage(method: method, params: params))
         case "git.pullRequest": self = .gitPullRequest(AgentPaneGitPullRequest(params: params))
+        case "project.instructions": self = .projectInstructions(AgentPaneProjectInstructions(params: params))
         case "git.githubRepository":
             if let cwd = params?["cwd"] as? String, cwd.hasPrefix("/"), !cwd.contains("\0") {
                 self = .githubRepository(cwd: cwd)
@@ -248,6 +249,8 @@ extension AgentPaneRequest {
             } else {
                 self = .invalidGit(method)
             }
+        case "git.commit", "git.push":
+            self = AgentPaneGitWrite(method: method, params: params).map(AgentPaneRequest.gitWrite) ?? .invalidGit(method)
         case "transport.open": self = .transportOpen
         case "transport.gesture": self = .transportGesture(AgentPaneGestureIntent(gestureParams: params))
         case "transport.gesture.release": self = .transportGestureRelease

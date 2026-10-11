@@ -91,6 +91,7 @@ import { DictationNotice } from "./DictationNotice";
 import type { MarkdownFieldHandle } from "./MarkdownField";
 import type { ChangesSource } from "./changes/model";
 import { RevealedMarkdown } from "./conversation/RevealedMarkdown";
+import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { SessionRowsContext } from "./turnChanges/sessionRows";
@@ -139,6 +140,7 @@ import { headerState, setHeaderState, useHeaderState } from "./header/headerStat
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import { archiveRow } from "./header/archiveRow";
 import { copyRow } from "./header/copyRow";
+import { instructionsRow } from "./header/instructionsRow";
 import { sideChatRow } from "./header/sideChatRow";
 import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
@@ -354,12 +356,24 @@ const trustSource: TrustSource = {
 const changesSource: ChangesSource = {
   diff: (scope) => callNative("git.diff", { scope, include_patch: true }),
   status: () => callNative("git.status", {}),
+  commit: (params) => callNative("git.commit", params),
+  push: (params) => callNative("git.push", params),
   stage: (paths, unstage) => callNative("git.stage", { paths, unstage }),
   pullRequest: () => callNative("git.pullRequest", {}),
 };
 /// A turn's checkpoint pair, diffed on the session host (`git.checkpoint.diff`).
 const checkpointDiff: CheckpointDiff = (from, to) =>
   callNative("git.checkpoint.diff", { from, to, include_patch: true });
+/// Commit and Push keys per session, for the page's life: a view closed and opened again after a
+/// write whose reply was lost retries with the same key, so the session host reports the first
+/// result instead of committing or pushing twice.
+const gitWriteKeys = new Map<string, WriteKeys>();
+function writeKeysFor(sessionId: string | undefined): WriteKeys | undefined {
+  if (!sessionId) return undefined;
+  let keys = gitWriteKeys.get(sessionId);
+  if (!keys) gitWriteKeys.set(sessionId, (keys = new WriteKeys()));
+  return keys;
+}
 /// The host opens a changed file in a tab beside the agent or in the editor (`file.open`).
 const openChangedFile = (path: string, where: "tab" | "editor") => callNative("file.open", { path, where });
 
@@ -993,16 +1007,21 @@ export function VirtualTranscript({
   useEffect(() => {
     const node = ref.current;
     if (!node) return;
-    const observer = new ResizeObserver(() => {
-      setHeight(node.clientHeight);
-      setWidth(node.clientWidth);
-    });
+    // Before the frame paints: a resized pane (its tab strip showing or hiding) otherwise drew the
+    // transcript at its old offset and caught up a frame later.
+    const observer = new ResizeObserver(() =>
+      flushSync(() => {
+        setHeight(node.clientHeight);
+        setWidth(node.clientWidth);
+      }),
+    );
     observer.observe(node);
     setWidth(node.clientWidth);
     return () => observer.disconnect();
   }, []);
   const previousLayout = useRef<ReturnType<typeof layoutConversation> | null>(null);
   const previousRows = useRef<AcpmuxRow[]>(rows);
+  const previousViewport = useRef({ height, width });
   const thread = useRef<HTMLDivElement>(null);
   // The reader scrolls: a glide in flight ends at once, so the view goes where they scroll.
   useEffect(() => {
@@ -1195,8 +1214,10 @@ export function VirtualTranscript({
         const latest = Math.max(0, layout.totalHeight - node.clientHeight);
         const step = latest - node.scrollTop;
         if (Math.abs(step) > 0.5) node.scrollTop = latest;
-        // Growth glides in instead of stepping a line per frame (acp-streaming.md "Scroll").
-        if (step > 0.5 && step < node.clientHeight) glide(thread.current, step);
+        // Growth glides in instead of stepping a line per frame (acp-streaming.md "Scroll"); a
+        // resized viewport only moves the offset.
+        const resized = height !== previousViewport.current.height || width !== previousViewport.current.width;
+        if (step > 0.5 && step < node.clientHeight && !resized) glide(thread.current, step);
       } else if (top > 0) {
         // Keep the row at the top of the viewport where it is as rows above it change height.
         // Rows that arrived or left (a new reply segment below, older history above) move indexes,
@@ -1223,9 +1244,10 @@ export function VirtualTranscript({
     }
     previousLayout.current = layout;
     previousRows.current = rows;
+    previousViewport.current = { height, width };
     if (node) scrolledTo.current = scrollPosition(node, layout.totalHeight);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
-  }, [layout, rows, range.first, height]);
+  }, [layout, rows, range.first, height, width]);
   // Commit before this frame paints; deferring to the next animation frame left the edge blank.
   // The page picks adaptive rendering; the host supplies the display interval and applies it.
   const renderRate = useMemo(() => new AdaptiveRenderRate(), []);
@@ -1885,6 +1907,8 @@ function AcpmuxPane() {
     rowId: string;
     path?: string;
     opener?: HTMLElement;
+    /// The palette's Commit or Push for the open view (DiffPanel `gitIntent`).
+    gitIntent?: { op: GitWriteOp; nonce: number };
   }>();
   const toggleInspector = useCallback((open?: boolean) => {
     if (inspectorHiddenSurfaceRef.current) {
@@ -1927,6 +1951,23 @@ function AcpmuxPane() {
       if (row) openDiff(row.id, path);
     },
     [snapshot.rows, openDiff],
+  );
+  // The palette's Commit and Push reach the open changes view, or open it on the newest turn of
+  // the selected chat. A chat with no turn yet has no changes view to open.
+  const gitIntents = useRef(0);
+  const runGitIntent = useRef<(op: GitWriteOp) => void>(() => undefined);
+  runGitIntent.current = (op) => {
+    const nonce = ++gitIntents.current;
+    const rowId = snapshotRef.current?.rows.at(-1)?.id;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+    setDiffView((view) => {
+      if (view && view.sessionId === sessionIdRef.current) return { ...view, gitIntent: { op, nonce } };
+      return rowId ? { sessionId: sessionIdRef.current, rowId, opener, gitIntent: { op, nonce } } : view;
+    });
+  };
+  const clearGitIntent = useCallback(
+    () => setDiffView((view) => (view?.gitIntent ? { ...view, gitIntent: undefined } : view)),
+    [],
   );
   const closedByUser = useRef(false);
   const closeDiff = useCallback(() => {
@@ -2412,6 +2453,7 @@ function AcpmuxPane() {
         // Switch Model… (Ctrl-Cmd-M): the model picker opens on the path every opener uses, which
         // ends with the keyboard in its search field.
         if (name === "openModelPicker") openPicker(translate(PICKER_LABELS.model));
+        if (name === "gitCommit" || name === "gitPush") runGitIntent.current(name === "gitCommit" ? "commit" : "push");
         if (
           [
             "permissionAllowOnce",
@@ -2424,6 +2466,8 @@ function AcpmuxPane() {
             // Previous Turn and Next Turn (Ctrl-Opt-Up, Ctrl-Opt-Down): the thread minimap steps the transcript.
             "previousTurn",
             "nextTurn",
+            // Search Files… (Cmd-P): the composer opens its file search.
+            "searchFiles",
           ].includes(name)
         ) {
           window.dispatchEvent(new CustomEvent(`cmux-acpmux-${name}`));
@@ -2934,6 +2978,8 @@ function AcpmuxPane() {
           "git.diff": ({ scope }) => client.gitDiff(String(scope)),
           "git.status": () => client.gitStatus(),
           "git.checkpoint.diff": ({ from, to }) => client.gitCheckpointDiff(String(from), String(to)),
+          "git.commit": (params) => client.gitCommit(params),
+          "git.push": (params) => client.gitPush(params),
           "git.stage": ({ paths, unstage }) =>
             client.gitStage(Array.isArray(paths) ? paths.map(String) : [], unstage === true),
           "git.pullRequest": () => client.gitPullRequest(),
@@ -3182,8 +3228,15 @@ function AcpmuxPane() {
             },
           ]
         : [];
+    // The chat folder's CLAUDE.md or AGENTS.md, in a file tab beside the chat (a tab: not Quick Chat).
+    const instructions = quick
+      ? undefined
+      : instructionsRow({ cwd: localCwd, family: summary?.family || summary?.harness }, (cwd, name) =>
+          ignoreFailure(callNative("project.instructions", { cwd, name })),
+        );
     const tools: ChatMenuItem[] = [
       ...replay,
+      ...(instructions ? [instructions] : []),
       {
         key: "inspector",
         label: t("inspector.title"),
@@ -4113,6 +4166,9 @@ function AcpmuxPane() {
                     checkpointReview={checkpoints.review}
                     review={hunkReview}
                     reviewFiles={diffFiles}
+                    gitIntent={diffView.gitIntent}
+                    onGitIntentHandled={clearGitIntent}
+                    writeKeys={writeKeysFor(diffView.sessionId)}
                   />
                 )}
               </div>

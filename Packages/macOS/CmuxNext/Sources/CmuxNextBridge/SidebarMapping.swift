@@ -121,6 +121,7 @@ public struct SidebarMapping {
             folder: (front?.cwd ?? tabs.lazy.compactMap(\.cwd).first).map(shorten)
         )
         row.presence = presence(tabs)
+        row.lastMessage = lastMessage(front, tabs)
         row.reported = Self.reported(workspace.status)
         return row
     }
@@ -146,6 +147,12 @@ public struct SidebarMapping {
     /// works or waits, else the first live one.
     func agentBrand(_ tabs: [TabModel]) -> String? {
         agentTab(tabs)?.agentBrand
+    }
+
+    /// The last message of the row's agent chat: the front tab's, else the first chat tab's.
+    func lastMessage(_ front: TabModel?, _ tabs: [TabModel]) -> String? {
+        let chat = front?.agentSession != nil ? front : tabs.first { $0.agentSession != nil }
+        return chat?.agentSession.flatMap(AgentTurnStateStore.shared.lastMessage(for:))
     }
 
     /// The tab whose agent the row names: a working or waiting one first.

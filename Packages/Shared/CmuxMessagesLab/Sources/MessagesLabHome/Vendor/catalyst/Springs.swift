@@ -229,8 +229,23 @@ enum Springs {
     }
     /// Effects measured in earlier rounds (receipt pop, typing pop, reply fade),
     /// expressed as springs.
+    /// The typing bubble's appearance, macOS (lossless send-typed-take1, send-typed-media-take1,
+    /// typing-unfocused-take1; tools/evidence/ANIMATIONS.md section 6): scale 0 -> 1 about
+    /// `RowDraw.typingAnchor`, opacity 0 -> 1, and a drift of `typingDrift` (pt, window) to its place;
+    /// time 0 = the insert's begin (the rows' `transcript.typing`).
+    static var typingScale: SpringElement { element("typing.scale") }
+    static var typingOpacity: SpringElement { element("typing.opacity") }
+    static var typingDriftX: SpringElement { element("typing.driftX") }
+    static var typingDriftY: SpringElement { element("typing.driftY") }
+    static let typingDrift = CGPoint(x: 4.79, y: -7.66)
+    /// The dots' pulse phase (Cell.startTypingDots) starts this long after the insert's begin.
+    static let typingDotsPhase = 0.05
+    /// The iOS app's typing pop and receipt cross-fade (ios/Sources/ChatColumn.swift; the macOS
+    /// transcript uses the fits above and below).
     static let typingPop = simple("typing.pop", delay: 0.05, duration: 0.209)
     static let typingFade = simple("typing.fade", delay: 0.05, duration: 0.12)
+    static let receiptOldOut = simple("receipt.oldOut", delay: 0.042, duration: 0.163)   // fitted on luma, 6.55-7.25 s
+    static let receiptNewIn = simple("receipt.newIn", delay: 0.262, duration: 0.243)    // fitted on luma, 6.55-7.25 s
     static let typingOut = simple("typing.out", delay: 0.02, duration: 0.2)
     static let receivedFade = simple("received.fade", delay: 0.2, duration: 0.2)
     /// Reply arrival, macOS (lossless send-typed-take1, send-typed-media-take1, typing-unfocused-take1;
@@ -243,8 +258,13 @@ enum Springs {
     static var receivedThreadFade: SpringElement { element("received.threadFade") }
     static let receiptIn = simple("receipt.in", delay: 0.085, duration: 0.15)
     static let receiptPop = simple("receipt.pop", delay: 0.085, duration: 0.251)
-    static let receiptOldOut = simple("receipt.oldOut", delay: 0.042, duration: 0.163)   // fitted on luma, 6.55-7.25 s
-    static let receiptNewIn = simple("receipt.newIn", delay: 0.262, duration: 0.243)    // fitted on luma, 6.55-7.25 s
+    /// A receipt label that appears (Delivered) and one that changes its text (Delivered -> Read), macOS
+    /// (lossless send-typed-take1, +1.04 s and +1.89 s; tools/evidence/ANIMATIONS.md section 7).
+    static var receiptAppearOpacity: SpringElement { element("receipt.appearOpacity") }
+    static var receiptAppearGrow: SpringElement { element("receipt.appearGrow") }
+    static let receiptAppearScale: CGFloat = 0.3
+    static var receiptChangeOut: SpringElement { element("receipt.changeOut") }
+    static var receiptChangeIn: SpringElement { element("receipt.changeIn") }
     static let ghostOut = simple("row.out", delay: 0, duration: 0.2)
     static let connectorDraw = simple("connector.draw", delay: 0, duration: 0.25)
     static let textUnblur = simple("text.unblur", delay: 0.035, duration: 0.12)
