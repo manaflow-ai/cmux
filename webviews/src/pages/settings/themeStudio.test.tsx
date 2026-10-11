@@ -130,5 +130,5 @@ test("a theme with color edits reads as custom and previews its edited colors", 
   expect(name("Gruvbox Dark")).toBe("Gruvbox Dark (custom)");
   expect(name("Tokyo Night")).toBe("Tokyo Night");
   // The edits never become a setting row of their own.
-  expect(page.container.querySelector('[data-key="appearance.themeEdits"]')).toBeNull();
+  expect(page.container.querySelector('[data-row-key="appearance.themeEdits"]')).toBeNull();
 });

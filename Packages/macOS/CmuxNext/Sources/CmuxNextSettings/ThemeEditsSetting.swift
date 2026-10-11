@@ -22,8 +22,9 @@ public nonisolated struct ThemeEditsSetting: Sendable {
         }
         var colors: [String: [String: String]] = [:]
         for (key, entry) in entries {
-            guard let slash = key.lastIndex(of: "/"),
-                  let theme = ThemeSpec(String(key[..<slash])), theme.light == theme.dark else {
+            // One theme name exactly as the pickers write it: no pair, no prefix, no padding.
+            guard let slash = key.lastIndex(of: "/"), case let name = String(key[..<slash]),
+                  let theme = ThemeSpec(name), theme.light == name, theme.dark == name else {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "\(path).\(key)",
                                                       message: "expected \"<theme>/<token>\", such as \"Rose Pine/background\""))
                 continue

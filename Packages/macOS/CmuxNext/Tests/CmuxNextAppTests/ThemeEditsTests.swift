@@ -33,7 +33,8 @@ import Testing
         let (settings, url) = try await make(#"""
         {"appearance": {"theme": "Nord", "themeEdits": {
           "Nord/background": "#101010", "Nord/4": "#88C0D0", "Nord/cursor": "#ffffff",
-          "Dracula/0": "#000000", "Nord/glow": "#111111", "Nord/1": "red", "Nord": "#222222"}}}
+          "Dracula/0": "#000000", "Nord/glow": "#111111", "Nord/1": "red", "Nord": "#222222",
+          "dark:Nord/2": "#333333", "Nord/3": "#ＡＡＡＡＡＡ"}}}
         """#)
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let terminal = follow(settings)
@@ -47,7 +48,8 @@ import Testing
         #expect(GhosttyRuntime.themeLines("Tokyo Night", isDark: true, edits: edits) == ["theme = Tokyo Night"])
         // Unknown tokens, bad colors and keys without a token are reported and dropped.
         let reported = settings.snapshot.diagnostics.map(\.path).filter { $0.hasPrefix("appearance.themeEdits.") }
-        #expect(Set(reported) == ["appearance.themeEdits.Nord/glow", "appearance.themeEdits.Nord/1", "appearance.themeEdits.Nord"])
+        #expect(Set(reported) == ["appearance.themeEdits.Nord/glow", "appearance.themeEdits.Nord/1", "appearance.themeEdits.Nord",
+                                  "appearance.themeEdits.dark:Nord/2", "appearance.themeEdits.Nord/3"])
     }
 
     @Test func aPairTakesTheEditsOfTheVariantInEffect() {

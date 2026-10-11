@@ -28,7 +28,7 @@ public nonisolated struct ThemeEdits: Hashable, Sendable {
 
     /// `#rrggbb` (no alpha: Ghostty's theme colors are opaque).
     public static func isColor(_ text: String) -> Bool {
-        text.count == 7 && text.first == "#" && text.dropFirst().allSatisfy(\.isHexDigit)
+        text.count == 7 && text.first == "#" && text.dropFirst().allSatisfy { $0.isASCII && $0.isHexDigit }
     }
 
     /// The Ghostty config lines for `theme`'s edits, loaded after its `theme =` line, in a stable
