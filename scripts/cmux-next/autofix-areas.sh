@@ -12,7 +12,7 @@ all=0
 changed=""
 (( all )) || changed="$(cat)"
 
-bot='scripts/cmux-next/(base-autofix|autofix-areas|pr-autofix)|\.github/workflows/cmux-next-(base|pr)-autofix\.yml'
+bot='scripts/cmux-next/(base-autofix|autofix-areas|autofix-clippy|pr-autofix)|\.github/workflows/cmux-next-(base|pr)-autofix\.yml'
 area() { # key, path regex
   local on=false
   if (( all )) || grep -qE "^($2|$bot)" <<<"$changed"; then on=true; fi
@@ -31,3 +31,5 @@ area cloud 'backend/catalog/cloud-operations\.json|backend/packages/protocol/(sc
 area webviews 'webviews/'
 area ghostty 'ghostty$|scripts/ghosttykit-checksums\.txt'
 area fmt 'cmux-tui/|Native/OptChat/'
+# cargo clippy --fix (pull request job only): the cmux-tui Rust it changes.
+area clippy 'cmux-tui/.*\.rs$'

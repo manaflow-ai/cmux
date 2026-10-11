@@ -9,7 +9,9 @@ name: cmux-next PR autofix
 #
 # Two jobs, so the pull request's own code never runs next to a write token:
 #   repair: runs the repairs the pull request's changed paths need
-#     (scripts/cmux-next/autofix-areas.sh) with a read-only token, and uploads
+#     (scripts/cmux-next/autofix-areas.sh), plus cargo clippy --fix
+#     (machine-applicable lints only) on the cmux-tui crates it changes
+#     (scripts/cmux-next/autofix-clippy.sh), with a read-only token, and uploads
 #     the result as a patch (artifact pr-autofix-patch, also the fix for a fork
 #     pull request: its summary says how to apply it).
 #   push: same-repo pull requests only. Mints a token from the PR autofix App
@@ -38,7 +40,8 @@ jobs:
   repair:
     name: autofix repairs
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 20
+    # clippy compiles the changed crates (cached below).
+    timeout-minutes: 40
     permissions:
       contents: read
       pull-requests: read
@@ -63,7 +66,8 @@ jobs:
             exit 0
           fi
           echo "skip=false" >> "$GITHUB_OUTPUT"
-          gh pr diff "$PR" --repo "$GITHUB_REPOSITORY" --name-only | scripts/cmux-next/autofix-areas.sh | tee -a "$GITHUB_OUTPUT"
+          gh pr diff "$PR" --repo "$GITHUB_REPOSITORY" --name-only > "$RUNNER_TEMP/changed.txt"
+          scripts/cmux-next/autofix-areas.sh < "$RUNNER_TEMP/changed.txt" | tee -a "$GITHUB_OUTPUT"
 
       # dump-package needs the Swift 6.2 tools (ci-target-graph.py); see
       # cmux-next-base-autofix.yml.
@@ -88,8 +92,20 @@ jobs:
           bun-version: "1.4.2"
 
       - name: Set up pinned cmux-tui Rust
-        if: steps.areas.outputs.fmt == 'true'
+        if: steps.areas.outputs.fmt == 'true' || steps.areas.outputs.clippy == 'true'
         uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Cache cargo build
+        if: steps.areas.outputs.clippy == 'true'
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: cmux-tui -> target
+          shared-key: cmux-pr-autofix-clippy
+
+      # Before the other repairs, so their cargo fmt sees clippy's edits.
+      - name: cargo clippy --fix
+        if: steps.areas.outputs.clippy == 'true'
+        run: scripts/cmux-next/autofix-clippy.sh "$GITHUB_WORKSPACE" < "$RUNNER_TEMP/changed.txt" | tee "$RUNNER_TEMP/clippy.txt"
 
       # Packages installed without lifecycle scripts; this job has no write token.
       - name: vp fmt
@@ -125,7 +141,8 @@ jobs:
           [[ "$CLOUD" == true ]] && args+=(--cloud-clients)
           [[ -s "$RUNNER_TEMP/webviews-fmt.patch" ]] && args+=(--webviews-fmt-patch "$RUNNER_TEMP/webviews-fmt.patch")
           [[ "$FMT" == true ]] || args+=(--no-fmt)
-          scripts/cmux-next/base-autofix.sh ${args[@]+"${args[@]}"} "$GITHUB_WORKSPACE" | tee "$RUNNER_TEMP/autofix.txt"
+          cat "$RUNNER_TEMP/clippy.txt" 2>/dev/null > "$RUNNER_TEMP/autofix.txt" || true
+          scripts/cmux-next/base-autofix.sh ${args[@]+"${args[@]}"} "$GITHUB_WORKSPACE" | tee -a "$RUNNER_TEMP/autofix.txt"
           # The GhosttyKit checksum, when the release for the pull request's
           # ghostty commit is already published (exit 3: not yet; the base
           # bot pins it after the merge).
