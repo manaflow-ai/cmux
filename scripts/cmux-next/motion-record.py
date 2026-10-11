@@ -266,6 +266,7 @@ def hover():
     save_layout("hover")
     for out in (0, 0.12):
         rpc("debug.tunables", {"action": "set", "key": "motion.fade.hoverOut", "value": out})
+        rpc("debug.motion", {"action": "speed", "value": "fast"})  # the tunable write reloads settings
         suffix = "-out%d" % round(out * 1000)
         record("hover", "sidebar" + suffix, lambda: sweep(line(110, 60, 110, 330, 16)))
         record("hover", "tabs" + suffix, lambda: sweep(line(240, 54, 900, 54, 16)))

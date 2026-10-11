@@ -41,8 +41,8 @@ shown or hidden; tab animations must be fast and smooth.
      AppKit starts a new one from the value on screen.
 7. Reduce Motion (`NSWorkspace.accessibilityDisplayShouldReduceMotion`):
    movement (position, size, scale, scroll) is instant; opacity changes stay
-   as a crossfade of at most 0.1 s; spinners and pulses stop and show a
-   static glyph.
+   as a crossfade of at most 0.1 s, and hover and pressed fills are
+   instant; spinners and pulses stop and show a static glyph.
 8. `ui.animationSpeed` in cmux.json: `"fast"` (default), `"normal"` (every
    time constant x1.5, about Apple's system pacing), `"off"` (every change in
    one frame, no crossfade, no loops). Palette actions: Use Fast Animations,
@@ -77,7 +77,8 @@ nxmot (MacBook Pro, 120 Hz).
 
 | Fade token | Duration | Used by |
 | --- | --- | --- |
-| `hover` | 0.08 s | tab, chip, button and omnibar hover fills; tab bar trailing buttons and the tab x fading in on hover; sidebar hover buttons; divider and resize-handle hover; refused-drop dim |
+| `hover` | 0.08 s | hover and pressed fills easing in (tabs, chips, buttons, toolbar, menu and palette rows, sidebar rows, New Tab rows; `ChromeHover.fade`); tab bar trailing buttons and the tab x fading in on hover; sidebar hover buttons; divider and resize-handle hover; refused-drop dim. Instant under Reduce Motion |
+| `hoverOut` | 0 s | a hover or pressed fill clearing: instant, as in Edge, so a fast sweep leaves no trail (about 0.12 s in Debug Settings leaves a short one). A press shows at once. Instant under Reduce Motion |
 | `focus` | 0.10 s | pane focus ring and inactive dim |
 | `fadeIn` | 0.12 s | palette, find bar, notices, hover card, group editor, sidebar pill appear |
 | `fadeOut` | 0.08 s | palette close (with a shrink to `Motion.panelCloseScale` 0.98 about the center), find bar, notices, hover card, sidebar pill hide |
