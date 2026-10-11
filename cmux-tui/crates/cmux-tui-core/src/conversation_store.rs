@@ -751,7 +751,8 @@ impl ConversationEvent {
         }
     }
 
-    /// Drafts travel only on `conversation.events`.
+    /// Drafts travel on `conversation.events`, and on `subscribe` only to a
+    /// connection that asked for them (`conversation-draft-events-v1`).
     pub(crate) const fn is_draft(&self) -> bool {
         matches!(self, Self::Draft { .. })
     }
