@@ -56,7 +56,8 @@ enum DebugSidebarRows {
         controller.sidebar.container.sidebarView.debugLayoutItems().map { item in
             .object([
                 "id": .string(item.id), "ref_kind": .string(item.refKind), "ref": .string(item.ref),
-                "region": .string(item.region), "active": .bool(item.isActive),
+                "region": .string(item.region), "section": .string(item.section),
+                "section_title": item.sectionTitle.map(JSONValue.string) ?? .null, "active": .bool(item.isActive),
                 "window_frame": item.windowFrame.map(rect) ?? .null,
             ])
         }
