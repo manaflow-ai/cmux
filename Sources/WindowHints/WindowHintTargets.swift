@@ -32,13 +32,13 @@ enum WindowHintTargets {
 
     /// The window's controls in reading order, clipped to the window. The
     /// walk starts at the frame view above `content`, so the titlebar's
-    /// accessory controls count; the traffic lights do not.
+    /// accessory controls count; the traffic lights do not (told by subrole:
+    /// the frame view lists them as accessibility elements, not as its views).
     static func collect(in content: NSView) -> [Target] {
         guard let window = content.window else { return [] }
         let root = content.superview ?? content
         let bounds = root.convert(root.bounds, to: nil)
-        let trafficLights = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton]
-            .compactMap { window.standardWindowButton($0) }
+        let trafficLights: Set<NSAccessibility.Subrole> = [.closeButton, .minimizeButton, .zoomButton, .fullScreenButton]
         var found: [Target] = []
         var seen = Set<[Int]>()
         var stack: [Any] = [root]
@@ -48,7 +48,6 @@ enum WindowHintTargets {
             if let view = next as? NSView {
                 guard !view.isHiddenOrHasHiddenAncestor, view.alphaValue > 0.01 else { continue }
                 guard !(view is WKWebView), !(view is GhosttyNSView) else { continue }
-                guard !trafficLights.contains(where: { $0 === view }) else { continue }
                 if let marker = view as? WindowHintRegion.MarkerView {
                     let rect = marker.convert(marker.bounds, to: nil).intersection(bounds)
                     let key = [rect.minX, rect.minY, rect.width, rect.height].map { Int($0.rounded()) }
@@ -60,6 +59,7 @@ enum WindowHintTargets {
             }
             let element = next as? NSAccessibilityProtocol
             if element?.isAccessibilityHidden() == true { continue }
+            if let subrole = element?.accessibilitySubrole(), trafficLights.contains(subrole) { continue }
             // Only controls report enabled; custom rows and tabs leave it unset.
             if let element, element.isAccessibilityElement(), let role = element.accessibilityRole(), clickable.contains(role),
                (element as? NSControl)?.isEnabled ?? true {

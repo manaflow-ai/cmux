@@ -33,4 +33,9 @@ extension View {
     func windowHintTarget(_ title: String, isEnabled: Bool = true) -> some View {
         background(WindowHintRegion(title: title, isEnabled: isEnabled))
     }
+
+    /// The control's accessibility label, which also names it in hint mode.
+    func hintableAccessibilityLabel(_ title: String, isEnabled: Bool = true) -> some View {
+        accessibilityLabel(title).windowHintTarget(title, isEnabled: isEnabled)
+    }
 }
