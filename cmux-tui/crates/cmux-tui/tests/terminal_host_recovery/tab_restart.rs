@@ -158,7 +158,7 @@ fn a_manual_restart_waits_for_the_old_host_of_a_kept_process_exit() {
     harness.child = Some(command.spawn().expect("spawn the daemon"));
     wait_for_socket(&harness.socket);
     // Every host that ends from here on waits at the gate.
-    let gate = crate::parallel_new_tabs::HostGate::create(gate_path);
+    let gate = HostGate::create(gate_path);
     let workspace = &create_empty_workspace(&harness.socket, "restart-held", "Restart held");
     let run = resource_request(
         &harness.socket,
