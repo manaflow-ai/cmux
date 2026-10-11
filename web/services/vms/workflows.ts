@@ -17,7 +17,8 @@ import * as Option from "effect/Option";
 import { eq } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { cloudVms } from "../../db/schema";
-import { hasProviderGuestUnresponsiveCause, hasProviderTlsRuleLimitCause, ProviderGuestUnresponsiveError, type CreateOptions } from "./drivers/types";
+import { hasProviderTlsRuleLimitCause, ProviderGuestUnresponsiveError, type CreateOptions } from "./drivers/types";
+import { isVmProviderHang, withVmAnswerDeadline } from "./routeDeadline";
 import * as Layer from "effect/Layer";
 import type {
   AttachEndpoint,
@@ -2217,6 +2218,17 @@ export function pauseVm(input: {
     if (!pause) {
       return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "pause" }));
     }
+    // A pause the route answered as in progress (routeDeadline.ts) may have
+    // finished at the provider without reaching the row. A retry reconciles
+    // with the provider's observed status instead of pausing twice.
+    const observed = providers.getStatus
+      ? yield* providers.getStatus(vm.provider, providerVmId).pipe(Effect.catchAll(() => Effect.succeed(null)))
+      : null;
+    if (observed === "paused") {
+      const reconciled = yield* repo.markProviderObservedStatus({ id: vm.id, providerVmId, status: "paused" });
+      if (!reconciled) return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
+      return { id: providerVmId, status: "paused" } satisfies VmPauseResumeResult;
+    }
     if (vm.billingPlanId === "go") yield* setRuntimeBudget(providers, vm, providerVmId, 0);
     yield* pause(vm.provider, providerVmId);
     const recorded = yield* repo.markProviderObservedStatus({ id: vm.id, providerVmId, status: "paused" });
@@ -4046,10 +4058,9 @@ export function execVm(input: {
           return execTimedOutResult(input.timeoutMs);
         })
         : Effect.fail(err))),
-      Effect.timeoutTo({
-        duration: answerWithinMs,
-        onSuccess: (answer: ExecResult) => answer,
-        onTimeout: () => execTimedOutResult(input.timeoutMs),
+      (dispatched) => withVmAnswerDeadline(dispatched, {
+        answerWithinMs,
+        onDeadline: () => Effect.succeed(execTimedOutResult(input.timeoutMs)),
       }),
     );
     yield* repo.recordUsageEvent({
@@ -5083,12 +5094,10 @@ export function prepareScpEndpoint(input: {
     if (vm.status === "destroyed") return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
     const setupStartedAtMs = yield* Clock.currentTimeMillis;
     const setupWindowMs = Math.max(SCP_PREPARE_MIN_WINDOW_MS, deadlineAtMs - setupStartedAtMs);
-    const isUnanswered = (error: VmWorkflowError) =>
-      error._tag === "VmProviderOperationError" && hasProviderGuestUnresponsiveCause(error.cause);
     // The first setup failure, kept so a deadline that fires during recovery
     // answers with it: an early refusal (a 401, a fast 500) keeps its own code.
     let firstSetupFailure: VmWorkflowError | undefined;
-    const atDeadline = (): VmWorkflowError => firstSetupFailure && !isUnanswered(firstSetupFailure)
+    const atDeadline = (): VmWorkflowError => firstSetupFailure && !isVmProviderHang(firstSetupFailure)
       ? firstSetupFailure
       : new VmProviderOperationError({
         provider: vm.provider,
@@ -5101,10 +5110,10 @@ export function prepareScpEndpoint(input: {
     // One deadline covers the preflight resume, the setup, and any status
     // probe, resume and second attempt after it: a later answer reaches no
     // one. At the deadline the answer is the first setup failure when there
-    // was one that is not a hang, else the stuck guest. The work is disconnected, so a resume past the deadline still
-    // finishes its bookkeeping in the background instead of being interrupted
-    // midway. A guest that did not answer is not retried here: a probe or
-    // resume inside the same request does not fix it.
+    // was one that is not a hang, else the stuck guest. withVmAnswerDeadline
+    // never interrupts the work, so a resume past the deadline still finishes
+    // its bookkeeping in the background. A guest that did not answer is not
+    // retried here: a probe or resume inside the same request does not fix it.
     const endpoint = yield* Effect.gen(function* () {
       yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "scp", {
         forceProviderProbe: true, maxActiveVms: input.maxActiveVms, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane,
@@ -5118,11 +5127,10 @@ export function prepareScpEndpoint(input: {
         setup,
         input.maxActiveVms,
         input.callerPlanId,
-        isUnanswered,
+        isVmProviderHang,
       );
     }).pipe(
-      Effect.disconnect,
-      Effect.timeoutFail({ duration: setupWindowMs, onTimeout: atDeadline }),
+      (work) => withVmAnswerDeadline(work, { answerWithinMs: setupWindowMs, onDeadline: () => Effect.fail(atDeadline()) }),
     );
     yield* repo.recordUsageEvent({
       userId: input.userId,

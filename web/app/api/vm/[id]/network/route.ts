@@ -29,7 +29,7 @@ export async function GET(
         teamIds: user.teamIds,
         providerVmId: id,
         callerPlanId: account.entitlements.planId,
-      }), { request });
+      }), { request, deadline: { operation: "networkRead" } });
       if (!run.ok) return run.response;
       return jsonResponse(await networkPolicyResponseBody(run.value, vmRequestLocale(request)));
     },
@@ -71,7 +71,7 @@ export async function PUT(
         providerVmId: id,
         callerPlanId: account.entitlements.planId,
         policy: parsed.policy,
-      }), { request });
+      }), { request, deadline: { operation: "networkUpdate" } });
       if (!run.ok) return run.response;
       return jsonResponse(await networkPolicyResponseBody(run.value, vmRequestLocale(request)));
     },

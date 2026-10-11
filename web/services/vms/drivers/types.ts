@@ -722,7 +722,6 @@ export class ProviderTlsRuleLimitError extends ProviderError {
   }
 }
 
-/** Whether `err` or anything in its cause chain is a {@link ProviderTlsRuleLimitError}. */
 /** True when `err` or one of its causes is a {@link ProviderGuestUnresponsiveError}. */
 export function hasProviderGuestUnresponsiveCause(err: unknown): boolean {
   let current = err;
@@ -733,6 +732,30 @@ export function hasProviderGuestUnresponsiveCause(err: unknown): boolean {
   return false;
 }
 
+/**
+ * True when a provider failure says the call was never answered, not that it
+ * was refused: a stuck guest ({@link ProviderGuestUnresponsiveError}), a
+ * client timeout or abort, a gateway 502/504 (a background request polled
+ * past its limit), or the provider's VM_NON_RESPONSIVE. The first error in
+ * the chain that carries an HTTP status decides, so an early 401/403/404/429
+ * or another 5xx is a refusal. A hung call may still complete at the provider.
+ */
+export function isProviderHangCause(err: unknown): boolean {
+  let current = err;
+  for (let depth = 0; depth < 8 && current; depth += 1) {
+    if (current instanceof ProviderGuestUnresponsiveError) return true;
+    if (typeof current !== "object") return false;
+    const record = current as { status?: unknown; code?: unknown; name?: unknown; cause?: unknown };
+    if (typeof record.status === "number") {
+      return record.status === 502 || record.status === 504 || record.code === "VM_NON_RESPONSIVE";
+    }
+    if (record.name === "TimeoutError" || record.name === "AbortError") return true;
+    current = record.cause;
+  }
+  return false;
+}
+
+/** Whether `err` or anything in its cause chain is a {@link ProviderTlsRuleLimitError}. */
 export function hasProviderTlsRuleLimitCause(err: unknown): boolean {
   let current = err;
   for (let depth = 0; depth < 8 && current; depth += 1) {

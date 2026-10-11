@@ -55,7 +55,7 @@ export async function POST(
         memoryMb: memoryMb as number | undefined,
         maxActiveVms: account.entitlements.maxActiveVms,
         modelPlane: vmModelPlaneRevoker(),
-      }), { request });
+      }), { request, deadline: { operation: "resize" } });
       if (!run.ok) return run.response;
       const stats = run.value;
       return jsonResponse({

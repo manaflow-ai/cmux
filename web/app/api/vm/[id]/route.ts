@@ -157,7 +157,7 @@ export async function DELETE(
         teamIds: user.teamIds,
         providerVmId: id,
         modelPlane: vmModelPlaneRevoker(),
-      }), { request });
+      }), { request, deadline: { operation: "destroy" } });
       if (!run.ok) return run.response;
       return jsonResponse({ ok: true });
     },

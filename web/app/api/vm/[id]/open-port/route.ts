@@ -65,7 +65,7 @@ export async function POST(
         teamIds: user.teamIds,
         providerVmId: id,
         port,
-      }), { request });
+      }), { request, deadline: { operation: "openPort" } });
       if (!run.ok) return run.response;
       const endpoint = run.value;
       // People see and keep openUrl, so it points at the cmux desktop

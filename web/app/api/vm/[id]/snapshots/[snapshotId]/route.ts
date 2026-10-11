@@ -32,7 +32,7 @@ export async function DELETE(
         teamIds: user.teamIds,
         providerVmId: id,
         snapshotId,
-      }), { request });
+      }), { request, deadline: { operation: "snapshotDelete" } });
       if (!run.ok) return run.response;
       return jsonResponse({ id: run.value.id, deleted: run.value.deleted });
     },
