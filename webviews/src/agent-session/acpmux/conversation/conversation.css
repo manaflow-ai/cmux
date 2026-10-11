@@ -237,8 +237,22 @@
   transition: opacity 120ms ease-out;
 }
 .cv-user:hover .cv-user__actions,
-.cv-user__actions:focus-within {
+.cv-user__actions:focus-within,
+.cv-user__actions--versions {
   opacity: 1;
+}
+/* < n/m > between a prompt's versions (cx-ncc.61), before Copy and Edit, as Claude's. */
+.cv-user__versions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.cv-user__version-count {
+  min-width: 28px;
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: var(--cv-text-muted);
 }
 /* The prompt open for editing: the bubble's place and shape, its text editable, Cancel and Send under it. */
 .cv-user__edit {

@@ -56,7 +56,7 @@ nonisolated enum WorkspaceVerbActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "workspace.duplicateTerminalsOnly",
-                title: String(localized: "action.workspace.duplicateTerminalsOnly", defaultValue: "Duplicate Workspace without Browser Tabs", table: "WorkspaceActions", bundle: .module),
+                title: String(localized: "action.workspace.duplicateTerminalsOnly", defaultValue: "Duplicate Workspace Without Browser Tabs", table: "WorkspaceActions", bundle: .module),
                 keywords: ["copy", "clone", "layout", "terminal"], category: .workspace, symbol: "terminal",
                 surfaces: [.palette, .keyboard, .contextMenu], targets: [.workspace], cliName: "workspace duplicate-terminals-only", startsTerminal: true
             ),
