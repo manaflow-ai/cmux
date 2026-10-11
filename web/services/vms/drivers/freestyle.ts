@@ -1252,8 +1252,22 @@ export class FreestyleProvider implements VMProvider {
    * not produce (memory is lost), so it is not a finished pause.
    */
   async getPauseState(vmId: string): Promise<VmPauseState> {
-    const data = await this.deps.client().vms.get(vmId);
-    return freestylePauseState(data.state);
+    return withVmSpan(
+      "cmux.vm.provider.get_pause_state",
+      "provider",
+      spanAttributes(vmId, "get_pause_state"),
+      async (span) => {
+        try {
+          const data = await this.deps.client().vms.get(vmId);
+          const state = freestylePauseState(data.state);
+          setSpanAttributes(span, { "cmux.vm.provider_state": data.state, "cmux.vm.pause_state": state });
+          return state;
+        } catch (err) {
+          if (isNotFound(err)) return "destroyed";
+          throw new ProviderError("freestyle", `getPauseState(${vmId})`, err);
+        }
+      },
+    );
   }
 
   /** Pause freezes memory, so a later start resumes the daemon in place. */

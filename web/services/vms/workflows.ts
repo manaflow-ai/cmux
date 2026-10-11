@@ -2233,6 +2233,10 @@ export function pauseVm(input: {
     if (observed === "in_progress") {
       return yield* Effect.fail(new VmOperationDeadlineError({ operation: "pause", mutating: true, waitedMs: 0 }));
     }
+    // Gone at the provider: the same not-found answer as a destroyed row.
+    if (observed === "destroyed") {
+      return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
+    }
     if (observed !== "paused") {
       if (vm.billingPlanId === "go") yield* setRuntimeBudget(providers, vm, providerVmId, 0);
       yield* pause(vm.provider, providerVmId);

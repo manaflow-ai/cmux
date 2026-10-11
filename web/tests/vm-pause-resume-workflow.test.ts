@@ -56,7 +56,7 @@ function fakes(options: {
   providerStatus?: "running" | "paused";
   /** Successive getStatus answers; the last one repeats. */
   providerStatuses?: Array<"creating" | "running" | "paused">;
-  pauseState?: "paused" | "in_progress" | "not_paused";
+  pauseState?: "paused" | "in_progress" | "not_paused" | "destroyed";
   withPause?: boolean;
   withResume?: boolean;
   stats?: { cpus: number; memoryTotalMb: number; diskTotalMb: number };
@@ -188,6 +188,13 @@ describe("pauseVm", () => {
   test("a retry while the first pause is still pausing answers in progress without pausing again", async () => {
     const { recorded, layer } = fakes({ row: machineRow(), pauseState: "in_progress" });
     expect(await failureTag(pauseVm(caller), layer)).toBe("VmOperationDeadlineError");
+    expect(recorded.paused).toEqual([]);
+    expect(recorded.statuses).toEqual([]);
+  });
+
+  test("a machine gone at the provider answers not found without a pause call", async () => {
+    const { recorded, layer } = fakes({ row: machineRow(), pauseState: "destroyed" });
+    expect(await failureTag(pauseVm(caller), layer)).toBe("VmNotFoundError");
     expect(recorded.paused).toEqual([]);
     expect(recorded.statuses).toEqual([]);
   });

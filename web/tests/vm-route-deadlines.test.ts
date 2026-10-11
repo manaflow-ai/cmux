@@ -4,6 +4,8 @@ import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
 import * as TestClock from "effect/TestClock";
 import * as TestContext from "effect/TestContext";
+import { FreestyleApiError, type Freestyle } from "freestyle";
+import { FreestyleProvider } from "../services/vms/drivers/freestyle";
 import { ProviderError, ProviderGuestUnresponsiveError } from "../services/vms/drivers/types";
 import { VmOperationDeadlineError, VmProviderOperationError, type VmWorkflowError } from "../services/vms/errors";
 import { vmWorkflowErrorResponse } from "../services/vms/routeHelpers";
@@ -59,7 +61,7 @@ describe("VM route answer deadlines", () => {
   test("a mutation whose provider call hangs into a gateway 502 answers in progress", async () => {
     const { answer, virtualMs } = await underDeadline(
       "pause",
-      Effect.sleep("3 seconds").pipe(Effect.andThen(Effect.fail(providerFailure("pause", new ProviderError("freestyle", "pause", gateway502()))))),
+      Effect.fail(providerFailure("pause", new ProviderError("freestyle", "pause", gateway502()))),
     );
     expect(virtualMs).toBeLessThan(5_000);
     const error = answer?._tag === "Left" ? answer.left : null;
@@ -177,5 +179,30 @@ describe("VM route deadline answers", () => {
     expect(response?.status).toBe(504);
     const payload = await response!.json() as Record<string, unknown>;
     expect(payload).toMatchObject({ error: "vm_provider_timeout", retryable: true });
+  });
+});
+
+describe("Freestyle raw pause state", () => {
+  const providerWith = (get: () => Promise<unknown>) =>
+    new FreestyleProvider({ client: () => ({ vms: { get } }) as unknown as Freestyle });
+
+  test.each([
+    ["paused", "paused"],
+    ["pausing", "in_progress"],
+    ["starting", "in_progress"],
+    ["running", "not_paused"],
+    ["stopped", "not_paused"],
+  ])("maps %s to %s", async (state, expected) => {
+    expect(await providerWith(async () => ({ state })).getPauseState("vm-1")).toBe(expected);
+  });
+
+  test("a machine the provider no longer has is destroyed, not a pause target", async () => {
+    const gone = providerWith(async () => { throw new FreestyleApiError(404, { code: "NOT_FOUND", message: "VM not found" }); });
+    expect(await gone.getPauseState("vm-1")).toBe("destroyed");
+  });
+
+  test("another provider failure stays a provider error", async () => {
+    const failing = providerWith(async () => { throw new FreestyleApiError(500, { code: "INTERNAL_ERROR", message: "boom" }); });
+    await expect(failing.getPauseState("vm-1")).rejects.toThrow("getPauseState(vm-1)");
   });
 });

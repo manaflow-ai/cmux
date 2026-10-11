@@ -16,7 +16,7 @@ export function isProviderId(value: unknown): value is ProviderId {
 export type VMStatus = "creating" | "running" | "paused" | "destroyed";
 
 /** A provider's raw pause state, see `VMProvider.getPauseState`. */
-export type VmPauseState = "paused" | "in_progress" | "not_paused";
+export type VmPauseState = "paused" | "in_progress" | "not_paused" | "destroyed";
 
 /// A point-in-time reading of one machine. Sleeping machines are never woken for a
 /// reading: they report `asleep` with only their provisioned memory.
