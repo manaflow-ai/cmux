@@ -46,6 +46,15 @@ public nonisolated enum GroupTint: Hashable, Sendable {
         }
     }
 
+    /// `headerFill` as an opaque theme color, for contrast math (the solid
+    /// group header's glyph ink, cx-qno.22).
+    @MainActor public var headerRGB: ThemeRGB {
+        switch self {
+        case let .palette(token): token.headerRGB(ThemeContext.active ?? ThemeScope.app.tokens)
+        case let .custom(rgb): Self.readable(rgb)
+        }
+    }
+
     /// Black or white text and glyphs on `headerFill`.
     @MainActor public var headerInk: NSColor {
         switch self {

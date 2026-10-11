@@ -47,4 +47,10 @@ extension Palette {
                                                                   base: tokens.sidebarBackground.withAlpha(1))
         return tokens.glyphInk(over: fill.map { tokens[keyPath: $0] }, base: ground).nsColor
     }
+
+    /// The one glyph ink on an opaque colored surface (the solid group header).
+    @MainActor public static func glyphInk(on surface: ThemeRGB) -> NSColor {
+        let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+        return tokens.glyphInk(base: surface).nsColor
+    }
 }
