@@ -29,20 +29,16 @@ struct HeaderDiffPlacementTests {
         #expect(AgentBesidePlacement.newColumn(beside: chat, in: store) == ColumnID(rawValue: 10))
     }
 
-    /// A chat docked left (the dock a lone chat's first beside tab makes): the diff becomes the first
-    /// strip column, next to the dock. A chat docked right keeps the daemon's default.
-    @Test func aDockedChatsDiffOpensNextToTheDock() throws {
-        for (edge, expected) in [(DockSnapshot.Edge.left, ColumnID?.some(10)), (.right, nil)] {
-            let store = DaemonStore()
-            let chat = PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, kind: .other("agentChat"))])
-            let terminal = PaneSnapshot(id: 2, tabs: [TabSnapshot(surface: 2, kind: .pty)])
-            let columns = [ColumnSnapshot(id: 10, width: 0.3, layout: .leaf(1), dock: DockSnapshot(edge: edge, mode: .docked, role: .agentChat)),
-                           ColumnSnapshot(id: 11, width: 0.7, layout: .leaf(2))]
-            let screen = ScreenSnapshot(id: 1, layout: .leaf(1), columns: columns, panes: [chat, terminal])
-            store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w", screens: [screen])]))
-            let pane = try #require(store.pane(containing: 1))
-            #expect(AgentBesidePlacement.newColumn(beside: pane, in: store) == expected, "\(edge)")
-        }
+    /// A chat docked to the edge is no scrolling column to follow: the daemon's default stands. (The
+    /// daemon stores the chat's dock after the strip's last column, so naming it would not help.)
+    @Test func aDockedChatKeepsTheDaemonsDefault() throws {
+        let store = DaemonStore()
+        let chat = PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, kind: .other("agentChat"))])
+        let columns = [ColumnSnapshot(id: 10, width: 0.3, layout: .leaf(1), dock: DockSnapshot(edge: .left, mode: .docked))]
+        let screen = ScreenSnapshot(id: 1, layout: .leaf(1), columns: columns, panes: [chat])
+        store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w", screens: [screen])]))
+        let pane = try #require(store.pane(containing: 1))
+        #expect(AgentBesidePlacement.newColumn(beside: pane, in: store) == nil)
     }
 
     private final class DiffPage: InternalPageProvider {
