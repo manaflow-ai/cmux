@@ -127,11 +127,10 @@ final class AppControl {
                 return .value(DebugNotifications.handle(call.params, services: services))
             },
             // App overlays vs content child windows (Chromium pages).
-            // `reset_layout_passes: true` clears the layout pass counts first.
+            // Params (layout pass reset, the layout-loop fixture): DebugLayers.handle.
             .mainActor("debug.layers") { [weak services] call in
                 guard let services else { return .value(.null) }
-                if call.params["reset_layout_passes"]?.boolValue == true { LayoutPassGuard.shared.reset() }
-                return .value(DebugLayers.report(services: services))
+                return .value(DebugLayers.handle(call.params, services: services))
             },
             // The one hover card: machine phase, card window, timer, monitor.
             .mainActor("debug.hover_cards") { [weak services] _ in

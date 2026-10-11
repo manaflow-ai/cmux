@@ -4,9 +4,10 @@
 Launches the tagged app (no activation, bounded window, isolated config),
 then over its debug socket: opens a browser split (Chromium pages move the
 overlay plane into the overlay panel), makes 20 splits and columns, toggles
-the sidebar (moves the layout root without a layout of the root) and steps
-the window size 50 times. After every step it reads `debug.layers` and
-fails when:
+the sidebar (moves the layout root without a layout of the root), steps
+the window size 50 times and walks the interface scale across its range
+(every scale step lays the palette out again, hidden or not; cx-wcej). After
+every step it reads `debug.layers` and fails when:
 
 - one view was laid out more than LayoutPassGuard.bound times in one
   run-loop turn (`layout_passes.max_in_one_turn`), or the guard caught a loop;
@@ -17,6 +18,12 @@ fails when:
 - no step ran with a plane in the overlay panel, or an action failed.
 
 The app crashing (AppKit layout-pass exception) fails the run too.
+
+Last, it proves a layout loop does not end the app (cx-3j8y): with the
+guard set to break loops (a release build's setting), it opens the
+`layout_loop_fixture` window, whose view asks for layout from inside its own
+layout, and fails unless the app still answers and the guard reported a
+broken loop in `LayoutLoopFixtureView`.
 
 Usage: layout-loop-stress-live.py TAG APP OUT_DIR
 Exit 0 = all steps clean. Writes OUT_DIR/layout-loop-stress.json.
@@ -32,6 +39,9 @@ ACCOUNT_HOME = pwd.getpwuid(os.getuid()).pw_dir
 ACPMUX_HOME = os.path.join(ACCOUNT_HOME, ".cmux/chief/isolated", TAG, "acpmux")
 RESIZE_STEPS = 50
 SPLITS = 20
+# Down past the floor, up past the ceiling, back down, then reset.
+SCALE_WALK = (("appearance.uiScale.decrease", 4), ("appearance.uiScale.increase", 14),
+              ("appearance.uiScale.decrease", 14), ("appearance.uiScale.reset", 1))
 os.makedirs(OUT, exist_ok=True)
 
 
@@ -86,6 +96,24 @@ def check(step, app, results):
     results.append({"step": step, "max_in_one_turn": worst, "rings": rings, "failures": failures,
                     "placement": [p.get("host") for w in layers.get("windows") or [] for p in w.get("planes") or []]})
     return failures
+
+
+def loop_breaker_check(app):
+    """Opens the layout-loop fixture with the guard breaking loops; returns failures."""
+    rpc("debug.layers", {"reset_layout_passes": True, "layout_guard_breaks": True})
+    opened = rpc("debug.layers", {"layout_loop_fixture": "open"}) or {}
+    time.sleep(2)  # test harness: let the fixture window run through a few display cycles
+    if app.poll() is not None or (rpc("debug.windows", timeout=10) or {}).get("windows") is None:
+        return ["layout loop fixture: the app stopped answering (AppKit layout-pass exception)"]
+    layers = rpc("debug.layers", {"layout_loop_fixture": "close"}) or {}
+    rpc("debug.layers", {"reset_layout_passes": True, "layout_guard_breaks": False})
+    if opened.get("layout_loop_fixture") != "open":
+        return ["layout loop fixture did not open: %s" % json.dumps(opened)[:200]]
+    loops = (layers.get("layout_passes") or {}).get("loops") or []
+    if not any(loop.get("view_class") == "LayoutLoopFixtureView" and loop.get("broken") for loop in loops):
+        return ["layout loop fixture: no broken loop reported for LayoutLoopFixtureView: %s" % json.dumps(loops)[:300]]
+    print("layout loop fixture: broken and reported, app answering", flush=True)
+    return []
 
 
 def quit_end_sessions():
@@ -150,7 +178,15 @@ try:
             if i == 25:
                 rpc("action.run", {"id": "toggleSidebar"})
                 failures += check("toggleSidebar mid-resize", app, results)
+        for action, count in SCALE_WALK:
+            for i in range(count):
+                if app.poll() is not None:
+                    break
+                rpc("action.run", {"id": action})
+                failures += check("%s %d" % (action, i + 1), app, results)
         rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(OUT, "after-stress.png")}, timeout=60)
+        if app.poll() is None:
+            failures += loop_breaker_check(app)
 finally:
     print("quit:", json.dumps(quit_end_sessions())[:200], flush=True)
     try:

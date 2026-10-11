@@ -10,6 +10,20 @@ import CmuxNextSettings
 /// windows (Chromium pages). WebKit pages are in-window views and never
 /// appear as child windows.
 enum DebugLayers {
+    #if DEBUG
+    /// `reset_layout_passes: true` clears the layout pass counts first;
+    /// `layout_loop_fixture` ("open", "close") drives `DebugLayoutLoop`, and
+    /// the reply carries its state as `layout_loop_fixture`.
+    static func handle(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
+        if params["reset_layout_passes"]?.boolValue == true { LayoutPassGuard.shared.reset() }
+        let fixture = DebugLayoutLoop.handle(params["layout_loop_fixture"]?.stringValue)
+        let reply = report(services: services)
+        guard let fixture, case .object(var fields) = reply else { return reply }
+        fields["layout_loop_fixture"] = fixture
+        return .object(fields)
+    }
+    #endif
+
     static func report(services: AppServices) -> JSONValue {
         let windows = services.windows.controllers.compactMap { controller -> JSONValue? in
             guard let window = controller.window as? ShellWindow else { return nil }
