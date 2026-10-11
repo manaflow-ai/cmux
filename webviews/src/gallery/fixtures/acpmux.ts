@@ -190,6 +190,7 @@ export function manySessions(count: number): AcpmuxSessionEntry[] {
       status: index === 0 ? "running" : index === 2 ? "waiting" : "idle",
       pendingPermissions: index === 2 ? 1 : 0,
       unread: index === 1,
+      indicator: index === 0 ? "working" : index === 2 ? "input" : "done",
       updatedAt: minutesAgo(3 + index * 47),
       cwd: index % 4 === 3 ? "/Users/you/src/cmux" : CWD,
       branch: index % 2 ? `feat-${index}` : "main",
