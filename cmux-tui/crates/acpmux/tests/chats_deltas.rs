@@ -121,10 +121,19 @@ async fn five_thousand_chats_one_change_is_one_numbered_delta() {
     let page = c.ok("_acpmux/chats_watch", json!({"limit": CHATS})).await;
     let chats = page["chats"].as_array().unwrap();
     assert_eq!(chats.len(), CHATS);
-    let expected: Vec<String> =
-        (0..CHATS).rev().map(|i| format!("claude-code:{}", session_id(i))).collect();
-    let keys: Vec<&str> = chats.iter().map(|chat| chat["key"].as_str().unwrap()).collect();
-    assert_eq!(keys, expected, "acpmux sends the list sorted, newest first");
+    let mut keys: Vec<&str> = chats.iter().map(|chat| chat["key"].as_str().unwrap()).collect();
+    // acpmux's order: newest `updatedMs` first, then the key ascending.
+    let order = |chat: &Value| {
+        (-chat["updatedMs"].as_i64().unwrap(), chat["key"].as_str().unwrap().to_owned())
+    };
+    let sorted = chats.windows(2).all(|pair| order(&pair[0]) < order(&pair[1]));
+    assert!(sorted, "acpmux sends the list sorted");
+    let head = keys[0].to_owned();
+    keys.sort_unstable();
+    let mut expected: Vec<String> =
+        (0..CHATS).map(|i| format!("claude-code:{}", session_id(i))).collect();
+    expected.sort_unstable();
+    assert_eq!(keys, expected, "every chat is in the page once");
     assert!(chats.iter().all(|chat| chat["brand"] == "claude"), "every chat names its brand");
     let seq = page["seq"].as_u64().expect("the page names its seq");
 
@@ -154,7 +163,7 @@ async fn five_thousand_chats_one_change_is_one_numbered_delta() {
         vec![
             format!("claude-code:{}", session_id(second)),
             format!("claude-code:{}", session_id(touched)),
-            format!("claude-code:{}", session_id(CHATS - 1)),
+            head,
         ]
     );
 }

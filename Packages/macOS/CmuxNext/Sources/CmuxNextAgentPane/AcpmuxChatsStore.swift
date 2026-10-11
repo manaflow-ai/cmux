@@ -88,8 +88,9 @@ public nonisolated struct AcpmuxChatsStore: Sendable, Equatable {
         }
     }
 
+    /// acpmux's order (`ChatIndex::chats`): newest first, then the key ascending.
     private static func isNewer(_ lhs: AcpmuxChat, _ rhs: AcpmuxChat) -> Bool {
-        lhs.updatedAt > rhs.updatedAt || (lhs.updatedAt == rhs.updatedAt && lhs.id > rhs.id)
+        lhs.updatedAt > rhs.updatedAt || (lhs.updatedAt == rhs.updatedAt && lhs.id < rhs.id)
     }
 
     /// Drops `chat`'s key from the order: a binary search on its sort key
