@@ -184,7 +184,8 @@ jobs:
     name: cmux-tui tree preflight
     if: ${{ github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 3
+    # The feat-cmux-next election fetches each active run's commit.
+    timeout-minutes: 6
     permissions:
       actions: read
       contents: read
@@ -222,7 +223,7 @@ jobs:
           HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           REPOSITORY: ${{ github.repository }}
           SERVER_URL: ${{ github.server_url }}
-          # The REST API host; $SERVER_URL/repos/... is a 404 page, which the
+          # The REST API host; github.com/repos/... is a 404 page, which the
           # silent curls took for "no other run" (cmuxterm-hq#1279).
           API_URL: ${{ github.api_url }}
           RUN_ID: ${{ github.run_id }}
@@ -364,6 +365,8 @@ jobs:
               while IFS=$'\t' read -r candidate_id candidate_sha; do
                 [[ -n "$candidate_id" && -n "$candidate_sha" ]] || continue
                 [[ "$candidate_id" == "$RUN_ID" ]] && continue
+                # This commit's own runs are the same-SHA election's below.
+                [[ "$candidate_sha" == "$SHA" ]] && continue
                 if git -c "http.extraHeader=Authorization: Basic $authorization" \
                     fetch --no-tags --depth=1 "$SERVER_URL/$REPOSITORY.git" "$candidate_sha" >/dev/null 2>&1 \
                   && candidate_key="$(python3 scripts/ci/cmux_tui_tree_key.py --version v2 "$candidate_sha" 2>/dev/null)" \
@@ -424,7 +427,7 @@ jobs:
     if: needs.tree-preflight.result == 'success' && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository)
     needs: tree-preflight
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 35
+    timeout-minutes: 60
     outputs:
       takeover: ${{ steps.wait.outputs.takeover }}
     permissions:
@@ -437,7 +440,7 @@ jobs:
           KEY: ${{ needs.tree-preflight.outputs.key }}
           OWNER_RUN_ID: ${{ needs.tree-preflight.outputs.owner_run_id }}
           SERVER_URL: ${{ github.server_url }}
-          # The REST API host; $SERVER_URL/repos/... is a 404 page, which the
+          # The REST API host; github.com/repos/... is a 404 page, which the
           # silent curls took for "no other run" (cmuxterm-hq#1279).
           API_URL: ${{ github.api_url }}
           REPOSITORY: ${{ github.repository }}
@@ -449,13 +452,13 @@ jobs:
             local base="https://files.cmux.com/cmux-tui/tree/$KEY"
             for asset in cmux-tui-aarch64-apple-darwin cmux-tui-app-host-aarch64-apple-darwin cmux-tui-cloud-server-aarch64-apple-darwin; do
               curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
-                "$base/$asset.sha256?owner-wait=$GITHUB_RUN_ID" >/dev/null || return 1
+                "$base/$asset.sha256?owner-wait=$GITHUB_RUN_ID-$poll" >/dev/null || return 1
               curl --head --fail --silent --show-error --connect-timeout 5 --max-time 15 \
-                -o /dev/null "$base/$asset?owner-wait=$GITHUB_RUN_ID" || return 1
+                -o /dev/null "$base/$asset?owner-wait=$GITHUB_RUN_ID-$poll" || return 1
             done
             completion="$RUNNER_TEMP/cmux-tui-owner-completion.json"
             curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
-              "$base/completion.json?owner-wait=$GITHUB_RUN_ID" -o "$completion" || return 1
+              "$base/completion.json?owner-wait=$GITHUB_RUN_ID-$poll" -o "$completion" || return 1
             python3 - "$KEY" "$completion" <<'PY'
           import json, re, sys
           key, path = sys.argv[1:]
@@ -471,9 +474,15 @@ jobs:
                   raise SystemExit(f"completion manifest is missing {name}")
           PY
           }
+          poll=0
           if [[ -n "$OWNER_RUN_ID" ]]; then
-            deadline=$(( $(date +%s) + 1800 ))
+            # An owner still running is waited for, up to the cap: taking over
+            # from a live owner builds the key twice (and, for the same commit,
+            # hits the write-once commit objects). The owner took 21.5 min
+            # unloaded (run 38124282410).
+            deadline=$(( $(date +%s) + 3300 ))
             while (( $(date +%s) < deadline )); do
+              poll=$((poll + 1))
               if tree_ready; then
                 echo "Tree $KEY was published by run $OWNER_RUN_ID; skipping duplicate build."
                 takeover=false
@@ -486,11 +495,18 @@ jobs:
                 | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("status", "unknown"), d.get("conclusion", ""))' \
                 2>/dev/null || echo unknown)"
               if [[ "$owner_state" == completed* || "$owner_state" == cancelled* || "$owner_state" == failure* ]]; then
+                # It may have published between the two reads.
+                poll=$((poll + 1))
+                if tree_ready; then
+                  echo "Tree $KEY was published by run $OWNER_RUN_ID; skipping duplicate build."
+                  takeover=false
+                  break
+                fi
                 echo "Owner run $OWNER_RUN_ID ended before publishing tree $KEY; taking over."
                 break
               fi
               echo "Waiting for owner run $OWNER_RUN_ID to publish tree $KEY."
-              sleep 30
+              sleep 60
             done
             if [[ "$takeover" == true && $(date +%s) -ge "$deadline" ]]; then
               echo "::warning::owner wait expired for tree $KEY; taking over publication"
