@@ -96,6 +96,15 @@ final class ChromeIconButton: NSButton {
         menuProvider?() ?? super.menu(for: event)
     }
 
+    /// A right-click presses a button whose press opens a menu (the toolbar's
+    /// profile, theme and More, cx-2lm4): right-click shows the same menu.
+    var rightClickPresses = false
+
+    override func rightMouseDown(with event: NSEvent) {
+        guard rightClickPresses, isEnabled else { return super.rightMouseDown(with: event) }
+        performClick(nil)
+    }
+
     /// A press held for 0.4 s shows the menu under the button instead of
     /// clicking (long-press Back and Forward).
     override func mouseDown(with event: NSEvent) {

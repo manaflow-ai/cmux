@@ -27,9 +27,6 @@ extension SidebarUpdateCardView {
         popover.performClose(nil)
     }
 
-    /// Whether the popover is on screen.
-    var isShowingNotes: Bool { popover?.isShown == true }
-
     private func makePopover() -> NSPopover {
         let popover = NSPopover()
         popover.behavior = .semitransient

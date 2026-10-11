@@ -130,7 +130,8 @@ final class WindowRecordSaver {
             let order = controller?.window.flatMap { ordered.firstIndex(of: $0) }
                 ?? (value.recency.firstIndex(of: window.id) ?? 0) + ordered.count
             var record = value.record(window.id, state: states[window.id], order: order,
-                                      isFullScreen: controller?.window?.styleMask.contains(.fullScreen) ?? false,
+                                      isFullScreen: controller?.window?.styleMask.contains(.fullScreen) == true
+                                          || states[window.id]?.restoresFullScreen == true,
                                       selectedTabs: selectedTabs(window: window))
             record?.focusedPane = states[window.id].flatMap { $0.focus.state.pane ?? $0.savedFocusedPane }
             record?.focusedPanes = focusedPanes(window: window)

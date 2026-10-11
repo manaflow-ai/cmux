@@ -50,9 +50,6 @@ enum AccountsStrings {
     static var connect: String { text("accounts.action.connect", "Connect to CodeRouter") }
     static var remove: String { text("accounts.action.remove", "Remove from CodeRouter") }
     static var unsupported: String { text("accounts.linked.unsupported", "CodeRouter does not route this provider yet.") }
-    static func linkedCount(_ count: Int) -> String {
-        String(format: text("accounts.linked.count", "In CodeRouter: %lld"), count)
-    }
     static var bedrockNeedsKeys: String {
         String(format: text("accounts.hint.bedrockKeys", "To connect, set %@ in your shell."), "AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY")
     }

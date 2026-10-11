@@ -146,7 +146,7 @@ final class AgentTabStore {
     var pendingTurns: [String: String] = [:]
     /// The git link of tab `key`: the session host of the tab's own machine (AgentPaneGitReads.swift),
     /// so a Cloud or SSH chat reads its folder there; nil answers the page `native.not_connected`.
-    var gitLink: (@MainActor (String) -> AgentPaneGitLink?)?
+    var gitLink: (@MainActor (String) -> AgentPaneGitLink?)?, openFiles: (@MainActor (_ chat: String, _ folder: String, _ target: String?) -> Void)?
 
     /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``)
     /// (AppDelegate makes it before any agent tab).
@@ -228,12 +228,6 @@ final class AgentTabStore {
     func revealTurn(_ turn: String, in key: String) {
         let key = resolve(key)
         if let view = views[key] { view.revealTurn(turn) } else { pendingTurns[key] = turn }
-    }
-
-    /// The link turn tab `key`'s page has not been handed yet.
-    func pendingTurn(in key: String) -> String? {
-        let key = resolve(key)
-        return views[key]?.model.pendingRevealTurn ?? pendingTurns[key]
     }
 
     /// The tab's pane view, made on first show. A tab whose session runs on another machine is

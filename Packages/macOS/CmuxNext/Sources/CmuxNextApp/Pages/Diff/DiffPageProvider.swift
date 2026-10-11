@@ -98,9 +98,6 @@ final class DiffPageProvider: PageProvider {
         }
     }
 
-    /// Event subscribers (tests; the stdio sidecar has none to send).
-    var eventSubscriberCount: Int { events.count }
-
     private func config() async throws -> JSONValue {
         guard let ready else { return await withStores(["pick": true]) }
         do {

@@ -58,11 +58,4 @@ extension CEFTab {
         defer { isGrantingFocus = false }
         runtime.shim?.setFocus(browser, 1)
     }
-
-    /// Runs `body` as if inside cmux's own `SetFocus(true)` (tests).
-    func withFocusGrant<T>(_ body: () -> T) -> T {
-        isGrantingFocus = true
-        defer { isGrantingFocus = false }
-        return body()
-    }
 }

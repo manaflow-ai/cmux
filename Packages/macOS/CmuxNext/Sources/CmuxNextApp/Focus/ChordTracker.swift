@@ -51,11 +51,6 @@ struct ChordTracker {
     /// follows them), else nil.
     var armedKeys: [Shortcut]? { pending?.keys }
 
-    /// The leader while it waits for its second key, else nil.
-    var leaderPrefix: Shortcut? {
-        pending?.keys == [LeaderLayer.prefix] ? LeaderLayer.prefix : nil
-    }
-
     /// The registry's binding table with its process-wide context (tests);
     /// the key router passes the key window's context instead.
     mutating func step(_ event: NSEvent, window: ObjectIdentifier, registry: ActionRegistry,

@@ -158,6 +158,7 @@ mod feed_local;
 mod frontend_browser_history;
 mod history_search;
 mod home;
+mod icon_assets;
 mod launch_snapshot;
 mod new_screen;
 mod personal;
@@ -1594,6 +1595,9 @@ enum Command {
     FeedLocalHandoffBegin(feed_local::ItemParams),
     FeedLocalHandoffAbort(feed_local::ItemParams),
     FeedLocalHandoffDone(feed_local::DoneParams),
+    /// Asset blobs for icons (`icon-assets-v1`, server/icon_assets.rs).
+    PutBlob(icon_assets::PutParams),
+    GetBlob(icon_assets::GetParams),
     /// Local conversations (`local-conversations-v1`, server/conversations.rs).
     ConversationList,
     ConversationCreate(conversations::CreateParams),
@@ -1604,6 +1608,7 @@ enum Command {
     HistorySearch(history_search::HistorySearchParams),
     ConversationOp(conversations::OpParams),
     ConversationTyping(conversations::TypingParams),
+    ConversationDraft(conversations::DraftParams),
     ConversationBind(conversations::BindParams),
     ConversationAgentToken(conversations::AgentTokenParams),
     /// Cloud conversations proxy (`cloud-conversations-v1`,
@@ -3475,6 +3480,8 @@ fn handle_command_with_cancellation(
         | Command::FeedLocalHandoffBegin(_)
         | Command::FeedLocalHandoffAbort(_)
         | Command::FeedLocalHandoffDone(_)) => feed_local::dispatch(mux, &actor, cmd),
+        Command::PutBlob(params) => icon_assets::put(mux, params),
+        Command::GetBlob(params) => icon_assets::get(mux, params),
         Command::ConversationList => conversations::list(mux, client),
         Command::ConversationCreate(params) => conversations::create(mux, client, params),
         Command::ConversationSnapshot(params) => conversations::snapshot(mux, client, params),
@@ -3483,6 +3490,7 @@ fn handle_command_with_cancellation(
         Command::HistorySearch(params) => history_search::search(mux, client, params),
         Command::ConversationOp(params) => conversations::op(mux, client, params),
         Command::ConversationTyping(params) => conversations::typing(mux, client, params),
+        Command::ConversationDraft(params) => conversations::draft(mux, client, params),
         Command::ConversationBind(params) => conversations::bind(mux, client, params),
         Command::ConversationAgentToken(params) => conversations::agent_token(mux, client, params),
         Command::CloudSessionSet(params) => cloud_conversations::session_set(mux, client, params),

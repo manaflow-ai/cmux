@@ -21,7 +21,15 @@
      /// Hosted rows of these messages measure again (no state change). `animated` false: an
      /// estimate correction (no motion; the first visible row keeps its place).
      case remeasureCustom([ID], animated: Bool)
-@@ -185,6 +192,13 @@
+@@ -178,6 +185,7 @@
+         case let .replaceWindow(msgs, start):
+             s.conversation.messages = msgs
+             s.windowStart = start
++            s.total = start + msgs.count // cmux: Home has no pager; its window always ends at the newest message (cx-7nf0)
+             s.ui.scroll = .init(pinnedToBottom: false, offset: 0)
+         case let .setCustomPart(id, pi, part):
+             guard let i = s.conversation.messages.lastIndex(where: { $0.id == id }),
+@@ -185,6 +193,13 @@
              s.conversation.messages.update(at: i) { $0.parts.update(at: pi) { $0 = .custom(part) } }
          case .remeasureCustom:
              break

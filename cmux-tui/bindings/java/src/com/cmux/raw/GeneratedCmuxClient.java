@@ -273,6 +273,11 @@ public abstract class GeneratedCmuxClient {
         return ConversationCreateResult.fromWire(result);
     }
 
+    public final ConversationDraftResult conversationDraft(ConversationDraftRequest request) throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_DRAFT, request.toWire());
+        return ConversationDraftResult.fromWire(result);
+    }
+
     public final ConversationHistoryResult conversationHistory(ConversationHistoryRequest request) throws CmuxException {
         Object result = execute(Commands.CONVERSATION_HISTORY, request.toWire());
         return ConversationHistoryResult.fromWire(result);
@@ -450,6 +455,11 @@ public abstract class GeneratedCmuxClient {
 
     public final Object forgetSession(ForgetSessionRequest request) throws CmuxException {
         Object result = execute(Commands.FORGET_SESSION, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object getBlob(GetBlobRequest request) throws CmuxException {
+        Object result = execute(Commands.GET_BLOB, request.toWire());
         return Wire.immutableJson(result);
     }
 
@@ -771,6 +781,11 @@ public abstract class GeneratedCmuxClient {
     public final ProcessInfoResult processInfo(ProcessInfoRequest request) throws CmuxException {
         Object result = execute(Commands.PROCESS_INFO, request.toWire());
         return ProcessInfoResult.fromWire(result);
+    }
+
+    public final Object putBlob(PutBlobRequest request) throws CmuxException {
+        Object result = execute(Commands.PUT_BLOB, request.toWire());
+        return Wire.immutableJson(result);
     }
 
     public final FrontendProjection putFrontendProjection(PutFrontendProjectionRequest request) throws CmuxException {

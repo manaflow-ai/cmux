@@ -264,7 +264,8 @@
   white-space: nowrap;
 }
 .acpmux-composer-bar .acpmux-access-trigger {
-  width: auto;
+  width: 180px;
+  box-sizing: border-box;
   max-width: 180px;
   gap: 5px;
   padding-inline: 8px;
@@ -308,8 +309,16 @@
   background: var(--acpmux-composer-edge);
 }
 @media (max-width: 480px) {
-  .acpmux-composer-bar .acpmux-access-trigger { max-width: 112px; }
+  .acpmux-composer-bar .acpmux-access-trigger { width: 112px; max-width: 112px; }
   .acpmux-composer-bar .acpmux-mode-text { display: none; }
+}
+/* Keep the complete control rail usable in a very narrow pane. The regular 112px access
+   control is comfortable at the 240px compact breakpoint, but plus + access + Send otherwise
+   exceed the bar's content box below 220px. Preserve every action and only tighten their rhythm. */
+@media (max-width: 220px) {
+  .acpmux-composer-bar { gap: 6px; padding-inline: 8px; }
+  .acpmux-composer-bar .acpmux-composer-plus .acpmux-picker-button { width: 24px; }
+  .acpmux-composer-bar .acpmux-access-trigger { width: 96px; max-width: 96px; }
 }
 /* Start Agent's panel (Composer contextFirst, cx-hkat): the row heads the card, so its hairline
    and rounded corners move to the top. */

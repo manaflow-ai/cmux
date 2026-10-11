@@ -51,6 +51,14 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     /// The shim cancelled a main-frame navigation to a local file cmux shows
     /// elsewhere (`LocalFileHandoff`).
     case localFileHandoff(browser: Int32, url: String)
+    /// A link to another app (EXTERNAL_URL); `userGesture`: the user's click started it.
+    case externalURL(browser: Int32, url: String, userGesture: Bool)
+    /// A permission request the host decides (PERMISSION_PROMPT; `permissions`
+    /// are `cef_permission_request_types_t` bits), answered with
+    /// `cmux_shim_permission_continue(token, …)`; Chromium may end it first
+    /// (`permissionDismissed`).
+    case permissionPrompt(browser: Int32, token: Int32, permissions: Int64, origin: String)
+    case permissionDismissed(browser: Int32, token: Int32)
     /// The page did not handle a key down (Windows key code): a plain
     /// Escape, or a letter outside editable fields with `shift`.
     case keyUnhandled(browser: Int32, keyCode: Int, shift: Bool)
@@ -121,6 +129,9 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
             self = download.map(Self.download) ?? .unknown(kind: kind)
         case 38: self = .localFileHandoff(browser: browser, url: s1)
         case 39: self = .bookmarks(json: s1, profilePath: s2)
+        case 40: self = .externalURL(browser: browser, url: s1, userGesture: a != 0)
+        case 41: self = .permissionPrompt(browser: browser, token: request, permissions: a, origin: s1)
+        case 42: self = .permissionDismissed(browser: browser, token: request)
         default: self = .unknown(kind: kind)
         }
     }

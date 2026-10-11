@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "c9abf8acd2064cb24a9f0a1f4ad724e12d0d7132afba6aaf07780d4f7fe741fa";
+pub const ir_sha256 = "855180e92dac1d57283a061b75526778f042da86d364e8b24d8c2528f600e7f6";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -4073,6 +4073,36 @@ pub fn conversationCreate(client: anytype, request: ConversationCreateRequest) !
     );
 }
 
+pub const ConversationDraftRequest = struct {
+    conversation: []const u8,
+    done: bool,
+    fresh: bool,
+    harness: wire.Field([]const u8) = .absent,
+    kind: []const u8,
+    segment: u64,
+    seq: u64,
+    text: []const u8,
+    truncated: wire.Field(bool) = .absent,
+    turn: []const u8,
+};
+
+pub const ConversationDraftResult = struct {
+    published: bool,
+};
+
+pub fn conversationDraft(client: anytype, request: ConversationDraftRequest) !wire.Decoded(ConversationDraftResult) {
+    return client.callTyped(
+        ConversationDraftResult,
+        .{
+            .name = "conversation-draft",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "conversation-draft-v1",
+        },
+        request,
+    );
+}
+
 pub const ConversationHistoryRequest = struct {
     before_seq: u64,
     conversation: []const u8,
@@ -4936,6 +4966,25 @@ pub fn forgetSession(client: anytype, request: ForgetSessionRequest) !wire.Decod
             .authority = "control",
             .since = 12,
             .capability = "profiles-v1",
+        },
+        request,
+    );
+}
+
+pub const GetBlobRequest = struct {
+    blob: []const u8,
+};
+
+pub const GetBlobResult = JsonValue;
+
+pub fn getBlob(client: anytype, request: GetBlobRequest) !wire.Decoded(GetBlobResult) {
+    return client.callTyped(
+        GetBlobResult,
+        .{
+            .name = "get-blob",
+            .authority = "control",
+            .since = 12,
+            .capability = "icon-assets-v1",
         },
         request,
     );
@@ -6444,6 +6493,26 @@ pub fn processInfo(client: anytype, request: ProcessInfoRequest) !wire.Decoded(P
             .authority = "control",
             .since = 6,
             .capability = null,
+        },
+        request,
+    );
+}
+
+pub const PutBlobRequest = struct {
+    data: []const u8,
+    media_type: []const u8,
+};
+
+pub const PutBlobResult = JsonValue;
+
+pub fn putBlob(client: anytype, request: PutBlobRequest) !wire.Decoded(PutBlobResult) {
+    return client.callTyped(
+        PutBlobResult,
+        .{
+            .name = "put-blob",
+            .authority = "control",
+            .since = 12,
+            .capability = "icon-assets-v1",
         },
         request,
     );
@@ -9824,7 +9893,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 245;
+pub const command_count: usize = 248;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -9878,6 +9947,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "conversation-attachment-upload", .authority = "local-admin", .since = 12, .capability = "local-attachments-v1", .stream = null },
     .{ .name = "conversation-bind", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "conversation-create", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
+    .{ .name = "conversation-draft", .authority = "local-admin", .since = 12, .capability = "conversation-draft-v1", .stream = null },
     .{ .name = "conversation-history", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "conversation-import", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "conversation-list", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
@@ -9914,6 +9984,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "focus-direction", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "focus-pane", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "forget-session", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
+    .{ .name = "get-blob", .authority = "control", .since = 12, .capability = "icon-assets-v1", .stream = null },
     .{ .name = "get-browser-provider", .authority = "local-admin", .since = 10, .capability = "browser-provider-v1", .stream = null },
     .{ .name = "get-cell-pixels", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "get-frontend-browser-history", .authority = "control", .since = 12, .capability = "frontend-browser-history-v1", .stream = null },
@@ -9978,6 +10049,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "pin-workspace", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "ping", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "process-info", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "put-blob", .authority = "control", .since = 12, .capability = "icon-assets-v1", .stream = null },
     .{ .name = "put-frontend-projection", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "put-session", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "read-screen", .authority = "control", .since = 5, .capability = null, .stream = null },

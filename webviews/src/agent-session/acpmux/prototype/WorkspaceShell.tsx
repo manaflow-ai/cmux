@@ -357,10 +357,11 @@ export function WorkspaceShell() {
         <nav className="proto-tabs" aria-label={`${workspaceLead(active).title} tabs`}>
           {active.tabs.map((tab) => {
             const KindIcon = KIND_ICONS[tab.kind];
+            const canClose = active.tabs.length > 1 || stack.workspaces.length > 1;
             return (
               <div
                 key={tab.id}
-                className={`proto-tab proto-tab-${tab.kind}${tab.id === activeTab.id ? " is-active" : ""}`}
+                className={`proto-tab proto-tab-${tab.kind}${tab.id === activeTab.id ? " is-active" : ""}${canClose ? " has-close" : ""}`}
               >
                 <button
                   ref={(element) => {
@@ -376,7 +377,7 @@ export function WorkspaceShell() {
                   <KindIcon size={14} />
                   <span>{tab.kind === "browser" && tab.id === activeTab.id ? tab.url : tab.title}</span>
                 </button>
-                {(active.tabs.length > 1 || stack.workspaces.length > 1) && (
+                {canClose && (
                   <button
                     type="button"
                     className="proto-tab-close"

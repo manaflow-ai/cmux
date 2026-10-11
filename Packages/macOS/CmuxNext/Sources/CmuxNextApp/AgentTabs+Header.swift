@@ -8,7 +8,7 @@ import CmuxNextDaemon
 extension AgentTabStore {
     func wireHeader(_ model: AgentPaneModel, key provisional: String) {
         let actions = AgentChatTabActions(tab: { [weak self] in self?.resolve(provisional) ?? provisional },
-                                          registry: { [weak self] in self?.actionRegistry })
+                                          registry: { [weak self] in self?.actionRegistry }, files: { [weak self] in self?.openFiles?(self?.resolve(provisional) ?? provisional, $0, $1) })
         let toggles = AgentChatSplitToggles()
         let watch = AgentChatHeaderWatch(state: { [weak self] in
             guard let self else { return AgentPaneHeaderState() }
@@ -69,9 +69,9 @@ extension AgentTabStore {
               let pending = try? open(pane, daemon) else { return false }
         // task-owner: one tab creation, then one move of that tab
         Task { [weak self] in
-            guard let created = try? await pending.value() else { return }
+            guard let created = try? await pending.value(), let self, await TabMirror.reaches(created.key, in: locate) else { return }
             let target = ActionTargetRef(kind: .tab, id: created.key)
-            _ = self?.actionRegistry?.perform("tab.moveToNewSplit", invocation: ActionInvocation(
+            _ = actionRegistry?.perform("tab.moveToNewSplit", invocation: ActionInvocation(
                 target: target, arguments: ["direction": .string("right")], origin: .user))
         }
         return true
