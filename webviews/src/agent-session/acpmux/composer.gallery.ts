@@ -470,6 +470,14 @@ export default agentPaneEntry({
       snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
         chat(finished),
       ),
+      checks: {
+        anchorMovePx: {
+          value: 80,
+          reason:
+            "The attached image's 72 px thumbnail row opens above the prompt, the same growth a pasted image makes.",
+        },
+        layoutShiftMax: { value: 0.05, reason: "The thumbnail row the capture adds above the prompt." },
+      },
       native: {
         "composer.capture": {
           name: "Screenshot.png",
