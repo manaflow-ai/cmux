@@ -122,6 +122,79 @@
   color: var(--cv-text);
 }
 
+/* Copy and Edit under a prompt (cx-ncc.60): shown while the pointer is over the prompt or a key
+   reached them, as Claude's. */
+.cv-user__actions {
+  display: flex;
+  gap: 2px;
+  margin-top: 4px;
+  padding-right: 2px;
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+.cv-user:hover .cv-user__actions,
+.cv-user__actions:focus-within {
+  opacity: 1;
+}
+/* The prompt open for editing: the bubble's place and shape, its text editable, Cancel and Send under it. */
+.cv-user__edit {
+  box-sizing: border-box;
+  width: min(100%, 560px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 8px;
+  border-radius: 16px;
+  background: var(--cv-bubble);
+  box-shadow: inset 0 0 0 1px var(--cv-strong-rule);
+}
+.cv-user__edit-field {
+  all: unset;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--cv-line-height);
+  max-height: 320px;
+  overflow-y: auto;
+  font-family: var(--cv-font);
+  font-size: var(--cv-font-size);
+  line-height: var(--cv-line-height);
+  color: var(--cv-text);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+.cv-user__edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.cv-user__edit-button {
+  all: unset;
+  box-sizing: border-box;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 7px;
+  font-family: var(--cv-font);
+  font-size: var(--text-control);
+  line-height: 26px;
+  color: var(--cv-text);
+  box-shadow: inset 0 0 0 1px var(--cv-rule);
+  cursor: default;
+}
+.cv-user__edit-button:hover {
+  background: var(--cv-faint-rule);
+}
+.cv-user__edit-button--send {
+  color: var(--agent-surface);
+  background: var(--cv-text);
+  box-shadow: none;
+}
+.cv-user__edit-button--send:hover {
+  background: var(--cv-codeblock-text);
+}
+.cv-user__edit-button:disabled {
+  opacity: 0.4;
+}
+
 /* ---------- Markdown ---------- */
 
 .cv-md {
