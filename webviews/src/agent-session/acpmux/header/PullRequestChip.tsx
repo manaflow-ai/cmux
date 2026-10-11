@@ -2,10 +2,11 @@
 // dot for its checks, and a name that says both. A click opens its status (cx-ncc.77.1): the title,
 // linking the pull request, its state and review, and each check, failing first, linking its run.
 // The App pushes it with the header state, again while checks run and when a turn ends.
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { Popover } from "../../../ui/Popover";
+import { usePopoverTrigger } from "../../../ui/popoverTrigger";
 import type { HeaderPullRequest } from "./headerState";
 
 const STATES: Record<string, StringKey> = {
@@ -30,6 +31,8 @@ export function PullRequestChip({ pullRequest }: { pullRequest: HeaderPullReques
   const t = useT();
   const [open, setOpen] = useState(false);
   const [button, setButton] = useState<HTMLButtonElement | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const trigger = usePopoverTrigger(open, setOpen);
   const { number, checks } = pullRequest;
   const state = STATES[pullRequest.state] ? t(STATES[pullRequest.state]!) : pullRequest.state;
   const failed = pullRequest.checkList.filter((check) => check.state === "failed").length;
@@ -43,7 +46,10 @@ export function PullRequestChip({ pullRequest }: { pullRequest: HeaderPullReques
   return (
     <>
       <button
-        ref={setButton}
+        ref={(element) => {
+          buttonRef.current = element;
+          setButton(element);
+        }}
         type="button"
         className="acpmux-header-tool acpmux-header-pr"
         data-state={pullRequest.state}
@@ -52,7 +58,7 @@ export function PullRequestChip({ pullRequest }: { pullRequest: HeaderPullReques
         title={label}
         aria-haspopup="dialog"
         aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
+        {...trigger}
       >
         <Icon name="git.pullrequest" size={13} />#{number}
       </button>
@@ -66,7 +72,7 @@ export function PullRequestChip({ pullRequest }: { pullRequest: HeaderPullReques
         label={label}
         className="acpmux-pr-status"
         side="bottom"
-        finalFocus={false}
+        finalFocus={buttonRef}
       >
         <a className="acpmux-pr-title" href={pullRequest.url}>
           {pullRequest.title || `#${number}`}

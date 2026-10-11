@@ -72,19 +72,24 @@ nonisolated struct AgentChatPullRequestReader: Sendable {
         process.arguments = ["pr", "view", "--json", AgentPanePullRequest.fields]
         process.currentDirectoryURL = URL(fileURLWithPath: folder)
         process.environment = environment
-        let output = Pipe()
+        // A file, not a pipe: a child gh left holding its output cannot keep this read (and one of
+        // the queue's two runs) waiting past the deadline.
+        let file = FileManager.default.temporaryDirectory.appending(path: "cmux-gh-pr-\(UUID().uuidString).json")
+        guard FileManager.default.createFile(atPath: file.path, contents: nil),
+              let output = try? FileHandle(forWritingTo: file) else { return nil }
+        defer { try? FileManager.default.removeItem(at: file) }
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
         process.standardInput = FileHandle.nullDevice
         guard (try? process.run()) != nil else { return nil }
+        try? output.close()
         let deadline = DemandTimer(owner: "header-pull-request")
         deadline.schedule(after: timeout) { if held.process.isRunning { held.process.terminate() } }
         defer { deadline.cancel() }
-        // concurrency-allow: run is called only on read's own operation queue; gh's answer is one small JSON object.
-        let data = output.fileHandleForReading.readDataToEndOfFile()
         // concurrency-allow: run is called only on read's own operation queue, bounded by the deadline above.
         process.waitUntilExit()
-        return process.terminationStatus == 0 ? data : nil
+        guard process.terminationStatus == 0 else { return nil }
+        return try? Data(contentsOf: file)
     }
 }
 
@@ -105,6 +110,8 @@ final class AgentChatPullRequest {
     @ObservationIgnored private let freshness: Duration
     /// The folder being asked now.
     @ObservationIgnored private var asking: String?
+    /// A turn ended while that ask ran: its answer may predate the agent's push, so ask once more.
+    @ObservationIgnored private var askAfter = false
     /// Asks again while the answer's checks run.
     @ObservationIgnored private let refresh = DemandTimer(owner: "header-pull-request-checks")
 
@@ -124,9 +131,8 @@ final class AgentChatPullRequest {
 
     /// Asks again for the folder last asked about, fresh or not: a turn ended, and the agent may
     /// have created the pull request or pushed to it (cx-mb1e0).
-    func refresh() {
-        guard let cwd = answer?.cwd ?? asking, asking == nil else { return }
-        ask(cwd)
+    func askAgain() {
+        if asking != nil { askAfter = true } else if let cwd = answer?.cwd { ask(cwd) }
     }
 
     private func ask(_ cwd: String) {
@@ -139,6 +145,10 @@ final class AgentChatPullRequest {
             guard let self, asking == cwd else { return }
             asking = nil
             answer = Answer(cwd: cwd, badge: badge, at: .now)
+            if askAfter {
+                askAfter = false
+                return ask(cwd)
+            }
             guard badge?.checks.state == "pending" else { return }
             refresh.schedule(after: freshness) { @MainActor [weak self] in
                 guard let self, answer?.cwd == cwd, asking == nil else { return }

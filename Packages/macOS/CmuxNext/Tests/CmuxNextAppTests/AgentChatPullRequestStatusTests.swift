@@ -84,7 +84,7 @@ struct AgentChatPullRequestStatusTests {
         let pullRequests = AgentChatPullRequest(reader: AgentChatPullRequestReader(gh: rig.gh))
         let model = AgentPaneModel(host: NoHost())
         var hooks = AgentPaneHeaderHooks(run: { _, _ in }, tabState: { AgentPaneHeaderState.with(pullRequests.badge(cwd: rig.folder)) })
-        hooks.refreshPullRequest = { pullRequests.refresh() }
+        hooks.refreshPullRequest = { pullRequests.askAgain() }
         model.header = hooks
         _ = await model.respond(to: AgentPaneRequest(body: ["method": "pane.tabState"]))
         for _ in 0..<200 where pullRequests.badge(cwd: rig.folder) == nil {
