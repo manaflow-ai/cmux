@@ -227,7 +227,10 @@ final class HomeChiefSidebar: NSView {
         fill(harness, Self.harnesses(routeConfigured: snapshot.routeConfigured), current: snapshot.harness)
         fill(model, Self.models, current: snapshot.model)
         fill(effort, Self.efforts, current: snapshot.effort)
-        if avatarField.currentEditor() == nil { avatarField.stringValue = snapshot.avatar ?? "" }
+        // A picture's file name is not avatar text; the field stays empty for it.
+        if avatarField.currentEditor() == nil {
+            avatarField.stringValue = snapshot.avatar.flatMap { HomeChiefFiles.namesPicture($0) ? nil : $0 } ?? ""
+        }
         stats.stringValue = snapshot.turns.first.map(HomeEngineStrings.lastTurn) ?? HomeEngineStrings.noTurn
         // Which engine answered each recent reply (the trace's turn.end).
         replies.stringValue = snapshot.turns.isEmpty ? ""

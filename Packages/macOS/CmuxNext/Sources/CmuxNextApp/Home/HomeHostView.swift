@@ -50,10 +50,14 @@ final class HomeHostView: NSView {
         let files = HomeChiefFiles(muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
         // task-owner: one profile read off the main actor; ends when it is shown
         Task { [weak self] in
-            let avatar = await Task.detached { files.avatar() }.value
-            self?.transcript.avatarText = avatar
+            let (avatar, picture) = await Task.detached { (files.avatar(), files.avatarPicture()) }.value
+            self?.transcript.avatarPicture = picture.flatMap(NSImage.init(data:))
+            self?.transcript.avatarText = picture == nil ? avatar : nil
         }
-        sidebar.onAvatar = { [weak self] text in self?.transcript.avatarText = text }
+        sidebar.onAvatar = { [weak self] text in
+            self?.transcript.avatarPicture = nil
+            self?.transcript.avatarText = text
+        }
         sidebar.onShowMemory = { [weak services] in
             _ = services?.registry.perform(ChiefInspectorHandlers.actionID, invocation: ActionInvocation(origin: .user))
         }

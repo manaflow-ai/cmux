@@ -241,6 +241,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
 
     /// A chosen avatar text (the Home Chief's avatar), over the initials.
     var initialsOverride: String? { didSet { applyHeader() } }
+    /// A chosen avatar picture (the Home Chief's), over the initials.
+    var pictureOverride: NSImage? { didSet { controller.host.paneHeader.picture = pictureOverride } }
 
     private func applyHeader() {
         controller.host.paneHeader.title = HomeMapping.title(shownSummary, me: me)
