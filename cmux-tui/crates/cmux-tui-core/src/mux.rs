@@ -20291,6 +20291,147 @@ mod tests {
     }
 
     #[test]
+    fn journal_review_idle_maintenance_reclaims_free_pages() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-idle-vacuum-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let mux = open_persistent_test_mux("idle-vacuum", &root);
+        let database =
+            mux.workspace_registry.lock().unwrap().session_journal_database_path().unwrap();
+        let observer = rusqlite::Connection::open(database).unwrap();
+        observer
+            .execute_batch(
+                "CREATE TABLE vacuum_fixture(content BLOB);
+                 WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x + 1 FROM n WHERE x < 1024)
+                 INSERT INTO vacuum_fixture SELECT zeroblob(4096) FROM n;
+                 DROP TABLE vacuum_fixture;",
+            )
+            .unwrap();
+        let free_pages = || {
+            observer.query_row("PRAGMA freelist_count", [], |row| row.get::<_, i64>(0)).unwrap()
+        };
+        let before = free_pages();
+        assert!(before > 256);
+
+        mux.run_journal_maintenance();
+        let after_first = free_pages();
+        mux.run_journal_maintenance();
+        let after_second = free_pages();
+        assert!(after_first < before, "idle maintenance must reclaim free pages");
+        assert!(after_second < after_first, "later idle ticks must keep reclaiming pages");
+
+        drop(observer);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn journal_review_maintenance_diagnostic_hides_upstream_errors() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-diagnostic-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let mux = open_persistent_test_mux("maintenance-diagnostic", &root);
+        mux.try_journal_terminal_output_gap(
+            Arc::new(TerminalPublicId::parse(format!("term_{:032x}", 43)).unwrap()),
+            Arc::from("diagnostic-generation"),
+            "journal_output_write_failed",
+        )
+        .unwrap();
+        mux.create_journal_checkpoint("test", "diagnostic-checkpoint").unwrap();
+        let database =
+            mux.workspace_registry.lock().unwrap().session_journal_database_path().unwrap();
+        let injector = rusqlite::Connection::open(database).unwrap();
+        injector
+            .execute_batch(
+                "CREATE TRIGGER reject_diagnostic_test_segment BEFORE INSERT ON journal_segments
+                 BEGIN SELECT RAISE(ABORT, 'libghostty-vt: buffer too small'); END;",
+            )
+            .unwrap();
+        let diagnostics = Arc::new(Mutex::new(Vec::<String>::new()));
+        let sink = diagnostics.clone();
+        assert!(mux.set_diagnostic_reporter(Arc::new(move |message| {
+            sink.lock().unwrap().push(message.to_string());
+        })));
+
+        mux.run_journal_maintenance();
+
+        assert_eq!(
+            *diagnostics.lock().unwrap(),
+            vec!["journal maintenance deferred; checkpoint maintenance will retry"]
+        );
+        drop(injector);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn journal_review_gap_admission_waits_for_commit_and_reports_failure() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-gap-receipt-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let mux = open_persistent_test_mux("gap-receipt", &root);
+        let terminal_id = Arc::new(TerminalPublicId::parse(format!("term_{:032x}", 42)).unwrap());
+        let (entered, entered_receiver) = std::sync::mpsc::sync_channel(1);
+        let (release, release_receiver) = std::sync::mpsc::sync_channel(1);
+        mux.install_journal_before_commit_for_test(entered, release_receiver);
+        mux.journal_terminal_output(
+            terminal_id.clone(),
+            Arc::from("gap-receipt-generation"),
+            b"hold the writer".to_vec(),
+        );
+        entered_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        let queue_full = (0..2048).any(|_| {
+            mux.try_journal_terminal_output(
+                terminal_id.clone(),
+                Arc::from("gap-receipt-generation"),
+                0,
+                b"queued output".to_vec(),
+            )
+            .unwrap()
+            .is_some()
+        });
+        let (completed, completion) = std::sync::mpsc::sync_channel(1);
+        let producer_mux = mux.clone();
+        let producer_terminal = terminal_id.clone();
+        let producer = std::thread::spawn(move || {
+            completed
+                .send(producer_mux.try_journal_terminal_output_gap(
+                    producer_terminal,
+                    Arc::from("gap-receipt-generation"),
+                    "journal_output_deadline_expired",
+                ))
+                .unwrap();
+        });
+        let early_receipt = completion.recv_timeout(Duration::from_millis(100));
+        release.send(()).unwrap();
+        producer.join().unwrap();
+        assert!(queue_full, "the gap must encounter a full terminal queue");
+        assert!(early_receipt.is_err(), "gap admission must wait for its durable receipt");
+        completion.recv_timeout(Duration::from_secs(1)).unwrap().unwrap();
+        assert!(mux.session_journal_after(0, 1024).unwrap().records.iter().any(|record| {
+            record.kind == "terminal.output.gap"
+                && record.payload["reason"] == "journal_output_deadline_expired"
+        }));
+        assert!(!mux.daemon_shutdown_requested());
+
+        mux.journal_ingress.close_and_join().unwrap();
+        let error = mux
+            .try_journal_terminal_output_gap(
+                terminal_id,
+                Arc::from("gap-receipt-generation"),
+                "journal_output_write_failed",
+            )
+            .unwrap_err();
+        assert!(error.to_string().contains("admission is closed"));
+        assert!(!mux.daemon_shutdown_requested());
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn journal_maintenance_continues_sealing_a_subthreshold_tail() {
         let root = std::env::temp_dir().join(format!(
             "cmux-journal-maintenance-tail-{}",
