@@ -29,31 +29,34 @@ enum HomeMapping {
     typealias Links = (String) -> LinkMetadata?
 
     /// A thread root's MessagesLab id and part owners, by its owner message id; nil when the
-    /// root is not among the mapped items (a reply then shows as a plain message).
+    /// root is not among the mapped items or is retracted (a reply then shows as a plain message).
     typealias Roots = (MessageID) -> (id: ID, owners: [Int])?
 
-    /// The thread roots among `items` (`roots`), for `message(_:roots:)`.
+    /// The thread roots among `items`, for `message(_:roots:)`: indexed by message id, a root's
+    /// parts mapped only when a reply asks for it.
     static func roots(in items: [TranscriptItem], aliases: [IdempotencyKey: ID], summary: ConversationSummary?,
                       media: Media = { _ in nil }, links: Links = { _ in nil }) -> Roots {
-        let roots = Set(items.compactMap { $0.threadRoot ?? $0.replyTo?.message })
-        guard !roots.isEmpty else { return { _ in nil } }
-        var found: [MessageID: (id: ID, owners: [Int])] = [:]
+        let wanted = Set(items.compactMap(\.threadRoot))
+        guard !wanted.isEmpty else { return { _ in nil } }
+        var byID: [MessageID: TranscriptItem] = [:]
         for item in items {
-            guard let mid = item.messageID, roots.contains(mid) else { continue }
-            found.updateValue((id(item, aliases: aliases), projectedParts(item, summary: summary, media: media, links: links).owners), forKey: mid)
+            if let mid = item.messageID, wanted.contains(mid), !item.isRetracted { byID.updateValue(item, forKey: mid) }
         }
-        let byID = found
-        return { byID.value(for: $0) }
+        let found = byID
+        return { root in
+            found.value(for: root).map { (id($0, aliases: aliases), projectedParts($0, summary: summary, media: media, links: links).owners) }
+        }
     }
 
-    /// A thread reply's root as MessagesLab's `replyTo` (HomeStore `threadRoot`, the part from
-    /// `replyTo` when it names the root): MessagesLab lays it out and animates its arrival as a
-    /// thread reply (connector, the root's 32 pt thread gap). nil for a message that is no reply,
-    /// or whose root is not among the mapped items.
+    /// A thread reply's root as MessagesLab's `replyTo` (HomeStore `threadRoot`; the part from
+    /// `replyTo` when it names the root, else the root's first part): MessagesLab lays it out and
+    /// animates its arrival as a thread reply (connector, the root's 32 pt thread gap). nil for a
+    /// message that is no thread reply, or whose root is not among the mapped items or retracted.
     static func replyTo(_ item: TranscriptItem, roots: Roots) -> PartRef? {
-        guard let root = item.threadRoot ?? item.replyTo?.message, root != item.messageID, let r = roots(root) else { return nil }
+        guard let root = item.threadRoot, root != item.messageID, let r = roots(root), !r.owners.isEmpty else { return nil }
         let homePart = item.replyTo?.message == root ? (item.replyTo?.partIndex ?? 0) : 0
-        return PartRef(messageId: r.id, partIndex: projectedIndex(homePart, r.owners))
+        // Only a part the root shows: an index from the wire that no shown part owns is the first part.
+        return PartRef(messageId: r.id, partIndex: r.owners.firstIndex(of: homePart) ?? 0)
     }
 
     static func message(_ item: TranscriptItem, aliases: [IdempotencyKey: ID], me: ParticipantID,

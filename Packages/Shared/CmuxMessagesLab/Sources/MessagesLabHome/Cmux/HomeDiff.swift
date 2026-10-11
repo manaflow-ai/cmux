@@ -42,6 +42,7 @@ struct HomeDiff: Equatable {
         if old.contains(where: { !newKeys.contains($0.key) }) { d.rebuild = true; return d }
         func id(_ i: TranscriptItem) -> ID { HomeMapping.id(i, aliases: aliases) }
         let roots = HomeMapping.roots(in: new, aliases: aliases, summary: newSummary, media: media, links: links)
+        let oldRoots = HomeMapping.roots(in: old, aliases: aliases, summary: oldSummary, media: media, links: links)
         func msg(_ i: TranscriptItem) -> Message { HomeMapping.message(i, aliases: aliases, me: me, summary: newSummary, media: media, links: links, roots: roots) }
 
         // Older page: the new messages before the first shown one.
@@ -55,6 +56,8 @@ struct HomeDiff: Equatable {
 
         for item in new.dropFirst(head) { // // crash program: no range subscripts
             if let oi = oldIndex[item.key], let was = old[checked: oi] {
+                // A shown reply whose thread changed (its root paged in or out, or was retracted): MessagesLab has no action for it.
+                guard HomeMapping.replyTo(was, roots: oldRoots) == HomeMapping.replyTo(item, roots: roots) else { d.rebuild = true; return d }
                 guard changes(from: was, to: item, oldSummary: oldSummary, newSummary: newSummary, me: me, id: id(item), into: &d) else {
                     d.rebuild = true; return d
                 }
