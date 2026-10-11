@@ -7036,6 +7036,7 @@ impl Mux {
             if !pending_seal
                 && head.saturating_sub(checkpoint_source) < JOURNAL_MAINTENANCE_CHECKPOINT_RECORDS
             {
+                self.workspace_registry.lock().unwrap().incremental_journal_vacuum()?;
                 return Ok(());
             }
 
@@ -20333,13 +20334,15 @@ mod tests {
             crate::workspace_registry::new_uuid_v4()
         ));
         let mux = open_persistent_test_mux("maintenance-diagnostic", &root);
-        mux.try_journal_terminal_output_gap(
-            Arc::new(TerminalPublicId::parse(format!("term_{:032x}", 43)).unwrap()),
-            Arc::from("diagnostic-generation"),
-            "journal_output_write_failed",
-        )
-        .unwrap();
-        mux.create_journal_checkpoint("test", "diagnostic-checkpoint").unwrap();
+        let terminal_id = Arc::new(TerminalPublicId::parse(format!("term_{:032x}", 43)).unwrap());
+        for _ in 0..4_100 {
+            mux.journal_terminal_output(
+                terminal_id.clone(),
+                Arc::from("diagnostic-generation"),
+                b"journal record".to_vec(),
+            );
+        }
+        mux.flush_terminal_journal().unwrap();
         let database =
             mux.workspace_registry.lock().unwrap().session_journal_database_path().unwrap();
         let injector = rusqlite::Connection::open(database).unwrap();
