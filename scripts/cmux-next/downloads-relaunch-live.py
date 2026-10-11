@@ -5,7 +5,8 @@
 
 Chrome keeps finished downloads in its Downloads list after a restart. A
 local server serves small attachment files. A WebKit tab and a Chromium tab
-each download one, and a tab of an incognito window downloads a third.
+each download one, and a tab of an incognito window downloads a third
+(its record naming no address shows the window is incognito).
 After the quit and relaunch, `debug.downloads` (DEBUG builds; the rows the
 Downloads menu shows):
   1. lists the WebKit and the Chromium download, finished, with the same
@@ -49,6 +50,14 @@ BODY = os.urandom(64 << 10)
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         name = self.path.split("?")[0].rsplit("/", 1)[-1]
+        if name == f"page-{RUN}.html":
+            body = b"<!doctype html><title>page</title>page"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if not name.endswith(f"-{RUN}.bin"):
             self.send_response(404)
             self.send_header("Content-Length", "0")
@@ -174,6 +183,15 @@ try:
     secret = f"incognito-{RUN}.bin"
     rpc("action.run", {"action": "newIncognitoWindow", "focus": True})
     time.sleep(2)  # the incognito window comes up
+    rpc("action.run", {"action": "openBrowser.webkit", "args": {"url": f"{ORIGIN}/page-{RUN}.html"}, "focus": True})
+    time.sleep(2)
+    # An incognito tab's daemon record never names its page (about:blank);
+    # a normal tab's does: so the window is incognito.
+    tabs = rpc("browser.page.tabs", {"all": True}).get("tabs") or []
+    check(any(f"/webkit-{RUN}.bin" in (t.get("url") or "") for t in tabs)
+          and not any(f"/page-{RUN}.html" in (t.get("url") or "") for t in tabs)
+          and any(t.get("focused") and t.get("url") == "about:blank" for t in tabs),
+          f"the new window is incognito: its page's record names no address ({tabs})")
     download("openBrowser.webkit", secret, "incognito")
     end("quit")
     launch()
