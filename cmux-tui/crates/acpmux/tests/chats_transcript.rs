@@ -249,3 +249,134 @@ async fn a_chat_with_no_acp_resume_gives_its_prompts_and_answers_on_the_local_so
     assert!(unknown["error"].is_object(), "{unknown}");
     // Remote origins never read a chat's text (`chats.rs` websocket_origins_never_get_chats).
 }
+
+const COPILOT_ID: &str = "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f";
+const AUGGIE_ID: &str = "9e8d7c6b-5a49-4382-9716-05f4e3d2c1b0";
+const GOOSE_ID: &str = "20261002_1";
+const CRUSH_ID: &str = "6a5b4c3d-2e1f-4a0b-9c8d-7e6f5a4b3c2d";
+
+/// A Copilot CLI (v3) chat: a tool round trip between the prompt and the answer.
+fn copilot(h: &Path, project: &Path) {
+    let event =
+        |kind: &str, at: &str, data: Value| json!({"type": kind, "timestamp": at, "data": data});
+    let lines = [
+        event(
+            "session.start",
+            "2026-10-02T09:00:00Z",
+            json!({"sessionId": COPILOT_ID, "context": {"cwd": project}}),
+        ),
+        event(
+            "user.message",
+            "2026-10-02T09:00:01Z",
+            json!({"content": "List the tests", "transformedContent": "<ctx/>List the tests"}),
+        ),
+        event(
+            "assistant.message",
+            "2026-10-02T09:00:02Z",
+            json!({"content": "", "toolRequests": [{"name": "bash"}]}),
+        ),
+        event("tool.execution_complete", "2026-10-02T09:00:03Z", json!({"result": "ok"})),
+        event("assistant.message", "2026-10-02T09:00:04Z", json!({"content": "There are three."})),
+    ];
+    let text: String = lines.iter().map(|line| format!("{line}\n")).collect();
+    write(&h.join(format!(".copilot/session-state/{COPILOT_ID}/events.jsonl")), &text);
+}
+
+fn auggie(h: &Path) {
+    let session = json!({"sessionId": AUGGIE_ID, "created": "2026-10-02T09:00:00Z", "modified": "2026-10-02T09:00:05Z",
+        "chatHistory": [{"exchange": {"request_message": "Find the bug", "response_text": "It is in main.rs."},
+                         "finishedAt": "2026-10-02T09:00:05Z"},
+                        {"exchange": {"request_message": "", "response_text": "Fixed.",
+                                      "request_nodes": [{"type": 0, "text_node": {"content": "Now fix it"}}]}}]});
+    write(&h.join(format!(".augment/sessions/{AUGGIE_ID}.json")), &session.to_string());
+}
+
+/// Runs `script` (Python, `sqlite3` imported) with the database path as `db`.
+fn sqlite(db: &Path, script: &str) {
+    std::fs::create_dir_all(db.parent().expect("parent")).expect("dirs");
+    let code =
+        format!("import sqlite3, sys\ndb = sqlite3.connect(sys.argv[1])\n{script}\ndb.commit()\n");
+    let status = std::process::Command::new("python3")
+        .args(["-c", &code])
+        .arg(db)
+        .status()
+        .expect("python3");
+    assert!(status.success(), "sqlite fixture {}", db.display());
+}
+
+/// A goose chat in its `sessions.db`: tool calls, tool results and a hidden message around it.
+fn goose(h: &Path, project: &Path) {
+    let rows = json!([
+        ["user", [{"type": "text", "text": "Add logging"}], true],
+        ["assistant", [{"type": "text", "text": "Adding it."}, {"type": "toolRequest", "id": "t1"}], true],
+        ["user", [{"type": "toolResponse", "id": "t1"}], true],
+        ["assistant", [{"type": "text", "text": "Done."}], true],
+        ["user", [{"type": "text", "text": "internal"}], false],
+    ]);
+    let script = format!(
+        r#"db.execute("CREATE TABLE sessions (id TEXT PRIMARY KEY, name TEXT, description TEXT, working_dir TEXT, created_at TIMESTAMP, updated_at TIMESTAMP)")
+db.execute("CREATE TABLE messages (id INTEGER PRIMARY KEY, session_id TEXT, role TEXT, content_json TEXT, created_timestamp INTEGER, metadata_json TEXT)")
+db.execute("INSERT INTO sessions VALUES (?, 'Goose chat', '', ?, '2026-10-02 09:00:00', '2026-10-02 09:01:00')", ("{GOOSE_ID}", {cwd:?}))
+import json
+for i, (role, content, visible) in enumerate(json.loads({rows:?})):
+    db.execute("INSERT INTO messages (session_id, role, content_json, created_timestamp, metadata_json) VALUES (?, ?, ?, ?, ?)",
+               ("{GOOSE_ID}", role, json.dumps(content), 1790931600 + i, json.dumps({{"userVisible": visible}})))"#,
+        cwd = project.display().to_string(),
+        rows = rows.to_string(),
+    );
+    // Another chat in the same store stays out of this one.
+    let script = format!(
+        r#"{script}
+db.execute("INSERT INTO sessions VALUES ('20261002_2', 'Other', '', '/', '2026-10-02 10:00:00', '2026-10-02 10:00:00')")
+db.execute("INSERT INTO messages (session_id, role, content_json, created_timestamp, metadata_json) VALUES ('20261002_2', 'user', '[{{\"type\": \"text\", \"text\": \"Other chat\"}}]', 1790931700, '{{}}')")"#
+    );
+    sqlite(&h.join(".local/share/goose/sessions/sessions.db"), &script);
+}
+
+/// A Crush chat in its project's `.crush/crush.db`, listed by the global `projects.json`.
+fn crush(h: &Path, project: &Path) {
+    let index = json!({"projects": [{"path": project, "data_dir": ".crush"}]});
+    write(&h.join(".local/share/crush/projects.json"), &index.to_string());
+    let rows = json!([
+        ["user", [{"type": "text", "data": {"text": "Explain the cache"}}]],
+        ["assistant", [{"type": "reasoning", "data": {"thinking": "hm"}}, {"type": "text", "data": {"text": "It memoizes."}}, {"type": "finish", "data": {"reason": "end_turn"}}]],
+        ["tool", [{"type": "tool_result", "data": {"content": "x"}}, {"type": "text", "data": {"text": "tool says"}}]],
+    ]);
+    let script = format!(
+        r#"db.execute("CREATE TABLE sessions (id TEXT PRIMARY KEY, parent_session_id TEXT, title TEXT, message_count INTEGER, created_at INTEGER, updated_at INTEGER)")
+db.execute("CREATE TABLE messages (id TEXT PRIMARY KEY, session_id TEXT, role TEXT, parts TEXT, created_at INTEGER)")
+db.execute("INSERT INTO sessions VALUES (?, NULL, 'Crush chat', 2, 1790931600, 1790931660)", ("{CRUSH_ID}",))
+import json
+for i, (role, parts) in enumerate(json.loads({rows:?})):
+    db.execute("INSERT INTO messages VALUES (?, ?, ?, ?, ?)", ("m%d" % i, "{CRUSH_ID}", role, json.dumps(parts), 1790931600 + i))"#,
+        rows = rows.to_string(),
+    );
+    sqlite(&project.join(".crush/crush.db"), &script);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn copilot_auggie_goose_and_crush_chats_give_their_prompts_and_answers() {
+    let h = home();
+    let project = h.0.join("work/api");
+    std::fs::create_dir_all(&project).expect("project");
+    copilot(&h.0, &project);
+    auggie(&h.0);
+    goose(&h.0, &project);
+    crush(&h.0, &project);
+    let hub = hub_on(&h.0).await;
+    let (tx, mut rx) = connect(&hub, Origin::Local).await;
+    // An Auggie prompt kept only in its request nodes is still its own turn.
+    let chats = [
+        (format!("copilot-cli:{COPILOT_ID}"), vec![pair("List the tests", "There are three.")]),
+        (
+            format!("auggie:{AUGGIE_ID}"),
+            vec![pair("Find the bug", "It is in main.rs."), pair("Now fix it", "Fixed.")],
+        ),
+        (format!("goose:{GOOSE_ID}"), vec![pair("Add logging", "Adding it.\n\nDone.")]),
+        (format!("crush:{CRUSH_ID}"), vec![pair("Explain the cache", "It memoizes.")]),
+    ];
+    for (id, (key, expected)) in (11..).zip(chats) {
+        let answer = call(&tx, &mut rx, id, "_acpmux/chat_transcript", json!({"key": key})).await;
+        assert_eq!(turns(&answer), expected, "{key}: {answer}");
+    }
+}

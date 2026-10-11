@@ -121,7 +121,7 @@ import {
 } from "./conversation/messageMenu";
 import { callChipHost } from "./chips/host";
 import { RenderCard, canRender } from "./conversation/RenderCard";
-import { ArtifactPanel } from "./conversation/ArtifactPanel";
+import { ArtifactPanel, type SaveDocument } from "./conversation/ArtifactPanel";
 import { ArtifactContext, type Artifact } from "./conversation/artifactPreview";
 import { renderCall } from "./conversation/renderCall";
 import { DateLine } from "./conversation/DateLine";
@@ -277,6 +277,15 @@ export async function saveLogNatively(text: string, suggestedName: string): Prom
   }
 }
 
+/** Saves a side panel document through the host's save panel (`pane.saveFile`); a host without one, or a failed write, is unavailable (the panel copies the document instead). */
+const saveDocumentNatively: SaveDocument = async (text, suggestedName, kind) => {
+  try {
+    return (await callNative<boolean>("pane.saveFile", { text, suggestedName, kind })) === true ? "saved" : "cancelled";
+  } catch {
+    return "unavailable";
+  }
+};
+
 /// The machine a refused handshake names (`details.machineName`), for the composer's chip.
 function refusedMachine(error: unknown): string | undefined {
   const details = (error as { details?: unknown } | null)?.details;
@@ -359,6 +368,7 @@ const changesSource: ChangesSource = {
   commit: (params) => callNative("git.commit", params),
   push: (params) => callNative("git.push", params),
   stage: (paths, unstage) => callNative("git.stage", { paths, unstage }),
+  stageHunk: (paths, hunk, unstage) => callNative("git.stageHunk", { paths, hunk, unstage }),
   pullRequest: () => callNative("git.pullRequest", {}),
 };
 /// A turn's checkpoint pair, diffed on the session host (`git.checkpoint.diff`).
@@ -1007,16 +1017,21 @@ export function VirtualTranscript({
   useEffect(() => {
     const node = ref.current;
     if (!node) return;
-    const observer = new ResizeObserver(() => {
-      setHeight(node.clientHeight);
-      setWidth(node.clientWidth);
-    });
+    // Before the frame paints: a resized pane (its tab strip showing or hiding) otherwise drew the
+    // transcript at its old offset and caught up a frame later.
+    const observer = new ResizeObserver(() =>
+      flushSync(() => {
+        setHeight(node.clientHeight);
+        setWidth(node.clientWidth);
+      }),
+    );
     observer.observe(node);
     setWidth(node.clientWidth);
     return () => observer.disconnect();
   }, []);
   const previousLayout = useRef<ReturnType<typeof layoutConversation> | null>(null);
   const previousRows = useRef<AcpmuxRow[]>(rows);
+  const previousViewport = useRef({ height, width });
   const thread = useRef<HTMLDivElement>(null);
   // The reader scrolls: a glide in flight ends at once, so the view goes where they scroll.
   useEffect(() => {
@@ -1209,8 +1224,10 @@ export function VirtualTranscript({
         const latest = Math.max(0, layout.totalHeight - node.clientHeight);
         const step = latest - node.scrollTop;
         if (Math.abs(step) > 0.5) node.scrollTop = latest;
-        // Growth glides in instead of stepping a line per frame (acp-streaming.md "Scroll").
-        if (step > 0.5 && step < node.clientHeight) glide(thread.current, step);
+        // Growth glides in instead of stepping a line per frame (acp-streaming.md "Scroll"); a
+        // resized viewport only moves the offset.
+        const resized = height !== previousViewport.current.height || width !== previousViewport.current.width;
+        if (step > 0.5 && step < node.clientHeight && !resized) glide(thread.current, step);
       } else if (top > 0) {
         // Keep the row at the top of the viewport where it is as rows above it change height.
         // Rows that arrived or left (a new reply segment below, older history above) move indexes,
@@ -1237,9 +1254,10 @@ export function VirtualTranscript({
     }
     previousLayout.current = layout;
     previousRows.current = rows;
+    previousViewport.current = { height, width };
     if (node) scrolledTo.current = scrollPosition(node, layout.totalHeight);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
-  }, [layout, rows, range.first, height]);
+  }, [layout, rows, range.first, height, width]);
   // Commit before this frame paints; deferring to the next animation frame left the edge blank.
   // The page picks adaptive rendering; the host supplies the display interval and applies it.
   const renderRate = useMemo(() => new AdaptiveRenderRate(), []);
@@ -2974,6 +2992,12 @@ function AcpmuxPane() {
           "git.push": (params) => client.gitPush(params),
           "git.stage": ({ paths, unstage }) =>
             client.gitStage(Array.isArray(paths) ? paths.map(String) : [], unstage === true),
+          "git.stageHunk": ({ paths, hunk, unstage }) =>
+            client.gitStageHunk(
+              Array.isArray(paths) ? paths.map(String) : [],
+              Array.isArray(hunk) ? hunk.map(String) : [],
+              unstage === true,
+            ),
           "git.pullRequest": () => client.gitPullRequest(),
           // What the agent works on, for a terminal or browser opened from this chat (#16620).
           "pane.context": async () => (snapshotRef.current ? paneContext(snapshotRef.current) : { urls: [] }),
@@ -4176,7 +4200,14 @@ function AcpmuxPane() {
             </>
           )}
         </div>
-        {artifact && <ArtifactPanel key={artifact.opened} artifact={artifact} onClose={() => setArtifact(undefined)} />}
+        {artifact && (
+          <ArtifactPanel
+            key={artifact.opened}
+            artifact={artifact}
+            onClose={() => setArtifact(undefined)}
+            onSave={saveDocumentNatively}
+          />
+        )}
         {imageView && (
           <ImageViewer
             images={imageView.images}
