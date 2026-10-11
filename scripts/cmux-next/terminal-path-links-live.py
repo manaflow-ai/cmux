@@ -39,6 +39,7 @@ def check(ok, what):
     print(("ok   " if ok else "FAIL ") + what, flush=True)
     if not ok:
         failures.append(what)
+    return ok
 
 
 def rpc(method, params=None, timeout=30):
@@ -84,7 +85,8 @@ def page_texts(page):
         if entry.get("parked"):
             continue
         state = rpc("debug.page", {"page": page, "action": "state", "instance": entry.get("instance")})
-        texts.append(state.get("text") or "")
+        # The code editor draws spaces as no-break spaces.
+        texts.append((state.get("text") or "").replace("\u00a0", " "))
     return "\n".join(texts)
 
 
@@ -141,9 +143,36 @@ print(f"app pid {app.pid}, repo {REPO}, out {opts.out}", flush=True)
 try:
     wait_for(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), "app socket", 180)
     check("error" not in rpc("debug.terminal.links"), "the build has debug.terminal.links")
+    if not quiet_wait(lambda: rpc("debug.focus").get("windows"), 20):
+        rpc("action.run", {"action": "newWindow", "origin": "script"})
+    wait_for(lambda: rpc("debug.focus").get("windows"), "a window", 60)
     made = rpc("action.run", {"action": "workspace new", "args": {"cwd": os.path.join(REPO, "sub"), "focus": True}, "origin": "script"})
     print(f"workspace new: {json.dumps(made)[:300]}", flush=True)
-    wait_for(lambda: "error" not in rpc("debug.terminal.links", {"open": ""}), "a focused terminal", 30)
+    # The new workspace's terminal by tab id (`snapshot.get`), not by focus: a mini's restored
+    # state can leave a chat page or a text field focused. Its view exists once its workspace
+    # shows, so the workspaces are selected in turn until it answers.
+    workspace = (made.get("created") or [None])[0]
+
+    def fixture_terminal():
+        global TERMINAL
+        for listed in (rpc("snapshot.get").get("topology") or {}).get("workspaces") or []:
+            if listed.get("id") != workspace:
+                continue
+            for screen in listed.get("screens") or []:
+                for pane in screen.get("panes") or []:
+                    for tab in pane.get("tabs") or []:
+                        if tab.get("kind") in ("terminal", "pty") and "error" not in rpc("debug.terminal.links", {"open": "", "tab": tab["id"]}):
+                            TERMINAL = tab["id"]
+                            return TERMINAL
+        return None
+
+    if not quiet_wait(fixture_terminal, 10):
+        for index in range(1, 10):
+            rpc("action.run", {"action": "selectWorkspaceByNumber", "args": {"index": index}})
+            if quiet_wait(fixture_terminal, 3):
+                break
+    if not wait_for(fixture_terminal, "the new workspace's terminal", 30):
+        print(f"snapshot.get: {json.dumps(rpc('snapshot.get'))[:1500]}", flush=True)
     time.sleep(2)  # test harness: the shell starts and reports its cwd
 
     # 1. The reported case: a repo-relative path printed with a trailing period.
@@ -160,7 +189,10 @@ try:
     # 3. A path with :line:col opens the code editor page.
     opened = click("../src/app.ts:3:5")
     check(not web(opened), f"../src/app.ts:3:5 opens no other app ({opened})")
-    check(bool(quiet_wait(lambda: "const c" in page_texts("cmux.editor"), 20)), "../src/app.ts:3:5 opens the code editor page")
+    if not check(bool(quiet_wait(lambda: "const c" in page_texts("cmux.editor"), 30)), "../src/app.ts:3:5 opens the code editor page"):
+        listed = rpc("debug.page", {"page": "cmux.editor", "action": "list"})
+        state = rpc("debug.page", {"page": "cmux.editor", "action": "state"})
+        print(f"editor pages: {json.dumps(listed)[:600]}\neditor state: {json.dumps(state)[:1500]}", flush=True)
 
     # 4. A folder opens in Finder.
     opened = click("build-fleet/")
