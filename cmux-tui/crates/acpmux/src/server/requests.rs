@@ -967,8 +967,7 @@ async fn dispatch_request(
                 .and_then(|m| m.get(crate::hub::person::DECISION_NONCE_FIELD))
                 .and_then(Value::as_str)
                 .filter(|_| option.is_some() && !conn.is_person());
-            hub.respond_permission(&s, pid, option, answers, answered_by, nonce, control)
-                .await?;
+            hub.respond_permission(&s, pid, option, answers, answered_by, nonce, control).await?;
             Ok(json!({}))
         }
         method::MUX_SET_POLICY => {

@@ -756,7 +756,8 @@ async fn an_adopted_prompt_gets_a_new_decision_nonce_that_a_relayed_allow_can_us
 
     let mut relay = daemon.rpc().await;
     let info = relay.call("_acpmux/info", json!({"sessionId": session})).await;
-    let listed = info["pending"].as_array().unwrap().iter().find(|p| p["permissionId"] == json!(pid));
+    let listed =
+        info["pending"].as_array().unwrap().iter().find(|p| p["permissionId"] == json!(pid));
     let listed = listed.expect("the adopted prompt is listed");
     assert_eq!(listed["decisionNonce"], json!(nonce), "{info}");
     assert_eq!(listed["personInstance"], json!(instance), "{info}");

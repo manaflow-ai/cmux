@@ -872,13 +872,16 @@ async fn a_refused_relayed_allow_keeps_its_nonce_and_racing_answers_count_once()
     let good = decision_proof(KEY, &instance, &id, &pid, "yes", &nonce);
 
     relay.ok("_acpmux/set_policy", json!({"sessionId": id, "policy": "deny-all"})).await;
-    let r = relay.call("_acpmux/permission_respond", decided(&id, &pid, "yes", &nonce, &good)).await;
+    let r =
+        relay.call("_acpmux/permission_respond", decided(&id, &pid, "yes", &nonce, &good)).await;
     assert_eq!(reason(&r), "policy_changed", "{r}");
     relay.ok("_acpmux/set_policy", json!({"sessionId": id, "policy": "ask"})).await;
 
     let mut other = Rpc::connect(&d.socket).await;
-    let a = relay.send("_acpmux/permission_respond", decided(&id, &pid, "yes", &nonce, &good)).await;
-    let b = other.send("_acpmux/permission_respond", decided(&id, &pid, "yes", &nonce, &good)).await;
+    let a =
+        relay.send("_acpmux/permission_respond", decided(&id, &pid, "yes", &nonce, &good)).await;
+    let b =
+        other.send("_acpmux/permission_respond", decided(&id, &pid, "yes", &nonce, &good)).await;
     let (ra, rb) = (relay.reply(a).await, other.reply(b).await);
     let counted = [&ra, &rb].iter().filter(|r| r.get("error").is_none()).count();
     assert_eq!(counted, 1, "{ra} {rb}");
