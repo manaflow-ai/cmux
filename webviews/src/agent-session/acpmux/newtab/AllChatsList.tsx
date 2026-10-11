@@ -67,6 +67,13 @@ function rowsOf(page: AllChatsPage | undefined): AllChatsRow[] {
   return page.chats.filter((row) => row && typeof row.key === "string" && typeof row.harness === "string");
 }
 
+/// A first page read again (a push from the chat index) over the loaded rows: its rows lead, and
+/// the loaded rows it does not name keep their order below (they are older than all of it).
+export function mergeFirstPage(fresh: AllChatsRow[], rows: AllChatsRow[]): AllChatsRow[] {
+  const named = new Set(fresh.map((row) => row.key));
+  return [...fresh, ...rows.filter((row) => !named.has(row.key))];
+}
+
 /// The pages of one query: a new query starts over at the first page (its old cursor is dropped
 /// at once, so no page of the old query is asked for again); a reply for an older query is
 /// dropped (latest wins). `load` may change identity on every parent render: the list keeps the
@@ -111,18 +118,58 @@ function useChatPages(load: LoadChatsPage) {
   useEffect(() => {
     fetchPage("", undefined);
   }, [fetchPage]);
+  // A loaded list reads its first page again when the index pushes a change and puts it on top of
+  // its rows, keeping the later pages and the cursor (cx-heu). One read at a time: a push during
+  // one reads once more after it. A query's list, or a new query meanwhile, is left alone.
+  const refreshing = useRef<"idle" | "busy" | "again">("idle");
+  const refreshFirstPage = useCallback(() => {
+    if (refreshing.current !== "idle") {
+      refreshing.current = "again";
+      return;
+    }
+    refreshing.current = "busy";
+    const ticket = generation.current;
+    void latestLoad
+      .current({ limit: PAGE })
+      .catch(() => undefined)
+      .then((page) => {
+        if (page && ticket === generation.current) {
+          setState((s) => {
+            if (s.query) return s;
+            const rows = mergeFirstPage(rowsOf(page), s.rows);
+            // Most pushes change nothing on the first page: the list keeps its rows (no re-render).
+            const same =
+              rows.length === s.rows.length &&
+              rows.every(
+                (row, i) =>
+                  row === s.rows[i] ||
+                  (row.key === s.rows[i]?.key &&
+                    row.updatedAt === s.rows[i]?.updatedAt &&
+                    row.title === s.rows[i]?.title &&
+                    row.cwd === s.rows[i]?.cwd),
+              );
+            return same ? s : { ...s, rows };
+          });
+        }
+        const again = refreshing.current === "again";
+        refreshing.current = "idle";
+        if (again) refreshFirstPage();
+      });
+  }, []);
   // A page opened before the chat index finished its first scan (`ready: false`, or no rows yet)
-  // reads its first page again when the host pushes the index's chats (cx-ztlw: the first Cmd-T
-  // page stayed empty for good). A search or a ready list with rows is left alone.
+  // reads its first page from the start when the host pushes the index's chats (cx-ztlw: the first
+  // Cmd-T page stayed empty for good); a loaded one refreshes it. A search is left alone.
   const latest = useRef(state);
   latest.current = state;
   useEffect(
     () =>
       subscribeDeviceChats(() => {
         const current = latest.current;
-        if (!current.query && (!current.ready || current.rows.length === 0)) fetchPage("", undefined);
+        if (current.query) return;
+        if (!current.ready || current.rows.length === 0) fetchPage("", undefined);
+        else refreshFirstPage();
       }),
-    [fetchPage],
+    [fetchPage, refreshFirstPage],
   );
   return { state, fetchPage };
 }

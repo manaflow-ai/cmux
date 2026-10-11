@@ -37,6 +37,14 @@ struct FloatingChatFrames {
         return CGRect(x: frame.minX.rounded(), y: frame.minY.rounded(), width: frame.width.rounded(), height: frame.height.rounded())
     }
 
+    /// Where a hidden floating chat shows when summoned on display `display`:
+    /// nil while it already sits there, else that display's saved frame, or
+    /// the default column near where the composer would open (`composer`).
+    static func summoned(onDisplay currentDisplay: String?, toDisplay display: String,
+                         saved: CGRect?, near composer: CGRect, in visible: CGRect) -> CGRect? {
+        display == currentDisplay ? nil : placement(saved: saved, near: composer, in: visible)
+    }
+
     /// A screen's key: its display id.
     static func display(_ screen: NSScreen) -> String {
         guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return screen.localizedName }
