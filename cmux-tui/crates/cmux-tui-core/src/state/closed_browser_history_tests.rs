@@ -53,7 +53,7 @@ fn close_and_reopen(mux: &Arc<Mux>, surface: SurfaceId, key: &str) -> SurfaceId 
 }
 
 #[test]
-fn a_reopened_browser_tab_gets_its_session_history_back() {
+fn cmux_next_a_reopened_browser_tab_gets_its_session_history_back() {
     for engine in ["cef", "webkit"] {
         let mux = Mux::new_for_test("closed-browser-history", SurfaceOptions::default());
         let browser = browser_tab(&mux, engine);
@@ -70,7 +70,7 @@ fn a_reopened_browser_tab_gets_its_session_history_back() {
 
 /// A tab the app stored no history for reopens with none.
 #[test]
-fn a_reopened_browser_tab_without_history_has_none() {
+fn cmux_next_a_reopened_browser_tab_without_history_has_none() {
     let mux = Mux::new_for_test("closed-browser-no-history", SurfaceOptions::default());
     let browser = browser_tab(&mux, "cef");
     let reopened = close_and_reopen(&mux, browser, "none");
