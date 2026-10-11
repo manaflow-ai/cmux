@@ -34,6 +34,7 @@ struct ServerApproverView: View {
                 }
                 Toggle(ServerStrings.runChief, isOn: Binding(get: { model.approval.runChief }, set: { model.approval.runChief = $0 }))
                     .toggleStyle(.checkbox).font(.system(size: 12)).foregroundStyle(colors.primary)
+                    .tint(colors.primary)
             }
             if let reject = model.lastReject {
                 Text(reject).font(.system(size: 11.5)).foregroundStyle(colors.critical)

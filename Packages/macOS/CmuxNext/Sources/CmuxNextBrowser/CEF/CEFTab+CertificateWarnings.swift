@@ -2,11 +2,7 @@ import Foundation
 
 /// Proceed on cmux's certificate warning page (`ChromiumNetError.proceed`).
 extension CEFTab: BrowserCertificateBypassing {
-    public func proceedPastCertificateError() {
-        guard let browserID, let error = state.loadError, let url = error.failingURL, let host = url.host(),
-              ChromiumNetError.proceed(code: error.code, host: host, browser: browserID, shim: runtime.shim) else { return }
-        load(url)
-    }
+    public func proceedPastCertificateError() { ChromiumNetError.proceed(on: self) }
 }
 
 /// Page Info's "Turn on warnings" on Chromium. Chromium keeps the user's
