@@ -11,13 +11,13 @@ function rule(selector: string): string {
   return css.slice(start, end);
 }
 
-test("tab close is a trailing overlay, so hidden x controls do not reserve label width", () => {
+test("tab close reserves a trailing title region without moving on reveal", () => {
   expect(rule(".proto-tab")).toMatch(/position:\s*relative/);
+  expect(rule(".proto-tab-select")).toMatch(/padding:\s*0 30px 0 10px/);
   const close = rule(".proto-tab-close");
   expect(close).toMatch(/position:\s*absolute/);
   expect(close).toMatch(/inset-inline-end:\s*3px/);
   expect(close).toMatch(/top:\s*2px/);
-  expect(close).not.toMatch(/margin-right/);
 });
 
 test("tab close keeps pointer hover and keyboard focus reveal behavior", () => {
