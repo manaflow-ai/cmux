@@ -1,6 +1,7 @@
 // Owns loading the viewer's persisted state at start: display prefs and the Viewed marks of the
 // current scope.
 import { useEffect, useRef } from "react";
+import { setDiffChangeColors } from "../appearance";
 import { type ViewedScope, loadViewedFiles, viewedScopeKey } from "../viewed-files";
 import { loadViewerPrefs } from "../viewer-prefs";
 import { type AppAction } from "./state";
@@ -14,6 +15,8 @@ export function useViewerPrefsBootstrap(payload: any, dispatch: React.Dispatch<A
     started.current = true;
     loadViewerPrefs()
       .then((prefs) => {
+        // The page never writes `colors`, so a failed read (no key) keeps the seeded pick.
+        if (prefs.colors) setDiffChangeColors(prefs.colors);
         dispatch({
           type: "apply-persisted-options",
           prefs,
