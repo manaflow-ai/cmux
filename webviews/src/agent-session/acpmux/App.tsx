@@ -3380,7 +3380,8 @@ function AcpmuxPane() {
           {showNewTab && newTab.templateSwitcher && !newTab.history && (
             <TemplateDots
               current={shownTemplate(newTab)}
-              onPick={(template) =>
+              onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
+              onPick={(template, fromKeys) =>
                 pickNewTabTemplate(template, {
                   callNative,
                   cwd: newTab.cwd,
@@ -3389,9 +3390,10 @@ function AcpmuxPane() {
                     const screen = document.querySelector<HTMLElement>(".nt-screen");
                     const before = templatePlaces(screen);
                     flushSync(() => setNewTab((current) => current && { ...current, template: next }));
-                    // The dot took focus; the field gets it back (the screen listens for this event),
-                    // before the parts slide, so focusing never scrolls toward where they were.
-                    window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT));
+                    // A clicked dot took focus; the field gets it back (the screen listens for this
+                    // event), before the parts slide, so focusing never scrolls toward where they were.
+                    // The arrow keys keep focus on the dots, to switch on.
+                    if (!fromKeys) window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT));
                     playTemplateSwitch(document.querySelector<HTMLElement>(".nt-screen"), before);
                   },
                 })
