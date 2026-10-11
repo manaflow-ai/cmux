@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Regression: Cmd+J labels the sidebar footer's SwiftUI buttons (cx-zjtn.7).
+"""Regression: Cmd+J labels the sidebar footer's SwiftUI buttons, and never the traffic lights (cx-zjtn.7).
 
 In process a SwiftUI host shows its controls only as AXUnknown elements, so
 hint mode labels a SwiftUI control only when it carries a marker view (#19484
-marked the titlebar). The sidebar footer's Help button got no label. Hint mode is off
+marked the titlebar). The sidebar footer's Help button got no label. The
+window's close, minimize and zoom buttons got unnamed labels, so a typo could
+close the window. Hint mode is off
 by default (feature flag `window-hints-release`), so this test needs the local
 override written before launch:
   defaults write <debug bundle id> cmux.flags.override.window-hints-release -bool true
@@ -63,6 +65,8 @@ def main() -> int:
     check("cmd+j shows labels", shown.get("active") is True, "" if shown.get("active") else str(shown))
     help_hint = next((h for h in hints if (h.get("title") or "") == "Help"), None)
     check("the sidebar footer's Help button has a label", help_hint is not None, "" if help_hint else listing)
+    unnamed = [h.get("label") for h in hints if h.get("role") == "AXButton" and not (h.get("title") or "")]
+    check("no label on an unnamed button (the traffic lights)", not unnamed, f"unnamed={unnamed} {listing}" if unnamed else "")
     c.simulate_shortcut("escape")
     time.sleep(0.3)
     check("escape hides the labels", _hints(c).get("active") is False)
