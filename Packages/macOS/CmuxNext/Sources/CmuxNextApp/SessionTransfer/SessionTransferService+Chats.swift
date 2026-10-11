@@ -1,5 +1,7 @@
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Darwin
 import Foundation
 
@@ -160,29 +162,55 @@ extension SessionTransferService {
             process.standardOutput = stdout
             process.standardError = stderr
             try Task.checkCancellation()
-            let exited = AsyncStream<(status: Int32, stdout: Data, stderr: Data)> { continuation in
-                // Also after the wait gave up: the output is read and its files go.
-                process.terminationHandler = { process in
-                    let out = (try? Data(contentsOf: stdoutURL)) ?? Data(), err = (try? Data(contentsOf: stderrURL)) ?? Data()
-                    try? FileManager.default.removeItem(at: directory)
-                    continuation.yield((process.terminationStatus, out, err))
-                    continuation.finish()
-                }
+            let exit = ExitWait()
+            // Also after the wait gave up: the output is read and its files go.
+            process.terminationHandler = { process in
+                let out = (try? Data(contentsOf: stdoutURL)) ?? Data(), err = (try? Data(contentsOf: stderrURL)) ?? Data()
+                try? FileManager.default.removeItem(at: directory)
+                exit.finish((process.terminationStatus, out, err))
             }
             try process.run()
-            return await withTaskGroup(of: (status: Int32, stdout: Data, stderr: Data)?.self) { group in
-                group.addTask { await exited.first { _ in true } }
-                group.addTask {
-                    // wakeup-allow: one-shot deadline (how long a pull waits for the move)
-                    try? await Task.sleep(for: limit)
-                    return nil
-                }
-                defer { group.cancelAll() }
-                return await group.next() ?? nil
-            }
+            let limitTimer = DemandTimer(owner: "SessionTransfer.chatMove")
+            limitTimer.schedule(after: limit) { exit.finish(nil) }
+            defer { limitTimer.cancel() }
+            return await withTaskCancellationHandler { await exit.answer() } onCancel: { exit.finish(nil) }
         } catch {
             try? files.removeItem(at: directory)
             throw error is CancellationError ? error : Failure.chatNotMoved(String(describing: error))
+        }
+    }
+}
+
+/// The first of {its exit, the limit, the waiter's cancellation} answers a ``SessionTransferService``
+/// `runToEnd` wait; later ones are dropped. An exit before the wait began is kept for it.
+private nonisolated final class ExitWait: Sendable {
+    typealias Exit = (status: Int32, stdout: Data, stderr: Data)
+    private struct State {
+        var continuation: CheckedContinuation<Exit?, Never>?
+        /// Nil until answered; then the exit, or nil when the wait gave up.
+        var answer: Exit??
+    }
+
+    private let state = Mutex(State())
+
+    func finish(_ exit: Exit?) {
+        let continuation = state.withLock { state -> CheckedContinuation<Exit?, Never>? in
+            guard state.answer == nil else { return nil }
+            state.answer = .some(exit)
+            defer { state.continuation = nil }
+            return state.continuation
+        }
+        continuation?.resume(returning: exit)
+    }
+
+    /// The first answer, waiting for it.
+    func answer() async -> Exit? {
+        await withCheckedContinuation { continuation in
+            let answered = state.withLock { state -> Exit?? in
+                if state.answer == nil { state.continuation = continuation }
+                return state.answer
+            }
+            if let answered { continuation.resume(returning: answered) }
         }
     }
 }
