@@ -39,15 +39,29 @@ struct BookmarkFiles {
         registry.track(Task { @MainActor in
             do {
                 let html = try await Task.detached { try Self.read(url) }.value
-                let document = NetscapeBookmarkReader.read(html)
-                guard document.count > 0 else { return ActionWorkFailure(BookmarkAppStrings.importEmpty) }
-                try service.apply(BookmarkImportPlan.file(document, title: BookmarkAppStrings.importedFolder,
-                                                          barTitle: BookmarkStrings.barTitle), profile: profile)
-                return nil
+                return Self.importHTML(html, into: service, profile: profile)
             } catch {
                 return ActionWorkFailure(BookmarkAppStrings.failure(error))
             }
         })
+    }
+
+    /// Netscape HTML already in memory (an export archive's Bookmarks.html) into one
+    /// "Imported" folder at the end of the bar; the failure, if any.
+    func importHTML(_ html: String, profile: String) -> ActionWorkFailure? {
+        Self.importHTML(html, into: services.bookmarks, profile: profile)
+    }
+
+    private static func importHTML(_ html: String, into service: BookmarkService, profile: String) -> ActionWorkFailure? {
+        let document = NetscapeBookmarkReader.read(html)
+        guard document.count > 0 else { return ActionWorkFailure(BookmarkAppStrings.importEmpty) }
+        do {
+            try service.apply(BookmarkImportPlan.file(document, title: BookmarkAppStrings.importedFolder,
+                                                      barTitle: BookmarkStrings.barTitle), profile: profile)
+            return nil
+        } catch {
+            return ActionWorkFailure(BookmarkAppStrings.failure(error))
+        }
     }
 
     func exportFile(_ url: URL, profile: String) {
