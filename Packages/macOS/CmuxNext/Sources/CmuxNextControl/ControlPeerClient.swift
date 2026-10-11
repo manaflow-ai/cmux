@@ -14,6 +14,9 @@ public enum ControlPeerClient {
         case timeout
         case responseTooLarge
         case invalidResponse
+        /// The peer answered with a plain `ERROR:` line and closed, as a
+        /// classic build does for a client its socket mode does not admit.
+        case refused(String)
         case peer(ControlError)
 
         public var description: String {
@@ -22,6 +25,7 @@ public enum ControlPeerClient {
             case .timeout: "peer control request timed out"
             case .responseTooLarge: "peer control response was too large"
             case .invalidResponse: "peer control response was invalid"
+            case .refused(let message): "peer refused the connection: \(message)"
             case .peer(let error): "peer control request failed: \(error.message)"
             }
         }
@@ -80,6 +84,7 @@ public enum ControlPeerClient {
                 inbound.append(byte, count: count)
                 if let newline = inbound.firstIndex(of: 0x0A) {
                     let line = inbound.prefix(upTo: newline)
+                    if line.starts(with: Data("ERROR:".utf8)) { throw Failure.refused(String(decoding: line, as: UTF8.self)) }
                     guard let response = try? JSONValue.parse(Data(line)),
                           let object = response.objectValue else { throw Failure.invalidResponse }
                     if object["ok"]?.boolValue == true { return object["result"] ?? .null }

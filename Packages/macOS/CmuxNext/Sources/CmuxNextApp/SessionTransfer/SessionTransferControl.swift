@@ -34,6 +34,26 @@ enum SessionTransferControl {
                     "sessions": .array(sessions),
                 ]
             },
+            .async("session.transfer.peers") { [transfer = services.sessionTransfer] _ in
+                do {
+                    let peers = try await transfer.discover()
+                    return ["peers": .array(peers.map { peer in
+                        ["socket": .string(peer.path), "app": .string(peer.app), "build": .string(peer.build),
+                         "tag": .optional(peer.tag), "sessions": .array(peer.items.map(\.json))]
+                    })]
+                } catch {
+                    throw controlError(error)
+                }
+            }.withDeadline(.fixed(.seconds(60))),
+            .async("session.transfer.pull") { [transfer = services.sessionTransfer] call in
+                let source = call.params["source"]?.stringValue
+                let ids = Set(call.params["ids"]?.arrayValue?.compactMap(\.stringValue) ?? [])
+                do {
+                    return try await transfer.pull(source: source, ids: ids)
+                } catch {
+                    throw controlError(error)
+                }
+            }.withDeadline(.fixed(.seconds(300))),
             .async("session.transfer.complete") { [transfer = services.sessionTransfer] call in
                 let surfaces = call.params["surfaces"]?.arrayValue?.compactMap(\.stringValue) ?? []
                 guard !surfaces.isEmpty else { throw ControlError.invalidParams("surfaces is required") }
@@ -42,6 +62,17 @@ enum SessionTransferControl {
             }.withDeadline(.fixed(.seconds(30))),
         ]
     }
+}
+
+/// A transfer failure as the control error the caller sees.
+private func controlError(_ error: Error) -> ControlError {
+    let code = switch error {
+    case SessionTransferService.Failure.noSessions: "not_found"
+    case SessionTransferService.Failure.peerRefused: "access_denied"
+    case SessionTransferService.Failure.unavailable: "unavailable"
+    default: "internal_error"
+    }
+    return ControlError(code: code, message: SessionTransferService.message(for: error))
 }
 
 private extension JSONValue {

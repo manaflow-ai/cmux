@@ -7482,6 +7482,137 @@
           }
         }
       }
+    },
+    "sessionTransfer.error.peerRefused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The other cmux build only accepts connections from its own terminals. Set its socket control mode to Automation, then try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يقبل إصدار cmux الآخر الاتصالات من طرفياته فقط. اضبط وضع التحكم في المقبس على Automation، ثم أعد المحاولة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Druga cmux verzija prihvata veze samo iz vlastitih terminala. Postavite njen način kontrole utičnice na Automation i pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den anden cmux-build accepterer kun forbindelser fra sine egne terminaler. Sæt dens socketkontroltilstand til Automation, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der andere cmux-Build akzeptiert nur Verbindungen aus seinen eigenen Terminals. Stelle seinen Socket-Steuerungsmodus auf Automation und versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La otra compilación de cmux solo acepta conexiones de sus propios terminales. Cambia su modo de control del socket a Automation e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’autre version de cmux n’accepte que les connexions de ses propres terminaux. Réglez son mode de contrôle du socket sur Automation, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’altra build di cmux accetta solo connessioni dai propri terminali. Imposta la modalità di controllo del socket su Automation, quindi riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別の cmux ビルドは自身のターミナルからの接続のみ受け付けます。ソケット制御モードを Automation に設定してから、もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំណែ cmux ផ្សេងទៀតទទួលយកតែការតភ្ជាប់ពីស្ថានីយរបស់វាប៉ុណ្ណោះ។ កំណត់របៀបគ្រប់គ្រងរន្ធរបស់វាទៅ Automation រួចព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 cmux 빌드는 자체 터미널의 연결만 허용합니다. 소켓 제어 모드를 Automation으로 설정한 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den andre cmux-versjonen godtar bare tilkoblinger fra sine egne terminaler. Sett socketkontrollmodusen til Automation, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Druga kompilacja cmux akceptuje tylko połączenia z własnych terminali. Ustaw jej tryb sterowania gniazdem na Automation i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A outra versão do cmux só aceita conexões dos próprios terminais. Defina o modo de controle de soquete como Automation e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Другая сборка cmux принимает подключения только из собственных терминалов. Установите для неё режим управления сокетом Automation и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux รุ่นอื่นยอมรับการเชื่อมต่อจากเทอร์มินัลของตัวเองเท่านั้น ตั้งโหมดควบคุมซ็อกเก็ตเป็น Automation แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diğer cmux sürümü yalnızca kendi terminallerinden gelen bağlantıları kabul eder. Soket denetim modunu Automation olarak ayarlayıp yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Інша збірка cmux приймає з’єднання лише з власних терміналів. Установіть для неї режим керування сокетом Automation і спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bản dựng cmux khác chỉ chấp nhận kết nối từ các terminal của chính nó. Đặt chế độ điều khiển socket thành Automation rồi thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一个 cmux 版本只接受来自其自身终端的连接。请将其套接字控制模式设为 Automation，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一個 cmux 版本只接受來自其自身終端機的連線。請將其通訊端控制模式設為 Automation，然後再試一次。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
