@@ -28,11 +28,12 @@ struct SSHBrowserPageLoopbackNavigationTests {
         try await macService.start()
         defer { macService.stop() }
         let callback = "http://127.0.0.1:\(macService.port)/callback?code=from-provider"
-        let page = "<script>location.href = \(Self.javaScriptString(callback));</script>"
+        let navigate = "location.href = \(Self.javaScriptString(callback)); true"
 
         let local = Self.makePanel(isSSHWorkspace: false)
         defer { local.close() }
-        local.panel.webView.loadHTMLString(page, baseURL: Self.loginPageURL)
+        try await Self.loadLoginPage(in: local.panel, baseURL: Self.loginPageURL)
+        _ = try? await local.panel.webView.evaluateJavaScript(navigate)
         let localReachedCallback = await Self.wait {
             macService.requests.contains { $0.target.hasPrefix("/callback") }
         }
@@ -41,10 +42,11 @@ struct SSHBrowserPageLoopbackNavigationTests {
 
         let ssh = Self.makePanel(isSSHWorkspace: true)
         defer { ssh.close() }
+        try await Self.loadLoginPage(in: ssh.panel, baseURL: Self.loginPageURL)
         #expect(!ssh.panel.hasPendingRemoteNavigation)
-        ssh.panel.webView.loadHTMLString(page, baseURL: Self.loginPageURL)
-        #expect(await Self.wait { ssh.panel.hasPendingRemoteNavigation },
-                "The loopback callback must wait for the SSH workspace's remote loopback route")
+        _ = try? await ssh.panel.webView.evaluateJavaScript(navigate)
+        let queuedForRemote = await Self.wait { ssh.panel.hasPendingRemoteNavigation }
+        #expect(queuedForRemote, "The loopback callback must wait for the SSH workspace's remote loopback route")
         #expect(macService.requests.count == localRequests,
                 "An SSH workspace's loopback callback must never reach this Mac's service")
         #expect(ssh.panel.webView.url?.host != "127.0.0.1")
@@ -56,14 +58,24 @@ struct SSHBrowserPageLoopbackNavigationTests {
         try await macService.start()
         defer { macService.stop() }
         let frameURL = "http://127.0.0.1:\(macService.port)/frame-callback"
-        let page = """
-        <script>window.addEventListener('load', () => { document.title = 'page-loaded'; });</script>
-        <iframe src=\(Self.javaScriptString(frameURL))></iframe>
+        // Settles when the frame finishes or after a bound, so a cancelled
+        // frame load cannot hang the test.
+        let insertFrame = """
+        return await new Promise(resolve => {
+          const frame = document.createElement('iframe');
+          frame.onload = () => resolve('settled');
+          setTimeout(() => resolve('timeout'), 3000);
+          frame.src = url;
+          document.body.append(frame);
+        });
         """
 
         let local = Self.makePanel(isSSHWorkspace: false)
         defer { local.close() }
-        local.panel.webView.loadHTMLString(page, baseURL: Self.framingPageURL)
+        try await Self.loadLoginPage(in: local.panel, baseURL: Self.framingPageURL)
+        _ = try? await local.panel.webView.callAsyncJavaScript(
+            insertFrame, arguments: ["url": frameURL], in: nil, contentWorld: .page
+        )
         let localReachedFrame = await Self.wait {
             macService.requests.contains { $0.target == "/frame-callback" }
         }
@@ -72,11 +84,28 @@ struct SSHBrowserPageLoopbackNavigationTests {
 
         let ssh = Self.makePanel(isSSHWorkspace: true)
         defer { ssh.close() }
-        ssh.panel.webView.loadHTMLString(page, baseURL: Self.framingPageURL)
-        // The window load event waits for every parser-inserted frame.
-        #expect(await Self.wait { ssh.panel.webView.title == "page-loaded" })
+        try await Self.loadLoginPage(in: ssh.panel, baseURL: Self.framingPageURL)
+        _ = try? await ssh.panel.webView.callAsyncJavaScript(
+            insertFrame, arguments: ["url": frameURL], in: nil, contentWorld: .page
+        )
         #expect(macService.requests.count == localRequests,
                 "An SSH workspace's loopback frame must never reach this Mac's service")
+    }
+
+    /// Loads the provider page outside the panel's own navigation policy, as
+    /// existing panel tests do, then hands later navigations back to it.
+    private static func loadLoginPage(in panel: BrowserPanel, baseURL: URL) async throws {
+        let panelDelegate = panel.webView.navigationDelegate
+        panel.webView.navigationDelegate = nil
+        defer { panel.webView.navigationDelegate = panelDelegate }
+        panel.webView.loadHTMLString(
+            "<!doctype html><html><head><title>login</title></head><body>provider</body></html>",
+            baseURL: baseURL
+        )
+        let loaded = await wait {
+            panel.webView.url == baseURL && !panel.webView.isLoading && panel.webView.title == "login"
+        }
+        try #require(loaded, "The provider page must load before it navigates")
     }
 
     private struct HostedPanel {
