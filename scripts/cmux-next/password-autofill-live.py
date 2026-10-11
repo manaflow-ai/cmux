@@ -11,7 +11,7 @@ Browser…, a passwords CSV). Then:
      (plans/cmux-next/passwords.md, slice 1).
 Nothing reads the page through the socket, since any automated read marks
 the tab agent-driven and turns filling off: the page reports its own form
-(username value, :autofill on both fields) to the test's local server.
+(:autofill on both fields) to the test's local server.
 
 Quits the app by PID and stops the tag's daemons at the end.
 """
@@ -173,9 +173,18 @@ def import_through(browser, filename):
 
 
 
+def to_workspace():
+    """Leaves a top page (Home shows at first launch; a page has no tabs) for a workspace with a pane."""
+    rpc("action.run", {"action": "workspace.selectFirst"})
+    rpc("action.run", {"action": "newTab", "origin": "script", "focus": True})
+    time.sleep(1)  # the workspace's pane comes up
+
+
 def filled(tab):
     report = reports.get(tab) or {}
-    return report if report.get("username") == USERNAME and report.get("passwordFilled") else None
+    # Chromium keeps a filled value from page script until the person
+    # interacts (its password gatekeeper), so the page sees :autofill only.
+    return report if report.get("usernameFilled") and report.get("passwordFilled") else None
 
 
 write(CONFIG, "{}\n")
@@ -197,16 +206,18 @@ try:
     summary = wait_for(lambda: next((t for t in toasts() if "Imported:" in t), None), "the passwords toast", 60)
     check(summary is not None and "Imported: 1" in summary, f"the throwaway sign-in is saved ({summary})")
 
+    to_workspace()
     reply = rpc("debug.toast", {"perform": "openBrowser.chromium", "arguments": {"url": f"{ORIGIN}/login?tab=person"}})
     check(reply.get("performed") is True, f"a person opens the login page in a Chromium tab ({reply})")
     report = wait_for(lambda: filled("person"), "the person's tab is filled", 30)
     check(report is not None, f"Chromium fills the saved sign-in in a person's tab ({reports.get('person')})")
 
-    rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": f"{ORIGIN}/login?tab=agent"}})
+    reply = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": f"{ORIGIN}/login?tab=agent"}, "focus": True})
+    print("note: agent open", reply, flush=True)
     wait_for(lambda: "agent" in reports, "the agent's tab reports", 30)
     time.sleep(3)  # long enough for a fill on load to have happened
     agent = reports.get("agent") or {}
-    check("agent" in reports and not agent.get("passwordFilled") and agent.get("username") != USERNAME,
+    check("agent" in reports and not agent.get("passwordFilled") and not agent.get("usernameFilled"),
           f"an agent's Chromium tab is never filled ({agent})")
 finally:
     rpc("action.run", {"action": "quitEndSessions"})
