@@ -396,14 +396,19 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ needs.detect-ios-changes.outputs.target_sha }}
+          # A pull request's merge commit with its parents: the gate fails the
+          # PR only for findings in the files it changes.
+          fetch-depth: ${{ github.event_name == 'pull_request' && '2' || '1' }}
           persist-credentials: false
           submodules: false
 
       - name: Lint iOS package conventions
+        env:
+          GATE_SCOPE: ${{ github.event_name == 'pull_request' && '--pr' || '' }}
         run: |
           python3 scripts/tests/test_ios_package_conventions.py
           python3 scripts/tests/test_pr_scoped_lint_gates.py
-          scripts/ci/package-conventions-gate.sh
+          scripts/ci/package-conventions-gate.sh ${GATE_SCOPE:+"$GATE_SCOPE"}
 
   mobile-core-package:
     needs: [runner, detect-ios-changes, package-conventions-lint]
