@@ -3,8 +3,8 @@ import AppKit
 
 /// DEBUG: the `home-chief` capture scene reads the listed agents and clicks one.
 extension HomeFirstRunView {
-    /// The listed agents with whether each row is shown (rows that do not
-    /// fit the panel are hidden).
+    /// The listed agents with whether each row is shown: the panel hides
+    /// the rows that do not fit its height.
     var debugAgents: [HomeDebugAgentRow] {
         zip(agents, agentRows).map { HomeDebugAgentRow(id: $0.id, title: $0.title, status: $0.status, shown: !$1.isHidden) }
     }
@@ -37,7 +37,7 @@ public struct HomeDebugAgentRow: Sendable {
     public var id: String
     public var title: String
     public var status: HomeAgentGlance.Status
-    /// The row fits the panel and is on screen.
+    /// The panel did not hide the row for its height.
     public var shown: Bool
 }
 #endif

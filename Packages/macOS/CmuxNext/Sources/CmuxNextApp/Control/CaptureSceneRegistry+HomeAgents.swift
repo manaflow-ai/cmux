@@ -8,7 +8,8 @@ import CmuxNextSettings
 /// One agent `home-chief` adds to the Your agents list beside the waiting
 /// one, in its own terminal: what the list should call it and its name.
 nonisolated enum HomeSceneAgent: CaseIterable {
-    /// A hook reports idle and the shell prints OSC 9;4 error progress.
+    /// A hook reports idle and a program in the terminal reports OSC 9;4
+    /// error progress, then keeps running: the next prompt would clear it.
     case failed
     /// A hook reports a finished turn.
     case done
@@ -69,8 +70,8 @@ extension CaptureSceneRegistry {
 
     /// Opens one terminal per `HomeSceneAgent` and reports each through the
     /// production paths: a user rename, a hook's `report-agent`, and for the
-    /// failed one OSC 9;4 error progress its shell prints, which the daemon
-    /// parses as it does any program's. Waits until the mirror shows each
+    /// failed one OSC 9;4 error progress from a program left running (a
+    /// shell prompt clears progress), which the daemon parses as any program's. Waits until the mirror shows each
     /// state; returns the agents' tabs, or an error naming the one missing.
     func reportSceneAgents(_ controller: WindowController,
                            in pane: PaneController) async -> Result<[(HomeSceneAgent, TabModel)], SceneAgentError> {
@@ -91,7 +92,7 @@ extension CaptureSceneRegistry {
         let surface = failed.surface
         for _ in 0..<4 where failed.progress?.state != .error {
             failedPane.daemon.send("showcase agent failed") { connection in
-                _ = try await connection.request(SendInputRequest(surface: surface, text: "printf '\\033]9;4;2;100\\007'\r"))
+                _ = try await connection.request(SendInputRequest(surface: surface, text: "printf '\\033]9;4;2;100\\007'; sleep 86400\r"))
             }
             frames.start()
             _ = await frames.settled(until: { failed.progress?.state == .error }, start: ContinuousClock.now, window: 0, deadline: 2_000)
@@ -106,9 +107,9 @@ extension CaptureSceneRegistry {
         return .success(opened.map { ($0.0, $0.2) })
     }
 
-    /// After the snapshot, with `click_agent` N: clicks the Nth Your agents
-    /// row (a pointer click through the window; VoiceOver's press if that
-    /// opens nothing) and reports the window's focused tab against the row's,
+    /// After the snapshot, with `click_agent` N: clicks Your agents row N,
+    /// counted from 0 (a pointer click through the window; VoiceOver's press
+    /// if that opens nothing) and reports the window's focused tab against the row's,
     /// with a second snapshot at `click_path`. Nil without `click_agent`.
     func clickHomeAgent(_ params: [String: CmuxNextSettings.JSONValue], windowID: String) async -> CmuxNextSettings.JSONValue? {
         guard let index = params["click_agent"]?.intValue else { return nil }
@@ -126,6 +127,7 @@ extension CaptureSceneRegistry {
         var via = "pointer"
         var clicked = transcript.debugClickFirstRunAgent(index, pointer: true)
         let reached = await focusReaches(clicked, controller)
+        report["pointer_opened"] = .bool(reached)
         if !reached {
             via = "accessibility_press"
             clicked = transcript.debugClickFirstRunAgent(index, pointer: false)

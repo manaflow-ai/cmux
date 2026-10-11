@@ -16,8 +16,8 @@ extension CaptureSceneRegistry {
     /// showcase terminal (opened if the window has none) as waiting for
     /// input (the real `report-agent` path) and `reportSceneAgents` opens a
     /// failed, a done and a working agent, then waits until the app shows
-    /// them all: each state reached the mirror, and the first-run panel lists
-    /// each status. An error names what never appeared.
+    /// them all: each state reached the mirror, and the first-run panel shows
+    /// a row for each status. An error names what never appeared.
     func showHomeChief(windowID: String) async -> CmuxNextSettings.JSONValue {
         guard let controller = services.windows.controller(for: windowID) else {
             return .object(["error": .string("capture window is gone")])
@@ -61,7 +61,7 @@ extension CaptureSceneRegistry {
                 guard terminal.tab.agent?.state == .blocked, agents.allSatisfy({ $0.0.reached($0.1) }),
                       let host = page.host, host.window != nil, !host.isHiddenOrHasHiddenAncestor,
                       let transcript = HomePageTab.transcript(in: host), transcript.debugFirstRunShown else { return false }
-                return statuses.isSubset(of: transcript.debugFirstRunAgents.map(\.status))
+                return statuses.isSubset(of: transcript.debugFirstRunAgents.filter(\.shown).map(\.status))
             },
             start: start,
             window: 100,
@@ -78,7 +78,7 @@ extension CaptureSceneRegistry {
             .object(["tab": .string(row.id), "title": .string(row.title), "status": .string("\(row.status)"), "shown": .bool(row.shown)])
         })
         guard settled != nil else {
-            report["error"] = .string("Home's first-run panel did not list every status before the deadline")
+            report["error"] = .string("Home's first-run panel did not show every status before the deadline")
             clearShowcaseAgent(windowID: windowID)
             return .object(report)
         }
@@ -92,8 +92,8 @@ extension CaptureSceneRegistry {
     }
 
     /// Puts the scene back once its snapshot is taken: the waiting terminal
-    /// to idle, and the terminals it opened closed (automation closes them
-    /// without asking), so later scenes in the same app inherit no agents.
+    /// to idle, and the terminals it opened closed (a script's close never
+    /// asks), so later scenes in the same app inherit no agents.
     func clearShowcaseAgent(windowID: String) {
         defer { blockedTerminal = nil; openedTerminals = [] }
         guard let controller = services.windows.controller(for: windowID) else { return }
@@ -102,7 +102,7 @@ extension CaptureSceneRegistry {
             reportShowcaseAgent(.idle, on: terminal)
         }
         for id in openedTerminals {
-            _ = services.registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: id)))
+            _ = services.registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: id), origin: .script))
         }
     }
 

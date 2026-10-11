@@ -196,7 +196,7 @@ final class CaptureSceneRegistry {
         CaptureSceneDefinition(name: "hints-cmd-held", description: "Command modifier hint destination."),
         CaptureSceneDefinition(name: "hints-ctrl-held", description: "Control modifier hint destination."),
         CaptureSceneDefinition(name: homeChiefScene,
-                               description: "Home's empty Chief conversation listing the showcase agents and terminal agents waiting, failed, done and working; click_agent N clicks the Nth row and reports the focused tab, click_path snapshots after it."),
+                               description: "Home's empty Chief conversation listing the showcase agents and terminal agents waiting, failed, done and working; click_agent N clicks row N (from 0) and reports the focused tab, click_path snapshots after it."),
     ]
 }
 #endif
