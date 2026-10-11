@@ -170,6 +170,8 @@ pub(super) fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, Us
             | "select" | "press" | "key" | "scroll",
             _,
         ) => input_verb(verb, rest, &mut params).ok_or_else(usage)??,
+        ("cookies", _) => cookies(rest, &mut params).ok_or_else(usage)??,
+        ("storage", _) => storage(rest, &mut params).ok_or_else(usage)?,
         _ => return Err(usage()),
     };
     let flagged = [
@@ -189,6 +191,8 @@ pub(super) fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, Us
         "press",
         "key",
         "scroll",
+        "cookies",
+        "storage",
     ];
     if !flagged.contains(&verb.as_str()) && words.len() != rest.len() {
         return Err(usage());
@@ -385,5 +389,86 @@ pub(super) fn save_screenshot(mut result: Value, out: Option<&str>, output: Outp
             result["path"] = json!(path);
             super::super::wire::print_local_success(&result, output)
         }
+    }
+}
+
+/// Leading words, then `--flags`.
+fn split_words(args: &[String]) -> (&[String], &[String]) {
+    args.split_at(args.iter().position(|arg| arg.starts_with("--")).unwrap_or(args.len()))
+}
+
+/// `cookies [get|clear] [--name N] [--value V] [--url U] [--domain D] [--path P]
+/// [--expires UNIX] [--secure] [--http-only]` (the old filters; the app refuses
+/// `clear --all`), `cookies set NAME VALUE [--url U | --domain D] [--path P]
+/// [--expires UNIX] [--secure] [--http-only]`. None is a usage error.
+fn cookies(
+    args: &[String],
+    params: &mut Map<String, Value>,
+) -> Option<Result<&'static str, UsageError>> {
+    let (words, flags) = split_words(args);
+    let (action, words) = match words.split_first() {
+        Some((action, words)) => (action.as_str(), words),
+        None => ("get", words),
+    };
+    let valued: &[&str] = &["name", "value", "url", "domain", "path", "expires"];
+    let switches: &[&str] = match action {
+        "get" | "set" => &["secure", "http-only"],
+        "clear" => &["secure", "http-only", "all"],
+        _ => return None,
+    };
+    let options = match Options::parse(flags, valued, switches) {
+        Ok(options) => options,
+        Err(error) => return Some(Err(error)),
+    };
+    match (action, words) {
+        ("set", [name, value]) => {
+            params.insert("name".into(), json!(name));
+            params.insert("value".into(), json!(value));
+        }
+        ("set", []) if options.value("name").is_some() && options.value("value").is_some() => {}
+        (_, []) if action != "set" => {}
+        _ => return None,
+    }
+    for key in valued {
+        let Some(value) = options.value(key) else { continue };
+        let value =
+            if *key == "expires" { json!(value.parse::<i64>().ok()?) } else { json!(value) };
+        params.insert((*key).into(), value);
+    }
+    for key in switches {
+        if options.flag(key) {
+            params.insert(key.replace('-', "_"), json!(true));
+        }
+    }
+    Some(Ok(match action {
+        "get" => "browser.page.cookies.get",
+        "set" => "browser.page.cookies.set",
+        _ => "browser.page.cookies.clear",
+    }))
+}
+
+/// `storage [local|session] [get [KEY] | set KEY VALUE | clear]`.
+fn storage(args: &[String], params: &mut Map<String, Value>) -> Option<&'static str> {
+    let mut words = args;
+    if let Some((area, rest)) = words.split_first()
+        && matches!(area.as_str(), "local" | "session")
+    {
+        params.insert("type".into(), json!(area));
+        words = rest;
+    }
+    match words {
+        [] => Some("browser.page.storage.get"),
+        [get] if get == "get" => Some("browser.page.storage.get"),
+        [get, key] if get == "get" => {
+            params.insert("key".into(), json!(key));
+            Some("browser.page.storage.get")
+        }
+        [set, key, value] if set == "set" => {
+            params.insert("key".into(), json!(key));
+            params.insert("value".into(), json!(value));
+            Some("browser.page.storage.set")
+        }
+        [clear] if clear == "clear" => Some("browser.page.storage.clear"),
+        _ => None,
     }
 }

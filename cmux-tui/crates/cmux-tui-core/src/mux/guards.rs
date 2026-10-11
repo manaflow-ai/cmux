@@ -2,14 +2,14 @@
 
 use super::*;
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(crate) struct PendingTerminalHostBinding {
     pub(super) mux: Weak<Mux>,
     pub(super) surface_id: SurfaceId,
     pub(super) identity: TerminalHostIdentity,
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 impl Drop for PendingTerminalHostBinding {
     fn drop(&mut self) {
         let Some(mux) = self.mux.upgrade() else { return };
@@ -20,10 +20,10 @@ impl Drop for PendingTerminalHostBinding {
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(super) struct PendingTerminalHostRelease(pub(super) Arc<Surface>);
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 impl Drop for PendingTerminalHostRelease {
     fn drop(&mut self) {
         self.0.release_pending_terminal_host_binding();

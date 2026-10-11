@@ -82,12 +82,25 @@ export const createCloudClient = (options: CloudClientOptions) => {
       return r
     },
     /**
-     * WebSocket to an owner stream (`cmux.wire/1` frames). Browsers cannot set headers,
-     * so the token travels as a subprotocol, never in the URL.
+     * WebSocket to an owner stream (`cmux.wire/1` frames). Browsers cannot set headers, and
+     * Workers invocation logs record every header but Authorization (cx-dgsp), so the socket
+     * carries only a single-use ticket from POST /v1/wire/ticket, never the token. A Worker
+     * from before cx-dgsp answers that POST 404 and gets the legacy `bearer.` subprotocol.
      */
     async openWire(scope: "user" | "team"): Promise<WebSocket> {
       const team = await options.team?.()
-      return new WebSocket(`${base.replace(/^http/, "ws")}/v1/wire/${scope}`, ["cmux.wire.v1", `bearer.${await options.token()}`, ...(team ? [`team.${team}`] : [])])
+      const token = await options.token()
+      const res = await doFetch(`${base}/v1/wire/ticket`, { method: "POST", headers: { authorization: `Bearer ${token}` } })
+      let credential: string
+      if (res.status === 404) credential = `bearer.${token}`
+      else {
+        const body: unknown = await res.json().catch(() => undefined)
+        const ticket = res.ok ? (body as { ticket?: unknown } | undefined)?.ticket : undefined
+        // Only a 404 (an old Worker) gets the legacy subprotocol; any other answer without a ticket throws.
+        if (typeof ticket !== "string") throw new CloudHttpError(res.status, body)
+        credential = `ticket.${ticket}`
+      }
+      return new WebSocket(`${base.replace(/^http/, "ws")}/v1/wire/${scope}`, ["cmux.wire.v1", credential, ...(team ? [`team.${team}`] : [])])
     },
     meta: cloudOpMeta
   }
