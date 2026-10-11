@@ -300,7 +300,8 @@
 .acpmux-home-meta{flex:none;color:var(--agent-muted);font-size:13px}
 .acpmux-home-title+.acpmux-home-meta{margin-left:auto}
 
-:root{--acpmux-add:var(--agent-diff-add,#90b345);--acpmux-del:var(--agent-diff-del,#b4365e)}
+/* Added and removed lines: the theme's ANSI green and red, as the syntax colors use them. */
+:root{--acpmux-add:var(--agent-ansi-2,#90b345);--acpmux-del:var(--agent-ansi-1,#b4365e)}
 .acpmux-diff-panel{position:absolute;inset:0;z-index:5;display:flex;flex-direction:column;color:var(--agent-text);font:13px/20px system-ui,-apple-system,"Helvetica Neue",sans-serif;-webkit-font-smoothing:antialiased}
 .acpmux-diff-header{display:flex;align-items:center;gap:8px;height:48px;box-sizing:border-box;padding:0 8px;border-bottom:1px solid var(--agent-border)}
 .acpmux-diff-back{display:inline-flex;align-items:center;justify-content:center;flex:none;width:28px;height:28px;border:0;border-radius:50%;background:none;color:var(--agent-muted);cursor:pointer}
