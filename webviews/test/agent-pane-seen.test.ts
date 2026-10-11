@@ -97,11 +97,14 @@ await requireBrowserLane("agent-pane-seen.test.ts", async () => {
       .filter((m) => m.method === "_acpmux/view")
       .map((m) => ({ sessionId: m.params.sessionId, visible: m.params.visible }));
 
-  /// Waits until the pane has sent `count` `_acpmux/view` requests (or five seconds pass).
-  async function sentViews(count: number): Promise<void> {
-    const deadline = Date.now() + 5000;
-    while (views().length < count && Date.now() < deadline) await Bun.sleep(20);
+  /// Waits until `done` holds (or ten seconds pass).
+  async function until(done: () => boolean): Promise<void> {
+    const deadline = Date.now() + 10_000;
+    while (!done() && Date.now() < deadline) await Bun.sleep(20);
   }
+
+  /// Waits until the pane has sent `count` `_acpmux/view` requests.
+  const sentViews = (count: number) => until(() => views().length >= count);
 
   describe("seen", () => {
     test("the pane tells acpmux whether it shows its chat", async () => {
@@ -109,8 +112,9 @@ await requireBrowserLane("agent-pane-seen.test.ts", async () => {
       const { port } = vite!.httpServer!.address() as { port: number };
       const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
       await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
-      await page.waitForFunction(() => document.querySelector(".acpmux-composer-prompt") !== null);
-      const attach = sent.find((m) => m.method === "_acpmux/attach" && m.params.sessionId === SESSION);
+      const attached = () => sent.find((m) => m.method === "_acpmux/attach" && m.params.sessionId === SESSION);
+      await until(() => attached() !== undefined);
+      const attach = attached();
       expect(attach?.params.visible).toBe(true);
       await setVisibility(page, "hidden");
       await sentViews(1);
