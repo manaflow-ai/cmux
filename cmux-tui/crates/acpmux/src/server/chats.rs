@@ -11,7 +11,9 @@
 //!   when the live session continuing a chat changes what it needs from the
 //!   person (`chats/activity.rs`). Every chat value carries `attention`
 //!   (`needsInput`, `failed`, `unread` or null) and `preview` (its live
-//!   session's latest reply, or null).
+//!   session's latest reply, or null), and `brand` (its harness's agent
+//!   brand from design/agent-icons, e.g. `claude`, or null when it has no
+//!   mark), so the app never resolves a brand per chat.
 //! - `_acpmux/chat_open {key, cwd?}`: how the chat opens again (`chats/open.rs`):
 //!   `adopt` with ready `session/new` params, `terminal` with argv/env/cwd,
 //!   or `readOnly`; `needsFolder` when the person must pick the folder.

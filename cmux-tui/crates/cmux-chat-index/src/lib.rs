@@ -6,6 +6,8 @@
 //! acpmux owns root discovery, the merged index, the watcher and the RPC.
 
 mod adapters;
+mod brand;
+mod brand_generated;
 mod entry;
 mod index;
 mod lines;
@@ -18,6 +20,7 @@ mod text;
 mod time;
 
 pub use adapters::{PathRole, classify_path};
+pub use brand::agent_brand;
 pub use entry::{AdapterKind, ChatEntry, ChatKey, Resume, TitleSource};
 pub use index::{ChatChange, ChatIndex, IndexedChat};
 pub use roots::{

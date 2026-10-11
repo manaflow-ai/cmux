@@ -392,9 +392,15 @@ pub fn parse_key(text: &str) -> Option<ChatKey> {
     (!session_id.is_empty()).then(|| ChatKey { harness, session_id: session_id.to_owned() })
 }
 
+/// One chat row: the indexed chat, its `key`, and its agent `brand`
+/// (design/agent-icons; null when the harness has no mark), so the app draws
+/// the mark without resolving the harness per chat.
 pub fn chat_value(chat: &IndexedChat) -> Value {
+    let key = chat.entry.key();
     let mut value = serde_json::to_value(chat).unwrap_or(Value::Null);
-    value["key"] = Value::String(key_text(&chat.entry.key()));
+    value["brand"] =
+        cmux_chat_index::agent_brand(key.harness.id()).map_or(Value::Null, Value::from);
+    value["key"] = Value::String(key_text(&key));
     value
 }
 
