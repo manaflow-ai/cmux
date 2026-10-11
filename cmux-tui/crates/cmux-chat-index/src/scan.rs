@@ -114,24 +114,52 @@ pub(crate) fn is_person_chat(entry: &ChatEntry) -> bool {
 }
 
 /// acpmux's model probes run in `<acpmux home>/unattended` (`protected_folders::unattended_cwd`:
-/// `~/.acpmux/unattended`, `~/.acpmux/tags/<tag>/unattended`), a folder no person works in.
+/// `~/.acpmux/unattended`, `~/.acpmux/tags/<tag>/unattended`, or `<temp>/acpmux-unattended`), a
+/// folder no person works in.
 fn is_probe_session(entry: &ChatEntry) -> bool {
     let Some(cwd) = entry.cwd.as_deref() else { return false };
     let parts: Vec<&str> =
         cwd.trim_end_matches('/').split('/').filter(|part| !part.is_empty()).collect();
-    parts.last() == Some(&"unattended") && parts.iter().any(|part| part.starts_with(".acpmux"))
+    // The fallback when the acpmux home is guarded: `<temp dir>/acpmux-unattended`.
+    parts.last() == Some(&"acpmux-unattended")
+        || (parts.last() == Some(&"unattended")
+            && parts.iter().any(|part| part.starts_with(".acpmux")))
 }
 
 pub(crate) fn is_chief_session(entry: &ChatEntry) -> bool {
+    // Any tag's or home's Chief (`$MUX_HOME` differs per tag and per isolated home): its turn
+    // folder anywhere under an `optchat/session` pair, its compactor slots, and its prompt markup
+    // as the title when the folder was not recorded (nxdog92: 89 such rows from other homes).
+    if entry.title.as_deref().is_some_and(is_chief_markup) {
+        return true;
+    }
     let Some(cwd) = entry.cwd.as_deref() else { return false };
     let parts: Vec<&str> =
         cwd.trim_end_matches('/').split('/').filter(|part| !part.is_empty()).collect();
+    if parts.windows(2).any(|pair| pair == ["optchat", "session"]) {
+        return true;
+    }
     match parts.as_slice() {
-        [.., "optchat", "session"] => true,
         [.., compact, slot] => {
             compact.starts_with("optchat-compact-")
                 && (*slot == "shared" || slot.starts_with("slot-"))
         }
         _ => false,
     }
+}
+
+/// The Chief's prompt markup as a first line: `<n>+<m>|user: …` (its rendered message index) or a
+/// bare `<chat>` / `</chat>` block tag. A person's prompt does not start this way.
+fn is_chief_markup(title: &str) -> bool {
+    let title = title.trim();
+    if title == "<chat>" || title == "</chat>" || title.starts_with("<chat>") {
+        return true;
+    }
+    let Some((index, rest)) = title.split_once('|') else { return false };
+    let Some((a, b)) = index.split_once('+') else { return false };
+    !a.is_empty()
+        && !b.is_empty()
+        && a.chars().all(|c| c.is_ascii_digit())
+        && b.chars().all(|c| c.is_ascii_digit())
+        && (rest.starts_with("user:") || rest.starts_with("assistant:"))
 }

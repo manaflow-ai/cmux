@@ -15,6 +15,8 @@ final class CaptureSceneRegistry {
     let frames = BenchFrames()
     /// The tab `home-chief` reported as waiting, put back to idle after its snapshot.
     var blockedTerminal: String?
+    /// The terminals `home-chief` opened, closed after its snapshot.
+    var openedTerminals: [String] = []
 
     /// Creates a registry bound to the running app services.
     init(services: AppServices) {
@@ -116,8 +118,10 @@ final class CaptureSceneRegistry {
         var snapshotParams = params
         snapshotParams["window"] = .string(targetWindowID)
         let snapshot = await DebugWindowSnapshot.captureAsync(snapshotParams, services: services)
+        let click = isHome ? await clickHomeAgent(params, windowID: targetWindowID) : nil
         if isHome { clearShowcaseAgent(windowID: targetWindowID) }
         guard case .object(var result) = snapshot else { return snapshot }
+        result["click"] = click
         guard isHome || (result["webviews_composited"]?.intValue ?? 0) > 0 else {
             return .object([
                 "error": .string("agent web view was not composited"),
@@ -192,7 +196,7 @@ final class CaptureSceneRegistry {
         CaptureSceneDefinition(name: "hints-cmd-held", description: "Command modifier hint destination."),
         CaptureSceneDefinition(name: "hints-ctrl-held", description: "Control modifier hint destination."),
         CaptureSceneDefinition(name: homeChiefScene,
-                               description: "Home showing the empty Chief conversation beside the showcase agents, one waiting for input."),
+                               description: "Home's empty Chief conversation listing the showcase agents and terminal agents waiting, failed, done and working; click_agent N clicks row N (from 0) and reports the focused tab, click_path snapshots after it."),
     ]
 }
 #endif

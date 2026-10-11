@@ -309,6 +309,21 @@
   background: var(--acpmux-composer-edge);
 }
 @media (max-width: 480px) {
+  /* At compact pane widths the rail keeps every action available but uses the same icon-first
+     treatment as the mode picker. The button labels remain in aria-label/title metadata, so
+     keyboard and assistive-technology users still get the full value. */
+  .acpmux-composer-bar .acpmux-model .acpmux-picker-button {
+    width: 32px !important;
+    max-width: 32px;
+    justify-content: center;
+    gap: 0;
+    padding-inline: 0;
+    overflow: hidden;
+  }
+  .acpmux-composer-bar .acpmux-model-name,
+  .acpmux-composer-bar .acpmux-model .acpmux-picker-button .acpmux-icon:last-child {
+    display: none;
+  }
   .acpmux-composer-bar .acpmux-access-trigger { width: 112px; max-width: 112px; }
   .acpmux-composer-bar .acpmux-mode-text { display: none; }
 }

@@ -83,6 +83,8 @@ def test_current_forms_are_accepted(validator: ModuleType) -> None:
         "cmux browser page state",
         'cmux browser "$TAB" snapshot --interactive --max-depth 4',
         "cmux browser tab_01ab fill '#q' hello",
+        "cmux browser tab_01ab wait '#done' --timeout-ms 10000",
+        "cmux browser page screenshot --full-page --out shot.png",
         "cmux browser page tabs --all",
         "cmux browser tab_01ab new-tab https://x.test",
         "cmux browser tab_01ab select",
