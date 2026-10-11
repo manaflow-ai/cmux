@@ -5,11 +5,15 @@
 
 use crate::model::{Label, Project};
 use crate::query::{self, TaskView};
-use crate::{AgentSession, Ctx, Envelope, Op, Origin, Principal, State, Status, TeamSettings};
+use crate::{
+    AgentSession, Ctx, Envelope, Op, Origin, Principal, State, Status, Task, TeamSettings,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 /// The confirmed mirror, in the owner's snapshot shape (`snapshot_value`).
+/// Tasks may be snapshot views or bare event entities: the view fields and
+/// the `entity` tag are ignored, the view is derived again.
 #[derive(Clone, Debug, Deserialize)]
 pub struct Mirror {
     pub me: Principal,
@@ -21,7 +25,7 @@ pub struct Mirror {
     #[serde(default)]
     pub projects: Vec<Project>,
     #[serde(default)]
-    pub tasks: Vec<TaskView>,
+    pub tasks: Vec<Task>,
     #[serde(default)]
     pub sessions: Vec<AgentSession>,
     #[serde(default)]
@@ -63,7 +67,7 @@ pub fn respond(request: &Request) -> Preview {
         statuses: mirror.statuses.iter().map(|s| (s.id.clone(), s.clone())).collect(),
         labels: mirror.labels.iter().map(|l| (l.id.clone(), l.clone())).collect(),
         projects: mirror.projects.iter().map(|p| (p.id.clone(), p.clone())).collect(),
-        tasks: mirror.tasks.iter().map(|t| (t.task.id.clone(), t.task.clone())).collect(),
+        tasks: mirror.tasks.iter().map(|t| (t.id.clone(), t.clone())).collect(),
         relations: BTreeMap::new(),
         comments: BTreeMap::new(),
         sessions: mirror.sessions.iter().map(|s| (s.id.clone(), s.clone())).collect(),
