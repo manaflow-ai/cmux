@@ -428,6 +428,8 @@ test("an unchanged settle regression gets a visible latency receipt instead of t
   // This follows the generated diff page's unchanged-section path: the receipt card is separated
   // from the plain list, and its existing card renderer prints both head and base settle values.
   expect(html).toContain("function settleChanged(o)");
+  expect(html).toContain("Number.isFinite(base) && base >= 0");
+  expect(html).toContain("Number.isFinite(head) && head >= 0");
   expect(html).toContain("data-settle-receipt");
   expect(html).toContain('"Latency changed (" + latency.length + ")"');
   expect(html).toContain('plain.length + " unchanged"');

@@ -364,7 +364,11 @@ function card(o, i) {
   return el("article", {id: o.key, "data-entry": o.entry}, ...parts);
 }
 function settleChanged(o) {
-  return (o.frames || []).some((f) => f.basePlay && f.play && typeof f.basePlay.settleMs === "number" && typeof f.play.settleMs === "number" && f.basePlay.settleMs !== f.play.settleMs);
+  return (o.frames || []).some((f) => {
+    const base = f.basePlay?.settleMs;
+    const head = f.play?.settleMs;
+    return typeof base === "number" && Number.isFinite(base) && base >= 0 && typeof head === "number" && Number.isFinite(head) && head >= 0 && base !== head;
+  });
 }
 order.forEach((status) => {
   const list = outcomes.map((o, i) => [o, i]).filter(([o]) => o.status === status);
