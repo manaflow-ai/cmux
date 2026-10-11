@@ -256,6 +256,8 @@ nonisolated extension ActionSurfaceCatalog {
     static let mcpExemption: [ActionID: SurfaceExemption] = byReason(mcpExemptionsByReason)
     static let mcpExemptionsByReason: [SurfaceExemption: [ActionID]] = [
         .systemChange: [
+            // Opens a batch of workspaces in the person's app: the person starts it (cx-rwlb).
+            "workspace.importClassic",
             "notifications.dismissal.keystroke",
             "notifications.dismissal.focus",
             "notifications.dismissal.click",

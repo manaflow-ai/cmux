@@ -27,7 +27,9 @@ extension AppOnboardingServices {
                 var spawn = WorkspaceSpawn(cwd: saved.workingDirectory, name: saved.name)
                 spawn.slot = .bottom(anchor: nil)
                 let id = try await windows.createWorkspace(spawn, into: target)
-                guard let daemon = machines.daemon(forWorkspace: id), let connection = daemon.connection else { continue }
+                guard let daemon = machines.daemon(forWorkspace: id), let connection = daemon.connection else {
+                    throw ClassicImportFailure.noDaemon
+                }
                 try await restoreClassicLayout(saved.layout, workspaceID: id, connection: connection)
                 opened += 1
             } catch {
@@ -97,4 +99,9 @@ extension AppOnboardingServices {
             if let title = tab.title, !title.isEmpty { try await connection.renameTab(surface, to: title) }
         }
     }
+}
+
+private enum ClassicImportFailure: Error {
+    /// The new workspace's daemon has no connection to build its panes on.
+    case noDaemon
 }
