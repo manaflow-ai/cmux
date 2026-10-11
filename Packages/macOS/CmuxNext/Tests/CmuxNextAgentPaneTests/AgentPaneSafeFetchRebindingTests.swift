@@ -3,6 +3,7 @@ import Network
 import Synchronization
 import Testing
 @testable import CmuxNextAgentPane
+import CmuxNextPages
 
 /// cx-e9t, at the network boundary: a reply image URL whose name answers a public address when
 /// the fetch checks it, and a private one at any later lookup (a DNS rebinding), must never reach
@@ -54,17 +55,36 @@ struct AgentPaneSafeFetchRebindingTests {
         func stop() { listener.cancel() }
     }
 
+    /// A DNS stub that answers a public address at the first lookup and 127.0.0.1 at every later
+    /// one, and counts the lookups.
+    final class RebindingResolver: RemoteAddressResolving, @unchecked Sendable { // crash-allow: test support; the count holds the lock
+        private let lookups = Mutex(0)
+
+        var count: Int { lookups.withLock { $0 } }
+
+        func resolve(_ host: String) async throws -> [RemoteAddress] {
+            let first = lookups.withLock { count -> Bool in
+                count += 1
+                return count == 1
+            }
+            return [first ? .v4([1, 1, 1, 1]) : .v4([127, 0, 0, 1])]
+        }
+    }
+
     @Test func aRebindingAnswerNeverReachesThePrivateListener() async throws {
         let listener = try PrivateListener()
         let port = try await listener.start()
         defer { listener.stop() }
 
-        // The check's lookup says public; every later lookup (the system's) says 127.0.0.1.
+        // The check's lookup says public; every later lookup says 127.0.0.1.
+        let dns = RebindingResolver()
         var fetch = AgentPaneSafeFetch()
-        fetch.hostCheck = { _ in true }
-        let result = await fetch.fetch(try #require(URL(string: "https://localhost:\(port)/a.png")))
+        fetch.guarded.resolver = dns
+        fetch.guarded.timeout = .seconds(3)
+        let result = await fetch.fetch(try #require(URL(string: "https://rebind.example:\(port)/a.png")))
 
         #expect((try? result.get()) == nil)
         #expect(listener.count == 0, "the fetch connected to the private listener after its check said public")
+        #expect(dns.count == 1, "the fetch looked the name up again after its check")
     }
 }
