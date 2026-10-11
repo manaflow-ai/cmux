@@ -2491,7 +2491,7 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "workspace.importClassic",
-      "mcp" : "offered",
+      "mcp" : "systemChange",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.workspace",

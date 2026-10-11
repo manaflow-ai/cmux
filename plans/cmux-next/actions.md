@@ -51,7 +51,7 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 
 ## Counts (915 actions)
 
-Palette 879, CLI verbs 488, right-click 476, MCP tools 428.
+Palette 879, CLI verbs 488, right-click 476, MCP tools 427.
 
 ## Menus
 
@@ -159,7 +159,7 @@ Palette 879, CLI verbs 488, right-click 476, MCP tools 428.
 
 **endsApp** (4): `quit`, `quitKeepSessions`, `quitEndSessions`, `quitEndEverything`
 
-**systemChange** (49): `keepMacAwake`, `palette.toggleMatchTerminalBackground`, `palette.enableMinimalMode`, `palette.disableMinimalMode`, `notifications.toggleBanners`, `notifications.dismissal.keystroke`, `notifications.dismissal.focus`, `notifications.dismissal.click`, `notifications.dismissal.explicit`, `notifications.dismissal.timeout`, `notifications.dismissal.never`, `agentPaneZoomIn`, `agentPaneZoomOut`, `agentPaneZoomReset`, `palette.makeDefaultBrowser`, `palette.makeDefaultTerminal`, `palette.toggleSetting`, `palette.shortcutKeymap`, `palette.installCLI`, `palette.uninstallCLI`, `palette.restartSocketListener`, `palette.applyUpdateIfAvailable`, `palette.switchAppChannel`, `help.showCrashLogs`, `appearance.density.compact`, `appearance.density.comfortable`, `appearance.animationSpeed.fast`, `appearance.animationSpeed.normal`, `appearance.animationSpeed.off`, `browser.defaultEngine.chromium`, `browser.defaultEngine.webkit`, `appearance.paneBorder.toggle`, `appearance.panePadding.toggle`, `appearance.paneCorners.toggle`, `layout.centerFocusedColumn.never`, `layout.centerFocusedColumn.always`, `layout.centerFocusedColumn.onOverflow`, `focusRing.toggle`, `focusRing.style.ring`, `focusRing.style.glow`, `focusRing.singlePane.toggle`, `appearance.paneBorderWidth.toggle`, `appearance.paneBorderColor.reset`, `appearance.titlebar.minimal`, `appearance.titlebar.standard`, `browser.hibernation.off`, `browser.hibernation.moderate`, `browser.hibernation.aggressive`, `layout.toggleStripScrollbar`
+**systemChange** (50): `keepMacAwake`, `workspace.importClassic`, `palette.toggleMatchTerminalBackground`, `palette.enableMinimalMode`, `palette.disableMinimalMode`, `notifications.toggleBanners`, `notifications.dismissal.keystroke`, `notifications.dismissal.focus`, `notifications.dismissal.click`, `notifications.dismissal.explicit`, `notifications.dismissal.timeout`, `notifications.dismissal.never`, `agentPaneZoomIn`, `agentPaneZoomOut`, `agentPaneZoomReset`, `palette.makeDefaultBrowser`, `palette.makeDefaultTerminal`, `palette.toggleSetting`, `palette.shortcutKeymap`, `palette.installCLI`, `palette.uninstallCLI`, `palette.restartSocketListener`, `palette.applyUpdateIfAvailable`, `palette.switchAppChannel`, `help.showCrashLogs`, `appearance.density.compact`, `appearance.density.comfortable`, `appearance.animationSpeed.fast`, `appearance.animationSpeed.normal`, `appearance.animationSpeed.off`, `browser.defaultEngine.chromium`, `browser.defaultEngine.webkit`, `appearance.paneBorder.toggle`, `appearance.panePadding.toggle`, `appearance.paneCorners.toggle`, `layout.centerFocusedColumn.never`, `layout.centerFocusedColumn.always`, `layout.centerFocusedColumn.onOverflow`, `focusRing.toggle`, `focusRing.style.ring`, `focusRing.style.glow`, `focusRing.singlePane.toggle`, `appearance.paneBorderWidth.toggle`, `appearance.paneBorderColor.reset`, `appearance.titlebar.minimal`, `appearance.titlebar.standard`, `browser.hibernation.off`, `browser.hibernation.moderate`, `browser.hibernation.aggressive`, `layout.toggleStripScrollbar`
 
 Every action without a CLI verb is also no MCP tool, for the CLI's reason.
 
