@@ -2524,6 +2524,7 @@ enum CmuxEmbeddedConfigSchema {
               "markOldestUnreadAndJumpNext",
               "markAllNotificationsRead",
               "clearAllNotifications",
+              "focusSidebar",
               "focusRightSidebar",
               "switchRightSidebarToFiles",
               "switchRightSidebarToFind",

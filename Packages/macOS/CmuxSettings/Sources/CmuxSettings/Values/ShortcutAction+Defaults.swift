@@ -77,6 +77,7 @@ extension ShortcutAction {
         case .toggleFullScreen: return ShortcutStroke(key: "f", command: true, control: true)
         case .quit: return ShortcutStroke(key: "q", command: true)
         case .toggleSidebar: return ShortcutStroke(key: "b", command: true)
+        case .focusSidebar: return ShortcutStroke(key: "e", command: true, control: true)
         case .newTab: return ShortcutStroke(key: "n", command: true)
         case .newBrowserWorkspace: return ShortcutStroke(key: "n", command: true, option: true)
         case .newCloudWorkspace: return ShortcutStroke(key: "y", command: true)

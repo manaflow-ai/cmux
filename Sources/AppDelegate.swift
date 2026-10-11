@@ -6452,6 +6452,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if isRightSidebarFocusResponder(responder, in: window) {
             return false
         }
+        // Focus Sidebar hands the workspace list the keyboard on purpose.
+        if let table = responder as? SidebarWorkspaceTableViewImpl, table.window === window {
+            return false
+        }
         return focusedTerminalKeyRepairNeeded(
             responderIsWindow: responder is NSWindow,
             responderHasViableKeyRoutingOwner: responderHasViableKeyRoutingOwner(responder, in: window),
@@ -15603,6 +15607,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Primary UI shortcuts
         if matchConfiguredShortcut(event: event, action: .toggleSidebar) {
             _ = toggleSidebarInActiveMainWindow(preferredWindow: mainWindowForShortcutEvent(event))
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .focusSidebar) {
+            _ = focusSidebarForKeyboard(preferredWindow: mainWindowForShortcutEvent(event))
             return true
         }
 

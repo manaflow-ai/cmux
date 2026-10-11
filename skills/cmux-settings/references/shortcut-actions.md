@@ -141,6 +141,7 @@ Values for `shortcuts.bindings.<action>`:
 ## Right sidebar
 
 - `shortcuts.bindings.focusRightSidebar`
+- `shortcuts.bindings.focusSidebar`
 - `shortcuts.bindings.nextSidebarTab`
 - `shortcuts.bindings.nextSidebarTabInGroup`
 - `shortcuts.bindings.prevSidebarTab`
