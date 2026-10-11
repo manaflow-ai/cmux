@@ -4,10 +4,10 @@ import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
 import * as TestClock from "effect/TestClock";
 import * as TestContext from "effect/TestContext";
-import { ProviderError } from "../services/vms/drivers/types";
+import { ProviderError, ProviderGuestUnresponsiveError } from "../services/vms/drivers/types";
 import { VmOperationDeadlineError, VmProviderOperationError, type VmWorkflowError } from "../services/vms/errors";
 import { vmWorkflowErrorResponse } from "../services/vms/routeHelpers";
-import { VM_ROUTE_DEADLINES, withVmRouteDeadline, type VmRouteDeadlineOperation } from "../services/vms/routeDeadline";
+import { VM_ROUTE_DEADLINES, vmClientTimeoutMsFromRequest, withVmAnswerDeadline, withVmRouteDeadline, type VmRouteDeadlineOperation } from "../services/vms/routeDeadline";
 
 // Production 2026-10-11: pause, exec and scp-endpoint each waited 2-4 minutes
 // on a Freestyle background request that then failed 502, long after the
@@ -15,11 +15,11 @@ import { VM_ROUTE_DEADLINES, withVmRouteDeadline, type VmRouteDeadlineOperation 
 // client's budget, and a mutation that may still finish says so.
 
 /** Runs `program` under the route deadline on the test clock; returns the failure and the virtual time. */
-async function underDeadline(operation: VmRouteDeadlineOperation, program: Effect.Effect<string, VmWorkflowError>, elapsedMs = 0) {
+async function underDeadline(operation: VmRouteDeadlineOperation, program: Effect.Effect<string, VmWorkflowError>, elapsedMs = 0, clientTimeoutMs?: number) {
   const background: Promise<unknown>[] = [];
   const result = await Effect.runPromise(Effect.gen(function* () {
     const fiber = yield* Effect.fork(withVmRouteDeadline(program, {
-      operation, elapsedMs, continueInBackground: (work) => { background.push(work); },
+      operation, elapsedMs, ...(clientTimeoutMs === undefined ? {} : { clientTimeoutMs }), continueInBackground: (work) => { background.push(work); },
     }).pipe(Effect.either));
     let virtualMs = 0;
     while (Option.isNone(yield* Fiber.poll(fiber)) && virtualMs < 900_000) {
@@ -98,6 +98,67 @@ describe("VM route answer deadlines", () => {
     const early = await underDeadline("resize", Effect.never, 30_000);
     expect(early.virtualMs).toBeLessThanOrEqual(VM_ROUTE_DEADLINES.resize.clientTimeoutMs - 5_000 - 30_000 + 250);
     expect(early.virtualMs).toBeGreaterThan(70_000);
+  });
+});
+
+describe("client-stated budgets", () => {
+  test("a stated budget replaces the legacy caller's, less the margin", async () => {
+    const { virtualMs } = await underDeadline("pause", Effect.never, 0, 120_000);
+    expect(virtualMs).toBeGreaterThanOrEqual(115_000);
+    expect(virtualMs).toBeLessThanOrEqual(115_250);
+  });
+
+  test("the stated budget is read from the client timeout header", () => {
+    const stated = (value?: string) => vmClientTimeoutMsFromRequest(new Request("https://cmux.test/api/vm/x/pause", value === undefined ? {} : { headers: { "x-cmux-client-timeout-ms": value } }));
+    expect(stated("20000")).toBe(20_000);
+    expect(stated()).toBeUndefined();
+    expect(stated("abc")).toBeUndefined();
+    expect(stated("0")).toBeUndefined();
+    expect(stated("-5")).toBeUndefined();
+  });
+
+  test("a stated budget is clamped to the 10 s floor and below the route's maxDuration", async () => {
+    expect((await underDeadline("pause", Effect.never, 0, 1_000)).virtualMs).toBeLessThanOrEqual(10_250);
+    const capped = await underDeadline("stats", Effect.never, 0, 3_600_000);
+    expect(capped.virtualMs).toBeLessThanOrEqual(VM_ROUTE_DEADLINES.stats.maxDurationMs - 5_000 + 250);
+    expect(capped.virtualMs).toBeGreaterThanOrEqual(VM_ROUTE_DEADLINES.stats.maxDurationMs - 5_000);
+  });
+});
+
+describe("stuck guests and background work", () => {
+  test("a stuck guest keeps its vm_guest_unresponsive error on a mutating route", async () => {
+    const stuck = providerFailure("pause", new ProviderGuestUnresponsiveError("freestyle", "the machine did not answer"));
+    const { answer } = await underDeadline("pause", Effect.fail(stuck));
+    expect(answer?._tag === "Left" ? answer.left : null).toBe(stuck);
+  });
+
+  test("work with nothing to finish is interrupted at the deadline instead of kept alive", async () => {
+    let interrupted = false;
+    const background: Promise<unknown>[] = [];
+    const answer = await Effect.runPromise(Effect.gen(function* () {
+      const fiber = yield* Effect.fork(withVmAnswerDeadline(Effect.never.pipe(Effect.onInterrupt(() => Effect.sync(() => { interrupted = true; }))), {
+        answerWithinMs: 1_000, onDeadline: () => Effect.succeed("timed out"), continueForMs: 0, label: "test",
+        continueInBackground: (work) => { background.push(work); },
+      }));
+      yield* TestClock.adjust(1_000);
+      return yield* Fiber.join(fiber);
+    }).pipe(Effect.provide(TestContext.TestContext)));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(answer).toBe("timed out");
+    expect(background).toHaveLength(0);
+    expect(interrupted).toBe(true);
+  });
+
+  test("background work is interrupted when its continuation window ends", async () => {
+    let interrupted = false;
+    const background: Promise<unknown>[] = [];
+    await Effect.runPromise(withVmAnswerDeadline(Effect.never.pipe(Effect.onInterrupt(() => Effect.sync(() => { interrupted = true; }))), {
+      answerWithinMs: 5, onDeadline: () => Effect.succeed("in progress"), continueForMs: 20, label: "test",
+      continueInBackground: (work) => { background.push(work); },
+    }));
+    expect(background).toHaveLength(1);
+    await background[0];
+    expect(interrupted).toBe(true);
   });
 });
 

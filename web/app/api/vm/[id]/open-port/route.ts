@@ -11,6 +11,10 @@ import { openVmPort } from "../../../../../services/vms/workflows";
 import { desktopWrapperUrl } from "../../../../../services/vms/desktopWrapper";
 
 
+// Mirrors VM_ROUTE_DEADLINES (services/vms/routeDeadline.ts): work past the
+// route's answer deadline continues through after() until this limit.
+export const maxDuration = 120;
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },

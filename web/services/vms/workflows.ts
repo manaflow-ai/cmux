@@ -89,6 +89,7 @@ import {
   VmResizePlanLimitError,
   VmResizeInProgressError,
   VmOperationUnsupportedError,
+  VmOperationDeadlineError,
   VmProviderOperationError,
   VmPrivateNetworkUnavailableError,
   VmSnapshotNotFoundError,
@@ -2223,17 +2224,19 @@ export function pauseVm(input: {
     }
     // A pause the route answered as in progress (routeDeadline.ts) may have
     // finished at the provider without reaching the row. A retry reconciles
-    // with the provider's observed status instead of pausing twice.
-    const observed = providers.getStatus
-      ? yield* providers.getStatus(vm.provider, providerVmId).pipe(Effect.catchAll(() => Effect.succeed(null)))
+    // on the provider's raw pause state instead of pausing twice: a finished
+    // pause is recorded (with its usage event), a pause still under way is
+    // in progress, and anything else (running, powered off) is paused now.
+    const observed = providers.getPauseState
+      ? yield* providers.getPauseState(vm.provider, providerVmId).pipe(Effect.catchAll(() => Effect.succeed(null)))
       : null;
-    if (observed === "paused") {
-      const reconciled = yield* repo.markProviderObservedStatus({ id: vm.id, providerVmId, status: "paused" });
-      if (!reconciled) return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
-      return { id: providerVmId, status: "paused" } satisfies VmPauseResumeResult;
+    if (observed === "in_progress") {
+      return yield* Effect.fail(new VmOperationDeadlineError({ operation: "pause", mutating: true, waitedMs: 0 }));
     }
-    if (vm.billingPlanId === "go") yield* setRuntimeBudget(providers, vm, providerVmId, 0);
-    yield* pause(vm.provider, providerVmId);
+    if (observed !== "paused") {
+      if (vm.billingPlanId === "go") yield* setRuntimeBudget(providers, vm, providerVmId, 0);
+      yield* pause(vm.provider, providerVmId);
+    }
     const recorded = yield* repo.markProviderObservedStatus({ id: vm.id, providerVmId, status: "paused" });
     if (!recorded) {
       return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
@@ -4064,6 +4067,10 @@ export function execVm(input: {
       (dispatched) => withVmAnswerDeadline(dispatched, {
         answerWithinMs,
         onDeadline: () => Effect.succeed(execTimedOutResult(input.timeoutMs)),
+        // The answer is the timeout and nothing is recorded later, so a hung
+        // provider call is not kept alive up to the route's maxDuration.
+        continueForMs: 0,
+        label: "/api/vm/[id]/exec",
       }),
     );
     yield* repo.recordUsageEvent({
@@ -5067,6 +5074,8 @@ export function openAttachEndpoint(input: OpenAttachEndpointInput) {
  * 2026-10-11) reaches nobody. 45 s leaves room for the response to arrive.
  */
 export const SCP_ANSWER_BUDGET_MS = 45_000;
+/** How long an unfinished SCP setup may continue after the answer (the route's maxDuration is 120 s). */
+const SCP_BACKGROUND_CONTINUE_MS = 60_000;
 /** The operation always gets this long, even when auth and lookup spent the budget. */
 const SCP_PREPARE_MIN_WINDOW_MS = 25_000;
 
@@ -5133,7 +5142,14 @@ export function prepareScpEndpoint(input: {
         isVmProviderHang,
       );
     }).pipe(
-      (work) => withVmAnswerDeadline(work, { answerWithinMs: setupWindowMs, onDeadline: () => Effect.fail(atDeadline()) }),
+      (work) => withVmAnswerDeadline(work, {
+        answerWithinMs: setupWindowMs,
+        onDeadline: () => Effect.fail(atDeadline()),
+        // A resume still under way finishes its bookkeeping inside the
+        // route's maxDuration (120 s), then the call is interrupted.
+        continueForMs: SCP_BACKGROUND_CONTINUE_MS,
+        label: "/api/vm/[id]/scp-endpoint",
+      }),
     );
     yield* repo.recordUsageEvent({
       userId: input.userId,

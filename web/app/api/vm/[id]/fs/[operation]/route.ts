@@ -32,6 +32,10 @@ function validatePath(raw: string | null): string | Response {
   return path;
 }
 
+// Mirrors VM_ROUTE_DEADLINES (services/vms/routeDeadline.ts): work past the
+// route's answer deadline continues through after() until this limit.
+export const maxDuration = 120;
+
 export async function GET(request: Request, { params }: { params: Promise<Params> }): Promise<Response> {
   const { id, operation } = await params;
   return withAuthedVmApiRoute(request, "/api/vm/[id]/fs/[operation]", { "cmux.vm.operation": `fs_${operation}` }, "/api/vm/[id]/fs GET failed", async ({ user, span }) => {

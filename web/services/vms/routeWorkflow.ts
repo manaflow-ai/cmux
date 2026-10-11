@@ -6,7 +6,7 @@ import type { Locale } from "../../i18n/routing";
 import { isVmWorkflowError } from "./errors";
 import { respondVmWorkflowError, type VmWorkflowErrorOverrides } from "./routeHelpers";
 import { vmRequestLocale } from "./vmErrorMessages";
-import type { VmRouteDeadline } from "./routeDeadline";
+import { vmClientTimeoutMsFromRequest, type VmRouteDeadline } from "./routeDeadline";
 import { runVmWorkflowExit, type VmWorkflowProgram } from "./workflows";
 
 /** A route's view of a finished program: the value, or the response that answers its failure. */
@@ -40,7 +40,11 @@ export async function runVmRoute<A>(
   program: VmWorkflowProgram<A>,
   options: RunVmRouteOptions = {},
 ): Promise<VmRouteResult<A>> {
-  const exit = await runVmWorkflowExit(program, { deadline: options.deadline });
+  const statedClientTimeoutMs = vmClientTimeoutMsFromRequest(options.request);
+  const deadline = options.deadline && statedClientTimeoutMs !== undefined && options.deadline.clientTimeoutMs === undefined
+    ? { ...options.deadline, clientTimeoutMs: statedClientTimeoutMs }
+    : options.deadline;
+  const exit = await runVmWorkflowExit(program, { deadline });
   if (Exit.isSuccess(exit)) return { ok: true, value: exit.value };
   const failure = Cause.failureOption(exit.cause);
   if (failure._tag === "None") throw Cause.squash(exit.cause);

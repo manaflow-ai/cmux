@@ -15,6 +15,9 @@ export function isProviderId(value: unknown): value is ProviderId {
 
 export type VMStatus = "creating" | "running" | "paused" | "destroyed";
 
+/** A provider's raw pause state, see `VMProvider.getPauseState`. */
+export type VmPauseState = "paused" | "in_progress" | "not_paused";
+
 /// A point-in-time reading of one machine. Sleeping machines are never woken for a
 /// reading: they report `asleep` with only their provisioned memory.
 export type VMStats = {
@@ -563,6 +566,13 @@ export interface VMProvider {
   listVolumes?(options?: VMVolumeListOptions): Promise<VMVolumeInventory>;
 
   getStatus?(vmId: string): Promise<VMStatus>;
+  /**
+   * Whether the machine is paused at the provider, still moving between
+   * states (`in_progress`, e.g. Freestyle `pausing` or `starting`), or
+   * neither. Unlike {@link getStatus} this never folds a transition or a
+   * powered-off machine into `paused`; pause retries reconcile on it.
+   */
+  getPauseState?(vmId: string): Promise<VmPauseState>;
   /// Live CPU/memory/disk for the Cloud panel's activity view. Must not wake a
   /// sleeping machine.
   getStats?(vmId: string): Promise<VMStats>;

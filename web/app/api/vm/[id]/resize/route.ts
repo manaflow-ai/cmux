@@ -9,6 +9,10 @@ import { VM_DISK_MB_MAX, VM_DISK_MB_STEP } from "../../../../../services/vms/mac
 import { maxDiskMbForPlan, maxMemoryMbForPlan, maxVcpusForPlan } from "../../../../../services/vms/entitlements";
 import { vmModelPlaneRevoker } from "../../../../../services/vms/modelPlaneGateway";
 
+// Mirrors VM_ROUTE_DEADLINES (services/vms/routeDeadline.ts): work past the
+// route's answer deadline continues through after() until this limit.
+export const maxDuration = 300;
+
 /** Grow a Cloud VM's resources. The workflow owns plan and grow-only checks. */
 export async function POST(
   request: Request,

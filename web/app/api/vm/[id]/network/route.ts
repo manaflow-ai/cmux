@@ -8,6 +8,10 @@ import { vmRequestLocale } from "../../../../../services/vms/vmErrorMessages";
 import { getVmNetworkPolicy, updateVmNetworkPolicy } from "../../../../../services/vms/workflows";
 import { networkPolicyResponseBody, parseNetworkPolicyBody } from "../../../../../services/vms/networkPolicyRoute";
 
+// Mirrors VM_ROUTE_DEADLINES (services/vms/routeDeadline.ts): work past the
+// route's answer deadline continues through after() until this limit.
+export const maxDuration = 120;
+
 /** A machine's outbound network policy and whether the provider has applied it. */
 export async function GET(
   request: Request,

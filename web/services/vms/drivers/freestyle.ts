@@ -55,6 +55,7 @@ import {
   type VMStats,
   type VMResourceStatsResult,
   type VMStatus,
+  type VmPauseState,
 } from "./types";
 import {
   DEVBOX_DESKTOP_NOVNC_PORT,
@@ -589,6 +590,13 @@ export function mapFreestyleState(state: VmData["state"] | null | undefined): VM
     default:
       return "running";
   }
+}
+
+/** Freestyle's raw state as a pause observation (see FreestyleProvider.getPauseState). */
+export function freestylePauseState(state: VmData["state"] | null | undefined): VmPauseState {
+  if (state === "paused") return "paused";
+  if (state === "pausing" || state === "starting") return "in_progress";
+  return "not_paused";
 }
 
 /**
@@ -1236,6 +1244,16 @@ export class FreestyleProvider implements VMProvider {
         }
       },
     );
+  }
+
+  /**
+   * The raw pause state: only `paused` is a finished pause. `pausing` and
+   * `starting` are transitions; `stopped` is powered off, which a pause does
+   * not produce (memory is lost), so it is not a finished pause.
+   */
+  async getPauseState(vmId: string): Promise<VmPauseState> {
+    const data = await this.deps.client().vms.get(vmId);
+    return freestylePauseState(data.state);
   }
 
   /** Pause freezes memory, so a later start resumes the daemon in place. */
