@@ -213,6 +213,30 @@ fn a_host_that_died_without_a_daemon_is_respawned_at_the_next_start() {
     assert_eq!(lines[0]["cause"], "dead_before_adoption");
 }
 
+/// b2. A reboot with no checkpoint made by a client: the daemon gets
+/// `SIGTERM`, then its host dies. The next daemon respawns the terminal with
+/// the screen it had when the daemon stopped.
+#[test]
+fn a_terminated_daemon_keeps_the_screen_for_a_respawn_after_a_reboot() {
+    let _exclusive = exclusive_process_test();
+    let mut harness = RecoveryHarness::start("respawn-reboot-screen");
+    let (terminal_id, incarnation, surface) = start_default_shell(&harness, "reboot");
+    send_line(&harness.socket, surface, "echo shutdown-marker");
+    wait_for_screen(&harness.socket, surface, "shutdown-marker\n");
+    let (_, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    harness.terminate();
+    // SAFETY: the record PID is the harness-owned terminal host.
+    assert_eq!(unsafe { libc::kill(record.host_pid as libc::pid_t, libc::SIGKILL) }, 0);
+    harness.restart();
+
+    wait_for_respawn(&harness, &terminal_id, &incarnation);
+    let tab = tab_named(&harness, "reboot");
+    assert_eq!(tab["dead"], false, "{tab}");
+    let surface = tab["surface"].as_u64().expect("the respawned tab has a surface");
+    let text = wait_for_screen(&harness.socket, surface, MARKER);
+    assert!(text.contains("shutdown-marker"), "the screen at shutdown is gone: {text}");
+}
+
 /// c. An agent session the terminal ran is typed on the new prompt for the
 /// user to resume; it does not run.
 #[test]
