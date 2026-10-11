@@ -108,6 +108,20 @@ def test_a_pane_holding_only_an_agent_chat_folds_away() -> None:
         sent.get("layout")
 
 
+def test_a_malformed_layout_still_brings_every_terminal() -> None:
+    session = json.loads(FIXTURE.read_text())
+    workspace = next(w for w in session["windows"][0]["tabManager"]["workspaces"] if w.get("customTitle") == "split api")
+    panels = {p.get("title"): p for p in workspace["panels"]}
+    # A hand-edited or damaged file: a split body that is not an object, a
+    # pane listing a non-string id, and two terminals sharing an id.
+    workspace["layout"]["split"]["second"]["split"] = ["not", "a", "split"]
+    workspace["layout"]["split"]["first"]["pane"]["panelIds"].insert(0, {"id": 1})
+    panels["logs"]["id"] = panels["api"]["id"]
+    sent = opened_workspace(session)
+    assert sorted(t["title"] for t in sent["terminals"]) == ["api", "db", "logs", "web"], sent["terminals"]
+    assert sent.get("layout") is None, sent.get("layout")
+
+
 def main() -> int:
     failures = 0
     for name, test in sorted(globals().items()):
