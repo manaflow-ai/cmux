@@ -3,11 +3,14 @@
 //! conversation through the turn whose `turn_result` is `throughSeq`.
 //!
 //! The hub forks a chat at its end (`session/fork`; Claude's
-//! `--resume --fork-session`, the agent's own `session/fork` otherwise), so
-//! only the latest completed turn of an idle chat can be the fork point; an
-//! earlier turn is refused with a clear error. The request becomes a plain
-//! `session/fork` before any guard runs, so it gets exactly session/fork's
-//! checks.
+//! `--resume --fork-session`, the agent's own `session/fork` otherwise). A
+//! Claude chat can also fork through an earlier turn (session replay's
+//! Continue from here): the fork resumes a copy of Claude's transcript cut
+//! at that turn (`hub/fork_at.rs`). Any other agent can fork only through
+//! the latest completed turn; an earlier one is refused with a clear error.
+//! The request becomes a plain `session/fork` (with `_meta.acpmux.throughSeq`
+//! for an earlier turn) before any guard runs, so it gets exactly
+//! session/fork's checks.
 
 use super::*;
 use crate::store::SessionStatus;
@@ -19,7 +22,7 @@ const CONFLICT: i64 = -32000;
 
 /// The `session/fork` params for an `acp.session.fork` request, or why the
 /// fork cannot happen at that turn.
-pub(super) fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
+pub(super) async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
     let key = session_key(params)?;
     let through = params
         .get("throughSeq")
@@ -38,6 +41,7 @@ pub(super) fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcErr
         return Err(RpcError::new(CONFLICT, "the chat is working; fork it when the turn ends"));
     }
     let mut at_through = false;
+    let mut earlier = false;
     let mut after = through.saturating_sub(1);
     loop {
         let page =
@@ -51,9 +55,7 @@ pub(super) fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcErr
             if event.seq == through {
                 at_through = true;
             } else if event.seq > through {
-                return Err(RpcError::invalid_params(
-                    "only the latest turn can be forked; forking from an earlier turn is not supported yet",
-                ));
+                earlier = true;
             }
         }
     }
@@ -62,9 +64,26 @@ pub(super) fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcErr
     }
     // The resolved id, so the fork's own resolution cannot pick another
     // session; a forward mark (`_meta.acpmux.via`) keeps its guard.
-    let mut out = json!({"sessionId": session.id});
+    if earlier {
+        let harness = session.meta().harness;
+        let cfg = hub.config.read().await;
+        if !cfg.profile(&harness).is_some_and(|p| p.kind == crate::config::HarnessKind::ClaudeStdio)
+        {
+            return Err(RpcError::invalid_params(
+                "only the latest turn of this agent's chat can be forked; an earlier turn needs a Claude chat",
+            ));
+        }
+    }
+    let mut mux = serde_json::Map::new();
     if let Some(via) = params.pointer("/_meta/acpmux/via") {
-        out["_meta"] = json!({"acpmux": {"via": via}});
+        mux.insert("via".into(), via.clone());
+    }
+    if earlier {
+        mux.insert("throughSeq".into(), json!(through));
+    }
+    let mut out = json!({"sessionId": session.id});
+    if !mux.is_empty() {
+        out["_meta"] = json!({"acpmux": mux});
     }
     Ok(out)
 }

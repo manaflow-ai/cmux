@@ -4,7 +4,15 @@ import { AcpmuxDirectClient, type EventRecord } from "../direct";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
-import { clockLabel, REPLAY_SPEEDS, replayTimeline, seqAt, toolMark, type ReplayTimeline } from "./timeline";
+import {
+  clockLabel,
+  continueSeq,
+  REPLAY_SPEEDS,
+  replayTimeline,
+  seqAt,
+  toolMark,
+  type ReplayTimeline,
+} from "./timeline";
 import "./replay.css";
 
 type Loaded = { client: AcpmuxDirectClient; timeline: ReplayTimeline };
@@ -27,12 +35,14 @@ function showAt(
 
 /// A recorded chat played back read-only, as it happened (cx-osmw): its events fold into the
 /// transcript on replay time (timeline.ts), with no composer and nothing sent to the agent.
-/// Scrub with the bar, change speed, and jump between tool calls (also `[` and `]`).
+/// Scrub with the bar, change speed, and jump between tool calls (also `[` and `]`). Continue from
+/// here forks a live chat holding the conversation through the last turn finished at that point.
 export function ReplayScreen({
   sessionId,
   title,
   load,
   onClose,
+  onContinue,
   transcript,
 }: {
   sessionId: string;
@@ -40,6 +50,9 @@ export function ReplayScreen({
   /** The session's recorded events (AcpmuxDirectClient.recordedEvents). */
   load: () => Promise<EventRecord[]>;
   onClose: () => void;
+  /** Forks a live chat through the turn whose `turn_result` is `throughSeq`; absent when the chat
+   * cannot be forked. */
+  onContinue?: (throughSeq: number) => void;
   /** Draws the replayed rows; the pane passes its transcript. */
   transcript: (rows: AcpmuxRow[]) => ReactNode;
 }) {
@@ -130,6 +143,13 @@ export function ReplayScreen({
     if (ready) play.current?.focus();
   }, [ready]);
 
+  // The clock's whole second, so the button never offers a turn the transcript has not shown.
+  const canContinue = ready !== undefined && continueSeq(ready.timeline, second * 1000) !== undefined;
+  const continueHere = () => {
+    const seq = ready && continueSeq(ready.timeline, time.current);
+    if (seq !== undefined) onContinue?.(seq);
+  };
+
   return (
     <KeyboardScope className="acpmux-replay" handleKeyDown={onKeyDown}>
       <header className="acpmux-replay-bar">
@@ -215,6 +235,17 @@ export function ReplayScreen({
             >
               {speed}×
             </button>
+            {onContinue && (
+              <button
+                type="button"
+                className="acpmux-replay-continue"
+                title={t("replay.continueHint")}
+                disabled={!canContinue}
+                onClick={continueHere}
+              >
+                {t("replay.continue")}
+              </button>
+            )}
           </div>
         </>
       )}

@@ -47,12 +47,17 @@ pub(super) async fn handle_request(
     m: &str,
     mut params: Value,
 ) -> Result<Value, RpcError> {
-    // The pane's fork through a turn is a session/fork at the chat's end,
-    // checked as one from here on (`fork_through.rs`).
+    // The pane's fork through a turn is a session/fork (at the chat's end, or
+    // a Claude chat's earlier turn), checked as one from here on
+    // (`fork_through.rs`).
     let m = if m == method::ACP_SESSION_FORK {
-        params = super::fork_through::to_session_fork(hub, &params)?;
+        params = super::fork_through::to_session_fork(hub, &params).await?;
         method::SESSION_FORK
     } else {
+        // Only `acp.session.fork` names an earlier turn to fork through.
+        if let Some(meta) = params.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
+            meta.remove("throughSeq");
+        }
         m
     };
     // Before anything runs or is forwarded to a peer (`remote_guard.rs`).
@@ -354,7 +359,9 @@ async fn dispatch_request(
                 .or_else(|| params.get("name").and_then(Value::as_str))
                 .map(str::to_owned);
             let env = crate::session_env::parse(mux_meta(&params))?;
-            let new = hub.fork(&s, name, cwd, env).await?;
+            let through =
+                mux_meta(&params).and_then(|m| m.get("throughSeq")).and_then(Value::as_u64);
+            let new = hub.fork(&s, name, cwd, env, through).await?;
             attach(hub, conn, &new.id);
             let meta = new.meta();
             Ok(
