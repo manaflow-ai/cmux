@@ -57,3 +57,20 @@ async fn a_claude_chat_that_switched_models_uses_the_new_models_window() {
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[tokio::test]
+async fn a_claude_chat_that_compacted_does_not_refill_the_ring() {
+    let root = std::env::temp_dir().join(format!("acpmux-context-{}", uuid::Uuid::now_v7()));
+    let claude = root.join("claude");
+    std::fs::create_dir_all(&claude).unwrap();
+    let (hub, mut c) = claude_setup(&claude, &[]).await;
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": "compact-probe"}]});
+    c.request(method::SESSION_PROMPT, prompt).await.unwrap();
+    // The streamed usage only: the result after the compaction does not resend the
+    // pre-compaction count.
+    assert_eq!(usages(&hub, &id), vec![(4500, 0)]);
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
