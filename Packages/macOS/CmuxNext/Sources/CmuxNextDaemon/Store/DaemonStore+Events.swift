@@ -231,6 +231,9 @@ extension DaemonStore {
             agentsBySurface[status.surface] = status
             tabsBySurface[status.surface]?.setAgent(status)
             return .none
+        case .agentPresenceChanged(let presence):
+            tabsBySurface[presence.surface]?.setPresence(presence.activity == nil ? nil : presence)
+            return .none
 
         case .sessionState(let item): session.apply(item, to: workspaces); return .none
         case .bookmarksChanged, .conversationChanged, .conversationTyping, .cloudConversations,
