@@ -47,8 +47,11 @@ const _: () = assert!(
 );
 
 fn short_name(base: &Path, namespace: &str) -> String {
-    let seed = format!("{}\0{namespace}", base.display());
-    Sha256::digest(seed.as_bytes()).iter().take(6).map(|b| format!("{b:02x}")).collect()
+    use std::os::unix::ffi::OsStrExt;
+    let mut seed = base.as_os_str().as_bytes().to_vec();
+    seed.push(0);
+    seed.extend_from_slice(namespace.as_bytes());
+    Sha256::digest(&seed).iter().take(6).map(|b| format!("{b:02x}")).collect()
 }
 
 fn fits(path: &Path) -> Result<(), String> {

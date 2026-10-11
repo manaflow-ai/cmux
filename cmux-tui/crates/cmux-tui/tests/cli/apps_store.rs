@@ -500,6 +500,18 @@ fn write_linked_app(apps: &Apps) {
     );
 }
 
+/// Stops the daemon and waits until its socket refuses connections, so the
+/// next `ensure` of the same session never meets an owner that is still ending.
+fn stop_daemon(apps: &Apps) {
+    let output = apps.command("stop").output().unwrap();
+    assert!(output.status.success(), "stop failed: {}", String::from_utf8_lossy(&output.stderr));
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while UnixStream::connect(&apps.socket).is_ok() {
+        assert!(Instant::now() < deadline, "the daemon did not stop");
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}
+
 /// The `apps-logs` lines of `app` once one holds `needle` (or every line after 20 s).
 fn log_with(apps: &Apps, app: &str, needle: &str) -> Vec<String> {
     let deadline = Instant::now() + Duration::from_secs(20);
@@ -528,19 +540,27 @@ fn log_with(apps: &Apps, app: &str, needle: &str) -> Vec<String> {
 #[test]
 fn app_socket_folder_refuses_a_symlink_or_an_open_folder() {
     for case in ["symlink", "open"] {
-        let apps = Apps::new(&format!("sd{case}"));
+        let apps = Apps::new(&format!("sd{case}{}", std::process::id()));
         write_linked_app(&apps);
-        // A first daemon run names the folder this daemon's app uses.
+        // A first start names the folder this daemon's app uses.
         apps.start();
         ok(&apps.agent().rpc(json!({ "cmd": "apps-list" })));
         let first = apps.lines("link.jsonl", 1).swap_remove(0);
         let leaf = PathBuf::from(first["value"]["socket_dir"].as_str().unwrap());
-        let _ = apps.command("stop").arg("--end-terminals").output();
+        // The person turns the app off: its server stops and its folder goes with it.
+        let mut app = apps.app();
+        let set = |app: &mut Client, enabled: bool, key: &str| {
+            let args = json!({ "app": "cmux/linked", "enabled": enabled, "idempotency_key": key });
+            ok(&app.store("cmux.apps.set", args, "user")).clone()
+        };
+        set(&mut app, false, &format!("{case}-off"));
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while std::fs::symlink_metadata(&leaf).is_ok() {
+            assert!(Instant::now() < deadline, "{case}: the stopped server's folder stays");
+            std::thread::sleep(Duration::from_millis(25));
+        }
         std::fs::remove_file(apps.dir.join("link.jsonl")).unwrap();
         // Then another process of the user puts a folder of its own there.
-        if std::fs::symlink_metadata(&leaf).is_ok() {
-            std::fs::remove_dir_all(&leaf).unwrap();
-        }
         let elsewhere = apps.dir.join("elsewhere");
         std::fs::create_dir_all(&elsewhere).unwrap();
         std::fs::write(elsewhere.join("keep"), "x").unwrap();
@@ -551,8 +571,8 @@ fn app_socket_folder_refuses_a_symlink_or_an_open_folder() {
             std::fs::set_permissions(&leaf, std::fs::Permissions::from_mode(0o755)).unwrap();
             std::fs::write(leaf.join("keep"), "x").unwrap();
         }
-        apps.start();
-        ok(&apps.agent().rpc(json!({ "cmd": "apps-list" })));
+        // Turned on again, the server's start refuses that folder.
+        set(&mut app, true, &format!("{case}-on"));
         let lines = log_with(&apps, "cmux/linked", "app socket folder");
         assert!(
             lines.iter().any(|l| l.contains("app socket folder")),
@@ -561,9 +581,15 @@ fn app_socket_folder_refuses_a_symlink_or_an_open_folder() {
         assert!(!apps.dir.join("link.jsonl").exists(), "{case}: a refused server answered nothing");
         let kept = if case == "symlink" { elsewhere.join("keep") } else { leaf.join("keep") };
         assert!(kept.exists(), "{case}: a refused folder is never emptied");
+        // The planted folder may be outside the test dir (macOS: the per-user temp dir).
+        if case == "symlink" {
+            std::fs::remove_file(&leaf).unwrap();
+        } else {
+            std::fs::remove_dir_all(&leaf).unwrap();
+        }
     }
 
-    let apps = Apps::new("sdclean");
+    let apps = Apps::new(&format!("sdclean{}", std::process::id()));
     write_linked_app(&apps);
     apps.start();
     ok(&apps.agent().rpc(json!({ "cmd": "apps-list" })));
@@ -586,4 +612,13 @@ fn app_socket_folder_refuses_a_symlink_or_an_open_folder() {
         (json!("host.error"), json!(8), json!("apps.socket_dir_unsafe")),
         "{second}"
     );
+    // And the server stops: it never keeps binding in a folder that failed its check.
+    let lines =
+        log_with(&apps, "cmux/linked", "server stopping: its socket folder failed its check");
+    assert!(
+        lines.iter().any(|l| l.contains("server stopping: its socket folder failed its check")),
+        "{lines:?}"
+    );
+    stop_daemon(&apps);
+    let _ = std::fs::remove_dir_all(&socket_dir);
 }
