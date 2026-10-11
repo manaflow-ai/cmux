@@ -18,6 +18,11 @@ struct NormallyEndedClaudeResumePolicyTests {
         #expect(!policy.admits(evidence(hadActivePromptTurn: hadActivePromptTurn)))
     }
 
+    @Test("A stopped binding-only session admits when the completion marker is absent")
+    func stoppedBindingWithoutCompletionMarkerAdmits() {
+        #expect(policy.admits(evidence(hadActivePromptTurn: nil)))
+    }
+
     @Test("Missing or stale bindings fail closed")
     func missingOrStaleBindingDoesNotAdmit() {
         #expect(!policy.admits(evidence(bindingSessionID: nil)))
