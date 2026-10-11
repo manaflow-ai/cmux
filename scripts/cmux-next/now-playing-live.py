@@ -74,8 +74,12 @@ recorder.onstop = () => {
 recorder.start();
 setTimeout(() => recorder.stop(), 1500);
 navigator.mediaSession.metadata = new MediaMetadata({ title: 'cmux tone', artist: 'cmux live test', album: 'cx-6qwm.3' });
-navigator.mediaSession.setActionHandler('nexttrack', () => { log.next++; });
-navigator.mediaSession.setActionHandler('previoustrack', () => { log.previous++; });
+// As players do, the handlers come with playback. (Handlers a tab's first document sets before
+// cmux's scripts reach it are not seen: Chromium gets them after that document started.)
+a.addEventListener('play', () => {
+  navigator.mediaSession.setActionHandler('nexttrack', () => { log.next++; });
+  navigator.mediaSession.setActionHandler('previoustrack', () => { log.previous++; });
+}, { once: true });
 v.addEventListener('enterpictureinpicture', () => { log.pip = 'entered'; });
 document.getElementById('b').onclick = async () => {
   log.clicks++;
@@ -294,7 +298,8 @@ def run_engine(engine, window, url):
               f"{engine}: macOS Now Playing shows the tab's metadata, playing (WebKit's own, {shown.get('bundle')})")
         report = now_playing()
         print(json.dumps(report), flush=True)
-        check(not report.get("info") and not report.get("tab"), f"{engine}: cmux does not publish the WebKit tab again")
+        check("error" not in report and report.get("playback_state") and not report.get("info") and not report.get("tab"),
+              f"{engine}: cmux does not publish the WebKit tab again")
     else:
         check(bool(system_shows_tone()) and shown.get("artist") == "cmux live test"
               and (not BUNDLE or shown.get("bundle") == BUNDLE),
@@ -348,9 +353,13 @@ def run_engine(engine, window, url):
     time.sleep(1)
 
     # 4. Closing the tab clears Now Playing.
+    playing = page("!document.getElementById('a').paused")
     print("close", rpc("action.run", {"action": "closeTab", "origin": "script"}), flush=True)
-    wait_for(lambda: "error" not in now_playing() and not now_playing().get("info") and not system_shows_tone(),
-             f"{engine}: closing the tab clears Now Playing", 15)
+    wait_for(lambda: playing and "error" not in now_playing() and not now_playing().get("info") and not system_shows_tone(),
+             f"{engine}: closing the playing tab clears Now Playing", 15)
+    if engine == "chromium":
+        commands = now_playing().get("commands") or {}
+        check(commands and not any(commands.values()), f"{engine}: the commands are disabled after it: {commands}")
 
 
 app = teardown = None

@@ -33,7 +33,11 @@ final class BrowserNowPlaying {
     func follow(_ services: AppServices?) {
         self.services = services
         observation?.cancel()
-        guard let services else { return }
+        guard let services else {
+            current = nil
+            publish()
+            return
+        }
         register()
         observation = Task { [weak self, weak services] in
             for await sessions in ObservationStream({ [weak services] in services.map(Self.sessions) ?? [] }) {
@@ -46,16 +50,14 @@ final class BrowserNowPlaying {
     @discardableResult
     func perform(_ command: Command) -> Bool {
         guard let current, let tab = browserTab(current.tab) else { return false }
-        let media: BrowserMediaCommand? = switch command {
-        case .play: current.media.isPlaying ? nil : .playPause
-        case .pause: current.media.isPlaying ? .playPause : nil
+        let media: BrowserMediaCommand = switch command {
+        case .play: .play
+        case .pause: .pause
         case .toggle: .playPause
         case .next: .nextTrack
         case .previous: .previousTrack
         }
-        if let media {
-            Task { await tab.media(media) }
-        }
+        Task { await tab.media(media) }
         return true
     }
 
@@ -71,7 +73,9 @@ final class BrowserNowPlaying {
 
     private func update(_ sessions: [Session]) {
         let shown = current.flatMap { current in sessions.first { $0.tab == current.tab } }
-        let next = sessions.first { $0.media.isAudible } ?? shown ?? sessions.first { $0.media.isPlaying }
+        // The shown tab keeps Now Playing while it plays; another takes it only by playing aloud.
+        let next = (shown?.media.isAudible == true ? shown : nil) ?? sessions.first { $0.media.isAudible }
+            ?? shown ?? sessions.first { $0.media.isPlaying }
         guard next != current else { return }
         current = next
         publish()
@@ -118,7 +122,13 @@ final class BrowserNowPlaying {
         }
         artwork = (url, nil)
         Task { [weak self] in
-            guard let image = await tab.fetchFavicon(url), let self, self.artwork?.url == url else { return }
+            let image = await tab.fetchFavicon(url)
+            guard let self, self.artwork?.url == url else { return }
+            guard let image else {
+                // Not loaded (the tab closed, the fetch failed): a later publish tries again.
+                self.artwork = nil
+                return
+            }
             // MediaPlayer asks for the image off the main thread.
             nonisolated(unsafe) let shown = image
             self.artwork = (url, MPMediaItemArtwork(boundsSize: image.size) { @Sendable _ in shown })

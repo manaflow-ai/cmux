@@ -102,9 +102,6 @@ nonisolated extension BrowserMediaState {
             actions = typeof event.detail === 'string' ? event.detail : '';
             schedule();
           }, true);
-          // The page's world may have recorded handlers before this world
-          // existed (Chromium runs the two worlds' scripts in either order).
-          document.dispatchEvent(new CustomEvent('cmux-media-actions-request'));
           // Metadata changes fire no event: look again while something
           // plays, and retry a report the binding was not ready for.
           let ticks = 0;
@@ -125,7 +122,6 @@ nonisolated extension BrowserMediaState {
       const handlers = new Map();
       const original = MediaSession.prototype.setActionHandler;
       const announce = () => document.dispatchEvent(new CustomEvent('cmux-media-actions', { detail: Array.from(handlers.keys()).join(',') }));
-      document.addEventListener('cmux-media-actions-request', announce, true);
       Object.defineProperty(MediaSession.prototype, 'setActionHandler', {
         configurable: true, writable: true,
         value: function (action, handler) {
@@ -151,6 +147,10 @@ nonisolated extension BrowserMediaCommand {
         switch self {
         case .playPause:
             return ("(() => { \(element)if (e.paused) { e.play().catch(() => {}); } else { e.pause(); } return true; })()", .isolated)
+        case .play:
+            return ("(() => { \(element)e.play().catch(() => {}); return true; })()", .isolated)
+        case .pause:
+            return ("(() => { \(element)e.pause(); return true; })()", .isolated)
         case .toggleMute:
             return ("(() => { \(element)e.muted = !e.muted; return true; })()", .isolated)
         case .muteTab(let on):
