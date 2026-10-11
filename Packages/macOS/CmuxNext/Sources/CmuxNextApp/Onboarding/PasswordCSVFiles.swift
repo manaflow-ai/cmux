@@ -38,7 +38,9 @@ struct PasswordCSVFiles {
         let destination = AppPasswordDestination(available: true) { rows, profile in try await cef.importPasswords(rows, into: profile) }
         do {
             let report = try await PasswordCSVImporter(destination: destination).run(file: url, intoProfile: profile)
-            Self.trash(url, report: report)
+            // The app window, not the key window: after the cmux picker that is the palette's panel.
+            let windows = services.windows
+            Self.trash(url, report: report) { windows.active?.window ?? NSApp.keyWindow ?? NSApp.mainWindow }
             return nil
         } catch {
             return ActionWorkFailure(PasswordCSVStrings.failure(error))
@@ -61,9 +63,10 @@ struct PasswordCSVFiles {
     /// not go in (a conflict keeps the saved password, a rejected row), the
     /// file may be the only copy: it stays and the toast offers Move to Trash,
     /// as it does when the move fails.
-    static func trash(_ url: URL, report: PasswordImportReport) {
+    static func trash(_ url: URL, report: PasswordImportReport,
+                      window: @escaping @MainActor () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow }) {
         let summary = summaryLines(report)
-        guard let window = NSApp.keyWindow ?? NSApp.mainWindow else {
+        guard let window = window() else {
             logger.info("password CSV import done with no window; the file stays")
             return
         }
@@ -71,7 +74,7 @@ struct PasswordCSVFiles {
         NSWorkspace.shared.recycle([url]) { @Sendable moved, error in
             Task { @MainActor in
                 // Looked up again on the main actor: a window is not Sendable.
-                guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
+                guard let window = window() else { return }
                 guard error == nil, let trashed = moved[url] else { return offerTrash(url, summary, in: window) }
                 let toast = CmuxToast(id: toastID, message: (summary + [PasswordCSVStrings.trashed]).joined(separator: " "),
                                       action: .undo(), duration: .seconds(12))

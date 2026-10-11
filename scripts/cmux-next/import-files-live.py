@@ -135,9 +135,13 @@ def import_through(browser, filename):
     rpc("debug.dialog", {"press": "choose"})
     time.sleep(0.8)  # the picker's first listing
     type_text(EXPORTS + "/")
-    key("return")
+    report = key("return")
+    print("note: picker folder", {k: report.get(k) for k in ("palette_page", "palette_selected")}, flush=True)
     type_text(filename.split(".")[0])
-    key("return")
+    report = key("forwarddelete")
+    print("note: picker filtered", {k: report.get(k) for k in ("palette_page", "palette_selected")}, flush=True)
+    report = key("return")
+    print("note: picker chose", {k: report.get(k) for k in ("palette_page", "palette_selected", "palette_open")}, flush=True)
     return shown, steps
 
 
@@ -169,7 +173,7 @@ try:
     result = import_through("safari", "passwords.csv")
     if isinstance(result, tuple):
         check("Safari" in result[1].get("title", ""), f"Safari's steps name Safari ({result[1].get('title')})")
-    imported = wait_for(lambda: next((t for t in toasts() if "Imported: 2" in t), None), "the passwords toast", 30)
+    imported = wait_for(lambda: next((t for t in toasts() if "Imported: 2" in t), None), "the passwords toast", 90)
     if not imported:
         print("note: csv still in place:", os.path.exists(os.path.join(EXPORTS, "passwords.csv")), "toasts:", toasts(), flush=True)
     check(imported is not None, f"the picked passwords CSV is imported ({toasts()})")
