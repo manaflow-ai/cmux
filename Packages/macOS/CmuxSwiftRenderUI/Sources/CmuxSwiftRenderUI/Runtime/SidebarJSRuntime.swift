@@ -37,10 +37,18 @@ public final class SidebarJSRuntime {
     nonisolated static let executionTimeLimit = 0.25
     /// Largest `clipboard.write` payload accepted, in UTF-8 bytes.
     nonisolated static let clipboardWriteByteLimit = 64 * 1024
-    /// Events that count as a user gesture: clicks (including context-menu
-    /// items, which dispatch as taps), double-clicks, and Return in a text
-    /// field. Drag feedback, reorder moves, and per-keystroke edits do not.
-    nonisolated static let userActivationEvents: Set<String> = ["tap", "doubletap", "submit"]
+    /// Events that always count as a user gesture: clicks (including
+    /// context-menu items, which dispatch as taps) and double-clicks. A
+    /// `submit` counts only when Return caused it (see ``submitTriggerKey``).
+    /// Drag feedback, reorder moves, and per-keystroke edits never do.
+    nonisolated static let userActivationEvents: Set<String> = ["tap", "doubletap"]
+    /// Payload key the text-field host sets on a `submit` to say what ended
+    /// editing. Only ``submitTriggerReturn`` makes the submit a user gesture;
+    /// a focus-loss submit (clicking into the terminal to paste, or a
+    /// programmatic focus move) carries no trigger and stays passive.
+    nonisolated static let submitTriggerKey = "trigger"
+    /// ``submitTriggerKey`` value for a submit caused by the Return key.
+    nonisolated static let submitTriggerReturn = "return"
 
     public init() {}
 
@@ -117,18 +125,24 @@ public final class SidebarJSRuntime {
 
     /// Delivers a UI event (tap, move) to the node's JS handler.
     ///
-    /// For ``userActivationEvents`` the handler runs inside a user-activation
-    /// scope that lasts exactly as long as this synchronous call, which is the
-    /// only time `clipboard.write` is honored.
+    /// For a user gesture (``userActivationEvents``, or a Return-triggered
+    /// `submit`) the handler runs inside a user-activation scope that lasts
+    /// exactly as long as this synchronous call, which is the only time
+    /// `clipboard.write` is honored.
     public func dispatchEvent(nodeId: String, event: String, payload: [String: Any] = [:]) {
         guard let context else { return }
         let json = (try? JSONSerialization.data(withJSONObject: payload))
             .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
-        let activates = Self.userActivationEvents.contains(event)
+        let activates = Self.isUserActivation(event: event, payload: payload)
         if activates { userActivationDepth += 1 }
         defer { if activates { userActivationDepth -= 1 } }
         context.objectForKeyedSubscript("__dispatch")?
             .call(withArguments: [nodeId, event, json])
+    }
+
+    nonisolated static func isUserActivation(event: String, payload: [String: Any]) -> Bool {
+        if userActivationEvents.contains(event) { return true }
+        return event == "submit" && payload[submitTriggerKey] as? String == submitTriggerReturn
     }
 
     // MARK: - Clipboard

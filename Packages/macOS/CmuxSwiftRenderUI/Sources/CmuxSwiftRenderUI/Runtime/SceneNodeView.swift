@@ -323,8 +323,8 @@ private struct SceneTextFieldView: NSViewRepresentable {
     let node: SceneNode
     let sink: SceneEventSink
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(nodeId: node.id, sink: sink)
+    func makeCoordinator() -> SceneTextFieldCoordinator {
+        SceneTextFieldCoordinator(nodeId: node.id, sink: sink)
     }
 
     func makeNSView(context: Context) -> NSTextField {
@@ -365,50 +365,6 @@ private struct SceneTextFieldView: NSViewRepresentable {
         case "light": return .light
         case "heavy": return .heavy
         default: return .regular
-        }
-    }
-
-    @MainActor
-    final class Coordinator: NSObject, NSTextFieldDelegate {
-        private let nodeId: String
-        private let sink: SceneEventSink
-        private var finished = false
-
-        init(nodeId: String, sink: SceneEventSink) {
-            self.nodeId = nodeId
-            self.sink = sink
-        }
-
-        func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
-            if selector == #selector(NSResponder.cancelOperation(_:)) {
-                finished = true
-                sink.send(nodeId, "cancel", [:])
-                return true
-            }
-            return false
-        }
-
-        func controlTextDidBeginEditing(_ notification: Notification) {
-            // A persistent field (panel search box) is re-entered after a
-            // previous commit; a new editing session must be able to commit
-            // again.
-            finished = false
-        }
-
-        func controlTextDidChange(_ notification: Notification) {
-            // Live per-keystroke event for filter-as-you-type consumers
-            // (fields without an edit handler never see it - the JS side
-            // only registers handlers it was given).
-            guard let field = notification.object as? NSTextField else { return }
-            sink.send(nodeId, "edit", ["text": field.stringValue])
-        }
-
-        func controlTextDidEndEditing(_ notification: Notification) {
-            // Return AND focus loss (clicking outside) both land here; both
-            // commit. Escape set `finished` above and must not also submit.
-            guard !finished, let field = notification.object as? NSTextField else { return }
-            finished = true
-            sink.send(nodeId, "submit", ["text": field.stringValue])
         }
     }
 }

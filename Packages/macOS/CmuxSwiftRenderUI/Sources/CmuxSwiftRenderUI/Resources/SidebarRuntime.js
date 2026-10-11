@@ -478,9 +478,9 @@
   g.openURL = (url) => __host_action(JSON.stringify({ kind: "openURL", url: String(url) }));
   g.log = (message) => __host_action(JSON.stringify({ kind: "log", message: String(message) }));
   // Write-only clipboard. The host writes only while it is dispatching a
-  // click, double-click, Return or menu item to this sidebar; anywhere else
-  // (load, data effects, deferred callbacks) the call returns false and logs
-  // why. There is no read.
+  // click, double-click, Return key or menu item to this sidebar; anywhere
+  // else (load, data effects, focus-loss submits, deferred callbacks) the
+  // call returns false and logs why. There is no read.
   g.clipboard = Object.freeze({
     write: (text) => __host_clipboardWrite(text === undefined || text === null ? "" : String(text)) === true,
   });
