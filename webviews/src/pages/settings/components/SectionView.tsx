@@ -12,7 +12,7 @@ import { AdvancedInfo, Backdrops, TerminalInfo } from "./HostCards";
 import { BrowserProfiles, MachinesSection, SpacesSection } from "./HostSections";
 import { PlaceholderSection } from "./PlaceholderSection";
 import { SectionActions } from "./SectionActions";
-import { APP_THEME_KEY, THEME_KEY, ThemeStudio } from "./ThemeStudio";
+import { APP_THEME_KEY, THEME_EDITS_KEY, THEME_KEY, ThemeStudio } from "./ThemeStudio";
 
 const machinesTitle = () => text(sections.find((section) => section.id === "machines")?.title);
 
@@ -38,7 +38,7 @@ export function SectionView({ section, focus }: { section: string; focus: string
   const category = categoryById(section);
   // The theme studio draws appearance.theme and appearance.appTheme itself.
   const studio = category.lead.includes("themeStudio");
-  const drawn = new Set([THEME_KEY, APP_THEME_KEY]);
+  const drawn = new Set([THEME_KEY, APP_THEME_KEY, THEME_EDITS_KEY]);
   const groups = category.groups.filter((group) => !(studio && group.rows.every((row) => drawn.has(row.key))));
   return (
     <div className="section" data-section={category.id}>

@@ -3,10 +3,11 @@
 // bundled theme), the contrast the derived app tokens reach, and the scope overrides of the
 // active window inline on the setting (no space/workspace/terminal tabs). The theme value stays
 // `appearance.theme`; overrides and the app theme are the host's theme levels.
-import { useCallback, useId, useState, useSyncExternalStore } from "react";
+import { useCallback, useId, useMemo, useState, useSyncExternalStore } from "react";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { contrastReport, deriveAppTheme } from "../../../theme/appTheme";
 import type { GhosttyTheme } from "../../../theme/ghosttyTheme";
+import { isEdited, withAllEdits, type ThemeEditMap } from "../../../theme/themeEdits";
 import { useSettingsState, useStore } from "../context";
 import { Switch } from "../editors/ToggleEditor";
 import { Icon } from "../icons";
@@ -22,6 +23,8 @@ import { ThemePicker } from "./ThemePicker";
 export const THEME_KEY = "appearance.theme";
 /** The app theme apart from the terminal theme; `followTerminal` (its default) matches it. */
 export const APP_THEME_KEY = "appearance.appTheme";
+// appearance.themeEdits: per-token color edits, keyed "<theme>/<token>" (ThemeEditsSetting); drawn here, not as a row.
+export const THEME_EDITS_KEY = "appearance.themeEdits";
 const FOLLOW_TERMINAL = "followTerminal";
 const DEFAULT_DARK = "Apple System Colors";
 const DEFAULT_LIGHT = "Apple System Colors Light";
@@ -52,7 +55,10 @@ export function ThemeStudio() {
   const managed = managedOf(state, THEME_KEY);
   const disabled = !state.connected || !state.readable || managed !== null;
   const names = state.domains.themes;
-  const colors = state.themeColors;
+  // Each theme with the user's edits (appearance.themeEdits): what the app shows for it.
+  const edits = valueOf(state, THEME_EDITS_KEY) as ThemeEditMap | null;
+  const colors = useMemo(() => withAllEdits(state.themeColors, edits), [state.themeColors, edits]);
+  const custom = (name: string) => isEdited(edits, name);
   const fallbackName = scheme === "dark" ? DEFAULT_DARK : DEFAULT_LIGHT;
   // The Ghostty config's own colors, from the host while appearance.theme is unset.
   const configLabel = t("settingsWindow.themeUseConfig");
@@ -108,6 +114,7 @@ export function ThemeStudio() {
       configColors={configColors}
       onPick={onPick}
       onPreview={previewTerminal}
+      custom={custom}
     />
   );
   const pickSide = (side: "light" | "dark") => (name: string | null) => {
@@ -245,6 +252,7 @@ export function ThemeStudio() {
                     configColors={terminal}
                     onPick={(name) => (name ? store.set(APP_THEME_KEY, name) : store.reset(APP_THEME_KEY))}
                     onPreview={previewApp}
+                    custom={custom}
                   />
                 </div>
               </div>
