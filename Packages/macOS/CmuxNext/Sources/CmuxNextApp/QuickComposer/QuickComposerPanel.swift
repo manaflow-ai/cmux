@@ -65,6 +65,8 @@ final class QuickComposerPanel: NSPanel, QuickComposerWindow {
         orderOut(nil)
     }
 
+    func holdChat(_ holds: Bool) {}
+
     /// Horizontally centered, its top a quarter of the way down `visible`,
     /// kept inside it.
     static func placement(size: CGSize, in visible: CGRect) -> CGRect {

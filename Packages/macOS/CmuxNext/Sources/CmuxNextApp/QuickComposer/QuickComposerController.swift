@@ -20,6 +20,8 @@ final class QuickComposerController {
     /// false when there was nowhere to put it (daemon offline, workspace
     /// creation failed).
     private let startInBackground: @MainActor (AgentPaneQuickStart) async -> Bool
+    /// The floating chat (cx-b9qi): a started chat stays in the panel.
+    private let floating: () -> Bool
     private var window: (any QuickComposerWindow)?
     /// The hosted chat, kept while the panel is hidden.
     private(set) var chat: AgentPaneView?
@@ -29,12 +31,14 @@ final class QuickComposerController {
         makeChat: @escaping () -> AgentPaneView?,
         makeWindow: @escaping () -> any QuickComposerWindow,
         openInWindow: @escaping (String?) -> Bool,
-        startInBackground: @escaping @MainActor (AgentPaneQuickStart) async -> Bool
+        startInBackground: @escaping @MainActor (AgentPaneQuickStart) async -> Bool,
+        floating: @escaping () -> Bool = { QuickComposerTunables.floatingChat.value }
     ) {
         self.makeChat = makeChat
         self.makeWindow = makeWindow
         self.openInWindow = openInWindow
         self.startInBackground = startInBackground
+        self.floating = floating
     }
 
     var isShown: Bool { window?.isVisible == true }
