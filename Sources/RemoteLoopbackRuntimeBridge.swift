@@ -45,10 +45,13 @@ enum RemoteLoopbackRuntimeBridge {
           };
           const canonicalServiceHost = (host) => {
             const normalized = normalizeHost(host);
-            if (exactLoopbackHosts.has(normalized)) return canonicalLoopbackHost;
             const suffix = `.${canonicalLoopbackHost}`;
-            if (normalized.endsWith(suffix) && normalized.length > suffix.length) {
-              return normalized;
+            // Every localhost-family spelling reaches the same managed SSH
+            // listener. Keep subdomains usable for in-page requests while
+            // comparing their service identity to the exact loopback forms.
+            if (exactLoopbackHosts.has(normalized)
+                || (normalized.endsWith(suffix) && normalized.length > suffix.length)) {
+              return canonicalLoopbackHost;
             }
             return normalized;
           };
