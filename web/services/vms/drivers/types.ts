@@ -15,6 +15,13 @@ export function isProviderId(value: unknown): value is ProviderId {
 
 export type VMStatus = "creating" | "running" | "paused" | "destroyed";
 
+/**
+ * Options for a provider read a route bounds (routeDeadline.ts). The driver
+ * passes `signal` to every request the read makes, so no request outlives
+ * the route's answer.
+ */
+export type ProviderReadOptions = { readonly signal?: AbortSignal };
+
 /// A point-in-time reading of one machine. Sleeping machines are never woken for a
 /// reading: they report `asleep` with only their provisioned memory.
 export type VMStats = {
@@ -562,10 +569,10 @@ export interface VMProvider {
   /** Optional provider volume inventory used by the report-only VM reaper. */
   listVolumes?(options?: VMVolumeListOptions): Promise<VMVolumeInventory>;
 
-  getStatus?(vmId: string): Promise<VMStatus>;
+  getStatus?(vmId: string, options?: ProviderReadOptions): Promise<VMStatus>;
   /// Live CPU/memory/disk for the Cloud panel's activity view. Must not wake a
   /// sleeping machine.
-  getStats?(vmId: string): Promise<VMStats>;
+  getStats?(vmId: string, options?: ProviderReadOptions): Promise<VMStats>;
   /** Optional direct guest probe; must not install tooling, mutate, or wake. */
   getResourceStats?(vmId: string): Promise<VMResourceStatsResult | null>;
   /** Grow one or more VM resources. Freestyle currently uses storage only. */
@@ -580,12 +587,12 @@ export interface VMProvider {
   exec(vmId: string, command: string, opts?: ExecOptions): Promise<ExecResult>;
 
   /** Backend-wrapped guest filesystem operations. Paths are validated by the route and driver. */
-  listFiles?(vmId: string, path: string): Promise<VMFileEntry[]>;
-  readFile?(vmId: string, path: string): Promise<VMFileContents>;
+  listFiles?(vmId: string, path: string, options?: ProviderReadOptions): Promise<VMFileEntry[]>;
+  readFile?(vmId: string, path: string, options?: ProviderReadOptions): Promise<VMFileContents>;
   writeFile?(vmId: string, path: string, data: Uint8Array, mode?: number): Promise<void>;
   makeDirectory?(vmId: string, path: string): Promise<void>;
   removeFile?(vmId: string, path: string): Promise<void>;
-  statFile?(vmId: string, path: string): Promise<VMFileStat>;
+  statFile?(vmId: string, path: string, options?: ProviderReadOptions): Promise<VMFileStat>;
 
   // Optional: mint a private, token-gated HTTPS preview URL for an arbitrary HTTP port on the
   // VM (the exe.dev "https://vmname.exe.xyz:3456" equivalent). openUrl embeds the token as a
@@ -597,7 +604,7 @@ export interface VMProvider {
    * Optional: every snapshot taken from `vmId`, newest first. Absent on a
    * provider that cannot enumerate snapshots; the gateway answers unsupported.
    */
-  listSnapshots?(vmId: string): Promise<SnapshotRef[]>;
+  listSnapshots?(vmId: string, options?: ProviderReadOptions): Promise<SnapshotRef[]>;
   /**
    * Optional: delete one snapshot taken from `vmId`. A snapshot that does not
    * exist or was taken from another machine fails with an error
@@ -678,6 +685,17 @@ export class ProviderError extends Error {
  * that. Routes answer with a non-retryable recreate action, never a retryable
  * outage; see docs/cloud-guest-upgrades.md.
  */
+/**
+ * A provider read did not answer within the route's budget and was aborted
+ * (routeDeadline.ts). Routes answer 504 vm_provider_timeout.
+ */
+export class ProviderReadDeadlineError extends ProviderError {
+  constructor(provider: ProviderId, operation: string, readonly waitedMs: number) {
+    super(provider, `${operation} did not answer within ${Math.round(waitedMs)} ms`);
+    this.name = "ProviderReadDeadlineError";
+  }
+}
+
 export class ProviderMachineRecreateRequiredError extends ProviderError {
   constructor(provider: ProviderId, message: string) {
     super(provider, message);

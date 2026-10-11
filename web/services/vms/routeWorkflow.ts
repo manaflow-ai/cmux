@@ -6,6 +6,7 @@ import type { Locale } from "../../i18n/routing";
 import { isVmWorkflowError } from "./errors";
 import { respondVmWorkflowError, type VmWorkflowErrorOverrides } from "./routeHelpers";
 import { vmRequestLocale } from "./vmErrorMessages";
+import type { VmReadDeadline } from "./routeDeadline";
 import { runVmWorkflowExit, type VmWorkflowProgram } from "./workflows";
 
 /** A route's view of a finished program: the value, or the response that answers its failure. */
@@ -19,6 +20,11 @@ export type RunVmRouteOptions = {
   readonly locale?: Locale;
   /** Route-local responders layered over the shared table in `routeHelpers`. */
   readonly onError?: VmWorkflowErrorOverrides;
+  /**
+   * The inline answer deadline for a read that waits on a provider
+   * (routeDeadline.ts): the read is interrupted at its client's budget.
+   */
+  readonly readDeadline?: VmReadDeadline;
 };
 
 /**
@@ -33,7 +39,7 @@ export async function runVmRoute<A>(
   program: VmWorkflowProgram<A>,
   options: RunVmRouteOptions = {},
 ): Promise<VmRouteResult<A>> {
-  const exit = await runVmWorkflowExit(program);
+  const exit = await runVmWorkflowExit(program, { readDeadline: options.readDeadline });
   if (Exit.isSuccess(exit)) return { ok: true, value: exit.value };
   const failure = Cause.failureOption(exit.cause);
   if (failure._tag === "None") throw Cause.squash(exit.cause);
