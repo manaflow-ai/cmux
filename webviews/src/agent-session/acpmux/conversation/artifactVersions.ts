@@ -12,12 +12,25 @@ export function artifactVersions(replies: readonly string[], artifact: Artifact)
   const versions: Artifact[] = [];
   const seen = new Set<string>();
   for (const reply of replies)
-    for (const document of documents(parseMarkdown(reply))) {
+    for (const document of replyDocuments(reply)) {
       if (document.kind !== artifact.kind || seen.has(document.code) || documentName(document) !== name) continue;
       seen.add(document.code);
       versions.push(document);
     }
   return seen.has(artifact.code) ? versions : [artifact];
+}
+
+/// A finished reply's documents, parsed once: the panel reads them again on every streamed delta.
+const parsed = new Map<string, Artifact[]>();
+function replyDocuments(reply: string): Artifact[] {
+  let found = parsed.get(reply);
+  if (!found) {
+    found = [...documents(parseMarkdown(reply))];
+    // Another chat's replies replace these, a bounded cache, not a growing one.
+    if (parsed.size >= 512) parsed.clear();
+    parsed.set(reply, found);
+  }
+  return found;
 }
 
 /// The fences in `blocks` the panel can draw, in reading order (quotes and list items hold fences too).

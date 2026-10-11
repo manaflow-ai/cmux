@@ -40,7 +40,9 @@ export function ArtifactPanel({
   const t = useT();
   // The shown version by its text, not its place: a reply that finishes or a reload moves the list.
   const [shown, setShown] = useState(opened.code);
-  const found = versions.findIndex((version) => version.code === shown);
+  // A shown version that left the list falls back to the opened one's place, then to it alone.
+  const at = (code: string) => versions.findIndex((version) => version.code === code);
+  const found = at(shown) >= 0 ? at(shown) : at(opened.code);
   const list = found >= 0 ? versions : [opened];
   const index = Math.max(0, found);
   const artifact = list[index]!;
