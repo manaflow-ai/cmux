@@ -1,0 +1,122 @@
+.sheet-gallery-stage {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-height: 360px;
+  padding: 28px;
+  color: var(--cmux-text, CanvasText);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+}
+
+.sheet-gallery-copy {
+  display: grid;
+  gap: 4px;
+  color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
+  font-size: 13px;
+}
+
+.sheet-gallery-copy strong {
+  color: var(--cmux-text, CanvasText);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.sheet-gallery-trigger {
+  width: fit-content;
+  min-height: 30px;
+  padding: 0 11px;
+  border: 1px solid var(--cmux-separator, color-mix(in srgb, CanvasText 16%, transparent));
+  border-radius: 7px;
+  background: var(--cmux-elevated-background, Canvas);
+  color: var(--cmux-text, CanvasText);
+}
+
+.sheet-gallery-sheet {
+  display: grid;
+  gap: 18px;
+  padding: 22px;
+  border: 1px solid var(--cmux-separator, color-mix(in srgb, CanvasText 16%, transparent));
+  background: var(--cmux-elevated-background, Canvas);
+  color: var(--cmux-text, CanvasText);
+}
+
+.sheet-gallery-content {
+  display: grid;
+  gap: 18px;
+}
+
+.sheet-gallery-handle {
+  width: 34px;
+  height: 4px;
+  margin: 0 auto -6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 24%, transparent);
+}
+
+.ui-sheet-leading .sheet-gallery-handle,
+.ui-sheet-trailing .sheet-gallery-handle {
+  width: 4px;
+  height: 34px;
+  margin: 0 auto;
+}
+
+.sheet-gallery-content h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.sheet-gallery-content p {
+  margin: 6px 0 0;
+  color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
+  font-size: 13px;
+}
+
+.sheet-gallery-label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.sheet-gallery-label input {
+  min-height: 32px;
+  padding: 0 9px;
+  border: 1px solid var(--cmux-separator, color-mix(in srgb, CanvasText 16%, transparent));
+  border-radius: 6px;
+  background: var(--cmux-background, Canvas);
+  color: var(--cmux-text, CanvasText);
+  font: inherit;
+}
+
+.sheet-gallery-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 76%, transparent));
+  font-size: 13px;
+}
+
+.sheet-gallery-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.sheet-gallery-actions .ui-button {
+  min-height: 30px;
+  padding: 0 11px;
+  border-radius: 6px;
+}
+
+.sheet-gallery-primary {
+  background: var(--cmux-accent, Highlight);
+  color: Canvas;
+}
+
+.sheet-gallery-receipt {
+  min-height: 18px;
+  color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
+  font-size: 12px;
+}
