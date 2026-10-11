@@ -285,6 +285,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             _ = try? await settings.migrateLegacyWorkspaceRowKeys()
             // Classic cmux keys next reads under another name (`ClassicSettingRename`).
             _ = try? await settings.migrateClassicSettings()
+            // Shortcuts recorded in classic cmux's Settings (`ClassicShortcutImport`).
+            _ = try? await settings.importClassicShortcuts(marker: .standard)
             do {
                 try control.start(registry: registry, settings: settings, launch: environment.launch, services: services)
                 control.registerCloudMethods(services)

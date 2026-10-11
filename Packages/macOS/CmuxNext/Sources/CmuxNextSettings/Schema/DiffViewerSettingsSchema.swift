@@ -32,6 +32,17 @@ nonisolated enum DiffViewerSettingsSchema {
                 ]),
                 default: .string("bars"), keywords: ["diff", "indicators", "markers", "gutter"]
             ),
+            // Settings only, no toolbar toggle: add/remove follow the theme unless a person opts out.
+            SettingDescriptor(
+                ["diff", "colors"], section: .appearance, group: group,
+                title: SettingsText.keyed("settings.diff.colors", "Diff Colors"),
+                kind: .choice([
+                    SettingChoice("theme", SettingsText.keyed("settings.choice.diffColorsTheme", "Theme")),
+                    SettingChoice("muted", SettingsText.keyed("settings.choice.diffColorsMuted", "Muted")),
+                    SettingChoice("standard", SettingsText.keyed("settings.choice.standard", "Standard")),
+                ]),
+                default: .string("theme"), keywords: ["diff", "color", "green", "red", "added", "removed"]
+            ),
             toggle("wordWrap", SettingsText.keyed("settings.diff.wordWrap", "Wrap Lines"), false, ["wrap", "lines"]),
             toggle("wordDiffs", SettingsText.keyed("settings.diff.wordDiffs", "Highlight Word Changes"), false, ["word", "inline"]),
             toggle("lineNumbers", SettingsText.keyed("settings.diff.lineNumbers", "Line Numbers"), true, ["line numbers", "gutter"]),
