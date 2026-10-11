@@ -40,6 +40,8 @@ yarn-error.log*
 
 # build-time copy of the repository changelog (tools/sync-changelog.ts)
 /CHANGELOG.md
+# Copied from ../whats-new by tools/sync-whats-new.ts before the build.
+/public/whats-new/
 
 # typescript
 *.tsbuildinfo
