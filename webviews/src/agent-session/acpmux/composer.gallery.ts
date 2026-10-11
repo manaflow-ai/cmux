@@ -13,6 +13,12 @@ const waiting = [
   { id: "q3", prompt: "Run the whole suite" },
 ];
 
+// A running turn of an agent that steers (Claude Code, Codex) or not (acpmux `steering`).
+const steering = (steers: boolean) => {
+  const running = chat(working, { isWorking: true });
+  return { ...running, summary: { ...running.summary!, steering: steers } };
+};
+
 // A chat started without a project lives in cmux's agent home, one UUID folder per chat.
 const AGENT_HOME = "/Users/you/Library/Application Support/cmux/agent-home/6b16a112-289d-4467-9675-8e6feee99481";
 
@@ -289,6 +295,16 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector('button[aria-label="Send"]'));
       },
     },
+    "working-steer": {
+      note: "A prompt typed while the turn runs: Steer beside Send puts it into the turn now (⌘Return); Send queues it for after the turn (Return); Esc on an empty prompt stops the turn.",
+      snapshot: steering(true),
+      ready: { draft: "Use the new tokenizer instead" },
+    },
+    "working-interrupt": {
+      note: "The same for an agent that cannot steer: Interrupt stops the turn and sends the prompt next (⌘Return).",
+      snapshot: steering(false),
+      ready: { draft: "Use the new tokenizer instead" },
+    },
     queued: {
       note: "Two prompts waiting for the running turn: numbered rows on the composer's top edge.",
       snapshot: chat(working, {
@@ -298,6 +314,17 @@ export default agentPaneEntry({
           { id: "q2", prompt: "And update the README" },
         ],
       }),
+    },
+    "queued-keyboard": {
+      note: "Play: ↑ from the empty prompt reaches the last queued prompt, ↑ again the one before; Return edits it in its row (Return saves, Esc cancels). On a row, ⌥↑/⌥↓ move it, ⌘Return sends it now and Delete removes it.",
+      snapshot: { ...steering(true), queue: waiting },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-composer-prompt" });
+        await ctx.press("ArrowUp");
+        await ctx.press("ArrowUp");
+        await ctx.press("Enter");
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-queued-edit"));
+      },
     },
     "queued-long": {
       note: "Many queued prompts, one too long for its row: the rows scroll, and the cut-off one shows a tooltip on hover.",
@@ -325,7 +352,7 @@ export default agentPaneEntry({
     "queued-send-remove": {
       note: "Play: remove the first waiting prompt from its row, then Stop: the turn ends and the next prompt is sent. Neither moves the composer, the transcript or the rows below.",
       snapshot: chat(working, { isWorking: true, queue: waiting }),
-      native: { "chat.queue.remove": { removed: true } },
+      native: { "chat.queue.remove": { removed: true }, "chat.queue.edit": { ok: true } },
       afterCall: {
         // acpmux ends the turn and starts the next queued prompt (q2): its rows join the transcript.
         "chat.cancel": chat(
