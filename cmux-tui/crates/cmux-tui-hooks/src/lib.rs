@@ -501,6 +501,11 @@ fn runtime_data_home(home: &Path) -> PathBuf {
         .unwrap_or_else(|| home.join(".local/share"))
 }
 
+/// The native events `agent hook install` wires for provider `id`, if it knows it.
+pub fn provider_events(id: &str) -> Option<&'static [&'static str]> {
+    PROVIDERS.iter().find(|provider| provider.id == id).map(|provider| provider.events)
+}
+
 #[cfg(unix)]
 /// cmux-tui's own directory under the XDG data home (`~/.local/share/cmux-tui`).
 pub fn runtime_cmux_tui_data_home() -> Option<PathBuf> {

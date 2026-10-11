@@ -117,7 +117,11 @@ xargs -0 -P 1 -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$resul
 
 failed=0
 while read -r result file log; do
-  [ "$result" = PASS ] && continue
+  # A passing file's workflow annotations (prScope.ts warns about base-branch findings) still reach the run.
+  if [ "$result" = PASS ]; then
+    grep -E '^::(warning|notice)( |::)' "$log" || true
+    continue
+  fi
   failed=$((failed + 1))
   echo "::group::$result $file"
   cat "$log"
