@@ -8,6 +8,9 @@ import Network
 /// cookie store, no credentials. The body stops at `maximumBytes`. Cancelling the calling task
 /// cancels the connection; ``GuardedRemoteFetch`` owns the deadline.
 public nonisolated struct PinnedTLSTransport: RemoteFetchTransport {
+    /// How long one address may take to connect before the next checked address is tried.
+    static let connectTimeoutSeconds = 4
+
     public init() {}
 
     nonisolated struct HTTPError: Error, Equatable {
@@ -33,7 +36,11 @@ public nonisolated struct PinnedTLSTransport: RemoteFetchTransport {
         guard let port = NWEndpoint.Port(rawValue: UInt16(clamping: request.port)) else { throw HTTPError(reason: "port") }
         let tls = NWProtocolTLS.Options()
         sec_protocol_options_set_tls_server_name(tls.securityProtocolOptions, request.host)
-        let parameters = NWParameters(tls: tls)
+        // A silent address (often a broken IPv6 route) must fail fast, so the next checked address
+        // gets its turn inside the fetch's deadline.
+        let tcp = NWProtocolTCP.Options()
+        tcp.connectionTimeout = Self.connectTimeoutSeconds
+        let parameters = NWParameters(tls: tls, tcp: tcp)
         parameters.preferNoProxies = true
         let connection = NWConnection(host: host, port: port, using: parameters)
         let exchange = Exchange(connection: connection, reader: RemoteFetchReplyReader(maximumBody: maximumBytes))

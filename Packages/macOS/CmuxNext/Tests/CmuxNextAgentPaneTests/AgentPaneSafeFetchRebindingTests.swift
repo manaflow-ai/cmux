@@ -57,7 +57,7 @@ struct AgentPaneSafeFetchRebindingTests {
 
     /// A DNS stub that answers a public address at the first lookup and 127.0.0.1 at every later
     /// one, and counts the lookups.
-    final class RebindingResolver: RemoteAddressResolving, @unchecked Sendable { // crash-allow: test support; the count holds the lock
+    nonisolated final class RebindingResolver: RemoteAddressResolving, @unchecked Sendable { // crash-allow: test support; the count holds the lock
         private let lookups = Mutex(0)
 
         var count: Int { lookups.withLock { $0 } }
@@ -81,7 +81,10 @@ struct AgentPaneSafeFetchRebindingTests {
         var fetch = AgentPaneSafeFetch()
         fetch.guarded.resolver = dns
         fetch.guarded.timeout = .seconds(3)
-        let result = await fetch.fetch(try #require(URL(string: "https://rebind.example:\(port)/a.png")))
+        // `127.1` is a name to the fetch (not a canonical literal) and the stub answers it; a
+        // transport that connected by name would hand it to the system resolver, which turns it
+        // into 127.0.0.1, the private listener.
+        let result = await fetch.fetch(try #require(URL(string: "https://127.1:\(port)/a.png")))
 
         #expect((try? result.get()) == nil)
         #expect(listener.count == 0, "the fetch connected to the private listener after its check said public")
