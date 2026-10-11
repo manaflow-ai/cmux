@@ -337,21 +337,35 @@ impl Mux {
                 let url = tab["url"].as_str().unwrap_or("about:blank").to_string();
                 match tab["engine"].as_str() {
                     Some(engine) => {
-                        self.new_frontend_browser_tab_as(
-                            actor,
-                            Some(pane),
-                            crate::workspace_registry::FrontendBrowserRecord {
-                                engine: engine.to_string(),
-                                url,
-                                title: None,
-                                favicon_url: None,
-                                profile_id: tab["browser_profile_id"].as_str().map(str::to_string),
-                                // The app that shows the reopened tab claims it.
-                                owner: None,
-                            },
-                            None,
-                        )?
-                        .id
+                        let surface = self
+                            .new_frontend_browser_tab_as(
+                                actor,
+                                Some(pane),
+                                crate::workspace_registry::FrontendBrowserRecord {
+                                    engine: engine.to_string(),
+                                    url,
+                                    title: None,
+                                    favicon_url: None,
+                                    profile_id: tab["browser_profile_id"]
+                                        .as_str()
+                                        .map(str::to_string),
+                                    // The app that shows the reopened tab claims it.
+                                    owner: None,
+                                },
+                                None,
+                            )?
+                            .id;
+                        // The page restores its back/forward entries and
+                        // scroll from here, as at relaunch (cx-d0d.11).
+                        if let Some(history) = tab["browser_history"].as_str()
+                            && let Err(error) =
+                                self.set_frontend_browser_history(surface, Some(history.into()))
+                        {
+                            eprintln!(
+                                "cmux-tui: reopened browser tab lost its session history: {error}"
+                            );
+                        }
+                        surface
                     }
                     None => self.new_browser_tab_as(actor, url, Some(pane), None)?.id,
                 }

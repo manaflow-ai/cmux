@@ -1,398 +1,266 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "pastChat.label": {
-      "comment": "Agent pane: the heading over a chat's past turns, shown read-only in a fresh chat that cannot resume it here (cx-khns1)",
+    "chatMenu.editInstructions": {
+      "comment": "Agent pane: chat menu row that opens the chat folder's project instructions file; {file} is CLAUDE.md or AGENTS.md (cx-ncc.65)",
       "extractionState": "manual",
       "localizations": {
-        "ar": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "من المحادثة الأصلية (للقراءة فقط)"
+            "value": "Edit {file}"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعديل {file}"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Iz originalnog razgovora (samo za čitanje)"
+            "state": "needs_review",
+            "value": "Uredi {file}"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Fra den oprindelige chat (skrivebeskyttet)"
+            "state": "needs_review",
+            "value": "Rediger {file}"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Aus dem ursprünglichen Chat (schreibgeschützt)"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "From the original chat (read-only)"
+            "state": "needs_review",
+            "value": "{file} bearbeiten"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Del chat original (solo lectura)"
+            "state": "needs_review",
+            "value": "Editar {file}"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "De la discussion d’origine (lecture seule)"
+            "state": "needs_review",
+            "value": "Modifier {file}"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Dalla chat originale (sola lettura)"
+            "state": "needs_review",
+            "value": "Modifica {file}"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "元のチャットの内容（読み取り専用）"
+            "state": "needs_review",
+            "value": "{file} を編集"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ពីការជជែកដើម (សម្រាប់តែអាន)"
+            "state": "needs_review",
+            "value": "កែ {file}"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "원래 채팅의 내용(읽기 전용)"
+            "state": "needs_review",
+            "value": "{file} 편집"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Fra den opprinnelige chatten (skrivebeskyttet)"
+            "state": "needs_review",
+            "value": "Rediger {file}"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Z oryginalnego czatu (tylko do odczytu)"
+            "state": "needs_review",
+            "value": "Edytuj {file}"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Do chat original (somente leitura)"
+            "state": "needs_review",
+            "value": "Editar {file}"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Из исходного чата (только чтение)"
+            "state": "needs_review",
+            "value": "Изменить {file}"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "จากแชตเดิม (อ่านอย่างเดียว)"
+            "state": "needs_review",
+            "value": "แก้ไข {file}"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Orijinal sohbetten (salt okunur)"
+            "state": "needs_review",
+            "value": "{file} dosyasını düzenle"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "З початкового чату (лише читання)"
+            "state": "needs_review",
+            "value": "Редагувати {file}"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Từ cuộc trò chuyện gốc (chỉ đọc)"
+            "state": "needs_review",
+            "value": "Sửa {file}"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "来自原聊天（只读）"
+            "state": "needs_review",
+            "value": "编辑 {file}"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "來自原聊天（唯讀）"
+            "state": "needs_review",
+            "value": "編輯 {file}"
           }
         }
       }
     },
-    "newTab.projects": {
-      "comment": "New tab: All chats view that groups chats by project folder (cx-ncc.66)",
+    "newTab.chatsLoadFailed": {
+      "comment": "New Tab > Chats when the chat index did not answer; a Try again button follows",
       "extractionState": "manual",
       "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't load your chats."
+          }
+        },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "المشاريع"
+            "state": "translated",
+            "value": "تعذّر تحميل الدردشات."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Projekti"
+            "state": "translated",
+            "value": "Nije moguće učitati vaše chatove."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Projekter"
+            "state": "translated",
+            "value": "Dine chats kunne ikke indlæses."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Projekte"
-          }
-        },
-        "en": {
-          "stringUnit": {
             "state": "translated",
-            "value": "Projects"
+            "value": "Deine Chats konnten nicht geladen werden."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Proyectos"
+            "state": "translated",
+            "value": "No se pudieron cargar tus chats."
           }
         },
         "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Projets"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Progetti"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "プロジェクト"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "គម្រោង"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "프로젝트"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prosjekter"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Projekty"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Projetos"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Проекты"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "โปรเจกต์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Projeler"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Проєкти"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dự án"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "项目"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "專案"
-          }
-        }
-      }
-    },
-    "newTab.noProject": {
-      "comment": "New tab: Projects view header for chats that are not in a project folder",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "بلا مشروع"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bez projekta"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Intet projekt"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kein Projekt"
-          }
-        },
-        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No project"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sin proyecto"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Aucun projet"
+            "value": "Impossible de charger vos discussions."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nessun progetto"
+            "state": "translated",
+            "value": "Impossibile caricare le tue chat."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "プロジェクトなし"
+            "state": "translated",
+            "value": "チャットを読み込めませんでした。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "គ្មានគម្រោង"
+            "state": "translated",
+            "value": "មិនអាចផ្ទុកការជជែករបស់អ្នកបានទេ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "프로젝트 없음"
+            "state": "translated",
+            "value": "채팅을 불러올 수 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Uten prosjekt"
+            "state": "translated",
+            "value": "Kunne ikke laste inn chattene dine."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Bez projektu"
+            "state": "translated",
+            "value": "Nie udało się wczytać czatów."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Sem projeto"
+            "state": "translated",
+            "value": "Não foi possível carregar seus chats."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Без проекта"
+            "state": "translated",
+            "value": "Не удалось загрузить чаты."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่มีโปรเจกต์"
+            "state": "translated",
+            "value": "ไม่สามารถโหลดแชตของคุณได้"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Proje yok"
+            "state": "translated",
+            "value": "Sohbetleriniz yüklenemedi."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Без проєкту"
+            "state": "translated",
+            "value": "Не вдалося завантажити ваші чати."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Không có dự án"
+            "state": "translated",
+            "value": "Không thể tải các cuộc trò chuyện của bạn."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "无项目"
+            "state": "translated",
+            "value": "无法加载你的对话。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "無專案"
+            "state": "translated",
+            "value": "無法載入你的對話。"
           }
         }
       }
@@ -7653,6 +7521,798 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "cmux 會自動重試。在 acpmux 連線之前，你的提示會保留在這裡。"
+          }
+        }
+      }
+    },
+    "hunk.stage": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تجهيز الجزء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pripremi dio"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klargør stykke"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abschnitt stagen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stage hunk"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparar fragmento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indexer le bloc"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prepara blocco"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ハンクをステージ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រៀបចំផ្នែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "헝크 스테이지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klargjør del"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dodaj fragment do indeksu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparar trecho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проиндексировать фрагмент"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สเตจส่วนนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parçayı hazırla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Індексувати фрагмент"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đưa đoạn vào stage"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂存此块"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暫存此區塊"
+          }
+        }
+      }
+    },
+    "hunk.unstage": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إلغاء تجهيز الجزء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukloni dio iz pripreme"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fjern stykke fra klargøring"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abschnitt aus Stage entfernen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unstage hunk"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quitar fragmento de preparados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désindexer le bloc"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rimuovi blocco dalla preparazione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ハンクのステージを解除"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឈប់រៀបចំផ្នែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "헝크 스테이지 해제"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fjern del fra klargjøring"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usuń fragment z indeksu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remover trecho da preparação"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Убрать фрагмент из индекса"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เลิกสเตจส่วนนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parçayı hazırlıktan çıkar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прибрати фрагмент з індексу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bỏ đoạn khỏi stage"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消暂存此块"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消暫存此區塊"
+          }
+        }
+      }
+    },
+    "hunk.stageAt": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تجهيز الجزء عند {line}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pripremi dio na {line}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klargør stykke ved {line}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abschnitt bei {line} stagen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stage hunk at {line}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparar fragmento en {line}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indexer le bloc à {line}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prepara blocco a {line}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{line} のハンクをステージ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រៀបចំផ្នែកនៅ {line}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{line}의 헝크 스테이지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klargjør del ved {line}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dodaj fragment w {line} do indeksu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparar trecho em {line}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проиндексировать фрагмент в {line}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สเตจส่วนที่ {line}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{line} konumundaki parçayı hazırla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Індексувати фрагмент у {line}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đưa đoạn tại {line} vào stage"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂存 {line} 处的块"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暫存 {line} 的區塊"
+          }
+        }
+      }
+    },
+    "hunk.unstageAt": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إلغاء تجهيز الجزء عند {line}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukloni dio na {line} iz pripreme"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fjern stykke ved {line} fra klargøring"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abschnitt bei {line} aus Stage entfernen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unstage hunk at {line}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quitar de preparados el fragmento en {line}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désindexer le bloc à {line}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rimuovi dalla preparazione il blocco a {line}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{line} のハンクのステージを解除"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឈប់រៀបចំផ្នែកនៅ {line}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{line}의 헝크 스테이지 해제"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fjern del ved {line} fra klargjøring"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usuń fragment w {line} z indeksu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remover da preparação o trecho em {line}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Убрать из индекса фрагмент в {line}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เลิกสเตจส่วนที่ {line}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{line} konumundaki parçayı hazırlıktan çıkar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прибрати з індексу фрагмент у {line}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bỏ đoạn tại {line} khỏi stage"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消暂存 {line} 处的块"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消暫存 {line} 的區塊"
+          }
+        }
+      }
+    },
+    "diff.keys.stageHunk": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تجهيز الجزء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pripremi dio"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "klargør stykke"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abschnitt stagen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "stage hunk"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "preparar fragmento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "indexer le bloc"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "prepara blocco"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ハンクをステージ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រៀបចំផ្នែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "헝크 스테이지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "klargjør del"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dodaj fragment"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "preparar trecho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "индексировать фрагмент"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สเตจส่วน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "parçayı hazırla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "індексувати фрагмент"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "stage đoạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂存块"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暫存區塊"
+          }
+        }
+      }
+    },
+    "diff.keys.unstageHunk": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إلغاء تجهيز الجزء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ukloni dio iz pripreme"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fjern stykke fra klargøring"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abschnitt aus Stage entfernen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "unstage hunk"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "quitar fragmento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "désindexer le bloc"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "rimuovi blocco"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ハンクのステージを解除"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឈប់រៀបចំផ្នែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "헝크 스테이지 해제"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fjern del fra klargjøring"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "usuń fragment z indeksu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remover trecho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "убрать фрагмент из индекса"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เลิกสเตจส่วน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "parçayı hazırlıktan çıkar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "прибрати фрагмент з індексу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bỏ stage đoạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消暂存块"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消暫存區塊"
           }
         }
       }
@@ -116934,6 +117594,534 @@
         }
       }
     },
+    "newTab.projects": {
+      "comment": "New tab: All chats view that groups chats by project folder (cx-ncc.66)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "المشاريع"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Projekti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Projekter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Projekte"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projects"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Proyectos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Projets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Progetti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "プロジェクト"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គម្រោង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "프로젝트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prosjekter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Projekty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Projetos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Проекты"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โปรเจกต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Projeler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Проєкти"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dự án"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "项目"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "專案"
+          }
+        }
+      }
+    },
+    "newTab.noProject": {
+      "comment": "New tab: Projects view header for chats that are not in a project folder",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بلا مشروع"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bez projekta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Intet projekt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kein Projekt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No project"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sin proyecto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucun projet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessun progetto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "プロジェクトなし"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានគម្រោង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "프로젝트 없음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uten prosjekt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bez projektu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sem projeto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Без проекта"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีโปรเจกต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Proje yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Без проєкту"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có dự án"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无项目"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無專案"
+          }
+        }
+      }
+    },
+    "pastChat.label": {
+      "comment": "Agent pane: the heading over a chat's past turns, shown read-only in a fresh chat that cannot resume it here (cx-khns1)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "من المحادثة الأصلية (للقراءة فقط)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iz originalnog razgovora (samo za čitanje)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fra den oprindelige chat (skrivebeskyttet)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus dem ursprünglichen Chat (schreibgeschützt)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "From the original chat (read-only)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Del chat original (solo lectura)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De la discussion d’origine (lecture seule)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dalla chat originale (sola lettura)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元のチャットの内容（読み取り専用）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពីការជជែកដើម (សម្រាប់តែអាន)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원래 채팅의 내용(읽기 전용)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fra den opprinnelige chatten (skrivebeskyttet)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Z oryginalnego czatu (tylko do odczytu)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Do chat original (somente leitura)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Из исходного чата (только чтение)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จากแชตเดิม (อ่านอย่างเดียว)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Orijinal sohbetten (salt okunur)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "З початкового чату (лише читання)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Từ cuộc trò chuyện gốc (chỉ đọc)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "来自原聊天（只读）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "來自原聊天（唯讀）"
+          }
+        }
+      }
+    },
+    "tools.thought": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تفكير"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Razmišljanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tanke"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gedanke"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thought"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Razonamiento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Réflexion"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ragionamento"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "思考"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការគិត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "생각"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tanke"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Myśl"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Raciocínio"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Размышление"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ความคิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Düşünce"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Роздуми"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suy nghĩ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "思考"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "思考"
+          }
+        }
+      }
+    },
     "git.commit.label": {
       "comment": "Agent pane",
       "extractionState": "manual",
@@ -125514,266 +126702,266 @@
         }
       }
     },
-    "chatMenu.editInstructions": {
-      "comment": "Agent pane: chat menu row that opens the chat folder's project instructions file; {file} is CLAUDE.md or AGENTS.md (cx-ncc.65)",
+    "artifact.save": {
+      "comment": "Agent pane: side preview panel button that saves the document to a file (cx-ncc.75)",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edit {file}"
+            "value": "Save"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تعديل {file}"
+            "value": "حفظ"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uredi {file}"
+            "value": "Sačuvaj"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Rediger {file}"
+            "value": "Gem"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{file} bearbeiten"
+            "value": "Sichern"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Editar {file}"
+            "value": "Guardar"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Modifier {file}"
+            "value": "Enregistrer"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Modifica {file}"
+            "value": "Salva"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{file} を編集"
+            "value": "保存"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "កែ {file}"
+            "value": "រក្សាទុក"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{file} 편집"
+            "value": "저장"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Rediger {file}"
+            "value": "Arkiver"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Edytuj {file}"
+            "value": "Zapisz"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Editar {file}"
+            "value": "Salvar"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Изменить {file}"
+            "value": "Сохранить"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แก้ไข {file}"
+            "value": "บันทึก"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{file} dosyasını düzenle"
+            "value": "Kaydet"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Редагувати {file}"
+            "value": "Зберегти"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sửa {file}"
+            "value": "Lưu"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "编辑 {file}"
+            "value": "存储"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "編輯 {file}"
+            "value": "儲存"
           }
         }
       }
     },
-    "newTab.chatsLoadFailed": {
-      "comment": "New Tab > Chats when the chat index did not answer; a Try again button follows",
+    "artifact.saved": {
+      "comment": "Agent pane: the side preview panel's Save button after the document was saved (cx-ncc.75)",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn't load your chats."
+            "value": "Saved"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "تعذّر تحميل الدردشات."
+            "state": "needs_review",
+            "value": "تم الحفظ"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Nije moguće učitati vaše chatove."
+            "state": "needs_review",
+            "value": "Sačuvano"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Dine chats kunne ikke indlæses."
+            "state": "needs_review",
+            "value": "Gemt"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Deine Chats konnten nicht geladen werden."
+            "state": "needs_review",
+            "value": "Gesichert"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "No se pudieron cargar tus chats."
+            "state": "needs_review",
+            "value": "Guardado"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Impossible de charger vos discussions."
+            "state": "needs_review",
+            "value": "Enregistré"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Impossibile caricare le tue chat."
+            "state": "needs_review",
+            "value": "Salvato"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "チャットを読み込めませんでした。"
+            "state": "needs_review",
+            "value": "保存済み"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "មិនអាចផ្ទុកការជជែករបស់អ្នកបានទេ។"
+            "state": "needs_review",
+            "value": "បានរក្សាទុក"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "채팅을 불러올 수 없습니다."
+            "state": "needs_review",
+            "value": "저장됨"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kunne ikke laste inn chattene dine."
+            "state": "needs_review",
+            "value": "Arkivert"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Nie udało się wczytać czatów."
+            "state": "needs_review",
+            "value": "Zapisano"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Não foi possível carregar seus chats."
+            "state": "needs_review",
+            "value": "Salvo"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Не удалось загрузить чаты."
+            "state": "needs_review",
+            "value": "Сохранено"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ไม่สามารถโหลดแชตของคุณได้"
+            "state": "needs_review",
+            "value": "บันทึกแล้ว"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Sohbetleriniz yüklenemedi."
+            "state": "needs_review",
+            "value": "Kaydedildi"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Не вдалося завантажити ваші чати."
+            "state": "needs_review",
+            "value": "Збережено"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Không thể tải các cuộc trò chuyện của bạn."
+            "state": "needs_review",
+            "value": "Đã lưu"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "无法加载你的对话。"
+            "state": "needs_review",
+            "value": "已存储"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "無法載入你的對話。"
+            "state": "needs_review",
+            "value": "已儲存"
           }
         }
       }
