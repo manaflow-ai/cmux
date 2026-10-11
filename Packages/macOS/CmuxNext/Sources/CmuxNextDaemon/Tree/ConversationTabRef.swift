@@ -14,6 +14,8 @@ public struct ConversationTabRef: Sendable, Hashable, Codable {
     public var agentSession: AgentSessionRef?
     /// The page id (`app-store`, `settings`), for a page tab (`page-tabs-v1`).
     public var page: String?
+    /// What a page tab shows (`page-tab-route-v1`: a viewer's file or folder); nil for none.
+    public var route: String?
 
     public init(conversation: String, owner: String) {
         self.conversation = conversation
@@ -27,15 +29,16 @@ public struct ConversationTabRef: Sendable, Hashable, Codable {
         self.agentSession = agentSession
     }
 
-    public init(page: String) {
+    public init(page: String, route: String? = nil) {
         conversation = nil
         owner = nil
         agentSession = nil
         self.page = page
+        self.route = route
     }
 
     enum CodingKeys: String, CodingKey {
-        case conversation, owner, page
+        case conversation, owner, page, route
         case agentSession = "agent_session"
     }
 
@@ -44,7 +47,7 @@ public struct ConversationTabRef: Sendable, Hashable, Codable {
         if let session = try c.decodeIfPresent(AgentSessionRef.self, forKey: .agentSession) {
             self.init(agentSession: session)
         } else if let page = try c.decodeIfPresent(String.self, forKey: .page) {
-            self.init(page: page)
+            self.init(page: page, route: try c.decodeIfPresent(String.self, forKey: .route))
         } else {
             self.init(conversation: try c.decode(String.self, forKey: .conversation), owner: try c.decode(String.self, forKey: .owner))
         }

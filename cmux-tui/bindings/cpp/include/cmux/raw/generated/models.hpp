@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "58dd2823a9334bd9d991179f015295882bc254df3608a6c29b1fd0eebc0a95ac";
+inline constexpr std::string_view kProtocolIrSha256 = "a93e079934773d2fe3cb5114444fc6b9924ffb59783437103c78e07cf84306a9";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -826,6 +826,7 @@ struct ConversationTabRecord {
     std::optional<std::string> conversation{};
     std::optional<std::string> owner{};
     std::optional<std::string> page{};
+    std::optional<std::string> route{};
     friend bool operator==(const ConversationTabRecord&, const ConversationTabRecord&) = default;
 };
 
@@ -3230,6 +3231,7 @@ struct NewConversationTabRequest {
     Field<std::string> owner{};
     Field<std::string> page{};
     Field<Id> pane{};
+    Field<std::string> route{};
     Field<std::uint16_t> rows{};
     Field<std::string> transaction{};
     Field<Id> workspace{};
