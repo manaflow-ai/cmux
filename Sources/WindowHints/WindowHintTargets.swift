@@ -27,6 +27,8 @@ enum WindowHintTargets {
 
     /// How many views and elements the last walk visited (`debug.window_hints`).
     private(set) static var lastVisitedCount = 0
+    /// What the last walk saw, by "role element? sized?" (`debug.window_hints`).
+    private(set) static var lastRoleCounts: [String: Int] = [:]
 
     /// The window's controls in reading order, clipped to its content.
     static func collect(in content: NSView) -> [Target] {
@@ -36,6 +38,7 @@ enum WindowHintTargets {
         var seen = Set<[Int]>()
         var stack: [Any] = [content]
         var visited = Set<ObjectIdentifier>()
+        var roleCounts: [String: Int] = [:]
         while let next = stack.popLast(), visited.count < 5000, found.count < limit {
             guard visited.insert(ObjectIdentifier(next as AnyObject)).inserted else { continue }
             if let view = next as? NSView {
@@ -44,6 +47,14 @@ enum WindowHintTargets {
             }
             let element = next as? NSAccessibilityProtocol
             if element?.isAccessibilityHidden() == true { continue }
+            if let element {
+                let frame = element.accessibilityFrame()
+                let key = "\(element.accessibilityRole()?.rawValue ?? "nil") \(element.isAccessibilityElement() ? "el" : "-") "
+                    + (frame.width >= 4 && frame.height >= 4 ? "sized" : "empty")
+                roleCounts[key, default: 0] += 1
+            } else {
+                roleCounts["\(type(of: next)) not-ax", default: 0] += 1
+            }
             // Only controls report enabled; custom rows and tabs leave it unset.
             if let element, element.isAccessibilityElement(), let role = element.accessibilityRole(), clickable.contains(role),
                (element as? NSControl)?.isEnabled ?? true {
@@ -61,6 +72,7 @@ enum WindowHintTargets {
             stack.append(contentsOf: children.reversed())
         }
         lastVisitedCount = visited.count
+        lastRoleCounts = roleCounts
         return found
     }
 
