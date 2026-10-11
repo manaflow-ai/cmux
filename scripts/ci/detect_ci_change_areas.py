@@ -888,6 +888,8 @@ CLI_LANE_EXACT_INPUTS = frozenset({
     "scripts/ci/relocate_package_framework_rpaths.py",
     # Seeds the checkout of compile admission and cli-product-tests.
     "scripts/ci/git-seed.sh",
+    # Initializes the ghostty submodule for cli-product-tests' shell regressions.
+    "scripts/ci/init-submodule.sh",
 })
 
 CLI_LANE_INPUT_PREFIXES = (
