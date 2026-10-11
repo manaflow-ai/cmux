@@ -265,6 +265,7 @@
   top: 0.35em;
   --cmux-markdown-checkbox-secondary: var(--agent-muted);
   --cmux-markdown-checkbox-accent: var(--agent-accent);
+  --cmux-markdown-checkbox-ink: var(--agent-on-accent);
   box-shadow: inset 0 0 0 1px var(--cv-strong-rule);
 }
 /* appearance.borders none: retain a quiet fill so an open task remains visible without a ring. */
@@ -1569,12 +1570,13 @@ pre.cv-math-source {
   outline: 2px solid var(--agent-accent);
   outline-offset: -2px;
 }
+/* Find matches: the theme's highlight (the yellow is only for an unthemed preview). */
 ::highlight(acpmux-find) {
-  background-color: color-mix(in srgb, #f5c542 40%, transparent);
+  background-color: color-mix(in srgb, var(--agent-highlight, #f5c542) 40%, transparent);
 }
 ::highlight(acpmux-find-active) {
-  background-color: #f5c542;
-  color: #1d1d1f;
+  background-color: var(--agent-highlight, #f5c542);
+  color: var(--agent-highlight-text, #1d1d1f);
 }
 
 /* Jump to latest (App.tsx JumpToLatest): a glass circle centered above the composer, at the

@@ -387,7 +387,7 @@
   height: 0;
   border: 3.5px solid var(--text);
   border-radius: 50%;
-  box-shadow: 0 0 0 1.5px var(--cmux-surface-background, Canvas);
+  box-shadow: 0 0 0 1.5px var(--cmux-surface-token, Canvas);
 }
 
 .token-tuner-body {
@@ -438,7 +438,7 @@
 .token-tuner-slider input::-webkit-slider-thumb {
   width: 14px;
   height: 14px;
-  border: 2px solid var(--cmux-surface-background, Canvas);
+  border: 2px solid var(--cmux-surface-token, Canvas);
   border-radius: 50%;
   background: var(--accent);
   appearance: none;

@@ -300,7 +300,8 @@
 .acpmux-home-meta{flex:none;color:var(--agent-muted);font-size:13px}
 .acpmux-home-title+.acpmux-home-meta{margin-left:auto}
 
-:root{--acpmux-add:var(--agent-diff-add,#90b345);--acpmux-del:var(--agent-diff-del,#b4365e)}
+/* Added and removed lines: the theme's ANSI green and red, as the syntax colors use them. */
+:root{--acpmux-add:var(--agent-ansi-2,#90b345);--acpmux-del:var(--agent-ansi-1,#b4365e)}
 .acpmux-diff-panel{position:absolute;inset:0;z-index:5;display:flex;flex-direction:column;color:var(--agent-text);font:13px/20px system-ui,-apple-system,"Helvetica Neue",sans-serif;-webkit-font-smoothing:antialiased}
 .acpmux-diff-header{display:flex;align-items:center;gap:8px;height:48px;box-sizing:border-box;padding:0 8px;border-bottom:1px solid var(--agent-border)}
 .acpmux-diff-back{display:inline-flex;align-items:center;justify-content:center;flex:none;width:28px;height:28px;border:0;border-radius:50%;background:none;color:var(--agent-muted);cursor:pointer}
@@ -414,6 +415,7 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 /* The host's error while it cannot hand the pane acpmux (HostError.tsx), laid out like the permission card. */
 .acpmux-host-error{padding:0 max(18px,calc((100% - 760px)/2)) 8px}.acpmux-host-error-card{padding:11px 12px;border:1px solid color-mix(in srgb,var(--agent-danger) 46%,transparent);border-radius:12px;background:color-mix(in srgb,var(--agent-danger) 8%,var(--agent-page-bg))}.acpmux-host-error-card p{margin:0;line-height:18px;overflow-wrap:anywhere;user-select:text;-webkit-user-select:text}.acpmux-host-error-message{color:var(--agent-text)}.acpmux-host-error-hint{margin-top:4px!important;color:var(--agent-muted);font-size:12px}.acpmux-host-error-card button{margin-top:9px;border:0;border-radius:999px;padding:6px 12px;background:var(--agent-accent);color:var(--agent-accent-text,#fff);font:inherit;cursor:default}.acpmux-host-error-card button:focus-visible{outline:2px solid color-mix(in srgb,var(--agent-text) 40%,transparent);outline-offset:2px}
 .acpmux-host-error-card button:disabled{opacity:.6}
+.acpmux-harness-notice{display:block}.acpmux-harness-notice .acpmux-host-error-card{border-color:color-mix(in srgb,var(--agent-text) 14%,transparent);background:color-mix(in srgb,var(--agent-text) 4%,var(--agent-page-bg))}.acpmux-host-error-actions{display:flex;flex-wrap:wrap;gap:6px}.acpmux-harness-notice button[data-notice-action=skip],.acpmux-harness-notice button[data-notice-action=dismiss]{background:transparent;color:var(--agent-muted)}
 .acpmux-composer{flex-wrap:wrap}.acpmux-composer-dropping .acpmux-composer-box{border-color:var(--agent-accent)}
 .acpmux-switch-notice{display:block;padding:0 max(18px,calc((100% - 760px)/2)) 6px;color:var(--agent-muted);font-size:12px;line-height:16px}
 /* ui/titleTooltips.ts: the pane's one tooltip, placed inside the window. */

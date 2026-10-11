@@ -43,8 +43,10 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
         self.emptySectionHeight = emptySectionHeight
     }
 
+    /// One line, two, or three (an expanded row's meta line adds one more line's height).
     func height(for content: WorkspaceRowContent) -> CGFloat {
-        (content.detail == nil ? rowHeight : rowHeightWithSubtitle) + statusHeight(content)
+        let lines = (content.detail == nil ? 0 : 1) + (content.meta == nil ? 0 : 1)
+        return rowHeight + CGFloat(lines) * (rowHeightWithSubtitle - rowHeight) + statusHeight(content)
     }
 
     /// The status block under the title lines: its text lines, the bar's
@@ -92,6 +94,8 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// Minimal mode (`sidebar.minimal`): every row draws only its icon, name
     /// and marks, whatever `workspaceRow` shows (`rowContent`).
     public var minimal = false
+    /// Expanded rows (`sidebar.density`), unless minimal: `WorkspaceRowContent(expanded:)`.
+    public var expanded = false
     /// The start of today: the last-activity element shows a time for today,
     /// else a date. A day, not the current time, so options stay equal.
     public var now = Date(timeIntervalSince1970: 0)
@@ -113,6 +117,7 @@ nonisolated extension SidebarLayoutOptions {
     /// stage), counts, badges and the working dots; attention states
     /// (waiting, error) still show, like the unread mark.
     func rowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
+        if expanded && !minimal { return WorkspaceRowContent(expanded: ws, now: now, machine: machine) }
         guard minimal else { return WorkspaceRowContent(ws, preferences: workspaceRow, now: now, machine: machine) }
         var content = WorkspaceRowContent(ws, preferences: Self.minimalRow, now: now)
         content.detail = nil

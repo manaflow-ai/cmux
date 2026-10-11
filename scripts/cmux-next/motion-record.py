@@ -148,6 +148,27 @@ def panes():
     record("panes", "equalize", lambda: action("equalizeSplits"))
     record("panes", "zoom", lambda: action("toggleSplitZoom"))
     record("panes", "unzoom", lambda: action("toggleSplitZoom"))
+    # Departures: a pane moved to another workspace and a strip column closed
+    # mid-strip.
+    action("splitRight")
+    time.sleep(0.8)  # test harness: the split settles
+    record("panes", "move-away", lambda: action("pane.moveToNewWorkspace"))
+    print("after move-away:", json.dumps(rpc("debug.windows"))[:300], flush=True)
+    action("workspace.newAtBottom")
+    time.sleep(1.0)  # test harness: the workspace settles
+    for _ in range(2):
+        action("newColumn")
+        time.sleep(0.8)  # test harness: one column at a time
+    action("focusLeft")
+    time.sleep(0.5)  # test harness: the focus settles
+    save_layout("panes-strip")
+    record("panes", "close-mid-strip", lambda: action("closePane"))
+    # A zoom and an unzoom on a scrolled strip (its camera resets, then snaps back).
+    for _ in range(3):
+        action("newColumn")
+        time.sleep(0.8)  # test harness: one column at a time
+    record("panes", "zoom-strip", lambda: action("toggleSplitZoom"))
+    record("panes", "unzoom-strip", lambda: action("toggleSplitZoom"))
 
 
 def focus():
@@ -389,16 +410,47 @@ def sidebar():
 
 
 def palette():
-    # The palette opens over the window and closes again (its panel is a
-    # child window, so stills by window id back the recording up).
+    # The palette opens over the window and closes again. Tab search opens it
+    # over the active window (a child of it); a capture slot's app never
+    # activates, and the palette opened with no key window closes at once.
     save_layout("palette")
-    record("palette", "open", lambda: action("commandPalette"))
-    print("palette open:", json.dumps(rpc("debug.windows"))[:400], flush=True)
-    record("palette", "close", lambda: key("escape"))
-    print("palette closed:", json.dumps(rpc("debug.windows"))[:400], flush=True)
+    record("palette", "open", lambda: action("tab.search", focus=True))
+    print("palette open:", json.dumps(rpc("debug.palette.capture", {"path": os.path.join(opts.out, "palette", "open.png")}))[:200], flush=True)
+    record("palette", "close", lambda: rpc("debug.key", {"key": "escape", "target": "palette"}))
+    print("palette closed:", json.dumps(rpc("debug.palette.capture", {"path": os.path.join(opts.out, "palette", "closed.png")}))[:200], flush=True)
+
+def panels():
+    # The notifications and feed panels open at the window's top-right corner
+    # and close again (each action toggles its panel). Focus is requested as
+    # for the palette: a capture slot's app never activates on its own.
+    save_layout("panels")
+    for name, toggle in (("notifications", "showNotifications"), ("feed", "feed.show")):
+        record("panels", f"{name}-open", lambda toggle=toggle: action(toggle, focus=True))
+        record("panels", f"{name}-close", lambda toggle=toggle: action(toggle, focus=True))
+
+def hovercard():
+    # A tab hover card shows after the pointer rests on a tab, then moves to
+    # the next tab (a retarget: one tab's thumbnail replaces the other's).
+    for _ in range(2):
+        action("newSurface")
+        time.sleep(0.5)  # test harness: one tab at a time
+    save_layout("hovercard")
+    pill = first_pill()
+    if not pill:
+        print("hovercard: skipped, pane_chrome reports no tab pill", flush=True)
+        return
+    left, top, width, height = pill
+    y = opts.window_height - (top + height / 2)
+    first, second = (left + width / 2, y), (left + width * 1.5, y)
+    rpc("debug.pointer_hover", {"point": list(first)})
+    record("hovercard", "show", lambda: time.sleep(0.05), seconds=2.5)  # test harness: the card's show delay
+    record("hovercard", "retarget", lambda: rpc("debug.pointer_hover", {"point": list(second)}))
+    print("hover cards:", json.dumps(rpc("debug.hover_cards"))[:300], flush=True)
+    record("hovercard", "hide", lambda: rpc("debug.pointer_hover", {"point": None}))
 
 
-SURFACES = {"tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts, "popups": popups, "hover": hover, "groups": groups, "drag": drag, "dock": dock, "newtab": newtab, "sidebar": sidebar, "palette": palette}
+
+SURFACES = {"tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts, "popups": popups, "hover": hover, "groups": groups, "drag": drag, "dock": dock, "newtab": newtab, "sidebar": sidebar, "palette": palette, "hovercard": hovercard, "panels": panels}
 
 
 def main():
