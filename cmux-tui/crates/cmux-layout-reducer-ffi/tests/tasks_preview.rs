@@ -146,3 +146,25 @@ fn a_mirror_that_is_not_a_snapshot_is_invalid() {
     let (code, _) = call(&json!({"mirror": {"tasks": []}, "intents": []}));
     assert_eq!(code, cmux_layout_reducer_ffi::ERR_INVALID);
 }
+
+#[test]
+fn a_mirror_of_event_entities_previews_like_a_snapshot() {
+    // Events carry bare tasks tagged `entity`, without the view fields;
+    // the pane mirrors them as they arrive.
+    let mut mirror = snapshot();
+    for task in mirror["tasks"].as_array_mut().unwrap() {
+        let task = task.as_object_mut().unwrap();
+        for field in ["key", "category", "status_name"] {
+            task.remove(field);
+        }
+        task.insert("entity".into(), json!("task"));
+    }
+    let intents = json!([
+        {"key": "k1", "op": "task.create", "params": {"id": "task_new", "title": "New"}}
+    ]);
+    let (code, body) = call(&json!({"mirror": mirror, "intents": intents, "now": 5}));
+    assert_eq!(code, OK);
+    assert_eq!(order(&body), ["task_a", "task_b", "task_new"]);
+    assert_eq!(task(&body, "task_a")["key"], "CMX-1");
+    assert_eq!(task(&body, "task_new")["key"], "CMX-3");
+}
