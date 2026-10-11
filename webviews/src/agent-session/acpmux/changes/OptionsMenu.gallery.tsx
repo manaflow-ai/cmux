@@ -37,7 +37,9 @@ const open: Play = async (ctx) => {
 const keyboard: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Changes options" });
   await ctx.press("End");
-  await ctx.waitFor(() => ctx.document.activeElement?.textContent === "Copy git apply command");
+  await ctx.waitFor(
+    () => ctx.document.activeElement === ctx.find({ role: "menuitem", name: "Copy git apply command" }),
+  );
   await ctx.press("Escape");
   await ctx.waitFor(() => {
     const trigger = ctx.find({ role: "button", name: "Changes options" });
