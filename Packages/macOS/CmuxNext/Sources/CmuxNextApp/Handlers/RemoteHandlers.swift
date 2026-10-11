@@ -93,8 +93,13 @@ enum RemoteHandlers {
             guard let error = RemoteStrings.sshError(session) else { throw ActionFailure(message: RemoteStrings.noSSHError(session.host.label)) }
             context.copy(error)
         }
+        // No question (Lawrence 2026-10-07): a person's Forget hides the
+        // machine at once and its undo toast writes it when it ends.
         CloudHandlers.bind("remote.forget", registry, reason: hasMachine) { invocation in
             let session = try machine(invocation, context)
+            if invocation.origin == .user, let window = CloudHandlers.window(context) {
+                return RemoteForgetUndo.forget(session, ssh: ssh, in: window)
+            }
             let work: ActionWork = Task {
                 await ssh.forget(session)
                 return nil

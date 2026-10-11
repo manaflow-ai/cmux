@@ -1311,6 +1311,137 @@
         }
       }
     },
+    "handlers.refusal.daemonRestoreTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is still restoring your terminals. This is taking longer than 2 minutes; cmux keeps trying."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يزال cmux يستعيد الطرفيات الخاصة بك. يستغرق ذلك أكثر من دقيقتين؛ ويواصل cmux المحاولة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux još vraća vaše terminale. Ovo traje duže od 2 minute; cmux nastavlja pokušavati."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux gendanner stadig dine terminaler. Det tager mere end 2 minutter; cmux bliver ved med at prøve."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux stellt deine Terminals noch wieder her. Das dauert länger als 2 Minuten; cmux versucht es weiter."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux todavía está restaurando tus terminales. Está tardando más de 2 minutos; cmux sigue intentándolo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux restaure encore vos terminaux. Cela prend plus de 2 minutes ; cmux continue d’essayer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux sta ancora ripristinando i tuoi terminali. Ci vogliono più di 2 minuti; cmux continua a provare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はまだターミナルを復元しています。2 分以上かかっていますが、cmux は引き続き試行します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux នៅតែកំពុងស្ដារស្ថានីយរបស់អ្នក។ វាចំណាយពេលលើសពី 2 នាទី; cmux នៅតែបន្តព្យាយាម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 아직 터미널을 복원하는 중입니다. 2분 넘게 걸리고 있으며, cmux는 계속 시도합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux gjenoppretter fortsatt terminalene dine. Det tar mer enn 2 minutter; cmux fortsetter å prøve."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nadal przywraca Twoje terminale. Trwa to dłużej niż 2 minuty; cmux próbuje dalej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux ainda está restaurando seus terminais. Está levando mais de 2 minutos; o cmux continua tentando."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux всё ещё восстанавливает ваши терминалы. Это занимает больше 2 минут; cmux продолжает попытки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ยังคงกู้คืนเทอร์มินัลของคุณอยู่ ใช้เวลานานกว่า 2 นาที; cmux จะพยายามต่อไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux terminallerinizi hâlâ geri yüklüyor. Bu 2 dakikadan uzun sürüyor; cmux denemeye devam ediyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux досі відновлює ваші термінали. Це триває понад 2 хвилини; cmux продовжує спроби."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux vẫn đang khôi phục các terminal của bạn. Việc này mất hơn 2 phút; cmux vẫn tiếp tục thử."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 仍在恢复你的终端。已超过 2 分钟；cmux 会继续尝试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 仍在還原你的終端機。已超過 2 分鐘；cmux 會繼續嘗試。"
+          }
+        }
+      }
+    },
     "handlers.refusal.directionDown": {
       "extractionState": "manual",
       "localizations": {

@@ -15,7 +15,9 @@
 //! where the confirmation is a single-use token the verified app minted for
 //! exactly this operation, these params and this relay connection
 //! (`origin.confirmation.issue`). Gate A2: `apps.install`, `apps.uninstall`,
-//! `apps.enable` and `workspace.agent_folder.set` need origin `user`.
+//! `apps.enable`, `workspace.agent_folder.set`, `history.backups.purge`,
+//! `history.visit.record`, `history.visit.title` and
+//! `history.visit.import` need origin `user`.
 
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -37,9 +39,22 @@ pub(crate) const ISSUE_OPERATION: &str = "origin.confirmation.issue";
 pub(crate) const CONFIRMATION_TTL_MS: u64 = 60_000;
 /// Gate A2: operations that need origin `user`. The workspace's agent
 /// folder decides where agents run, so only the user sets it
-/// (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
-pub(crate) const USER_ONLY_OPERATIONS: [&str; 4] =
-    ["apps.install", "apps.uninstall", "apps.enable", crate::state::agent_folder::OPERATION];
+/// (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE). A history backup is the undo of
+/// a history delete, so only the user deletes one before its retention
+/// ends (RECOVERABLE-BY-DEFAULT). Page visits, their titles and the app's
+/// older visit logs come from the hosting app, the verified app
+/// connection: an agent cannot add a visit the person never made, nor
+/// make the daemon read a file by path.
+pub(crate) const USER_ONLY_OPERATIONS: [&str; 8] = [
+    "apps.install",
+    "apps.uninstall",
+    "apps.enable",
+    crate::state::agent_folder::OPERATION,
+    crate::history_ops::PURGE_OPERATION,
+    crate::history_ops::RECORD_OPERATION,
+    crate::history_ops::TITLE_OPERATION,
+    crate::history_ops::IMPORT_OPERATION,
+];
 /// Unconsumed tokens one relay connection may hold; the oldest goes first.
 const MAX_CONFIRMATIONS_PER_RELAY: usize = 16;
 pub(crate) const ORIGIN_FORBIDDEN: &str = "origin.forbidden";

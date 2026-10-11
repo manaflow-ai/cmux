@@ -13,7 +13,7 @@ pub(super) fn is_detached_key(workspace_key: &str) -> bool {
 }
 
 /// Whether a terminal host record's `workspace_key` can name a workspace.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(super) fn names_a_workspace(workspace_key: &str) -> bool {
     !workspace_key.is_empty() && !is_detached_key(workspace_key)
 }
@@ -23,7 +23,7 @@ pub(super) fn names_a_workspace(workspace_key: &str) -> bool {
 /// catalog-only runtime under a new public id, which the next resource
 /// projection persists, instead of being given a placement in a workspace its
 /// sentinel key cannot name.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(super) fn detached_adoption_binding(
     registry: &WorkspaceRegistry,
     terminal_id: &str,
@@ -201,7 +201,7 @@ impl Mux {
     /// Persist the public id of a detached terminal adopted after its daemon
     /// died before the creating projection committed. A failure leaves it for
     /// the next projection to persist.
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) fn publish_adopted_detached_terminal(&self, terminal_id: &str) {
         let unpublished = {
             let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);

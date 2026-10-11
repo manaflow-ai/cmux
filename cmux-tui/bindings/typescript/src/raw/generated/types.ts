@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2304aafc2ea0c866da63b1459d38e771c9ca3f8c655dc06fed821ca8d3c6e703. */
+/* cmux-tui mux protocol 12, IR 0a08a875e173efa536624add3aca585497509e759536a0ad1843beadd1574ff8. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -1124,6 +1124,8 @@ export type Tab = {
   "size": (Size) | null;
   "supports_clear_history_key_fallback"?: boolean;
   "surface": Id;
+  /** Why a terminal will end with something other than its shell although terminal hosts are on: `breakaway_denied` (Windows: the host runs inside the daemon's kill-on-close Job Object and ends when that job closes) or `host_start_failed` (no host; the daemon runs the terminal and it ends with the daemon). Null otherwise and for browser tabs. A string, not an enum: clients read an unknown value as a notice for another reason. */
+  "terminal_host_fallback"?: (string) | null;
   "terminal_id"?: (string) | null;
   "terminal_incarnation"?: (string) | null;
   "terminal_resource_id"?: (string) | null;

@@ -225,6 +225,14 @@ extension AgentPaneTransport {
         entry.reply(entry.firstError)
     }
 
+    /// The first prompt after a remote start, on the same connection and in time: uses the start's credit.
+    private func takeRemoteStartCredit(_ facts: Facts, connection id: Int) -> Bool {
+        guard remoteWire, facts.method == "session/prompt", let credit = remoteStartCredit, credit.connection == id,
+              ProcessInfo.processInfo.systemUptime - credit.at <= Self.remoteStartCreditLifetime else { return false }
+        remoteStartCredit = nil
+        return true
+    }
+
     /// The frame's paths against the pane's roots and the folders the user added.
     private func checkPathsInScope(_ box: FrameBox) async -> Result<[String], AcpmuxPathPolicy.Refusal> {
         let scope = AcpmuxPathPolicy.Scope(roots: roots(), gestureRoots: gestureRoots(), fillCwd: primaryRoot(),
@@ -234,7 +242,7 @@ extension AgentPaneTransport {
 
     /// The main actor's part of one frame: small values only (the frame stays in its box).
     private func decide(_ facts: Facts, _ box: FrameBox, connection id: Int, socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds) async -> Step {
-        if facts.needsPathCheck {
+        if facts.needsPathCheck, !remoteWire {
             var result = await checkPathsInScope(box)
             guard id == current, self.socket === socket else { return .stop(.staleConnection) }
             // A folder outside every root that the user typed: their gesture adds it as a root, at
@@ -278,8 +286,15 @@ extension AgentPaneTransport {
                 granted = redeemed && AgentPaneGestureIntent.methods[facts.method ?? ""] != nil
                     && facts.sessionId.map(sessions.contains) == true
                 ticketPick = granted
+            } else if remoteWire, facts.method == "session/new" {
+                // A new chat on another machine starts only from the person's own send (cx-k21v);
+                // its first prompt goes with the same gesture, after the start.
+                granted = gestures.consume()
+                if granted { remoteStartCredit = (id, ProcessInfo.processInfo.systemUptime) }
             } else {
-                granted = !facts.needsGesture || gestures.consume()
+                // The start's credit is spent by the first prompt, whatever grants it.
+                let credit = takeRemoteStartCredit(facts, connection: id)
+                granted = !facts.needsGesture || gestures.consume() || credit
             }
             if !granted {
                 Self.logger.info("agent pane transport gesture refused method=\(facts.method ?? "-", privacy: .public) \(self.gestures.debugDescription, privacy: .public)")
