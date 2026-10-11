@@ -158,6 +158,7 @@ nonisolated enum RefusalStrings {
     static var tabArgumentRequired: String { text("handlers.refusal.tabArgumentRequired", "a tab argument is required") }
     static var tabAtEdge: String { text("handlers.refusal.tabAtEdge", "the tab is already at the edge") }
     static var screenHasNoOtherPane: String { text("handlers.refusal.screenHasNoOtherPane", "the screen has no other pane") }
+    static var noPaneWithNumber: String { text("handlers.refusal.noPaneWithNumber", "the screen has no pane with that number") }
     static func noPaneInDirectionOfTab(_ direction: String) -> String { format("handlers.refusal.noPaneInDirectionOfTab", "no pane %@ of the tab", direction) }
     static var sessionLocalCannotRename: String { text("handlers.refusal.sessionLocalCannotRename", "session-local tabs cannot be renamed") }
     static var sessionLocalHasNoName: String { text("handlers.refusal.sessionLocalHasNoName", "session-local tabs have no name") }
