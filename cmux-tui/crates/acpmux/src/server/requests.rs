@@ -129,7 +129,7 @@ async fn dispatch_request(
                     method::MUX_DRAFT_GET, method::MUX_DRAFT_SET,
                     method::MUX_SET_POLICY, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
                 ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge"], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "personHolds"], "trustGate": true}}
             }))
         }
         method::AUTHENTICATE => Ok(json!({})),
@@ -143,6 +143,35 @@ async fn dispatch_request(
                     "the person proof does not answer this connection's challenge (it must be the second request, after initialize)",
                 )
                 .with_data(json!({"reason": crate::hub::person::PROOF_REFUSED})))
+            }
+        }
+        method::MUX_PERSON_HOLDS => {
+            // The unix socket only: the app reaches a daemon it started over
+            // its own exec channel (`acp stdio`), never over a WebSocket.
+            if conn.origin != Origin::Local {
+                return Err(RpcError::invalid_params(
+                    "_acpmux/person_holds is accepted only over the local unix socket",
+                ));
+            }
+            // A few answers per connection: it is an HMAC oracle over
+            // caller-chosen nonces (in its own domain only).
+            let calls = conn.holds_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if calls >= crate::hub::person::HOLDS_PER_CONNECTION {
+                return Err(RpcError::new(
+                    -32000,
+                    "this connection asked _acpmux/person_holds too often: open a new connection",
+                )
+                .with_data(json!({"reason": crate::hub::person::HOLDS_LIMIT})));
+            }
+            let nonce = str_param(&params, "nonce")
+                .filter(|n| crate::hub::person::valid_key(n))
+                .ok_or_else(|| {
+                    RpcError::invalid_params("nonce must be 64 lowercase hex characters")
+                })?;
+            match hub.person.holds(nonce) {
+                Some(proof) => Ok(json!({"instance": hub.person.instance(), "proof": proof})),
+                None => Err(RpcError::new(-32000, "this daemon holds no person key")
+                    .with_data(json!({"reason": crate::hub::person::NO_KEY}))),
             }
         }
         method::MUX_PERSON_ENROLL => {

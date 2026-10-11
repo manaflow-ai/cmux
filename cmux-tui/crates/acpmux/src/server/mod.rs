@@ -53,6 +53,8 @@ pub struct Conn {
     pub(super) nonce: String,
     /// It proved the person key for its challenge.
     person: AtomicBool,
+    /// `_acpmux/person_holds` calls on this connection (`hub/person.rs`).
+    pub(super) holds_calls: std::sync::atomic::AtomicU32,
 }
 
 impl Conn {
@@ -680,6 +682,7 @@ async fn serve_connection_from(
         challenged: AtomicBool::new(false),
         nonce: crate::hub::person::new_nonce(),
         person: AtomicBool::new(false),
+        holds_calls: std::sync::atomic::AtomicU32::new(0),
     });
     tracing::debug!(conn = %conn.id, "client connected");
 

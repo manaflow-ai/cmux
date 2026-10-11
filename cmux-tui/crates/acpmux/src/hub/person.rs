@@ -63,6 +63,11 @@
 //!   connection that is not the person counts only together with a proof
 //!   that counts. `initialize` and `_acpmux/status` name the run
 //!   (`personInstance`); status says whether it holds a key (`personKey`).
+//!   `_acpmux/person_holds {nonce}` (slice 2c, unix socket only, 8 per
+//!   connection) answers HMAC(key, "acpmux-person-holds-v1" 0 instance 0
+//!   nonce), so the app can check that a daemon it started holds ITS key: a
+//!   `person_prove` reply alone proves nothing (whatever answers on the
+//!   socket path can say `person: true`).
 //!   The key reaches a daemon that `acpmux daemon start --person-key-fd 0`
 //!   launches over a socket pair, only after the daemon said it is not
 //!   dumpable (`daemon.rs`).
@@ -163,6 +168,13 @@ pub(crate) const ASKING_POLICIES: &[&str] = &["ask", "deny-all"];
 pub const DECISION_NONCE_FIELD: &str = "decisionNonce";
 /// `_meta.acpmux` field of a relayed allow: the person's decision proof.
 pub const DECISION_FIELD: &str = "personDecision";
+/// `error.data.reason` of `_acpmux/person_holds` on a daemon without a key.
+pub const NO_KEY: &str = "person.no_key";
+/// `error.data.reason` of `_acpmux/person_holds` past its per-connection limit.
+pub const HOLDS_LIMIT: &str = "person.holds_limit";
+/// `_acpmux/person_holds` answers per connection.
+pub const HOLDS_PER_CONNECTION: u32 = 8;
+
 /// At most this many spent decision nonces are kept.
 pub const SPENT_LIMIT: usize = 4096;
 /// A spent decision nonce is kept this long.
@@ -213,6 +225,25 @@ pub struct PersonGate {
 }
 
 impl PersonGate {
+    /// `_acpmux/person_holds`: proof that this run holds the key the app
+    /// gave it, over the app's fresh `nonce`: lowercase hex HMAC-SHA256(key,
+    /// "acpmux-person-holds-v1" 0 instance 0 nonce). None without a key. An
+    /// HMAC oracle over caller-chosen nonces in its own domain only: never
+    /// a decision proof or a connection proof (their messages start with
+    /// another prefix).
+    pub fn holds(&self, nonce: &str) -> Option<String> {
+        let key = self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()?;
+        let key = cmux_local_auth::frontend_proof::unhex::<32>(&key)?;
+        let mut message = b"acpmux-person-holds-v1".to_vec();
+        for part in [self.instance(), nonce] {
+            message.push(0);
+            message.extend_from_slice(part.as_bytes());
+        }
+        Some(cmux_local_auth::frontend_proof::hex(&cmux_local_auth::frontend_proof::hmac_sha256(
+            &key, &message,
+        )))
+    }
+
     /// Whether this daemon run holds a person key (never the key itself).
     pub fn has_key(&self) -> bool {
         self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_some()
