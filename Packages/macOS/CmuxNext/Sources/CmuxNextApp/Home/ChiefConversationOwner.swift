@@ -134,7 +134,7 @@ final class ChiefConversationOwner {
         case .disconnected(let reason):
             self.connection = nil
             lastError = reason
-        case .conversationChanged, .conversationTyping:
+        case .conversationChanged, .conversationTyping, .conversationDraft:
             onEvent?(event)
         default:
             break

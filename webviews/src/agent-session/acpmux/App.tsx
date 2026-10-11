@@ -152,6 +152,8 @@ import type { PermissionDecision } from "./permissions/protocol";
 import { checkpointStrings } from "./checkpoints/strings";
 import { QUICK_MESSAGES, readSurface, useEscapeToDismiss, type PaneSurface } from "./paneSurface";
 import { QuickSurface } from "./QuickSurface";
+import { floatingStatus, type QuickFloating } from "./FloatingChat";
+import { setFloatingState, useFloatingState } from "./floatingState";
 import { FailedPrompt } from "./FailedPrompt";
 import { ReplayScreen } from "./replay/ReplayScreen";
 import { sessionReplay } from "./replay/replay.experiment";
@@ -191,6 +193,8 @@ declare global {
       /// default): the session coverage label.
       applyPreview?(on: boolean): void;
       applyHeaderState?(state: unknown): void;
+      /// Start Agent's floating chat (floatingState.ts, cx-b9qi).
+      applyFloatingState?(state: unknown): void;
       /// The newest device chats for the New Tab cards (newtab/deviceChats.ts).
       applyDeviceChats?(chats: unknown): void;
       /// The newest recently closed items for the New Tab page (newtab/recentlyClosed.ts).
@@ -1893,6 +1897,8 @@ function AcpmuxPane() {
   /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
   const [surface, setSurface] = useState<PaneSurface>("pane");
   const quick = surface === "quick";
+  // Start Agent's floating chat (cx-b9qi): the App says when its panel holds this chat.
+  const floatingHold = useFloatingState();
   const surfaceRef = useRef(surface);
   surfaceRef.current = surface;
   // Escape that no menu, picker or palette took hides the Quick Composer, keeping its draft.
@@ -2142,6 +2148,9 @@ function AcpmuxPane() {
       },
       applyHeaderState(state) {
         setHeaderState(state);
+      },
+      applyFloatingState(state) {
+        setFloatingState(state);
       },
       applyDeviceChats(chats) {
         setDeviceChats(chats);
@@ -3348,6 +3357,39 @@ function AcpmuxPane() {
   const hostErrorCard = hostError && (
     <HostError message={hostError} retrying={retryQueued} onRetry={() => retryHost.current?.()} />
   );
+  // The floating chat's compact bar shows whether the chat is working or waiting on the user, and
+  // the reply's last line.
+  let lastReply: (typeof snapshot.rows)[number] | undefined;
+  for (let index = snapshot.rows.length - 1; index >= 0 && !lastReply; index--) {
+    if (snapshot.rows[index]!.kind === "assistant") lastReply = snapshot.rows[index];
+  }
+  const floatingSession = composerSnapshot.sessions.find((session) => session.sessionId === snapshot.sessionId);
+  const quickFloating: QuickFloating | undefined = quick
+    ? {
+        state: floatingHold,
+        status: floatingStatus(
+          Boolean(snapshot.permission?.pending) ||
+            Boolean(
+              snapshot.permissionGroups?.groups?.some(
+                (group) => group.state === "pending" || group.state === "collecting",
+              ),
+            ) ||
+            floatingSession?.status === "waiting",
+          lastReply?.streaming === true || floatingSession?.status === "running",
+        ),
+        title: composerSnapshot.summary?.title || t("header.agentChat"),
+        line: (lastReply?.text ?? "")
+          .split("\n")
+          .map((part) => part.trim())
+          .filter(Boolean)
+          .at(-1),
+        setOnTop: (onTop) => void callNative(QUICK_MESSAGES.setOnTop, { onTop }).catch(() => undefined),
+        setCollapsed: (collapsed) => void callNative(QUICK_MESSAGES.setCollapsed, { collapsed }).catch(() => undefined),
+        moveToTab: () => {
+          if (snapshot.sessionId) postOpenInWindow(snapshot.sessionId);
+        },
+      }
+    : undefined;
   if (quick)
     return (
       <ShortcutsContext.Provider value={shortcuts}>
@@ -3361,6 +3403,7 @@ function AcpmuxPane() {
               </>
             }
             composer={composer}
+            floating={quickFloating}
           />
           {imageView && (
             <ImageViewer
@@ -3419,6 +3462,7 @@ function AcpmuxPane() {
               // handshake would have no client to start its chat.
               inputToken={handshaken ? newTab.inputToken : undefined}
               {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
+              {...(startFolder ? { startCwd: startFolder } : {})}
               projects={newTabProjects}
               onBrowseProject={() =>
                 callNative<{ cwd?: string }>("project.browse").then(

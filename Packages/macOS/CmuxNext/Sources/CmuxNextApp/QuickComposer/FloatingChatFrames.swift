@@ -7,6 +7,8 @@ struct FloatingChatFrames {
     /// A first floating chat: a narrow column, tall enough to read a turn.
     static let defaultSize = CGSize(width: 440, height: 620)
     static let minimumSize = CGSize(width: 320, height: 200)
+    /// The compact bar: one row with the chat's state, title and last line.
+    static let barHeight: CGFloat = 44
 
     let defaults: UserDefaults
 

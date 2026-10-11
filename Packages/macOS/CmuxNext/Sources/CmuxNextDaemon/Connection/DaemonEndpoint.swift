@@ -155,6 +155,9 @@ public struct DaemonCapabilities: Sendable {
     /// column and leaves a fresh tab of the same kind (Dock Column on a
     /// screen with one tab).
     public let tabColumnRespawn = "tab-column-respawn-v1"
+    /// `restart-tab`: a terminal tab whose shell ended restarts under the
+    /// same terminal id (Unix daemons).
+    public let tabRestart = "tab-restart-v1"
     /// `create-terminal {detached: true}`: a kept terminal with no tab.
     public let detachedTerminals = "detached-terminals-v1"
     /// Personal state kept only on the home (local) session
@@ -168,6 +171,9 @@ public struct DaemonCapabilities: Sendable {
     /// Local conversations owned by the daemon (Home, plans/cmux-next/home.md):
     /// the `conversation-*` commands and `conversation-changed`/`conversation-typing` events.
     public let localConversations = "local-conversations-v1"
+    /// `conversation-draft` events on `subscribe`: the Chief's running reply,
+    /// which Home grows in the Chief's bubble until the reply is posted.
+    public let conversationDraftEvents = "conversation-draft-events-v1"
     /// `workspace.ensure_home` and the home workspace (`kind: home`; home.md 7).
     public let workspaceKind = "workspace-kind-v1"
     /// `workspace.agent_folder.set` and `extra.agent_folder` (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
@@ -273,12 +279,12 @@ public struct DaemonCapabilities: Sendable {
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
                                             terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, workspacePin, notificationMarkUnread,
                                             terminalCommandJournal, dockColumns, edgeDocks, dockColumnRole, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
-                                            sessionIdentity, localConversations, tabSplitRespawn, frontendBrowserHistory,
+                                            sessionIdentity, localConversations, conversationDraftEvents, tabSplitRespawn, frontendBrowserHistory,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
                                             workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, pageTabs, appScreens, conversationSearch, conversationThreads, cloudConversations, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
                                             terminalClipboardRead, personalMixedOrder, sidebarLayout, paletteUsage, projectList, splitClientKeys,
-                                            workspaceGroupIcon, workspaceGroupPin, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals] }
+                                            workspaceGroupIcon, workspaceGroupPin, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the
