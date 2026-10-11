@@ -5638,6 +5638,40 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "focusMove",
+      "cli_name" : "pane focus-1-9",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "family" : "digits",
+        "key" : "1",
+        "modifiers" : [
+          "ctrl",
+          "cmd"
+        ]
+      },
+      "id" : "focusPaneByNumber",
+      "mcp" : "focusMove",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.pane",
+        "order" : 102,
+        "title" : "Panes",
+        "title_key" : "category.pane",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Focus Pane 1…9",
+      "title_key" : "action.focusPaneByNumber",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "pane flash-focused",
       "context_menu" : "offered",
@@ -7298,6 +7332,46 @@
       "palette_suggested" : null,
       "title" : "Previous Tab or Workspace",
       "title_key" : "action.navigate.previous",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action hints-show",
+      "context_menu" : "liveInput",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : [
+        {
+          "key" : "j",
+          "modifiers" : [
+            "cmd"
+          ]
+        },
+        {
+          "key" : "f",
+          "modifiers" : [
+
+          ]
+        }
+      ],
+      "default_shortcut" : null,
+      "id" : "hints.show",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Click by Hint",
+      "title_key" : "action.hints.show",
       "title_table" : "ActionCatalog"
     },
     {
@@ -15746,6 +15820,39 @@
       "palette_suggested" : null,
       "title" : "Toggle Right Sidebar",
       "title_key" : "action.toggleRightSidebar",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "focusMove",
+      "cli_name" : "sidebar focus",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "e",
+        "modifiers" : [
+          "ctrl",
+          "cmd"
+        ]
+      },
+      "id" : "focusSidebar",
+      "mcp" : "focusMove",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Focus Sidebar",
+      "title_key" : "action.focusSidebar",
       "title_table" : "ActionCatalog"
     },
     {
