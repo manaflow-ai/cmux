@@ -7,8 +7,9 @@ import WebKit
 /// reached through subviews and accessibility children alike. In process a
 /// SwiftUI host shows its controls only as AXUnknown elements, so SwiftUI
 /// controls name themselves with a ``WindowHintRegion`` marker view.
-/// Web views and terminals are skipped: their contents are not controls of
-/// the window.
+/// Terminals are skipped: their contents are not controls of the window.
+/// Web views are asked for their page's elements instead
+/// (``WindowHintPages``).
 @MainActor
 enum WindowHintTargets {
     struct Target: Equatable {
@@ -16,6 +17,8 @@ enum WindowHintTargets {
         var rect: CGRect
         var role: String
         var title: String
+        /// A web page element: clicked inside its page, not with a window mouse event.
+        var page: WindowHintPageElement? = nil
 
         var center: NSPoint { NSPoint(x: rect.midX, y: rect.midY) }
     }

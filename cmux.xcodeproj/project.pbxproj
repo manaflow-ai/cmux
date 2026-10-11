@@ -4277,6 +4277,7 @@
 		B9000018A1B2C3D4E5F60719 /* WindowDragHandleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000017A1B2C3D4E5F60719 /* WindowDragHandleView.swift */; };
 		AF370492BBFF7918B738E9E1 /* WindowHintController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEB222987FA07F7ED0BE8433 /* WindowHintController.swift */; };
 		B88277A91D09787DA45E8846 /* WindowHintKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18C089E5A67BF748266767AE /* WindowHintKeys.swift */; };
+		97576509DCEBA5D66B3285FF /* WindowHintPages.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EC85F920AF6955D4B6E9FAB /* WindowHintPages.swift */; };
 		12F40B5A1553067C00C32CA2 /* WindowHintRegion.swift in Sources */ = {isa = PBXBuildFile; fileRef = F161E76F05A8BF5727D1CE9F /* WindowHintRegion.swift */; };
 		D03040B1DC5FDDA2068354D8 /* WindowHintTargets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7054279ABC4C344AC587B89D /* WindowHintTargets.swift */; };
 		D0B10024A1B2C3D4E5F60001 /* WindowInputRoutingContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10025A1B2C3D4E5F60001 /* WindowInputRoutingContext.swift */; };
@@ -8767,6 +8768,7 @@
 		B9000017A1B2C3D4E5F60719 /* WindowDragHandleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowDragHandleView.swift; sourceTree = "<group>"; };
 		AEB222987FA07F7ED0BE8433 /* WindowHintController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowHints/WindowHintController.swift; sourceTree = "<group>"; };
 		18C089E5A67BF748266767AE /* WindowHintKeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowHints/WindowHintKeys.swift; sourceTree = "<group>"; };
+		7EC85F920AF6955D4B6E9FAB /* WindowHintPages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowHints/WindowHintPages.swift; sourceTree = "<group>"; };
 		F161E76F05A8BF5727D1CE9F /* WindowHintRegion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowHints/WindowHintRegion.swift; sourceTree = "<group>"; };
 		7054279ABC4C344AC587B89D /* WindowHintTargets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowHints/WindowHintTargets.swift; sourceTree = "<group>"; };
 		D0B10025A1B2C3D4E5F60001 /* WindowInputRoutingContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowInputRoutingContext.swift; sourceTree = "<group>"; };
@@ -12194,6 +12196,7 @@
 				8B0234EEA8094B05787B6141 /* TerminalFolderOpener.swift */,
 				A9BA974EDF5E16A75B25C387 /* TerminalLinkHoverFilter.swift */,
 				F161E76F05A8BF5727D1CE9F /* WindowHintRegion.swift */,
+				7EC85F920AF6955D4B6E9FAB /* WindowHintPages.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -17037,6 +17040,7 @@
 				B9000018A1B2C3D4E5F60719 /* WindowDragHandleView.swift in Sources */,
 				AF370492BBFF7918B738E9E1 /* WindowHintController.swift in Sources */,
 				B88277A91D09787DA45E8846 /* WindowHintKeys.swift in Sources */,
+				97576509DCEBA5D66B3285FF /* WindowHintPages.swift in Sources */,
 				12F40B5A1553067C00C32CA2 /* WindowHintRegion.swift in Sources */,
 				D03040B1DC5FDDA2068354D8 /* WindowHintTargets.swift in Sources */,
 				D0B10024A1B2C3D4E5F60001 /* WindowInputRoutingContext.swift in Sources */,
@@ -19035,6 +19039,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -19070,6 +19075,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;

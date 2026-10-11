@@ -6,7 +6,9 @@ import AppKit
 /// Typing a label's last letter with Shift right-clicks the control instead,
 /// so context menus open from the keyboard. The shortcut router hands this
 /// controller every key while labels show; Escape, a chord, any other key, a
-/// click or a second Cmd-J ends it. Behind `window-hints-release` until styled.
+/// click or a second Cmd-J ends it. Shown web pages are asked for their
+/// elements first (``WindowHintPages``); keys typed meanwhile wait for the
+/// labels. Behind `window-hints-release` until styled.
 @MainActor
 final class WindowHintController {
     static let shared = WindowHintController()
@@ -24,9 +26,17 @@ final class WindowHintController {
         let mouseMonitor: Any?
     }
 
-    private var session: Session?
+    /// Asking the pages for their targets; the keys typed meanwhile.
+    private struct Pending {
+        let task: Task<Void, Never>
+        weak var window: NSWindow?
+        var keys: [NSEvent] = []
+    }
 
-    var isActive: Bool { session != nil }
+    private var session: Session?
+    private var pending: Pending?
+
+    var isActive: Bool { session != nil || pending != nil }
 
     /// Labels `window`'s controls, or ends a session that shows (the action
     /// toggles). Returns false when nothing is clickable.
@@ -38,6 +48,22 @@ final class WindowHintController {
         }
         guard let content = window.contentView else { return false }
         let targets = WindowHintTargets.collect(in: content)
+        let root = content.superview ?? content
+        let pages = WindowHintPages.webViews(in: root)
+        guard !pages.isEmpty else { return show(targets, in: window) }
+        let clip = root.convert(root.bounds, to: nil)
+        let task = Task { [weak self, weak window] in
+            let found = await WindowHintPages.targets(of: pages, clip: clip)
+            guard !Task.isCancelled, let self, let window, let waiting = self.pending else { return }
+            self.pending = nil
+            guard self.show(Array((targets + found).prefix(WindowHintTargets.limit)), in: window) else { return }
+            for event in waiting.keys where self.session != nil { _ = self.interceptKeyDown(event, in: waiting.window) }
+        }
+        pending = Pending(task: task, window: window)
+        return true
+    }
+
+    private func show(_ targets: [WindowHintTargets.Target], in window: NSWindow) -> Bool {
         let keys = WindowHintKeys(count: targets.count)
         guard !keys.labels.isEmpty else { return false }
         let hints = zip(keys.labels, targets).map { Hint(label: $0.0, target: $0.1) }
@@ -57,6 +83,15 @@ final class WindowHintController {
     /// Returns whether the key was consumed; a key that ends the session
     /// without being a hint key goes on to the focused view.
     func interceptKeyDown(_ event: NSEvent, in window: NSWindow?) -> Bool {
+        if pending != nil, session == nil {
+            // Escape or another window ends the wait; anything else waits for the labels.
+            guard event.keyCode != 53, window === pending?.window else {
+                cancel()
+                return event.keyCode == 53
+            }
+            pending?.keys.append(event)
+            return true
+        }
         guard var current = session, let home = current.window, window === home else {
             cancel()
             return false
@@ -83,12 +118,19 @@ final class WindowHintController {
         case .pick(let index):
             let hint = current.hints[index]
             cancel()
-            Self.click(at: hint.target.center, in: home, menu: event.modifierFlags.contains(.shift))
+            let menu = event.modifierFlags.contains(.shift)
+            if let page = hint.target.page {
+                page.click(menu: menu)
+            } else {
+                Self.click(at: hint.target.center, in: home, menu: menu)
+            }
         }
         return true
     }
 
     func cancel() {
+        pending?.task.cancel()
+        pending = nil
         guard let current = session else { return }
         session = nil
         if let monitor = current.mouseMonitor { NSEvent.removeMonitor(monitor) }
