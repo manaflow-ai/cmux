@@ -19,6 +19,7 @@ nonisolated enum UpdaterStrings {
     static func needsNewerMacOS(_ version: String) -> String { format("updater.title.needsNewerMacOS", "Update Needs macOS %@", version) }
     static var checkFailed: String { text("updater.title.checkFailed", "Couldn't Check for Updates") }
     static var updateFailed: String { text("updater.title.updateFailed", "Update Failed") }
+    static var downloadManually: String { text("updater.button.downloadManually", "Download Manually") }
     static var managed: String { text("updater.title.managed", "Updates Are Managed") }
     static func managedChannel(_ channel: String) -> String {
         format("updater.managed.channel", "Your organization keeps this Mac on the %@ channel.", channel)

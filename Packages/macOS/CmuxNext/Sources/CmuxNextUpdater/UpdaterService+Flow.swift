@@ -90,16 +90,22 @@ extension UpdaterService {
         }
         #endif
         let wasInstalling = flow.phase == .installing
+        let wasReady = if case .ready = flow.phase { true } else { false }
         send(.sparkle(phase))
         followStagedUpdate(phase)
         switch phase {
         case .ready:
             recordStagedUpdate()
             keepRunningBuildForRollback()
-        case .note where wasInstalling:
-            // The install failed: no relaunch comes.
+        case .note where wasInstalling || wasReady:
+            // The install failed: no relaunch comes. The windows come back and the failure's
+            // sheet opens with Retry and Download Manually, so the click never ends in silence.
             log.append("install ended without a relaunch")
             installAbandoned?()
+            presentUpdateUI?()
+            #if DEBUG
+            UpdateHarness.mark("failure_sheet_presented")
+            #endif
         default:
             break
         }
