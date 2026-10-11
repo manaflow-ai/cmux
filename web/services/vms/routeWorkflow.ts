@@ -42,6 +42,7 @@ export async function runVmRoute<A>(
 ): Promise<VmRouteResult<A>> {
   const statedClientTimeoutMs = vmClientTimeoutMsFromRequest(options.request);
   const deadline = options.deadline && statedClientTimeoutMs !== undefined && options.deadline.clientTimeoutMs === undefined
+    && !options.deadline.ignoreClientBudget
     ? { ...options.deadline, clientTimeoutMs: statedClientTimeoutMs }
     : options.deadline;
   const exit = await runVmWorkflowExit(program, { deadline });

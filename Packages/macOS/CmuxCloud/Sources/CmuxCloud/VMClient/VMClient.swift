@@ -2484,9 +2484,12 @@ public actor VMClient {
             let teamID = explicitTeamID ?? selectedTeamID
             let key = CloudReadRequestCoordinator.Key(path: path, accountID: identity.accountID,
                 generation: identity.generation, teamID: teamID)
-            let readBudgetSeconds = self.readRequests.secondsUntil(deadline)
+            let transportBudgetSeconds = self.readRequests.transportBudgetSeconds
             let value = try await self.readRequests.read(key, deadline: deadline) {
-                try await CloudRequestBudget.withBudget(seconds: readBudgetSeconds) {
+                // The shared transport answers every waiter, so it states the
+                // coordinator's own lifetime cap, never the first caller's
+                // shorter deadline; each waiter's deadline still applies to it.
+                try await CloudRequestBudget.withReplacedBudget(seconds: transportBudgetSeconds) {
                 try await CloudOperationContext.withCurrent(context) {
                     let (data, http) = try await self.requestMeasured(
                         method,

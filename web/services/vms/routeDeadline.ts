@@ -4,6 +4,7 @@ import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
 import { hasProviderGuestUnresponsiveCause, isProviderHangCause } from "./drivers/types";
 import { VmOperationDeadlineError, type VmWorkflowError } from "./errors";
+import { VM_PROVIDER_CREATE_TIMEOUT_MS } from "./operationTimeouts";
 import { currentVmRequestContext } from "./requestContext";
 
 /**
@@ -43,7 +44,21 @@ type VmRouteDeadlineEntry = {
   readonly maxDurationMs: number;
   /** Whether the operation changes provider state and may finish after the route answered. */
   readonly mutating: boolean;
+  /**
+   * Time the work is guaranteed after the answer, before maxDuration. A
+   * create answered "in progress" must reach its own outcome (running, or
+   * failed with its credit refunded) in the background, so its answer comes
+   * early enough to leave the create its whole provider deadline.
+   */
+  readonly reserveAfterAnswerMs?: number;
 };
+
+/**
+ * What a create needs after its answer: the provider create's own deadline
+ * (createVm bounds the call by it) plus the failure bookkeeping (credit
+ * refund, row marked failed, model-plane revoke).
+ */
+export const VM_CREATE_RESERVE_AFTER_ANSWER_MS = VM_PROVIDER_CREATE_TIMEOUT_MS + 30_000;
 
 /**
  * Per-route budgets. `clientTimeoutMs` is the smallest timeout among the
@@ -112,8 +127,14 @@ export const VM_ROUTE_DEADLINES = {
   sessionList: { clientTimeoutMs: 60_000, maxDurationMs: 960_000, mutating: false },
   /** Session attach 16 min, like attach. */
   sessionOpen: { clientTimeoutMs: 960_000, maxDurationMs: 960_000, mutating: true },
-  /** Mac/CLI/iOS 16 min, capped by maxDuration; retries reuse the Idempotency-Key. */
-  create: { clientTimeoutMs: 960_000, maxDurationMs: 600_000, mutating: true },
+  /**
+   * Mac/CLI/iOS 16 min. A create answers by maxDuration - margin - reserve
+   * (25 s) and keeps running in the background for the reserve, so "in
+   * progress" is true: it ends running or failed with its credit refunded
+   * before the function stops. Creates finish in ~8 s at p99 (18 s max seen).
+   * Retries reuse the Idempotency-Key.
+   */
+  create: { clientTimeoutMs: 960_000, maxDurationMs: 960_000, mutating: true, reserveAfterAnswerMs: VM_CREATE_RESERVE_AFTER_ANSWER_MS },
 } as const satisfies Record<string, VmRouteDeadlineEntry>;
 
 export type VmRouteDeadlineOperation = keyof typeof VM_ROUTE_DEADLINES;
@@ -132,11 +153,32 @@ export function vmClientTimeoutMsFromRequest(request: Request | undefined): numb
  * smallest legacy caller's timeout less the margin, capped by maxDuration.
  */
 export function vmRouteTotalBudgetMs(entry: VmRouteDeadlineEntry, statedClientTimeoutMs?: number): number {
-  const ceiling = entry.maxDurationMs - VM_ROUTE_ANSWER_MARGIN_MS;
+  const ceiling = entry.maxDurationMs - VM_ROUTE_ANSWER_MARGIN_MS - (entry.reserveAfterAnswerMs ?? 0);
   if (statedClientTimeoutMs !== undefined) {
     return Math.min(ceiling, Math.max(VM_ROUTE_MIN_WINDOW_MS, statedClientTimeoutMs - VM_ROUTE_ANSWER_MARGIN_MS));
   }
   return Math.min(ceiling, entry.clientTimeoutMs - VM_ROUTE_ANSWER_MARGIN_MS);
+}
+
+/**
+ * When a route answers and how long its work may continue afterwards. A route
+ * with a reserve never takes the floor: its answer may come at once so the
+ * reserve stays whole.
+ */
+export function vmRouteDeadlinePlan(
+  operation: VmRouteDeadlineOperation,
+  input: { readonly elapsedMs: number; readonly clientTimeoutMs?: number },
+): { readonly answerWithinMs: number; readonly continueForMs: number } {
+  const entry: VmRouteDeadlineEntry = VM_ROUTE_DEADLINES[operation];
+  const elapsedMs = Math.max(0, input.elapsedMs);
+  const totalBudgetMs = vmRouteTotalBudgetMs(entry, input.clientTimeoutMs);
+  const answerWithinMs = entry.reserveAfterAnswerMs === undefined
+    ? vmRouteAnswerBudgetMs(totalBudgetMs, elapsedMs)
+    : Math.max(0, totalBudgetMs - elapsedMs);
+  return {
+    answerWithinMs,
+    continueForMs: Math.max(0, entry.maxDurationMs - VM_ROUTE_ANSWER_MARGIN_MS - elapsedMs - answerWithinMs),
+  };
 }
 
 /** What remains of a total budget after `elapsedMs` went to auth and lookup; never below the floor. */
@@ -230,6 +272,12 @@ export type VmRouteDeadline = {
   readonly operation: VmRouteDeadlineOperation;
   /** The client's stated budget ({@link vmClientTimeoutMsFromRequest}). */
   readonly clientTimeoutMs?: number;
+  /**
+   * Answer by the legacy budget even when the client states one. A create
+   * without an Idempotency-Key sets this: its retry cannot reach the same
+   * create, so a short stated budget must not make it answer early.
+   */
+  readonly ignoreClientBudget?: boolean;
   /** Overrides the request-context elapsed time (tests, non-route callers). */
   readonly elapsedMs?: number;
   readonly continueInBackground?: (work: Promise<unknown>, label: string) => void;
@@ -246,10 +294,13 @@ export function withVmRouteDeadline<A, R>(
   program: Effect.Effect<A, VmWorkflowError, R>,
   deadline: VmRouteDeadline,
 ): Effect.Effect<A, VmWorkflowError, R> {
-  const entry = VM_ROUTE_DEADLINES[deadline.operation];
+  const entry: VmRouteDeadlineEntry = VM_ROUTE_DEADLINES[deadline.operation];
   const context = currentVmRequestContext();
   const elapsedMs = deadline.elapsedMs ?? (context === undefined ? 0 : performance.now() - context.startedAtMs);
-  const answerWithinMs = vmRouteAnswerBudgetMs(vmRouteTotalBudgetMs(entry, deadline.clientTimeoutMs), elapsedMs);
+  const { answerWithinMs, continueForMs } = vmRouteDeadlinePlan(deadline.operation, {
+    elapsedMs,
+    clientTimeoutMs: deadline.ignoreClientBudget ? undefined : deadline.clientTimeoutMs,
+  });
   const deadlineError = (cause?: unknown) => new VmOperationDeadlineError({
     operation: deadline.operation, mutating: entry.mutating, waitedMs: answerWithinMs, ...(cause === undefined ? {} : { cause }),
   });
@@ -261,7 +312,7 @@ export function withVmRouteDeadline<A, R>(
   return withVmAnswerDeadline(bounded, {
     answerWithinMs,
     onDeadline: () => Effect.fail(deadlineError()),
-    continueForMs: Math.max(0, entry.maxDurationMs - VM_ROUTE_ANSWER_MARGIN_MS - elapsedMs - answerWithinMs),
+    continueForMs,
     label: context?.route ?? deadline.operation,
     ...(deadline.continueInBackground ? { continueInBackground: deadline.continueInBackground } : {}),
   });

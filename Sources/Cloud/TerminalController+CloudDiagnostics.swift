@@ -2,6 +2,19 @@ import CmuxCloud
 import Foundation
 
 extension TerminalController {
+    /// `vm.file_transfer_failure` accepts only its own keys and the trace
+    /// metadata. The client budget param never reaches it: the `vm.*`
+    /// dispatcher strips it first (CloudRequestBudget.socketClientBudget).
+    nonisolated static func socketWorkerFileTransferFailureKeysAllowed(_ params: [String: Any]) -> Bool {
+        Set(params.keys).isSubset(of: ["phase", "failure", "error_number", "cloud_operation_id", "cloud_trace_id", "cloud_parent_span_id"])
+    }
+
+    /// The params a `vm.*` handler sees and the socket client's budget the
+    /// dispatcher binds; see the `vm.` case of the socket worker dispatch.
+    nonisolated static func socketWorkerVMDispatch(_ params: [String: Any]) -> (params: [String: Any], seconds: TimeInterval?) {
+        CloudRequestBudget.socketClientBudget(from: params)
+    }
+
     nonisolated func socketWorkerFileTransferFailureResponse(id: Any?, params: [String: Any]) -> String {
         guard let phaseValue = params["phase"] as? String,
               let phase = CloudOperationPhase(rawValue: phaseValue),
@@ -9,7 +22,7 @@ extension TerminalController {
               let failureValue = params["failure"] as? String,
               let failure = CloudDiagnosticFailure(rawValue: failureValue),
               [.network, .process, .timeout, .storage, .response, .unknown].contains(failure),
-              Set(params.keys).isSubset(of: ["phase", "failure", "error_number", "cloud_operation_id", "cloud_trace_id", "cloud_parent_span_id"]) else {
+              Self.socketWorkerFileTransferFailureKeysAllowed(params) else {
             return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.cloudDiagnostics.invalidFailure", defaultValue: "Expected a structured file transfer failure."))
         }
         let errorNumber = Self.socketWorkerInt(params["error_number"])
@@ -25,15 +38,6 @@ extension TerminalController {
         }
     }
 
-    /// The socket client's own budget for a `vm.*` call, from the
-    /// `cloud_client_timeout_ms` param the CLI adds (SocketClient+V2.swift).
-    nonisolated static func cloudClientBudgetSeconds(_ params: [String: Any]) -> TimeInterval? {
-        let raw = params["cloud_client_timeout_ms"]
-        let milliseconds = (raw as? Int).map(Double.init) ?? (raw as? Double) ?? (raw as? NSNumber)?.doubleValue
-        guard let milliseconds, milliseconds.isFinite, milliseconds > 0 else { return nil }
-        return milliseconds / 1000
-    }
-
     nonisolated func v2CloudCall(
         id: Any?, method: String, params: [String: Any],
         timeoutSeconds: TimeInterval = 17 * 60,
@@ -43,12 +47,7 @@ extension TerminalController {
         let operationID = params["cloud_operation_id"] as? String
         let traceID = params["cloud_trace_id"] as? String
         let parentSpanID = params["cloud_parent_span_id"] as? String
-        return v2VmCall(
-            id: id,
-            timeoutSeconds: timeoutSeconds,
-            clientBudgetSeconds: Self.cloudClientBudgetSeconds(params),
-            transportUnsupportedMachineID: transportUnsupportedMachineID
-        ) {
+        return v2VmCall(id: id, timeoutSeconds: timeoutSeconds, transportUnsupportedMachineID: transportUnsupportedMachineID) {
             let recorder = await MainActor.run { AppDelegate.shared?.cloudOperations }
             guard let recorder else { return try await work() }
             if let context = await recorder.reference(operationID: operationID, traceID: traceID, spanID: parentSpanID) {

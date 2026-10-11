@@ -128,6 +128,7 @@ import { isProviderCreateCleanupError } from "./drivers/providerCreateCleanup";
 import {
   VM_CREATE_ABANDONED_AFTER_MS,
   VM_PREVIEW_LEASE_RETENTION_MS,
+  VM_PROVIDER_CREATE_TIMEOUT_MS,
 } from "./operationTimeouts";
 import { withVmProductAnalytics, type VmDestroySource } from "./productAnalytics";
 import {
@@ -1325,7 +1326,19 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
         edgeRules: materials?.edgeRules,
         networkRules,
         network: { id: network.providerNetworkId, memberIngress: network.memberIngress },
-      }),
+      }).pipe(
+        // The provider call is bounded by its own deadline even when the
+        // SDK polls past it, so a create answered "in progress" reaches its
+        // failure path (credit refund, row failed) inside the route's reserve.
+        Effect.timeoutFail({
+          duration: VM_PROVIDER_CREATE_TIMEOUT_MS,
+          onTimeout: () => new VmProviderOperationError({
+            provider: input.provider,
+            operation: "create",
+            cause: new Error(`provider create did not answer within ${VM_PROVIDER_CREATE_TIMEOUT_MS / 60_000} minutes`),
+          }),
+        }),
+      ),
     ).pipe(
       Effect.tapError((err) =>
         awaitRequestedEvents.pipe(Effect.andThen(Effect.all([

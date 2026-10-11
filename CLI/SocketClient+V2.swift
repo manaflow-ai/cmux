@@ -23,36 +23,41 @@ extension SocketClient {
                                ("cloud_parent_span_id", "CMUX_CLOUD_PARENT_SPAN_ID")] {
                 if let value = ProcessInfo.processInfo.environment[env] { tracedParams[key] = value }
             }
-            // How long this CLI waits, so the app's control-plane request and
-            // the server answer inside it (CloudRequestBudget).
-            let remaining = operationDeadline.timeIntervalSinceNow
-            if remaining.isFinite, remaining > 0, remaining < 86_400 {
-                tracedParams["cloud_client_timeout_ms"] = Int(remaining * 1000)
-            }
         }
         let requestID = UUID().uuidString
-        var request: [String: Any] = [
-            "id": requestID,
-            "method": method,
-            "params": tracedParams
-        ]
-        if let ruleID = ProcessInfo.processInfo.environment["CMUX_AUTOMATION_RULE_ID"],
-           !ruleID.isEmpty {
-            request["automation_origin"] = Self.automationOriginPayload(ruleID: ruleID)
-        }
-        guard JSONSerialization.isValidJSONObject(request) else {
-            throw CLIError(message: "Failed to encode v2 request")
-        }
-
-        let requestData = try JSONSerialization.data(withJSONObject: request, options: [])
-        guard let requestLine = String(data: requestData, encoding: .utf8) else {
-            throw CLIError(message: "Failed to encode v2 request")
+        let automationOrigin = ProcessInfo.processInfo.environment["CMUX_AUTOMATION_RULE_ID"]
+            .flatMap { $0.isEmpty ? nil : Self.automationOriginPayload(ruleID: $0) }
+        // Encoded per attempt: a vm.* call states the time this CLI still
+        // waits (cloud_client_timeout_ms), and a retry has less of it left,
+        // so the app's control-plane request and the server answer inside it.
+        func encodedRequestLine() throws -> String {
+            var attemptParams = tracedParams
+            if method.hasPrefix("vm.") {
+                let remaining = operationDeadline.timeIntervalSinceNow
+                if remaining.isFinite, remaining > 0, remaining < 86_400 {
+                    attemptParams["cloud_client_timeout_ms"] = Int(remaining * 1000)
+                }
+            }
+            var request: [String: Any] = [
+                "id": requestID,
+                "method": method,
+                "params": attemptParams
+            ]
+            if let automationOrigin { request["automation_origin"] = automationOrigin }
+            guard JSONSerialization.isValidJSONObject(request) else {
+                throw CLIError(message: "Failed to encode v2 request")
+            }
+            let requestData = try JSONSerialization.data(withJSONObject: request, options: [])
+            guard let requestLine = String(data: requestData, encoding: .utf8) else {
+                throw CLIError(message: "Failed to encode v2 request")
+            }
+            return requestLine
         }
 
         let uptimeDeadline = ProcessInfo.processInfo.systemUptime + max(0, operationDeadline.timeIntervalSinceNow)
         while true {
             let raw = try send(
-                command: requestLine,
+                command: try encodedRequestLine(),
                 responseTimeout: responseTimeout,
                 deadline: waitUntilCompletion ? deadline : operationDeadline,
                 waitUntilCompletion: waitUntilCompletion
