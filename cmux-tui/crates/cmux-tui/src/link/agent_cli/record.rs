@@ -15,9 +15,11 @@ use sha2::{Digest as _, Sha256};
 /// One unended move.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(super) struct Record {
-    /// Empty while the begin is unanswered: the chat may be frozen in a
-    /// move whose id and manifest nobody has seen.
     pub transfer_id: String,
+    /// The chat the move took (begin's manifest): nothing is ended for a tab
+    /// that now shows another.
+    #[serde(default)]
+    pub source_session_id: Option<String>,
     /// The target daemon's socket, as this Mac reaches it.
     pub to_socket: PathBuf,
     pub cwd: String,
@@ -107,7 +109,12 @@ impl Records {
             .context("cannot write the move record")?;
         file.write_all(&serde_json::to_vec(record)?)?;
         file.sync_all()?;
-        std::fs::rename(&temporary, &self.path).context("cannot save the move record")
+        std::fs::rename(&temporary, &self.path).context("cannot save the move record")?;
+        // The rename itself survives a crash once its folder is synced.
+        if let Some(dir) = self.path.parent() {
+            std::fs::File::open(dir)?.sync_all()?;
+        }
+        Ok(())
     }
 
     pub(super) fn clear(&self) {

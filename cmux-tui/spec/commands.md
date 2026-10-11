@@ -8113,8 +8113,11 @@ this daemon guarded; later writes and finishes of it are
 receive's own manifest (never from the frame), so acpmux drops the
 receive's files and refuses that move from then on, and answers
 `{dropped:true, forgotten, landed}` (`landed`: the chat had already arrived
-here). An acpmux that cannot forget leaves `forgotten:false`; its files are
-swept after 24 h. acpmux's forget is not a daemon command. A receive whose
+here). An acpmux that cannot forget (an error or no answer) leaves the
+receive as it was, live or settled, and answers `{dropped:false,
+forgotten:false, landed:null}`: whether the chat landed is unknown, and the
+question can be asked again. While a finish of the receive is running, a
+receive-abort sends no forget and answers the same "cannot say yet". acpmux's forget is not a daemon command. A receive whose
 manifest lacks a plain `transferId` and `sessionId` is
 `agent_transfer.bad_request`.
 

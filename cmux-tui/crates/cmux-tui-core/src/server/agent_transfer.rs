@@ -80,6 +80,11 @@ const DEFAULT_READ: u64 = 1 << 20;
 const MAX_RECEIVES: usize = 16;
 /// Settled receives kept for a pump's question (the oldest goes first).
 const MAX_SETTLED: usize = 16;
+/// A receive-abort's answer when nothing was forgotten: the receive stays
+/// and whether the chat landed is unknown.
+static UNKNOWN_LANDING: std::sync::LazyLock<Value> = std::sync::LazyLock::new(|| {
+    json!({"dropped": false, "forgotten": false, "landed": null})
+});
 const MAX_MOVES: usize = 16;
 const MAX_CALLS: usize = 8;
 /// A receive or move not touched that long is forgotten (acpmux sweeps its
@@ -141,6 +146,8 @@ struct Receive {
     /// The move and chat its manifest names (what a forget drops).
     moved: Moved,
     touched: Instant,
+    /// A finish of it is running: whether the chat lands is not known yet.
+    finishing: bool,
 }
 
 /// A receive its finish ended (it landed, or it never can).
@@ -184,6 +191,13 @@ impl AgentTransfers {
         Some(receive.cwd.clone())
     }
 
+    /// Marks the receive's finish as running (or done, `false`).
+    fn set_finishing(&self, receive_id: &str, finishing: bool) {
+        if let Some(receive) = lock(&self.receives).get_mut(receive_id) {
+            receive.finishing = finishing;
+        }
+    }
+
     /// The scrubbed bytes of `path` (or none: read it from acpmux) when
     /// this daemon began the move and its manifest lists `path`.
     fn listed(&self, transfer_id: &str, path: &str) -> Result<Option<Arc<Vec<u8>>>, Refusal> {
@@ -209,16 +223,35 @@ impl AgentTransfers {
         );
     }
 
-    /// The move a receive-abort forgets: a live receive's (dropped here) or
-    /// a settled one's (kept, so the question can be asked again).
-    fn take_for_abort(&self, receive_id: &str) -> Option<Moved> {
-        if let Some(receive) = lock(&self.receives).remove(receive_id) {
-            return Some(receive.moved);
+    /// What a receive-abort does: forget a live receive's move (the receive
+    /// taken out, so no write or finish reaches it) or a settled one's (kept,
+    /// so the question can be asked again), or answer "cannot say yet" while
+    /// the receive's finish runs.
+    fn take_for_abort(&self, receive_id: &str) -> Option<Prepared> {
+        {
+            let mut receives = lock(&self.receives);
+            if receives.get(receive_id).is_some_and(|r| r.finishing) {
+                return Some(Prepared::Answer(UNKNOWN_LANDING.clone()));
+            }
+            if let Some(receive) = receives.remove(receive_id) {
+                let moved = receive.moved.clone();
+                let receive_id = receive_id.to_owned();
+                return Some(Prepared::Forget { receive_id, moved, live: Some(receive) });
+            }
         }
         let mut settled = lock(&self.settled);
         let entry = settled.get_mut(receive_id).filter(|e| e.touched.elapsed() < STALE)?;
         entry.touched = Instant::now();
-        Some(entry.moved.clone())
+        let moved = entry.moved.clone();
+        Some(Prepared::Forget { receive_id: receive_id.to_owned(), moved, live: None })
+    }
+
+    /// Puts back a live receive whose forget did not happen, so it can be
+    /// asked again (a settled one was never taken out).
+    fn restore(&self, receive_id: String, live: Option<Receive>) {
+        if let Some(receive) = live {
+            lock(&self.receives).insert(receive_id, receive);
+        }
     }
 
     fn full<T>(map: &mut HashMap<String, T>, cap: usize, touched: impl Fn(&T) -> Instant) -> bool {
@@ -525,8 +558,13 @@ enum Prepared {
         cwd: String,
         moved: Moved,
     },
-    /// `_acpmux/transfer_forget` of a dropped receive's move.
-    Forget(Moved),
+    /// `_acpmux/transfer_forget` of a receive's move; `live` is the receive
+    /// taken out for it (put back if the forget does not happen).
+    Forget {
+        receive_id: String,
+        moved: Moved,
+        live: Option<Receive>,
+    },
     Write {
         receive_id: String,
         path: String,
@@ -605,12 +643,13 @@ fn prepare(mux: &Mux, verb: Verb) -> Result<Prepared, Failure> {
                 }
                 return Err(refusal.into());
             }
+            transfers.set_finishing(&receive_id, true);
             Prepared::Finish { receive_id, cwd, name }
         }
         Verb::ReceiveAbort(ReceiveAbortParams { receive_id }) => {
             // Without this entry no write or finish reaches the receive; acpmux
             // drops its files and refuses the move from now on (its forget).
-            Prepared::Forget(transfers.take_for_abort(&receive_id).ok_or(Refusal::UnknownReceive)?)
+            transfers.take_for_abort(&receive_id).ok_or(Refusal::UnknownReceive)?
         }
         Verb::Begin(BeginParams { surface, interrupt }) => {
             let session = tab_session(mux, surface).ok_or(Refusal::UnknownTab)?;
@@ -728,7 +767,15 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
     if let Prepared::Answer(answer) = prepared {
         return Ok(answer);
     }
-    let link = AcpmuxLink::connect(socket, |_| {}).map_err(|_| Refusal::Unavailable)?;
+    let link = match AcpmuxLink::connect(socket, |_| {}) {
+        Ok(link) => link,
+        Err(_) => {
+            if let Prepared::Forget { receive_id, live, .. } = prepared {
+                mux.agent_transfers.restore(receive_id, live);
+            }
+            return Err(Refusal::Unavailable.into());
+        }
+    };
     let call = |method: &str, params: Value, timeout: Duration| -> Result<Value, Failure> {
         Ok(link.call(method, params, timeout)?)
     };
@@ -741,7 +788,7 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             let (Some(receive_id), true) = (receive_id, answer["guarded"] == json!(true)) else {
                 return Err(Refusal::Unguarded.into());
             };
-            let entry = Receive { cwd, moved, touched: Instant::now() };
+            let entry = Receive { cwd, moved, touched: Instant::now(), finishing: false };
             lock(&transfers.receives).insert(receive_id.to_owned(), entry);
             Ok(json!({"receive_id": receive_id, "session_id": answer["sessionId"]}))
         }
@@ -759,6 +806,8 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             let finished = call("_acpmux/transfer_finish", params, FINISH_TIMEOUT);
             if ends_receive(&finished) {
                 transfers.settle(&receive_id);
+            } else {
+                transfers.set_finishing(&receive_id, false);
             }
             Ok(json!({"session": finished?}))
         }
@@ -790,15 +839,17 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             Ok(json!({"data": page["data"], "next": page["next"], "eof": page["eof"]}))
         }
         Prepared::Answer(answer) => Ok(answer),
-        Prepared::Forget(Moved { transfer_id, session_id }) => {
+        Prepared::Forget { receive_id, moved: Moved { transfer_id, session_id }, live } => {
             let params = json!({"transferId": transfer_id, "sessionId": session_id});
-            // Dropped here either way; an acpmux without forget sweeps the
-            // receive's files after 24 h.
             Ok(match call("_acpmux/transfer_forget", params, CALL_TIMEOUT) {
                 Ok(answer) => {
                     json!({"dropped": true, "forgotten": true, "landed": answer["landed"]})
                 }
-                Err(_) => json!({"dropped": true, "forgotten": false, "landed": null}),
+                Err(_) => {
+                    // Not forgotten: the receive stays askable, the landing unknown.
+                    transfers.restore(receive_id, live);
+                    UNKNOWN_LANDING.clone()
+                }
             })
         }
         Prepared::Commit { session, transfer_id, to } => {
