@@ -57,7 +57,7 @@ export function useFloatingKeys(floating: QuickFloating | undefined) {
       event.preventDefault();
       event.stopPropagation();
     };
-    // ui-allow: the floating panel's own window keys (⌘J, ⌘⇧P), wherever focus is in its page, like an app menu key.
+    // ui-allow: the floating panel's own window keys (⌘J, ⌘⇧P, ⌘⇧I), wherever focus is in its page, like an app menu key.
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);
   }, [holding]);

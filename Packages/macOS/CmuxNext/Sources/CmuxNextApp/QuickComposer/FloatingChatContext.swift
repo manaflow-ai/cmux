@@ -9,7 +9,7 @@ import Foundation
 enum FloatingChatContext {
     @MainActor static func focused(in services: AppServices?) async -> AgentPaneQuickContext? {
         guard let pane = services?.windows.active?.focusedPane else { return nil }
-        let title = pane.stripModel.selectedID.flatMap { pane.stripModel.tab($0)?.title } ?? ""
+        let title = trimmed(pane.stripModel.selectedID.flatMap { pane.stripModel.tab($0)?.title }) ?? untitled
         switch pane.currentContent {
         case .terminal(let entry):
             let view = entry.session.surfaceView
@@ -28,6 +28,11 @@ enum FloatingChatContext {
         case .agent, .page, .placeholder, .notice, .conversation, nil:
             return nil
         }
+    }
+
+    /// An untitled tab's chip name.
+    private static var untitled: String {
+        String(localized: "floatingChat.context.untitled", defaultValue: "Focused tab", table: "FloatingChat", bundle: .module)
     }
 
     private static func selectionName(_ title: String) -> String {
