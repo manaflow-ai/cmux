@@ -274,6 +274,12 @@ export const shortcutCategories: ShortcutCategory[] = [
         combos: [["⌃", "⌘", "."]],
         description: { en: "Collapse or expand focused workspace group", ja: "フォーカス中のワークスペースグループを折りたたみ/展開" },
       },
+      {
+        id: "focusSidebar",
+        combos: [["⌃", "⌘", "E"]],
+        description: { en: "Focus the workspace sidebar", ja: "ワークスペースサイドバーにフォーカス" },
+        note: { en: "↑/↓ select workspaces; Return or Esc returns to the terminal", ja: "↑/↓でワークスペースを選択、ReturnまたはEscでターミナルに戻る" },
+      },
       { id: "focusRightSidebar", combos: [["⌘", "⇧", "E"]], description: { en: "Toggle right-sidebar focus", ja: "右サイドバーのフォーカスを切り替え" } },
       {
         id: "navigateRightSidebarRows",

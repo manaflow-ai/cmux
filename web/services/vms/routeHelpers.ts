@@ -64,6 +64,7 @@ import {
   vmCreateCleanupPendingCopy,
   vmGuestInstallCopy,
   vmRecreateRequiredCopy,
+  vmGuestUnresponsiveCopy,
   vmNetworkRuleCapacityCopy,
   vmRequestLocale,
   vmRequiresProCopy,
@@ -74,7 +75,7 @@ import {
   vmUnsupportedOperationKey,
 } from "./vmErrorMessages";
 import { DISPLAY_NAME_MAX_LENGTH } from "./displayName";
-import { ProviderArtifactUnavailableError, ProviderMachineRecreateRequiredError, ProviderNetworkFullError, ProviderTlsRuleLimitError } from "./drivers/types";
+import { ProviderArtifactUnavailableError, ProviderGuestUnresponsiveError, ProviderMachineRecreateRequiredError, ProviderNetworkFullError, ProviderTlsRuleLimitError } from "./drivers/types";
 import { isProviderCreateCleanupError } from "./drivers/providerCreateCleanup";
 import { PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE } from "./repository";
 import type { Locale } from "../../i18n/routing";
@@ -911,6 +912,9 @@ export const vmWorkflowErrorResponders = {
     if (providerMachineRecreateRequired(error.cause)) {
       return vmRecreateRequiredResponse(error, context.locale);
     }
+    if (providerCauseIs(error.cause, ProviderGuestUnresponsiveError)) {
+      return vmGuestUnresponsiveResponse(error, context.locale);
+    }
     if (providerCauseIs(error.cause, ProviderNetworkFullError)) {
       return vmNetworkFullResponse(error);
     }
@@ -1286,6 +1290,27 @@ async function vmRecreateRequiredResponse(error: VmProviderOperationError, local
   return vmErrorResponse({
     error: "vm_recreate_required",
     status: 409,
+    message: copy.message,
+    action: copy.action,
+    phase: vmPhaseForOperation(error.operation),
+    retryable: false,
+    displayTitle: copy.title,
+    displayMessage: copy.message,
+    details: { operation: error.operation, retryable: false },
+  });
+}
+
+/**
+ * The guest did not run or finish a command the operation needed, so the
+ * provider's exec channel to that machine is stuck. A retry usually meets the
+ * same stuck guest, so the answer is non-retryable with a pause and resume
+ * action that restarts it. Provider diagnostics stay in server traces.
+ */
+async function vmGuestUnresponsiveResponse(error: VmProviderOperationError, locale: Locale): Promise<Response> {
+  const copy = await vmGuestUnresponsiveCopy(locale);
+  return vmErrorResponse({
+    error: "vm_guest_unresponsive",
+    status: 503,
     message: copy.message,
     action: copy.action,
     phase: vmPhaseForOperation(error.operation),

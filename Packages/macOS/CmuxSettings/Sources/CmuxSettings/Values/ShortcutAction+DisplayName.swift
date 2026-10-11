@@ -15,6 +15,8 @@ extension ShortcutAction {
         case .toggleFullScreen: return "Toggle Full Screen"
         case .quit: return "Quit cmux"
         case .toggleSidebar: return "Toggle Left Sidebar"
+        case .focusSidebar:
+            return String(localized: "shortcut.focusSidebar.label", defaultValue: "Focus Sidebar")
         case .newTab: return "New Workspace"
         case .newBrowserWorkspace:
             return String(localized: "shortcut.newBrowserWorkspace.label", defaultValue: "New Browser Workspace")

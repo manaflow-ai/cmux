@@ -20,6 +20,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
 
     // MARK: Workspace
     case toggleSidebar
+    /// Gives the workspace sidebar the keyboard (arrows, Return), revealing it first.
+    case focusSidebar
     case newTab
     case newBrowserWorkspace
     case newCloudWorkspace
