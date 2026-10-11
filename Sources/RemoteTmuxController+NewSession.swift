@@ -147,7 +147,21 @@ extension RemoteTmuxController {
             // ran (mirror, but don't steal selection).
             let select = manager.selectedTab?.id == request.activeTabId
             let attached = try newSessionEnvironment.attach(self, host, name, manager, select)
-            if attached { onCreated?() }
+            guard attached else {
+                // A non-throwing miss means no mirror was admitted for the session
+                // this request just created. Treat it like an attach failure so the
+                // session cannot remain on the host with no cmux workspace showing it.
+                let removed = (try? await transport(for: host)
+                    .runTmux(["kill-session", "-t", "=\(name)"]))?.succeeded == true
+                guard managerIsLive(), requestIsCurrent() else { return }
+                newSessionEnvironment.reportFailure(
+                    host,
+                    .attach(sessionName: name, removed: removed),
+                    manager
+                )
+                return
+            }
+            onCreated?()
         } catch {
             #if DEBUG
             cmuxDebugLog("remote-tmux: attaching the new session \(name) failed: \(error)")

@@ -705,7 +705,7 @@ extension RemoteTmuxController {
         pendingRoutedSessionNames: Set<String>
     ) -> Bool {
         guard let requestedSessionName else { return true }
-        return sessionName == requestedSessionName
+        return sessionName == requestedSessionName || pendingRoutedSessionNames.contains(sessionName)
     }
 
     private func finishStoppingMultiplexedHost(
