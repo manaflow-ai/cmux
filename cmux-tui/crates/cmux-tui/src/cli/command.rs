@@ -3216,6 +3216,65 @@ mod tests {
         .expect("canonical operation catalog")
     }
 
+    fn assert_plan_matches_catalog(plan: &RequestPlan, expected: &str, catalog: &Value) {
+        let descriptor = &catalog["operations"][expected];
+        assert!(descriptor.is_object(), "catalog omitted {expected}");
+        let params = plan.params.as_object().expect("CLI params object");
+        let selectors = descriptor["params"]["selectors"].as_object().expect("catalog selectors");
+        let fields = descriptor["params"]["fields"].as_object().expect("catalog fields");
+
+        for key in params.keys() {
+            assert!(
+                selectors.contains_key(key) || fields.contains_key(key),
+                "{expected} emitted forbidden catalog parameter {key:?}: {params:?}"
+            );
+        }
+        for (key, requiredness) in selectors {
+            if requiredness == "required" {
+                assert!(
+                    params.contains_key(key),
+                    "{expected} omitted required selector {key:?}: {params:?}"
+                );
+            }
+        }
+        for (key, field) in fields {
+            if field["required"] == true {
+                assert!(
+                    params.contains_key(key),
+                    "{expected} omitted required field {key:?}: {params:?}"
+                );
+            }
+        }
+        if let Some(alternatives) = descriptor["params"]["one_of"].as_array() {
+            assert!(
+                alternatives.iter().any(|alternative| {
+                    alternative["required"].as_array().is_none_or(|required| {
+                        required
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .all(|key| params.contains_key(key))
+                    }) && alternative["forbidden"].as_array().is_none_or(|forbidden| {
+                        forbidden
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .all(|key| !params.contains_key(key))
+                    })
+                }),
+                "{expected} violates its catalog one_of: {params:?}"
+            );
+        }
+
+        let class = match plan.operation.class() {
+            OperationClass::Read => "read",
+            OperationClass::Mutation => "mutation",
+            OperationClass::StreamOpen => "stream_open",
+            OperationClass::ConnectionControl => "connection_control",
+            OperationClass::Local => "local",
+        };
+        assert_eq!(descriptor["class"], class, "{expected} class drift");
+        assert_eq!(plan.stream, class == "stream_open", "{expected} stream drift");
+    }
+
     #[test]
     fn direct_and_nested_paths_share_operations_and_flat_ancestors() {
         let direct = protocol(&["pane", "pane_33333333333333333333333333333333", "show"]);
@@ -4238,6 +4297,24 @@ mod tests {
             };
             assert_eq!(plan.kind, crate::plugin_manager::PluginKind::Agent);
             assert_eq!(plan.builtin, builtin);
+        }
+    }
+
+    mod transport_path_coverage_tests;
+
+    fn record_covered_fields<'a>(
+        plan: &RequestPlan,
+        operation: &'a str,
+        catalog: &Value,
+        covered: &mut BTreeMap<&'a str, std::collections::BTreeSet<String>>,
+    ) {
+        let catalog_fields =
+            catalog["operations"][operation]["params"]["fields"].as_object().unwrap();
+        let entry = covered.entry(operation).or_default();
+        for key in plan.params.as_object().unwrap().keys() {
+            if catalog_fields.contains_key(key) {
+                entry.insert(key.clone());
+            }
         }
     }
 }
