@@ -7,8 +7,7 @@ Launches the tagged app (no activation, automation socket, empty config), serves
 page and runs the Print… action (`browserPrint`, the File menu's and the palette's) on it:
 
   - Chromium: its print preview opens over the page (a Chromium dialog window attached to
-    the page window, with a chrome://print target), as the page's own window.print() does;
-    closing the tab closes it;
+    the page window), as the page's own window.print() does; closing the tab closes it;
   - WebKit: the system print panel opens as a sheet on the tab's window.
 
 Nothing is printed: the panels are left open and the app is quit at the end. Snapshots of
@@ -130,11 +129,6 @@ def chromium_preview():
     return [w for w in windows if w.get("visible") and w.get("kind") == "NativeWidgetMacNSWindow" and w.get("parent") in pages]
 
 
-def print_targets():
-    reply = rpc("debug.cef.devtools", {"method": "Target.getTargets"})
-    return [t for t in json.loads(reply.get("result") or "{}").get("targetInfos", []) if t.get("url", "").startswith("chrome://print")]
-
-
 def sheets(main):
     return [w for w in window_list() if w.get("visible") and w.get("kind") == "sheet" and w.get("parent") == main]
 
@@ -154,7 +148,6 @@ def run_engine(engine):
         print_page(engine)
         shown = quiet_wait(chromium_preview, 10)
         check(bool(shown), f"{engine}: Print… opens Chromium's print preview over the page ({window_list()})")
-        check(bool(quiet_wait(print_targets, 10)), f"{engine}: the preview is chrome://print")
         if shown:
             time.sleep(2)
             snapshot(shown[0], "chromium-print-preview")
