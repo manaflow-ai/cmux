@@ -230,6 +230,8 @@ mod terminal_resources;
 mod terminal_snapshot;
 use terminal_snapshot::{attach_overflow_json, handle_attach_send_error, report_attach_overflow};
 mod capabilities;
+mod daemon_build;
+pub use daemon_build::{DAEMON_BUILD_CAPABILITY, DaemonBuild, install_daemon_build};
 mod socket_path;
 #[cfg(test)]
 use socket_path::default_socket_path_in_runtime_dir;

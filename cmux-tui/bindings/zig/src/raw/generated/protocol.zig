@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "1bff7aa8ad7d24b718ffd9b790982af321fc47247b432995c19652b4b117afba";
+pub const ir_sha256 = "80c891b942a95d7c5f1bc2c75fde8111c62315e4258746b3133b2ca9d49bb329";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -397,6 +397,8 @@ pub const ConversationImportMessage = struct {
 };
 
 pub const ConversationMessage = struct {
+    answers: ?[]const []const u8 = null,
+    answers_pending: ?[]const []const u8 = null,
     author: []const u8,
     client_msg_id: []const u8,
     conversation: []const u8,
@@ -411,6 +413,8 @@ pub const ConversationMessage = struct {
     thread_root: ?[]const u8 = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "answers",
+        "answers_pending",
         "edited_at",
         "reply_to",
         "retracted_at",
@@ -862,7 +866,9 @@ pub const IdMapping = struct {
 pub const IdentifyResult = struct {
     app: []const u8,
     build_commit: wire.Field([]const u8) = .absent,
+    build_id: wire.Field([]const u8) = .absent,
     capabilities: ?[]const []const u8 = null,
+    cli_path: wire.Field([]const u8) = .absent,
     daemon_handoff: i64,
     generation: []const u8,
     ghostty_commit: wire.Field([]const u8) = .absent,

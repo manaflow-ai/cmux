@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "1bff7aa8ad7d24b718ffd9b790982af321fc47247b432995c19652b4b117afba";
+inline constexpr std::string_view kProtocolIrSha256 = "80c891b942a95d7c5f1bc2c75fde8111c62315e4258746b3133b2ca9d49bb329";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -1725,6 +1725,8 @@ struct ConversationReaction {
 };
 
 struct ConversationMessage {
+    std::optional<std::vector<std::string>> answers{};
+    std::optional<std::vector<std::string>> answers_pending{};
     std::string author{};
     std::string client_msg_id{};
     std::string conversation{};
@@ -2557,7 +2559,9 @@ struct IdentifyRequest {
 
 struct IdentifyResult {
     Field<std::string> build_commit{};
+    Field<std::string> build_id{};
     std::optional<std::vector<std::string>> capabilities{};
+    Field<std::string> cli_path{};
     std::string generation{};
     Field<std::string> ghostty_commit{};
     Field<std::string> launch_snapshot_path{};
