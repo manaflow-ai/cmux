@@ -36,6 +36,7 @@ pub mod native;
 pub mod peer;
 #[cfg(not(unix))]
 mod platform;
+pub mod probe_cleanup;
 pub mod protected_folders;
 pub mod question_answer;
 pub mod registry;

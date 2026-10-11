@@ -114,12 +114,16 @@ pub(crate) fn is_person_chat(entry: &ChatEntry) -> bool {
 }
 
 /// acpmux's model probes run in `<acpmux home>/unattended` (`protected_folders::unattended_cwd`:
-/// `~/.acpmux/unattended`, `~/.acpmux/tags/<tag>/unattended`), a folder no person works in.
+/// `~/.acpmux/unattended`, `~/.acpmux/tags/<tag>/unattended`, or `<temp>/acpmux-unattended`), a
+/// folder no person works in.
 fn is_probe_session(entry: &ChatEntry) -> bool {
     let Some(cwd) = entry.cwd.as_deref() else { return false };
     let parts: Vec<&str> =
         cwd.trim_end_matches('/').split('/').filter(|part| !part.is_empty()).collect();
-    parts.last() == Some(&"unattended") && parts.iter().any(|part| part.starts_with(".acpmux"))
+    // The fallback when the acpmux home is guarded: `<temp dir>/acpmux-unattended`.
+    parts.last() == Some(&"acpmux-unattended")
+        || (parts.last() == Some(&"unattended")
+            && parts.iter().any(|part| part.starts_with(".acpmux")))
 }
 
 pub(crate) fn is_chief_session(entry: &ChatEntry) -> bool {
