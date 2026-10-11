@@ -29,11 +29,31 @@ final class NewTabInputCoordinator {
         }
     }
 
-    private struct Entry {
+    private final class Entry {
         let buffer: NewTabInputBuffer
-        /// Whether the opening still owns the window's keys (its pane still shows its New Tab page).
-        let owns: () -> Bool
-        let deadline: Task<Void, Never>
+        /// The tab the pane showed before Cmd-T: it counts as the opening only until the page shows.
+        let opened: String?
+        weak var pane: PaneController?
+        weak var window: NSWindow?
+        /// The open put the page's tab on screen (`didShow`).
+        var shown = false
+        var deadline: Task<Void, Never>?
+
+        init(buffer: NewTabInputBuffer, opened: String?, pane: PaneController, window: NSWindow) {
+            self.buffer = buffer
+            self.opened = opened
+            self.pane = pane
+            self.window = window
+        }
+
+        /// Whether the opening still owns the window's keys: its pane, in its window, shows its New
+        /// Tab page (or, until the page shows, the tab it showed before).
+        var owns: Bool {
+            guard let pane, let window, pane.view.window === window else { return false }
+            guard let key = pane.currentTabKey else { return !shown }
+            if pane.services.agentTabs.isNewTabPage(key) { return true }
+            return !shown && key == opened
+        }
     }
 
     init(router: KeyRouter) { self.router = router }
@@ -53,16 +73,20 @@ final class NewTabInputCoordinator {
                 if !router.interceptKeyDown(event, in: window) { window.sendEvent(event) }
             }
         })
-        let opened = pane.currentTabKey
-        let owns: () -> Bool = { [weak pane, weak window] in
-            guard let pane, let window, pane.view.window === window else { return false }
-            // Until the open shows its tab the pane still shows what it had (`opened`).
-            guard let key = pane.currentTabKey else { return true }
-            return key == opened || pane.services.agentTabs.isNewTabPage(key)
+        let entry = Entry(buffer: buffer, opened: pane.currentTabKey, pane: pane, window: window)
+        let number = window.windowNumber
+        entry.deadline = scheduleDeadline(holdLimit) { [weak self, weak buffer] in
+            guard let self, let buffer else { return }
+            deadlinePassed(number: number, buffer: buffer)
         }
-        let deadline = scheduleDeadline(holdLimit) { [weak self, weak window] in self?.flush(in: window) }
-        buffers[window.windowNumber] = Entry(buffer: buffer, owns: owns, deadline: deadline)
+        buffers[number] = entry
         return buffer.token
+    }
+
+    /// The open put the page's tab on screen: leaving it now ends the hold at once.
+    func didShow(in window: NSWindow?) {
+        guard let window else { return }
+        buffers[window.windowNumber]?.shown = true
     }
 
     /// The opening failed: its keys go on to whatever has focus.
@@ -85,11 +109,15 @@ final class NewTabInputCoordinator {
               !KeyRouter.isChord(event.modifierFlags),
               KeyRouter.isPrintable(event) || event.keyCode == KeyRouter.deleteKeyCode || entry.buffer.hasPending
         else { return false }
-        let (controller, kind) = router.focus(for: window)
-        guard kind == .content, controller != nil else { return false }
         guard !entry.buffer.replaying else { return false }
+        let (controller, kind) = router.focus(for: window)
+        guard kind == .content, controller != nil else {
+            // Focus left the content (a sidebar or bar field): held text goes on first, in order.
+            if entry.buffer.hasPending { release(in: window) }
+            return false
+        }
         // The hold ended: the held keys go on first, then this one, in typing order.
-        if expired(entry) || !entry.owns() {
+        if expired(entry) || !entry.owns {
             release(in: window)
             return false
         }
@@ -105,9 +133,9 @@ final class NewTabInputCoordinator {
     func flush(in window: NSWindow?) {
         guard let window, let entry = buffers[window.windowNumber] else { return }
         if entry.buffer.drain() {
-            entry.deadline.cancel()
+            entry.deadline?.cancel()
             if buffers[window.windowNumber]?.buffer === entry.buffer { buffers[window.windowNumber] = nil }
-        } else if expired(entry) || !entry.owns() {
+        } else if expired(entry) || !entry.owns {
             release(in: window)
         }
     }
@@ -115,8 +143,19 @@ final class NewTabInputCoordinator {
     /// Ends the window's hold and gives its keys, in typing order, to whatever has focus.
     private func release(in window: NSWindow) {
         guard let entry = buffers.removeValue(forKey: window.windowNumber) else { return }
-        entry.deadline.cancel()
+        entry.deadline?.cancel()
         entry.buffer.release()
+    }
+
+    /// The hold limit of `buffer` passed. Only that hold ends (a later opening in the window keeps
+    /// its own), and it ends even when its window closed, so no entry outlives it.
+    private func deadlinePassed(number: Int, buffer: NewTabInputBuffer) {
+        guard let entry = buffers[number], entry.buffer === buffer else { return }
+        guard let window = entry.window else {
+            buffers[number] = nil  // the window is gone: its keys go with it
+            return
+        }
+        flush(in: window)
     }
 
     private func expired(_ entry: Entry) -> Bool {
