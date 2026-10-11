@@ -38,7 +38,7 @@ final class WorkspaceRowView: SidebarRowView {
     /// `sidebar.workspaceRow.pullRequest`: the PR / CI badge a hook reported.
     private let prBadge = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     private var badgeText: String?
-    private var disclosure: SidebarTabDisclosure?
+    private(set) var disclosure: SidebarTabDisclosure?
     private(set) var count: Int?
 
     /// Progress under the row (`SidebarWorkspace.progress`): a track and a
@@ -100,6 +100,9 @@ final class WorkspaceRowView: SidebarRowView {
     }
 
     override var interactiveSubviews: [NSView] { [closeButton, moreButton, disclosureButton] }
+    override var debugDisclosure: (icon: String, frame: CGRect, shown: Bool)? {
+        disclosure == nil ? nil : (disclosureButton.icon.rawValue, disclosureButton.frame, !disclosureButton.isHidden)
+    }
 
     /// Reads the agent mark and presence dot settings and redraws the row once when one changes (no polling).
     private func observedTunables() -> (agentMark: SidebarAgentMarkVariant, presenceDots: Bool) {
@@ -271,7 +274,8 @@ final class WorkspaceRowView: SidebarRowView {
         // activity.
         var trailing = b.width - Metrics.space3
         let control = SidebarStyle.controlSize
-        disclosureButton.isHidden = disclosure == nil || disclosure == .empty || isShowingPlaceholder
+        // The chevron shows on hover and on the selected row only (cx-fo2t); its slot stays.
+        disclosureButton.isHidden = disclosure == nil || disclosure == .empty || isShowingPlaceholder || !(isHovered || isSelected)
         if disclosure != nil {
             disclosureButton.frame = NSRect(x: trailing - control, y: (b.height - control) / 2, width: control, height: control)
             trailing -= control + Metrics.space1
