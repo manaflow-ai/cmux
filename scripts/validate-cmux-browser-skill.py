@@ -33,7 +33,8 @@ ROOT = Path(__file__).resolve().parent.parent
 PAGE_VERBS = frozenset(
     {
         "back", "click", "eval", "fill", "focus", "forward", "goto", "navigate",
-        "open", "reload", "snapshot", "state", "text", "title", "type", "url", "value",
+        "close", "new-tab", "open", "reload", "select", "snapshot", "state", "switch", "tabs",
+        "text", "title", "type", "url", "value",
     }
 )
 

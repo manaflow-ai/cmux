@@ -50,7 +50,9 @@ await requireBrowserLane("composer-menu-width.test.ts", async () => {
 ${css}
 .flex{display:flex}
 </style></head><body>
-<div class="acpmux-shell"><div class="acpmux-composer" style="margin-top:320px;padding:0">
+<div class="acpmux-shell"><div class="acpmux-composer acpmux-composer-bar" style="margin-top:320px;padding:0">
+  <span class="acpmux-picker acpmux-composer-plus"><button class="acpmux-picker-button" style="width:28px">+</button></span>
+  <div class="acpmux-chips">
   <span class="acpmux-picker acpmux-model" style="position:relative">
     <button class="acpmux-picker-button" style="width:120px">GPT-6-Astra</button>
     <div class="ui-popup ui-picker-popup acpmux-mp flex" style="${ANCHORED}">
@@ -75,6 +77,16 @@ ${css}
       </div>
     </div>
   </span>
+  <span class="acpmux-chips-spacer"></span>
+  <span class="acpmux-mode acpmux-access">
+    <button class="acpmux-picker-button acpmux-access-trigger">
+      <span class="acpmux-icon" style="width:16px;height:16px"></span>
+      <span class="acpmux-mode-text">Ask before edits</span>
+      <span class="acpmux-icon" style="width:12px;height:12px"></span>
+    </button>
+  </span>
+  </div>
+  <span class="acpmux-composer-actions"><button class="acpmux-send" style="width:28px;height:28px">↑</button></span>
 </div></div>
 <div class="ui-positioner" style="position:absolute;left:8px;top:8px">
   <div class="acpmux-menu acpmux-location-menu">${row("~/fun/cmuxterm-hq")}</div>
@@ -175,6 +187,48 @@ ${css}
         expect(background).not.toBe("rgba(0, 0, 0, 0)");
         expect((await box(page, ".ui-positioner .acpmux-location-menu")).width).toBeGreaterThanOrEqual(200);
         await page.close();
+      });
+
+      test("permission mode changes keep the trigger width stable", async () => {
+        const page = await open(1000);
+        const widths = await page.$eval(".acpmux-access-trigger", (node) => {
+          const trigger = node as HTMLElement;
+          const mode = trigger.querySelector<HTMLElement>(".acpmux-mode-text")!;
+          const values = ["Ask before edits", "Full access"].map((label) => {
+            mode.textContent = label;
+            return trigger.getBoundingClientRect().width;
+          });
+          return values;
+        });
+        expect(widths[0]).toBeGreaterThan(0);
+        expect(widths[1]).toBe(widths[0]);
+        await page.close();
+      });
+
+      test("the complete control rail stays inside narrow LTR and RTL panes", async () => {
+        for (const width of [360, 240, 200, 180]) {
+          for (const direction of ["ltr", "rtl"] as const) {
+            const page = await open(width);
+            await page.evaluate((dir) => document.documentElement.setAttribute("dir", dir), direction);
+            const geometry = await page.$eval(".acpmux-composer-bar", (node) => {
+              const bar = node as HTMLElement;
+              const barRect = bar.getBoundingClientRect();
+              const access = bar.querySelector<HTMLElement>(".acpmux-access-trigger")!.getBoundingClientRect();
+              return {
+                clientWidth: bar.clientWidth,
+                scrollWidth: bar.scrollWidth,
+                barLeft: barRect.left,
+                barRight: barRect.right,
+                accessLeft: access.left,
+                accessRight: access.right,
+              };
+            });
+            expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth);
+            expect(geometry.accessLeft).toBeGreaterThanOrEqual(geometry.barLeft - 1);
+            expect(geometry.accessRight).toBeLessThanOrEqual(geometry.barRight + 1);
+            await page.close();
+          }
+        }
       });
     });
   }

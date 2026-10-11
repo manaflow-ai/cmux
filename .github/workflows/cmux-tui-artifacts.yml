@@ -155,10 +155,9 @@ concurrency:
   # The shared group came from #18175's 67-run queue on 2026-10-07, when the
   # macOS targets built on macOS; they now build on Linux
   # (scripts/ci/cmux-tui-darwin-builder), and a run whose key is published
-  # stops after the 3 min tree-preflight. The build job of a feat-cmux-next
-  # push is grouped by the tree key that tree-preflight computes: pushes with
-  # an unchanged key share one build, and a push that changes the key gets its
-  # own, which no other key cancels or delays.
+  # stops after the 3 min tree-preflight. Same-key pushes share one build
+  # through the owner election, not a key concurrency group (a key group
+  # replaced pending builds; see the build job).
   # cmux-tui-tree-request.yml republishes a commit's tree on demand.
   group: cmux-tui-artifacts-${{ github.ref == 'refs/heads/main' && 'main' || github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref == 'refs/heads/feat-cmux-next' && github.event_name == 'push' && format('push-{0}', github.sha) || github.event_name == 'push' && format('ref-{0}', github.ref) || format('sha-{0}', github.sha) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}
@@ -190,6 +189,8 @@ jobs:
     permissions:
       actions: read
       contents: read
+      # The tree-claim authority identifies this run by its OIDC token.
+      id-token: write
     outputs:
       darwin_builder: ${{ steps.darwin-builder.outputs.builder }}
       key: ${{ steps.inspect.outputs.key }}
@@ -349,13 +350,29 @@ jobs:
           fi
 
           # Elect one deterministic owner before any expensive macOS work.
-          # The build jobs share a per-key concurrency group, where GitHub
-          # replaces an older pending job with a newer same-key one; the
-          # election keeps later same-key runs from building at all. They wait
-          # for this owner and take over only if it ends without a complete
-          # publication.
+          # GitHub replaces an older pending job in a job-level concurrency
+          # group, so builders are not serialized by a key group (it stranded
+          # keys); later same-key runs wait for this owner and take over only
+          # if it ends without a complete publication.
+          #
+          # The cmux-ci controller decides atomically (cx-73f2,
+          # scripts/ci/cmux-tui-tree-claim.sh): the first run to claim the key
+          # owns it. The run-list election below is only the fallback when the
+          # authority cannot be asked; it reads an eventually consistent list
+          # and let three runs of tree bfbd3600debc each win on 2026-10-11.
           owner_run_id="$RUN_ID"
-          if [[ "$tree_ready" != true && "$EVENT_NAME" == push &&
+          claimed=false
+          if [[ "$tree_ready" != true && "$EVENT_NAME" == push && "$REF" != refs/heads/main ]]; then
+            if claim="$(scripts/ci/cmux-tui-tree-claim.sh "$key")"; then
+              claimed=true
+              claim_owner="${claim#owner=}"; claim_owner="${claim_owner%% *}"
+              [[ "$claim_owner" =~ ^[0-9]+$ ]] && owner_run_id="$claim_owner"
+              echo "Tree claim for $key: $claim"
+            else
+              echo "::warning::the tree-claim authority could not be asked; electing the owner from the run list"
+            fi
+          fi
+          if [[ "$claimed" != true && "$tree_ready" != true && "$EVENT_NAME" == push &&
                 "$REF" == refs/heads/feat-cmux-next ]]; then
             runs_json="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
               -u "x-access-token:$GH_TOKEN" \
@@ -388,7 +405,7 @@ jobs:
           # owns it; main keeps its own build for latest/. Active means not
           # completed: a run whose jobs already run can still read queued or
           # pending (two runs pushed together each saw the other that way).
-          if [[ "$tree_ready" != true && "$EVENT_NAME" == push &&
+          if [[ "$claimed" != true && "$tree_ready" != true && "$EVENT_NAME" == push &&
                 "$REF" != refs/heads/main ]]; then
             same_sha_json="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
               -u "x-access-token:$GH_TOKEN" \
@@ -434,7 +451,20 @@ jobs:
     permissions:
       actions: read
       contents: read
+      id-token: write
     steps:
+      # Only the claim script, from this run's trusted commit (the base branch
+      # for pull_request_target), for a takeover through the tree-claim authority.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: needs.tree-preflight.outputs.owner_run_id != ''
+        # Without the script the takeover falls back to the old rule (exit 127).
+        continue-on-error: true
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          sparse-checkout: scripts/ci/cmux-tui-tree-claim.sh
+          sparse-checkout-cone-mode: false
       - name: Wait for the owning tree publisher
         id: wait
         env:
@@ -503,6 +533,20 @@ jobs:
                   takeover=false
                   break
                 fi
+                # Take over only by winning the key's claim: two waiters that
+                # see the owner end together cannot both build. Another winner
+                # becomes the owner to wait for; no authority keeps the old rule.
+                if claim="$(scripts/ci/cmux-tui-tree-claim.sh "$KEY")"; then
+                  if [[ "$claim" == *"granted=true" ]]; then
+                    echo "Owner run $OWNER_RUN_ID ended before publishing tree $KEY; this run won the claim and takes over."
+                    break
+                  fi
+                  next_owner="${claim#owner=}"; next_owner="${next_owner%% *}"
+                  echo "Owner run $OWNER_RUN_ID ended; run $next_owner won the claim for tree $KEY; waiting for it."
+                  OWNER_RUN_ID="$next_owner"
+                  sleep 60
+                  continue
+                fi
                 echo "Owner run $OWNER_RUN_ID ended before publishing tree $KEY; taking over."
                 break
               fi
@@ -523,18 +567,16 @@ jobs:
           needs.tree-owner-wait.outputs.takeover == 'true' &&
           (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
     needs: [tree-preflight, tree-owner-wait]
-    # feat-cmux-next pushes build in one group per tree key (cx-73f2): at most
-    # one builds a key at a time, and a key never waits behind or is cancelled
-    # by another key. GitHub may replace a pending same-key job with a newer
-    # one, which is another feat-cmux-next push of the same key that also
-    # publishes it, so nothing is stranded. Only this job is grouped by key:
-    # the run that holds the build slot keeps its own daemon tests and publish
-    # (per run below). Every other run (main, PR, dispatch, pin) keeps a group
-    # of its own, so it can never replace a feat-cmux-next publisher, nor main
-    # lose its commit-addressed publish. tree-owner-wait still skips a run
-    # whose key another run is publishing.
+    # One group per run (cx-73f2). With one group per tree key (7eb3671d1832)
+    # GitHub kept one running and one pending build per key and replaced the
+    # pending one with each newer same-key build: on 2026-10-11 the pending
+    # builds of runs 38126073200 (358d010c4e8f) and 38126198087, whose daemon
+    # tests passed, were cancelled at 08:50:25 and 08:53:06, and run
+    # 38126360971, whose daemon tests failed, was kept. A replaced build is a
+    # lost publish. Same-key dedupe is the owner election (tree-preflight,
+    # tree-owner-wait).
     concurrency:
-      group: cmux-tui-build-${{ needs.tree-preflight.outputs.key }}${{ !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && format('-{0}', github.run_id) || '' }}
+      group: cmux-tui-build-${{ needs.tree-preflight.outputs.key }}-${{ github.run_id }}
       cancel-in-progress: false
     permissions:
       contents: read
@@ -1550,8 +1592,7 @@ jobs:
     needs: [build, publish, cmux-next-daemon-tests]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
-    # Ownership is elected before expensive work and the build is grouped by
-    # key; publication stays per run, so a run that built always publishes,
+    # Ownership is elected before expensive work; publication stays per run
     # and the write-once uploader makes a rare election race safe.
     concurrency:
       group: cmux-tui-tree-${{ needs.cmux-next-daemon-tests.outputs.key }}-${{ github.sha }}
@@ -1806,8 +1847,11 @@ jobs:
     needs: [build, cmux-next-daemon-tests]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
+    # Per run (cx-73f2): a job group shared by one key holds one pending job
+    # and GitHub replaces it with each newer same-key job, so a key group drops
+    # publishes (run 38126073200's build, 08:50:25Z 2026-10-11).
     concurrency:
-      group: cmux-tui-tree-${{ needs.cmux-next-daemon-tests.outputs.key }}
+      group: cmux-tui-tree-${{ needs.cmux-next-daemon-tests.outputs.key }}-${{ github.run_id }}
       cancel-in-progress: false
     permissions:
       # actions: write and pull-requests: read: see publish-tree. The notify
@@ -1940,9 +1984,7 @@ jobs:
   notify-unpublished-tree:
     name: report an unpublished cmux-tui tree to cmux-next
     needs: [tree-preflight, tree-owner-wait, build, cmux-next-daemon-tests, publish, publish-tree, publish-pr-tree]
-    # A feat-cmux-next build that a newer same-key push replaced in the key
-    # group is not a failure: that push builds and publishes the key.
-    if: ${{ always() && !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.build.result == 'cancelled') && needs.tree-preflight.result == 'success' && needs.tree-preflight.outputs.tree_ready != 'true' && needs.tree-preflight.outputs.run_macos == 'true' && needs.tree-owner-wait.outputs.takeover == 'true' && needs.publish-tree.result != 'success' && needs.publish-pr-tree.result != 'success' && (github.event_name == 'pull_request_target' || github.event_name == 'push' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    if: ${{ always() && needs.tree-preflight.result == 'success' && needs.tree-preflight.outputs.tree_ready != 'true' && needs.tree-preflight.outputs.run_macos == 'true' && needs.tree-owner-wait.outputs.takeover == 'true' && needs.publish-tree.result != 'success' && needs.publish-pr-tree.result != 'success' && (github.event_name == 'pull_request_target' || github.event_name == 'push' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:

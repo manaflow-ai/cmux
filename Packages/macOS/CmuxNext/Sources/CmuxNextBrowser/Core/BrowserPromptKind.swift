@@ -8,6 +8,11 @@ public nonisolated enum BrowserPermissionKind: Hashable, Sendable {
     /// A second download without a fresh user gesture
     /// (`AutomaticDownloadPolicy`): Allow or Block, remembered for the site.
     case automaticDownloads
+    /// The device's location (Geolocation API): Block or Allow, remembered
+    /// for the site.
+    case location
+    /// Web notifications (WebKit tabs): Block or Allow, remembered for the site.
+    case notifications
 }
 
 /// What a prompt asks the user.

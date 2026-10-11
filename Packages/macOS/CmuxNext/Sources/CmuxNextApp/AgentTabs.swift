@@ -101,6 +101,8 @@ final class AgentTabStore {
     /// Takes back a closed, untouched new tab page as the pool's spare
     /// (NewTabSparePool.recycle); false when the pool already has one.
     var recycle: ((AgentPaneView) -> Bool)?
+    /// The prewarmed New Tab page, for a first page that has no view yet (NewTabSparePool).
+    var takeSpare: (() -> AgentPaneView?)?
     /// Closed pages leave the view tree at once; their teardown waits (R81).
     let retirer = AgentPageRetirer()
     /// The session each tab's page reported, ahead of the store's echo of the bind and across a
@@ -249,6 +251,18 @@ final class AgentTabStore {
         if local, seed == nil, newTabPages[key] == nil, tabStores[key] == nil, (sessions[key] ?? record.session) == nil,
            !linkedSessions.contains(key) {
             newTabPages[key] = firstPageNewTab?(nil)
+        }
+        // A New Tab page made now (Cmd-N's first page, a restored page) adopts the prewarmed spare
+        // when there is one: no cold load and React mount on the open path (cx-ec99).
+        // (Its folder rides on the page context, `newTab.cwd`; a first page's seed holds only that.)
+        if local, kind == .local, sessions[key] == nil, record.session == nil, let newTab = newTabPages[key],
+           seed?.holdsOnlyFolder ?? true, let spare = takeSpare?() {
+            standaloneViews.remove(spare)
+            wire(spare.model, key: key)
+            views[key] = spare
+            spare.adoptNewTab(newTab.page)
+            track(key, in: store)
+            return spare
         }
         let model = AgentPaneModel(
             host: paneHost,
