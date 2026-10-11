@@ -41,6 +41,7 @@ final class GroupHeaderRowView: SidebarRowView {
     private var tint: GroupTint = .palette(.grey)
     private var collapsed = false
     private var chevronFrame: CGRect = .zero
+    private var chevronIcon: IconName = .disclosureExpanded
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
     /// Arrow keys stopped here (`SidebarListView+GroupKeys`): a focus ring, not a selection.
     var isKeyboardFocused = false { didSet { if isKeyboardFocused != oldValue { needsDisplay = true } } }
@@ -98,7 +99,8 @@ final class GroupHeaderRowView: SidebarRowView {
         glyph.configure(icon: group.icon)
         pin.image = pinned ? NSImage.icon(.statePinned, size: Metrics.smallIconSize) : nil
         collapsed = row.isCollapsed
-        chevron.image = Self.chevronImage(collapsed: collapsed)
+        chevronIcon = Self.disclosureIcon(collapsed: collapsed)
+        chevron.image = NSImage.icon(chevronIcon, size: .iconRowSize(forLabelPointSize: Metrics.smallIconSize - Metrics.space2))
         activity.configure(collapsed ? group.aggregateActivity : .idle)
         let unread = group.unreadTotal
         badge.configure(collapsed && unread > 0 ? .count(unread) : .none)
@@ -111,10 +113,12 @@ final class GroupHeaderRowView: SidebarRowView {
         needsDisplay = true
     }
 
-    private static func chevronImage(collapsed: Bool) -> NSImage? {
-        NSImage.icon(collapsed ? .disclosureExpanded : .navPreviousMatch,
-                     size: .iconRowSize(forLabelPointSize: Metrics.smallIconSize - Metrics.space2))
+    private static func disclosureIcon(collapsed: Bool) -> IconName {
+        collapsed ? .disclosureExpanded : .navPreviousMatch
     }
+
+    override var debugFill: Bool { super.debugFill || pill.backgroundColor != nil }
+    override var debugDisclosure: (icon: String, frame: CGRect, shown: Bool)? { (chevronIcon.rawValue, chevron.frame, !chevron.isHidden) }
 
     override var titleFrame: NSRect { name.frame }
     /// The group chip (`GroupLabelBandTests`): a click here opens the editor.

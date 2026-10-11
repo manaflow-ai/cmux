@@ -27,6 +27,13 @@ public struct SidebarDebugRow: Sendable {
     public var clips: Bool = false
     /// The group the row lists in (its id), nil for a loose row.
     public var group: String? = nil
+    /// The row paints a fill now (hover, selection or a drop), its own or a part's.
+    public var fill: Bool = false
+    /// The row's disclosure chevron: the pack icon it draws, its frame in the
+    /// row and whether it shows; nil when the row has none.
+    public var disclosureIcon: String? = nil
+    public var disclosureFrame: CGRect? = nil
+    public var disclosureShown: Bool = false
 }
 
 /// One sidebar layout item (a top or bottom region row), for
@@ -114,10 +121,13 @@ extension SidebarView {
             let inWindow = list.convert(list.frame(for: row), to: nil)
             let height = window?.contentView?.bounds.height ?? 0
             let windowFrame = CGRect(x: inWindow.minX, y: height - inWindow.maxY, width: inWindow.width, height: inWindow.height)
+            let disclosure = view?.debugDisclosure
             return SidebarDebugRow(key: String(describing: row.key), title: title, frame: list.frame(for: row), windowFrame: windowFrame,
                                    viewFrame: view?.frame, viewAlpha: view?.alphaValue, inList: view?.superview === list,
                                    suppressed: list.suppressed.contains(row.key), selected: view?.isSelected == true, muted: muted,
-                                   activity: activity, icon: icon, shownFrame: view?.shownFrame, clips: view?.clipsToBounds == true, group: row.group?.rawValue)
+                                   activity: activity, icon: icon, shownFrame: view?.shownFrame, clips: view?.clipsToBounds == true, group: row.group?.rawValue,
+                                   fill: view?.debugFill == true, disclosureIcon: disclosure?.icon, disclosureFrame: disclosure?.frame,
+                                   disclosureShown: disclosure?.shown == true)
         }
         let selection = model.orderedSelection.map { model.workspace($0)?.title ?? $0.rawValue }
         let dragging = list.drag.map { drag in drag.hiddenKeys.map { String(describing: $0) } } ?? []

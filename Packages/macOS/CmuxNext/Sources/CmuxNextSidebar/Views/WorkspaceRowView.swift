@@ -98,6 +98,9 @@ final class WorkspaceRowView: SidebarRowView {
     }
 
     override var interactiveSubviews: [NSView] { [closeButton, moreButton, disclosureButton] }
+    override var debugDisclosure: (icon: String, frame: CGRect, shown: Bool)? {
+        disclosure == nil ? nil : (disclosureButton.icon.rawValue, disclosureButton.frame, !disclosureButton.isHidden)
+    }
 
     /// Reads the agent mark setting and redraws the row once when it changes (no polling).
     private func observedAgentMarkVariant() -> SidebarAgentMarkVariant {
