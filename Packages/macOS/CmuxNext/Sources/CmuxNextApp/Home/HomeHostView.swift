@@ -26,6 +26,7 @@ final class HomeHostView: NSView {
     private var slideClient: FrameClient?
     private var isChief = false
     private var engineWatch: Task<Void, Never>?
+    private var agentsWatch: Task<Void, Never>?
     private var toggleObserver: (any NSObjectProtocol)?
     /// `home.toggleChiefSettings` (palette, `cmux action run`, preflight).
     static let toggleSettings = Notification.Name("HomeHostView.toggleChiefSettings")
@@ -125,6 +126,23 @@ final class HomeHostView: NSView {
             }
             _ = registry.perform(id, invocation: ActionInvocation(origin: .user))
         }
+        // The first-run panel's agent rows open the agent's tab like a jump (Search Tabs).
+        transcript.onFirstRunAgent = { [weak services] tab in _ = services?.revealTab(tab) }
+        // task-owner: lives as long as this view; event-driven (Observation):
+        // the user's agents for the first-run glance, only while it can show
+        // (the Chief with no messages yet): otherwise no tab is read, so tab
+        // changes never wake a Chief with history.
+        agentsWatch = Task { [weak self] in
+            var shown: [HomeAgentGlance] = []
+            for await agents in ObservationStream({ () -> [HomeAgentGlance] in
+                guard let summary = store.rows.first(where: { $0.summary.id == id })?.summary,
+                      summary.lastSeq == 0, summary.participants.contains(where: { $0.agentClass == .chief }) else { return [] }
+                return HomeAgentGlances(services: services).current
+            }) where agents != shown {
+                shown = agents
+                self?.transcript.setFirstRunAgents(agents)
+            }
+        }
         transcript.setFirstRunShortcuts(terminal: registry.shortcutDisplay(for: Self.openTerminalAction),
                                         agent: registry.shortcutDisplay(for: Self.startAgentAction),
                                         tabs: registry.shortcutDisplay(for: Self.selectTabByNumberAction))
@@ -180,6 +198,7 @@ final class HomeHostView: NSView {
         MainActor.assumeIsolated {
             availability?.cancel()
             engineWatch?.cancel()
+            agentsWatch?.cancel()
             slideClient?.deactivate()
             if let toggleObserver { NotificationCenter.default.removeObserver(toggleObserver) }
             if let stopObserver { NotificationCenter.default.removeObserver(stopObserver) }
