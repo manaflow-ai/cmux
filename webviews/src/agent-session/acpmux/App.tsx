@@ -3477,6 +3477,14 @@ function AcpmuxPane() {
               title={snapshot.summary?.title || snapshot.summary?.name}
               load={loadReplay}
               onClose={() => setReplaying(undefined)}
+              onContinue={
+                snapshot.canFork
+                  ? (throughSeq) => {
+                      setReplaying(undefined);
+                      void directClient.current?.fork(throughSeq);
+                    }
+                  : undefined
+              }
               transcript={(rows) => (
                 <VirtualTranscript
                   rows={rows}
