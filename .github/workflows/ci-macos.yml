@@ -4308,7 +4308,7 @@ jobs:
           APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
           CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
           HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
-          CMUX_CUA_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-cua"
+          CMUX_CUA_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua"
           DIFF_SIDECAR="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-diff-sidecar"
           test -x "$APP_BINARY"
           test -x "$CLI_BINARY"

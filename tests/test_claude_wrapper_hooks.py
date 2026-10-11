@@ -23,6 +23,7 @@ from node_runtime import ensure_node_on_path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_WRAPPER = ROOT / "Resources" / "bin" / "cmux-claude-wrapper"
+CLIENT_POLICY = ROOT / "skills" / "cmux-cua" / "client-policy.sh"
 _RETAINED_SETTINGS_FIXTURES: list[Path] = []
 
 
@@ -1998,6 +1999,21 @@ def test_passthrough_flags_bypass_hook_injection(failures: list[str]) -> None:
 # override and no Node/Bun MCP fallback.
 
 
+def make_trusted_client(path: Path, root: Path) -> None:
+    """Install a fake client the wrapper's ownership checks accept.
+
+    The wrapper rejects a client when it or any ancestor is group- or
+    world-writable, so strip those bits up to the sandbox root regardless of
+    the runner's umask.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    make_executable(path, "#!/usr/bin/env bash\nexit 0\n")
+    for directory in [path, *path.parents]:
+        if not directory.is_relative_to(root):
+            break
+        directory.chmod(directory.stat().st_mode & ~0o022)
+
+
 def installed_helper_executable(home: Path, scope: str = "default") -> Path:
     return (
         home
@@ -2032,6 +2048,9 @@ def computer_use_sandbox(
         sandbox_home = tmp / "home"
         sandbox_home.mkdir()
         env["HOME"] = str(sandbox_home)
+        bundled_skill = tmp / "cmux.app" / "Contents" / "Resources" / "cmux-cua"
+        bundled_skill.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(CLIENT_POLICY, bundled_skill / "client-policy.sh")
         env["BUN_OPTIONS"] = "--preload=/tmp/cmux-mcp-preload-should-not-load.js"
         env.pop("CMUX_CUA_EXTERNAL_CLIENT", None)
         env.pop("CMUX_CUA_AUTH_TOKEN_FILE", None)
@@ -2054,13 +2073,11 @@ def computer_use_sandbox(
             )
         if exported_client:
             exported = tmp / "exported" / "cmux Computer Use.app" / "Contents" / "MacOS" / "cmux-cua"
-            exported.parent.mkdir(parents=True)
-            make_executable(exported, "#!/usr/bin/env bash\nexit 0\n")
+            make_trusted_client(exported, tmp)
             env["CMUX_CUA_CLIENT_PATH"] = str(exported)
         if bundled_driver:
             installed = installed_helper_executable(sandbox_home)
-            installed.parent.mkdir(parents=True)
-            make_executable(installed, "#!/usr/bin/env bash\nexit 0\n")
+            make_trusted_client(installed, tmp)
             write_helper_info(installed.parents[1] / "Info.plist", "com.cmuxterm.cua")
             helper_driver = (
                 tmp
