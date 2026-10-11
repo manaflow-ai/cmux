@@ -5,8 +5,14 @@ import AppKit
 /// open state, dock side, the sizes, and the divider's grab area and the
 /// DevTools frame in window coordinates (points from the window's top left,
 /// as `debug.mouse` takes them), with the window's number.
-public enum CEFDevToolsDebug {
-    public static func report(_ tab: CEFTab) -> [String: Any] {
+public struct CEFDevToolsDebug {
+    let tab: CEFTab
+
+    public init(_ tab: CEFTab) {
+        self.tab = tab
+    }
+
+    public var report: [String: Any] {
         let controller = tab.devToolsController
         var report: [String: Any] = [
             "open": tab.devTools.isOpen,

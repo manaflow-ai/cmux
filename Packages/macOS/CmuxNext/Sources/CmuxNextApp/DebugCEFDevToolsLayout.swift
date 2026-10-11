@@ -31,7 +31,7 @@ extension DebugCEFDevToolsLayout {
             entry = nil
         }
         guard let tab = entry?.tab as? CEFTab else { return .object(["error": .string("no Chromium tab")]) }
-        return JSONValue(foundation: CEFDevToolsDebug.report(tab)) ?? .null
+        return JSONValue(foundation: CEFDevToolsDebug(tab).report) ?? .null
     }
 }
 #endif
