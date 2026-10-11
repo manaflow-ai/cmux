@@ -103,8 +103,9 @@ enum AgentBesidePlacement {
                 services.paneController(for: anchor)?.selectWhenReportedKeepingFocus(surface: surface)
                 return nil
             }
+            let after = newColumn(beside: anchor, in: services.daemon(for: anchor).store)
             let moved = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
-                TabMoves.toNewColumn(tab, anchor: anchor, services: services) { done.resume(returning: $0) }
+                TabMoves.toNewColumn(tab, anchor: anchor, afterColumn: after, services: services) { done.resume(returning: $0) }
             }
             return moved ? nil : "beside-caller: the move into a new column failed (see the app log)"
         })
@@ -113,6 +114,19 @@ enum AgentBesidePlacement {
             sink.yield(surface)
             sink.finish()
         }
+    }
+}
+
+extension AgentBesidePlacement {
+    /// The column a tab beside `chat` follows: the chat's own scrolling column, so the new column
+    /// opens right of the chat, where the chat keeping focus keeps it in view. The daemon's
+    /// default is after the last column, past the panes already beside the chat and off screen
+    /// (cx-u1yn). Nil for a chat in a docked column or on a screen without columns.
+    static func newColumn(beside chat: PaneModel, in store: DaemonStore) -> DaemonColumnID? {
+        guard let screen = store.workspace(containing: chat.handle)?.screens.first(where: { $0.panes.contains { $0 === chat } }),
+              let column = screen.columns.first(where: { $0.layout.paneIDs.contains(chat.handle) }),
+              column.dock == nil else { return nil }
+        return column.id
     }
 }
 

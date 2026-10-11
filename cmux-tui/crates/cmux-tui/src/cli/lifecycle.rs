@@ -458,6 +458,9 @@ fn run_ensure(
         Err(crate::local_owner::EnsureError::NotReady) => {
             local_error("server.unavailable", messages.owner_not_ready, output, 3)
         }
+        Err(crate::local_owner::EnsureError::RestoreTimeout) => {
+            local_error("server.restore_timeout", messages.owner_restore_timeout, output, 3)
+        }
         Err(crate::local_owner::EnsureError::WrongOwner) => {
             local_error("server.wrong_owner", messages.wrong_owner, output, 1)
         }

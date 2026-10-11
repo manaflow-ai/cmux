@@ -89,6 +89,12 @@ final class NewTabSparePool {
     /// At launch: follow the key main window; park in the first visible one.
     func start() {
         services.agentTabs.recycle = { [weak self] view in self?.recycle(view) ?? false }
+        // The first page of a new workspace (Cmd-N, an empty window's New Tab page) adopts the
+        // spare too, so a cold Cmd-N shows a page that already loaded (cx-ec99).
+        services.agentTabs.takeSpare = { [weak self] in
+            guard let self, let window = NSApp.keyWindow.flatMap(self.mainWindow) ?? self.target else { return nil }
+            return self.take(for: window, size: self.slot.peek?.frame.size ?? .zero)?.view
+        }
         observeWindows()
         if let window = NSApp.keyWindow.flatMap(mainWindow) ?? services.windows.controllers.compactMap(\.window).first(where: \.isVisible) {
             retarget(window)
@@ -247,7 +253,17 @@ final class NewTabSparePool {
         armWarmTimer()
     }
 
+    /// Whether this run has warmed a spare yet: the first one starts at once, before the person
+    /// types (a cold launch's first Cmd-N then finds a page that is loading or loaded, cx-ec99).
+    private var warmedOnce = false
+
     private func armWarmTimer() {
+        // Only the launch warm is instant: a `take()` that found nothing (it set
+        // `usedThisSession`) must not make a web view in the person's keystroke.
+        if !warmedOnce, !usedThisSession {
+            warmedOnce = true
+            return warmNow()
+        }
         warmTimer.schedule(after: Self.idleInput) { @MainActor [weak self] in self?.warmNow() }
     }
 

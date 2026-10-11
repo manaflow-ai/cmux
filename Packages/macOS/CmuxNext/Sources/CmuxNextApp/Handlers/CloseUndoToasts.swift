@@ -135,13 +135,19 @@ final class CloseUndoToasts {
         announced += 1
         guard !entries.isEmpty else { announcedEmpty += 1; return }
         expected.append(Expected(tabs: entries.sorted { $0.index < $1.index }, paneResourceID: pane.resourceID,
-                                 title: tabs.count == 1 ? Self.title(of: tabs[0]) : "", window: window))
+                                 title: tabs.count == 1 ? (services.map { Self.title(of: tabs[0], pages: $0.pages) } ?? Self.title(of: tabs[0])) : "", window: window))
         if expected.count > 16 { expected.removeFirst(expected.count - 16) }
     }
 
     /// A tab's name in its toast, as its strip shows it: a browser tab on
     /// the New Tab or blank page is "New Tab", never the page's address
     /// (the toast said `Closed "chrome://newtab/"`).
+    /// A page tab (a diff, Settings) is named as its strip names it, never by
+    /// its `about:blank` address (cx-u1yn).
+    static func title(of tab: TabModel, pages: InternalPageTabStore) -> String {
+        pages.storeTabItem(tab)?.title ?? title(of: tab)
+    }
+
     static func title(of tab: TabModel) -> String {
         tab.kind == .browser && BrowserNewTabPage.isNewTabPage(tab.displayTitle) ? Strings.untitledBrowser : tab.displayTitle
     }

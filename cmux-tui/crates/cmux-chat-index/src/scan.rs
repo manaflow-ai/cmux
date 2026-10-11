@@ -94,3 +94,24 @@ pub fn scan_root(
     adapters::finish_scan(config.kind, &config.root, &mut scan.entries);
     Ok(scan)
 }
+
+/// The Chief's own harness sessions are not person chats (cx-eb0m): its turns run in
+/// `$MUX_HOME/optchat/session` and its compactors in `$TMPDIR/optchat-compact-<home id>/slot-<k>`
+/// (Native/OptChat/optchat-chief/README.md, file layout). On a harness that ignores the
+/// session's own config dir their transcripts land in the person's store, titled with the Chief's
+/// prompt markup (`0+1|user: …`, `</chat>`). `ChatIndex::merge` applies it, so every path
+/// (full scan, watcher update, cache) is covered. Only the exact shapes match: the folder ends in
+/// `optchat/session`, or in `optchat-compact-<id>/slot-<k>` or `optchat-compact-<id>/shared`.
+pub(crate) fn is_chief_session(entry: &ChatEntry) -> bool {
+    let Some(cwd) = entry.cwd.as_deref() else { return false };
+    let parts: Vec<&str> =
+        cwd.trim_end_matches('/').split('/').filter(|part| !part.is_empty()).collect();
+    match parts.as_slice() {
+        [.., "optchat", "session"] => true,
+        [.., compact, slot] => {
+            compact.starts_with("optchat-compact-")
+                && (*slot == "shared" || slot.starts_with("slot-"))
+        }
+        _ => false,
+    }
+}

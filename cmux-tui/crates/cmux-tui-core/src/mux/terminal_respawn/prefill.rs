@@ -2,9 +2,11 @@
 //! L2), typed without a newline so the user decides whether to run it:
 //! - the agent session it last ran, when its harness is known:
 //!   `claude --resume <id>` or `codex resume <id>`;
-//! - else, for a command terminal this daemon process launched, its argv,
-//!   shell-quoted. A later daemon has only the program name, which the
-//!   marker line names instead.
+//! - else, for a command terminal, its argv, shell-quoted: the full argv
+//!   when this daemon process launched it, else the relaunch record's argv
+//!   without credential-like arguments (`relaunch_store::stored_argv`). A
+//!   record without one has only the program name, which the marker line
+//!   names instead.
 //!
 //! The text is written once the new shell shows its prompt (OSC 133 marks
 //! from shell integration), or once its first output went quiet.
@@ -83,7 +85,8 @@ impl Mux {
         if record.kind != RelaunchKind::Command {
             return None;
         }
-        let text = shell_quoted(&self.terminal_respawns.argv(terminal_id)?)?;
+        let argv = self.terminal_respawns.argv(terminal_id).or_else(|| record.argv.clone())?;
+        let text = shell_quoted(&argv)?;
         Some(Prefill { kind: Prefilled::Command, text })
     }
 }

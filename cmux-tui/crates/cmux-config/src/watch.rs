@@ -20,7 +20,9 @@
 //! platforms use notify's recommended watcher (FSEvents, Windows directory
 //! changes), which reports no opens; its callback drops every event that is
 //! not about a watched name before it reaches the watch thread
-//! (`portable.rs`).
+//! (`portable.rs`). FSEvents reports everything below a watched directory, so
+//! on macOS a missing directory's nearest ancestor gets a kqueue vnode watch
+//! that fires only for its own entries (`ancestors.rs`).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
@@ -35,6 +37,8 @@ use crate::store::Change;
 mod inotify;
 #[cfg(target_os = "linux")]
 use inotify as backend;
+#[cfg(target_os = "macos")]
+mod ancestors;
 #[cfg(not(target_os = "linux"))]
 mod portable;
 #[cfg(not(target_os = "linux"))]
