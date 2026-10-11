@@ -46,6 +46,7 @@ import glob
 import json
 import os
 import plistlib
+import re
 import shlex
 import shutil
 import socket
@@ -107,7 +108,30 @@ def bundle_tag(app):
     prefix = "com.cmuxterm.app.debug."
     if not bundle_id.startswith(prefix):
         raise SystemExit(f"readiness-soak: {app} is {bundle_id!r}, not a tagged build ({prefix}<tag>)")
-    return bundle_id[len(prefix):], executable
+    # The app's own tag rule (ControlSocketPath.sanitize): lowercase, [^a-z0-9]+ -> "-".
+    return re.sub(r"[^a-z0-9]+", "-", bundle_id[len(prefix):].lower()).strip("-"), executable
+
+
+def own_copy(app, work):
+    """A copy of app in work with its own bundle id (<id>.soak<pid>), ad hoc signed like a capture slot's clone.
+
+    A tagged build's control socket, cmux-tui session and acpmux tag home all follow its bundle id, so any
+    other copy of the same build on the host (an installed cmux NEXT DEV) neither blocks the soak's copy nor
+    shares its daemons."""
+    copy = os.path.join(work, os.path.basename(app.rstrip("/")))
+    copied = run("ditto", app, copy, timeout=900)
+    if copied.returncode:
+        raise SystemExit(f"readiness-soak: copying {app} failed: {copied.stderr.strip()[-300:]}")
+    plist = os.path.join(copy, "Contents/Info.plist")
+    with open(plist, "rb") as handle:
+        info = plistlib.load(handle)
+    info["CFBundleIdentifier"] = f"{info.get('CFBundleIdentifier', '')}.soak{os.getpid()}"
+    with open(plist, "wb") as handle:
+        plistlib.dump(info, handle)
+    signed = run("codesign", "--force", "--deep", "--sign", "-", copy, timeout=900)
+    if signed.returncode:
+        raise SystemExit(f"readiness-soak: signing the copy failed: {signed.stderr.strip()[-300:]}")
+    return copy
 
 
 def acpmux_socket(home):
@@ -170,10 +194,6 @@ class Soak:
     def __init__(self, args):
         self.args = args
         self.app = os.path.realpath(args.app)
-        self.tag, executable = bundle_tag(self.app)
-        self.binary = os.path.join(self.app, "Contents/MacOS", executable)
-        self.tui = os.path.join(self.app, "Contents/Resources/bin/cmux-tui")
-        self.socket = args.socket or f"/tmp/cmux-debug-{self.tag}.sock"
         self.out = args.out
         os.makedirs(self.out, exist_ok=True)
         self.work = tempfile.mkdtemp(prefix="cmux-soak-")
@@ -194,6 +214,16 @@ class Soak:
 
     # ---- setup ---------------------------------------------------------------------------
 
+    def identify(self):
+        """Run this soak's own tagged copy of --app (own_copy) unless --same-tag."""
+        if not self.args.same_tag:
+            self.app = own_copy(self.app, self.work)
+        self.tag, executable = bundle_tag(self.app)
+        self.binary = os.path.join(self.app, "Contents/MacOS", executable)
+        self.tui = os.path.join(self.app, "Contents/Resources/bin/cmux-tui")
+        self.socket = self.args.socket or f"/tmp/cmux-debug-{self.tag}.sock"
+        self.setup["tag"] = self.tag
+
     def preflight(self):
         if run("launchctl", "print", f"gui/{os.getuid()}").returncode != 0:
             raise SystemExit("readiness-soak: no Aqua GUI session for this user")
@@ -204,6 +234,14 @@ class Soak:
             except OSError:
                 pass
         table = process_table()
+        # Two soaks on one host would measure each other.
+        parents, mine, pid = {p: pp for p, pp, _ in table}, set(), os.getpid()
+        while pid and pid not in mine:  # this soak and the shells that started it
+            mine.add(pid)
+            pid = parents.get(pid)
+        others = [pid for pid, _, cmd in table if "readiness-soak.py" in cmd and pid not in mine]
+        if others:
+            raise SystemExit(f"readiness-soak: another soak runs on this host (PID {others[0]})")
         if any(cmd.startswith(self.binary) for _, _, cmd in table):
             raise SystemExit(f"readiness-soak: {self.binary} is already running")
         self.webkit_before = {pid for pid, _, cmd in table if "com.apple.WebKit." in cmd}
@@ -490,6 +528,8 @@ class Soak:
             wanted, got = getattr(self.args, name), self.setup.get(name)
             if got != wanted:
                 failures.append(f"setup: {got} of {wanted} {name}")
+        if self.setup.get("error"):
+            failures = [f"setup stopped: {self.setup['error']}"]  # the rest follow from it
         hours = round((samples[-1]["elapsed_s"] if samples else 0) / 3600, 2)
         if hours < self.args.hours * 0.95:
             failures.append(f"ran {hours} h of {self.args.hours} h")
@@ -546,6 +586,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--app", required=True, help="a copy of a tagged cmux-next app (bundle com.cmuxterm.app.debug.<tag>)")
     parser.add_argument("--socket", help="the app's control socket (default /tmp/cmux-debug-<tag>.sock)")
+    parser.add_argument("--same-tag", action="store_true",
+                        help="run --app as it is instead of a copy with its own bundle id and tag")
     parser.add_argument("--hours", type=float, default=24)
     parser.add_argument("--agents", type=int, default=10)
     parser.add_argument("--terminals", type=int, default=10)
@@ -571,23 +613,31 @@ def main():
     parser.add_argument("--out", default=os.path.join(os.getcwd(), "readiness-soak"))
     args = parser.parse_args()
     soak = Soak(args)
-    soak.preflight()
-    teardown = TagTeardown(soak.app, acpmux_home=soak.acpmux_home, acpmux_socket=soak.acp.path, log=say)
-    teardown.install()
+    teardown = None
     result = {"ok": False}
     try:
+        soak.identify()
+        soak.preflight()
+        teardown = TagTeardown(soak.app, acpmux_home=soak.acpmux_home, acpmux_socket=soak.acp.path, log=say)
+        teardown.install()
         soak.launch()
         soak.start_terminals()
         soak.start_browsers()
         soak.start_agents()
         say(f"setup: {json.dumps(soak.setup)}")
         soak.loop()
+    except SystemExit as stop:
+        # A refused or failed setup still writes report.json and report.md, naming why.
+        soak.setup["error"] = str(stop.code)
+        raise
     finally:
         try:
             result = soak.report()
         finally:
-            soak.quit()
-            teardown.end()
+            if "identity" in soak.setup:
+                soak.quit()
+            if teardown:
+                teardown.end()
             shutil.rmtree(soak.work, ignore_errors=True)
     sys.exit(0 if result.get("ok") else 1)
 
