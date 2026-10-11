@@ -1,0 +1,126 @@
+import { useEffect, useRef } from "react";
+import { useT } from "./i18n";
+import { Icon } from "./icons/Icon";
+import type { FloatingState } from "./floatingState";
+
+/// What the compact bar shows of the chat: working, waiting on the user, or quiet.
+export type FloatingStatus = "streaming" | "attention" | "idle";
+
+/// Start Agent's floating chat around its page (cx-b9qi): the App's state and the page's asks.
+export interface QuickFloating {
+  readonly state: FloatingState;
+  readonly status: FloatingStatus;
+  readonly title: string;
+  /// The reply's last line, for the compact bar.
+  readonly line?: string;
+  setOnTop(onTop: boolean): void;
+  setCollapsed(collapsed: boolean): void;
+  moveToTab(): void;
+}
+
+/// The chat's state for the compact bar: an ask waiting on the user comes first, then a turn running.
+export function floatingStatus(waiting: boolean, running: boolean): FloatingStatus {
+  if (waiting) return "attention";
+  return running ? "streaming" : "idle";
+}
+
+/// The floating chat's keys while it holds a chat: ⌘J folds it to the compact bar and back, ⌘⇧P
+/// keeps it over other windows or not. They are the panel's own, like Return and Escape.
+export function useFloatingKeys(floating: QuickFloating | undefined) {
+  const latest = useRef(floating);
+  latest.current = floating;
+  const holding = floating?.state.holding === true;
+  useEffect(() => {
+    if (!holding) return;
+    const onKey = (event: KeyboardEvent) => {
+      const current = latest.current;
+      if (!current || event.isComposing || !event.metaKey || event.altKey || event.ctrlKey) return;
+      const key = event.key.toLowerCase();
+      if (key === "j" && !event.shiftKey) current.setCollapsed(!current.state.collapsed);
+      else if (key === "p" && event.shiftKey) current.setOnTop(!current.state.onTop);
+      else return;
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [holding]);
+}
+
+function StatusMark({ status }: { status: FloatingStatus }) {
+  const t = useT();
+  if (status === "idle") return null;
+  const label = t(status === "attention" ? "sidebar.markInput" : "sidebar.markRunning");
+  return (
+    <span className="acpmux-floating-status" data-status={status} role="status" aria-label={label} title={label} />
+  );
+}
+
+/// The open floating chat's header: its title, keep on top, fold to the compact bar, move to a tab.
+export function FloatingHeader({ floating }: { floating: QuickFloating }) {
+  const t = useT();
+  return (
+    <header className="acpmux-floating-header">
+      <StatusMark status={floating.status} />
+      <span className="acpmux-floating-title">{floating.title}</span>
+      <button
+        type="button"
+        className="acpmux-header-tool"
+        aria-label={t("floating.keepOnTop")}
+        aria-pressed={floating.state.onTop}
+        title={`${t("floating.keepOnTop")} ⌘⇧P`}
+        onClick={() => floating.setOnTop(!floating.state.onTop)}
+      >
+        <Icon name="action.pin" size={15} selected={floating.state.onTop} />
+      </button>
+      <button
+        type="button"
+        className="acpmux-header-tool"
+        aria-label={t("render.collapse")}
+        title={`${t("render.collapse")} ⌘J`}
+        onClick={() => floating.setCollapsed(true)}
+      >
+        <Icon name="disclosure.expanded" size={15} />
+      </button>
+      <button
+        type="button"
+        className="acpmux-header-tool"
+        aria-label={t("floating.moveToTab")}
+        title={`${t("floating.moveToTab")} ⌘↩`}
+        onClick={() => floating.moveToTab()}
+      >
+        <Icon name="link.open.newtab" size={15} />
+      </button>
+    </header>
+  );
+}
+
+/// The folded floating chat: one row with the chat's state, title and last line. A click or ⌘J opens it.
+export function FloatingCompactBar({ floating }: { floating: QuickFloating }) {
+  const t = useT();
+  return (
+    <div className="acpmux-floating-bar" data-status={floating.status}>
+      <button
+        type="button"
+        className="acpmux-floating-bar-open"
+        aria-label={`${t("render.expand")}: ${floating.title}`}
+        title={`${t("render.expand")} ⌘J`}
+        onClick={() => floating.setCollapsed(false)}
+      >
+        <StatusMark status={floating.status} />
+        <span className="acpmux-floating-title">{floating.title}</span>
+        {floating.line && <span className="acpmux-floating-line">{floating.line}</span>}
+      </button>
+      <button
+        type="button"
+        className="acpmux-header-tool"
+        aria-label={t("floating.keepOnTop")}
+        aria-pressed={floating.state.onTop}
+        title={`${t("floating.keepOnTop")} ⌘⇧P`}
+        onClick={() => floating.setOnTop(!floating.state.onTop)}
+      >
+        <Icon name="action.pin" size={15} selected={floating.state.onTop} />
+      </button>
+    </div>
+  );
+}
