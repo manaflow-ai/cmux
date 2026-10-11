@@ -32,6 +32,9 @@ SINGLETON = 'public final class Store {\n    public static let shared = Store()\
 NAMESPACE = 'public enum Helpers {\n    public static func run() {}\n}\n'
 ISOLATED_DEINIT = 'final class Owner {\n    isolated deinit {}\n}\n'
 CLEAN = 'public struct Clean {\n    public init() {}\n}\n'
+LOCKED = 'import Foundation\nfinal class Locked {\n    private let lock = NSLock()\n}\n'
+UNLOCKED = 'import Foundation\nfinal class Locked {\n    private let count = 0\n}\n'
+CONVENTIONS_BASELINE = 'scripts/lint-ios-package-conventions-baseline.txt'
 
 
 class Checkout:
@@ -118,8 +121,23 @@ class GateTests(unittest.TestCase):
 
     def test_conventions_pr_changing_the_rules_owns_every_violation(self):
         checkout = self.checkout({f'{IOS}/Store.swift': SINGLETON},
-                                 {'scripts/lint-ios-package-conventions-baseline.txt': '# edited\n'})
+                                 {'scripts/swift_source_mask.py':
+                                  (ROOT / 'scripts/swift_source_mask.py').read_text() + '# edited\n'})
         self.assertGate(checkout.gate('package-conventions-gate.sh', '--pr'), False, f'{IOS}/Store.swift')
+
+    def test_conventions_pr_paying_down_baselined_debt_passes_beside_base_debt(self):
+        entry = f'lock\t{IOS}/Locked.swift\tprivate let lock = NSLock()\n'
+        checkout = self.checkout({f'{IOS}/Store.swift': SINGLETON, f'{IOS}/Locked.swift': LOCKED,
+                                  CONVENTIONS_BASELINE: entry},
+                                 {f'{IOS}/Locked.swift': UNLOCKED, CONVENTIONS_BASELINE: ''})
+        self.assertGate(checkout.gate('package-conventions-gate.sh', '--pr'), True,
+                        '::warning', f'{IOS}/Store.swift')
+
+    def test_conventions_pr_dropping_another_files_baseline_entry_owns_it(self):
+        entry = f'lock\t{IOS}/Locked.swift\tprivate let lock = NSLock()\n'
+        checkout = self.checkout({f'{IOS}/Locked.swift': LOCKED, CONVENTIONS_BASELINE: entry},
+                                 {CONVENTIONS_BASELINE: ''})
+        self.assertGate(checkout.gate('package-conventions-gate.sh', '--pr'), False, f'{IOS}/Locked.swift')
 
     def test_conventions_without_pr_scope_fail_on_any_violation(self):
         checkout = self.checkout({f'{IOS}/Store.swift': SINGLETON})
@@ -133,6 +151,16 @@ class GateTests(unittest.TestCase):
     def test_crash_class_pr_adding_a_violation_fails(self):
         checkout = self.checkout({f'{NEXT}/Clean.swift': CLEAN}, {f'{NEXT}/Owner.swift': ISOLATED_DEINIT})
         self.assertGate(checkout.gate('crash-class-gate.sh', '--pr'), False, 'Owner.swift')
+
+    def test_crash_class_pr_whose_file_crashes_the_lint_fails(self):
+        checkout = self.checkout({f'{NEXT}/Owner.swift': ISOLATED_DEINIT, f'{NEXT}/Clean.swift': CLEAN})
+        checkout.git('checkout', '-q', '-b', 'pr')
+        (checkout.path / NEXT / 'Zed.swift').write_bytes(ISOLATED_DEINIT.encode() + b'// \xff\n')
+        checkout.git('add', '-A')
+        checkout.git('commit', '-q', '-m', 'pr')
+        checkout.git('checkout', '-q', 'base')
+        checkout.git('merge', '-q', '--no-ff', '-m', 'merge pr', 'pr')
+        self.assertGate(checkout.gate('crash-class-gate.sh', '--pr'), False)
 
     def test_crash_class_without_pr_scope_fails_on_any_violation(self):
         checkout = self.checkout({f'{NEXT}/Owner.swift': ISOLATED_DEINIT})
