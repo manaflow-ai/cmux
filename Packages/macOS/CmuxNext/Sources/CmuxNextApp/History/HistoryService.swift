@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextDaemon
 import CmuxNextHistory
 import Foundation
 
@@ -127,6 +128,14 @@ final class HistoryService {
         closedTabEntries() + closedScreenEntries() + closedWorkspaceEntries() + daemonClosedEntries()
     }
 
+    /// A daemon closed item's title and detail line.
+    static func daemonClosedText(_ item: CmuxNextDaemon.ClosedItem, pages: InternalPageTabStore) -> (title: String, detail: String?) {
+        let tab = item.tabs.first
+        let title = item.group.map { WorkspaceGroupUndo.historyTitle($0.name) }
+            ?? item.name ?? tab?.name ?? tab?.url ?? tab?.cwd ?? Strings.untitledTerminal
+        return (title, tab?.url ?? tab?.cwd)
+    }
+
     /// Closed tabs, screens and workspaces a daemon records
     /// (`closed-history-v1`); the app's own trackers skip those daemons.
     private func daemonClosedEntries() -> [HistoryEntry] {
@@ -137,14 +146,13 @@ final class HistoryService {
             case .screen: .screen
             case .workspace: .workspace
             }
-            let title = item.group.map { WorkspaceGroupUndo.historyTitle($0.name) }
-                ?? item.name ?? tab?.name ?? tab?.url ?? tab?.cwd ?? Strings.untitledTerminal
+            let (title, detail) = Self.daemonClosedText(item, pages: services.pages)
             let closed = CmuxNextHistory.ClosedItem(id: DaemonClosedHistory.historyID(item.id), kind: kind, title: title,
                                                     machine: entry.daemon.machineID, cwd: tab?.cwd, url: tab?.url)
             let local = entry.daemon.machineID == MachineRegistry.localID
             return HistoryEntry(id: "closed:daemon:\(item.id)", kind: .closed,
                                 time: Date(timeIntervalSince1970: Double(item.closedAtMs) / 1000), title: title,
-                                detail: tab?.url ?? tab?.cwd, machineName: local ? nil : entry.daemon.machineID,
+                                detail: detail, machineName: local ? nil : entry.daemon.machineID,
                                 payload: .closed(closed))
         }
     }
