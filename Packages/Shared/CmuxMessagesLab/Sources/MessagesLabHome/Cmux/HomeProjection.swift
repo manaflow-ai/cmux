@@ -236,7 +236,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         let pendingLocal = store.state.conversation.messages.filter { m in
             aliases.contains { $0.value == m.id } && !msgs.contains { $0.id == m.id }
         }
-        controller.dispatch(.replaceWindow(msgs + pendingLocal, start: HomeMapping.window(shown, summary: shownSummary).start))
+        controller.dispatch(.replaceWindow(msgs + pendingLocal, start: HomeMapping.window(shown).start))
         if pinned {
             controller.dispatch(.setScroll(offset: 0, pinned: true))
             demo.pinToBottom()
@@ -569,7 +569,7 @@ struct ProjectionCore {
         let conv = Conversation(id: id.rawValue, title: HomeMapping.title(summary, me: me),
                                 participants: HomeMapping.participants(summary, me: me),
                                 messages: items.map { HomeMapping.message($0, aliases: aliases, me: me, summary: summary, media: media, links: links, roots: roots) })
-        return (conv, HomeMapping.window(items, summary: summary))
+        return (conv, HomeMapping.window(items))
     }
 
     /// The actions from the shown snapshot to this one.
