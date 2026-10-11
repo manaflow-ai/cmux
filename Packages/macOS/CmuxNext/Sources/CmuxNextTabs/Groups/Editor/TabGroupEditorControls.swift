@@ -56,7 +56,7 @@ final class TabGroupSwatchView: NSView {
 
     private func updateColors() {
         performWithTheme {
-            fill.backgroundColor = color.swatch.cgColor
+            fill.backgroundColor = color.headerFill.cgColor
             ring.borderColor = (isChosen ? Palette.textPrimary : (isHovered ? Palette.separator : NSColor.clear)).cgColor
         }
         setAccessibilityValue(isChosen ? 1 : 0)
