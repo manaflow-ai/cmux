@@ -29,15 +29,15 @@ curl --fail --location --proto '=https' --tlsv1.2 --silent --show-error \
 
 unpacked="$tmp/unpacked"
 mkdir -p "$unpacked"
-/usr/bin/ditto -x -k "$archive" "$unpacked"
+ditto -x -k "$archive" "$unpacked"
 downloaded="$(find "$unpacked" -maxdepth 2 -type d -name "$app_name" -print -quit)"
 [[ -d "$downloaded" ]] || { echo "cmux NEXT DEV app not found in $archive_name" >&2; exit 1; }
-actual_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$downloaded/Contents/Info.plist")"
+actual_id="$(plutil -extract CFBundleIdentifier raw -o - "$downloaded/Contents/Info.plist")"
 [[ "$actual_id" == com.cmuxterm.app.debug.next ]] || {
   echo "unexpected cmux NEXT DEV bundle id: $actual_id" >&2
   exit 1
 }
-/usr/bin/codesign --verify --deep --strict "$downloaded"
+codesign --verify --deep --strict "$downloaded"
 
 mkdir -p "$(dirname "$app_path")"
 osascript -e 'tell application "cmux NEXT DEV" to quit' >/dev/null 2>&1 || true
@@ -51,7 +51,7 @@ done
 staged="$(dirname "$app_path")/.cmux NEXT DEV.app.new.$$"
 backup="$(dirname "$app_path")/.cmux NEXT DEV.app.old.$$"
 rm -rf -- "$staged" "$backup"
-/usr/bin/ditto "$downloaded" "$staged"
+ditto "$downloaded" "$staged"
 if [[ -e "$app_path" ]]; then
   mv "$app_path" "$backup"
 fi
