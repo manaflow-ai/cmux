@@ -226,6 +226,10 @@ export default componentEntry<Props>({
           value: 80,
           reason: "The first open decodes the bundled emoji table (~290 KB JSON) once; later opens reuse it.",
         },
+        layoutShiftMax: {
+          value: 0.05,
+          reason: "Typing filters the grid a letter at a time, so the cells it keeps move to new places.",
+        },
       },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector('.hc-main [data-bar="emoji"]'));

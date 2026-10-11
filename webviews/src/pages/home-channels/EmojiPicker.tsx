@@ -38,9 +38,10 @@ export function EmojiPicker({ anchor, emoji, strings, onPick, onClose }: EmojiPi
     [emoji, query],
   );
   const label = strings.t("emoji.title");
-  // Return in the search picks the first result.
+  // Return in the search picks the first result (not the Return that ends an IME composition).
   const searchKeys = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === "Enter" && !event.nativeEvent.isComposing && results[0]) {
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+    if (event.key === "Enter" && results[0]) {
       event.preventDefault();
       onPick(results[0].emoji);
     }
