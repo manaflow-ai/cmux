@@ -62,6 +62,7 @@ import type { ComposerAttachment } from "./attachments";
 import { ComposerPickers, PICKER_LABELS } from "./ComposerPickers";
 import { openPicker } from "./pickerOpeners";
 import { EmptyState, type EmptyStateProjects, isNewChat, projectName } from "./EmptyState";
+import { PastChat, type PastTurn, readPastTurns } from "./PastChat";
 import type { Project } from "./ProjectChooser";
 import { HomeLists } from "./HomeLists";
 import { turnFiles, turnRows, type TurnFile } from "./diff";
@@ -1511,6 +1512,7 @@ function AcpmuxPane() {
   const [chooseFolder, setChooseFolder] = useState(false);
   /// A chat that opened without its folder (cx-nn3e.1): acpmux's reason, until a pick works.
   const [folderNeeded, setFolderNeeded] = useState<{ reason: string; error?: string }>();
+  const [pastTurns, setPastTurns] = useState<PastTurn[]>();
   /// The host's localized refusal of the last Choose Folder… click.
   const [folderError, setFolderError] = useState<string | undefined>();
   /// A folder the user picked that waits for their answer (startFolder.tsx): the question shows
@@ -2509,6 +2511,7 @@ function AcpmuxPane() {
           revealTurn?: unknown;
           chooseFolder?: boolean;
           folderNeeded?: { reason?: unknown };
+          pastTurns?: unknown;
           machineName?: unknown;
           githubRepository?: unknown;
         }>("ready", reconnect ? { reconnect } : {});
@@ -2522,6 +2525,7 @@ function AcpmuxPane() {
             ? { reason: host.folderNeeded.reason }
             : undefined,
         );
+        setPastTurns(host.sessionId ? undefined : readPastTurns(host.pastTurns));
         setHandshaken(true);
         handshakenRef.current = true;
         // Submits made on the New Tab page before acpmux answered go now, in order.
@@ -4004,6 +4008,8 @@ function AcpmuxPane() {
                       ignoreFailure(callNative("chat.handoff.get").then(() => setReviewReload((value) => value + 1)))
                     }
                   />
+                ) : freshView && pastTurns ? (
+                  <PastChat turns={pastTurns} {...(githubRepository ? { githubRepository } : {})} />
                 ) : freshView ? (
                   <EmptyState project={projectName(composerSnapshot.summary?.cwd)} picker={heroPicker} />
                 ) : (
