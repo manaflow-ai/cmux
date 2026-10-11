@@ -52,6 +52,37 @@ jobs:
               branch: source,
               per_page: 100,
             });
+            // Publish: GitHub starts no workflow_run for a run that GITHUB_TOKEN
+            // dispatched, so cmux-next-dev-daily.yml never fires for these runs
+            // by itself. Hand it the newest finished dev run, once per run.
+            const finishedDev = data.workflow_runs.find((run) =>
+              run.status === 'completed' && run.conclusion !== 'cancelled' &&
+              (run.name === `cmux NEXT DEV daily · ${run.head_sha}` ||
+               run.display_title === `cmux NEXT DEV daily · ${run.head_sha}`));
+            if (finishedDev) {
+              const publishTitle = `cmux NEXT DEV daily · publish ${finishedDev.id}`;
+              const { data: published } = await github.rest.actions.listWorkflowRuns({
+                owner,
+                repo,
+                workflow_id: 'cmux-next-dev-daily.yml',
+                event: 'workflow_dispatch',
+                per_page: 100,
+              });
+              const handled = (run) => (run.name === publishTitle || run.display_title === publishTitle) &&
+                !(run.status === 'completed' && run.conclusion === 'cancelled');
+              if (published.workflow_runs.some(handled)) {
+                core.notice(`Source run ${finishedDev.id} (${finishedDev.head_sha}) already went to the publisher`);
+              } else {
+                await github.rest.actions.createWorkflowDispatch({
+                  owner,
+                  repo,
+                  workflow_id: 'cmux-next-dev-daily.yml',
+                  ref: context.payload.repository?.default_branch || 'main',
+                  inputs: { source_run_id: String(finishedDev.id) },
+                });
+                core.notice(`Requested publication of source run ${finishedDev.id} (${finishedDev.head_sha})`);
+              }
+            }
             // The run name carries the requested SHA; head_sha is the commit
             // the run checked out. A dev run counts only when both are this tip.
             const devTitle = `cmux NEXT DEV daily · ${sha}`;
@@ -69,7 +100,8 @@ jobs:
               owner,
               repo,
               workflow_id: workflow,
-              ref: source,
+              // Fully qualified: a tag named feat-cmux-next must never be picked.
+              ref: `refs/heads/${source}`,
               inputs: { dev_daily: 'true', dev_daily_sha: sha },
             });
             core.notice(`Requested cmux NEXT DEV Release build for feat-cmux-next ${sha}`);

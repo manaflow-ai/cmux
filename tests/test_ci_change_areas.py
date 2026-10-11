@@ -685,12 +685,14 @@ def test_operational_ci_helpers_skip_product_areas() -> None:
     # Janitors, census/reporting and registry validation run only in Linux
     # workflows and are never read by the Xcode product.
     for path in (
+        "scripts/ci/actions_artifact_prune.py",
         "scripts/ci/cleanup-stale-runs.py",
         "scripts/ci/queue_janitor.py",
         "scripts/ci/triage-radar.py",
         "scripts/ci/notify-indexnow.py",
         "scripts/ci/r2_cache_census.py",
         "scripts/ci/r2_cache_prune.py",
+        "scripts/ci/cmux_binaries_prune.py",
         "scripts/ci/r2_storage_census.py",
         "scripts/ci/verify-r2-canary.py",
         "scripts/ci/build_graph_health.py",
