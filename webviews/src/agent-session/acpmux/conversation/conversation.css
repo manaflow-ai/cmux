@@ -122,6 +122,97 @@
   color: var(--cv-text);
 }
 
+/* ---------- Side preview panel (ArtifactPanel.tsx) ---------- */
+/* Beside the chat and its composer; a narrow pane gives it the whole width. */
+.acpmux-artifact {
+  flex: 0 0 clamp(320px, 46%, 760px);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  box-shadow: inset 1px 0 0 var(--agent-border);
+  background: var(--agent-page-bg);
+  color: var(--agent-text);
+  font-family: var(--cv-font);
+}
+@media (max-width: 720px) {
+  .acpmux-artifact {
+    position: absolute;
+    inset: 0;
+    z-index: var(--layer-overlay);
+    box-shadow: none;
+  }
+}
+.acpmux-artifact-bar {
+  flex: 0 0 44px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px 0 14px;
+  box-sizing: border-box;
+}
+.acpmux-artifact-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+.acpmux-artifact-tabs {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--acpmux-composer-tray);
+}
+.acpmux-artifact-tab {
+  all: unset;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-size: var(--text-detail);
+  line-height: 24px;
+  color: var(--agent-muted);
+  cursor: pointer;
+}
+.acpmux-artifact-tab[aria-pressed="true"] {
+  background: var(--agent-page-bg);
+  color: var(--agent-text);
+}
+.acpmux-artifact-tab:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
+}
+.acpmux-artifact-actions {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+}
+.acpmux-artifact-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
+.acpmux-artifact-body > .cv-codeblock {
+  margin: 0 12px 12px;
+}
+.acpmux-artifact-doc {
+  padding: 4px 20px 20px;
+}
+.acpmux-artifact-run {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.acpmux-artifact-frame {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  background: transparent;
 /* Copy and Edit under a prompt (cx-ncc.60): shown while the pointer is over the prompt or a key
    reached them, as Claude's. */
 .cv-user__actions {
@@ -570,7 +661,9 @@ pre.cv-math-source {
   outline-offset: -1.5px;
   border-radius: 8px;
 }
-.acpmux-row__copy {
+/* Scoped to the row so it outranks .cv-iconbtn's `all: unset`, which comes later in this file and
+   otherwise put the button back in the flow, shown at rest. */
+.acpmux-row .acpmux-row__copy {
   position: absolute;
   z-index: var(--layer-raised);
   top: 0;
@@ -583,7 +676,7 @@ pre.cv-math-source {
   opacity: 1;
 }
 @media (prefers-reduced-motion: no-preference) {
-  .acpmux-row__copy {
+  .acpmux-row .acpmux-row__copy {
     transition: opacity 120ms ease-out;
   }
 }
@@ -993,6 +1086,13 @@ pre.cv-math-source {
   width: 20px;
   height: 20px;
   border-radius: 5px;
+}
+/* Retry's model menu (TurnRows.tsx): a narrow chevron that sits against Retry. */
+.cv-iconbtn.cv-turn-retry-menu {
+  width: 14px;
+  min-width: 0;
+  padding: 0;
+  margin-left: -3px;
 }
 .cv-iconbtn:hover {
   color: var(--cv-text);
