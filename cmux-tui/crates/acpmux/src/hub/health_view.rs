@@ -39,8 +39,46 @@ impl Hub {
         json!({"harnesses": rows})
     }
 
-    /// The daemon's check: at start, then every `REFRESH_EVERY`.
-    pub async fn run_health(self: Arc<Self>) {
+    /// The daemon's background harness checks.
+    ///
+    /// The ACP Registry (`registry.rs`): fetched once per daemon start; a copy
+    /// that changes which installed agents are harnesses reloads them (and
+    /// only then: a reload restarts pooled sessions).
+    /// `ACPMUX_REGISTRY_FETCH=0` keeps the cached copy.
+    ///
+    /// Agent CLI health: checked now and every `REFRESH_EVERY`.
+    /// `ACPMUX_HEALTH_FETCH=0` keeps newest-version lookups off (the local
+    /// checks still run).
+    pub fn start_harness_checks(self: &Arc<Self>) {
+        let home = crate::config::home;
+        if !std::env::var("ACPMUX_REGISTRY_FETCH").is_ok_and(|v| v == "0") {
+            let hub = self.clone();
+            tokio::spawn(async move {
+                let installed =
+                    || tokio::task::spawn_blocking(|| crate::registry::installed(&home()));
+                let before = installed().await.ok();
+                match crate::registry::refresh(&home()).await {
+                    Ok(true) if installed().await.ok() != before => {
+                        if let Err(e) = hub.reload_catalog().await {
+                            tracing::warn!(error = %e.message, "harness reload after the ACP Registry refresh");
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(e) => tracing::info!(error = %e, "ACP Registry not refreshed"),
+                }
+            });
+        }
+        let fetch_latest = !std::env::var("ACPMUX_HEALTH_FETCH").is_ok_and(|v| v == "0");
+        self.health.attach(crate::harness_health::Settings {
+            sources: fetch_latest.then(crate::harness_health::latest::Sources::public),
+            cache: Some(home().join("harness-health.json")),
+            home: dirs::home_dir().unwrap_or_default(),
+        });
+        tokio::spawn(self.clone().run_health());
+    }
+
+    /// The health check: at start, then every `REFRESH_EVERY`.
+    async fn run_health(self: Arc<Self>) {
         let mut every = tokio::time::interval(REFRESH_EVERY);
         every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {

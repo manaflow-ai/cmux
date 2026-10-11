@@ -42,6 +42,16 @@ fn joined(e: tokio::task::JoinError) -> RpcError {
     RpcError::internal(e.to_string())
 }
 
+/// The methods `handle` answers.
+pub(super) const METHODS: &[&str] = &[
+    method::MUX_HARNESS_ADD,
+    method::MUX_HARNESS_REMOVE,
+    method::MUX_HARNESS_RESTORE,
+    method::MUX_HARNESS_DOCTOR,
+    method::MUX_REGISTRY,
+    method::MUX_HARNESS_HEALTH,
+];
+
 pub(super) async fn handle(
     hub: &Arc<Hub>,
     origin: Origin,
