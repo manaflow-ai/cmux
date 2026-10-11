@@ -8,6 +8,9 @@ use super::*;
 // Side questions fork the chat too, and share its Claude helpers.
 #[path = "aside.rs"]
 mod aside;
+// The context window a Claude chat reports, which shares these helpers too.
+#[path = "context_window.rs"]
+mod context_window;
 
 const FORK_OP: &str = "acp.session.fork";
 

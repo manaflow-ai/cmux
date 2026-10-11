@@ -144,7 +144,18 @@ for line in sys.stdin:
             except OSError:
                 result["cwd"] = "denied"
             text = json.dumps(result)
+        # "usage-probe": the token usage Claude Code streams and the context window its result
+        # reports for each model the turn used (the chat's own and a smaller subagent model).
+        usage = said.strip() == "usage-probe"
+        if usage:
+            send({"type": "stream_event", "event": {"type": "message_delta", "usage": {
+                "input_tokens": 1200, "cache_read_input_tokens": 3000, "cache_creation_input_tokens": 0,
+                "output_tokens": 300}}})
         send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
                                                  "delta": {"type": "text_delta", "text": text}}})
-        send({"type": "result", "subtype": "success", "result": text, "num_turns": 1, "duration_api_ms": 1,
-              "usage": {"input_tokens": 1, "output_tokens": 1}})
+        result = {"type": "result", "subtype": "success", "result": text, "num_turns": 1, "duration_api_ms": 1,
+                  "usage": {"input_tokens": 1, "output_tokens": 1}}
+        if usage:
+            result["modelUsage"] = {"claude-haiku": {"inputTokens": 50, "contextWindow": 100000},
+                                    "fake": {"inputTokens": 1200, "contextWindow": 200000}}
+        send(result)
