@@ -1,7 +1,7 @@
 //! Narrow C ABI for `cmux-layout-reducer`'s sidebar drop resolver
 //! (`sidebar_drop`) and sidebar section layout reducer (`sidebar_layout`).
 
-use cmux_layout_reducer::{sidebar_drop, sidebar_layout};
+use cmux_layout_reducer::{sidebar_drag, sidebar_drop, sidebar_layout};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 pub const ABI_VERSION: u32 = 1;
@@ -89,6 +89,12 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: sidebar_drop::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&sidebar_drop::resolve(&request)).map_err(|_| ERR_INVALID)?
+            }
+            b"resolve_drag" => {
+                let request: sidebar_drag::DragRequest =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_drag::resolve_drag(&request))
+                    .map_err(|_| ERR_INVALID)?
             }
             b"tab_drop" => {
                 let request: sidebar_drop::TabRequest =
