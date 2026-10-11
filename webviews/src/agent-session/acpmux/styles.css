@@ -66,7 +66,7 @@
 .acpmux-mode .acpmux-picker-button{gap:6px;padding:0 8px 0 6px;color:var(--agent-muted)}
 .acpmux-plan{display:flex;align-items:center;gap:6px;height:28px;padding:0 8px 0 6px;border:0;border-radius:14px;background:none;color:var(--agent-muted);font:inherit;cursor:pointer;white-space:nowrap}
 .acpmux-plan:hover{background:var(--acpmux-composer-hover);color:var(--agent-text)}
-.acpmux-plan[aria-pressed=true]{background:color-mix(in srgb,var(--agent-highlight,var(--agent-text)) 16%,transparent);color:var(--agent-highlight,var(--agent-text))}
+.acpmux-plan[aria-pressed=true]{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 16%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--agent-accent,var(--agent-text)) 45%,transparent);color:var(--agent-accent,var(--agent-text))}
 .acpmux-separator{flex:none;width:1px;height:18px;margin:0 4px;background:var(--acpmux-composer-edge)}
 .acpmux-chips>.acpmux-plan+.acpmux-chips-spacer,.acpmux-chips>.acpmux-mode+.acpmux-chips-spacer{margin-left:0}
 .acpmux-mode.acpmux-unrestricted .acpmux-picker-button{color:var(--acpmux-warning)}
@@ -201,6 +201,10 @@
 .acpmux-queued-action{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:0;border-radius:6px;background:none;color:var(--acpmux-composer-dim);cursor:default}
 .acpmux-queued-action:hover{background:var(--agent-control-hover);color:var(--agent-text)}
 .acpmux-queued-action:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1px}
+.acpmux-queue-paused{display:flex;align-items:center;gap:8px;min-height:26px;padding:0 8px 0 34px;box-sizing:border-box;color:var(--agent-warning,var(--acpmux-composer-dim));font-size:var(--text-detail)}
+.acpmux-queue-resume{margin-left:auto;height:22px;padding:0 8px;border:0;border-radius:6px;background:none;color:var(--agent-text);font:inherit;cursor:default}
+.acpmux-queue-resume:hover{background:var(--agent-control-hover)}
+.acpmux-queue-resume:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1px}
 .acpmux-sidebar-project>svg{flex:none;color:var(--agent-muted)}.acpmux-sidebar-project>span:not(.acpmux-session-mark){flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}.acpmux-rail{flex:0 0 48px;display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 0;box-sizing:border-box}.acpmux-rail-button{position:relative;display:grid;place-items:center;width:34px;height:34px;padding:0;border:0;border-radius:9px;background:none;color:var(--agent-muted);cursor:default}.acpmux-rail-button:hover:not(:disabled){background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}.acpmux-rail-button[aria-current=page]{background:color-mix(in srgb,var(--agent-text) 9%,transparent);color:var(--agent-text)}.acpmux-rail-button:focus-visible,.acpmux-sidebar-action:focus-visible{outline:2px solid color-mix(in srgb,var(--agent-text) 40%,transparent);outline-offset:-2px}.acpmux-rail-button:disabled{opacity:.4}.acpmux-rail-dot{position:absolute;top:6px;right:6px;width:6px;height:6px;border-radius:50%;background:var(--agent-warning,var(--agent-accent))}.acpmux-sidebar-body{flex:1;min-width:0;display:flex;flex-direction:column}.acpmux-sidebar-scroll{flex:1;min-height:0;overflow:auto;padding:10px 8px 16px 0}.acpmux-sidebar-action{display:flex;align-items:center;gap:8px;width:100%;height:30px;margin-bottom:6px;padding:0 9px;border:0;border-radius:8px;background:none;color:var(--agent-text);font:inherit;letter-spacing:inherit;cursor:default}.acpmux-sidebar-action svg{flex:none;color:var(--agent-soft)}.acpmux-sidebar-action:hover{background:color-mix(in srgb,var(--agent-text) 5%,transparent)}.acpmux-sidebar-title{display:flex;align-items:center;height:30px;margin:0 0 6px;padding:0 9px;font-size:13px;font-weight:600}.acpmux-session-row.is-flat{padding-left:9px}.acpmux-session-trailing{flex:none;color:var(--agent-muted);font-size:12px;font-variant-numeric:tabular-nums}.acpmux-account{flex:none;display:flex;align-items:center;gap:8px;height:48px;padding:0 17px 0 9px}.acpmux-avatar{flex:none;display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:color-mix(in srgb,var(--agent-text) 14%,transparent);color:var(--agent-text);font-size:12px;font-weight:600}.acpmux-account-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}.acpmux-account-detail{flex:none;color:var(--agent-muted)}.acpmux-account-detail::before{content:"· "}.acpmux-hidden-label{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 /* New chat (EmptyState.tsx): a centered hero, small and muted, in place of the empty transcript. */
 .acpmux-empty{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:0 24px 6%;box-sizing:border-box;text-align:center;font-family:system-ui,-apple-system,"Helvetica Neue",sans-serif;-webkit-font-smoothing:antialiased}
@@ -262,8 +266,8 @@
 .acpmux-context-worktree{display:flex;align-items:center;gap:8px;margin-left:auto;padding-right:4px;color:var(--agent-muted);white-space:nowrap}
 .acpmux-switch{position:relative;width:26px;height:16px;border-radius:8px;background:color-mix(in srgb,var(--agent-text) 18%,transparent)}
 .acpmux-switch::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:var(--agent-text);opacity:.7}
-.acpmux-on .acpmux-switch{background:var(--agent-highlight,var(--agent-text))}
-.acpmux-on .acpmux-switch::after{left:12px;background:var(--agent-highlight-text,var(--acpmux-base));opacity:1}
+.acpmux-on .acpmux-switch{background:var(--agent-accent,var(--agent-text))}
+.acpmux-on .acpmux-switch::after{left:12px;background:var(--agent-on-accent,var(--acpmux-base));opacity:1}
 .acpmux-on{color:var(--agent-text)}
 
 .acpmux-menu-item .acpmux-icon:first-child{color:var(--agent-muted)}
@@ -389,7 +393,7 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-live-chat p{margin:0}
 .acpmux-live-chat-command{display:block;margin:4px 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:11px var(--font-mono);color:var(--agent-muted)}
 .acpmux-live-chat-actions{display:flex;gap:12px}
-.acpmux-turn-revealed{background:color-mix(in srgb,var(--agent-highlight,var(--agent-text)) 10%,transparent)}@media (prefers-reduced-motion:no-preference){.acpmux-turn-revealed{transition:background-color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}}
+.acpmux-turn-revealed{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 10%,transparent)}@media (prefers-reduced-motion:no-preference){.acpmux-turn-revealed{transition:background-color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}}
 /* The host's error while it cannot hand the pane acpmux (HostError.tsx), laid out like the permission card. */
 .acpmux-host-error{padding:0 max(18px,calc((100% - 760px)/2)) 8px}.acpmux-host-error-card{padding:11px 12px;border:1px solid color-mix(in srgb,var(--agent-danger) 46%,transparent);border-radius:12px;background:color-mix(in srgb,var(--agent-danger) 8%,var(--agent-page-bg))}.acpmux-host-error-card p{margin:0;line-height:18px;overflow-wrap:anywhere;user-select:text;-webkit-user-select:text}.acpmux-host-error-message{color:var(--agent-text)}.acpmux-host-error-hint{margin-top:4px!important;color:var(--agent-muted);font-size:12px}.acpmux-host-error-card button{margin-top:9px;border:0;border-radius:999px;padding:6px 12px;background:var(--agent-accent);color:var(--agent-accent-text,#fff);font:inherit;cursor:default}.acpmux-host-error-card button:focus-visible{outline:2px solid color-mix(in srgb,var(--agent-text) 40%,transparent);outline-offset:2px}
 .acpmux-host-error-card button:disabled{opacity:.6}

@@ -82,6 +82,10 @@ impl Session {
     pub fn queue(&self) -> Vec<QueuedPrompt> {
         self.queue.lock().unwrap().clone()
     }
+    /// A failed turn holds the prompts that waited behind it (`queue.rs` `pause_queue`).
+    pub fn queue_paused(&self) -> bool {
+        self.queue.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|q| q.held)
+    }
     pub fn pending_permissions(&self) -> Vec<(String, Value)> {
         self.permissions
             .lock()

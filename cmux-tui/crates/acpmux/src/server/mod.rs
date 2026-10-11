@@ -878,7 +878,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             | "tags"
             | "turn_started"
             | "turn_result" => rec.kind.as_str(),
-            "queued" | "dequeued" | "queue_removed" | "queue_updated" | "queue_order" => "queue",
+            k if k == "dequeued" || k.starts_with("queue") => "queue",
             "permission_auto" => "permission_resolved",
             "permission_reissued" => "permission_request",
             _ => return,

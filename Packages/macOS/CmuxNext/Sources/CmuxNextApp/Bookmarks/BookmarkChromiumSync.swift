@@ -20,7 +20,8 @@ import CmuxNextWakeups
 /// whose cmux tree is not loaded yet waits, and is synced once it is.
 final class BookmarkChromiumSync {
     static let settle: Duration = .milliseconds(400)
-    private unowned let service: BookmarkService
+    /// Weak: the service owns this sync; after it is gone every entry point returns.
+    private weak var service: BookmarkService?
     private let bridge = CEFBookmarkBridge.shared
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "bookmarks")
     /// Store to its cmux profile, for stores whose sync waits for the tree to load.
@@ -58,12 +59,14 @@ final class BookmarkChromiumSync {
     /// Syncs the waiting stores whose tree is loaded; reading the others
     /// starts their fetch again when one failed or found no connection.
     private func retryWaiting() {
+        guard let service else { return }
         for (store, profile) in waiting {
             if service.isLoaded(profile) { schedule(store, profile: profile) } else { _ = service.tree(profile) }
         }
     }
 
     private func handle(_ event: CEFBookmarkEvent, profile: String, store: String) {
+        guard let service else { return }
         // Chromium is still changing this store: its sync waits until it settles.
         defer { schedule(store, profile: profile) }
         // Before cmux's tree is loaded a change would land on an empty
@@ -103,6 +106,7 @@ final class BookmarkChromiumSync {
     }
 
     private func create(_ node: CEFBookmarkNode, profile: String) throws {
+        guard let service else { return }
         let id = Self.cmuxID(node.id), parent = Self.cmuxID(node.parent)
         guard service.tree(profile).node(id) == nil else { return }
         let created = node.addedMs.map { Date(timeIntervalSince1970: $0 / 1000) } ?? Date()
@@ -133,6 +137,7 @@ final class BookmarkChromiumSync {
     /// empty Chromium's model. Reading the tree starts its fetch, whose
     /// `changed` comes back here.
     private func sync(_ store: String, profile: String) {
+        guard let service else { return }
         guard service.isLoaded(profile) else {
             waiting[store] = profile
             _ = service.tree(profile)

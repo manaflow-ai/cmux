@@ -352,9 +352,16 @@ extension AgentPaneTransport {
         guard let session = sessionId, let permission = box.param("permissionId"), let option = box.param("optionId"),
               let context = decisions.context(session: session, permission: permission),
               context.instance != decisions.localInstance else { return }
-        guard ticketPick, let machine = remoteApprovals?.machineID,
+        // No key bound for the chat's machine and the run that asks: approvals are off there.
+        guard let machine = remoteApprovals?.machineID,
               let key = AcpmuxRemotePersonKeys.shared.key(machine: machine, instance: context.instance) else {
             onRemoteApprovalsOff?(remoteApprovals)
+            return
+        }
+        // A bound key, but no ticket for this pick: the allow goes unproved and that daemon
+        // refuses it. Approvals are on there, so the pane shows no notice.
+        guard ticketPick else {
+            Self.logger.info("agent pane transport relayed allow without the person's ticket: sent without a proof")
             return
         }
         let proof = key.decisionProof(instance: context.instance, session: session, permission: permission, option: option,

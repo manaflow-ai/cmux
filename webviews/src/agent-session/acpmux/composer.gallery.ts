@@ -81,6 +81,7 @@ export default agentPaneEntry({
   covers: [
     "agent-session/acpmux/Composer.tsx#Composer",
     "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
+    "agent-session/acpmux/ComposerPickers.tsx#Picker",
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
     "agent-session/acpmux/composer/PromptEditor.tsx",
     "agent-session/acpmux/MarkdownField.tsx",
@@ -314,6 +315,18 @@ export default agentPaneEntry({
           { id: "q2", prompt: "And update the README" },
         ],
       }),
+    },
+    "queued-paused": {
+      note: "A turn failed with prompts queued: they wait, in order, until Resume. A prompt sent meanwhile runs now.",
+      snapshot: (() => {
+        const failed = steering(true);
+        return {
+          ...failed,
+          isWorking: false,
+          summary: { ...failed.summary!, status: "ready", queuePaused: true },
+          queue: waiting,
+        };
+      })(),
     },
     "queued-keyboard": {
       note: "Play: ↑ from the empty prompt reaches the last queued prompt, ↑ again the one before; Return edits it in its row (Return saves, Esc cancels). On a row, ⌥↑/⌥↓ move it, ⌘Return sends it now and Delete removes it.",

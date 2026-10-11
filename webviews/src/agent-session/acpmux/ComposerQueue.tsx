@@ -5,11 +5,14 @@
 // Keyboard first: ↑ on an empty prompt goes to the last row; on a row, ↑/↓ move between rows (↓
 // past the last goes back to the prompt), Return edits it in place, ⌥↑/⌥↓ move it in the queue,
 // ⌘Return sends it now and Delete removes it. Esc goes back to the prompt.
+//
+// After a failed turn acpmux pauses the queue: a note above the rows says so, with Resume.
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "./icons/Icon";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import type { Translate } from "./i18n";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
+import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 
 type QueuedEntry = AcpmuxSnapshot["queue"][number];
 
@@ -22,6 +25,7 @@ function titleWhenTruncated(event: React.PointerEvent<HTMLElement>, prompt: stri
 
 export function ComposerQueue({
   queue,
+  paused,
   t,
   onRemove,
   onChange,
@@ -29,6 +33,8 @@ export function ComposerQueue({
   onLeave,
 }: {
   queue: AcpmuxSnapshot["queue"];
+  /// A turn failed and the queue waits for Resume (acpmux `queuePaused`).
+  paused?: boolean;
   t: Translate;
   /// Withdraws a waiting prompt; false when it already started (it then leaves with the turn).
   onRemove?(id: string): Promise<boolean>;
@@ -111,7 +117,7 @@ export function ComposerQueue({
       if (!ok) onLost?.(next);
     });
   };
-  const rowKeyDown = (event: React.KeyboardEvent<HTMLLIElement>, entry: QueuedEntry, index: number) => {
+  const rowKeyDown = (event: React.KeyboardEvent<HTMLElement>, entry: QueuedEntry, index: number) => {
     if (event.target !== event.currentTarget) return;
     const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
     const done = () => {
@@ -243,15 +249,28 @@ export function ComposerQueue({
   );
   return (
     <ol ref={list} className="acpmux-composer-queue" aria-label={`${t("composer.queue")} (${shown.length})`}>
+      {paused && (
+        <li className="acpmux-queue-paused">
+          <span>{t("composer.queuePaused")}</span>
+          {onChange && (
+            <button
+              type="button"
+              className="acpmux-queue-resume"
+              onClick={() => void onChange(queue[0].id, { op: "resume" })}
+            >
+              {t("composer.queueResume")}
+            </button>
+          )}
+        </li>
+      )}
       {shown.map((entry, index) => (
         // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- A row takes focus from ↑ on the prompt and has its keys (edit, move, send now, remove); its buttons do the same by pointer.
         <li
           className="acpmux-queued"
           key={entry.id}
           data-prompt-id={entry.id}
-          tabIndex={-1}
           aria-keyshortcuts="Enter Alt+ArrowUp Alt+ArrowDown Meta+Enter Delete"
-          onKeyDown={(event) => rowKeyDown(event, entry, index)}
+          {...rovingTabStopProps(false, (event) => rowKeyDown(event, entry, index))}
         >
           {editing === entry.id ? (
             cells(entry, index)
@@ -310,6 +329,7 @@ function QueuedEdit({
         fit();
         onInput(event.currentTarget.value);
       }}
+      // ui-allow: the edit field's own editing keys (Return saves, Shift-Return adds a line, Esc cancels).
       onKeyDown={(event) => {
         // Every key belongs to the input method while it composes (WebKit sends its Return as 229).
         if (event.nativeEvent.isComposing || event.keyCode === 229) return;

@@ -6,7 +6,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Child, Command, Output, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const REGISTRY: &str = "workspace-registry.sqlite3";
@@ -57,12 +57,35 @@ fn start_owner(dir: &Path, session: &str) -> (Option<Output>, bool) {
             return (Some(child.wait_with_output().unwrap()), false);
         }
         if socket.exists() {
-            stop_owner(dir, session);
-            let _ = child.wait();
+            stop_and_reap(dir, session, &mut child);
             return (None, true);
         }
         assert!(Instant::now() < deadline, "the owner neither served nor exited");
         std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// Stops a serving owner and waits for it to exit, bounded. The socket file
+/// appears when the owner binds, which can be before it accepts: a stop sent in
+/// that window is refused, and an unbounded `wait` then hung until the harness
+/// timeout (120 s) on a loaded box. So the stop is repeated until the owner
+/// exits; after 30 s the owner is killed and the test fails with that reason.
+fn stop_and_reap(dir: &Path, session: &str, child: &mut Child) {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        stop_owner(dir, session);
+        let retry = Instant::now() + Duration::from_secs(1);
+        while Instant::now() < retry {
+            if child.try_wait().unwrap().is_some() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("the owner of {session} did not stop within 30 s of `server stop`");
+        }
     }
 }
 
