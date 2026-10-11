@@ -29,7 +29,9 @@ impl Drop for Home {
 }
 
 fn home() -> Home {
-    let base = std::env::temp_dir().join(format!("acpmux-transcript-{}", uuid::Uuid::now_v7()));
+    // Under /tmp, not the temp dir: a worker's temp dir may be on another volume (`/Volumes`),
+    // where no chat root is ever listed.
+    let base = PathBuf::from("/tmp").join(format!("acpmux-transcript-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(&base).expect("home");
     Home(std::fs::canonicalize(&base).expect("canonical home"))
 }
