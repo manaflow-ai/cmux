@@ -70,7 +70,7 @@ struct FloatingChatTests {
         }
 
         deinit {
-            if ownsSuite { defaults.removePersistentDomain(forName: suite) }
+            if ownsSuite { UserDefaults.standard.removePersistentDomain(forName: suite) }
         }
     }
 
@@ -202,12 +202,12 @@ struct FloatingChatTests {
         let composer = CGRect(x: 2452, y: 841, width: 680, height: 220)
 
         // Summoned on the screen it was left on: it stays put.
-        #expect(FloatingChatFrames.summoned(current: left, onDisplay: "1", toDisplay: "1", saved: left, near: composer, in: laptop) == nil)
+        #expect(FloatingChatFrames.summoned(onDisplay: "1", toDisplay: "1", saved: left, near: composer, in: laptop) == nil)
         // On the other screen: the frame it was left at there.
         let there = CGRect(x: 3600, y: 300, width: 420, height: 900)
-        #expect(FloatingChatFrames.summoned(current: left, onDisplay: "1", toDisplay: "2", saved: there, near: composer, in: monitor) == there)
+        #expect(FloatingChatFrames.summoned(onDisplay: "1", toDisplay: "2", saved: there, near: composer, in: monitor) == there)
         // Never placed there: the default column, its top where the composer's would be.
-        #expect(FloatingChatFrames.summoned(current: left, onDisplay: "1", toDisplay: "2", saved: nil, near: composer, in: monitor)
+        #expect(FloatingChatFrames.summoned(onDisplay: "1", toDisplay: "2", saved: nil, near: composer, in: monitor)
             == CGRect(x: 2572, y: 441, width: 440, height: 620))
     }
 
