@@ -1,4 +1,4 @@
-import { cmuxTuiAsDaemonUser, cmuxTuiLayoutSelector } from "./cmuxTuiDaemon";
+import { CMUX_TUI_DAEMON_TERMINAL_ENV, cmuxTuiAsDaemonUser, cmuxTuiLayoutSelector } from "./cmuxTuiDaemon";
 
 // The fixed guest commands of the keyed acpmux start on a Cloud machine
 // (cx-0q7o slice 2d, cx-psxg; acpmux hub/person.rs). The app makes the
@@ -11,9 +11,8 @@ import { cmuxTuiAsDaemonUser, cmuxTuiLayoutSelector } from "./cmuxTuiDaemon";
 // daemon's own user, home and environment (cmuxTuiLayoutSelector,
 // cmuxTuiAsDaemonUser), so the acpmux it starts, and the `acp stdio` that
 // checks it, use the socket the session daemon's agent-session-* verbs use.
-// The environment is the host unit's `Environment=` (cmux-host.service, or
-// cmux-tui-daemon.service on older images), the same one the session
-// daemon's own acpmux starter passes on (agent tools, browser host, PATH).
+// The environment is the one the session daemon's own acpmux starter
+// passes on (see daemonEnvironment), and the daemon runs in its own scope.
 
 /** Exit status of a command that refuses a team machine (the agent-session-start team_vm_blocked rule, cx-d0tq). */
 export const ACPMUX_EXIT_TEAM_VM = 81;
@@ -43,19 +42,61 @@ function teamMachineCheck(): string {
   );
 }
 
-/** Exports the host unit's `Environment=` assignments (values carry no spaces, agent-tools.ts daemonEnvLines). */
-function hostUnitEnvironment(): string {
-  return (
+/**
+ * Variables of the session daemon that a detached acpmux must not take: the
+ * cmux terminal identity (cmux-tui acp.rs TERMINAL_IDENTITY_ENV, which its own
+ * starter removes) and systemd's per-service variables.
+ */
+const DROPPED_ENV = [
+  "CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID", "CMUX_TAB_ID", "CMUX_PANEL_ID", "CMUX_PANE_ID",
+  "INVOCATION_ID", "JOURNAL_STREAM", "SYSTEMD_EXEC_PID", "NOTIFY_SOCKET", "MAINPID", "MANAGERPID",
+  "LISTEN_FDS", "LISTEN_PID", "LISTEN_FDNAMES", "WATCHDOG_PID", "WATCHDOG_USEC", "OLDPWD", "PWD",
+] as const;
+
+/**
+ * The environment the session daemon's own acpmux starter passes on
+ * (cmux-tui acp.rs daemon_acpmux_starter: the daemon's environment without
+ * the terminal identity): read from the running session daemon
+ * (`cmux-tui server start` of the daemon user), each value single-quoted
+ * before eval. Without one running, the host unit's `Environment=`
+ * assignments that need no quoting. The provider exec agent's own service
+ * variables are removed either way.
+ */
+function daemonEnvironment(): string {
+  const dropped = DROPPED_ENV.join("|");
+  const fromDaemon =
+    `eval "$(tr '\\0' '\\n' < "/proc/$cmux_sd_pid/environ" | awk -v q="'" ` +
+    `'/^[A-Za-z_][A-Za-z0-9_]*=/ && $0 !~ /^(${dropped})=/ { gsub(q, q "\\\\" q q); print "export " q $0 q }')"`;
+  const fromUnit =
     `set -f; cmux_unit_env=""; for cmux_unit in ${HOST_UNITS.join(" ")}; do ` +
     `cmux_unit_env="$(systemctl show -p Environment --value "$cmux_unit" 2>/dev/null || true)"; ` +
     `[ -n "$cmux_unit_env" ] && break; done; ` +
-    `for cmux_kv in $cmux_unit_env; do case "$cmux_kv" in [A-Za-z_]*=*) export "$cmux_kv" ;; esac; done; set +f`
+    `for cmux_kv in $cmux_unit_env; do case "$cmux_kv" in [A-Za-z_]*=*) export "$cmux_kv" ;; esac; done; set +f`;
+  return (
+    `cmux_sd_pid="$(pgrep -o -u "$CMUX_TUI_USER" -f '[c]mux-tui server start' || true)"; ` +
+    `if [ -n "$cmux_sd_pid" ] && [ -r "/proc/$cmux_sd_pid/environ" ]; then ${fromDaemon}; else ${fromUnit}; fi; ` +
+    `unset ${DROPPED_ENV.join(" ")}`
   );
 }
 
 /** Layout, team refusal and environment, with stdin closed so nothing here can read the key. */
 function setup(): string {
-  return `{ ${cmuxTuiLayoutSelector()} && ${teamMachineCheck()} && ${hostUnitEnvironment()}; } </dev/null`;
+  return `{ ${cmuxTuiLayoutSelector()} && ${teamMachineCheck()} && ${daemonEnvironment()}; } </dev/null`;
+}
+
+/**
+ * Runs `args` of the daemon binary as the daemon user in a transient systemd
+ * scope of its own, in place of this shell (stdin stays the exec's). The
+ * acpmux daemon it starts stays in that scope, not in the provider exec
+ * agent's service, whose restart would end the daemon and its agents.
+ */
+function inOwnScope(args: string): string {
+  return (
+    `if [ "$CMUX_TUI_USER" = root ]; then cmux_drop="env"; ` +
+    `else cmux_drop="setpriv --reuid=$CMUX_TUI_USER --regid=$CMUX_TUI_USER --init-groups env USER=$CMUX_TUI_USER LOGNAME=$CMUX_TUI_USER SHELL=/bin/bash"; fi; ` +
+    `if command -v systemd-run >/dev/null 2>&1; then cmux_scope="systemd-run --scope --quiet --collect --unit=cmux-acpmux-keyed-$$-$(date +%s)"; else cmux_scope=""; fi; ` +
+    `exec $cmux_scope $cmux_drop HOME="$CMUX_TUI_HOME" ${CMUX_TUI_DAEMON_TERMINAL_ENV} "$CMUX_TUI_BIN" ${args}`
+  );
 }
 
 /**
@@ -80,7 +121,7 @@ export function acpmuxPrepareCommand(): string {
  * (`personKey`, `personInstance`).
  */
 export function acpmuxKeyedStartCommand(): string {
-  return `${setup()} && ${cmuxTuiAsDaemonUser(`"$CMUX_TUI_BIN" acp --json daemon start --person-key-fd 0`, { exec: true })}`;
+  return `${setup()} && ${inOwnScope("acp --json daemon start --person-key-fd 0")}`;
 }
 
 /** `_acpmux/person_holds` over `acp stdio`; stdin = {@link acpmuxPersonHoldsFrames}. */

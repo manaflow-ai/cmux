@@ -13,6 +13,7 @@ import {
 import { SecretBytes, type ExecResult, type ProviderId } from "./drivers/types";
 import { VmProviderGateway } from "./providerGateway";
 import { listTeamMemberIdsWithTimeout, type VmTeamDirectory } from "./teamDirectory";
+import type { CloudVmRow } from "./repository";
 import { requireAccessibleUserVm, type ExistingVmAccessInput } from "./workflows";
 
 // cx-0q7o slice 2d (cx-psxg): the keyed acpmux start and the person_holds
@@ -51,20 +52,24 @@ export type AcpmuxPersonKeyInput = ExistingVmAccessInput & {
 
 const refuse = <A>(refusal: AcpmuxRefusal, line?: string): AcpmuxOutcome<A> => ({ ok: false, refusal, ...(line ? { line } : {}) });
 
+type OwnedVm = { readonly vm: CloudVmRow } | { readonly refusal: AcpmuxRefusal };
+const refused = (refusal: AcpmuxRefusal): OwnedVm => ({ refusal });
+
 /** The machine, when the caller is its single owner and it is running; else the refusal. */
 function requireSingleOwnerRunningVm(input: AcpmuxPersonKeyInput) {
   return Effect.gen(function* () {
     const vm = yield* requireAccessibleUserVm(input);
-    if (vm.userId !== input.userId) return { refusal: "not_single_owner" as const };
+    if (vm.userId !== input.userId) return refused("not_single_owner");
     const scope = vm.ownerTeamId.trim();
     if (scope !== input.userId) {
       const lookup = yield* listTeamMemberIdsWithTimeout(input.teamDirectory, scope);
-      if ("error" in lookup) return { refusal: "owner_unconfirmed" as const };
+      if ("error" in lookup) return refused("owner_unconfirmed");
       const members = lookup.memberIds;
-      if (!members || members.length !== 1 || members[0] !== input.userId) return { refusal: "not_single_owner" as const };
+      if (!members || members.length !== 1 || members[0] !== input.userId) return refused("not_single_owner");
     }
-    if (vm.status !== "running") return { refusal: "not_running" as const };
-    return { vm };
+    if (vm.status !== "running") return refused("not_running");
+    const owned: OwnedVm = { vm };
+    return owned;
   });
 }
 
