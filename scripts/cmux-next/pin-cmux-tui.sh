@@ -91,6 +91,7 @@
 #        | app-host-path [--tree|--pin] (where fetch puts the app host)
 #        | cloud-server-path [--tree|--pin] (where fetch puts cmux-cloud)
 #        | browser-host-path [--tree|--pin] (where fetch puts cmux-browser-host)
+#        | acpmux-path [--tree|--pin] (where fetch puts acpmux)
 #        | resolve-commit (the commit that published this tree; waits for it)
 #        | resolve-newest-published (nightly: newest verified published tree in the last
 #          CMUX_TUI_TREE_SEARCH_COMMITS commits, default 50, and CMUX_TUI_TREE_MAX_AGE_HOURS,
@@ -716,6 +717,9 @@ fetch_tree_companions() {
   fetch_tree_companion "$1" "$2" cloud-server cmux-cloud
   fetch_tree_companion "$1" "$2" browser-host cmux-browser-host
   fetch_tree_companion "$1" "$2" agent-screen-detection cmux-agent-screen-detection
+  # The app bundles acpmux too; a tree published before its build carried
+  # acpmux has none, and the app build compiles it (build-acpmux.sh).
+  fetch_tree_companion "$1" "$2" acpmux acpmux
 }
 
 fetch_tree() {
@@ -1245,6 +1249,16 @@ PY
     else
       read_pin
       echo "$repo_root/cmux-tui/target/hosted/$pin_commit/cmux-cloud"
+    fi
+    ;;
+  acpmux-path)
+    mode_from_args "$@"
+    [[ "$mode" == tree ]] && TARGET="$(host_tree_target)"
+    if [[ "$mode" == tree ]]; then
+      echo "$(tree_dir "$(checkout_tree_key)")/acpmux"
+    else
+      read_pin
+      echo "$repo_root/cmux-tui/target/hosted/$pin_commit/acpmux"
     fi
     ;;
   browser-host-path)

@@ -88,6 +88,7 @@ on:
       - "scripts/ci/macos_stubs.py"
       - "scripts/ci/macho_weaken.py"
       - "scripts/ci/macos-stubs/**"
+      - "first-party-apps/cloud/server/**"
       - "Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json"
       - "backend/catalog/cloud-operations.json"
       - "backend/packages/home-core/conformance/conversation-cases.json"
