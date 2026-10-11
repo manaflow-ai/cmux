@@ -85,7 +85,10 @@ function GalleryPathPicker({ mode = "folder", start = HOME, loading = false, fai
   };
 
   return (
-    <div ref={setContainer} className="ve-sheet-host path-picker-gallery-host">
+    <div
+      ref={setContainer}
+      className={`ve-sheet-host path-picker-gallery-host${mode === "anyFile" ? " path-picker-gallery-any-file" : ""}`}
+    >
       {container ? (
         <UiProvider container={container} dir={direction}>
           <PathPickerDialog
@@ -184,7 +187,11 @@ const chooseFile: Play = async (ctx) => {
 
 const chooseAnyFile: Play = async (ctx) => {
   await ready(ctx);
-  await ctx.type("messageslab", { selector: ".ve-picker-field" });
+  // "me" is the shortest stable prefix for this fixture. It still exercises the real
+  // fuzzy-filter and folder-enter path without making the gallery's trusted keyboard driver
+  // spend a variable amount of time dispatching ten key events on WebKit.
+  await ctx.type("me", { selector: ".ve-picker-field" });
+  await ctx.waitFor(() => ctx.find({ role: "option", name: "messageslab" }));
   await ctx.press("Enter");
   await ctx.waitFor(
     () => ctx.document.querySelector('.ve-crumb[aria-current="location"]')?.textContent === "messageslab",

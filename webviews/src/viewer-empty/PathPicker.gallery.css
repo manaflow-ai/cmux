@@ -3,6 +3,13 @@
   background: var(--cmux-background, Canvas);
 }
 
+/* Filtering the any-file fixture removes the Locations rows before entering the folder. Keep
+   the gallery sheet at a fixed size so that this intentional change in list contents does not
+   become a layout-shift failure. The product sheet remains content-sized. */
+.path-picker-gallery-any-file .ve-picker {
+  height: min(480px, 78vh);
+}
+
 .path-picker-gallery-receipt {
   position: fixed;
   inset-block-end: 12px;
