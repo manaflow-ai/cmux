@@ -12,11 +12,11 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
-logs="$(mktemp -d)"
-trap 'rm -rf "$logs"' EXIT
 pr=false
 [ "${1:-}" = --pr ] && pr=true
 
+logs="$(mktemp -d)"
+trap 'rm -rf "$logs"' EXIT
 status=0
 if ! ./scripts/lint-ios-package-conventions.sh --namespace-fix 2>&1 | tee "$logs/fix.log"; then
   echo "::error::Namespace/convention lint failed. Run ./scripts/lint-ios-package-conventions.sh --namespace-fix locally, review the edits, then commit them."
@@ -37,12 +37,14 @@ fi
 # a lint:allow / TRANSITIONAL / carve-out marker, and pre-existing debt is
 # grandfathered in the lint baseline files under scripts/.
 if [ "$pr" = false ]; then
-  exec ./scripts/lint-ios-package-conventions.sh
+  ./scripts/lint-ios-package-conventions.sh
+  exit
 fi
 ./scripts/lint-ios-package-conventions.sh 2>&1 | tee "$logs/lint.log" || status=1
 [ "$status" = 0 ] && exit 0
-exec python3 scripts/ci/pr_owned_findings.py \
+python3 scripts/ci/pr_owned_findings.py \
   --finding '^ERROR\s+\S+\s+(?P<path>[^:\s]+):\d+' \
-  --rules '^(scripts/(lint-ios-package-conventions|lint_swift_namespaces\.py|swift_source_mask\.py|lint-namespace-types-|ci/package-conventions-gate\.sh|ci/pr_owned_findings\.py)|\.github/workflows/test-ios\.yml$)' \
+  --rules '^(scripts/(lint-ios-package-conventions\.sh|lint_swift_namespaces\.py|swift_source_mask\.py|ci/package-conventions-gate\.sh|ci/pr_owned_findings\.py)|\.github/workflows/test-ios\.yml)$' \
+  --baselines '^scripts/(lint-ios-package-conventions-baseline|lint-namespace-types-(baseline|ratchet))\.txt$' \
   --fixed "$logs/fixed.txt" \
   "$logs/fix.log" "$logs/lint.log"

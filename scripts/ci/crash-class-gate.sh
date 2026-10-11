@@ -20,5 +20,6 @@ CHECK_CONCURRENCY_ONLY=crash-class scripts/cmux-next/check-concurrency.sh "$ROOT
 python3 scripts/ci/pr_owned_findings.py \
   --finding '^concurrency: (?P<path>[^:]+):\d+: ' \
   --prefix Packages/macOS/CmuxNext/ \
+  --summary '^check-concurrency: (?P<count>\d+) violation' \
   --rules '^(scripts/cmux-next/check-(concurrency\.sh|main-actor-work\.py)|scripts/ci/(crash-class-gate\.sh|pr_owned_findings\.py)|Packages/macOS/CmuxNext/Package\.swift|\.github/workflows/cmux-next-crash-class\.yml)$' \
   "$log"
