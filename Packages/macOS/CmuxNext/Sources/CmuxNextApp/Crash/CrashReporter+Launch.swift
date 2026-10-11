@@ -67,14 +67,22 @@ struct AppCrashReporting: Sendable {
 
     /// A layout feedback loop (one view laid out more than
     /// `LayoutPassGuard.bound` times in one run-loop turn) is reported, with
-    /// the view's class, before AppKit throws its layout-pass exception.
+    /// the view's class, before AppKit throws its layout-pass exception. A
+    /// release build also breaks the loop so the app keeps running; a debug
+    /// build lets AppKit end it, where the loop can be fixed (cx-3j8y).
     static func installLayoutPassGuard(reporter: CrashReporter) {
         let guardian = LayoutPassGuard.shared
+        #if DEBUG
+        guardian.breaksLoops = false
+        #else
+        guardian.breaksLoops = true
+        #endif
         guardian.onLoop = { report in
             reporter.captureNonFatal(
                 "layout loop: \(report.viewClass) laid out \(report.passes) times in one turn",
                 type: "LayoutLoop", fingerprint: ["layout-loop", report.viewClass],
-                tags: ["layout_loop_view": report.viewClass, "layout_loop_window": report.windowClass ?? "none"],
+                tags: ["layout_loop_view": report.viewClass, "layout_loop_window": report.windowClass ?? "none",
+                       "layout_loop_broken": report.broken ? "yes" : "no"],
                 extra: ["ancestry": report.ancestry.joined(separator: " < ")])
         }
         guardian.install()

@@ -12,10 +12,13 @@ import CmuxNextSettings
 enum DebugLayers {
     #if DEBUG
     /// `reset_layout_passes: true` clears the layout pass counts first;
-    /// `layout_loop_fixture` ("open", "close") drives `DebugLayoutLoop`, and
-    /// the reply carries its state as `layout_loop_fixture`.
+    /// `layout_guard_breaks` sets whether the guard breaks loops (a release
+    /// build's setting) for this launch; `layout_loop_fixture` ("open",
+    /// "close") drives `DebugLayoutLoop`, and the reply carries its state as
+    /// `layout_loop_fixture`.
     static func handle(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         if params["reset_layout_passes"]?.boolValue == true { LayoutPassGuard.shared.reset() }
+        if let breaks = params["layout_guard_breaks"]?.boolValue { LayoutPassGuard.shared.breaksLoops = breaks }
         let fixture = DebugLayoutLoop.handle(params["layout_loop_fixture"]?.stringValue)
         let reply = report(services: services)
         guard let fixture, case .object(var fields) = reply else { return reply }
@@ -44,6 +47,7 @@ enum DebugLayers {
         return .object([
             "installed": .bool(guardian.isInstalled),
             "bound": .number(Double(LayoutPassGuard.bound)),
+            "breaks_loops": .bool(guardian.breaksLoops),
             "max_in_one_turn": .number(Double(guardian.maxPassesInOneTurn)),
             "loops": .array(guardian.reports.map { report in
                 .object([
@@ -51,6 +55,7 @@ enum DebugLayers {
                     "window_class": report.windowClass.map(JSONValue.string) ?? .null,
                     "ancestry": .array(report.ancestry.map(JSONValue.string)),
                     "passes": .number(Double(report.passes)),
+                    "broken": .bool(report.broken),
                 ])
             }),
             "top_classes": .array(guardian.passesByClass.prefix(20).map { entry in

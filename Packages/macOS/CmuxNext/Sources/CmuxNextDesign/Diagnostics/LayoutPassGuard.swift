@@ -20,6 +20,13 @@ import os
 /// and calls ``onLoop`` (the app sends it to Sentry as a non-fatal event).
 /// One report per view class per launch. Reading: ``reports``,
 /// ``passesByClass``, ``maxPassesInOneTurn`` (`debug.layers`).
+///
+/// With ``breaksLoops`` (release builds) the guard also ends the loop: past
+/// the limit, the view's further layouts in that turn are skipped and one
+/// layout is asked for on the next turn, so AppKit never reaches its own
+/// limit and the app keeps running (cx-3j8y). The limit is ``bound``, or
+/// fewer in a window with fewer views, where AppKit gives up sooner. Debug
+/// builds leave it off, so a loop still ends the app where it can be fixed.
 @MainActor
 public final class LayoutPassGuard {
     public struct Report: Sendable, Equatable {
@@ -30,6 +37,8 @@ public final class LayoutPassGuard {
         /// Layout passes of the view in the turn when the bound was passed.
         public var passes: Int
         public var at: Date
+        /// The guard skipped the view's further layouts (``breaksLoops``).
+        public var broken = false
     }
 
     public static let shared = LayoutPassGuard()
@@ -41,13 +50,20 @@ public final class LayoutPassGuard {
 
     /// A loop was found (main thread, once per view class per launch).
     public var onLoop: ((Report) -> Void)?
+    /// Skip a looping view's layouts past the limit instead of letting
+    /// AppKit end the app. On in release builds (CrashReporter+Launch).
+    public var breaksLoops = false
     public private(set) var reports: [Report] = []
     /// The most layout calls one view had in one turn since launch.
     public private(set) var maxPassesInOneTurn = 0
     public private(set) var isInstalled = false
 
     /// Per view this turn; the weak reference tells a reused address apart.
-    private var turnCounts: [ObjectIdentifier: (view: Weak, count: Int)] = [:]
+    private var turnCounts: [ObjectIdentifier: (view: Weak, count: Int, broken: Bool)] = [:]
+    /// Views broken in the last turn: a view broken again is not asked to
+    /// lay out once more, so a loop that persists settles instead of
+    /// spinning every turn.
+    private var brokenLastTurn: Set<ObjectIdentifier> = []
     private var classCounts: [ObjectIdentifier: (type: AnyClass, count: Int)] = [:]
     private var reportedClasses: Set<ObjectIdentifier> = []
     private var observer: CFRunLoopObserver?
@@ -86,7 +102,30 @@ public final class LayoutPassGuard {
     }
 
     private func endTurn() {
-        if !turnCounts.isEmpty { turnCounts.removeAll(keepingCapacity: true) }
+        guard !turnCounts.isEmpty else { return }
+        brokenLastTurn = Set(turnCounts.filter { $0.value.broken }.keys)
+        turnCounts.removeAll(keepingCapacity: true)
+    }
+
+    /// Whether `view`'s layout is skipped: broken this turn.
+    fileprivate func skips(_ view: NSView) -> Bool {
+        guard breaksLoops, let entry = turnCounts[ObjectIdentifier(view)] else { return false }
+        return entry.broken && entry.view.object === view
+    }
+
+    /// Layouts of one view in one turn past which the turn is a loop:
+    /// ``bound``, or two less than the window's view count when that is
+    /// lower (AppKit allows one pass per view, and the guard must act
+    /// first), but never under 2. The walk stops past ``bound`` views.
+    private func limit(for view: NSView) -> Int {
+        guard let root = view.window?.contentView?.superview ?? view.window?.contentView else { return Self.bound }
+        var count = 0
+        var stack = [root]
+        while let next = stack.popLast(), count <= Self.bound {
+            count += 1
+            stack.append(contentsOf: next.subviews)
+        }
+        return min(Self.bound, max(2, count - 2))
     }
 
     fileprivate func record(_ view: NSView) {
@@ -100,9 +139,12 @@ public final class LayoutPassGuard {
         let id = ObjectIdentifier(view)
         var count = 1
         if let entry = turnCounts[id], entry.view.object === view { count = entry.count + 1 }
-        turnCounts[id] = (Weak(view), count)
+        turnCounts[id] = (Weak(view), count, false)
         if count > maxPassesInOneTurn { maxPassesInOneTurn = count }
-        guard count == Self.bound + 1, reportedClasses.insert(typeID).inserted else { return }
+        // Most views lay out once or twice a turn; only a third layout walks the window.
+        guard count > 2, count == limit(for: view) + 1 else { return }
+        if breaksLoops { breakLoop(of: view, id: id, count: count) }
+        guard reportedClasses.insert(typeID).inserted else { return }
         var ancestry: [String] = []
         var next = view.superview
         while let ancestor = next, ancestry.count < 8 {
@@ -110,11 +152,22 @@ public final class LayoutPassGuard {
             next = ancestor.superview
         }
         let report = Report(viewClass: String(describing: type), windowClass: view.window.map { String(describing: Swift.type(of: $0)) },
-                            ancestry: ancestry, passes: count, at: Date())
+                            ancestry: ancestry, passes: count, at: Date(), broken: breaksLoops)
         if reports.count >= 32 { reports.removeFirst() }
         reports.append(report)
         Self.log.fault("layout loop: \(report.viewClass, privacy: .public) laid out \(count) times in one turn; window \(report.windowClass ?? "none", privacy: .public); ancestry \(ancestry.joined(separator: " < "), privacy: .public)")
         onLoop?(report)
+    }
+
+    /// Skips `view`'s further layouts this turn and, unless it was broken
+    /// last turn too, asks for one layout on the next turn.
+    private func breakLoop(of view: NSView, id: ObjectIdentifier, count: Int) {
+        turnCounts[id] = (Weak(view), count, true)
+        guard !brokenLastTurn.contains(id) else { return }
+        DispatchQueue.main.async { [weak view] in
+            // main-proof: DispatchQueue.main runs its blocks on the main thread
+            MainActor.assumeIsolated { view?.needsLayout = true }
+        }
     }
 
     struct Weak {
@@ -136,8 +189,10 @@ public final class LayoutPassGuard {
     /// elsewhere is passed through uncounted.
     private nonisolated static func override(calling original: Layout, _ selector: Selector) -> @convention(block) (NSView) -> Void {
         { view in
+            guard Thread.isMainThread else { return original(view, selector) }
+            // main-proof: checked above
+            if MainActor.assumeIsolated({ LayoutPassGuard.shared.skips(view) }) { return }
             original(view, selector)
-            guard Thread.isMainThread else { return }
             MainActor.assumeIsolated { LayoutPassGuard.shared.record(view) } // main-proof: checked above
         }
     }
