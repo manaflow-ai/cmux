@@ -37,4 +37,15 @@ extension UpdaterService {
 }
 
 extension UpdaterService {
+    /// "See What's New" on the "cmux Updated!" card (the React card,
+    /// cx-urd.61.2): the changelog page for the span this update crossed,
+    /// and the update counts as seen (the card goes; only the card's x,
+    /// ``WhatsNewCenter/dismissUpdated()``, clears ``WhatsNewCenter/lastUpdate``).
+    @discardableResult
+    public func openWhatsNewForLastUpdate() -> Bool {
+        let span = whatsNew.lastUpdate.map { ($0.fromVersion, $0.toVersion) }
+        whatsNew.markUpdateSeen()
+        if let span, let open = openChangelogSpan { return open(span.0, span.1) }
+        return openChangelog?() ?? false
+    }
 }

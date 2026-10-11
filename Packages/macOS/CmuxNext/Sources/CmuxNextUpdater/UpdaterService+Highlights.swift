@@ -28,6 +28,16 @@ extension UpdaterService {
         return highlights
     }
 
+    /// The "cmux Updated!" card without a saved record (a manual or brew
+    /// install, an update from a build that saved none): this version, the
+    /// span from the last version seen, no items. Nil when not updated.
+    public var updatedWithoutRecordHighlights: UpdateHighlights? {
+        guard whatsNew.lastUpdate == nil, whatsNew.isUpdated else { return nil }
+        let from = whatsNew.lastSeen?.description ?? identity.shortVersion
+        return UpdateHighlights(version: identity.shortVersion, build: identity.build, fromVersion: from, fromBuild: "",
+                                notes: nil, appcast: nil)
+    }
+
     /// "See all changes": the changelog page for the releases after this
     /// build up to the staged one.
     @discardableResult
