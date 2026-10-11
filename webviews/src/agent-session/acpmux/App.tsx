@@ -104,6 +104,7 @@ import {
   openReportedImage,
   setMessageMenuSource,
 } from "./conversation/messageMenu";
+import { callChipHost } from "./chips/host";
 import { RenderCard, canRender } from "./conversation/RenderCard";
 import { renderCall } from "./conversation/renderCall";
 import { DateLine } from "./conversation/DateLine";
@@ -2442,6 +2443,8 @@ function AcpmuxPane() {
           },
           // The native context menu's Open Image: the image the page reported under the pointer.
           "chat.menu.openImage": async () => openReportedImage(),
+          // Its Open on a path: the path chip's open, which the host checks again (link.openPath).
+          "chat.menu.openPath": ({ path }) => callChipHost("link.openPath", { path: String(path ?? "") }),
           "chat.fork": async ({ throughSeq }) => {
             harnessSwitch.cancel();
             return persistSession(await client.fork(Number(throughSeq)));
