@@ -22,9 +22,7 @@ import os
 /// the view's class, its superview chain and its window class, logs a fault
 /// and calls ``onLoop`` (the app sends it to Sentry as a non-fatal event).
 /// One report per view class per launch. Reading: ``reports``,
-/// ``passesByClass``, ``maxPassesInOneTurn`` (`debug.layers`). A view's
-/// count restarts when its window changes frame: an animated resize (zoom)
-/// lays the window out once per frame inside one turn.
+/// ``passesByClass``, ``maxPassesInOneTurn`` (`debug.layers`).
 ///
 /// The guard wraps `-[NSView layout]` and, the first time a view's
 /// `super.layout()` reaches it, every `layout` override in that view's
@@ -34,8 +32,10 @@ import os
 /// AppKit does: past ``breakLimit(viewCount:)``, the view's further layouts
 /// in that turn are skipped, overrides included, and one layout is asked for
 /// on the next turn, so the app keeps running. A view that merely lays out
-/// often in a large window is never skipped. Debug builds leave it off, so
-/// a loop still ends the app where it can be fixed.
+/// often in a large window is never skipped, and the break count restarts
+/// when the window changes frame: an animated resize (zoom) lays the window
+/// out once per frame inside one turn. Debug builds leave it off, so a loop
+/// still ends the app where it can be fixed.
 @MainActor
 public final class LayoutPassGuard {
     public struct Report: Sendable, Equatable {
@@ -178,6 +178,8 @@ public final class LayoutPassGuard {
         var view: Weak
         var windowFrame: NSRect
         var count = 0
+        /// Layouts since the window last changed frame (the break count).
+        var atFrame = 0
         var broken = false
     }
 
@@ -197,10 +199,10 @@ public final class LayoutPassGuard {
     /// breaks the loop, for a window of `viewCount` views: three quarters of
     /// them, short of AppKit's limit and far above a busy but finite view (a
     /// titlebar widget lays out about 35 times in one turn after some home
-    /// actions), or the report limit in a window under 8 views, where that
-    /// is AppKit's own limit already.
+    /// actions), and never under 4: a hosting panel of a few views can
+    /// lay out three times in a turn without AppKit throwing.
     public static func breakLimit(viewCount: Int) -> Int {
-        viewCount < 8 ? limit(viewCount: viewCount) : max(limit(viewCount: viewCount), viewCount * 3 / 4)
+        max(4, limit(viewCount: viewCount), viewCount * 3 / 4)
     }
 
     /// `window`'s views (its frame view and every subview), counted up to
@@ -248,9 +250,13 @@ public final class LayoutPassGuard {
         }
         let id = ObjectIdentifier(view)
         let windowFrame = view.window?.frame ?? .zero
-        var turn = turnCounts[id].flatMap { $0.view.object === view && $0.windowFrame == windowFrame ? $0 : nil }
-            ?? Turn(view: Weak(view), windowFrame: windowFrame)
+        var turn = turnCounts[id].flatMap { $0.view.object === view ? $0 : nil } ?? Turn(view: Weak(view), windowFrame: windowFrame)
+        if turn.windowFrame != windowFrame {
+            turn.windowFrame = windowFrame
+            turn.atFrame = 0
+        }
         turn.count += 1
+        turn.atFrame += 1
         turnCounts[id] = turn
         let count = turn.count
         if count > maxPassesInOneTurn {
@@ -262,7 +268,9 @@ public final class LayoutPassGuard {
         // One call per turn is every view's normal case: no limit lookup.
         guard count > 1 else { return }
         let reportLimit = limit(for: view.window)
-        if breaksLoops, count > reportLimit, count == breakLimit(for: view.window) + 1 { breakLoop(of: view, id: id, count: count) }
+        if breaksLoops, turn.atFrame > reportLimit, turn.atFrame == breakLimit(for: view.window) + 1 {
+            breakLoop(of: view, id: id, count: turn.atFrame)
+        }
         guard count == reportLimit + 1, reportedClasses.insert(typeID).inserted else { return }
         var ancestry: [String] = []
         var next = view.superview
