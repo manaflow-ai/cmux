@@ -7,6 +7,8 @@
 // - The chat forked from shows 1/2 under the prompt the edit replaced; Next opens the fork.
 // - The fork shows 2/2 under its edited prompt; Previous opens the chat forked from.
 // - The prompt before the fork point, and a fork nobody sent in, have no versions.
+// - Editing the fork's edited prompt again forks the chat forked from, at the same turn, so the new
+//   version is a sibling (not a fork of the fork).
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -76,10 +78,18 @@ await requireBrowserLane("agent-pane-branches.test.ts", async () => {
     [IDLE_FORK]: idleEvents,
   };
 
+  const forks: Record<string, any>[] = [];
+
   function answer(method: string, params: Record<string, any>): unknown {
     switch (method) {
       case "initialize":
-        return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
+        return {
+          protocolVersion: 1,
+          _meta: { acpmux: { origin: "local", extensions: [], operations: ["acp.session.fork"] } },
+        };
+      case "acp.session.fork":
+        forks.push(params);
+        return { sessionId: IDLE_FORK };
       case "_acpmux/watch":
         return { sessions };
       case "_acpmux/attach": {
@@ -185,6 +195,20 @@ await requireBrowserLane("agent-pane-branches.test.ts", async () => {
     await page.getByRole("button", { name: "Previous version" }).click();
     await page.getByText("One test added.").waitFor();
     await waitForVersion(page, "Now cover it with a test", "1/2");
+    await page.close();
+  });
+
+  test("editing the fork's edited prompt forks the chat it came from at the same turn", async () => {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await page.goto(url(FORK));
+    await waitForVersion(page, "Now cover it with two tests", "2/2");
+    const row = page.locator(".cv-user", { hasText: "Now cover it with two tests" });
+    await row.hover();
+    await row.getByRole("button", { name: "Edit" }).click();
+    await page.getByRole("textbox", { name: "Edit your message" }).fill("Now cover it with three tests");
+    await page.locator(".cv-user__edit").getByRole("button", { name: "Send" }).click();
+    await page.waitForFunction(() => document.querySelector(".cv-user__edit") === null, undefined, { timeout: 10_000 });
+    expect(forks).toEqual([{ sessionId: PARENT, throughSeq: 4 }]);
     await page.close();
   });
 });
