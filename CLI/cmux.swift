@@ -11870,13 +11870,45 @@ struct CMUXCLI {
         }
         let rest = Array(commandArgs.dropFirst())
         if let rules = workspaceGroupArgumentRules(sub: sub, args: rest) {
+            // `delete` keeps ignoring what follows `--`, which
+            // CLIWorkspaceGroupSafetyTests pins: a token there is not an option,
+            // so it cannot ask for the workspaces to be closed.
+            let terminator = rest.firstIndex(of: "--")
+            let checked = sub == "delete" ? Array(rest[..<(terminator ?? rest.endIndex)]) : rest
             try rejectUnexpectedArguments(
-                rest,
+                checked,
                 commandName: "workspace group \(sub)",
                 valueOptions: rules.valueOptions,
                 flags: rules.flags,
                 maxPositionals: rules.maxPositionals
             )
+            // The handlers skip a bare `-` when they look for a positional, so
+            // it would be dropped without a word. After `--`, or as an option's
+            // value, it is literal.
+            var index = 0
+            while index < (terminator ?? rest.endIndex) {
+                if rules.valueOptions.contains(rest[index]) {
+                    index += 2
+                    continue
+                }
+                if rest[index] == "-" {
+                    throw CLIError(message: String.localizedStringWithFormat(
+                        String(localized: "cli.arguments.error.unexpectedArgument", defaultValue: "%1$@: unexpected argument %2$@"),
+                        "workspace group \(sub)",
+                        rest[index]
+                    ))
+                }
+                index += 1
+            }
+            // An unset `--window "$VAR"` must fail instead of falling back to
+            // the caller's window.
+            if let windowRaw = optionValue(rest, name: "--window"),
+               windowRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                throw CLIError(message: String(
+                    localized: "cli.window.error.handleBlank",
+                    defaultValue: "Window handle is blank"
+                ))
+            }
         }
         var params: [String: Any] = [:]
         try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowFromArgsOrOverride(rest, windowOverride: windowOverride))
