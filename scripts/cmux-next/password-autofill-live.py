@@ -13,7 +13,7 @@ Nothing reads the page through the socket, since any automated read marks
 the tab agent-driven and turns filling off: the page reports its own form
 (:autofill on both fields) to the test's local server.
 
-Quits the app by PID and stops the tag's daemons at the end.
+Quits the app through the socket (by PID if it hangs) and stops the tag's daemons at the end.
 """
 import argparse, glob, http.server, json, os, plistlib, subprocess, sys, tempfile, threading, time
 
@@ -108,7 +108,10 @@ def cli(*args, timeout=30):
 
 
 def rpc(method, params=None):
-    r = cli("--json", "app", "call", method, json.dumps(params or {}))
+    try:
+        r = cli("--json", "app", "call", method, json.dumps(params or {}))
+    except subprocess.TimeoutExpired:
+        return {"error": f"{method} timed out"}  # a hung app is a FAIL line, and cleanup still runs
     try:
         return json.loads(r.stdout)
     except ValueError:
@@ -204,18 +207,20 @@ try:
     wait_for(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), "app socket", 120)
     import_through("chrome", "passwords.csv")
     summary = wait_for(lambda: next((t for t in toasts() if "Imported:" in t), None), "the passwords toast", 60)
-    check(summary is not None and "Imported: 1" in summary, f"the throwaway sign-in is saved ({summary})")
+    check(summary is not None and "Imported: 1." in summary, f"the throwaway sign-in is saved ({summary})")
 
     to_workspace()
     reply = rpc("debug.toast", {"perform": "openBrowser.chromium", "arguments": {"url": f"{ORIGIN}/login?tab=person"}})
     check(reply.get("performed") is True, f"a person opens the login page in a Chromium tab ({reply})")
+    opened = time.monotonic()
     report = wait_for(lambda: filled("person"), "the person's tab is filled", 30)
+    fill_time = time.monotonic() - opened
     check(report is not None, f"Chromium fills the saved sign-in in a person's tab ({reports.get('person')})")
 
     reply = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": f"{ORIGIN}/login?tab=agent"}, "focus": True})
     print("note: agent open", reply, flush=True)
     wait_for(lambda: "agent" in reports, "the agent's tab reports", 30)
-    time.sleep(3)  # long enough for a fill on load to have happened
+    time.sleep(max(3, 2 * fill_time))  # twice as long as the person's tab took to fill
     agent = reports.get("agent") or {}
     check("agent" in reports and not agent.get("passwordFilled") and not agent.get("usernameFilled"),
           f"an agent's Chromium tab is never filled ({agent})")
