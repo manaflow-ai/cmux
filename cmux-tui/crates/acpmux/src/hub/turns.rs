@@ -271,6 +271,7 @@ impl Hub {
         {
             let mut m = session.meta.lock().unwrap();
             m.last_prompt = Some(short_text(&text, 200));
+            clear_sent_draft(&mut m, &text);
             if m.title.is_none() {
                 let first = text.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
                 if !first.is_empty() {

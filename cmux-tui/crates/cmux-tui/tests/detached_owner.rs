@@ -189,3 +189,139 @@ fn cmux_next_ensure_refuses_the_owner_of_a_recreated_state_dir() {
     // The refusal names the way out: stop the owner that serves the socket.
     assert!(error["message"].as_str().is_some_and(|m| m.contains("stop")), "{error}");
 }
+
+/// Holds the state root's session coordinator lock, so an owner that starts
+/// now blocks inside its session restore (it takes that lock to claim the
+/// session) until the hold ends: a restore as slow as the test needs, with
+/// no hook in the product. Dropping the hold releases the lock.
+struct SlowRestore {
+    _lock: fs::File,
+}
+
+impl SlowRestore {
+    fn hold(fixture: &EnsureFixture) -> Self {
+        use std::os::fd::AsRawFd;
+        use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+        let locks = fixture.dir.join("state").join("session-locks");
+        fs::DirBuilder::new().recursive(true).mode(0o700).create(&locks).unwrap();
+        let lock = fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .mode(0o600)
+            .open(locks.join(".coordinator.lock"))
+            .unwrap();
+        // SAFETY: flock on a descriptor this test owns.
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
+        Self { _lock: lock }
+    }
+}
+
+/// One identify exchange on the session socket, or None when nothing answers.
+fn identify(socket: &std::path::Path) -> Option<serde_json::Value> {
+    use std::io::{BufRead, BufReader, Write};
+    let mut stream = std::os::unix::net::UnixStream::connect(socket).ok()?;
+    stream.set_read_timeout(Some(std::time::Duration::from_secs(2))).ok()?;
+    writeln!(stream, "{}", serde_json::json!({"id": 1, "cmd": "identify"})).ok()?;
+    let mut line = String::new();
+    BufReader::new(stream).read_line(&mut line).ok()?;
+    let response: serde_json::Value = serde_json::from_str(&line).ok()?;
+    (response["ok"] == true).then(|| response["data"].clone())
+}
+
+/// Waits (bounded) for the owner to answer on its socket while it restores.
+fn restoring_identity(fixture: &EnsureFixture) -> Option<serde_json::Value> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while std::time::Instant::now() < deadline {
+        if let Some(identity) = identify(&fixture.socket) {
+            return Some(identity);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    None
+}
+
+/// A running `server ensure`, killed on drop if the test ends before it
+/// finishes (a failed assertion must not leave it waiting).
+struct EnsureRun(Option<std::process::Child>);
+
+impl EnsureRun {
+    fn output(mut self) -> Output {
+        self.0.take().expect("ensure child").wait_with_output().unwrap()
+    }
+}
+
+impl Drop for EnsureRun {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.0.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+fn spawn_ensure(fixture: &EnsureFixture) -> EnsureRun {
+    let mut command = fixture.command("ensure");
+    command.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+    EnsureRun(Some(command.spawn().unwrap()))
+}
+
+/// cx-n3bs: an owner whose restore outlasts the 10 s contact bound is not
+/// killed, and a second ensure during that restore waits for the same owner
+/// instead of starting another. The owner answers on its socket for the
+/// whole restore (`lifecycle_ready: false`, `restoring: true`).
+#[test]
+fn ensure_waits_for_a_restoring_owner_and_never_starts_a_second() {
+    let fixture = EnsureFixture::new("restoring");
+    let restore = SlowRestore::hold(&fixture);
+    let started_at = std::time::Instant::now();
+    let first = spawn_ensure(&fixture);
+
+    let during = restoring_identity(&fixture);
+    let second = spawn_ensure(&fixture);
+    // Keep the restore going well past the 10 s contact bound of both
+    // ensures, measured from their spawns.
+    let hold = std::time::Duration::from_secs(14);
+    std::thread::sleep(hold.saturating_sub(started_at.elapsed()));
+    drop(restore);
+
+    let first = parse_success("ensure", &first.output());
+    let second = parse_success("ensure", &second.output());
+    assert_eq!(first["status"], "started", "{first}");
+    assert_eq!(second["status"], "running", "{second}");
+    let pid = first["pid"].as_u64().expect("owner pid");
+    assert_eq!(second["pid"].as_u64(), Some(pid), "the second ensure found another owner");
+
+    let during = during.expect("the owner did not answer on its socket while it restored");
+    assert_eq!(during["lifecycle_ready"], false, "{during}");
+    assert_eq!(during["restoring"], true, "{during}");
+    assert_eq!(during["session"], fixture.session.as_str(), "{during}");
+    assert_eq!(during["pid"].as_u64(), Some(pid), "{during}");
+}
+
+/// cx-n3bs: an owner that answered "restoring" and then died ends the ensure
+/// that started it at once (server.unavailable), not after the 120 s restore
+/// bound.
+#[test]
+fn ensure_fails_fast_when_its_restoring_owner_dies() {
+    let fixture = EnsureFixture::new("restoredeath");
+    let restore = SlowRestore::hold(&fixture);
+    let ensure = spawn_ensure(&fixture);
+    let during = restoring_identity(&fixture)
+        .expect("the owner did not answer on its socket while it restored");
+    let pid = during["pid"].as_u64().expect("restoring owner pid");
+    let killed_at = std::time::Instant::now();
+    // SAFETY: signals the owner this test's ensure spawned (pid from its own
+    // socket identity).
+    assert_eq!(unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) }, 0);
+    let output = ensure.output();
+    let waited = killed_at.elapsed();
+    drop(restore);
+    assert!(!output.status.success(), "ensure reported a dead owner as ready");
+    let error: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap_or_else(|_| {
+        panic!("stderr is not one JSON error: {}", String::from_utf8_lossy(&output.stderr))
+    });
+    assert_eq!(error["code"], "server.unavailable", "{error}");
+    assert!(waited < std::time::Duration::from_secs(5), "ensure waited {waited:?}");
+}

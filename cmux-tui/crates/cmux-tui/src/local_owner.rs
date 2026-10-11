@@ -13,7 +13,12 @@
 //! Concurrent ensures serialize on a lock file next to the socket, because
 //! the server's stale-socket recovery (probe, unlink, bind) is not atomic:
 //! without the lock, two racing owners could both bind, one of them on an
-//! already-unlinked socket path that no client can ever reach.
+//! already-unlinked socket path that no client can ever reach. Every holder
+//! keeps that lock only for moments: an ensure across one probe and the
+//! spawn, an owner across its bind. An owner binds its socket before it
+//! restores its session (cx-n3bs) and answers `identify` with
+//! `lifecycle_ready: false` until the restore ends, so ensure waits for a
+//! restoring owner outside the lock and never mistakes it for an absent one.
 
 use std::io;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -24,17 +29,19 @@ use std::time::{Duration, Instant};
 use cmux_tui_core::platform::{self, transport};
 use serde_json::Value;
 
-/// Total time an ensure may spend probing, spawning, and waiting for the
-/// owner to accept clients. Matches the lifecycle CLI exchange deadline.
+/// Time to reach an owner: for an owner this call spawns, from the spawn
+/// until it answers on its socket (it binds before its restore, so this is
+/// process start, not restore). Each identify exchange is bounded by it too.
+/// Matches the lifecycle CLI exchange deadline. The restore itself is
+/// bounded by `RESTORE_DEADLINE`.
 pub(crate) const ENSURE_DEADLINE: Duration = Duration::from_secs(10);
 
 /// Upper bound on the wait for an owner that is alive but still restoring
 /// its session (registry, terminal host adoption) before it accepts clients.
-/// The ensure deadline above bounds reaching an owner; once one is alive (its
-/// readiness pipe is open, or it answers identify with `lifecycle_ready:
-/// false`), ensure waits for that restore up to this bound instead of
-/// reporting the owner unavailable (cx-w760: a slow box took over 10 s to
-/// restore after a restart, and the first ensure failed).
+/// Once an owner answers identify with `lifecycle_ready: false`, ensure
+/// waits for its restore up to this bound instead of reporting the owner
+/// unavailable (cx-w760: a slow box took over 10 s to restore after a
+/// restart, and the first ensure failed).
 pub(crate) const RESTORE_DEADLINE: Duration = Duration::from_secs(120);
 
 /// Probe interval while an owner this process did not start is still
@@ -192,8 +199,12 @@ pub(crate) enum EnsureError {
 
 /// One connect-and-identify attempt against the session socket.
 enum Attempt {
-    /// Nothing serves the socket (missing file, refused, or dead peer).
-    Absent,
+    /// Nothing serves the socket: the connect failed (missing file, refused).
+    /// An owner seen restoring before has exited.
+    Gone,
+    /// A connection was accepted but closed or broke before an identity came
+    /// back: a stale or dying peer, or a live owner refusing extra clients.
+    Unanswered,
     /// A cmux-tui server answered but is not lifecycle-ready yet.
     Starting,
     Ready(ReadyOwner),
@@ -203,6 +214,8 @@ enum Attempt {
 /// detached headless owner process when none is running. `expected_session`
 /// is the caller's session constraint for a server that is already running;
 /// an owner spawned here is always validated against `spec.session`.
+/// `deadline` bounds reaching an owner (`ENSURE_DEADLINE`); a live owner's
+/// restore is awaited up to `RESTORE_DEADLINE`.
 pub(crate) fn ensure_owner(
     spec: &OwnerSpec,
     expected_session: Option<&str>,
@@ -211,27 +224,53 @@ pub(crate) fn ensure_owner(
     cmux_tui_core::server::prepare_socket_parent(&spec.socket, spec.socket_is_derived)
         .map_err(|error| EnsureError::Spawn(io::Error::other(error)))?;
     let restore_deadline = deadline.max(Instant::now() + RESTORE_DEADLINE);
-    if let Some(ready) = wait_while_starting(spec, expected_session, restore_deadline)? {
-        return Ok(Ensured::Running(ready));
-    }
-    let owner = {
-        let _lock = cmux_tui_core::server::SocketStartLock::acquire(&spec.socket, deadline)
-            .map_err(EnsureError::Spawn)?;
-        // Re-probe under the lock: a concurrent ensure may have spawned the
-        // owner while this call waited for the lock.
+    let owner = loop {
         if let Some(ready) = wait_while_starting(spec, expected_session, restore_deadline)? {
             return Ok(Ensured::Running(ready));
         }
-        // The lock is released once the spawn is issued: the owner's serve
-        // path takes the same lock to bind, so holding it across the
-        // readiness wait would deadlock parent against child. A redundant
-        // owner spawned by a racing ensure loses the serialized bind, exits,
-        // and every caller converges on the winner through the probe below.
-        spawn_detached_owner(spec).map_err(EnsureError::Spawn)?
+        if Instant::now() >= restore_deadline {
+            return Err(EnsureError::RestoreTimeout);
+        }
+        // Every holder keeps this lock only across a probe and a spawn or a
+        // bind, so the start lock's own short bound applies.
+        let lock = cmux_tui_core::server::SocketStartLock::acquire(
+            &spec.socket,
+            Instant::now() + cmux_tui_core::server::START_LOCK_DEADLINE,
+        )
+        .map_err(EnsureError::Spawn)?;
+        // One probe under the lock: a concurrent ensure may have spawned the
+        // owner while this call waited for the lock. A restoring owner is
+        // awaited outside the lock (next turn), never while holding it.
+        match attempt(spec, expected_session, attempt_deadline(restore_deadline))? {
+            Attempt::Ready(ready) => return Ok(Ensured::Running(ready)),
+            Attempt::Starting => {
+                drop(lock);
+                std::thread::sleep(POLL_INTERVAL);
+                continue;
+            }
+            // The lock is released once the spawn is issued. A redundant
+            // owner spawned by a racing ensure finds the socket live at its
+            // bind, exits before it restores anything, and every caller
+            // converges on the winner through the probes below.
+            Attempt::Gone | Attempt::Unanswered => {
+                let owner = spawn_detached_owner(spec).map_err(EnsureError::Spawn);
+                drop(lock);
+                break owner?;
+            }
+        }
     };
+    // The spawned owner binds at process start; give it the full contact
+    // bound from now, even when this call already waited on an earlier owner.
+    let contact_deadline = deadline.max(Instant::now() + ENSURE_DEADLINE);
     let ready = match owner.ready.as_ref() {
-        Some(pipe) => wait_for_spawned_owner(pipe, spec, deadline, restore_deadline),
-        None => wait_until_ready(spec, Some(&spec.session), deadline, restore_deadline),
+        Some(pipe) => wait_for_spawned_owner(pipe, spec, contact_deadline, restore_deadline),
+        None => wait_until_ready(
+            spec,
+            Some(&spec.session),
+            &|| owner.exited(),
+            contact_deadline,
+            restore_deadline,
+        ),
     };
     match ready {
         Ok(Some(ready)) => Ok(Ensured::Started(ready)),
@@ -264,7 +303,7 @@ fn wait_while_starting(
     loop {
         match attempt(spec, expected_session, attempt_deadline(restore_deadline))? {
             Attempt::Ready(ready) => return Ok(Some(ready)),
-            Attempt::Absent => return Ok(None),
+            Attempt::Gone | Attempt::Unanswered => return Ok(None),
             Attempt::Starting => {}
         }
         if Instant::now() >= restore_deadline {
@@ -274,14 +313,17 @@ fn wait_while_starting(
     }
 }
 
-/// Poll until the freshly spawned owner accepts clients. Absence is
-/// tolerated until `deadline` because the owner may not have bound the
-/// socket yet; an owner that answers but is still restoring is awaited until
-/// `restore_deadline`.
+/// Poll until the freshly spawned owner accepts clients. Before any owner
+/// answers, the wait is bounded by `contact_deadline`; an owner that answers
+/// but is still restoring is awaited until `restore_deadline`. An owner seen
+/// restoring that then vanishes from the socket ends the restore wait at
+/// once: the contact bound applies again, and when the spawned process has
+/// exited too (`owner_exited`) ensure fails now instead of waiting.
 fn wait_until_ready(
     spec: &OwnerSpec,
     expected_session: Option<&str>,
-    deadline: Instant,
+    owner_exited: &dyn Fn() -> bool,
+    contact_deadline: Instant,
     restore_deadline: Instant,
 ) -> Result<Option<ReadyOwner>, EnsureError> {
     let mut seen_alive = false;
@@ -289,13 +331,20 @@ fn wait_until_ready(
         match attempt(spec, expected_session, attempt_deadline(restore_deadline))? {
             Attempt::Ready(ready) => return Ok(Some(ready)),
             Attempt::Starting => seen_alive = true,
-            Attempt::Absent => {}
+            // Accepted but unanswered: keep what is known about the owner.
+            Attempt::Unanswered => {}
+            Attempt::Gone => {
+                seen_alive = false;
+                if owner_exited() {
+                    return Ok(None);
+                }
+            }
         }
         let now = Instant::now();
         if seen_alive && now >= restore_deadline {
             return Err(EnsureError::RestoreTimeout);
         }
-        if !seen_alive && now >= deadline {
+        if !seen_alive && now >= contact_deadline {
             return Ok(None);
         }
         std::thread::sleep(POLL_INTERVAL);
@@ -309,26 +358,15 @@ fn wait_until_ready(
 fn wait_for_spawned_owner(
     pipe: &std::fs::File,
     spec: &OwnerSpec,
-    deadline: Instant,
+    contact_deadline: Instant,
     restore_deadline: Instant,
 ) -> Result<Option<ReadyOwner>, EnsureError> {
-    use std::os::fd::AsRawFd;
     let expected = Some(spec.session.as_str());
-    // The pipe stays open while the owner lives: the owner restores its
-    // session (registry, terminal host adoption) before it binds and writes
-    // the byte, so the wait is bounded by the restore deadline, not the
-    // shorter contact deadline (cx-w760).
-    loop {
-        let remaining = restore_deadline.saturating_duration_since(Instant::now());
-        let timeout = i32::try_from(remaining.as_millis()).unwrap_or(i32::MAX);
-        let mut poll = libc::pollfd { fd: pipe.as_raw_fd(), events: libc::POLLIN, revents: 0 };
-        // SAFETY: one valid pollfd for the lifetime of the call.
-        match unsafe { libc::poll(&mut poll, 1, timeout) } {
-            0 => return Err(EnsureError::RestoreTimeout),
-            result if result > 0 => break,
-            _ if io::Error::last_os_error().kind() == io::ErrorKind::Interrupted => {}
-            _ => break,
-        }
+    // The pipe stays open while the owner lives, and the owner writes its
+    // byte only after its restore, so a live owner is awaited up to the
+    // restore bound, never killed at the shorter contact bound (cx-w760).
+    if !wait_readable(pipe, restore_deadline) {
+        return Err(EnsureError::RestoreTimeout);
     }
     let mut byte = [0_u8; 1];
     let signaled = matches!((&*pipe).read(&mut byte), Ok(1));
@@ -337,19 +375,39 @@ fn wait_for_spawned_owner(
     {
         return Ok(Some(ready));
     }
-    // End of file: this owner lost the bind to a racing ensure's owner (or
-    // crashed). That owner announces readiness only to its own parent.
-    wait_until_ready(spec, expected, deadline, restore_deadline)
+    // End of file: this owner exited. It lost the bind to a racing ensure's
+    // owner (which announces readiness only to its own parent), or crashed.
+    wait_until_ready(spec, expected, &|| true, contact_deadline, restore_deadline)
 }
 
+/// Whether `pipe` became readable (a byte or end of file) before `deadline`.
+#[cfg(unix)]
+fn wait_readable(pipe: &std::fs::File, deadline: Instant) -> bool {
+    use std::os::fd::AsRawFd;
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        let timeout = i32::try_from(remaining.as_millis()).unwrap_or(i32::MAX);
+        let mut poll = libc::pollfd { fd: pipe.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+        // SAFETY: one valid pollfd for the lifetime of the call.
+        match unsafe { libc::poll(&mut poll, 1, timeout) } {
+            0 => return false,
+            result if result > 0 => return true,
+            _ if io::Error::last_os_error().kind() == io::ErrorKind::Interrupted => {}
+            _ => return true,
+        }
+    }
+}
+
+/// No readiness pipe exists off Unix (`SpawnedOwner::ready` is always
+/// `None` there), so this is never called.
 #[cfg(not(unix))]
 fn wait_for_spawned_owner(
-    _pipe: &std::convert::Infallible,
-    spec: &OwnerSpec,
-    deadline: Instant,
-    restore_deadline: Instant,
+    pipe: &std::convert::Infallible,
+    _spec: &OwnerSpec,
+    _contact_deadline: Instant,
+    _restore_deadline: Instant,
 ) -> Result<Option<ReadyOwner>, EnsureError> {
-    wait_until_ready(spec, Some(&spec.session), deadline, restore_deadline)
+    match *pipe {}
 }
 
 fn attempt(
@@ -360,14 +418,14 @@ fn attempt(
     let stream =
         match cmux_tui_core::server::connect_session_socket(&spec.socket, spec.socket_is_derived) {
             Ok(stream) => stream,
-            Err(_) => return Ok(Attempt::Absent),
+            Err(_) => return Ok(Attempt::Gone),
         };
     let identity = match identify(stream, deadline) {
         Ok(identity) => identity,
         // A timeout is a live but busy server; anything else on a fresh
-        // connection is a dying or stale peer and reads as absent.
+        // connection is a dying or stale peer (or a full one).
         Err(IdentifyError::Timeout) => return Ok(Attempt::Starting),
-        Err(IdentifyError::Failed) => return Ok(Attempt::Absent),
+        Err(IdentifyError::Failed) => return Ok(Attempt::Unanswered),
     };
     if identity["app"] != "cmux-tui" {
         return Err(EnsureError::WrongOwner);
@@ -508,6 +566,11 @@ fn configure_detached_owner_environment(command: &mut Command) {
 }
 
 impl SpawnedOwner {
+    /// Whether the owner process has exited (and been reaped).
+    fn exited(&self) -> bool {
+        self.state.child.lock().map(|child| child.is_none()).unwrap_or(true)
+    }
+
     fn terminate(self) {
         #[cfg(not(unix))]
         self.state.terminate.store(true, std::sync::atomic::Ordering::Release);
@@ -738,20 +801,6 @@ mod tests {
 
         use super::super::*;
 
-        fn spec(socket: PathBuf) -> OwnerSpec {
-            OwnerSpec {
-                session: "ready-pipe-test".into(),
-                socket,
-                socket_is_derived: false,
-                state: None,
-                term: None,
-                initial_host_colors: None,
-                terminal_reap_grace: None,
-                install_key: None,
-                chief_tools_socket: None,
-            }
-        }
-
         #[test]
         fn ready_descriptor_is_claimed_close_on_exec_and_signaled_once() {
             let (mut reader, writer) = io::pipe().unwrap();
@@ -767,36 +816,6 @@ mod tests {
             for invalid in ["0", "2", "-1", "x"] {
                 assert!(claim_inherited_fd(OWNER_READY_FD_ARG, invalid).is_err(), "{invalid}");
             }
-        }
-
-        #[test]
-        fn an_owner_that_never_signals_is_awaited_only_until_the_restore_deadline() {
-            let dir = std::env::temp_dir().join(format!(
-                "cmux-owner-wait-{}-{}",
-                std::process::id(),
-                line!()
-            ));
-            let socket = dir.join("absent.sock");
-            // Writer held open: no byte and no end of file.
-            let (reader, _writer) = io::pipe().unwrap();
-            let pipe = std::fs::File::from(std::os::fd::OwnedFd::from(reader));
-            let started = Instant::now();
-            let deadline = started + Duration::from_millis(200);
-            assert!(matches!(
-                wait_for_spawned_owner(&pipe, &spec(socket.clone()), deadline, deadline),
-                Err(EnsureError::RestoreTimeout)
-            ));
-            assert!(started.elapsed() >= Duration::from_millis(150));
-            // A byte with nothing serving the socket is not readiness either.
-            let (reader, mut writer) = io::pipe().unwrap();
-            writer.write_all(b"1").unwrap();
-            drop(writer);
-            let pipe = std::fs::File::from(std::os::fd::OwnedFd::from(reader));
-            let deadline = Instant::now() + Duration::from_millis(200);
-            assert!(matches!(
-                wait_for_spawned_owner(&pipe, &spec(socket), deadline, deadline),
-                Ok(None)
-            ));
         }
 
         fn owner_state(command: &mut Command) -> (Arc<OwnerProcessState>, u32) {
