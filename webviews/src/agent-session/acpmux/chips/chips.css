@@ -169,7 +169,7 @@
   height: 24px;
   border: 0;
   border-radius: 6px;
-  color: #fff;
+  color: #fff; /* theme-fixed: on its own black scrim over media */
   background: rgb(0 0 0 / 0.5);
   opacity: 0;
   transition: opacity 120ms;
