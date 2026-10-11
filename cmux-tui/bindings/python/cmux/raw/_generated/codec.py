@@ -481,6 +481,7 @@ MODEL_BY_PATH = {
     'events/colors-changed/payload': models.ColorsChangedEvent,
     'events/config-reload-requested/payload': models.ConfigReloadRequestedEvent,
     'events/conversation-changed/payload': models.ConversationChangedEvent,
+    'events/conversation-draft/payload': models.ConversationDraftEvent,
     'events/conversation-typing/payload': models.ConversationTypingEvent,
     'events/daemon-shutdown/payload': models.DaemonShutdownEvent,
     'events/detached/payload': models.DetachedEvent,
