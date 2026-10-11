@@ -139,6 +139,16 @@ final class AgentHarnessCenter {
         }
     }
 
+    /// The ids of the daemon's harnesses (`_acpmux/harnesses`), as Settings > Agents lists them.
+    func listed() async throws -> [String] {
+        try await call(.list)["harnesses"]?.objectValue.map { Array($0.keys) } ?? []
+    }
+
+    /// `_acpmux/harness/health` (cx-ny85): the daemon's last check of every harness.
+    func health() async throws -> [JSONValue] {
+        try await call(.health)["harnesses"]?.arrayValue ?? []
+    }
+
     private func call(_ method: AcpmuxHarnessMethod, _ params: [String: any Sendable] = [:]) async throws -> JSONValue {
         guard let environment = environment() else { throw AgentHarnessFailure.noDaemon }
         do {

@@ -37,6 +37,8 @@ final class QuickComposerController {
     private(set) var floatingState = AgentPaneFloatingState()
     /// Sends the floating chat's state to its page (`AgentPaneFloatingState.push`).
     private let pushState: (AgentPaneFloatingState, AgentPaneView) -> Void
+    /// What the user is looking at in cmux, for Include focused tab (`FloatingChatContext`).
+    private let context: @MainActor () async -> AgentPaneQuickContext?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.quickComposer")
 
     init(
@@ -45,7 +47,8 @@ final class QuickComposerController {
         openInWindow: @escaping (String?) -> Bool,
         startInBackground: @escaping @MainActor (AgentPaneQuickStart) async -> Bool,
         floating: @escaping () -> Bool = { QuickComposerTunables.floatingChat.value },
-        pushState: @escaping (AgentPaneFloatingState, AgentPaneView) -> Void = { AgentPaneFloatingState.push($0, to: $1) }
+        pushState: @escaping (AgentPaneFloatingState, AgentPaneView) -> Void = { AgentPaneFloatingState.push($0, to: $1) },
+        context: @escaping @MainActor () async -> AgentPaneQuickContext? = { nil }
     ) {
         self.makeChat = makeChat
         self.makeWindow = makeWindow
@@ -53,6 +56,7 @@ final class QuickComposerController {
         self.startInBackground = startInBackground
         self.floating = floating
         self.pushState = pushState
+        self.context = context
     }
 
     var isShown: Bool { window?.isVisible == true }
@@ -186,7 +190,8 @@ final class QuickComposerController {
             startInBackground: { [weak self] start in await self?.startChatInBackground(start) },
             setOnTop: { [weak self] onTop in self?.setOnTop(onTop) },
             setCollapsed: { [weak self] collapsed in self?.setCollapsed(collapsed) },
-            floatingState: { [weak self] in self?.floatingState ?? AgentPaneFloatingState() })
+            floatingState: { [weak self] in self?.floatingState ?? AgentPaneFloatingState() },
+            context: { [weak self] in await self?.context() })
         self.chat = chat
         return chat
     }

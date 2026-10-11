@@ -86,29 +86,8 @@ final class SettingsHarnesses {
         // The rows show first: a check can take a while. A failed one (an older daemon without
         // the method, a timeout) keeps the health already shown.
         guard let checked = try? await environment.harness(.health, params: ["refresh": recheck]),
-              mine == generation, let read = Self.healthRows(checked) else { return }
+              mine == generation, let read = AgentCLIUpdates.rows(checked) else { return }
         health = read
-    }
-
-    private static func healthRows(_ data: Data) -> [String: JSONValue]? {
-        guard let rows = (try? JSONValue.parse(data))?["harnesses"]?.arrayValue else { return nil }
-        return Dictionary(rows.compactMap { row in row["id"]?.stringValue.map { ($0, row) } }, uniquingKeysWith: { first, _ in first })
-    }
-
-    /// The update a click may type for harness `id`: its daemon's argv, each word single-quoted;
-    /// nil when it is not outdated, needs sudo, or holds a character no shell quotes alike.
-    private func updateLine(_ id: String) -> String? {
-        guard let row = health[id], row["outdated"]?.boolValue == true, let plan = row["update"],
-              plan["elevated"]?.boolValue == false,
-              let argv = plan["argv"]?.arrayValue?.compactMap(\.stringValue), let program = argv.first,
-              // Never sudo, whatever the daemon says.
-              !["sudo", "doas", "su", "pkexec"].contains((program as NSString).lastPathComponent) else { return nil }
-        let unsafe: (Character) -> Bool = { character in
-            character == "'" || character == "\\" || character.isNewline
-                || character.unicodeScalars.contains { $0.properties.generalCategory == .control }
-        }
-        guard !argv.contains(where: { $0.contains(where: unsafe) }) else { return nil }
-        return argv.map { "'" + $0 + "'" }.joined(separator: " ")
     }
 
     /// Types `line` into a new terminal tab; refuses a line that could not be typed safely.
@@ -129,13 +108,12 @@ final class SettingsHarnesses {
             guard let id = params["id"]?.stringValue, rows.contains(where: { $0.id == id }) else {
                 throw PageError.invalidParams("id must be a listed harness")
             }
-            try type(updateLine(id))
+            try type(health[id].flatMap(AgentCLIUpdates.line))
         case "updateAll":
-            // Two harnesses from one package update once; each line runs whether the one before failed.
-            var lines: [String] = []
-            for row in rows { if let line = updateLine(row.id), !lines.contains(line) { lines.append(line) } }
-            guard !lines.isEmpty else { throw PageError.invalidParams("no harness can be updated here") }
-            openTerminal(lines.joined(separator: "; "))
+            guard let line = AgentCLIUpdates.allLine(rows.compactMap { health[$0.id] }) else {
+                throw PageError.invalidParams("no harness can be updated here")
+            }
+            openTerminal(line)
         case "signIn", "check":
             guard let id = params["id"]?.stringValue, rows.contains(where: { $0.id == id && $0.kind != "terminal" }) else {
                 throw PageError.invalidParams("id must be a listed harness")
