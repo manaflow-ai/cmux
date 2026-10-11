@@ -219,6 +219,30 @@ await requireBrowserLane("chat-find.test.ts", async () => {
         { timeout: 10_000 },
       );
       expect((await state(page)).count).toBe("1 of 1");
+
+      // The counter and the highlight agree: each step through a command's matches lands on a
+      // different drawn match (a group's summary line and a call's title are not counted).
+      await page.fill(".acpmux-find__field", "bun test");
+      const total = Number(/of (\d+)/.exec((await state(page)).count)?.[1] ?? 0);
+      expect(total).toBeGreaterThan(1);
+      const seen = new Set<string>();
+      for (let step = 0; step < total; step += 1) {
+        await settleInView(page);
+        seen.add(
+          await page.evaluate(() => {
+            const range = [
+              ...((CSS as unknown as { highlights: Map<string, Set<Range>> }).highlights.get("acpmux-find-active") ??
+                []),
+            ][0];
+            const box = range?.getBoundingClientRect();
+            const scroller = document.querySelector(".acpmux-scroll")!;
+            return box ? `${Math.round(box.top + scroller.scrollTop)}:${Math.round(box.left)}` : "none";
+          }),
+        );
+        await page.keyboard.press("Enter");
+      }
+      expect(seen.has("none")).toBe(false);
+      expect(seen.size).toBe(total);
       await page.close();
     });
   });
