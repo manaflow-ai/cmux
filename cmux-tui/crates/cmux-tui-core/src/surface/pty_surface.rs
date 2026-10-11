@@ -401,7 +401,7 @@ impl PtySurface {
         let mut geometry = self.geometry.lock().unwrap();
         let next = PtyGeometry { cols, rows, ..*geometry };
         next.pty_size()?;
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         {
             let runtime = self.runtime.lock().unwrap();
             if let PtyRuntime::Hosted(host) = &*runtime {
@@ -445,7 +445,7 @@ impl PtySurface {
             PtyGeometry { cell_width: requested.0, cell_height: requested.1, ..*geometry }
                 .pty_size()?;
         }
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         {
             let runtime = self.runtime.lock().unwrap();
             match &*runtime {
@@ -497,7 +497,7 @@ impl PtySurface {
         self.commit_geometry_for_runtime(geometry, next, refresh_attach_colors, false)
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) fn commit_hosted_geometry(
         &self,
         geometry: &mut PtyGeometry,
@@ -531,9 +531,9 @@ impl PtySurface {
         let runtime = (!hosted_mirror).then(|| self.runtime.lock().unwrap());
         let master = match runtime.as_deref() {
             Some(PtyRuntime::Local { master, .. }) => master.as_deref(),
-            #[cfg(unix)]
+            #[cfg(any(unix, windows))]
             Some(PtyRuntime::Hosted(_)) => None,
-            #[cfg(unix)]
+            #[cfg(any(unix, windows))]
             Some(PtyRuntime::ExitedHosted) => return Ok(false),
             None => None,
         };

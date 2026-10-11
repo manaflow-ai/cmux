@@ -157,6 +157,68 @@ describe("Home conversation ops over HTTP (two people)", { timeout: 60_000 }, ()
     expect((await send(carol.token, id, "in-fresh", { thread_root: fresh })).json.ok).toBe(true)
   })
 
+  it("conversation.thread: the whole thread, paging, root stats on history and snapshot, and refusals (cx-59n8.6)", async () => {
+    const send = (token: string, conversation: string, key: string, extra: Record<string, unknown> = {}) =>
+      op(token, "message.send", { conversation, client_msg_id: key, parts: [{ type: "text", text: key }], ...extra }, key)
+    const thread = (token: string, conversation: string, root: string, extra: Record<string, unknown> = {}) => read(token, "conversation.thread", { conversation, root, ...extra })
+    // A refused read is an HttpApi error body: {_tag, code, message} at the top level.
+    const readRefused = (r: { status: number; json: any }) => [r.status, r.json?.code as string | undefined]
+    const { alice, bob, id } = await twoPersonGroup("thread-read")
+    const root = (await send(alice.token, id, "tr-root")).json.value.message_id as string
+    const lonely = (await send(alice.token, id, "tr-lonely")).json.value.message_id as string
+    const r1 = (await send(bob.token, id, "tr-1", { thread_root: root })).json.value.message_id as string
+    const r2 = (await send(alice.token, id, "tr-2", { thread_root: root })).json.value.message_id as string
+    const r3 = (await send(bob.token, id, "tr-3", { thread_root: root })).json.value.message_id as string
+
+    const all = await thread(alice.token, id, root)
+    expect(all.status).toBe(200)
+    const v = all.json.value as { root: Message; replies: Array<Message & { created_at: string }>; has_more: boolean; thread: unknown }
+    expect(v.root.id).toBe(root)
+    expect(v.replies.map((m) => m.id)).toEqual([r1, r2, r3])
+    expect(v.replies.every((m) => m.thread_root === root)).toBe(true)
+    expect(v.has_more).toBe(false)
+    const last = v.replies[2]!
+    const summary = { root, reply_count: 3, last_reply_seq: last.seq, last_reply_at: last.created_at, authors: [bob.user, alice.user] }
+    expect(v.thread).toEqual(summary)
+
+    // Paging: after_seq is exclusive; has_more is exact (a page that ends at the last reply says false).
+    const page1 = (await thread(alice.token, id, root, { limit: 2 })).json.value
+    expect(page1.replies.map((m: Message) => m.id)).toEqual([r1, r2])
+    expect(page1.has_more).toBe(true)
+    const page2 = (await thread(alice.token, id, root, { limit: 2, after_seq: page1.replies[1].seq })).json.value
+    expect(page2.replies.map((m: Message) => m.id)).toEqual([r3])
+    expect(page2.has_more).toBe(false)
+    expect((await thread(alice.token, id, root, { limit: 3 })).json.value.has_more).toBe(false)
+    expect(page2.thread).toEqual(summary)
+
+    // A root with no replies answers with an empty thread.
+    expect((await thread(bob.token, id, lonely)).json.value).toMatchObject({ replies: [], has_more: false, thread: { root: lonely, reply_count: 0, last_reply_seq: null, last_reply_at: null, authors: [] } })
+
+    // history and snapshot carry the stats of the roots in their page only (exact, not over the loaded window).
+    expect((await read(bob.token, "conversation.history", { conversation: id, limit: 50 })).json.value.threads).toEqual([summary])
+    expect((await read(bob.token, "conversation.snapshot", { conversation: id, tail: 50 })).json.value.threads).toEqual([summary])
+    expect((await read(bob.token, "conversation.history", { conversation: id, before_seq: v.root.seq, limit: 50 })).json.value.threads ?? []).toEqual([])
+
+    // Refusals: a reply as root, an unknown id, a stranger.
+    expect(readRefused(await thread(alice.token, id, r1))).toEqual([400, "unknown_message"])
+    expect(readRefused(await thread(alice.token, id, `msg_${"0".repeat(26)}`))).toEqual([400, "unknown_message"])
+    const dana = await signIn("home-ops-thread-read-dana", "dana-thread-read@example.com", "Dana Example")
+    expect((await thread(dana.token, id, root)).status).toBe(403)
+
+    // since_join: a member who joined later cannot read a root below its floor (same code as unknown).
+    const carol = await signIn("home-ops-thread-read-carol", "carol-thread-read@example.com", "Carol Example")
+    expect((await op(alice.token, "conversation.settings.set", { conversation: id, history_visible: "since_join" })).json.ok).toBe(true)
+    expect((await op(alice.token, "invite.create", { conversation: id, address: { email: "carol-thread-read@example.com" }, display_name: "Carol" })).json.ok).toBe(true)
+    const address = invites.addressId(testEnv.HOME_ADDRESS_KEY, invites.normalizeEmail("carol-thread-read@example.com") as invites.Address)
+    const stash = testEnv.ADDRESS_DO.get(testEnv.ADDRESS_DO.idFromName(address))
+    const secret = await runInDurableObject(stash, async (_i, st) => String(st.storage.sql.exec("SELECT secret FROM address_secrets").toArray()[0]!.secret))
+    expect((await op(carol.token, "invite.accept", { code: invites.linkCode(id), secret })).json.ok).toBe(true)
+    expect(readRefused(await thread(carol.token, id, root))).toEqual([400, "unknown_message"])
+    const fresh = (await send(alice.token, id, "tr-fresh")).json.value.message_id as string
+    const freshReply = (await send(carol.token, id, "tr-fresh-1", { thread_root: fresh })).json.value.message_id as string
+    expect((await thread(carol.token, id, fresh)).json.value.replies.map((m: Message) => m.id)).toEqual([freshReply])
+  })
+
   it("title.set: any member of a group; refused in a DM", async () => {
     const { alice, bob, id } = await twoPersonGroup("title")
     expect((await op(bob.token, "title.set", { conversation: id, title: "Friday plans" })).json.ok).toBe(true)

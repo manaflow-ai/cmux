@@ -8,8 +8,7 @@ public import Observation
 /// page; this only answers the page's host requests.
 @Observable
 public final class AgentPaneModel {
-    /// The session the page last reported, nil for a new chat that has not
-    /// sent its first prompt.
+    /// The session the page last reported, nil for a new chat that has not sent its first prompt.
     public private(set) var sessionId: String?
     /// Page projection of its single session-host Git capability read, never an authorization grant.
     public private(set) var checkpointAvailable = false
@@ -19,9 +18,9 @@ public final class AgentPaneModel {
     public internal(set) var hasPainted = false
     @ObservationIgnored var paintWaiters: [() -> Void] = []
 
-    /// Called when the page switches to or creates a session, so the App can
-    /// keep it with the tab.
+    /// Called when the page switches to or creates a session, so the App can keep it with the tab.
     @ObservationIgnored public var onSessionChange: ((String) -> Void)?
+    @ObservationIgnored public var onUnsentDraft: ((String) -> Void)? // a new chat's typed text, until it has a session
     /// Reports each settled scroll and returns the native display settings to the page.
     @ObservationIgnored public var onFramePacing: (([Double]) -> [String: Any])?
     /// Applies the page's adaptive rendering decision.
@@ -271,6 +270,7 @@ public final class AgentPaneModel {
                 onSessionChange?(id)
             }
             return AgentPaneReply.success()
+        case .unsentDraft(let text): if sessionId == nil { onUnsentDraft?(text) }; return AgentPaneReply.success()
         case .checkpointAvailability(let available):
             setCheckpointAvailable(available)
             return AgentPaneReply.success()

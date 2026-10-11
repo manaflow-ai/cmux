@@ -62,8 +62,7 @@ final class AgentTabStore {
     var daemonForTab: @MainActor (_ key: String) -> DaemonService? = { _ in nil }
     /// Tabs closed while the store was still creating them: closed when it answers.
     var pendingCloses: [String: @MainActor (String) -> Void] = [:]
-    /// This Mac's name for other Macs that show its tabs ("This chat runs on <name>"): at most
-    /// 255 bytes, no control characters (the store refuses others).
+    /// This Mac's name for other Macs that show its tabs ("This chat runs on <name>"): ≤255 bytes, no control characters.
     var localHostName: String? {
         didSet { localHostName = localHostName.flatMap(Self.displayName) }
     }
@@ -84,10 +83,11 @@ final class AgentTabStore {
     var launchDeferred: Set<String> = []
     /// The tabs' pages from the last quit, drawn at launch (`AgentPaneLaunchImages`).
     var launchImages = AgentPaneLaunchImages(directory: nil)
+    /// New chats' typed text from before they have a session, kept across a relaunch (cx-z5vd).
+    var unsentDrafts = AgentUnsentDrafts(file: nil)
     /// "This chat runs on <machine>" for tabs whose session another Mac's acpmux runs.
     var notices: [String: AgentTabElsewhereView] = [:]
-    /// A provisional tab's id -> the store's id once the creation answered
-    /// (``AgentTabStore/rekey(_:to:)``): a page shown under either id is one page.
+    /// A provisional tab's id -> the store's id once the creation answered (``AgentTabStore/rekey(_:to:)``): one page.
     var aliases: [String: String] = [:]
     /// Tabs a live tree has listed: only those can be gone from it.
     var seenLive: Set<String> = []
@@ -273,7 +273,7 @@ final class AgentTabStore {
         // A new chat on another machine starts there from its seed (``startRemoteChat``): the
         // folder and harness start it, the draft and prompt reach its page.
         let seed = local || record.host.hasPrefix(AgentTabRemoteStart.registryPrefix)
-            ? (seeds.removeValue(forKey: key) ?? firstChatSeed(of: key, in: store)) : nil
+            ? (seeds.removeValue(forKey: key) ?? firstChatSeed(of: key, in: store) ?? unsentDrafts.seed(for: key, session: sessions[key] ?? record.session, local: local)) : nil
         if !local, let seed { remoteSeeds[key] = seed }
         guard let paneHost = kind == .local ? (localSessionHost ?? host) : kind == .chief ? chiefPaneHost : remoteHost(key) else {
             if !local, let seed { seeds[key] = seed }
@@ -334,7 +334,6 @@ final class AgentTabStore {
         return view
     }
 
-    /// Tab `key`'s callbacks on its page's model.
     /// Tab `key`'s callbacks on its page's model. Each resolves the tab's current id when it
     /// runs, so a page made under a provisional id keeps working under the store's.
     func wire(_ model: AgentPaneModel, key provisional: String) {
@@ -349,6 +348,7 @@ final class AgentTabStore {
             // the start, so no bind goes from here (cx-k21v). Its git reads go there (``gitLink``).
             if bindsHere(key) { sendSession(session, for: key) }
         }
+        unsentDrafts.wire(model) { [weak self] in self?.resolve(provisional) ?? provisional }
         model.onOpenTab = { [weak self] request in
             BenchSpans.mark("bridge.tab.open")
             guard let self else { return }
