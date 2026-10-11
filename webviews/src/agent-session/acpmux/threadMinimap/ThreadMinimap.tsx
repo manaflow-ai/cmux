@@ -4,7 +4,7 @@
 // bookmark in the popover marks the turn (bookmarks.ts). Geometry comes from the transcript's
 // layout (`tops`), so nothing here measures a row; the only element read is the popover itself.
 // Motion is transforms and opacity only (threadMinimap.css). Spec: minimap-spec.md in the lane notes.
-import React, { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AcpmuxRow, ConversationLayout } from "../model";
 import { useT } from "../i18n";
 import { useBookmarks } from "./bookmarks";
@@ -91,6 +91,39 @@ export function ThreadMinimap({
     if (shown && node) setPopoverHeight(node.offsetHeight);
   }, [shown, turn?.key, turn?.reply]);
   useLayoutEffect(() => () => clearTimeout(timer.current), []);
+  // Previous Turn and Next Turn (the app's Ctrl-Cmd-Up and Ctrl-Cmd-Down, bridge commands that raise
+  // these events) step the transcript from prompt to prompt, as a tick's click does. They work while the column is hidden too (a narrow pane, one turn).
+  const stepping = useRef({ turns, tops: layout.tops, target: undefined as number | undefined });
+  useEffect(() => {
+    stepping.current.turns = turns;
+    stepping.current.tops = layout.tops;
+  }, [turns, layout.tops]);
+  useEffect(() => {
+    const step = (by: -1 | 1) => {
+      const node = scroller.current;
+      const { turns: all, tops, target } = stepping.current;
+      if (!node || !all.length) return;
+      // A step during a smooth scroll counts from where that scroll goes, so repeats keep stepping.
+      const from = target !== undefined && Math.abs(node.scrollTop - target) > 1 ? target : node.scrollTop;
+      // From the turn being read: Next goes to the turn after it; Previous to its own prompt when
+      // that is above the viewport, else to the turn before it.
+      const reading = currentTurn(all, tops, from, node.clientHeight);
+      const index = by > 0 || turnScrollTop(all[reading], tops) >= from - 1 ? reading + by : reading;
+      if (index < 0 || index >= all.length) return;
+      const next = turnScrollTop(all[index], tops);
+      stepping.current.target = next;
+      const reduce = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+      node.scrollTo({ top: next, behavior: reduce ? "auto" : "smooth" });
+    };
+    const previous = () => step(-1);
+    const following = () => step(1);
+    window.addEventListener("cmux-acpmux-previousTurn", previous);
+    window.addEventListener("cmux-acpmux-nextTurn", following);
+    return () => {
+      window.removeEventListener("cmux-acpmux-previousTurn", previous);
+      window.removeEventListener("cmux-acpmux-nextTurn", following);
+    };
+  }, [scroller]);
 
   const indexAt = (clientY: number) => {
     const box = root.current?.getBoundingClientRect();

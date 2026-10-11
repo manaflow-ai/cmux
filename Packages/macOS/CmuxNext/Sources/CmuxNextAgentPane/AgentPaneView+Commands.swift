@@ -20,6 +20,13 @@ extension AgentPaneView {
         deliver([.command("createCheckpoint")], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"createCheckpoint\");"])
     }
 
+    /// Previous Turn and Next Turn (Ctrl-Cmd-Up, Ctrl-Cmd-Down): the page steps its transcript to the
+    /// prompt before or after the one being read, as the thread minimap's ticks do (cx-f7c).
+    public func stepTurn(forward: Bool) {
+        let command = forward ? "nextTurn" : "previousTurn"
+        deliver([.command(command)], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"\(command)\");"])
+    }
+
     /// Runs a grouped-permission action from the app shortcut registry. The
     /// page keeps the decision scoped to its selected session and refuses
     /// stale, collecting, or unavailable groups before sending anything.

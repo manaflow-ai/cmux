@@ -123,6 +123,26 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 // palette's chats page lists every chat; this opens it from anywhere.
                 category: .agents, symbol: "magnifyingglass", surfaces: [.palette, .keyboard]
             ),
+            // Previous Turn and Next Turn step the agent chat's transcript from prompt to prompt, as the
+            // thread minimap's ticks do (cx-f7c). The page handles them; a script reads the transcript instead.
+            ActionDescriptor(
+                id: "agentPane.previousTurn",
+                title: String(localized: "action.agentPane.previousTurn", defaultValue: "Previous Turn", bundle: .module),
+                keywords: ["agent", "chat", "turn", "prompt", "message", "previous", "up", "minimap"],
+                defaultShortcut: Shortcut(Shortcut.upArrowKey, modifiers: [.control, .command]),
+                category: .agents, symbol: "chevron.up", surfaces: [.palette, .keyboard],
+                requires: [.agentPaneFocused], targets: [.pane],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
+            ),
+            ActionDescriptor(
+                id: "agentPane.nextTurn",
+                title: String(localized: "action.agentPane.nextTurn", defaultValue: "Next Turn", bundle: .module),
+                keywords: ["agent", "chat", "turn", "prompt", "message", "next", "down", "minimap"],
+                defaultShortcut: Shortcut(Shortcut.downArrowKey, modifiers: [.control, .command]),
+                category: .agents, symbol: "chevron.down", surfaces: [.palette, .keyboard],
+                requires: [.agentPaneFocused], targets: [.pane],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
+            ),
             permissionAction("allowOnce", title: String(localized: "action.agentPane.permission.allowOnce", defaultValue: "Allow once", bundle: .module), symbol: "checkmark", shortcut: Shortcut("1", modifiers: [.command, .option])),
             permissionAction("allowChat", title: String(localized: "action.agentPane.permission.allowChat", defaultValue: "Allow for this chat", bundle: .module), symbol: "checkmark.circle", shortcut: Shortcut("2", modifiers: [.command, .option])),
             permissionAction("deny", title: String(localized: "action.agentPane.permission.deny", defaultValue: "Deny", bundle: .module), symbol: "xmark", shortcut: Shortcut("3", modifiers: [.command, .option])),
