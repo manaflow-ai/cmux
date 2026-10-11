@@ -12,12 +12,15 @@ import MediaPlayer
 // `artist`, `album`, `rate`, `media_type`, `artwork`) and `playback_state`, which
 // remote commands are enabled, the media hub's sessions (tab, title, playing), and this
 // process's visible windows (Chromium's picture-in-picture window is one of them).
-extension AppControl {
-    func registerNowPlayingDebugMethods(_ services: AppServices) {
+// `command` (`play`, `pause`, `toggle`, `next`, `previous`) first runs that media key's
+// command as MediaPlayer's handler does (`handled`: a tab was current); `tab` is the
+// tab Now Playing shows.
+enum DebugNowPlaying {
+    static func register(on router: ControlRouter?, services: AppServices) {
         #if DEBUG
-        service?.router.register([
+        router?.register([
             .mainActor("debug.now_playing") { [weak services] call in
-                .value(DebugNowPlaying.handle(call.params, services: services))
+                .value(handle(call.params, services: services))
             },
         ])
         #endif
@@ -25,9 +28,16 @@ extension AppControl {
 }
 
 #if DEBUG
-enum DebugNowPlaying {
+extension DebugNowPlaying {
     static func handle(_ params: [String: JSONValue], services: AppServices?) -> JSONValue {
-        report(services)
+        let nowPlaying = services?.cache.pageRequests.nowPlaying
+        let handled = params["command"]?.stringValue.flatMap(BrowserNowPlaying.Command.init(rawValue:)).map { command in
+            nowPlaying?.perform(command) ?? false
+        }
+        guard case .object(var members) = report(services) else { return .null }
+        members["tab"] = nowPlaying?.current.map { .string($0.tab.rawValue) } ?? .null
+        if let handled { members["handled"] = .bool(handled) }
+        return .object(members)
     }
 
     static func report(_ services: AppServices?) -> JSONValue {
