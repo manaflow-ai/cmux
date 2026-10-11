@@ -92,7 +92,9 @@ class Prune(unittest.TestCase):
         self.assertEqual(bucket.deleted, [])
 
     def test_a_kept_relay_keeps_its_cmux_tui_prefix(self):
-        bucket = FakeBucket(bodies={"chatmux-relay/latest/manifest.json": json.dumps({"commit": sha(6)})})
+        # chatmux-relay's manifest names its commit only as sourceCommit.
+        bucket = FakeBucket(bodies={"chatmux-relay/latest/manifest.json": json.dumps(
+            {"schemaVersion": 1, "sourceCommit": sha(6), "version": f"0.0.0-r2.sha-{sha(6)}"})})
         bucket.add_build("chatmux-relay", sha(6), 90)
         bucket.add_build("cmux-tui", sha(6), 90)
         bucket.add_build("chatmux-relay", sha(7), 90)
