@@ -12,12 +12,12 @@
   display: grid;
   gap: 4px;
   color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
-  font-size: 13px;
+  font-size: var(--text-body);
 }
 
 .choice-group-gallery-copy strong {
   color: var(--cmux-text, CanvasText);
-  font-size: 14px;
+  font-size: var(--text-content);
   font-weight: 600;
 }
 
@@ -65,17 +65,17 @@
 }
 
 .choice-group-gallery-label strong {
-  font-size: 13px;
+  font-size: var(--text-body);
   font-weight: 600;
 }
 
 .choice-group-gallery-label small {
   color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 64%, transparent));
-  font-size: 11px;
+  font-size: var(--text-caption);
 }
 
 .choice-group-gallery-receipt {
   min-height: 18px;
   color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
-  font-size: 12px;
+  font-size: var(--text-detail);
 }
