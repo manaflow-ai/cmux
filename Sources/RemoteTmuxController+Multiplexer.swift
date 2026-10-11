@@ -615,6 +615,8 @@ extension RemoteTmuxController {
                 if wasPendingRouted { blockedMultiplexNewSessionKeys.insert(key) }
                 if let completion = pendingMultiplexNewSessionCompletions.removeValue(forKey: key) {
                     completion(false)
+                }
+                if wasPendingRouted {
                     multiplexedViewsByHost[hostHash]?.killWorkspaceSession(named: sessionView.sessionName)
                 }
                 continue
