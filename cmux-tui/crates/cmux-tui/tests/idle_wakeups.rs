@@ -295,6 +295,28 @@ fn delta(before: Usage, after: Usage) -> Usage {
     }
 }
 
+/// Whether a process woke up over the measured windows.
+fn woke(windows: &[Usage]) -> bool {
+    windows
+        .iter()
+        .any(|used| used.switches > MAX_SWITCHES_PER_WINDOW || used.cpu > MAX_CPU_PER_WINDOW)
+}
+
+#[test]
+fn cmux_next_idle_verdict_ignores_a_one_off_burst_but_not_a_periodic_wake() {
+    let window =
+        |switches, cpu_ms| Usage { cpu: Duration::from_millis(cpu_ms), switches, wakeups: 0 };
+    // A stray event in one window (a late fsync, one write below a watched folder): 6 switches.
+    assert!(!woke(&[window(1, 1), window(6, 2), window(0, 0)]));
+    // The 0789ec3f class: 2 to 130 switches a second, in every window.
+    assert!(woke(&[window(20, 1), window(25, 1), window(21, 1)]));
+    assert!(woke(&[window(1300, 30), window(1250, 28), window(1310, 31)]));
+    // A periodic wake that starts during the measurement still fails.
+    assert!(woke(&[window(0, 0), window(12, 1), window(11, 1)]));
+    // So does steady CPU use.
+    assert!(woke(&[window(2, 60), window(2, 70), window(1, 65)]));
+}
+
 #[test]
 fn cmux_next_daemon_idle_has_no_periodic_wakeups() {
     assert_idle(&Daemon::start("daemon"), || {});
