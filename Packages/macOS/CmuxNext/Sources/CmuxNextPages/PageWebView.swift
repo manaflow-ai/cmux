@@ -276,6 +276,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public override func layout() {
         super.layout()
         webView.frame = bounds
+        if repaintsAtNextLayout, window != nil, !bounds.isEmpty, !(superview is PageHostParking) {
+            repaintsAtNextLayout = false
+            webView.evaluateJavaScript(PagePaintProbe.script, completionHandler: nil)
+        }
     }
 
     /// The fragment the host last asked the page to show (``open(route:)``); the page may move on
@@ -321,6 +325,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public var hasPainted: Bool { paintedUptime != nil }
     /// Callbacks for the current document's first frame (`whenPainted`).
     var paintWaiters: [() -> Void] = []
+    /// A claimed spare painted while parked at its window's full size: it counts as painted again
+    /// only once it drew at its own size (``claimDocument(documentAttributes:)``, ``layout()``).
+    var repaintsAtNextLayout = false
 
     private func receive(_ message: PageHostMessage) async -> Any? {
         guard PageHostTrust.isTrusted(message, page: descriptor) else {
