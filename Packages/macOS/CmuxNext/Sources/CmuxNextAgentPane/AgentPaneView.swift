@@ -54,7 +54,7 @@ public final class AgentPaneView: NSView {
     var remoteApprovalsNotice: NSStackView?
     var remoteApprovals: AgentPaneRemoteApprovals?
     /// Owns the inspector export panel and its in-flight state.
-    let logExport = AgentPaneLogExport()
+    let savePanel = AgentPaneSavePanel()
     /// On the shared page host (`cmux-page://cmux.agent/`, the `agent.pageHost` tunable): the page
     /// view and the provider that answers its calls and carries the host's pushes. Nil on the old
     /// host (`cmux-agent://pane`, deleted with P5 of the agent pane move).
@@ -84,6 +84,7 @@ public final class AgentPaneView: NSView {
     }
     /// The pane's first frame until its page paints (`AgentPaneView+Loading`).
     let loadingView = AgentPaneLoadingView()
+    public private(set) lazy var redraw = AgentPageRedraw(webView: webView) // a chat shown again draws first
     public private(set) lazy var topBar = AgentPaneTopBar(pane: self) // the App's omnibar row over a New Tab page (cx-e2aa)
     /// The process pool every agent page shares (R81: fonts are listed once per pool).
     private static let processPool = WKProcessPool()
@@ -177,9 +178,9 @@ public final class AgentPaneView: NSView {
         // Web Inspector and profiling for the pane (debug.agent_pane).
         webView.isInspectable = true
         #endif
-        model.onSaveLog = { [weak self] text, suggestedName in
+        model.onSaveFile = { [weak self] save in
             guard let self else { return false }
-            return try await logExport.save(text, suggestedName: suggestedName, window: window)
+            return try await savePanel.save(save, window: window)
         }
         model.onFramePacing = { [weak self] _ in self?.framePacingSettings() ?? [:] }
         model.onRenderRate = { [weak self] full in
@@ -270,11 +271,8 @@ public final class AgentPaneView: NSView {
         super.layout()
         if let page { page.frame = topBar.contentFrame(in: bounds) } else { webView.frame = topBar.contentFrame(in: bounds) }
         if loadingView.superview === self { loadingView.frame = topBar.contentFrame(in: bounds) }
+        redraw.laidOut(self)
     }
-
-    /// WebKit's feature that renders a page at the display-rate divisor
-    /// nearest 60 fps.
-    static let near60FPSFeature = WebKitRenderRate.near60FPSFeature
 
     public let renderRate: AgentPaneRenderRate
     /// The display's refresh rate when the pane has no window screen to ask
