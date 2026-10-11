@@ -151,7 +151,9 @@ extension RemoteTmuxController {
                 // `false` also means a concurrent attach admitted this exact
                 // session first. That is a successful mirror race, not an
                 // orphan, so leave the existing mirror and complete the action.
-                if sessionMirror(host: host, sessionName: name) != nil {
+                if let existingMirror = sessionMirror(host: host, sessionName: name),
+                   let existingWorkspace = existingMirror.mirroredWorkspace,
+                   manager.tabs.contains(where: { $0.id == existingWorkspace.id }) {
                     onCreated?()
                     return
                 }
