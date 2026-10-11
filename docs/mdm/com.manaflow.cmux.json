@@ -1698,6 +1698,11 @@
       "title" : "Last Activity",
       "type" : "boolean"
     },
+    "sidebar.workspaceRow.agent.log" : {
+      "description" : "sidebar.workspaceRow.agent.log",
+      "title" : "Log",
+      "type" : "boolean"
+    },
     "sidebar.workspaceRow.agent.ports" : {
       "description" : "sidebar.workspaceRow.agent.ports",
       "title" : "Ports",
@@ -1745,8 +1750,8 @@
       "type" : "boolean"
     },
     "sidebar.workspaceRow.agentStatus" : {
-      "default" : false,
-      "description" : "The status line agents and hooks report.",
+      "default" : true,
+      "description" : "The status agents and hooks report, one line each.",
       "title" : "Agent Status",
       "type" : "boolean"
     },
@@ -1779,6 +1784,11 @@
     "sidebar.workspaceRow.browser.lastActivity" : {
       "description" : "sidebar.workspaceRow.browser.lastActivity",
       "title" : "Last Activity",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.browser.log" : {
+      "description" : "sidebar.workspaceRow.browser.log",
+      "title" : "Log",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.browser.ports" : {
@@ -1845,6 +1855,12 @@
       "title" : "Last Activity",
       "type" : "boolean"
     },
+    "sidebar.workspaceRow.log" : {
+      "default" : true,
+      "description" : "The newest line agents and scripts log: cmux workspace log append <text>.",
+      "title" : "Log",
+      "type" : "boolean"
+    },
     "sidebar.workspaceRow.mixed.agentStatus" : {
       "description" : "sidebar.workspaceRow.mixed.agentStatus",
       "title" : "Agent Status",
@@ -1868,6 +1884,11 @@
     "sidebar.workspaceRow.mixed.lastActivity" : {
       "description" : "sidebar.workspaceRow.mixed.lastActivity",
       "title" : "Last Activity",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.mixed.log" : {
+      "description" : "sidebar.workspaceRow.mixed.log",
+      "title" : "Log",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.mixed.ports" : {
@@ -1929,7 +1950,7 @@
       "type" : "boolean"
     },
     "sidebar.workspaceRow.progress" : {
-      "default" : false,
+      "default" : true,
       "description" : "A progress bar under the row and the busy mark of running work.",
       "title" : "Progress",
       "type" : "boolean"
@@ -1993,6 +2014,11 @@
     "sidebar.workspaceRow.terminal.lastActivity" : {
       "description" : "sidebar.workspaceRow.terminal.lastActivity",
       "title" : "Last Activity",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.terminal.log" : {
+      "description" : "sidebar.workspaceRow.terminal.log",
+      "title" : "Log",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.terminal.ports" : {

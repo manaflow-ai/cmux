@@ -334,6 +334,7 @@
               "sidebar.workspaceRow.pullRequest",
               "sidebar.workspaceRow.progress",
               "sidebar.workspaceRow.working",
+              "sidebar.workspaceRow.log",
               "sidebar.workspaceRow.secondLineOrder"
             ],
             "title" : {
@@ -11238,7 +11239,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.workspaceRows",
@@ -11246,7 +11247,7 @@
       },
       "help" : {
         "key" : "settings.workspaceRow.agentStatus.help",
-        "text" : "The status line agents and hooks report."
+        "text" : "The status agents and hooks report, one line each."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.workspaceRow.agentStatus",
@@ -11467,7 +11468,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.workspaceRows",
@@ -11548,6 +11549,53 @@
       "title" : {
         "key" : "settings.workspaceRow.working",
         "text" : "Agent Working"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.workspaceRows",
+        "text" : "Workspace Rows"
+      },
+      "help" : {
+        "key" : "settings.workspaceRow.log.help",
+        "text" : "The newest line agents and scripts log: cmux workspace log append <text>."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.workspaceRow.log",
+      "keywords" : [
+        "sidebar",
+        "workspace",
+        "row",
+        "log"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "workspaceRow",
+        "log"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.workspaceRow.log",
+        "text" : "Log"
       },
       "validation" : "portable"
     },
@@ -12205,6 +12253,55 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.workspaceRow.default.sameAsAll",
+        "text" : "Same as All Workspaces"
+      },
+      "group" : {
+        "key" : "settings.workspaceRow.kind.terminal",
+        "text" : "Terminal Workspaces"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.workspaceRow.terminal.log",
+      "keywords" : [
+        "sidebar",
+        "workspace",
+        "row",
+        "terminal",
+        "log"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : true,
+      "path" : [
+        "sidebar",
+        "workspaceRow",
+        "terminal",
+        "log"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.workspaceRow.log",
+        "text" : "Log"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         [
 
         ],
@@ -12846,6 +12943,55 @@
       "title" : {
         "key" : "settings.workspaceRow.working",
         "text" : "Agent Working"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.workspaceRow.default.sameAsAll",
+        "text" : "Same as All Workspaces"
+      },
+      "group" : {
+        "key" : "settings.workspaceRow.kind.agent",
+        "text" : "Agent Workspaces"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.workspaceRow.agent.log",
+      "keywords" : [
+        "sidebar",
+        "workspace",
+        "row",
+        "agent",
+        "log"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : true,
+      "path" : [
+        "sidebar",
+        "workspaceRow",
+        "agent",
+        "log"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.workspaceRow.log",
+        "text" : "Log"
       },
       "validation" : "portable"
     },
@@ -13497,6 +13643,55 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.workspaceRow.default.sameAsAll",
+        "text" : "Same as All Workspaces"
+      },
+      "group" : {
+        "key" : "settings.workspaceRow.kind.browser",
+        "text" : "Browser Workspaces"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.workspaceRow.browser.log",
+      "keywords" : [
+        "sidebar",
+        "workspace",
+        "row",
+        "browser",
+        "log"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : true,
+      "path" : [
+        "sidebar",
+        "workspaceRow",
+        "browser",
+        "log"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.workspaceRow.log",
+        "text" : "Log"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         [
 
         ],
@@ -14138,6 +14333,55 @@
       "title" : {
         "key" : "settings.workspaceRow.working",
         "text" : "Agent Working"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.workspaceRow.default.sameAsAll",
+        "text" : "Same as All Workspaces"
+      },
+      "group" : {
+        "key" : "settings.workspaceRow.kind.mixed",
+        "text" : "Mixed Workspaces"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.workspaceRow.mixed.log",
+      "keywords" : [
+        "sidebar",
+        "workspace",
+        "row",
+        "mixed",
+        "log"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : true,
+      "path" : [
+        "sidebar",
+        "workspaceRow",
+        "mixed",
+        "log"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.workspaceRow.log",
+        "text" : "Log"
       },
       "validation" : "portable"
     },
@@ -18223,7 +18467,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "b974af6511eea50127b3844707a417a55865794b7925b538fa5d99e6994bfa32",
+  "schema_hash" : "a85c8adbda8c3935fea9eea7246e56df86dc3d888cd3d7511a62f375f421f782",
   "sections" : [
     {
       "id" : "general",
