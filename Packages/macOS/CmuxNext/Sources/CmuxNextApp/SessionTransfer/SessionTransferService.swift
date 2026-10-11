@@ -21,8 +21,14 @@ nonisolated struct SessionTransferItem: Sendable, Equatable, Identifiable {
     let command: String?
     let agentHarness: String?
     let agentSessionID: String?
+    /// A `chat` (a cmux-next agent chat, `agentSessionID` its acpmux session): the source build's
+    /// acpmux socket and home, which `acpmux transfer` moves it from.
+    var acpmuxSocket: String?
+    var acpmuxHome: String?
 
-    nonisolated enum Kind: String, Sendable { case terminal, agent }
+    /// `agent` resumes a harness's own session id; `chat` moves an acpmux chat with its history,
+    /// queue and draft (a build that predates it skips the record).
+    nonisolated enum Kind: String, Sendable { case terminal, agent, chat }
     var id: String { sourceSurface }
 
     var json: TransferJSONValue {
@@ -36,6 +42,8 @@ nonisolated struct SessionTransferItem: Sendable, Equatable, Identifiable {
             "command": .optional(command),
             "agent": .optional(agentHarness),
             "agent_session": .optional(agentSessionID),
+            "acpmux_socket": .optional(acpmuxSocket),
+            "acpmux_home": .optional(acpmuxHome),
         ]
     }
 
@@ -65,6 +73,8 @@ nonisolated struct SessionTransferItem: Sendable, Equatable, Identifiable {
         command = object["command"]?.stringValue
         agentHarness = object["agent"]?.stringValue
         agentSessionID = object["agent_session"]?.stringValue
+        acpmuxSocket = object["acpmux_socket"]?.stringValue
+        acpmuxHome = object["acpmux_home"]?.stringValue
     }
 }
 
@@ -84,7 +94,7 @@ nonisolated struct SessionTransferPeer: Sendable {
 /// for scripts and agents; there is no migration UI.
 @MainActor
 final class SessionTransferService {
-    private weak var services: AppServices?
+    private(set) weak var services: AppServices?
 
     init(services: AppServices) { self.services = services }
 
@@ -92,10 +102,11 @@ final class SessionTransferService {
     static let conversationTabLimit: Duration = .seconds(5)
 
     /// Moves the selected sessions (all of them when `ids` is empty) from the one
-    /// peer named by `source` (its socket path or tag). A move opens a new shell
-    /// in the same folder and ends the source's process. One item's failure
-    /// never stops the others; each is reported.
-    func pull(source: String, ids: Set<String> = []) async throws -> TransferJSONValue {
+    /// peer named by `source` (its socket path or tag). A terminal's move opens a new
+    /// shell in the same folder and ends the source's process; a chat's moves the chat
+    /// itself (``moveChat(_:interrupt:)``), refused while it runs a turn unless `interrupt`.
+    /// One item's failure never stops the others; each is reported.
+    func pull(source: String, ids: Set<String> = [], interrupt: Bool = false) async throws -> TransferJSONValue {
         let peers = try await discover(only: source)
         let selected = peers.flatMap { peer -> [(SessionTransferPeer, SessionTransferItem)] in
             guard source == peer.path || source == peer.tag else { return [] }
@@ -106,7 +117,7 @@ final class SessionTransferService {
         var failed: [TransferJSONValue] = []
         for (peer, item) in selected {
             do {
-                try await move(item, from: peer)
+                try await move(item, from: peer, interrupt: interrupt)
                 moved.append(item.json)
             } catch {
                 failed.append(["surface": .string(item.id), "source": .string(peer.path), "error": .string(Self.message(for: error))])
@@ -168,14 +179,19 @@ final class SessionTransferService {
 
     /// A peer socket must be a socket this user owns: `/tmp` is shared, and a
     /// peer chooses the commands its sessions reopen with.
-    private nonisolated static func isOwnedSocket(_ path: String) -> Bool {
+    nonisolated static func isOwnedSocket(_ path: String) -> Bool {
         var info = stat()
         guard lstat(path, &info) == 0 else { return false }
         return (info.st_mode & S_IFMT) == S_IFSOCK && info.st_uid == getuid()
     }
 
-    private func move(_ item: SessionTransferItem, from peer: SessionTransferPeer) async throws {
-        _ = try await create(item)
+    private func move(_ item: SessionTransferItem, from peer: SessionTransferPeer, interrupt: Bool) async throws {
+        if item.kind == .chat {
+            let session = try await moveChat(item, interrupt: interrupt)
+            _ = try await openChat(session, title: item.title)
+        } else {
+            _ = try await create(item)
+        }
         try await completeOnPeer(item: item, peer: peer)
     }
 
@@ -229,6 +245,9 @@ final class SessionTransferService {
             // is never closed for a shell.
             guard try await hasConversationTab(id) else { throw Failure.agentNotOpened }
             return id
+        case .chat:
+            // Opened by `move` once the chat is in this build's acpmux.
+            throw Failure.missingAgentID
         case .terminal:
             let command = item.command ?? item.sshTarget.map { "exec ssh -- \(Self.shellQuote($0))" }
             let id = try await services.windows.createWorkspace(WorkspaceSpawn(cwd: item.cwd, name: name, command: command), into: target)
@@ -245,7 +264,7 @@ final class SessionTransferService {
     /// Whether the store lists a conversation tab in `workspace`. The tree
     /// mirrors the create asynchronously, so this waits for it, up to
     /// `conversationTabLimit`.
-    private func hasConversationTab(_ workspace: String) async throws -> Bool {
+    func hasConversationTab(_ workspace: String) async throws -> Bool {
         guard let store = services?.daemon.store else { throw Failure.unavailable }
         let listed = Task { @MainActor () -> Bool in
             let opened = Observations({
@@ -396,6 +415,8 @@ final class SessionTransferService {
             String(localized: "sessionTransfer.error.peerRefused",
                    defaultValue: "The other cmux build only accepts connections from its own terminals. Set its socket control mode to Automation, then try again.",
                    bundle: .module)
+        case Failure.chatNotMoved(let reason):
+            String(localized: "sessionTransfer.error.chatNotMoved", defaultValue: "The agent chat did not move: \(reason)", bundle: .module)
         case Failure.invalidSurfaces:
             String(localized: "sessionTransfer.error.invalidSurfaces", defaultValue: "The source build returned invalid session identifiers.", bundle: .module)
         case let failure as ControlPeerClient.Failure:
@@ -405,7 +426,11 @@ final class SessionTransferService {
         }
     }
 
-    nonisolated enum Failure: Error { case noSessions, missingAgentID, unavailable, invalidSurfaces, peerRefused, agentNotOpened }
+    nonisolated enum Failure: Error {
+        case noSessions, missingAgentID, unavailable, invalidSurfaces, peerRefused, agentNotOpened
+        /// acpmux refused or failed the move (its message); the chat stays in the source build.
+        case chatNotMoved(String)
+    }
 }
 
 private extension CmuxNextSettings.JSONValue {

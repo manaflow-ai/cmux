@@ -13,12 +13,17 @@ extension AgentTabStore {
 
     /// The same, for a workspace this app just created (not mirrored yet),
     /// starting in `cwd`. With `chat`, a chat seeded with it instead of the
-    /// page (a person's New Agent Chat).
+    /// page (a person's New Agent Chat); with `session`, that chat of this Mac's acpmux.
     func openFirstPage(workspace: WorkspaceHandle, cwd: String?, on daemon: DaemonService,
-                       chat: AgentPaneSeed? = nil) async throws -> SurfaceID? {
+                       chat: AgentPaneSeed? = nil, session: String? = nil) async throws -> SurfaceID? {
         guard let connection = daemon.connection, let localHost, canHost(on: daemon) else { throw DaemonError.notConnected }
-        let record = AgentSessionRef(host: localHost, hostName: localHostName)
+        let record = AgentSessionRef(host: localHost, hostName: localHostName, session: session)
         let request = NewConversationTabRequest(agentSession: record, workspace: workspace, origin: Self.createOrigin, mutationID: UUID().uuidString)
+        if session != nil {
+            let response = try await connection.request(request)
+            track(response.tabResourceID?.rawValue ?? "surface:\(response.surface.rawValue)", in: daemon.store)
+            return response.surface
+        }
         if var chat {
             chat.cwd = chat.cwd ?? cwd
             seedFirstChat(chat, in: workspace)
