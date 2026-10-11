@@ -14,7 +14,7 @@ export function ActionRow({ title, help, children }: { title: string; help: stri
             </div>
           )}
         </div>
-        <div className="row-control">
+        <div className="row-control action-row-control">
           {children}
           <ResetSpacer />
         </div>

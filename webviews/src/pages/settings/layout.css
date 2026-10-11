@@ -292,6 +292,17 @@
   background: var(--accent-soft);
 }
 
+/* An action row keeps its control and the empty Reset slot on one line: a long path shrinks to an
+   ellipsis instead of pushing the slot onto a line of its own. */
+.action-row-control {
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.action-row-control > .row-help {
+  min-width: 0;
+}
+
 /* A card's intro is a sentence or two: it wraps instead of clipping, with room before the card. */
 .group > .row-help {
   margin-bottom: 8px;

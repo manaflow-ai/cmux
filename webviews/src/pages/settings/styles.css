@@ -703,7 +703,7 @@ mark {
 }
 
 /* A profile row opens on click, so it answers the pointer like other clickable rows. */
-.row:has(> .host-toggle:hover) {
+.row:has(> .host-toggle[aria-expanded="false"]:hover) {
   background: var(--input-bg);
   transition: background var(--motion-hover);
 }

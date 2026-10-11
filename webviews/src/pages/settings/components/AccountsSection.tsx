@@ -52,9 +52,9 @@ function AccountsBody() {
           </button>
         </div>
         {accounts.groups.length === 0 && (
-          <div className="row-help" data-accounts-empty="">
+          <output className="row-help block" data-accounts-empty="">
             {t("settingsPage.accounts.empty")}
-          </div>
+          </output>
         )}
       </section>
       {accounts.groups.map((group) => (
