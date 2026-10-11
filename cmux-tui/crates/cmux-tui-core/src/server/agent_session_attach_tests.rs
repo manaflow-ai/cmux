@@ -169,8 +169,9 @@ const FAKE_ERROR: &str = "__fake_error";
 /// The fake's `_acpmux/transfer_*` answers: a receive whose manifest names
 /// [`UNGUARDED_CHAT`] is answered as an acpmux without the guard would, one
 /// whose manifest `transferId` is `xfer_many_<n>` gets receive id `rcv_<n>`,
-/// a finish named `exists` or `incomplete` fails as acpmux's would, and an
-/// abort of [`ABORT_FAILS_CHAT`] fails.
+/// a finish named `exists` or `incomplete` fails as acpmux's would, a forget
+/// of move `xfer_landed` answers that its chat landed, and an abort of
+/// [`ABORT_FAILS_CHAT`] fails.
 fn transfer_reply(method: &str, params: &Value) -> Option<Value> {
     use base64::Engine as _;
     let base64 = base64::engine::general_purpose::STANDARD;
@@ -211,7 +212,8 @@ fn transfer_reply(method: &str, params: &Value) -> Option<Value> {
                    "eof": true})
         }
         "_acpmux/transfer_read" => json!({"data": base64.encode("abc"), "next": 3, "eof": true}),
-        "_acpmux/transfer_forget" => json!({"transferId": params["transferId"], "landed": false}),
+        "_acpmux/transfer_forget" => json!({"transferId": params["transferId"],
+                                           "landed": params["transferId"] == json!("xfer_landed")}),
         "_acpmux/transfer_commit" => json!({"sessionId": params["sessionId"], "committed": true}),
         "_acpmux/transfer_abort" if params["sessionId"] == json!(ABORT_FAILS_CHAT) => {
             json!({FAKE_ERROR: "transfer.closed: the move committed"})

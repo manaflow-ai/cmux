@@ -757,3 +757,33 @@ fn receive_abort_has_acpmux_forget_that_move_only() {
     }
     fake.no_frame();
 }
+
+#[test]
+fn a_receive_its_finish_ended_still_answers_whether_its_chat_landed() {
+    let fake = FakeAcpmux::start("xsettled");
+    let home = Home::new("settled");
+    let mux = transfer_mux(&fake, "atx-settled", &home, true);
+    let mut client = Client::connect(&mux, "xsettled");
+    let mut landed = manifest();
+    landed["transferId"] = json!("xfer_landed");
+    let received = client.request(json!({"cmd":"agent-transfer-receive","manifest":landed,
+                                         "cwd":home.text("work/project")}));
+    ok_data(&received);
+    let _ = fake.frame();
+    ok_data(&client.request(json!({"cmd":"agent-transfer-finish","receive_id":"rcv_1"})));
+    let _ = fake.frame();
+    // The pump lost the finish answer and asks: the daemon still has acpmux
+    // forget the move named by the receive's own manifest.
+    for _ in 0..2 {
+        let asked =
+            client.request(json!({"cmd":"agent-transfer-receive-abort","receive_id":"rcv_1"}));
+        assert_eq!(ok_data(&asked)["landed"], json!(true));
+        let sent = fake.frame();
+        assert_eq!(sent["method"], json!("_acpmux/transfer_forget"));
+        assert_eq!(sent["params"], json!({"transferId":"xfer_landed","sessionId":"acp_moving"}));
+    }
+    // It takes no more pages and no second finish.
+    let finish = client.request(json!({"cmd":"agent-transfer-finish","receive_id":"rcv_1"}));
+    assert_code(&finish, "agent_transfer.unknown_receive");
+    fake.no_frame();
+}
