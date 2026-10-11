@@ -24,9 +24,9 @@ import os
 /// One report per view class per launch. Reading: ``reports``,
 /// ``passesByClass``, ``maxPassesInOneTurn`` (`debug.layers`).
 ///
-/// The guard wraps `-[NSView layout]` and, the first time a view's
-/// `super.layout()` reaches it, every `layout` override in that view's
-/// class chain, so a call counts once at its outermost override.
+/// The guard counts at `-[NSView layout]`, as before, and also wraps every
+/// `layout` override in a counted view's class chain, only to skip it: a
+/// broken view's override does not run either.
 ///
 /// With ``breaksLoops`` (release builds) the guard also ends the loop before
 /// AppKit does: past ``breakLimit(viewCount:)``, the view's further layouts
@@ -86,9 +86,6 @@ public final class LayoutPassGuard {
     /// view broken again is not asked to lay out once more, so a loop that
     /// persists settles instead of spinning every frame.
     private var looping: [ObjectIdentifier: Weak] = [:]
-    /// Views inside a counted layout call: their inner overrides and
-    /// `super.layout()` pass through.
-    private var inLayout: Set<ObjectIdentifier> = []
     private var wrapped: Set<ObjectIdentifier> = []
     private var classCounts: [ObjectIdentifier: (type: AnyClass, count: Int)] = [:]
     private var reportedClasses: Set<ObjectIdentifier> = []
@@ -135,7 +132,6 @@ public final class LayoutPassGuard {
     }
 
     private func endTurn() {
-        if !inLayout.isEmpty { inLayout.removeAll() }
         if !turnCounts.isEmpty {
             for (id, turn) in turnCounts where !turn.broken { looping[id] = nil }
             turnCounts.removeAll(keepingCapacity: true)
@@ -144,22 +140,17 @@ public final class LayoutPassGuard {
         if !windowBreakLimits.isEmpty { windowBreakLimits.removeAll(keepingCapacity: true) }
     }
 
-    fileprivate enum Entry { case outermost, inner, skipped }
-
-    /// How a layout call of `view` runs: counted (the outermost), passed
-    /// through (inside a counted call), or skipped (broken this turn).
-    fileprivate func enter(_ view: NSView) -> Entry {
-        let id = ObjectIdentifier(view)
-        if inLayout.contains(id) { return .inner }
-        wrapOverrides(of: Swift.type(of: view))
-        if breaksLoops, let turn = turnCounts[id], turn.broken, turn.view.object === view,
-           turn.windowFrame == (view.window?.frame ?? .zero) { return .skipped }
-        inLayout.insert(id)
-        return .outermost
+    /// Whether `view`'s layout call is skipped: broken this turn, at the
+    /// same window frame.
+    fileprivate func skips(_ view: NSView) -> Bool {
+        guard breaksLoops, let turn = turnCounts[ObjectIdentifier(view)] else { return false }
+        return turn.broken && turn.view.object === view && turn.windowFrame == (view.window?.frame ?? .zero)
     }
 
-    fileprivate func exit(_ view: NSView) {
-        inLayout.remove(ObjectIdentifier(view))
+    /// Counts a finished `-[NSView layout]` call and wraps the overrides in
+    /// the view's class chain the first time its class is seen.
+    fileprivate func counted(_ view: NSView) {
+        wrapOverrides(of: Swift.type(of: view))
         record(view)
     }
 
@@ -308,7 +299,7 @@ public final class LayoutPassGuard {
     private typealias Layout = @convention(c) (NSView, Selector) -> Void
 
     private static func swizzleLayout() {
-        wrapLayout(of: NSView.self)
+        wrapLayout(of: NSView.self, counting: true)
     }
 
     private static func definesLayout(_ cls: AnyClass) -> Bool {
@@ -318,29 +309,26 @@ public final class LayoutPassGuard {
         return (0..<Int(count)).contains { method_getName(methods[$0]) == #selector(NSView.layout) }
     }
 
-    private static func wrapLayout(of cls: AnyClass) {
+    /// Wraps `cls`'s own `layout`: skipped while its view is broken, and
+    /// counted after it runs for NSView's (`counting`).
+    private static func wrapLayout(of cls: AnyClass, counting: Bool = false) {
         let selector = #selector(NSView.layout)
         guard let method = class_getInstanceMethod(cls, selector) else { return }
         let original = unsafeBitCast(method_getImplementation(method), to: Layout.self)
-        method_setImplementation(method, imp_implementationWithBlock(override(calling: original, selector)))
+        method_setImplementation(method, imp_implementationWithBlock(override(calling: original, selector, counting: counting)))
     }
 
     /// Built outside the main actor so the block carries no isolation
     /// check: AppKit lays out on the main thread, and a view laid out
     /// elsewhere is passed through uncounted.
-    private nonisolated static func override(calling original: Layout, _ selector: Selector) -> @convention(block) (NSView) -> Void {
+    private nonisolated static func override(calling original: Layout, _ selector: Selector, counting: Bool) -> @convention(block) (NSView) -> Void {
         { view in
             guard Thread.isMainThread else { return original(view, selector) }
             // main-proof: checked above
-            switch MainActor.assumeIsolated({ LayoutPassGuard.shared.enter(view) }) {
-            case .skipped:
-                return
-            case .inner:
-                original(view, selector)
-            case .outermost:
-                original(view, selector)
-                MainActor.assumeIsolated { LayoutPassGuard.shared.exit(view) } // main-proof: checked above
-            }
+            if MainActor.assumeIsolated({ LayoutPassGuard.shared.skips(view) }) { return }
+            original(view, selector)
+            guard counting else { return }
+            MainActor.assumeIsolated { LayoutPassGuard.shared.counted(view) } // main-proof: checked above
         }
     }
 }
