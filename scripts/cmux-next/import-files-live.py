@@ -12,11 +12,16 @@ synthetic exports in a scratch folder (no real passwords):
      (edge://settings/passwords, edge://favorites);
   2. picking Safari shows Safari's steps;
   3. a bookmarks HTML file picked there lands in the bookmark bar's Imported folder;
-  4. a passwords CSV picked through Safari's steps is imported (the counts toast).
+  4. a passwords CSV picked through Safari's steps is imported (the counts toast);
+  5. Safari's Export Browsing Data zip (bookmarks, history, one password and a
+     credit card file cmux must not read): the bookmark lands, the password is
+     imported, the zip goes to the Trash, and its history shows in the omnibar;
+  6. Chrome's Google Takeout history JSON (one row per visit) shows in the omnibar,
+     and Chrome's steps name takeout.google.com.
 
 Quits the app by PID and stops the tag's daemons at the end.
 """
-import argparse, glob, json, os, plistlib, subprocess, sys, tempfile, time
+import argparse, glob, json, os, plistlib, subprocess, sys, tempfile, time, zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
@@ -61,6 +66,35 @@ RUN = os.urandom(4).hex()
 PASSWORDS_CSV = "Title,URL,Username,Password,Notes,OTPAuth\n" \
                 f"one.example.test,https://one-{RUN}.example.test/,cmux-one-{RUN},not-a-real-password-1,,\n" \
                 f"two.example.test,https://two-{RUN}.example.test/,cmux-two-{RUN},not-a-real-password-2,,\n"
+
+
+def safari_zip(path):
+    """Safari's File > Export Browsing Data to File… layout, with a macOS resource fork entry."""
+    history = {"metadata": {"browser_name": "Safari", "data_type": "history", "schema_version": 1},
+               "history": [{"url": f"https://safari-hist-{RUN}.example.com/", "title": f"Safari history {RUN}",
+                            "time_usec": int(time.time() * 1e6), "visit_count": 3}]}
+    bookmarks = BOOKMARKS_HTML.replace("https://edge-export.example.com/", f"https://safari-zip-{RUN}.example.com/")
+    passwords = "Title,URL,Username,Password,Notes,OTPAuth\n" \
+                f"zip.example.test,https://zip-{RUN}.example.test/,cmux-zip-{RUN},not-a-real-password-3,,\n"
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("Safari Export/Bookmarks.html", bookmarks)
+        z.writestr("Safari Export/History.json", json.dumps(history))
+        z.writestr("Safari Export/Passwords.csv", passwords)
+        z.writestr("Safari Export/CreditCards.csv", "Card Number,Card Name\n0000000000000000,not a real card\n")
+        z.writestr("__MACOSX/Safari Export/._Bookmarks.html", "resource fork")
+
+
+def takeout_history(path):
+    now = int(time.time() * 1e6)
+    rows = [{"url": f"https://takeout-{RUN}.example.com/", "title": f"Takeout history {RUN}", "time_usec": now - i * 1_000_000,
+             "page_transition": "LINK"} for i in range(3)]
+    rows.append({"url": "chrome://settings/", "title": "Settings", "time_usec": now, "page_transition": "TYPED"})
+    write(path, json.dumps({"Browser History": rows}))
+
+
+def omnibar_rows(query):
+    reply = rpc("debug.omnibar_type", {"text": query, "commit": False})
+    return reply.get("rows") or []
 
 
 def check(ok, what):
@@ -150,6 +184,8 @@ def import_through(browser, filename):
 write(CONFIG, "{}\n")
 write(os.path.join(EXPORTS, "bookmarks.html"), BOOKMARKS_HTML)
 write(os.path.join(EXPORTS, "passwords.csv"), PASSWORDS_CSV)
+safari_zip(os.path.join(EXPORTS, "safari-export.zip"))
+takeout_history(os.path.join(EXPORTS, "takeout-history.json"))
 EMPTY_GHOSTTY = os.path.join(SCRATCH, "ghostty-config")
 write(EMPTY_GHOSTTY, "")
 teardown = TagTeardown(APP)
@@ -179,6 +215,32 @@ try:
     check(summary is not None and "Imported: 2" in summary, f"the picked passwords CSV is imported ({summary})")
     check(not os.path.exists(os.path.join(EXPORTS, "passwords.csv")), "the imported CSV goes to the Trash")
     check("not-a-real-password" not in json.dumps(rpc("debug.toast")), "no password shows in a toast")
+
+    import_through("safari", "safari-export.zip")
+    check(wait_for(lambda: f"https://safari-zip-{RUN}.example.com/" in bookmark_urls(), "the zip's bookmark lands") is not None,
+          "the Safari zip's bookmarks are imported")
+    summary = wait_for(lambda: next((t for t in toasts() if "Imported: 1" in t), None), "the zip's passwords toast", 60)
+    check(summary is not None, f"the Safari zip's passwords are imported ({toasts()})")
+    check(wait_for(lambda: not os.path.exists(os.path.join(EXPORTS, "safari-export.zip")), "the zip goes to the Trash") is not None,
+          "the Safari zip goes to the Trash")
+    check(wait_for(lambda: next((t for t in toasts() if "history imported: 1" in t.lower()), None), "the zip's history toast") is not None,
+          f"the Safari zip's history is imported ({toasts()})")
+
+    result = import_through("chrome", "takeout-history.json")
+    if isinstance(result, tuple):
+        check("takeout.google.com" in " ".join(result[1].get("lines", [])), f"Chrome's steps name Google Takeout ({result[1].get('lines')})")
+    check(wait_for(lambda: next((t for t in toasts() if "history imported: 1" in t.lower()), None), "the Takeout history toast") is not None,
+          f"the Takeout history is imported, one page from three visits and no chrome:// page ({toasts()})")
+
+    rpc("action.run", {"action": "openBrowser.webkit", "args": {"url": "about:blank"}, "focus": True})
+    time.sleep(2)  # the tab's omnibar comes up
+    # A suggestion row names the page's address; the typed text alone is not one.
+    rows = wait_for(lambda: omnibar_rows(f"safari-hist-{RUN}") if any(f"safari-hist-{RUN}.example.com" in r for r in omnibar_rows(f"safari-hist-{RUN}")) else None,
+                    "Safari history in the omnibar", 15)
+    check(rows is not None, f"the omnibar suggests the Safari zip's history ({omnibar_rows(f'safari-hist-{RUN}')})")
+    rows = wait_for(lambda: omnibar_rows(f"takeout-{RUN}") if any(f"takeout-{RUN}.example.com" in r for r in omnibar_rows(f"takeout-{RUN}")) else None,
+                    "Takeout history in the omnibar", 15)
+    check(rows is not None, f"the omnibar suggests the Takeout history ({omnibar_rows(f'takeout-{RUN}')})")
 finally:
     rpc("action.run", {"action": "quitEndSessions"})
     try:
