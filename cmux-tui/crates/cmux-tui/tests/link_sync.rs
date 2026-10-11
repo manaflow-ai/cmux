@@ -48,6 +48,8 @@ fn git(dir: &Path, args: &[&str]) -> String {
         .current_dir(dir)
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .env("GIT_CONFIG_NOSYSTEM", "1")
+        // Comparing never rewrites an index, so a second push sees no change.
+        .env("GIT_OPTIONAL_LOCKS", "0")
         .output()
         .unwrap();
     assert!(output.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&output.stderr));

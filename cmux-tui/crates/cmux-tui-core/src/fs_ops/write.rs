@@ -39,7 +39,7 @@ impl WriteMode {
             ("create" | "overwrite", Some(_)) => {
                 Err(FsError::ParamsInvalid("expected is only valid with replace".into()))
             }
-            _ => Err(FsError::ParamsInvalid("mode is create, overwrite or replace".into())),
+            _ => Err(FsError::ParamsInvalid("mode is create, overwrite, replace or append".into())),
         }
     }
 
@@ -127,6 +127,12 @@ impl PendingWrite {
         Ok(pending)
     }
 
+    /// Gives the file being written 0755 (executable) or 0644: a script a
+    /// sync copies keeps the bit git records.
+    pub fn set_executable(&mut self, executable: bool) -> Result<(), FsError> {
+        Ok(sys::fchmod(self.file.as_fd(), if executable { 0o755 } else { 0o644 })?)
+    }
+
     /// Appends `bytes` to the temporary file.
     pub fn write(&mut self, bytes: &[u8]) -> Result<(), FsError> {
         Ok(self.file.write_all(bytes)?)
@@ -158,6 +164,35 @@ impl Drop for PendingWrite {
             let _ = sys::unlink_at(self.dir.as_fd(), &self.temporary, false);
         }
     }
+}
+
+/// Appends `bytes` to the file at `path` while it still has the revision
+/// `expected` (`fs.write` mode `append`): a file over the single-write limit
+/// arrives in parts, created under a temporary name, appended to, then
+/// renamed into place. Unlike the other modes this changes the file in
+/// place; a write that lands between the check and the append is appended
+/// after (the same window as `replace`).
+pub fn append(roots: &Roots, path: &str, expected: &str, bytes: &[u8]) -> Result<Entry, FsError> {
+    let resolved = roots.resolve(path, false)?;
+    let Some(name) = resolved.name.clone() else {
+        return Err(if resolved.is_root { FsError::PermissionDenied } else { FsError::NotAFile });
+    };
+    let dir = resolved.dir();
+    let found = current(dir, &name)?;
+    if found.as_ref().is_some_and(|meta| meta.kind != EntryKind::File) {
+        return Err(FsError::NotAFile);
+    }
+    let found = found.as_ref().map(Meta::revision);
+    if found.as_deref() != Some(expected) {
+        return Err(FsError::RevisionMismatch { current: found });
+    }
+    if sys::available_bytes(dir)? < bytes.len() as u64 {
+        return Err(FsError::NoSpace);
+    }
+    let mut file = File::from(sys::open_at(dir, &name, libc::O_WRONLY | libc::O_APPEND, 0)?);
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    Entry::at(dir, &name)
 }
 
 /// Deepest folder nesting [`remove_tree`] descends.

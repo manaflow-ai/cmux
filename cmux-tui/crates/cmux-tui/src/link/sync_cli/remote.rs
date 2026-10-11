@@ -1,0 +1,246 @@
+//! The machine side of `cmux link sync`: `fs-v1` request lines on the
+//! machine daemon's socket (spec/commands.md, "fs-v1").
+
+use std::collections::BTreeMap;
+use std::io::{BufRead as _, BufReader, Read, Write as _};
+use std::os::unix::net::UnixStream;
+use std::path::Path;
+use std::time::Duration;
+
+use anyhow::{Context as _, anyhow, bail};
+use base64::Engine as _;
+use serde_json::{Value, json};
+
+/// Bytes per `fs.write` line: the daemon takes 12 MiB, so a part stays
+/// under it with room for the request around its base64.
+pub(super) const PART_BYTES: usize = 8 * 1024 * 1024;
+/// Bytes per `fs.read` answer asked for.
+const READ_BYTES: u64 = 8 * 1024 * 1024;
+/// Entries per `fs.list` page (the daemon's maximum).
+const LIST_LIMIT: u64 = 1000;
+
+/// What a listing says about one entry.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct RemoteEntry {
+    pub kind: String,
+    pub revision: Option<String>,
+}
+
+/// An `fs-v1` error the daemon answered.
+#[derive(Debug)]
+pub(super) struct FsRefusal {
+    pub code: String,
+    pub message: String,
+}
+
+impl std::fmt::Display for FsRefusal {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}: {}", self.code, self.message)
+    }
+}
+
+impl std::error::Error for FsRefusal {}
+
+/// One connection to the machine daemon.
+pub(super) struct Remote {
+    reader: BufReader<UnixStream>,
+    next_id: u64,
+}
+
+impl Remote {
+    pub(super) fn connect(socket: &Path) -> anyhow::Result<Self> {
+        let stream = UnixStream::connect(socket)
+            .with_context(|| format!("cannot connect to {}", socket.display()))?;
+        stream.set_read_timeout(Some(Duration::from_secs(60)))?;
+        Ok(Self { reader: BufReader::new(stream), next_id: 1 })
+    }
+
+    /// Sends one request and returns its `data`; an `ok: false` answer is
+    /// an [`FsRefusal`].
+    pub(super) fn call(&mut self, cmd: &str, mut params: Value) -> anyhow::Result<Value> {
+        let id = self.next_id;
+        self.next_id += 1;
+        params["id"] = json!(id);
+        params["cmd"] = json!(cmd);
+        let mut line = params.to_string();
+        line.push('\n');
+        self.reader.get_mut().write_all(line.as_bytes())?;
+        loop {
+            let mut answer = String::new();
+            if self.reader.read_line(&mut answer)? == 0 {
+                bail!("the machine daemon closed the connection");
+            }
+            let answer: Value = serde_json::from_str(&answer).context("the answer is not JSON")?;
+            if answer["id"] != json!(id) {
+                continue;
+            }
+            if answer["ok"] == json!(true) {
+                return Ok(answer["data"].clone());
+            }
+            return Err(FsRefusal {
+                code: answer["error_code"].as_str().unwrap_or("fs.unknown").to_string(),
+                message: answer["error"].as_str().unwrap_or_default().to_string(),
+            }
+            .into());
+        }
+    }
+
+    /// The entries of the folder at `path` by name; None when it is not there.
+    pub(super) fn list(
+        &mut self,
+        path: &str,
+    ) -> anyhow::Result<Option<BTreeMap<String, RemoteEntry>>> {
+        let mut entries = BTreeMap::new();
+        let mut page = match self.call("fs.list", json!({ "path": path, "limit": LIST_LIMIT })) {
+            Ok(page) => page,
+            Err(error) if refusal_code(&error) == Some("fs.not_found") => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        loop {
+            for entry in page["entries"].as_array().into_iter().flatten() {
+                let name = entry["name"].as_str().unwrap_or_default().to_string();
+                let kind = entry["kind"].as_str().unwrap_or_default().to_string();
+                let revision = entry["size"]
+                    .as_u64()
+                    .map(|size| cmux_tui_core::fs_ops::revision(size, entry["mtime"].as_u64()));
+                entries.insert(name, RemoteEntry { kind, revision });
+            }
+            let Some(cursor) = page["cursor"].as_str().map(str::to_string) else { break };
+            let listing = page["listing"].clone();
+            page = self.call(
+                "fs.list",
+                json!({ "listing": listing, "cursor": cursor, "limit": LIST_LIMIT }),
+            )?;
+        }
+        Ok(Some(entries))
+    }
+
+    /// Creates the folder `path` and any missing folder above it.
+    pub(super) fn mkdir_all(&mut self, path: &str) -> anyhow::Result<()> {
+        if self.is_dir(path)? {
+            return Ok(());
+        }
+        let (parent, name) = split(path)?;
+        self.mkdir_all(parent)?;
+        match self.call("fs.mkdir", json!({ "path": parent, "name": name })) {
+            Ok(_) => Ok(()),
+            Err(error) if refusal_code(&error) == Some("fs.exists") && self.is_dir(path)? => Ok(()),
+            Err(error) => Err(error),
+        }
+    }
+
+    fn is_dir(&mut self, path: &str) -> anyhow::Result<bool> {
+        match self.call("fs.stat", json!({ "path": path })) {
+            Ok(stat) => Ok(stat["kind"] == json!("dir")),
+            Err(error) if refusal_code(&error) == Some("fs.not_found") => Ok(false),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Writes what `reader` gives to `path`, replacing a file there. Over
+    /// [`PART_BYTES`] it is written in parts to a temporary name in the same
+    /// folder, then renamed into place. Returns the file's new revision.
+    pub(super) fn write(
+        &mut self,
+        path: &str,
+        reader: &mut dyn Read,
+        executable: bool,
+    ) -> anyhow::Result<String> {
+        let first = read_part(reader)?;
+        let second = if first.len() == PART_BYTES { read_part(reader)? } else { Vec::new() };
+        if second.is_empty() {
+            let entry = self.call(
+                "fs.write",
+                json!({ "path": path, "bytes_base64": encode(&first), "mode": "overwrite", "executable": executable }),
+            )?;
+            return revision_of(&entry);
+        }
+        let (parent, name) = split(path)?;
+        let part = format!("{}/.{name}.cmux-sync-part", parent.trim_end_matches('/'));
+        let mut revision = revision_of(&self.call(
+            "fs.write",
+            json!({ "path": part, "bytes_base64": encode(&first), "mode": "overwrite", "executable": executable }),
+        )?)?;
+        let mut chunk = second;
+        while !chunk.is_empty() {
+            revision = revision_of(&self.call(
+                "fs.write",
+                json!({ "path": part, "bytes_base64": encode(&chunk), "mode": "append", "expected": revision }),
+            )?)?;
+            chunk = read_part(reader)?;
+        }
+        self.delete(&[path.to_string()])?;
+        let entry = self.call("fs.rename", json!({ "path": part, "name": name }))?;
+        // A rename keeps size and mtime, so the revision is the last part's.
+        Ok(entry["entry"]["revision"].as_str().map_or(revision, str::to_string))
+    }
+
+    /// Reads the whole file at `path`; None when it is not there.
+    pub(super) fn read(&mut self, path: &str) -> anyhow::Result<Option<Vec<u8>>> {
+        let mut bytes = Vec::new();
+        loop {
+            let answer = match self.call(
+                "fs.read",
+                json!({ "path": path, "offset": bytes.len(), "max_bytes": READ_BYTES }),
+            ) {
+                Ok(answer) => answer,
+                Err(error) if refusal_code(&error) == Some("fs.not_found") => return Ok(None),
+                Err(error) => return Err(error),
+            };
+            match (answer["text"].as_str(), answer["bytes_base64"].as_str()) {
+                (Some(text), _) => bytes.extend_from_slice(text.as_bytes()),
+                (None, Some(encoded)) => bytes.extend(
+                    base64::engine::general_purpose::STANDARD
+                        .decode(encoded)
+                        .context("bad base64")?,
+                ),
+                (None, None) => bail!("fs.read answered no bytes"),
+            }
+            if answer["truncated"] != json!(true) {
+                return Ok(Some(bytes));
+            }
+        }
+    }
+
+    /// Deletes the files or folders at `paths`; ones already gone are fine.
+    pub(super) fn delete(&mut self, paths: &[String]) -> anyhow::Result<()> {
+        for path in paths {
+            match self.call("fs.delete", json!({ "paths": [path], "permanent": true })) {
+                Ok(_) => {}
+                Err(error) if refusal_code(&error) == Some("fs.not_found") => {}
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(())
+    }
+}
+
+pub(super) fn refusal_code(error: &anyhow::Error) -> Option<&str> {
+    error.downcast_ref::<FsRefusal>().map(|refusal| refusal.code.as_str())
+}
+
+/// Up to [`PART_BYTES`] from `reader`; empty at its end.
+fn read_part(reader: &mut dyn Read) -> anyhow::Result<Vec<u8>> {
+    let mut part = Vec::with_capacity(PART_BYTES.min(1 << 20));
+    Read::take(&mut *reader, PART_BYTES as u64).read_to_end(&mut part)?;
+    Ok(part)
+}
+
+fn encode(bytes: &[u8]) -> String {
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+fn revision_of(data: &Value) -> anyhow::Result<String> {
+    data["entry"]["revision"]
+        .as_str()
+        .map(str::to_string)
+        .ok_or_else(|| anyhow!("the write answered no revision"))
+}
+
+/// `path`'s parent folder and last name.
+pub(super) fn split(path: &str) -> anyhow::Result<(&str, &str)> {
+    let trimmed = path.trim_end_matches('/');
+    let (parent, name) =
+        trimmed.rsplit_once('/').ok_or_else(|| anyhow!("not an absolute path: {path}"))?;
+    Ok((if parent.is_empty() { "/" } else { parent }, name))
+}
