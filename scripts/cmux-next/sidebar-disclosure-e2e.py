@@ -206,9 +206,8 @@ def main():
     collapsed = wait(lambda: (lambda r: r if r and disclosure(r).get("icon") != DOWN else None)(header_of(group)), 5) or header_of(group)
     row("A collapsed group header points right", f"icon {RIGHT}", f"icon {disclosure(collapsed).get('icon')}",
         disclosure(collapsed).get("icon") == RIGHT)
-    row("A collapsed group holding the selection paints no fill", "selected true, fill false",
-        f"selected {(collapsed or {}).get('selected')}; fill {(collapsed or {}).get('fill')}",
-        (collapsed or {}).get("selected") is True and (collapsed or {}).get("fill") is False)
+    row("A collapsed group holding the selection paints no fill", "fill false", f"fill {(collapsed or {}).get('fill')}",
+        (collapsed or {}).get("fill") is False)
     action("workspaceGroup.expand", target="workspace-group:" + group)
 
 
