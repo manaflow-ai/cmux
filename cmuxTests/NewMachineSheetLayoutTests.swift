@@ -15,6 +15,10 @@ import Testing
 /// (`.fixedSize()`) overflows the fixed-width sheet once a row is long; the
 /// sheet's root frame hides that from its fitting size, so this checks every
 /// control's frame against the sheet whatever the machine names are.
+///
+/// The pop-ups' frames come from SwiftUI (``NewMachineSheetControlFrames``),
+/// not from `NSPopUpButton`s: macOS 27 draws a menu picker itself, with no
+/// AppKit view to find.
 @MainActor
 @Suite("New machine sheet layout")
 struct NewMachineSheetLayoutTests {
@@ -122,7 +126,16 @@ struct NewMachineSheetLayoutTests {
         Self.runMainLoopTurns()
 
         let ideal = NSHostingView(rootView: NewMachineSheet(model: model)).fittingSize
-        let content = sheet.contentRect(forFrameRect: sheet.frame).size
+        // The sheet takes a new size on a main-queue turn after SwiftUI
+        // reports it from a display cycle; a loaded runner (macOS 15 on
+        // Blacksmith) can need more than a few turns. Wait with a deadline;
+        // a sheet that never resizes still fails below.
+        var content = sheet.contentRect(forFrameRect: sheet.frame).size
+        let deadline = Date(timeIntervalSinceNow: 5)
+        while abs(content.height - ceil(ideal.height)) > 1 || abs(content.width - ceil(ideal.width)) > 1, Date() < deadline {
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02))
+            content = sheet.contentRect(forFrameRect: sheet.frame).size
+        }
         #expect(abs(content.height - ceil(ideal.height)) <= 1, "sheet content \(content) does not fit its content \(ideal)")
         #expect(abs(content.width - ceil(ideal.width)) <= 1, "sheet content \(content) does not fit its content \(ideal)")
     }
@@ -145,30 +158,31 @@ struct NewMachineSheetLayoutTests {
             submit: { _ in true }
         )
         model.applyNetworkCatalog(CloudNetworkPresetCatalog(presets: [], requiredDomains: []))
-        let (host, window) = Self.render(NewMachineSheet(model: model, layout: .grid))
+        let frames = ControlFrames()
+        let (host, window) = Self.render(ControlFrameRecorder(content: NewMachineSheet(model: model, layout: .grid), frames: frames))
         defer {
             window.contentView = nil
             window.close()
         }
 
-        let popUps = Self.descendants(of: host).compactMap { $0 as? NSPopUpButton }.filter { !$0.isHiddenOrHasHiddenAncestor }
-        // `nightlyMachines` renames one machine per tick, so match the family, not a title.
-        let base = try #require(popUps.first { $0.itemTitles.contains { $0.hasPrefix("cmux-devbox-") } }, "no Base pop-up")
-        let size = try #require(popUps.first { $0.itemTitles.contains { $0.contains("GB RAM") } }, "no Size pop-up")
-        let rows = [("Base", base), ("Size", size)]
-        let leading = rows.map { $0.1.convert($0.1.bounds, to: host).minX }
-        #expect(abs(leading[0] - leading[1]) <= 1, "Base starts at \(leading[0]), Size at \(leading[1])")
-        for (name, popUp) in rows {
-            let width = popUp.convert(popUp.bounds, to: host).width
-            // AppKit's intrinsicContentSize excludes a few points of the
-            // menu control's border/accessory; fittingSize is its measured
-            // natural width after those decorations are included.
+        let base = try #require(frames.frames[NewMachineSheetControlFrames.baseImage], "no Base pop-up")
+        let size = try #require(frames.frames[NewMachineSheetControlFrames.size], "no Size pop-up")
+        #expect(abs(base.minX - size.minX) <= 1, "Base starts at \(base.minX), Size at \(size.minX)")
+        // A pop-up that fills the column, or hugs its trailing edge, ends
+        // where the sheet's content does. These rows are short, so at their
+        // own width both end well before it.
+        let contentTrailing = host.bounds.width - Self.sheetPadding
+        for (name, frame) in [("Base", base), ("Size", size)] {
+            #expect(frame.width > 0, "\(name) pop-up was laid out with no width: \(frame)")
             #expect(
-                width <= popUp.fittingSize.width + 1,
-                "\(name) pop-up is \(width)pt wide; its fitting width is \(popUp.fittingSize.width)pt"
+                frame.maxX < contentTrailing - 1,
+                "\(name) pop-up \(frame) reaches the sheet's trailing content edge \(contentTrailing)"
             )
         }
     }
+
+    /// `NewMachineSheet`'s padding around its content.
+    private static let sheetPadding: CGFloat = 20
 
     private static func render<V: View>(_ view: V) -> (NSHostingView<V>, NSWindow) {
         _ = NSApplication.shared
@@ -208,7 +222,8 @@ struct NewMachineSheetLayoutTests {
 
     private func assertControlsInsideSheet(model: NewMachineModel, layout: NewMachineSheetLayout, label: String) {
         _ = NSApplication.shared
-        let host = NSHostingView(rootView: NewMachineSheet(model: model, layout: layout))
+        let frames = ControlFrames()
+        let host = NSHostingView(rootView: ControlFrameRecorder(content: NewMachineSheet(model: model, layout: layout), frames: frames))
         let size = host.fittingSize
 
         let window = NSWindow(
@@ -230,13 +245,13 @@ struct NewMachineSheetLayoutTests {
             _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
         }
 
-        let popUps = Self.descendants(of: host).compactMap { $0 as? NSPopUpButton }
-        let basePopUp = popUps.first { popUp in
-            popUp.itemTitles.contains { $0.hasPrefix(Self.longName) }
-        }
-        #expect(basePopUp != nil, "\(label): the Base pop-up was not rendered")
+        #expect(frames.frames[NewMachineSheetControlFrames.baseImage] != nil, "\(label): the Base pop-up was not laid out")
 
         let bounds = host.bounds.insetBy(dx: -0.5, dy: -0.5)
+        for (name, frame) in frames.frames {
+            #expect(bounds.contains(frame), "\(label): \(name) pop-up \(frame) overflows the sheet \(host.bounds)")
+        }
+        // AppKit-backed controls (every pop-up before macOS 27, checkboxes, buttons).
         for control in Self.descendants(of: host).compactMap({ $0 as? NSControl }) where !control.isHiddenOrHasHiddenAncestor {
             let frame = control.convert(control.bounds, to: host)
             #expect(
@@ -248,5 +263,30 @@ struct NewMachineSheetLayoutTests {
 
     private static func descendants(of view: NSView) -> [NSView] {
         view.subviews.flatMap { [$0] + descendants(of: $0) }
+    }
+}
+
+/// The frames ``NewMachineSheetControlFrames`` reported at the last layout,
+/// in the sheet's coordinates (the hosting view's bounds).
+@MainActor
+private final class ControlFrames {
+    var frames: [String: CGRect] = [:]
+
+    func record(_ frames: [String: CGRect]) {
+        self.frames = frames
+    }
+}
+
+private struct ControlFrameRecorder<Content: View>: View {
+    let content: Content
+    let frames: ControlFrames
+
+    var body: some View {
+        content.overlayPreferenceValue(NewMachineSheetControlFrames.self) { anchors in
+            GeometryReader { proxy in
+                let _ = frames.record(anchors.mapValues { proxy[$0] })
+                Color.clear
+            }
+        }
     }
 }
