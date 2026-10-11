@@ -24,6 +24,8 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "end-terminals",
     // `server ensure`: private app contract, the install key comes on stdin.
     "install-key-stdin",
+    // `server ensure`: private app contract, restore progress lines on stdout.
+    "restore-progress",
     "confirm-close",
     "complete",
     "clear-name",

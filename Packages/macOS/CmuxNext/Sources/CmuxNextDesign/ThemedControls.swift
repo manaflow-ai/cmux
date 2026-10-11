@@ -17,9 +17,12 @@ public final class ThemedTableRowView: NSTableRowView {
     }
 }
 
-/// A dialog's Return (default) button in its scope's selection fill instead of the system accent
-/// (cx-wqn5), re-resolved when it moves into a window and on every theme change.
-public final class ThemedDefaultButton: NSButton {
+/// A button whose bezel is a theme color instead of the system accent (cx-wqn5), re-resolved in
+/// its view's scope when it moves into a window and on every theme change.
+public class ThemedBezelButton: NSButton {
+    /// The bezel; runs inside `performWithTheme`. theme-scoped
+    var themeBezel: NSColor { Palette.selectionFill }
+
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         applyTheme()
@@ -39,6 +42,15 @@ public final class ThemedDefaultButton: NSButton {
     }
 
     private func applyTheme() {
-        bezelColor = performWithTheme { Palette.selectionFill }
+        bezelColor = performWithTheme { themeBezel }
     }
+}
+
+/// A dialog's Return (default) button in its scope's selection fill.
+public final class ThemedDefaultButton: ThemedBezelButton {}
+
+/// A checkbox (`ThemedCheckbox(checkboxWithTitle:target:action:)`) checked in the theme's ink, as
+/// onboarding's are.
+public final class ThemedCheckbox: ThemedBezelButton {
+    override var themeBezel: NSColor { Palette.textPrimary }
 }

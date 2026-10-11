@@ -43,7 +43,10 @@ nonisolated enum HomeChannelsWire {
 
     @concurrent static func submit(_ source: any HomeSource, _ intent: HomeIntent) async throws -> JSONValue {
         let result = try await rejecting { try await source.submit(intent) }
-        return .object(["rev": number(result.rev), "replayed": .bool(result.replayed)])
+        var members: [String: JSONValue] = ["rev": number(result.rev), "replayed": .bool(result.replayed)]
+        // The conversation the intent made (a new group), so the page can open it.
+        if let conversation = result.conversation { members["conversation"] = .string(conversation.rawValue) }
+        return .object(members)
     }
 
     /// Runs one owner call, turning the owner's refusals into page errors.
@@ -96,6 +99,7 @@ nonisolated enum HomeChannelsWire {
             "lastSeq": number(summary.lastSeq),
             "rev": number(summary.rev),
             "updatedAt": millis(summary.updatedAt),
+            "createdAt": millis(summary.createdAt),
             "unread": JSONValue(summary.unreadCount(me: me)),
             "mentions": JSONValue(summary.mentionCount),
             "muted": .bool(summary.muted),
