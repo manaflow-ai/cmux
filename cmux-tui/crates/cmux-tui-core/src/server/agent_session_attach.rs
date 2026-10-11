@@ -62,7 +62,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 #[path = "agent_session_link.rs"]
-mod agent_session_link;
+pub(super) mod agent_session_link;
 #[path = "agent_session_start.rs"]
 mod agent_session_start;
 use super::{MessageWriter, OutboundStream, Response, SurfaceId, send_response};
