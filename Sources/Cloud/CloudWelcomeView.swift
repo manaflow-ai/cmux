@@ -36,13 +36,14 @@ struct CloudWelcomeView: View {
     var sliderShowsFeatureList = true
     var sliderListUsesDots = false
 
-    static let windowWidth: CGFloat = 680
+    nonisolated static let windowWidth: CGFloat = 680
     /// The list layouts put the features beside the clip, so they need more room.
-    static let listWindowWidth: CGFloat = 840
-    /// The clip frames: 16:10 like the recorded clips (1010x640), and no wider
-    /// than half their pixels so they stay sharp on a Retina display.
-    static let stackedMediaSize = CGSize(width: 500, height: 312)
-    static let listMediaSize = CGSize(width: 480, height: 300)
+    nonisolated static let listWindowWidth: CGFloat = 840
+    /// The clip frames: about 16:10 like the recorded clips (most are 1010x640;
+    /// the fill crops the rest a little), and no wider than half their pixels
+    /// so they stay sharp on a Retina display.
+    nonisolated static let stackedMediaSize = CGSize(width: 500, height: 312)
+    nonisolated static let listMediaSize = CGSize(width: 480, height: 300)
 
     var body: some View {
         let hasMedia = showsMedia && CloudWelcomeSlide.all.contains { mediaURL($0) != nil }
