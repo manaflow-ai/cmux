@@ -32,11 +32,38 @@ pub fn coalesce(entries: &mut Vec<OutboxEntry>) {
         }
         let next = entries.remove(i + 1);
         let tail = plain_text(&next.op).unwrap_or_default();
-        if let Op::MessageSend { parts, .. } = &mut entries[i].op
-            && let Some(Part::Text { text, .. }) = parts.first_mut()
+        let (more, more_pending) = match next.op {
+            Op::MessageSend {
+                answers,
+                answers_pending,
+                ..
+            } => (answers, answers_pending),
+            _ => (Vec::new(), Vec::new()),
+        };
+        if let Op::MessageSend {
+            parts,
+            answers,
+            answers_pending,
+            ..
+        } = &mut entries[i].op
         {
-            text.push_str("\n\n");
-            text.push_str(&tail);
+            if let Some(Part::Text { text, .. }) = parts.first_mut() {
+                text.push_str("\n\n");
+                text.push_str(&tail);
+            }
+            // E22: the merged message answers both; the later entry knows
+            // best whether a message it answers still has work running.
+            answers_pending.retain(|id| !more.contains(id));
+            for id in more {
+                if !answers.contains(&id) {
+                    answers.push(id);
+                }
+            }
+            for id in more_pending {
+                if !answers_pending.contains(&id) {
+                    answers_pending.push(id);
+                }
+            }
         }
     }
 }
