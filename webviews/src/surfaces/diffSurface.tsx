@@ -1,7 +1,7 @@
 import { RouterProvider } from "@tanstack/react-router";
 import { createRoot } from "react-dom/client";
 import { App } from "../App";
-import { applyDiffViewerAppearance, resolveDiffViewerAppearance } from "../appearance";
+import { applyDiffViewerAppearance, followHostTerminalTheme, resolveDiffViewerAppearance } from "../appearance";
 import { installSolidBackdrop } from "../backdrop";
 import { createDiffViewerLabelResolver, loadDiffViewerLabels, shouldAssertMissingLabels } from "../labels";
 import { installDiffLanguageHostAPI } from "../diff-languages/host";
@@ -52,7 +52,7 @@ export function mountDiffSurface(rootElement: HTMLElement): Promise<void> {
       const empty = await import("../viewer-empty/emptySurface");
       installWebviewStyles("viewer-empty", empty.viewerEmptyStyles);
       installWebviewStyles("ui", empty.uiStyles);
-      applyDiffViewerAppearance(resolveDiffViewerAppearance(config.payload?.appearance));
+      followHostTerminalTheme(() => applyDiffViewerAppearance(resolveDiffViewerAppearance(config.payload?.appearance)));
       installSolidBackdrop();
       return empty.pickDiffConfig(rootElement, page, { labels: config.payload?.labels });
     },
@@ -68,7 +68,8 @@ export async function renderDiffSurface(
   await loadDiffViewerLabels();
   installWebviewStyles("diff", diffViewerStyles);
   installDiffLanguageHostAPI(languages);
-  applyDiffViewerAppearance(resolveDiffViewerAppearance(config.payload?.appearance));
+  // Code and diff colors follow the terminal theme in place (appearance.ts).
+  followHostTerminalTheme(() => applyDiffViewerAppearance(resolveDiffViewerAppearance(config.payload?.appearance)));
   installSolidBackdrop();
   if (typeof config.payload?.title === "string" && config.payload.title.trim() !== "") {
     document.title = config.payload.title;

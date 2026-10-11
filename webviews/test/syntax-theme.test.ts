@@ -6,6 +6,7 @@ import { afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { syntaxThemes } from "../src/agent-session/acpmux/diffTheme";
 import * as appearanceModule from "../src/appearance";
+import { contrastBetween, SYNTAX_MIN_CONTRAST } from "../src/syntax-colors";
 import { shikiThemeFromGhostty } from "../src/pierre-options";
 
 type ThemeWindow = Window & { cmuxTheme?: { current?: unknown } };
@@ -105,6 +106,23 @@ describe("code colors come from the terminal palette", () => {
       expect({ scope, slot }).toEqual({ scope, slot: expect.any(String) });
       const pageColor = rootVariable(variableOf(ruleFor(page, scope)?.settings.foreground) ?? "");
       expect({ scope, color: pageColor }).toEqual({ scope, color: night.palette[slot!] });
+    }
+  });
+
+  test("every code color reads on a pale low-contrast theme (TokyoNight Day)", () => {
+    const day = {
+      background: "#e1e2e7",
+      foreground: "#3760bf",
+      palette: Object.fromEntries(
+        ["#e9e9ed", "#f52a65", "#587539", "#8c6c3e", "#2e7de9", "#9854f1", "#007197", "#6172b0"]
+          .concat(["#a1a6c5", "#f52a65", "#587539", "#8c6c3e", "#2e7de9", "#9854f1", "#007197", "#3760bf"])
+          .map((color, slot) => [String(slot), color]),
+      ),
+    };
+    const colors = appearanceModule.syntaxColorsFor(day, "light");
+    for (const [role, color] of Object.entries(colors)) {
+      const ratio = contrastBetween(color, day.background) ?? 0;
+      expect({ role, readable: ratio >= SYNTAX_MIN_CONTRAST }).toEqual({ role, readable: true });
     }
   });
 });
