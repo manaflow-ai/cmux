@@ -8,6 +8,34 @@ import { newTabHost, type NewTabHost } from "../NewTabPage";
 
 export const NEW_TAB_ADOPT_EVENT = "acpmux-newtab-adopt";
 
+/// A cold New Tab page's context before the handshake (cx-0rpl.10): the host answers
+/// `newTab.context` at once, while `ready` waits for acpmux, so the page draws its frame (layout,
+/// field, empty list) at first render and the rows fill in after. Calls `onContext` once with the
+/// context; `applied` turns true so the handshake keeps what the page did since (a left page stays
+/// left).
+export function useEarlyNewTabContext(
+  callNative: (method: string) => Promise<unknown>,
+  onContext: (host: NewTabHost) => void,
+): { readonly current: boolean } {
+  const [applied] = useState(() => ({ current: false }));
+  useEffect(() => {
+    let cancelled = false;
+    void callNative("newTab.context").then(
+      (reply) => {
+        const host = cancelled ? undefined : newTabHost({ newTab: (reply as { newTab?: unknown } | null)?.newTab });
+        if (!host || applied.current) return;
+        applied.current = true;
+        onContext(host);
+      },
+      () => undefined,
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [callNative, onContext, applied]);
+  return applied;
+}
+
 /// Calls `onAdopt` with each adopt event's context and returns the adoption count, a key that
 /// remounts the screen so it starts from the new context.
 export function useNewTabAdoption(onAdopt: (host: NewTabHost) => void): number {
