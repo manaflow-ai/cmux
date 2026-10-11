@@ -6,7 +6,7 @@ keep printing and --browsers Chromium tabs, and samples every --sample seconds:
 
   - CPU share, memory footprint and wakeups/s per process kind (app, cmux-tui daemon, terminal
     hosts, acpmux, agents, Chromium helpers or WebKit processes), from proc_pid_rusage
-    (bench_idle.usage). Browser tabs are Chromium when the build has it, else WebKit; WebKit's
+    (bench_idle.usage), and open file descriptors (proc_pidinfo PROC_PIDLISTFDS). Browser tabs are Chromium when the build has it, else WebKit; WebKit's
     processes are launchd's children, so every one that started after the app is counted (run
     the soak on a host where nothing else uses WebKit);
   - control-socket round trips (system.ping, snapshot.get): a reply slower than --hang-after
@@ -16,14 +16,19 @@ keep printing and --browsers Chromium tabs, and samples every --sample seconds:
   - agent turns: every agent gets a streaming turn ("slow") every --turn-every seconds; a turn
     still running after 5 minutes is stuck.
 
+The last --idle seconds are quiet: no new turns, and the terminals stop printing and wait on input.
+Once every turn has ended and --settle seconds have passed, those samples are the idle cost.
+
 The agents are acpmux's test agent (cmux-tui/crates/acpmux/tests/fake_agent.py): no account, no
 network, no credential on the host. The app runs with its own ACPMUX_HOME and config in a scratch
 folder; the soak never touches the host's ~/.acpmux or settings.
 
 At the end it writes report.json and report.md to --out and exits 1 when a criterion failed:
 no crash, no hang, no stuck turn, memory growth (median of the last hour against the first
-hour after --warmup) within --max-growth-percent and --max-growth-mb per kind, and the mean
-CPU of the app and the daemon under --max-app-cpu and --max-daemon-cpu. Teardown goes through
+hour after --warmup) within --max-growth-percent and --max-growth-mb per kind, open fds of the
+app, daemon and acpmux growing by at most --max-fd-growth, the mean CPU of the app and the daemon
+under --max-app-cpu and --max-daemon-cpu, and their idle CPU (and acpmux's) under
+--max-idle-*-cpu. report.md ends with a memory and fd trend. Teardown goes through
 the app's quit path, then TagTeardown (acpmux and cmux-tui shutdown, exact PIDs of this copy).
 
 Host rules: an Aqua GUI session for this user; nothing else answering on the app's control
@@ -35,11 +40,13 @@ socket. Use a copy of the app (the nightly runner unpacks cmux-next-dev into the
 from __future__ import annotations
 
 import argparse
+import ctypes
 import datetime as dt
 import glob
 import json
 import os
 import plistlib
+import shlex
 import shutil
 import socket
 import statistics
@@ -59,10 +66,26 @@ FAKE_AGENT = os.path.join(HERE, "../../cmux-tui/crates/acpmux/tests/fake_agent.p
 FAKE_HARNESS = "readiness-soak-agent"
 CRASH_NAMES = ("cmux", "acpmux")
 STUCK_TURN_S = 300
-TERMINAL_WORK = "i=0; while :; do i=$((i+1)); echo \"soak $i $(date +%T)\"; ls -l /usr/bin | head -30; sleep 2; done"
+# Each terminal prints until the quiet phase creates {stop}, then waits on its input (an idle shell).
+TERMINAL_WORK = ("i=0; while [ ! -e {stop} ]; do i=$((i+1)); echo \"soak $i $(date +%T)\"; ls -l /usr/bin | head -30; "
+                 "sleep 2; done; echo soak quiet; exec cat")
 STATIC_PAGE = "<!doctype html><title>soak static</title><h1>static</h1><p>no script</p>"
 TICKING_PAGE = ("<!doctype html><title>soak ticking</title><h1 id=t>0</h1>"
                 "<script>let n=0;setInterval(()=>{document.getElementById('t').textContent=++n},5000)</script>")
+
+
+_libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
+PROC_PIDLISTFDS, PROC_FDINFO_SIZE = 1, 8
+
+
+def open_fds(pid):
+    """Open file descriptors of pid (proc_pidinfo PROC_PIDLISTFDS), or None when it is gone."""
+    size = _libproc.proc_pidinfo(ctypes.c_int(pid), PROC_PIDLISTFDS, ctypes.c_uint64(0), None, 0)
+    if size <= 0:
+        return None
+    buffer = ctypes.create_string_buffer(size + 64 * PROC_FDINFO_SIZE)
+    used = _libproc.proc_pidinfo(ctypes.c_int(pid), PROC_PIDLISTFDS, ctypes.c_uint64(0), buffer, len(buffer))
+    return used // PROC_FDINFO_SIZE if used > 0 else None
 
 
 def now_iso():
@@ -155,6 +178,7 @@ class Soak:
         os.makedirs(self.out, exist_ok=True)
         self.work = tempfile.mkdtemp(prefix="cmux-soak-")
         self.acpmux_home = os.path.join(self.work, "acpmux")
+        self.quiet_file = os.path.join(self.work, "quiet")
         self.acp = Acpmux(acpmux_socket(self.acpmux_home))
         self.samples = open(os.path.join(self.out, "samples.jsonl"), "a")
         self.events = []
@@ -225,7 +249,7 @@ class Soak:
             return
         made = 0
         for index in range(self.args.terminals):
-            reply = request(status["socket"], {"id": 10 + index, "cmd": "run", "argv": ["/bin/sh", "-c", TERMINAL_WORK],
+            reply = request(status["socket"], {"id": 10 + index, "cmd": "run", "argv": ["/bin/sh", "-c", TERMINAL_WORK.format(stop=shlex.quote(self.quiet_file))],
                                                "new_workspace": True, "name": f"soak-terminal-{index + 1}"}, 30)
             made += bool(reply.get("ok"))
             if not reply.get("ok"):
@@ -327,8 +351,9 @@ class Soak:
             first, last = before.get(pid), usage(pid)
             if first is None or last is None:
                 continue
-            row = rows.setdefault(kind, {"count": 0, "cpu_percent": 0.0, "footprint_mb": 0.0, "wakeups_per_s": 0.0})
+            row = rows.setdefault(kind, {"count": 0, "cpu_percent": 0.0, "footprint_mb": 0.0, "wakeups_per_s": 0.0, "fds": 0})
             row["count"] += 1
+            row["fds"] += open_fds(pid) or 0
             row["cpu_percent"] += 100.0 * (last[0] - first[0]) / (wall * 1e9)
             row["wakeups_per_s"] += (last[1] - first[1]) / wall
             row["footprint_mb"] += last[2] / 1048576
@@ -336,6 +361,10 @@ class Soak:
 
     def loop(self):
         end = time.monotonic() + self.args.hours * 3600
+        # The last --idle seconds are quiet: no new turns, terminals stop printing, so what the app,
+        # daemon and acpmux use then is their idle cost.
+        quiet_at = end - self.args.idle
+        quiet = False
         next_turn = {session: time.monotonic() + i * self.args.turn_every / max(len(self.agents), 1)
                      for i, session in enumerate(self.agents)}
         seen_reports = set(self.crash_reports())
@@ -346,6 +375,10 @@ class Soak:
         tick = time.monotonic()
         while time.monotonic() < end:
             time.sleep(self.args.sample)  # soak script: the sampling interval
+            if not quiet and time.monotonic() >= quiet_at:
+                quiet = True
+                open(self.quiet_file, "w").close()
+                self.event("quiet", "no new turns; terminals stop printing")
             wall = time.monotonic() - tick
             tick = time.monotonic()
             processes = self.sample(before, kinds, wall)
@@ -372,10 +405,12 @@ class Soak:
                 if entry["started"] is not None and time.monotonic() - entry["started"] > STUCK_TURN_S:
                     self.event("stuck-turn", f"agent {session} turn {entry['turns']} running for over {STUCK_TURN_S} s")
                     entry["started"] = None
-                if entry["started"] is None and time.monotonic() >= next_turn[session]:
+                if not quiet and entry["started"] is None and time.monotonic() >= next_turn[session]:
                     self.prompt(session)
                     next_turn[session] = time.monotonic() + self.args.turn_every
             record = {"at": now_iso(), "elapsed_s": round(time.time() - self.started), "processes": processes,
+                      "phase": "quiet" if quiet else "load",
+                      "running": sum(e["started"] is not None for e in self.agents.values()),
                       "ping_ms": ping_ms, "snapshot_ms": snapshot_ms,
                       "turns": sum(e["turns"] for e in self.agents.values()),
                       "turns_done": sum(e["done"] for e in self.agents.values())}
@@ -389,7 +424,12 @@ class Soak:
         with open(os.path.join(self.out, "samples.jsonl")) as handle:
             samples = [json.loads(line) for line in handle if line.strip()]
         warm = [s for s in samples if s["elapsed_s"] >= self.args.warmup]
-        hour = 3600
+        # Idle: quiet samples once every turn has ended and --settle seconds have passed.
+        quiet_from = min((s["elapsed_s"] for s in samples if s.get("phase") == "quiet"), default=None)
+        idle = [s for s in samples if quiet_from is not None and s["elapsed_s"] >= quiet_from + self.args.settle
+                and not s.get("running")]
+        # The first and last hour, or thirds of a shorter run, so the two windows never overlap.
+        hour = min(3600, (warm[-1]["elapsed_s"] - warm[0]["elapsed_s"]) / 3) if warm else 3600
         first = [s for s in warm if s["elapsed_s"] < self.args.warmup + hour]
         last_start = (warm[-1]["elapsed_s"] - hour) if warm else 0
         last = [s for s in warm if s["elapsed_s"] >= last_start]
@@ -397,8 +437,13 @@ class Soak:
         summary, failures = {}, []
 
         def median(rows, kind, key):
-            values = [s["processes"][kind][key] for s in rows if kind in s["processes"]]
+            values = [s["processes"][kind].get(key) for s in rows if kind in s["processes"]]
+            values = [v for v in values if v is not None]
             return round(statistics.median(values), 2) if values else None
+
+        def mean(rows, kind, key):
+            values = [s["processes"][kind][key] for s in rows if kind in s["processes"]]
+            return round(statistics.fmean(values), 2) if values else None
 
         for kind in kinds:
             cpu = [s["processes"][kind]["cpu_percent"] for s in warm if kind in s["processes"]]
@@ -408,6 +453,10 @@ class Soak:
                 "footprint_mb_first_hour": median(first, kind, "footprint_mb"),
                 "footprint_mb_last_hour": median(last, kind, "footprint_mb"),
                 "wakeups_per_s_median": median(warm, kind, "wakeups_per_s"),
+                "fds_first_hour": median(first, kind, "fds"),
+                "fds_last_hour": median(last, kind, "fds"),
+                "idle_cpu_percent": mean(idle, kind, "cpu_percent"),
+                "idle_wakeups_per_s": mean(idle, kind, "wakeups_per_s"),
             }
             row = summary[kind]
             start_mb, end_mb = row["footprint_mb_first_hour"], row["footprint_mb_last_hour"]
@@ -416,10 +465,23 @@ class Soak:
                 row["growth_mb"], row["growth_percent"] = round(growth, 1), round(100 * growth / start_mb, 1)
                 if growth > self.args.max_growth_mb and row["growth_percent"] > self.args.max_growth_percent:
                     failures.append(f"{kind} memory grew {growth:.0f} MB ({row['growth_percent']}%) from the first to the last hour")
+            start_fds, end_fds = row["fds_first_hour"], row["fds_last_hour"]
+            if start_fds is not None and end_fds is not None and kind in ("app", "daemon", "acpmux"):
+                row["fd_growth"] = round(end_fds - start_fds)
+                if row["fd_growth"] > self.args.max_fd_growth:
+                    failures.append(f"{kind} open fds grew by {row['fd_growth']} ({start_fds:g} -> {end_fds:g}) from the first to the last hour")
         for kind, limit in (("app", self.args.max_app_cpu), ("daemon", self.args.max_daemon_cpu)):
             mean = (summary.get(kind) or {}).get("mean_cpu_percent")
             if mean is not None and mean > limit:
                 failures.append(f"{kind} mean CPU {mean}% over {limit}%")
+        if self.args.idle:
+            if not idle:
+                failures.append("no idle samples (the quiet phase never settled)")
+            for kind, limit in (("app", self.args.max_idle_app_cpu), ("daemon", self.args.max_idle_daemon_cpu),
+                                ("acpmux", self.args.max_idle_acpmux_cpu)):
+                value = (summary.get(kind) or {}).get("idle_cpu_percent")
+                if value is not None and value > limit:
+                    failures.append(f"{kind} idle CPU {value}% over {limit}%")
         for kind in ("crash", "hang", "stuck-turn"):
             count = sum(1 for e in self.events if e["kind"] == kind)
             if count:
@@ -445,11 +507,21 @@ class Soak:
                  f"{self.setup.get('terminals')} terminals, {self.setup.get('browsers')} {self.setup.get('browser_engine', '')} browser tabs.", ""]
         lines += [f"- FAIL: {failure}" for failure in failures] or ["- No failures."]
         lines += ["", f"Control round trip (snapshot.get): p50 {result['snapshot_ms_p50']} ms, p99 {result['snapshot_ms_p99']} ms.", "",
-                  "| Process | Mean CPU % | Max CPU % | Memory first h (MB) | Memory last h (MB) | Wakeups/s |",
-                  "| --- | --- | --- | --- | --- | --- |"]
+                  "| Process | Mean CPU % | Max CPU % | Memory first h (MB) | Memory last h (MB) | Wakeups/s | fds first h | fds last h | Idle CPU % | Idle wakeups/s |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
         for kind, row in summary.items():
             lines.append(f"| {kind} | {row['mean_cpu_percent']} | {row['max_cpu_percent']} | {row['footprint_mb_first_hour']} | "
-                         f"{row['footprint_mb_last_hour']} | {row['wakeups_per_s_median']} |")
+                         f"{row['footprint_mb_last_hour']} | {row['wakeups_per_s_median']} | {row['fds_first_hour']} | "
+                         f"{row['fds_last_hour']} | {row['idle_cpu_percent']} | {row['idle_wakeups_per_s']} |")
+        # Trend: memory and fds of the app, daemon and acpmux at about twelve points, so a slow leak shows its slope.
+        if samples:
+            step = max(1, len(samples) // 12)
+            lines += ["", "Trend (memory MB / open fds):", "",
+                      "| Elapsed min | Phase | app | daemon | acpmux |", "| --- | --- | --- | --- | --- |"]
+            for s in samples[::step] + ([samples[-1]] if (len(samples) - 1) % step else []):
+                cells = [f"{s['processes'][k]['footprint_mb']:g} / {s['processes'][k].get('fds')}" if k in s["processes"] else "-"
+                         for k in ("app", "daemon", "acpmux")]
+                lines.append(f"| {s['elapsed_s'] // 60} | {s.get('phase', 'load')} | " + " | ".join(cells) + " |")
         if self.events:
             lines += ["", "Events:"] + [f"- {e['at']} {e['kind']}: {e['detail']}" for e in self.events]
         with open(os.path.join(self.out, "report.md"), "w") as handle:
@@ -485,6 +557,14 @@ def main():
     parser.add_argument("--max-growth-percent", type=float, default=25)
     parser.add_argument("--max-app-cpu", type=float, default=10)
     parser.add_argument("--max-daemon-cpu", type=float, default=5)
+    parser.add_argument("--max-fd-growth", type=float, default=100,
+                        help="open fds the app, daemon or acpmux may gain from the first to the last hour")
+    parser.add_argument("--idle", type=float, default=1800,
+                        help="seconds at the end with no new turns and quiet terminals (0: none)")
+    parser.add_argument("--settle", type=float, default=300, help="seconds into the quiet phase before idle samples count")
+    parser.add_argument("--max-idle-app-cpu", type=float, default=1)
+    parser.add_argument("--max-idle-daemon-cpu", type=float, default=0.5)
+    parser.add_argument("--max-idle-acpmux-cpu", type=float, default=0.5)
     parser.add_argument("--out", default=os.path.join(os.getcwd(), "readiness-soak"))
     args = parser.parse_args()
     soak = Soak(args)
