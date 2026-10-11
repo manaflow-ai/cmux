@@ -250,6 +250,8 @@ def main():
     if not wait(lambda: (rpc("debug.windows") or {}).get("windows"), 60):
         sys.exit("the app does not answer on " + opts.socket)
     os.makedirs(opts.out, exist_ok=True)
+    # Capture slots can launch with ui.animationSpeed "off"; record at the default speed (in memory only).
+    rpc("debug.motion", {"action": "speed", "value": "fast"})
     action("workspace.selectFirst")
     time.sleep(1.0)  # test harness: the workspace settles
     for name in opts.surface or list(SURFACES):

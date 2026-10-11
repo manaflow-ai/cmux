@@ -90,4 +90,28 @@ struct PaneArrival: Equatable {
         }
         return CGRect(x: minX, y: minY, width: max(0, maxX - minX), height: max(0, maxY - minY))
     }
+
+    /// What each docked column hides of the strip, its inner edge moved with
+    /// a dock still growing in (`docks`, the arriving frames), so strip rings
+    /// are not cut at the edge the dock has yet to reach.
+    static func covers(_ geometry: ScreenGeometry, docks: [AnimatedFrame]) -> [CGRect] {
+        geometry.dock.map { entry in
+            var cover = entry.cover
+            for dock in docks where dock.targetRect.intersects(entry.cover) {
+                let shown = dock.rect, target = dock.targetRect
+                if target.maxX <= geometry.clipMinX + 1 {
+                    cover.size.width = max(0, cover.width + shown.maxX - target.maxX)
+                } else if target.minX >= geometry.clipMaxX - 1 {
+                    let moved = min(shown.minX - target.minX, cover.width)
+                    cover = CGRect(x: cover.minX + moved, y: cover.minY, width: cover.width - moved, height: cover.height)
+                } else if target.maxY <= geometry.clipMinY + 1 {
+                    cover.size.height = max(0, cover.height + shown.maxY - target.maxY)
+                } else if target.minY >= geometry.clipMaxY - 1 {
+                    let moved = min(shown.minY - target.minY, cover.height)
+                    cover = CGRect(x: cover.minX, y: cover.minY + moved, width: cover.width, height: cover.height - moved)
+                }
+            }
+            return cover
+        }
+    }
 }

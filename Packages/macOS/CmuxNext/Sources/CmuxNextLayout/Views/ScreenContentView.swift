@@ -227,9 +227,12 @@ final class ScreenContentView: NSView {
         return moving
     }
 
+    /// Docked panes still growing in from their screen edge (their frames).
+    var growingDocks: [AnimatedFrame] { arriving.filter { !geometry.scrolls(pane: $0) }.compactMap { paneFrames[$0] } }
+
     func applyPresentation() {
         let strip = stripShift
-        let uncovered = uncoveredRect, clip = PaneArrival.stripClip(geometry, docks: arriving.filter { !geometry.scrolls(pane: $0) }.compactMap { paneFrames[$0] })
+        let uncovered = uncoveredRect, clip = PaneArrival.stripClip(geometry, docks: growingDocks)
         for (pane, frame) in paneFrames {
             guard let host = context.hosts[pane], host.superview === self else { continue }
             let scrolls = geometry.scrolls(pane: pane)

@@ -19,8 +19,9 @@ extension ScreenContentView {
     }
 
     /// What docked columns hide of the strip (local coordinates): strip
-    /// rings and highlights are clipped out of these.
-    var coverRects: [CGRect] { geometry.dock.map(\.cover) }
+    /// rings and highlights are clipped out of these. A dock growing in
+    /// covers only up to its moving edge.
+    var coverRects: [CGRect] { PaneArrival.covers(geometry, docks: growingDocks) }
 
     /// True when the scroll moves this divider or column edge.
     func scrolls(_ kind: DividerHandleView.Kind) -> Bool {
