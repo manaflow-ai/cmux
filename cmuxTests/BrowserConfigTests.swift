@@ -312,6 +312,12 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
                 super.delegate = newValue
             }
         }
+
+        /// macOS 27's NSTextView initializer reads its own `delegate`. Only
+        /// reads after construction belong to the code under test.
+        func resetDelegateReadCount() {
+            delegateReadCount = 0
+        }
     }
 
     private final class FieldEditorProbeTextView: NSTextView {
@@ -327,6 +333,12 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             set {
                 super.delegate = newValue
             }
+        }
+
+        /// macOS 27's NSTextView initializer reads its own `delegate`. Only
+        /// reads after construction belong to the code under test.
+        func resetDelegateReadCount() {
+            delegateReadCount = 0
         }
 
         override var isFieldEditor: Bool {
@@ -991,6 +1003,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         window.contentView = container
 
         let textView = DelegateProbeTextView(frame: NSRect(x: 0, y: 0, width: 100, height: 40))
+        textView.resetDelegateReadCount()
         container.addSubview(textView)
 
         window.makeKeyAndOrderFront(nil)
@@ -1028,6 +1041,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         webView.addSubview(descendant)
 
         let fieldEditor = FieldEditorProbeTextView(frame: NSRect(x: 0, y: 0, width: 100, height: 20))
+        fieldEditor.resetDelegateReadCount()
 
         window.makeKeyAndOrderFront(nil)
         defer {

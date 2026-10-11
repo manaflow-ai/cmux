@@ -719,6 +719,12 @@ final class CommandPaletteFocusStealerClassificationTests: XCTestCase {
                 super.delegate = newValue
             }
         }
+
+        /// macOS 27's NSTextView initializer reads its own `delegate`. Only
+        /// reads after construction belong to the code under test.
+        func resetDelegateReadCount() {
+            delegateReadCount = 0
+        }
     }
 
     func testTreatsGhosttySurfaceViewAsFocusStealer() {
@@ -748,6 +754,7 @@ final class CommandPaletteFocusStealerClassificationTests: XCTestCase {
 
     func testDoesNotReadTextViewDelegateForFocusStealerClassification() {
         let textView = DelegateTrackingTextView(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
+        textView.resetDelegateReadCount()
 
         XCTAssertFalse(textView.isCommandPaletteFocusStealingTerminalOrBrowser)
         XCTAssertEqual(
