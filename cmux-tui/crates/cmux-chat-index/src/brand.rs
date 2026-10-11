@@ -33,8 +33,8 @@ fn candidates(raw: &str) -> Vec<String> {
             out.push(value.to_owned());
         }
     }
-    add(&mut out, id.split(':').filter(|part| !part.is_empty()).next_back());
-    add(&mut out, id.split('/').filter(|part| !part.is_empty()).next_back());
+    add(&mut out, id.split(':').rfind(|part| !part.is_empty()));
+    add(&mut out, id.split('/').rfind(|part| !part.is_empty()));
     let word = out.last().and_then(|last| last.split_whitespace().next()).map(str::to_owned);
     add(&mut out, word.as_deref());
     let part = word.as_deref().and_then(|w| w.split(['-', '_', '.']).find(|p| !p.is_empty()));
