@@ -1,11 +1,16 @@
-public import CoreGraphics
+import CoreGraphics
 import Foundation
 
-/// Full-page screenshots (`browser.page.screenshot --full-page`). Chromium
-/// renders beyond the viewport itself, so nothing scrolls.
-extension CEFTab {
-    public func fullPageSnapshot() async throws -> CGImage {
-        guard let browserID, !isClosed else { throw BrowserTabError.snapshotUnavailable }
+/// Full-page screenshots of a CEF tab (`browser.page.screenshot
+/// --full-page`), kept out of `CEFTab` for its size. Chromium renders beyond
+/// the viewport itself, so nothing scrolls.
+@MainActor
+struct CEFFullPageCapture {
+    let tab: CEFTab
+
+    func run() async throws -> CGImage {
+        guard let browserID = tab.browserID, !tab.isClosed else { throw BrowserTabError.snapshotUnavailable }
+        let runtime = tab.runtime
         let metrics = try await runtime.devTools(browserID, method: "Page.getLayoutMetrics")
         guard let data = metrics.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],

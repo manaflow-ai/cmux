@@ -1,14 +1,19 @@
-public import CoreGraphics
+import CoreGraphics
 import WebKit
 
-/// Automation waits and full-page screenshots (`browser.page.wait`,
-/// `browser.page.screenshot --full-page`).
-extension WebKitTab {
+/// Automation waits and full-page screenshots for a WebKit tab
+/// (`browser.page.wait`, `browser.page.screenshot --full-page`), kept out of
+/// `WebKitTab` for its size; `BrowserTab.evaluateAsync` and
+/// `fullPageSnapshot` call it.
+@MainActor
+struct WebKitPageAutomation {
+    let tab: WebKitTab
+
     /// `evaluateJavaScript` does not await a promise; `callAsyncJavaScript`
     /// does. A navigation ends the call with an error.
-    public func evaluateAsync(_ body: String) async throws -> BrowserJSValue {
+    func evaluateAsync(_ body: String) async throws -> BrowserJSValue {
         do {
-            return try await callFunction(body, world: .page)
+            return try await tab.callFunction(body, world: .page)
         } catch let error as WKError where error.code == .javaScriptResultTypeIsUnsupported {
             return .null
         } catch let error as WKError where error.code == .javaScriptExceptionOccurred {
@@ -19,9 +24,9 @@ extension WebKitTab {
     /// Scrolls the page tile by tile, snapshots each viewport and stitches
     /// them, then scrolls back to where the page was (the old app's
     /// stitched capture). Fixed-position elements repeat in each tile.
-    public func fullPageSnapshot() async throws -> CGImage {
-        guard !isClosed else { throw BrowserTabError.closed }
-        let metrics = try await callFunction(Self.metricsScript, world: .page)
+    func fullPageSnapshot() async throws -> CGImage {
+        guard !tab.isClosed else { throw BrowserTabError.closed }
+        let metrics = try await tab.callFunction(Self.metricsScript, world: .page)
         func number(_ key: String) -> CGFloat { CGFloat(Self.member(metrics, key) ?? 0) }
         // Tiles step by the client area, which leaves out classic scrollbars;
         // each snapshot covers the whole window, scrollbars included.
@@ -51,7 +56,7 @@ extension WebKitTab {
                 // overflow: hidden, or a scroller other than the document.
                 throw BrowserTabError.unsupported("The page did not scroll; a full-page screenshot needs a scrolling document")
             }
-            let tile = try await snapshot()
+            let tile = try await tab.snapshot()
             if context == nil {
                 scale = CGFloat(tile.width) / windowWidth
                 context = CGContext(data: nil, width: Int((plan.contentSize.width * scale).rounded(.up)),
@@ -72,7 +77,7 @@ extension WebKitTab {
     /// Scrolls to `point` and waits two frames (or 250 ms for a page that
     /// gets no frames) so the snapshot shows it. Returns where it scrolled.
     private func scroll(to point: CGPoint) async throws -> CGPoint {
-        let value = try await callFunction(Self.scrollScript, arguments: ["x": .number(Double(point.x)), "y": .number(Double(point.y))],
+        let value = try await tab.callFunction(Self.scrollScript, arguments: ["x": .number(Double(point.x)), "y": .number(Double(point.y))],
                                            world: .page)
         return CGPoint(x: Self.member(value, "x") ?? Double(point.x), y: Self.member(value, "y") ?? Double(point.y))
     }
