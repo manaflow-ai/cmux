@@ -125,6 +125,12 @@ const filter: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.find({ role: "option", name: /cmux/ }));
 };
 
+const hidden: Play = async (ctx) => {
+  await ctx.focus({ selector: ".ve-picker-field" });
+  await ctx.type(".");
+  await ctx.waitFor(() => ctx.find({ role: "option", name: ".config" }));
+};
+
 const pathCompletion: Play = async (ctx) => {
   await ctx.focus({ selector: ".ve-picker-field" });
   await ctx.type(`${PROJECTS}/cm`);
@@ -197,6 +203,7 @@ export default componentEntry<Props>({
   variants: {
     locations: { props: {}, play: locations },
     filter: { props: { start: PROJECTS }, play: filter },
+    hidden: { props: {}, play: hidden },
     "path-completion": { props: { start: PROJECTS }, play: pathCompletion },
     "any-file": { props: { mode: "anyFile", start: PROJECTS } },
     loading: { props: { delayMs: 500 } },
