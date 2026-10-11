@@ -81,8 +81,8 @@ test("the right-click menu moves, switches, hides and shows the quick actions", 
   expect(host.querySelector('button[aria-label="Terminal"]')).toBeNull();
   rightClick("Browser");
   pick("Show Terminal");
-  // A shown button takes its default place.
-  expect(lists.at(-1)).toBe("browser:open terminal:toggle changes:toggle preview:toggle newTab:toggle");
+  // A shown button takes its default place: Terminal is first by default.
+  expect(lists.at(-1)).toBe("terminal:toggle browser:open changes:toggle preview:toggle newTab:toggle");
   // The menu lives on the buttons: hiding the last one always shown would leave nothing to right-click.
   configureQuickActions({ quickActions: ["browser", "changes"] });
   rightClick("Browser");
