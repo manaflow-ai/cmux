@@ -657,7 +657,7 @@ fn random_ops_keep_invariants() {
 #[test]
 fn shared_cases_match_the_app() {
     let file: Value = serde_json::from_str(include_str!(
-        "../../../../../Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json"
+        "../../../../Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json"
     ))
     .unwrap();
     let cases = file["cases"].as_array().unwrap();

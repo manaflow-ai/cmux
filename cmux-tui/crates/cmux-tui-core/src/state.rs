@@ -70,7 +70,7 @@ mod room_delete_tests;
 pub(crate) mod router;
 pub(crate) mod screen_state_store;
 pub(crate) mod screens;
-pub(crate) mod sidebar_layout;
+pub(crate) use cmux_layout_reducer::sidebar_layout;
 pub(crate) mod sidebar_layout_ops;
 #[cfg(test)]
 mod sidebar_layout_protocol_tests;
