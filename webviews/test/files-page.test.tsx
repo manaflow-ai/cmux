@@ -94,3 +94,65 @@ test("the Files tree walks and opens from the keyboard", async () => {
   await press("End");
   expect(selected()).toBe("tsconfig.json");
 });
+
+// The tree takes the keys when it shows; a folder's cut-short line follows its rows; a file that fails
+// to open says why until the selection moves; a folder that disappears forgets it was open; and a page
+// with no host says so in words.
+test("the Files tree keeps up with its folder", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { FilesPage } = await import("../src/pages/files/FilesPage");
+  const { FilesStore } = await import("../src/pages/files/store");
+  const { MockFilesProvider, sampleTree } = await import("../src/pages/files/mockProvider");
+  const { createStrings } = await import("../src/pages/shared/i18n");
+  const table = (await import("../src/pages/files/generated/strings.json")).default;
+  const strings = createStrings(table);
+  const files = structuredClone(sampleTree);
+  const provider = new MockFilesProvider(files);
+  const store = new FilesStore(provider);
+  act(() => root?.unmount());
+  root = createRoot(host);
+  act(() => root!.render(<FilesPage store={store} strings={strings} />));
+  await act(() => store.start());
+
+  const tree = host.querySelector<HTMLElement>('[role="tree"]')!;
+  const lines = () => [...tree.children].map((line) => line.textContent);
+  const press = async (key: string) => {
+    const KeyboardEvent = host.ownerDocument.defaultView!.KeyboardEvent;
+    await act(
+      async () => void tree.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })),
+    );
+  };
+  expect(host.ownerDocument.activeElement).toBe(tree);
+
+  provider.truncated.add("src");
+  await act(async () => store.expand("src"));
+  expect(lines().slice(2, 8)).toEqual([
+    "src",
+    "components",
+    "main.ts",
+    "store.ts",
+    strings.t("files.page.truncated"),
+    ".gitignore",
+  ]);
+
+  await act(async () => store.select("src/main.ts"));
+  provider.openFailure = "main.ts is gone.";
+  await press("Enter");
+  expect(host.querySelector(".files-notice")?.textContent).toBe("main.ts is gone.");
+  expect(lines()).not.toContain("main.ts is gone.");
+  await press("ArrowDown");
+  expect(host.querySelector(".files-notice")).toBeNull();
+
+  delete files.src;
+  await act(() => store.refresh());
+  expect(lines()).not.toContain("components");
+  files.src = { "index.ts": null };
+  await act(() => store.refresh());
+  expect(lines().slice(0, 4)).toEqual([".github", "docs", "src", ".gitignore"]);
+  expect(host.querySelector('[aria-expanded="true"]')).toBeNull();
+
+  const hostless = new FilesStore(null);
+  act(() => root!.render(<FilesPage key="no-host" store={hostless} strings={strings} />));
+  await act(() => hostless.start());
+  expect(host.textContent).toBe(strings.t("files.page.unavailable"));
+});

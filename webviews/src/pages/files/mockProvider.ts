@@ -22,6 +22,10 @@ export const sampleTree: MockTree = {
 
 export class MockFilesProvider implements PageClient {
   readonly opened: string[] = [];
+  /** Folders whose listing says more children were left out. */
+  readonly truncated = new Set<string>();
+  /** When set, `open` fails with this message. */
+  openFailure?: string;
 
   constructor(
     private readonly tree: MockTree = sampleTree,
@@ -38,6 +42,7 @@ export class MockFilesProvider implements PageClient {
       case FilesOps.list:
         return this.list(path) as R;
       case FilesOps.open:
+        if (this.openFailure) throw pageError("cmux.files.open_failed", this.openFailure);
         this.opened.push(path);
         return undefined as R;
     }
@@ -65,6 +70,6 @@ export class MockFilesProvider implements PageClient {
         Number(b.kind === "directory") - Number(a.kind === "directory") ||
         a.name.toLowerCase().localeCompare(b.name.toLowerCase()),
     );
-    return { entries, truncated: false };
+    return { entries, truncated: this.truncated.has(path) };
   }
 }
