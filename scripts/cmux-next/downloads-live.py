@@ -13,7 +13,7 @@ Chromium tab:
 `debug.downloads` (DEBUG builds) lists the App's downloads list and runs the
 Downloads menu's Pause, Resume and Retry on a row, as a click there does.
 
-Quits the app by PID, stops the tag's daemons and deletes the downloaded files at the end.
+Quits the app through the socket (by PID if it hangs), stops the tag's daemons and deletes the downloaded files at the end.
 """
 import argparse, glob, hashlib, http.server, json, os, plistlib, subprocess, sys, tempfile, threading, time
 
@@ -128,7 +128,10 @@ def cli(*args, timeout=30):
 
 
 def rpc(method, params=None):
-    r = cli("--json", "app", "call", method, json.dumps(params or {}))
+    try:
+        r = cli("--json", "app", "call", method, json.dumps(params or {}))
+    except subprocess.TimeoutExpired:
+        return {"error": f"{method} timed out"}  # a hung app is a FAIL line, and cleanup still runs
     try:
         return json.loads(r.stdout)
     except ValueError:
@@ -144,6 +147,13 @@ def wait_for(predicate, what, seconds=20):
         time.sleep(0.2)
     check(False, f"timed out: {what}")
     return None
+
+
+def to_workspace():
+    """Leaves a top page (Home shows at first launch; a page has no tabs) for a workspace with a pane."""
+    rpc("action.run", {"action": "workspace.selectFirst"})
+    rpc("action.run", {"action": "newTab", "origin": "script", "focus": True})
+    time.sleep(1)  # the workspace's pane comes up
 
 
 def downloads(**params):
@@ -176,10 +186,11 @@ app = subprocess.Popen([BINARY], env={**BASE_ENV, "CMUX_NEXT_SOCKET_MODE": "auto
 print(f"app pid {app.pid}, scratch {SCRATCH}, origin {ORIGIN}, out {opts.out}", flush=True)
 try:
     wait_for(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), "app socket", 120)
+    to_workspace()
     check("error" not in rpc("debug.downloads"), f"debug.downloads answers ({rpc('debug.downloads')})")
     for engine in ("webkit", "chromium"):
         slow = f"slow-{engine}-{RUN}.bin"
-        rpc("action.run", {"action": f"openBrowser.{engine}", "args": {"url": f"{ORIGIN}/{slow}"}})
+        rpc("action.run", {"action": f"openBrowser.{engine}", "args": {"url": f"{ORIGIN}/{slow}"}, "focus": True})
         item = wait_for(lambda: (r := row(slow)) and r.get("received", 0) > 0 and r, f"{engine}: the slow download runs", 30)
         if item:
             check(item.get("canPause") is True, f"{engine}: a running download can pause ({item})")
@@ -199,7 +210,7 @@ try:
                 check(done.get("status") == "finished" and landed(done), f"{engine}: the resumed download lands whole ({done})")
 
         broken = f"broken-{engine}-{RUN}.bin"
-        rpc("action.run", {"action": f"openBrowser.{engine}", "args": {"url": f"{ORIGIN}/{broken}"}})
+        rpc("action.run", {"action": f"openBrowser.{engine}", "args": {"url": f"{ORIGIN}/{broken}"}, "focus": True})
         failed = wait_for(lambda: (r := row(broken)) and r.get("status") not in (None, "inProgress") and r, f"{engine}: the broken download ends", 60)
         if failed:
             check(failed.get("status") == "failed", f"{engine}: the broken download fails ({failed})")
