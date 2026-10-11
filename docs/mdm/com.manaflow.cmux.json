@@ -159,7 +159,7 @@
       "type" : "boolean"
     },
     "appearance.accent" : {
-      "default" : "neutral",
+      "default" : "theme",
       "description" : "The color of selection, focus and the Send button. Theme Color takes the theme's own hue, such as Rose Pine's iris.",
       "enum" : [
         "neutral",

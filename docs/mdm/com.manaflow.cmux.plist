@@ -1060,7 +1060,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>neutral</string>
+			<string>theme</string>
 			<key>pfm_description</key>
 			<string>The color of selection, focus and the Send button. Theme Color takes the theme's own hue, such as Rose Pine's iris.</string>
 			<key>pfm_name</key>

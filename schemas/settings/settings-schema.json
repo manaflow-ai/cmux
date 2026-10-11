@@ -5398,7 +5398,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "neutral",
+      "default" : "theme",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.appTheme",
@@ -18057,7 +18057,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "74e23d5cc8add4f69a0abcedb32b0b814d3d053c3434378d01b408e591c6bba5",
+  "schema_hash" : "02efbe823ed2f0165330e81026ef19d4b44de53925613cd90e0cf1919b28be18",
   "sections" : [
     {
       "id" : "general",
