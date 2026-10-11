@@ -58,7 +58,15 @@ extension BrowserPanel {
             ("localhost\\.?", true), (".*\\.localhost\\.?", true),
             ("127(?:\\.[0-9]+){1,3}", true), ("0\\.0\\.0\\.0", true),
             ("\\[::1\\]", true), ("\\[0:0:0:0:0:0:0:1\\]", true),
-            ("\\[::ffff:", false), ("[0-9]+", true)
+            // IPv4-mapped IPv6 literals are only blocked when their embedded
+            // address is loopback or unspecified. Public mapped addresses
+            // must remain eligible for the managed SSH pane's local-public
+            // navigation fallback.
+            ("\\[::ffff:127(?:\\.[0-9]+){1,3}\\]", true),
+            ("\\[::ffff:0(?:\\.0){3}\\]", true),
+            ("\\[::ffff:0:0\\]", true),
+            ("\\[::ffff:7f00:[0-9a-fA-F]+\\]", true),
+            ("[0-9]+", true)
         ]
         var rules: [[String: Any]] = []
         for scheme in schemes {

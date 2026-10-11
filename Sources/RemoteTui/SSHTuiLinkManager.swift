@@ -21,6 +21,7 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
     /// Read at each carrier start, so an Integrations toggle applies on the next connect.
     private let agentHookProviders: @Sendable () -> [String]
     private var current: CloudMachineLink?
+    private var connectionGeneration = 0
     private var connecting: Task<CloudMachineLink.Connected, Error>?
     private var checking: Task<Void, Error>?
     private var browser: CloudBrowserProxyProcess?
@@ -50,11 +51,14 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
     /// `ssh`. Restores and reconnects skip it: the carrier's own retries wait
     /// for a host or an agent that comes back, with one login per link.
     func connected(machineID: String, preflight: Bool, upgrade: Bool = false) async throws -> CloudMachineLink.Connected {
+        let generation = connectionGeneration
         try Task.checkCancellation()
+        guard generation == connectionGeneration else { throw CancellationError() }
         guard machineID == connection.id else { throw CancellationError() }
         guard isEnabled() else { await disconnect(); throw CancellationError() }
         if let current, await current.isConnected, let ready = await current.connected {
             try Task.checkCancellation()
+            guard generation == connectionGeneration else { throw CancellationError() }
             return ready
         }
         // The preflight spends from a new carrier's startup budget, which the
@@ -72,11 +76,13 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
             let failure: Error?
             do { try await check.value; failure = nil } catch { failure = error }
             try Task.checkCancellation()
+            guard generation == connectionGeneration else { throw CancellationError() }
             guard isEnabled() else { await disconnect(); throw CancellationError() }
             // A carrier that logged in meanwhile answers the open, whatever
             // the check reported before it.
             if let current, await current.isConnected, let ready = await current.connected {
                 try Task.checkCancellation()
+                guard generation == connectionGeneration else { throw CancellationError() }
                 return ready
             }
             if let failure { throw failure }
@@ -84,9 +90,11 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
         if let connecting {
             let ready = try await connecting.value
             try Task.checkCancellation()
+            guard generation == connectionGeneration else { throw CancellationError() }
             return ready
         }
         try Task.checkCancellation()
+        guard generation == connectionGeneration else { throw CancellationError() }
         let link = CloudMachineLink(machineID: machineID, clientURL: clientURL, paths: paths)
         current = link
         var carrier = connection
@@ -102,6 +110,7 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
         do {
             let ready = try await attempt.value
             try Task.checkCancellation()
+            guard generation == connectionGeneration else { throw CancellationError() }
             guard connecting == attempt, !attempt.isCancelled, isEnabled() else { throw CancellationError() }
             return ready
         } catch {
@@ -304,6 +313,7 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
 
     /// Detaching a Mac closes its carrier, never the daemon or its terminal processes.
     func disconnect() async {
+        connectionGeneration &+= 1
         let previous = current
         current = nil
         let attempt = connecting
