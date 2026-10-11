@@ -45,6 +45,7 @@ export default componentEntry<Props>({
   title: "Debug Settings",
   area: "Pages",
   height: 640,
+  widths: { narrow: 360, normal: 1000, wide: 1400 },
   covers: [
     "page:cmux.debug-settings",
     "pages/debug-settings/DebugSettingsPage.tsx#DebugSettingsPage",
@@ -78,6 +79,10 @@ export default componentEntry<Props>({
       props: { selection: "changed" },
     },
     disconnected: { note: "The app does not answer.", props: { offline: true } },
+    narrow: {
+      note: "The Browser section; at the narrow width (cx-bbe2) labels sit above their controls and the sections form a strip above the list.",
+      props: { selection: "browser" },
+    },
     "toggle-live": {
       note: "A switch click applies at once: the row shows as changed and Reset All turns on.",
       props: { selection: "browser" },
