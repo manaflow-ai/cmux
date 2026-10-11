@@ -136,10 +136,15 @@ extension AppDelegate {
 
     /// Returns the workspace it selected, which the window's Cloud tree then reveals.
     private func focusCreatedCloudWorkspace(_ workspaceID: UUID, manager: TabManager?, revision: UInt64, windowID: UUID) -> Workspace? {
-        guard let manager, manager.cloudWorkspaceSelection.revision == revision,
+        guard let manager,
               tabManagerFor(windowId: windowID) === manager,
               cloudWorkspaceCreationFocusWindow(windowID: windowID) != nil,
               let workspace = manager.workspacesById[workspaceID] else { return nil }
+        // Cmd-Y selects its pre-admitted reservation itself, which advances the
+        // selection revision. A workspace that is still selected was not
+        // navigated away from, so it keeps its reveal.
+        if manager.selectedTabId == workspace.id { return workspace }
+        guard manager.cloudWorkspaceSelection.revision == revision else { return nil }
         manager.selectWorkspace(workspace)
         return manager.selectedTabId == workspace.id ? workspace : nil
     }
