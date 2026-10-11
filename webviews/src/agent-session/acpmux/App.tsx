@@ -122,6 +122,7 @@ import {
 import { callChipHost } from "./chips/host";
 import { RenderCard, canRender } from "./conversation/RenderCard";
 import { ArtifactPanel } from "./conversation/ArtifactPanel";
+import { branchesFromKey, branchesKey, messageBranches } from "./conversation/branches";
 import { ArtifactContext, type Artifact } from "./conversation/artifactPreview";
 import { renderCall } from "./conversation/renderCall";
 import { DateLine } from "./conversation/DateLine";
@@ -2042,8 +2043,19 @@ function AcpmuxPane() {
     [retryModelsKey],
   );
   // Retry sends the turn's prompt as the composer would; a failed send shows in the transcript.
+  // A prompt's versions (cx-ncc.61), kept the same map while they stay the same.
+  const versionsKey = branchesKey(
+    messageBranches(snapshot.summary?.sessionId, snapshot.rows, snapshot.sessions, snapshot.forkedAtSeq),
+  );
+  const stableBranches = useMemo(() => branchesFromKey(versionsKey), [versionsKey]);
   const turnActions = useMemo<TurnActions>(
     () => ({
+      ...(stableBranches.size > 0 && {
+        branches: {
+          of: stableBranches,
+          open: (sessionId: string) => void callNative("chat.select", { sessionId }).catch(() => undefined),
+        },
+      }),
       ...(forkable && {
         fork: (throughSeq: number) => void callNative("chat.fork", { throughSeq }).catch(() => undefined),
         forkSeq,
@@ -2093,6 +2105,7 @@ function AcpmuxPane() {
       switchModel: () => void openPicker(translate(PICKER_LABELS.model)),
     }),
     [
+      stableBranches,
       forkable,
       forkSeq,
       stableEditSeqs,
