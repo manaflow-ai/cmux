@@ -17,8 +17,8 @@ final class ScreenContentView: NSView {
     private var paneFrames: [PaneID: AnimatedFrame] = [:]
     private(set) var dividerViews: [DividerHandleView.Kind: DividerHandleView] = [:]
     private var dividerFrames: [DividerHandleView.Kind: AnimatedFrame] = [:]
-    /// Panes growing in from a split's edge (`PaneArrival.presentation`).
-    private var arriving: Set<PaneID> = []
+    /// Panes growing in from a split's edge (`PaneArrival.presentation`), and the dock columns that change added.
+    private var arriving: Set<PaneID> = [], newDockColumns: Set<ColumnID> = []
 
     /// Column scroll rules and state (`ColumnScrollState.reduce`).
     var scrollState = ColumnScrollState()
@@ -110,11 +110,10 @@ final class ScreenContentView: NSView {
         baseGeometry = ScreenGeometry.compute(shown, viewport: bounds.size, style: context.style, scale: scale)
         geometry = baseGeometry.shiftingRows(rowOffsets)
         let animate = animated && !context.reduceMotion && bounds.width > 0
-        let arrivals = animate && structural
-            ? PaneArrival.split(paneFrames.mapValues(\.targetRect), from: before, to: baseGeometry, offset: scroll.value) : [:]
+        let arrivals = animate && structural ? PaneArrival.split(paneFrames.mapValues(\.targetRect), from: before, to: baseGeometry, offset: scroll.value) : [:]
         let drift = arrivals.isEmpty ? 0 : before.viewShift(offset: scroll.value) - baseGeometry.viewShift(offset: scroll.value)
         let animateFrames = animate && (!structural || !arrivals.isEmpty)
-        if structural { arriving = Set(arrivals.keys) }
+        if structural { (arriving, newDockColumns) = (Set(arrivals.keys), PaneArrival.newDocks(arrivals, from: before, to: baseGeometry)) }
 
         // Panes.
         let style = context.style
@@ -227,8 +226,8 @@ final class ScreenContentView: NSView {
         return moving
     }
 
-    /// Docked panes still growing in from their screen edge (their frames).
-    var growingDocks: [AnimatedFrame] { arriving.filter { !geometry.scrolls(pane: $0) }.compactMap { paneFrames[$0] } }
+    /// New dock columns' panes still growing in from their screen edge (their frames).
+    var growingDocks: [AnimatedFrame] { PaneArrival.growing(arriving, frames: paneFrames, in: geometry, docks: newDockColumns) }
 
     func applyPresentation() {
         let strip = stripShift

@@ -91,6 +91,22 @@ struct PaneArrival: Equatable {
         return CGRect(x: minX, y: minY, width: max(0, maxX - minX), height: max(0, maxY - minY))
     }
 
+    /// The dock columns a structural change added, when it grows a pane in;
+    /// only their panes move the strip's clip and covers (a split inside a
+    /// dock that was there does not).
+    static func newDocks(_ arrivals: [PaneID: PaneArrival], from old: ScreenGeometry, to new: ScreenGeometry) -> Set<ColumnID> {
+        arrivals.isEmpty ? [] : Set(new.dock.map(\.column)).subtracting(old.dock.map(\.column))
+    }
+
+    /// The frames of the docked panes of `arriving` inside one of the new dock columns `docks`.
+    static func growing(_ arriving: Set<PaneID>, frames: [PaneID: AnimatedFrame], in geometry: ScreenGeometry,
+                        docks: Set<ColumnID>) -> [AnimatedFrame] {
+        let fresh = geometry.dock.filter { docks.contains($0.column) }
+        guard !fresh.isEmpty else { return [] }
+        return arriving.filter { !geometry.scrolls(pane: $0) }.compactMap { frames[$0] }
+            .filter { frame in fresh.contains { $0.frame.intersects(frame.targetRect) } }
+    }
+
     /// What each docked column hides of the strip, its inner edge moved with
     /// a dock still growing in (`docks`, the arriving frames), so strip rings
     /// are not cut at the edge the dock has yet to reach.

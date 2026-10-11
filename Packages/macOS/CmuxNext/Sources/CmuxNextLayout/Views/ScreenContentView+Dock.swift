@@ -18,9 +18,8 @@ extension ScreenContentView {
                       height: max(0, geometry.uncoveredMaxY - geometry.uncoveredMinY))
     }
 
-    /// What docked columns hide of the strip (local coordinates): strip
-    /// rings and highlights are clipped out of these. A dock growing in
-    /// covers only up to its moving edge.
+    /// What docked columns hide of the strip (local coordinates; a dock growing in, up to its moving
+    /// edge): strip rings and highlights are clipped out of these.
     var coverRects: [CGRect] { PaneArrival.covers(geometry, docks: growingDocks) }
 
     /// True when the scroll moves this divider or column edge.
