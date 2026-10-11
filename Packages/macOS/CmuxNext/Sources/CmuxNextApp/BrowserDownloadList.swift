@@ -36,6 +36,8 @@ final class BrowserDownloadList {
     @ObservationIgnored private var unkept: Set<ObjectIdentifier> = []
     /// True once the kept rows are back: no write replaces them before.
     @ObservationIgnored private var restored = false
+    /// Clear ran before the kept rows were back: they stay cleared.
+    @ObservationIgnored private var clearedBeforeRestore = false
 
     /// Adds `item` (from tab `key`); `notice` shows a line over that tab.
     /// With `keep` false (an incognito tab) it is never written down.
@@ -72,13 +74,15 @@ final class BrowserDownloadList {
     /// files stay where they are.
     func clearEnded() {
         items.removeAll { $0.status != .inProgress }
+        if !restored { clearedBeforeRestore = true }
         save()
     }
 
     /// Puts back the downloads the last run kept, before this run's.
     func restore() async {
         guard let history, !restored else { return }
-        let kept = await history.load().compactMap(\.download)
+        let loaded = await history.load()
+        let kept = clearedBeforeRestore ? [] : loaded.compactMap(\.download)
         restored = true
         items = kept + items
         if items.count > Self.limit { items.removeFirst(items.count - Self.limit) }

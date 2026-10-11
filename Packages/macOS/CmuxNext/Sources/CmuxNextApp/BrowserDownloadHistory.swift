@@ -87,7 +87,9 @@ extension BrowserDownloadHistory.Row {
         case .blocked(let why): ("blocked", why)
         }
         guard !status.isEmpty else { return nil }
-        self.init(filename: item.filename, source: item.sourceURL?.absoluteString,
+        // Only a web link is kept: a data: or blob: source can be megabytes.
+        let source = item.sourceURL.flatMap { ["http", "https"].contains($0.scheme?.lowercased()) ? $0.absoluteString : nil }
+        self.init(filename: item.filename, source: source,
                   destination: item.destination?.path(percentEncoded: false), status: status, reason: reason,
                   received: item.receivedBytes, total: item.totalBytes)
     }
