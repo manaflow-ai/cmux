@@ -37,6 +37,9 @@ public final class HomeStore {
     @ObservationIgnored var carriedDrafts: Set<ConversationID> = []
     public internal(set) var me: Participant?
     public internal(set) var typing: [ConversationID: Set<ParticipantID>] = [:]
+    /// The running agent reply of each conversation, while it is written.
+    public internal(set) var drafts: [ConversationID: HomeTurnDraft] = [:]
+    @ObservationIgnored var draftBook = HomeDraftBook()
 
     @ObservationIgnored public let source: any HomeSource
     @ObservationIgnored var mirror = HomeMirror()

@@ -12,12 +12,12 @@
   display: grid;
   gap: 4px;
   color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
-  font-size: 13px;
+  font-size: var(--text-body);
 }
 
 .toolbar-gallery-copy strong {
   color: var(--cmux-text, CanvasText);
-  font-size: 14px;
+  font-size: var(--text-content);
   font-weight: 600;
 }
 
@@ -43,7 +43,7 @@
   padding: 0 7px;
   border-radius: 5px;
   color: var(--cmux-text, CanvasText);
-  font-size: 13px;
+  font-size: var(--text-body);
 }
 
 .toolbar-gallery .ui-toolbar-button[disabled] {
@@ -78,5 +78,5 @@
 .toolbar-gallery-receipt {
   min-height: 18px;
   color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
-  font-size: 12px;
+  font-size: var(--text-detail);
 }
