@@ -1556,6 +1556,7 @@ function AcpmuxPane() {
   // After its Log In or Update ran in a terminal tab, coming back to the chat checks again.
   const healthStale = useRef(false);
   const [healthRecheck, setHealthRecheck] = useState(0);
+  const healthRechecked = useRef(0);
   useEffect(() => {
     const recheck = () => {
       if (!healthStale.current || document.visibilityState === "hidden") return;
@@ -1575,9 +1576,12 @@ function AcpmuxPane() {
       return;
     }
     let live = true;
+    // Only the fetch a recheck started asks acpmux to check again.
+    const refresh = healthRecheck !== healthRechecked.current;
+    healthRechecked.current = healthRecheck;
     void callNative<{ health?: HarnessHealth | null } | null>("harness.health", {
       id: healthHarness,
-      ...(healthRecheck > 0 ? { refresh: true } : {}),
+      ...(refresh ? { refresh: true } : {}),
     })
       .then((reply) => live && setHarnessHealth(reply?.health ?? undefined))
       .catch(() => undefined);
@@ -3280,6 +3284,7 @@ function AcpmuxPane() {
       {!harnessCard && (
         <HarnessHealthNotice
           health={harnessHealth}
+          harness={healthHarness}
           name={catalog.find((entry) => entry.id === healthHarness)?.name ?? healthHarness ?? ""}
           {...(snapshot.summary?.cwd ? { cwd: snapshot.summary.cwd } : {})}
           open={(params) => {

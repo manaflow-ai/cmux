@@ -44,18 +44,21 @@ type Open = (params: { kind: "terminal"; text: string; cwd?: string; run: true }
 /// them. An update that needs sudo is left to Settings > Agents, which shows its command.
 export function HarnessHealthNotice({
   health,
+  harness,
   name,
   cwd,
   open,
 }: {
   health: HarnessHealth | undefined;
+  /// The chat's agent now; a row for another (fetched before a switch) shows nothing.
+  harness: string | undefined;
   name: string;
   cwd?: string;
   open: Open;
 }) {
   const t = useT();
   const [dismissed, setDismissed] = useState<string>();
-  if (!health) return null;
+  if (!health || health.id !== harness) return null;
   const run = (text: string) => open({ kind: "terminal", text, ...(cwd ? { cwd } : {}), run: true });
   const signedOut = health.auth === "signedOut" && health.login ? health.login : undefined;
   const update =
