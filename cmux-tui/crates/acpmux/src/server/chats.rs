@@ -139,8 +139,8 @@ pub(super) async fn route(
             })
             .await
         }
-        // A chat's past turns from its harness's store (`cmux_chat_index::transcript`), for a
-        // chat with no ACP resume; read now, never kept.
+        // A chat's past turns from its harness's store, read now and never kept: for a chat with
+        // no ACP resume (cx-5esm), and a Claude Code or Codex chat shown before it is adopted.
         "_acpmux/chat_transcript" => {
             let service =
                 service.ok_or_else(|| RpcError::internal("the chat index is starting"))?;
@@ -156,12 +156,10 @@ pub(super) async fn route(
                     RpcError::not_found(format!("no chat {}", crate::chats::key_text(&key)))
                 })?;
                 let entry = &chat.entry;
-                let turns =
-                    cmux_chat_index::transcript::read_turns(entry.harness, &entry.source_path)
-                        .map_err(|e| {
-                            RpcError::invalid_params(format!("transcript.{}: {e}", e.code()))
-                                .with_data(json!({"reason": format!("transcript_{}", e.code())}))
-                        })?;
+                let turns = transcript_turns(entry).map_err(|e| {
+                    RpcError::invalid_params(format!("transcript.{}: {e}", e.code()))
+                        .with_data(json!({"reason": format!("transcript_{}", e.code())}))
+                })?;
                 Ok(json!({
                     "key": crate::chats::key_text(&key),
                     "harness": entry.harness.id(),
@@ -245,6 +243,29 @@ async fn settled_page(
 }
 
 /// The index lock may be held by a scan: never wait for it on the executor.
+/// A chat's turns: Claude Code and Codex through adopt's reader (`adopt_replay.rs`, the turns an
+/// adopted chat replays), every other harness through `cmux_chat_index::transcript`.
+fn transcript_turns(
+    entry: &cmux_chat_index::ChatEntry,
+) -> Result<Vec<cmux_chat_index::transcript::Turn>, cmux_chat_index::transcript::TranscriptError> {
+    use cmux_chat_index::AdapterKind;
+    let family = match entry.harness {
+        AdapterKind::ClaudeCode => "claude",
+        AdapterKind::Codex => "codex",
+        kind => return cmux_chat_index::transcript::read_turns(kind, &entry.source_path),
+    };
+    let turns = crate::adopt_replay::read(family, &entry.source_path);
+    Ok(turns
+        .into_iter()
+        .map(|t| cmux_chat_index::transcript::Turn {
+            prompt: t.prompt,
+            answer: t.answer,
+            prompt_at: t.prompt_at,
+            answer_at: t.answer_at,
+        })
+        .collect())
+}
+
 async fn blocking(
     f: impl FnOnce() -> Result<Value, RpcError> + Send + 'static,
 ) -> Result<Value, RpcError> {
