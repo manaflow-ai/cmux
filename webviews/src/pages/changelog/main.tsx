@@ -17,7 +17,8 @@ export function mountChangelogPage(root: HTMLElement, client: PageClient | null 
   document.documentElement.lang = strings.language;
   document.title = strings.t("changelog.page.title");
   const react = createRoot(root);
-  const render = () => react.render(<ChangelogPage store={store} strings={strings} design={parseDesign(location.hash)} />);
+  const render = () =>
+    react.render(<ChangelogPage store={store} strings={strings} design={parseDesign(location.hash)} />);
   render();
   void store.start(parseSpan(location.hash));
   // The host moves an open page to a new update's span (`PageWebView.open(route:)`), and the

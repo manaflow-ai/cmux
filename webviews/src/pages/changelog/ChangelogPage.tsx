@@ -9,9 +9,22 @@ import { RailPage } from "./RailPage";
 import type { ChangelogStore } from "./store";
 import type { ChangelogDesign } from "./types";
 
-export function ChangelogPage({ store, strings, design = "journal" }: { store: ChangelogStore; strings: Strings; design?: ChangelogDesign }) {
+export function ChangelogPage({
+  store,
+  strings,
+  design = "journal",
+}: {
+  store: ChangelogStore;
+  strings: Strings;
+  design?: ChangelogDesign;
+}) {
   const s = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  if (s.loading) return <div className="cl-empty" aria-busy="true">{strings.t("changelog.page.loading")}</div>;
+  if (s.loading)
+    return (
+      <div className="cl-empty" aria-busy="true">
+        {strings.t("changelog.page.loading")}
+      </div>
+    );
   if (design === "rail") return <RailPage store={store} strings={strings} s={s} />;
   if (design === "digest") return <DigestPage store={store} strings={strings} s={s} />;
   return <JournalPage store={store} strings={strings} s={s} />;

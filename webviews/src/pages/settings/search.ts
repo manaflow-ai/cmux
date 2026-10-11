@@ -38,9 +38,13 @@ export type ListFilter = {
 
 /** Matching rows of every category, in navigation order; an empty query with changedOnly lists
  * every changed row. */
+// Rows the page never lists: appearance.themeEdits is the theme pickers' "(custom)" themes.
+const UNLISTED = new Set(["appearance.themeEdits"]);
+
 export function filterRows({ query, changedOnly = false, valueOf, isChanged }: ListFilter): SearchGroup[] {
   const terms = queryTerms(query);
   const keep = (row: SchemaRow) =>
+    !UNLISTED.has(row.key) &&
     (terms.length === 0 ? changedOnly : rowMatches(row, valueOf(row.key), terms)) &&
     (!changedOnly || (isChanged?.(row.key) ?? false));
   return categories
