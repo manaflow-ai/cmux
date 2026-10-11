@@ -53,15 +53,30 @@ extension FileExplorerStore {
         }
 
         let requestedRootPath = Self.normalizedRootPath(requestedRootPath)
+        let currentHomePath = sshProvider.homePath.trimmingCharacters(in: .whitespacesAndNewlines)
         if let requestedRootPath {
+            if requestedRootPath == "~" || requestedRootPath.hasPrefix("~/") {
+                guard !currentHomePath.isEmpty else {
+                    resolveRemoteHome(
+                        workspaceId: workspaceId,
+                        provider: sshProvider,
+                        providerKey: Self.remoteProviderKey(connection: connection),
+                        requestedRootPath: requestedRootPath
+                    )
+                    return
+                }
+                cancelRemoteHomeResolution()
+                setRootStatusMessage(nil)
+                setRootPath(Self.expandTilde(requestedRootPath, home: currentHomePath))
+                return
+            }
             cancelRemoteHomeResolution()
             setRootStatusMessage(nil)
             setRootPath(requestedRootPath)
             return
         }
 
-        let currentHomePath = sshProvider.homePath
-        if !currentHomePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if !currentHomePath.isEmpty {
             setRootStatusMessage(nil)
             setRootPath(currentHomePath)
             return
@@ -70,12 +85,7 @@ extension FileExplorerStore {
         resolveRemoteHome(
             workspaceId: workspaceId,
             provider: sshProvider,
-            providerKey: [
-                connection.destination,
-                connection.port.map(String.init) ?? "",
-                connection.identityFile ?? "",
-                connection.sshOptions.joined(separator: "\u{1f}")
-            ].joined(separator: "\u{1e}")
+            providerKey: Self.remoteProviderKey(connection: connection)
         )
     }
 
@@ -144,11 +154,13 @@ extension FileExplorerStore {
     func resolveRemoteHome(
         workspaceId: UUID,
         provider: any RemoteFileExplorerProvider,
-        providerKey: String
+        providerKey: String,
+        requestedRootPath: String? = nil
     ) {
         let resolutionKey = [
             workspaceId.uuidString,
             providerKey,
+            requestedRootPath ?? "",
         ].joined(separator: "\u{1e}")
 
         guard remoteHomeResolutionKey != resolutionKey else { return }
@@ -174,7 +186,12 @@ extension FileExplorerStore {
                         self.setProvider(cloudProvider.resolvingHome(homePath), reloadIfAvailable: false)
                     }
                     self.setRootStatusMessage(nil)
-                    self.setRootPath(homePath)
+                    let resolvedRoot = requestedRootPath.flatMap { rootPath in
+                        rootPath == "~" || rootPath.hasPrefix("~/")
+                            ? Self.expandTilde(rootPath, home: homePath)
+                            : rootPath
+                    } ?? homePath
+                    self.setRootPath(resolvedRoot)
                 }
             } catch {
                 guard !Task.isCancelled else { return }
@@ -216,6 +233,19 @@ extension FileExplorerStore {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         return trimmed
+    }
+
+    private static func expandTilde(_ path: String, home: String) -> String {
+        let normalizedHome = home.hasSuffix("/") && home != "/"
+            ? String(home.dropLast())
+            : home
+        if path == "~" { return normalizedHome }
+        guard path.hasPrefix("~/") else { return path }
+        return normalizedHome + "/" + path.dropFirst(2)
+    }
+
+    private static func remoteProviderKey(connection: SSHFileExplorerConnection) -> String {
+        connection.identityComponents.joined(separator: "\u{1e}")
     }
 
 }
