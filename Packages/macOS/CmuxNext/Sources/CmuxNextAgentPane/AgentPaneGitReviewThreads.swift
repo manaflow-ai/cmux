@@ -1,0 +1,87 @@
+import Foundation
+
+/// One review thread of the branch's pull request (cx-ncc.77.2, Codex desktop's inline PR
+/// comments): where it sits in the diff and what reviewers said. `git.pullRequest` with
+/// `{action: "threads"}` answers `{url, number, threads}` (no pull request: no url and none).
+public nonisolated struct AgentPaneGitReviewThread: Equatable, Sendable {
+    public struct Comment: Equatable, Sendable {
+        /// The author's login; empty for a deleted account.
+        public var author: String
+        public var body: String
+        /// An https link to the comment on GitHub, the only kind the page links.
+        public var url: String?
+    }
+
+    public var path: String
+    /// The line on the head (nil: outdated, the line is gone).
+    public var line: Int?
+    /// "additions" for a thread on the new side, "deletions" for one on a removed line.
+    public var side: String
+    public var resolved: Bool
+    public var outdated: Bool
+    public var comments: [Comment]
+
+    static let maximumThreads = 100
+    static let maximumComments = 50
+    static let maximumBody = 20_000
+
+    /// The read, with the pull request's owner, name and number as variables.
+    static let query = """
+        query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) {
+          pullRequest(number: $number) { reviewThreads(first: \(maximumThreads)) { nodes {
+            isResolved isOutdated path line diffSide
+            comments(first: \(maximumComments)) { nodes { author { login } body url } } } } } } }
+        """
+
+    var json: [String: Any] {
+        [
+            "path": path, "line": line.map { $0 as Any } ?? NSNull(), "side": side, "resolved": resolved, "outdated": outdated,
+            "comments": comments.map { ["author": $0.author, "body": $0.body, "url": $0.url.map { $0 as Any } ?? NSNull()] },
+        ]
+    }
+
+    /// The threads in `gh api graphql`'s answer (gh may warn around it), nil when it is not one.
+    static func list(fromGraphQL text: String) -> [AgentPaneGitReviewThread]? {
+        guard let start = text.firstIndex(of: "{"), let end = text.lastIndex(of: "}"),
+              let object = try? JSONSerialization.jsonObject(with: Data(text[start...end].utf8)) as? [String: Any],
+              let repository = (object["data"] as? [String: Any])?["repository"] as? [String: Any],
+              let pullRequest = repository["pullRequest"] as? [String: Any],
+              let nodes = (pullRequest["reviewThreads"] as? [String: Any])?["nodes"] as? [[String: Any]] else { return nil }
+        return nodes.prefix(maximumThreads).compactMap { node in
+            guard let path = node["path"] as? String, !path.isEmpty else { return nil }
+            let comments = ((node["comments"] as? [String: Any])?["nodes"] as? [[String: Any]] ?? []).prefix(maximumComments)
+            return AgentPaneGitReviewThread(
+                path: path, line: node["line"] as? Int,
+                side: (node["diffSide"] as? String)?.uppercased() == "LEFT" ? "deletions" : "additions",
+                resolved: node["isResolved"] as? Bool ?? false, outdated: node["isOutdated"] as? Bool ?? false,
+                comments: comments.map { comment in
+                    let url = comment["url"] as? String
+                    return Comment(author: (comment["author"] as? [String: Any])?["login"] as? String ?? "",
+                                   body: String((comment["body"] as? String ?? "").prefix(maximumBody)),
+                                   url: url.flatMap { AgentPaneGitPullRequest.isPullRequestURL($0) ? $0 : nil })
+                })
+        }
+    }
+
+    /// The `gh api graphql` arguments for the pull request at `url` (https://host/owner/name/pull/N),
+    /// nil for any other address. Owner and name go as raw strings (`-f`), so neither is read as a file.
+    static func arguments(for url: String) -> [String]? {
+        guard let parsed = URL(string: url), parsed.scheme == "https", let host = parsed.host?.lowercased() else { return nil }
+        let parts = parsed.path.split(separator: "/").map(String.init)
+        guard parts.count == 4, parts[2] == "pull", let number = Int(parts[3]), number > 0,
+              [parts[0], parts[1]].allSatisfy(isName) else { return nil }
+        return ["api", "graphql", "-f", "owner=\(parts[0])", "-f", "name=\(parts[1])", "-F", "number=\(number)",
+                "-f", "query=\(query)"] + (host == "github.com" ? [] : ["--hostname", host])
+    }
+
+    private static func isName(_ text: String) -> Bool {
+        !text.isEmpty && !text.hasPrefix("-") && text.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || "-._".contains($0)) }
+    }
+}
+
+extension AgentPaneGitPullRequest {
+    /// The review threads of `folder`'s branch's pull request, read with `gh` there.
+    @concurrent static func threads(in folder: String, gh: String) async -> Outcome {
+        .threads(url: nil, number: nil, [])
+    }
+}

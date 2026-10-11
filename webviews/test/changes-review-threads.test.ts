@@ -1,0 +1,67 @@
+// Review comments in the Changes view (cx-ncc.77.2): Branch shows the pull request's review
+// threads under their lines. The gallery's `agent-pane.diff-panel` `review-threads` play fails
+// unless two threads sit in the diff (the resolved one folded) and the outdated one above it.
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import path from "node:path";
+import { chromium, type Browser } from "playwright";
+import { requireBrowserLane } from "./support/requireBrowserLane";
+
+await requireBrowserLane("changes-review-threads.test.ts", async () => {
+  setDefaultTimeout(120_000);
+  try {
+    await (await chromium.launch({ headless: true })).close();
+  } catch {
+    console.warn("changes-review-threads: skipping (run `bunx playwright install chromium`)");
+    describe.skip("review threads", () => test("chromium", () => {}));
+    return;
+  }
+
+  const webviews = path.resolve(import.meta.dir, "..");
+  const { createServer } = await import("vite");
+  let vite: Awaited<ReturnType<typeof createServer>> | undefined;
+  let browser: Browser | undefined;
+
+  beforeAll(async () => {
+    vite = await createServer({
+      configFile: path.join(webviews, "vite.config.gallery-dev.ts"),
+      server: { port: 0, host: "127.0.0.1", strictPort: false },
+      logLevel: "error",
+    });
+    await vite.listen();
+    browser = await chromium.launch({ headless: true });
+    // Warm the gallery stage once before the measured page, as composer-mention.test.ts does: the
+    // first load can trigger Vite's dependency optimizer and reload its context mid-compile.
+    const warm = await browser.newPage({ viewport: { width: 860, height: 620 } });
+    await warm.goto(url());
+    for (;;) {
+      try {
+        await warm.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 0 });
+        break;
+      } catch (error) {
+        if (!/context was destroyed|navigat/i.test(String(error))) throw error;
+      }
+    }
+    await warm.close();
+  });
+
+  const url = () =>
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=agent-pane.diff-panel&variant=review-threads`;
+
+  afterAll(async () => {
+    await browser?.close();
+    await vite?.close();
+  });
+
+  test("each review thread sits under its line, the outdated one above the diff", async () => {
+    const page = await browser!.newPage({ viewport: { width: 860, height: 620 } });
+    await page.goto(url());
+    await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+    await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay));
+    const report = await page.evaluate(() =>
+      JSON.stringify((window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport),
+    );
+    await page.close();
+    // The play throws when a thread is missing or misplaced: the report then has `error`.
+    expect((JSON.parse(report ?? "{}") as { error?: string }).error, report).toBeUndefined();
+  });
+});

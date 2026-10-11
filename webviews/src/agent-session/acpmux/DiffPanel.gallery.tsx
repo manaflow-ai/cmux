@@ -128,6 +128,48 @@ const hunkSource: ChangesSource = {
     document.documentElement.dataset.diffGalleryHunk = JSON.stringify({ paths, hunk, unstage });
   },
 };
+/// The Branch scope with the pull request's review threads: one on the added line (23), one
+/// resolved on the first hunk's line 1, and one outdated whose line is gone.
+const threadsSource: ChangesSource = {
+  diff: hunkSource.diff,
+  reviewThreads: async () => ({
+    url: "https://github.com/o/r/pull/7",
+    number: 7,
+    threads: [
+      {
+        path: "docs/review.md",
+        line: 23,
+        side: "additions",
+        resolved: false,
+        outdated: false,
+        comments: [
+          {
+            author: "reviewer",
+            body: "Which tree? Name the panel.",
+            url: "https://github.com/o/r/pull/7#discussion_r1",
+          },
+          { author: "you", body: "The changed files tree.", url: null },
+        ],
+      },
+      {
+        path: "docs/review.md",
+        line: 1,
+        side: "additions",
+        resolved: true,
+        outdated: false,
+        comments: [{ author: "reviewer", body: "Drop (draft) before merging.", url: null }],
+      },
+      {
+        path: "docs/review.md",
+        line: null,
+        side: "additions",
+        resolved: false,
+        outdated: true,
+        comments: [{ author: "reviewer", body: "This section moved.", url: null }],
+      },
+    ],
+  }),
+};
 const emptySource: ChangesSource = { diff: async () => ({ files: [] }) };
 const errorSource: ChangesSource = {
   diff: async () => {
@@ -197,6 +239,20 @@ const stageSecondHunk: Play = async (ctx) => {
   if (asked !== expected) throw new Error(`s staged ${asked}, not the second hunk ${expected}`);
 };
 
+/// Each thread under its line in the diff; the outdated one above the file's diff.
+const showReviewThreads: Play = async (ctx) => {
+  await chooseScope(ctx, "Branch");
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-review-thread").length === 3);
+  const inDiff = [...ctx.document.querySelectorAll(".acpmux-diff-pierre .acpmux-review-thread")];
+  const above = [...ctx.document.querySelectorAll(".acpmux-review-unplaced .acpmux-review-thread")];
+  if (inDiff.length !== 2 || above.length !== 1 || !above[0]!.hasAttribute("data-outdated"))
+    throw new Error(`${inDiff.length} threads in the diff and ${above.length} above it, not 2 and the outdated one`);
+  if (!inDiff.some((thread) => thread.textContent?.includes("Which tree? Name the panel.")))
+    throw new Error("the open thread's comment is missing");
+  if (!inDiff.some((thread) => thread.hasAttribute("data-resolved") && thread.querySelector("details:not([open])")))
+    throw new Error("the resolved thread is not folded");
+};
+
 const showLoading: Play = async (ctx) => {
   await chooseScope(ctx, "Uncommitted");
   await ctx.waitFor(() => ctx.find({ selector: ".acpmux-changes-state-body" }));
@@ -222,6 +278,7 @@ export default componentEntry<GalleryProps>({
     "agent-session/acpmux/DiffPanel.tsx#DiffPanel",
     "agent-session/acpmux/changes/PullRequestButton.tsx#PullRequestButton",
     "agent-session/acpmux/changes/HunkStage.tsx#HunkStage",
+    "agent-session/acpmux/changes/ReviewThread.tsx#ReviewThread",
   ],
   load: async () => GalleryDiffPanel,
   styles: () => Promise.all([import("./styles.css"), import("./changes/changes.css")]),
@@ -256,6 +313,11 @@ export default componentEntry<GalleryProps>({
       note: "In Unstaged each hunk has Stage hunk; n moves to the second hunk and s stages it alone.",
       props: { files, source: hunkSource },
       play: stageSecondHunk,
+    },
+    "review-threads": {
+      note: "Branch shows the pull request's review threads under their lines; an outdated one sits above the diff.",
+      props: { files, source: threadsSource },
+      play: showReviewThreads,
     },
     loading: {
       note: "An async git scope keeps its loading state visible until the host answers.",
