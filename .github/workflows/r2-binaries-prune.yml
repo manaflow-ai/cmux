@@ -89,7 +89,7 @@ jobs:
           R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CF_R2_ACCOUNT_ID) }}
           # A dispatch decides by its input alone; the variable governs scheduled runs.
           PRUNE_DELETE: ${{ ((github.event_name == 'workflow_dispatch' && inputs.delete) || (github.event_name == 'schedule' && vars.R2_BINARIES_PRUNE_DELETE == '1')) && 'true' || 'false' }}
-          COLD_CERT: .github/cold-tier/cmux-lawrence-cold.pem
+          COLD_CERT: .github/cold-tier/cmux-lawrence-cold-recipient.crt
         run: |
           set -euo pipefail
           args=(--endpoint-url "$R2_ENDPOINT" --trunk-commits "$RUNNER_TEMP/trunk-commits.txt"
@@ -102,7 +102,7 @@ jobs:
       - name: Publish the cold queue
         # Always: a run that queues nothing (dry run, deletes switched off, a failure) must replace
         # the last queue, or the host keeps deleting from it for days.
-        if: ${{ always() && hashFiles('.github/cold-tier/cmux-lawrence-cold.pem') != '' }}
+        if: ${{ always() && hashFiles('.github/cold-tier/cmux-lawrence-cold-recipient.crt') != '' }}
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
@@ -121,7 +121,7 @@ jobs:
           # The presigned deletes are secret: only cmux-lawrence's private key opens them, and the
           # plain file never leaves this runner.
           openssl smime -encrypt -binary -aes256 -outform DER -in "$cold/deletes.json" \
-            -out "$cold/deletes.p7m" .github/cold-tier/cmux-lawrence-cold.pem
+            -out "$cold/deletes.p7m" .github/cold-tier/cmux-lawrence-cold-recipient.crt
           rm -f "$cold/deletes.json"
           for name in deletes.p7m queue.json; do
             python3 scripts/ci/upload-r2-object.py --file "$cold/$name" --endpoint-url "$R2_ENDPOINT" \
