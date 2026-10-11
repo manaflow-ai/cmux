@@ -83,6 +83,20 @@ test("the right-click menu moves, switches, hides and shows the quick actions", 
   pick("Show Terminal");
   // A shown button takes its default place.
   expect(lists.at(-1)).toBe("browser:open terminal:toggle changes:toggle preview:toggle newTab:toggle");
+  // The menu lives on the buttons: hiding the last one always shown would leave nothing to right-click.
+  configureQuickActions({ quickActions: ["browser", "changes"] });
+  rightClick("Browser");
+  const hideBrowser = doc.querySelector<HTMLButtonElement>(
+    '.ui-context-menu [role="menuitem"][aria-label="Hide Browser"]',
+  );
+  expect(hideBrowser?.disabled).toBe(true);
+  act(() =>
+    doc
+      .querySelector<HTMLElement>(".ui-context-menu-backdrop")
+      ?.dispatchEvent(
+        new (doc.defaultView!.PointerEvent ?? doc.defaultView!.MouseEvent)("pointerdown", { bubbles: true }),
+      ),
+  );
   rightClick("Browser");
   pick("Reset Buttons");
   expect(lists.at(-1)).toBe("terminal:toggle browser:toggle changes:toggle preview:toggle newTab:toggle");

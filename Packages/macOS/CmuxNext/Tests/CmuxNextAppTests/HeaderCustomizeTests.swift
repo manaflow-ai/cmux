@@ -40,6 +40,23 @@ struct HeaderCustomizeTests {
         #expect(AgentPaneCustomization(directory: directory).layoutJSON == #"{"quickActions":[]}"#)
     }
 
+    /// A layout.json linked from a dotfiles repository stays a link, and the repository's file changes.
+    @Test func aSymlinkedLayoutJSONIsWrittenThrough() throws {
+        let directory = try Self.directory()
+        let target = directory.deletingLastPathComponent().appending(path: "dotfiles-layout.json")
+        try Data(#"{"composer": {"dense": true}}"#.utf8).write(to: target)
+        let link = directory.appending(path: "layout.json")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+        guard case .setQuickActions(let list) = Self.message([["id": "terminal", "mode": "open"]]) else {
+            Issue.record("pane.setQuickActions did not decode")
+            return
+        }
+        try AgentPaneCustomization.savingQuickActions(list, in: directory)
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == target.path)
+        #expect(AgentPaneCustomization(directory: directory).layoutJSON
+            == #"{"composer":{"dense":true},"quickActions":[{"id":"terminal","mode":"open"}]}"#)
+    }
+
     /// A layout.json the user is midway through editing is never overwritten.
     @Test func aLayoutJSONThatIsNotAnObjectIsLeftAlone() throws {
         let directory = try Self.directory()
