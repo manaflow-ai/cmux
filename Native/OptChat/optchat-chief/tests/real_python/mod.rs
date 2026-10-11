@@ -23,6 +23,10 @@ pub fn image() -> PathBuf {
         .args(["-I", "-c", IMAGE])
         .output()
         .expect("python3");
-    assert!(out.status.success(), "python3: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "python3: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     PathBuf::from(String::from_utf8(out.stdout).unwrap().trim())
 }
