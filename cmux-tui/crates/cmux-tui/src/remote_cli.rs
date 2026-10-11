@@ -3007,6 +3007,13 @@ mod tests {
     }
 
     #[test]
+    fn probe_capabilities_include_ssh_payload_download() {
+        // The app's packager bundles Linux SSH payloads only for a client
+        // without this capability (scripts/install-cmux-tui-client.sh).
+        assert!(PROBE_CAPABILITIES.contains(&"ssh-payload-download"));
+    }
+
+    #[test]
     fn agent_hooks_flag_collects_providers() {
         let args = ["host", "--agent-hooks", "claude, codex,", "--agent-hooks", "gemini"]
             .map(str::to_string);
