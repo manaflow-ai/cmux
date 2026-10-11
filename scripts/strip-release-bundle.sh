@@ -5,7 +5,8 @@ usage() {
   cat <<'EOF'
 Usage: scripts/strip-release-bundle.sh <path-to-cmux.app>
 
-Strips local symbols from cmux-owned Release Mach-O binaries before codesigning.
+Strips cmux-owned Release Mach-O binaries before codesigning: executables fully,
+plug-ins and libraries down to their global symbols.
 The dSYM UUID is preserved, so Sentry symbol upload continues to match crashes.
 EOF
 }
