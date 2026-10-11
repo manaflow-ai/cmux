@@ -23,6 +23,8 @@ struct HeaderSplitOrderTests {
 
         static func id(_ surface: SurfaceID) -> String { "surface:\(surface.rawValue)" }
         var chat: String { Self.id(1) }
+        /// The row's tab ids left to right.
+        var tabs: [String] { panes.map { Self.id($0.surface) } }
         /// The row's tabs left to right, by kind.
         var order: [String] {
             panes.map {
@@ -43,6 +45,11 @@ struct HeaderSplitOrderTests {
                 invocations["openDiffViewer"] = invocation
                 if let surface = split(invocation.target?.id, kind: .conversation) { pages[surface] = "diff" }
                 publish()
+            }, handler: {}))
+            // A preview's browser tab, placed right of the tab it names (AgentBesidePlacement).
+            registry.register(Action(id: "openBrowser", title: "openBrowser", invoke: { [unowned self] invocation in
+                invocations["openBrowser"] = invocation
+                split(invocation.target?.id, kind: .browser)
             }, handler: {}))
             registry.register(Action(id: "closeTab", title: "closeTab", invoke: { [unowned self] invocation in
                 panes.removeAll { Self.id($0.surface) == invocation.target?.id }
@@ -75,9 +82,15 @@ struct HeaderSplitOrderTests {
             store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w", screens: [screen])]))
         }
 
-        func click(_ id: String, toggles: AgentChatSplitToggles) {
+        func click(_ id: String, toggles: AgentChatSplitToggles, url: String? = nil) {
             let actions = AgentChatTabActions(tab: { [chat] in chat }, registry: { [registry] in registry })
-            toggles.toggle(id, cwd: id == "splitRight" ? nil : cwd, chat: chat, store: store, actions: actions)
+            toggles.toggle(id, cwd: id == "splitRight" ? nil : cwd, url: url, chat: chat, store: store, actions: actions)
+        }
+
+        /// The tab at `from` (left to right) dragged to `to`, as the user moves a pane.
+        func move(_ from: Int, to: Int) {
+            panes.insert(panes.remove(at: from), at: to)
+            publish()
         }
     }
 
