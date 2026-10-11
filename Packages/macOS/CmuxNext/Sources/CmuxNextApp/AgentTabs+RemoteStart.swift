@@ -17,12 +17,15 @@ extension AgentTabStore {
     }
 
     /// Tab `key` as its machine's store lists it: its surface there, and its session once a first
-    /// send started one. Waits for a tab the store is still creating; starts nothing.
-    func existingRemoteChat(_ key: String) async throws -> (surface: UInt64, session: String?) {
+    /// send started one. Waits for a tab the store is still creating; starts nothing. Nil while the
+    /// store's tree does not list the created tab yet: the page then waits for its first send, and
+    /// the start reads the tab again (a New Tab page opened in a remote pane showed
+    /// `agent_session.unknown_tab` here before the tree caught up).
+    func existingRemoteChat(_ key: String) async throws -> (surface: UInt64, session: String?)? {
         if let pending = remoteCreations[key] ?? remoteCreations[resolve(key)] { _ = try await pending.value() }
         let key = resolve(key)
         guard let (record, store) = lookup(key), let tab = store.tab(id: key), !ProvisionalTab.isProvisional(key) else {
-            throw AgentRemoteStartRefusal(code: "agent_session.unknown_tab", machine: "")
+            return nil
         }
         return (tab.surface.rawValue, sessions[key] ?? record.session)
     }

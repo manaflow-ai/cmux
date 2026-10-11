@@ -13,6 +13,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The page switched to or created `sessionId`; the host keeps it so a
     /// reload or relaunch of the pane shows the same session.
     case persistSession(String)
+    /// A new chat's typed text before it has a session (`chat.unsentDraft`, cx-z5vd): the App
+    /// keeps it with the tab, so a relaunch opens the chat with it.
+    case unsentDraft(String)
     /// A settled transcript scroll's frame intervals in milliseconds, at
     /// most ``maximumPacingFrames``; returns the native display interval and rate mode.
     case framePacing([Double])
