@@ -9,6 +9,8 @@ public struct AgentPaneHeaderState: Equatable, Sendable {
     public var sideTabs: Bool
     /// The header actions (`splitRight`, `splitBrowserRight`) whose split is open, sorted.
     public var lit: [String]
+    /// The chat folder's branch's pull request, when it has one (cx-tcwj).
+    public var pullRequest: AgentPanePullRequest?
     /// The "..." menu offers Move to Floating Chat (Start Agent's floating chat is on, cx-b9qi).
     public var floatingChat: Bool
     /// Rises with every change the App sees: a `pane.tabState` reply that reaches the page after a
@@ -25,13 +27,15 @@ public struct AgentPaneHeaderState: Equatable, Sendable {
     /// Whether the header shows the same thing, whatever the versions.
     public func shows(_ other: AgentPaneHeaderState) -> Bool {
         pinned == other.pinned && sideTabs == other.sideTabs && lit == other.lit && floatingChat == other.floatingChat
+            && pullRequest == other.pullRequest
     }
 
-    var reply: [String: Any] { ["pinned": pinned, "sideTabs": sideTabs, "lit": lit, "floatingChat": floatingChat, "version": version] }
+    var reply: [String: Any] { json.foundationObject as? [String: Any] ?? [:] }
 
+    /// `pullRequest` is always there, `null` when there is none, so the page drops a chip it kept.
     var json: JSONValue {
         ["pinned": .bool(pinned), "sideTabs": .bool(sideTabs), "lit": .array(lit.map(JSONValue.string)), "floatingChat": .bool(floatingChat),
-         "version": JSONValue(version)]
+         "version": JSONValue(version), "pullRequest": pullRequest?.json ?? .null]
     }
 }
 
