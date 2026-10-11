@@ -5711,7 +5711,9 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
         NSApp.sendEvent(escapeKeyDown)
         let afterKeyDown = "searchOpen=\(surface.searchState != nil) firstResponder=\(String(describing: window.firstResponder)) " +
-            "isKey=\(window.isKeyWindow) keyWindow=\(String(describing: NSApp.keyWindow)) hints=\(WindowHintController.shared.isActive)"
+            "isKey=\(window.isKeyWindow) keyWindow=\(String(describing: NSApp.keyWindow)) hints=\(WindowHintController.shared.isActive) " +
+            "notificationsPopover=\(AppDelegate.shared?.isNotificationsPopoverShown() ?? false) " +
+            "visibleWindows=\(NSApp.windows.filter(\.isVisible).map { String(describing: type(of: $0)) })"
         NSApp.sendEvent(escapeKeyUp)
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
