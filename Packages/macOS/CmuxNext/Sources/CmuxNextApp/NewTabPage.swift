@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
@@ -149,7 +150,9 @@ enum NewTabPage {
 
     /// The page a new tab shows beside `selected`: its folder inherited and
     /// the location bar's suggestions, with the field empty.
-    static func page(_ services: AppServices, selected: TabModel?) -> AgentPaneNewTab {
+    /// `window` is where the page shows (the active one when nil): its dots' last pick comes
+    /// first, then the saved `tabs.newTabTemplate` (cx-l1jv).
+    static func page(_ services: AppServices, selected: TabModel?, window: NSWindow? = nil) -> AgentPaneNewTab {
         let selectedID = selected?.id
         let hotkeys = newActions.compactMapValues { services.registry.shortcutDisplay(for: $0) }
         // An SSH or Cloud tab's page shows that machine's folder, never this Mac's home (cx-gaq9).
@@ -165,7 +168,8 @@ enum NewTabPage {
             layout: NewTabTunables.layout.value.pageLayout,
             lastAgent: services.newTabChoices.agent,
             home: machine.home, tools: tools(services, targetID: selected?.id),
-            template: services.settings?.snapshot.newTabTemplate?.rawValue,
+            template: (services.newTabChoices.template(in: window ?? services.windows.active?.window)
+                ?? services.settings?.snapshot.newTabTemplate)?.rawValue,
             templateSwitcher: NewTabTunables.templateSwitcher.value ? true : nil
         )
     }
@@ -243,11 +247,13 @@ enum NewTabPage {
         }
     }
 
-    /// The template dots: through the schema, as the Settings window writes it; an unknown
-    /// value from the page is ignored.
+    /// The template dots: remembered for the window they were picked in (the active one), and
+    /// saved through the schema, as the Settings window writes it, for windows that picked none.
+    /// An unknown value from the page is ignored.
     static func setTemplate(_ value: String, services: AppServices) {
-        guard let template = NewTabTemplate(rawValue: value), let settings = services.settings,
-              let descriptor = SettingsSchema.descriptor(for: NewTabTemplate.configPath) else { return }
+        guard let template = NewTabTemplate(rawValue: value) else { return }
+        services.newTabChoices.remember(template: template, in: services.windows.active?.window)
+        guard let settings = services.settings, let descriptor = SettingsSchema.descriptor(for: NewTabTemplate.configPath) else { return }
         Task {
             do { try await settings.setSetting(descriptor, to: .string(template.rawValue), by: .caller("page")) } catch {
                 Logger(subsystem: "com.cmuxterm.app.next", category: "newtab")
@@ -312,7 +318,7 @@ extension NewTabPage {
             return
         }
         let cwd = pane.selectedTab?.cwd
-        var page = Self.page(services, selected: pane.selectedTab)
+        var page = Self.page(services, selected: pane.selectedTab, window: pane.view.window)
         page.inputToken = inputToken
         var handler = Self.handler(services, cwd: cwd) { [weak pane] key, request in
             if let pane { BenchSpans.measure("newTab.replace") { Self.replace(key, with: request, cwd: request.cwd ?? cwd, in: pane) } }
