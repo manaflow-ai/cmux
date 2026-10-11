@@ -12,18 +12,20 @@ enum SessionTransferControl {
                 let sessions = call.snapshot.topology.workspaces.flatMap { workspace in
                     workspace.screens.flatMap(\.panes).flatMap { pane in
                         pane.tabs.compactMap { tab -> JSONValue? in
-                            guard tab.kind == "terminal" || tab.kind == "remote-terminal" || tab.agentSessionID != nil else { return nil }
-                            let kind = tab.agentSessionID == nil ? "terminal" : "agent"
+                            // Local terminals only: a cmux-next agent chat knows its acpmux
+                            // session, not the harness's own id an adopt needs, and a
+                            // remote terminal carries a session id rather than its host.
+                            guard tab.kind == "terminal", tab.agentSessionID == nil else { return nil }
                             return [
                                 "surface": .string(tab.surface),
                                 "workspace": .string(workspace.id),
-                                "kind": .string(kind),
+                                "kind": "terminal",
                                 "title": .string(tab.title),
                                 "cwd": .optional(tab.cwd),
-                                "ssh_target": .optional(tab.remoteSessionID),
+                                "ssh_target": .null,
                                 "command": .null,
-                                "agent": .optional(tab.agent),
-                                "agent_session": .optional(tab.agentSessionID),
+                                "agent": .null,
+                                "agent_session": .null,
                             ]
                         }
                     }
@@ -54,6 +56,16 @@ enum SessionTransferControl {
                     throw controlError(error)
                 }
             }.withDeadline(.fixed(.seconds(300))),
+            .async("session.transfer.open") { [transfer = services.sessionTransfer] call in
+                let agent = call.params["agent"]?.objectValue
+                let workspace = call.params["workspace"]?.objectValue
+                guard agent != nil || workspace != nil else { throw ControlError.invalidParams("agent or workspace is required") }
+                do {
+                    return try await transfer.open(agent: agent, workspace: workspace)
+                } catch {
+                    throw controlError(error)
+                }
+            }.withDeadline(.fixed(.seconds(120))),
             .async("session.transfer.complete") { [transfer = services.sessionTransfer] call in
                 let surfaces = call.params["surfaces"]?.arrayValue?.compactMap(\.stringValue) ?? []
                 guard !surfaces.isEmpty else { throw ControlError.invalidParams("surfaces is required") }
@@ -70,6 +82,7 @@ private func controlError(_ error: Error) -> ControlError {
     case SessionTransferService.Failure.noSessions: "not_found"
     case SessionTransferService.Failure.peerRefused: "access_denied"
     case SessionTransferService.Failure.unavailable: "unavailable"
+    case SessionTransferService.Failure.missingAgentID: "invalid_params"
     default: "internal_error"
     }
     return ControlError(code: code, message: SessionTransferService.message(for: error))

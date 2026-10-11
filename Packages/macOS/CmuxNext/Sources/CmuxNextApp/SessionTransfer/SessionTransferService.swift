@@ -144,25 +144,71 @@ final class SessionTransferService {
     }
 
     private func move(_ item: SessionTransferItem, from peer: SessionTransferPeer) async throws {
+        _ = try await create(item)
+        try await completeOnPeer(item: item, peer: peer)
+    }
+
+    /// Opens records read from classic's files (scripts/cmux-next/classic-to-next.py):
+    /// `agent` {harness, session, cwd?, name?} becomes an agent chat resumed by its
+    /// session id; `workspace` {name?, cwd?, terminals: [{title?, cwd?, command?}]}
+    /// becomes one workspace with a terminal tab per entry. Nothing is closed anywhere.
+    func open(agent: [String: TransferJSONValue]?, workspace: [String: TransferJSONValue]?) async throws -> TransferJSONValue {
+        if let agent {
+            guard let harness = agent["harness"]?.stringValue, let session = agent["session"]?.stringValue else {
+                throw Failure.missingAgentID
+            }
+            let item = SessionTransferItem(sourceSurface: session, workspace: "", kind: .agent, title: agent["name"]?.stringValue ?? "",
+                                           cwd: agent["cwd"]?.stringValue, sshTarget: nil, command: nil,
+                                           agentHarness: harness, agentSessionID: session)
+            return ["workspace": .string(try await create(item))]
+        }
+        guard let workspace else { throw Failure.noSessions }
+        let name = workspace["name"]?.stringValue
+        let cwd = workspace["cwd"]?.stringValue
+        let terminals = (workspace["terminals"]?.arrayValue ?? []).compactMap(\.objectValue)
+        let items = (terminals.isEmpty ? [[:]] : terminals).map { terminal in
+            SessionTransferItem(sourceSurface: "", workspace: "", kind: .terminal, title: terminal["title"]?.stringValue ?? "",
+                                cwd: terminal["cwd"]?.stringValue ?? cwd, sshTarget: nil, command: terminal["command"]?.stringValue,
+                                agentHarness: nil, agentSessionID: nil)
+        }
+        let id = try await create(items[0], workspaceName: name)
+        guard items.count > 1 else { return ["workspace": .string(id)] }
+        guard let services, let daemon = services.machines.daemon(forWorkspace: id), let connection = daemon.connection,
+              let pane = try await firstPane(of: id, connection: connection) else { throw Failure.unavailable }
+        for item in items.dropFirst() {
+            try await connection.newTab(in: pane, options: SpawnOptions(cwd: item.cwd, command: item.command,
+                                                                      name: item.title.isEmpty ? nil : item.title))
+        }
+        return ["workspace": .string(id)]
+    }
+
+    /// Creates `item` in a new workspace of the active window and returns the workspace id.
+    private func create(_ item: SessionTransferItem, workspaceName: String? = nil) async throws -> String {
         guard let services else { throw Failure.unavailable }
         let target = services.windows.targetWindow(preferring: services.windows.active?.state.id)
+        let name = workspaceName ?? (item.title.isEmpty ? nil : item.title)
         switch item.kind {
         case .agent:
             guard let session = item.agentSessionID, let harness = item.agentHarness else { throw Failure.missingAgentID }
-            var spawn = WorkspaceSpawn(cwd: item.cwd, name: item.title)
+            var spawn = WorkspaceSpawn(cwd: item.cwd, name: name)
             spawn.firstChat = AgentPaneSeed(cwd: item.cwd, adopt: AgentPaneAdopt(harness: harness, agentSessionId: session))
-            _ = try await services.windows.createWorkspace(spawn, into: target)
+            return try await services.windows.createWorkspace(spawn, into: target)
         case .terminal:
             let command = item.command ?? item.sshTarget.map { "exec ssh \(Self.shellQuote($0))" }
-            let id = try await services.windows.createWorkspace(WorkspaceSpawn(cwd: item.cwd, name: item.title, command: command), into: target)
+            let id = try await services.windows.createWorkspace(WorkspaceSpawn(cwd: item.cwd, name: name, command: command), into: target)
             if !item.title.isEmpty, let daemon = services.machines.daemon(forWorkspace: id), let connection = daemon.connection,
                let workspace = try? await connection.listWorkspaces(),
                let screen = workspace.workspaces.first(where: { $0.key?.rawValue == id })?.screens.first,
                let surface = screen.layout.paneIDs.compactMap({ paneID in screen.panes.first(where: { $0.id == paneID }) }).flatMap(\.tabs).first?.surface {
                 try? await connection.renameTab(surface, to: item.title)
             }
+            return id
         }
-        try await completeOnPeer(item: item, peer: peer)
+    }
+
+    private func firstPane(of workspace: String, connection: DaemonConnection) async throws -> CmuxNextDaemon.PaneID? {
+        let listed = try await connection.listWorkspaces()
+        return listed.workspaces.first(where: { $0.key?.rawValue == workspace })?.screens.first?.layout.paneIDs.first
     }
 
     private func completeOnPeer(item: SessionTransferItem, peer: SessionTransferPeer) async throws {
