@@ -93,10 +93,13 @@ test("an outdated harness shows both versions and an Update; one that needs sudo
   };
   await press('[data-harness="codex"] [data-harness-action="update"]');
   await press('[data-harness-action="updateAll"]');
+  await press('[data-harness-action="refresh"]');
   expect(page.provider.harnessRuns.filter((run) => run.action !== "refresh")).toEqual([
     { action: "update", id: "codex" },
     { action: "updateAll" },
   ]);
+  // Refresh asks the daemon to check again (after an update); opening the card does not.
+  expect(page.provider.harnessRuns.at(-1)).toEqual({ action: "refresh", recheck: true });
   // Up to date and signed in: no badge.
   await act(async () =>
     page.provider.setHarnesses({

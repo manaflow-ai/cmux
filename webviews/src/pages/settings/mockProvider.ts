@@ -7,6 +7,7 @@
 // `createMockClient` connects a page client to it over the protocol's in-memory transport
 // pair, so the page's calls cross the real envelope (call/ok/err/sub/ev).
 import { createMockPair } from "../../protocol/adapters/mock";
+import { updatable } from "./harnesses";
 import { ProtocolError, ProtocolErrorCode } from "../../protocol/errors";
 import { Session, type EventSourceContext } from "../../protocol/session";
 import {
@@ -149,10 +150,18 @@ export class MockSettingsProvider {
       "cmux.settings.harnesses.run": (params) => {
         const run = params as HarnessesRun;
         if (
-          (run.action === "signIn" || run.action === "check" || run.action === "update") &&
+          (run.action === "signIn" || run.action === "check") &&
           !this.harnesses.harnesses.some((h) => h.id === run.id)
         ) {
           throw new ProtocolError("cmux.settings.invalid", "id must be a listed harness");
+        }
+        // Like the host: only an outdated harness that needs no sudo updates.
+        const canUpdate = updatable(this.harnesses);
+        if (
+          (run.action === "update" && !canUpdate.some((h) => h.id === run.id)) ||
+          (run.action === "updateAll" && canUpdate.length === 0)
+        ) {
+          throw new ProtocolError("cmux.settings.invalid", "no harness can be updated here");
         }
         this.harnessRuns.push(run);
         return {};

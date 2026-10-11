@@ -10,23 +10,14 @@ import { useCallback, useId } from "react";
 import { agentDisplayName } from "../../../agent-session/acpmux/agents";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
 import { useSettingsState, useStore } from "../context";
-import type { HarnessRow, HarnessesState } from "../ops";
+import { updatable } from "../harnesses";
+import type { HarnessRow } from "../ops";
 import { t } from "../strings";
 
 const SOURCES = new Set(["managed", "user-file", "cmux-json", "registry", "path", "config"]);
 
 function sourceText(row: HarnessRow): string {
   return t(`settingsWindow.harnesses.source.${SOURCES.has(row.source) ? row.source : "config"}`);
-}
-
-/** Rows the page can update with one click (outdated, and no sudo needed). */
-export function updatable(state: HarnessesState | null | undefined): HarnessRow[] {
-  return (state?.harnesses ?? []).filter((row) => row.outdated && row.update && !row.update.elevated);
-}
-
-/** Whether Settings > Agents wants a look: a harness is outdated or signed out. */
-export function harnessesNeedAttention(state: HarnessesState | null | undefined): boolean {
-  return (state?.harnesses ?? []).some((row) => row.outdated || row.auth === "signedOut");
 }
 
 function Row({ row }: { row: HarnessRow }) {
@@ -71,21 +62,21 @@ function Row({ row }: { row: HarnessRow }) {
           {row.problem && <div className="row-error">{row.problem}</div>}
         </div>
         <div className="row-control">
+          {row.outdated && row.update && !row.update.elevated && (
+            <button
+              type="button"
+              className="button"
+              data-harness-action="update"
+              aria-describedby={titleId}
+              onClick={() => void store.runHarnesses({ action: "update", id: row.id })}
+            >
+              {t("settingsWindow.harnesses.update")}
+            </button>
+          )}
           {terminal ? (
             <span className="badge">{t("settingsWindow.harnesses.terminalOnly")}</span>
           ) : (
             <>
-              {row.outdated && row.update && !row.update.elevated && (
-                <button
-                  type="button"
-                  className="button"
-                  data-harness-action="update"
-                  aria-describedby={titleId}
-                  onClick={() => void store.runHarnesses({ action: "update", id: row.id })}
-                >
-                  {t("settingsWindow.harnesses.update")}
-                </button>
-              )}
               <button
                 type="button"
                 className="button"

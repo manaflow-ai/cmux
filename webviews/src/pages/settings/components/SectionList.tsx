@@ -5,7 +5,7 @@ import { Icon } from "../icons";
 import type { SettingsState } from "../store";
 import { managedOf } from "../store";
 import { t, text } from "../strings";
-import { harnessesNeedAttention } from "./HarnessesCard";
+import { harnessesNeedAttention } from "../harnesses";
 
 function badge(state: SettingsState, category: string): "warning" | "lock" | "update" | null {
   const keys = categoryRows(category).map((row) => row.key);
@@ -16,7 +16,6 @@ function badge(state: SettingsState, category: string): "warning" | "lock" | "up
 }
 
 const BADGE_TEXT = {
-  warning: null,
   lock: "settingsPage.managed",
   update: "settingsWindow.harnesses.attention",
 } as const;

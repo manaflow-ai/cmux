@@ -75,21 +75,23 @@ final class SettingsHarnesses {
         loading = true
         let fresh: [AcpmuxHarnessRow]?
         do { fresh = try await fetch(environment) } catch { fresh = nil }
-        // An older daemon has no health method: the rows show without it.
-        let checked = try? await environment.harness(.health, params: ["refresh": recheck])
         guard mine == generation else { return }
         loading = false
-        if let fresh {
-            rows = fresh
-            health = Self.healthRows(checked)
-            problem = nil
-        } else {
+        guard let fresh else {
             problem = "unreachable"
+            return
         }
+        rows = fresh
+        problem = nil
+        // The rows show first: a check can take a while. A failed one (an older daemon without
+        // the method, a timeout) keeps the health already shown.
+        guard let checked = try? await environment.harness(.health, params: ["refresh": recheck]),
+              mine == generation, let read = Self.healthRows(checked) else { return }
+        health = read
     }
 
-    private static func healthRows(_ data: Data?) -> [String: JSONValue] {
-        guard let data, let rows = (try? JSONValue.parse(data))?["harnesses"]?.arrayValue else { return [:] }
+    private static func healthRows(_ data: Data) -> [String: JSONValue]? {
+        guard let rows = (try? JSONValue.parse(data))?["harnesses"]?.arrayValue else { return nil }
         return Dictionary(rows.compactMap { row in row["id"]?.stringValue.map { ($0, row) } }, uniquingKeysWith: { first, _ in first })
     }
 
@@ -98,7 +100,9 @@ final class SettingsHarnesses {
     private func updateLine(_ id: String) -> String? {
         guard let row = health[id], row["outdated"]?.boolValue == true, let plan = row["update"],
               plan["elevated"]?.boolValue == false,
-              let argv = plan["argv"]?.arrayValue?.compactMap(\.stringValue), !argv.isEmpty else { return nil }
+              let argv = plan["argv"]?.arrayValue?.compactMap(\.stringValue), let program = argv.first,
+              // Never sudo, whatever the daemon says.
+              !["sudo", "doas", "su", "pkexec"].contains((program as NSString).lastPathComponent) else { return nil }
         let unsafe: (Character) -> Bool = { character in
             character == "'" || character == "\\" || character.isNewline
                 || character.unicodeScalars.contains { $0.properties.generalCategory == .control }
