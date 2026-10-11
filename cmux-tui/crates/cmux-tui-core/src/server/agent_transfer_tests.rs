@@ -731,3 +731,29 @@ fn read_serves_only_paths_the_begin_manifest_lists() {
     }
     fake.no_frame();
 }
+
+#[test]
+fn receive_abort_has_acpmux_forget_that_move_only() {
+    let fake = FakeAcpmux::start("xforget");
+    let home = Home::new("forget");
+    let mux = transfer_mux(&fake, "atx-forget", &home, true);
+    let mut client = Client::connect(&mux, "xforget");
+    ok_data(&receive(&mut client, &home.text("work/project")));
+    let _ = fake.frame();
+    let aborted =
+        client.request(json!({"cmd":"agent-transfer-receive-abort","receive_id":"rcv_1"}));
+    assert_eq!(ok_data(&aborted)["dropped"], json!(true));
+    assert_eq!(ok_data(&aborted)["landed"], json!(false));
+    let sent = fake.frame();
+    assert_eq!(sent["method"], json!("_acpmux/transfer_forget"));
+    // The move and chat of the receive's own manifest, never the client's.
+    assert_eq!(sent["params"], json!({"transferId":"xfer_src","sessionId":"acp_moving"}));
+    // acpmux's forget is not a daemon verb, and no frame names a move.
+    for frame in [
+        json!({"cmd":"agent-transfer-forget","transfer_id":"xfer_src"}),
+        json!({"cmd":"agent-transfer-receive-abort","receive_id":"rcv_1","transfer_id":"x"}),
+    ] {
+        assert_code(&client.request(frame), "agent_transfer.bad_request");
+    }
+    fake.no_frame();
+}

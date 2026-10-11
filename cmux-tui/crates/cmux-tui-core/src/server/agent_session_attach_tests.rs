@@ -211,6 +211,7 @@ fn transfer_reply(method: &str, params: &Value) -> Option<Value> {
                    "eof": true})
         }
         "_acpmux/transfer_read" => json!({"data": base64.encode("abc"), "next": 3, "eof": true}),
+        "_acpmux/transfer_forget" => json!({"transferId": params["transferId"], "landed": false}),
         "_acpmux/transfer_commit" => json!({"sessionId": params["sessionId"], "committed": true}),
         "_acpmux/transfer_abort" if params["sessionId"] == json!(ABORT_FAILS_CHAT) => {
             json!({FAKE_ERROR: "transfer.closed: the move committed"})
