@@ -477,11 +477,17 @@ if grep -Eq 'Cloud tunnel|SystemExtensions|tunnel-extension|cmux-cua|Computer Us
   exit 1
 fi
 
-# A release ships the pinned commit; the nightly ships the newest published
-# cmux-tui tree and builds the app at that commit (pin-cmux-tui.sh
+# A release ships its own commit's cmux-tui tree (pin-cmux-tui.sh
+# resolve-exact, cx-urd.9.1); the nightly ships the newest published cmux-tui
+# tree and builds the app at that commit (pin-cmux-tui.sh
 # resolve-newest-published; tests/test_nightly_cmux_tui_resolve.py).
-if ! grep -Fq "cmux_tui_commit=\"\$(awk -F= '\$1==\"commit\"{print \$2}' scripts/cmux-next/cmux-tui.pin)\"" "$RELEASE_WORKFLOW_FILE"; then
-  echo "FAIL: release.yml must install the cmux-tui commit scripts/cmux-next/cmux-tui.pin names"
+if ! grep -Fq 'resolved="$(scripts/cmux-next/pin-cmux-tui.sh resolve-exact)"' "$RELEASE_WORKFLOW_FILE" \
+    || ! grep -Fq 'cmux_tui_commit="$CMUX_TUI_CLIENT_COMMIT"' "$RELEASE_WORKFLOW_FILE"; then
+  echo "FAIL: release.yml must install its own commit's cmux-tui tree (resolve-exact)"
+  exit 1
+fi
+if grep -Fq 'scripts/cmux-next/cmux-tui.pin' "$RELEASE_WORKFLOW_FILE"; then
+  echo "FAIL: release.yml must not read the hand pin scripts/cmux-next/cmux-tui.pin"
   exit 1
 fi
 if ! grep -Fq 'resolved="$(scripts/cmux-next/pin-cmux-tui.sh resolve-newest-published)"' "$WORKFLOW_FILE"; then

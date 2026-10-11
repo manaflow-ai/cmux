@@ -26,6 +26,13 @@ extension AgentPaneHostProviding {
 /// machine that its machine refused to start); the pane says it as it is.
 public nonisolated protocol AgentPaneHostRefusal: Error {
     var userMessage: String { get }
+    /// The machine the refused chat belongs to, for the composer's machine chip (cx-k21v): a chat
+    /// of another machine never shows this Mac's name, also while it is refused. Nil: unknown.
+    var machineName: String? { get }
+}
+
+public extension AgentPaneHostRefusal {
+    var machineName: String? { nil }
 }
 
 /// Why the live host could not produce a handshake.

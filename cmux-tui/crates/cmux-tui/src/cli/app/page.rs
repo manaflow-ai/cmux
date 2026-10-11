@@ -182,6 +182,12 @@ fn same_file(a: &std::path::Path, b: &std::path::Path) -> bool {
     matches!((std::fs::canonicalize(a), std::fs::canonicalize(b)), (Ok(a), Ok(b)) if a == b)
 }
 
+/// Where a screenshot's PNG bytes are: inline in the result, or in the file the app saved.
+enum ScreenshotSource {
+    Inline(Vec<u8>),
+    Saved(PathBuf),
+}
+
 /// Puts a `browser.page.screenshot` PNG where `out` says and prints where it
 /// went: the path, or with `--json` the result without the image data.
 /// The app saves the PNG to a file and returns its `path` (the old `cmux
@@ -202,9 +208,14 @@ pub(super) fn save_screenshot(mut result: Value, out: Option<&str>, output: Outp
         }
         None => None,
     };
-    if inline.is_none() && saved.is_none() {
-        return failure("app.invalid_response", messages.invalid_response, output, 3);
-    }
+    // The PNG comes inline or as the app's saved file; a result with neither is invalid.
+    let source = match (inline, saved.clone()) {
+        (Some(png), _) => ScreenshotSource::Inline(png),
+        (None, Some(saved)) => ScreenshotSource::Saved(saved),
+        (None, None) => {
+            return failure("app.invalid_response", messages.invalid_response, output, 3);
+        }
+    };
     let write_failed = |path: &std::path::Path, error: std::io::Error| {
         let message = messages
             .screenshot_write_failed
@@ -213,13 +224,12 @@ pub(super) fn save_screenshot(mut result: Value, out: Option<&str>, output: Outp
         failure("io.write_failed", &message, output, 1)
     };
     if out == Some("-") {
-        let png = match (inline, &saved) {
-            (Some(png), _) => png,
-            (None, Some(saved)) => match std::fs::read(saved) {
+        let png = match source {
+            ScreenshotSource::Inline(png) => png,
+            ScreenshotSource::Saved(saved) => match std::fs::read(&saved) {
                 Ok(png) => png,
                 Err(error) => return write_failed(saved.as_path(), error),
             },
-            (None, None) => unreachable!("checked above"),
         };
         let mut stdout = std::io::stdout().lock();
         return match stdout.write_all(&png).and_then(|()| stdout.flush()) {
@@ -227,9 +237,9 @@ pub(super) fn save_screenshot(mut result: Value, out: Option<&str>, output: Outp
             Err(_) => 3,
         };
     }
-    let path = match (out, &saved, inline) {
-        (None, Some(saved), _) => saved.clone(),
-        (target, _, inline) => {
+    let path = match (out, &saved) {
+        (None, Some(saved)) => saved.clone(),
+        (target, _) => {
             let path = match target {
                 Some(path) => PathBuf::from(path),
                 None => {
@@ -244,12 +254,11 @@ pub(super) fn save_screenshot(mut result: Value, out: Option<&str>, output: Outp
                 .parent()
                 .filter(|parent| !parent.as_os_str().is_empty())
                 .map_or(Ok(()), std::fs::create_dir_all);
-            let written = created.and_then(|()| match (inline, &saved) {
-                (Some(png), _) => std::fs::write(&path, png),
+            let written = created.and_then(|()| match &source {
+                ScreenshotSource::Inline(png) => std::fs::write(&path, png),
                 // Copying a file onto itself truncates it first.
-                (None, Some(saved)) if same_file(saved, &path) => Ok(()),
-                (None, Some(saved)) => std::fs::copy(saved, &path).map(|_| ()),
-                (None, None) => unreachable!("checked above"),
+                ScreenshotSource::Saved(saved) if same_file(saved, &path) => Ok(()),
+                ScreenshotSource::Saved(saved) => std::fs::copy(saved, &path).map(|_| ()),
             });
             if let Err(error) = written {
                 return write_failed(path.as_path(), error);

@@ -158,16 +158,24 @@ extension AgentTabStore {
                 return AgentTabRefusedHost(refusal: .startUnsupported(machine: machine))
             }
             var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, endpoint: endpoint)
+            if started {
+                // The tab may still be provisional here: each handshake reads its store surface.
+                host.existing = { [weak tabs] in
+                    guard let tabs else { throw CancellationError() }
+                    return try await tabs.existingRemoteChat(key)
+                }
+            }
             if session == nil {
                 // Only a new chat this app opened on that machine starts there, and only through a
-                // daemon that serves the verb; never a fallback to this Mac (cx-k21v).
+                // daemon that serves the verb; never a fallback to this Mac (cx-k21v). It starts at
+                // the page's first send, never when the tab opens.
                 guard started else { return nil }
                 guard daemon.supports(DaemonCapabilities.shared.agentSessionStart) else {
                     return AgentTabRefusedHost(refusal: .startUnsupported(machine: machine))
                 }
-                host.start = { [weak tabs] in
+                host.start = { [weak tabs] cwd, harness in
                     guard let tabs else { throw CancellationError() }
-                    return try await tabs.startRemoteChat(key, machine: machine, endpoint: endpoint)
+                    return try await tabs.startRemoteChat(key, machine: machine, cwd: cwd, harness: harness, endpoint: endpoint)
                 }
             }
             // cx-0q7o: the app's own ssh exec to that machine restarts its acpmux with a key.
