@@ -34,7 +34,7 @@ resolved address must be public (`RemoteAddress`: no loopback, RFC 1918, link-lo
 site-local, multicast, documentation; embedded IPv4 in mapped, NAT64 and 6to4 addresses is checked); the
 connection goes to exactly a checked address (Network.framework, the URL's host as TLS server name and
 `Host` header, system trust), so a DNS rebinding cannot move it (cx-e9t); each redirect is checked again
-(at most 3); HTTP/1.0 with no cookies, cache, credentials, referrer or proxy; 10 MB, 10 s for the whole
+(at most 3); HTTP/1.1 (chunked; gzip, deflate, br decoded; browser headers; any 2xx) with no cookies, cache, credentials, referrer or proxy; 10 MB, 10 s for the whole
 fetch; decoded and re-encoded as PNG (2048 px).
 Local images: inside the roots, 10 MB, decoded by ImageIO; SVG rebuilt without script, handlers, foreign
 content or links out.
