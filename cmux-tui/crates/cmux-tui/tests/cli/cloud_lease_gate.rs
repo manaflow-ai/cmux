@@ -224,3 +224,46 @@ fn cloud_lease_only_the_verified_app_sets_clears_and_speaks_as_the_user() {
     let cleared = app.rpc(json!({"cmd":"cloud-session-clear"}));
     assert_eq!(cleared["data"], json!({"state":"signed_out"}), "{cleared}");
 }
+
+#[test]
+fn cloud_lease_other_connections_cannot_use_the_apps_lease() {
+    let daemon = Daemon::start("use");
+    let cloud = FakeCloud::start();
+    let mut app = daemon.app();
+    let mut plain = daemon.plain();
+    let conv = "conv_0123456789ABCDEFGHJKMNPQRS";
+
+    assert_eq!(app.rpc(set(&cloud.base, "app.jwt"))["ok"], true);
+    for request in [
+        json!({"cmd":"cloud-inbox-list"}),
+        json!({"cmd":"cloud-conversation-snapshot","conversation":conv,"tail":5}),
+        json!({"cmd":"cloud-conversation-history","conversation":conv,"before_seq":9,"limit":5}),
+        json!({"cmd":"cloud-conversation-thread","conversation":conv,"root":"msg_00000000000000000000000001"}),
+        json!({"cmd":"cloud-conversation-op","conversation":conv,"idempotency_key":"k","origin":"cli",
+               "op":{"kind":"title.set","title":"t"}}),
+        json!({"cmd":"cloud-inbox-subscribe"}),
+        json!({"cmd":"cloud-conversation-subscribe","conversation":conv}),
+        json!({"cmd":"cloud-mux-subscribe"}),
+        json!({"cmd":"cloud-mux-ack","conversation":conv,"seq":1}),
+    ] {
+        assert_forbidden(&plain.rpc(request.clone()), &request.to_string());
+    }
+    assert!(cloud.bodies().is_empty(), "a refused command reaches no cloud: {:?}", cloud.bodies());
+
+    // Status and the unsubscribes stay open: they use no lease.
+    let status = plain.rpc(json!({"cmd":"cloud-session-status"}));
+    assert_eq!(status["data"]["state"], "active", "{status}");
+    for request in [
+        json!({"cmd":"cloud-inbox-unsubscribe"}),
+        json!({"cmd":"cloud-conversation-unsubscribe","conversation":conv}),
+        json!({"cmd":"cloud-mux-unsubscribe"}),
+    ] {
+        let reply = plain.rpc(request.clone());
+        assert_eq!(reply["ok"], true, "{request}: {reply}");
+    }
+
+    // Once the app signs out, the lease is no longer the app's.
+    assert_eq!(app.rpc(json!({"cmd":"cloud-session-clear"}))["ok"], true);
+    let signed_out = plain.rpc(json!({"cmd":"cloud-inbox-list"}));
+    assert_eq!(signed_out["error_code"], "cloud_signed_out", "{signed_out}");
+}

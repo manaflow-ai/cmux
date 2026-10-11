@@ -161,6 +161,25 @@ fn service(mux: &Mux, client: u64) -> anyhow::Result<&CloudConversations> {
         .ok_or_else(|| anyhow::anyhow!("cloud conversations are not available in this daemon"))
 }
 
+/// The service for a command that uses the lease. While the verified cmux
+/// app holds the lease, it is the human's: only the app may read, send or
+/// subscribe with it (cmux#13742). `cloud-session-status` and the
+/// unsubscribes use no lease and stay open.
+fn lease_user(mux: &Mux, client: u64) -> anyhow::Result<&CloudConversations> {
+    let service = service(mux, client)?;
+    if service.app_holds_lease() && !is_app(mux, client) {
+        return Err(CloudError::Rejected {
+            code: "forbidden".into(),
+            message: "the cloud session lease belongs to the verified cmux app connection; \
+                      other connections cannot use it"
+                .into(),
+            retryable: false,
+        }
+        .into());
+    }
+    Ok(service)
+}
+
 pub(super) fn session_set(
     mux: &Mux,
     client: u64,
@@ -180,25 +199,25 @@ pub(super) fn session_status(mux: &Mux, client: u64) -> anyhow::Result<Value> {
 }
 
 pub(super) fn inbox_list(mux: &Mux, client: u64, params: InboxListParams) -> anyhow::Result<Value> {
-    Ok(service(mux, client)?.inbox_list(params.limit, params.include_archived)?)
+    Ok(lease_user(mux, client)?.inbox_list(params.limit, params.include_archived)?)
 }
 
 pub(super) fn snapshot(mux: &Mux, client: u64, params: SnapshotParams) -> anyhow::Result<Value> {
-    Ok(service(mux, client)?.snapshot(&params.conversation, params.tail)?)
+    Ok(lease_user(mux, client)?.snapshot(&params.conversation, params.tail)?)
 }
 
 pub(super) fn history(mux: &Mux, client: u64, params: HistoryParams) -> anyhow::Result<Value> {
     let HistoryParams { conversation, before_seq, limit } = params;
-    Ok(service(mux, client)?.history(&conversation, before_seq, limit)?)
+    Ok(lease_user(mux, client)?.history(&conversation, before_seq, limit)?)
 }
 
 pub(super) fn thread(mux: &Mux, client: u64, params: ThreadParams) -> anyhow::Result<Value> {
     let ThreadParams { conversation, root, after_seq, limit } = params;
-    Ok(service(mux, client)?.thread(&conversation, &root, after_seq, limit)?)
+    Ok(lease_user(mux, client)?.thread(&conversation, &root, after_seq, limit)?)
 }
 
 pub(super) fn op(mux: &Mux, client: u64, params: OpParams) -> anyhow::Result<Value> {
-    let service = service(mux, client)?;
+    let service = lease_user(mux, client)?;
     check_origin(mux, client, params.origin.as_deref())?;
     Ok(service.op(&OpRequest::from(params))?)
 }
@@ -209,7 +228,7 @@ pub(super) fn subscribe(
     target: Option<TargetParams>,
 ) -> anyhow::Result<Value> {
     let target = target.map_or(Target::Inbox, |params| Target::Conversation(params.conversation));
-    Ok(service(mux, client)?.subscribe(client, target)?)
+    Ok(lease_user(mux, client)?.subscribe(client, target)?)
 }
 
 pub(super) fn unsubscribe(
@@ -224,7 +243,7 @@ pub(super) fn unsubscribe(
 
 /// `cloud-mux-subscribe`: the lease's own chief's wake queue.
 pub(super) fn mux_subscribe(mux: &Mux, client: u64) -> anyhow::Result<Value> {
-    let service = service(mux, client)?;
+    let service = lease_user(mux, client)?;
     Ok(service.subscribe(client, service.mux_target()?)?)
 }
 
@@ -237,7 +256,7 @@ pub(super) fn mux_unsubscribe(mux: &Mux, client: u64) -> anyhow::Result<Value> {
 }
 
 pub(super) fn mux_ack(mux: &Mux, client: u64, params: MuxAckParams) -> anyhow::Result<Value> {
-    Ok(service(mux, client)?.mux_ack(&params.conversation, params.seq)?)
+    Ok(lease_user(mux, client)?.mux_ack(&params.conversation, params.seq)?)
 }
 
 /// Whether `cmd` calls the cloud and should leave the request loop.
@@ -297,7 +316,7 @@ pub(super) fn start(
     cmd: Command,
     writer: &MessageWriter,
 ) -> bool {
-    let precheck = service(mux, client).and_then(|service| {
+    let precheck = lease_user(mux, client).and_then(|service| {
         if let Command::CloudConversationOp(params) = &cmd {
             check_origin(mux, client, params.origin.as_deref())?;
             service.check_op(&OpRequest {
