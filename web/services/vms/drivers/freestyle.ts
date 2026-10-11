@@ -43,6 +43,7 @@ import {
   ProviderTunnelNetworkOverlapError,
   type ProviderTunnelCreateResult,
   type RestoreOptions,
+  type SecretBytes,
   type SnapshotRef,
   type VmEdgeRule,
   type VMHandle,
@@ -552,6 +553,54 @@ export function freestylePortRuleDomainSuffixes(env: NodeJS.ProcessEnv = process
 /** Mints a fresh legacy capability-domain hostname. */
 export function mintFreestylePortRuleDomain(suffix: string = FREESTYLE_PORT_RULE_DOMAIN_SUFFIXES[0]): string {
   return `cmux-${randomBytes(12).toString("hex")}.${suffix}`;
+}
+
+/** Why a stdin exec failed, without the provider's text (which could quote the request). */
+export class FreestyleStdinExecError extends Error {
+  constructor(public readonly status: number | null, public readonly reason: "http" | "body" | "network") {
+    super(`stdin exec failed (${reason}${status === null ? "" : ` ${status}`})`);
+    this.name = "FreestyleStdinExecError";
+  }
+}
+
+/**
+ * `exec-await` with stdin (cx-psxg), through the SDK's plain `fetch`, which
+ * sends no background header: the provider answers inline and stores no
+ * background result of the call, so the stdin (a person key) exists only in
+ * this one request. The caller keeps `timeoutMs` under the provider's
+ * background window. No error carries the request, the response text or the
+ * provider's message: only the HTTP status.
+ */
+async function execWithStdin(fs: Freestyle, vmId: string, command: string, timeoutMs: number, stdin: SecretBytes): Promise<ExecResult> {
+  let response: Response;
+  try {
+    response = await fs.fetch(`/v5/vms/${encodeURIComponent(vmId)}/exec-await`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ command, timeoutMs, linuxUser: GUEST_LINUX_USER, stdin: stdin.base64() }),
+      // A 3xx is not followed: it fails as not-ok, so the stdin is never sent to a Location host.
+      redirect: "manual",
+    });
+  } catch {
+    throw new FreestyleStdinExecError(null, "network");
+  }
+  // 202 is the provider's background answer, which it stores: never accepted for a stdin call.
+  if (!response.ok || response.status === 202) {
+    void response.body?.cancel();
+    throw new FreestyleStdinExecError(response.status, "http");
+  }
+  let r: { stdout?: unknown; stderr?: unknown; statusCode?: unknown };
+  try {
+    r = await response.json() as typeof r;
+  } catch {
+    throw new FreestyleStdinExecError(response.status, "body");
+  }
+  return {
+    // statusCode is null when the guest killed the command at its timeout.
+    exitCode: typeof r.statusCode === "number" ? r.statusCode : 124,
+    stdout: typeof r.stdout === "string" ? r.stdout : "",
+    stderr: typeof r.stderr === "string" ? r.stderr : "",
+  };
 }
 
 export function normalizeFreestyleExecTimeout(timeoutMs: number | undefined): number {
@@ -1286,6 +1335,11 @@ export class FreestyleProvider implements VMProvider {
       async (span) => {
         try {
           const fs = this.deps.client(timeoutMs + EXEC_OVERHEAD_TIMEOUT_MS);
+          if (opts?.stdin) {
+            const r = await execWithStdin(fs, vmId, command, timeoutMs, opts.stdin);
+            setSpanAttributes(span, { "cmux.exec.exit_code": r.exitCode });
+            return r;
+          }
           const vm = fs.vms.ref(vmId);
           const r = await vm.exec({ command, timeoutMs, linuxUser: GUEST_LINUX_USER });
           // statusCode is null when the guest killed the command at its timeout.

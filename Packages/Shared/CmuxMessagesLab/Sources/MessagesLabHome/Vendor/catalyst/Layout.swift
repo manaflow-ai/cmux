@@ -224,6 +224,11 @@ struct ThreadPreview: Hashable {
     /// The root part, when it is loaded (else a generic preview).
     var part: Part?
     var count: Int
+    /// The root is mine: the preview shows on the right (macOS 27, outgoing-thread-reply-take4, the
+    /// "Maybe: Instinct" reference of 2026-10-11): an outlined outgoing bubble at the right edge in blue,
+    /// "N Replies" right-aligned under it, no stub. A preview follows its root's side, not the reply's
+    /// (a reply of mine to Instinct's "Charlie." shows its preview on the left, reply-from-menu-send).
+    var outgoing = false
     /// Measured layout (points, relative to the row's content top).
     var box: CGSize
     static let stubGap: CGFloat = 3.5, stubHeight: CGFloat = 12.5
@@ -238,12 +243,18 @@ struct ThreadPreview: Hashable {
     /// Measured on 2x screenshots of macOS 26 Messages: link/text card
     /// 180.5 x 48.5 (text 39 pt in, 15 pt right padding); photo thumbnail
     /// 48 pt wide at the photo's aspect.
-    static func make(root: PartRef, part: Part?, count: Int) -> ThreadPreview {
-        var p = ThreadPreview(root: root, part: part, count: count, box: .zero)
+    /// `width`: the transcript's layout width (a text root wraps in the bubble column, so its
+    /// preview's size depends on it; `RowBuilder.rewidth` makes the preview again).
+    static func make(root: PartRef, part: Part?, count: Int, outgoing: Bool = false, width: CGFloat = Fixture.windowWidth) -> ThreadPreview {
+        var p = ThreadPreview(root: root, part: part, count: count, outgoing: outgoing, box: .zero)
         if p.isThumbnail, case let .attachment(a) = part {
             p.box = CGSize(width: 48, height: (48 * CGFloat(a.height ?? 450) / CGFloat(max(1, a.width ?? 600))).rounded())
-        } else if p.isText {
-            p.box = CGSize(width: (TextDraw.width(p.textLine, font: ThreadPreview.textFont) + 16.5).rounded(.toNearestOrEven), height: 24.25)
+        } else if case let .text(t, _) = part {
+            let maxBox = ThreadPreview.maxTextBoxWidth(width: width)
+            p.textLines = ThreadPreview.wrap(t, maxWidth: maxBox - ThreadPreview.textPadX)
+            let one = p.textLines.count == 1 ? p.textLines.first.map { TextDraw.width($0, font: ThreadPreview.textFont) } : nil
+            p.box = CGSize(width: one.map { min(maxBox, ($0 + ThreadPreview.textPadX).rounded(.toNearestOrEven)) } ?? maxBox,
+                           height: 24.25 + ThreadPreview.textLinePitch * CGFloat(max(0, p.textLines.count - 1)))
         } else {
             let (title, sub) = p.lines
             let w = max(TextDraw.width(title, font: ThreadPreview.titleFont), TextDraw.width(sub, font: ThreadPreview.subFont))
@@ -252,14 +263,65 @@ struct ThreadPreview: Hashable {
         return p
     }
     /// A text root (measured, macOS 27, 2026-10-05 interaction references): a small
-    /// outlined bubble with a tail, the text in one line of 10 pt regular, 8 pt in from
-    /// the outline; 24.25 pt tall (outline outside to outside 24 pt); the stub 5.5 pt under it (the tail is between).
+    /// outlined bubble with a tail, the text in 10 pt regular, 8 pt in from
+    /// the outline; 24.25 pt tall for one line (outline outside to outside 24 pt); the stub 5.5 pt under it (the tail is between).
+    /// A long root wraps (measured, macOS 27, outgoing-thread-reply-take4 still-preview.png, my root
+    /// "there was recent blog post about building macos apps on linux help me find it" at 628 pt): 2 lines,
+    /// the second baseline 11 pt under the first (22 px at 2x), the outline 34.5 pt tall (one line + 11), the
+    /// outline outside 225.0-608.5 pt (383.5 pt: a wrapped preview takes the full column, it does not shrink
+    /// to its widest line, which ends at 597 pt). Not measured (no reference): more than 2 lines, an incoming
+    /// long root, other window widths. Decisions: the same rule on both sides, at most 3 lines with "…" at the
+    /// end of the last, the column scales with the bubble column (`Metrics.maxTextWidth`).
     var isText: Bool { if case .text = part { return true }; return false }
     static let textFont = UIFont.systemFont(ofSize: 10)
-    var textLine: String {
-        guard case let .text(t, _) = part else { return "" }
-        let one = String(t.prefix(80)).replacingOccurrences(of: "\n", with: " ")
-        return one.count > 40 ? String(one.prefix(39)) + "…" : one
+    /// The text's lines as drawn (text roots only; one line when it fits).
+    var textLines: [String] = []
+    /// Outline to text plus text to outline of a one-line preview (8.5 + 8 on my side, 8 + 8.5 on Instinct's).
+    static let textPadX: CGFloat = 16.5
+    /// Baseline to baseline of a wrapped root (measured 11 pt).
+    static let textLinePitch: CGFloat = 11
+    static let maxTextLines = 3
+    /// The widest text preview (outline outside): 383 pt at the 628 pt window (outside 225.0-608.5 pt
+    /// measured; our outline's right edge is the bubbles' 608), with the bubble column at other widths.
+    static func maxTextBoxWidth(width: CGFloat) -> CGFloat { Metrics(width: width).maxTextWidth + 24.6 }
+    /// Word-wrapped lines of a root text at `maxWidth` (newlines read as spaces, as before), at most
+    /// `maxTextLines`; the last line ends in "…" when text is left over.
+    static func wrap(_ text: String, maxWidth: CGFloat) -> [String] {
+        // A root can be a 100k-character message: only the characters that 4 lines can hold are laid out
+        // (no 10 pt glyph is narrower than 2 pt, so 2 per pt of width is more than 4 lines), at most 2000;
+        // a cut text always ends in "…".
+        let limit = 16 + 2 * CrashGuard.int(maxWidth.isFinite ? min(992, max(0, maxWidth)) : 0, in: 0...992)
+        let head = text.prefix(limit)
+        let cut = head.endIndex < text.endIndex
+        let flat = String(head).replacingOccurrences(of: "\n", with: " ")
+        let tl = TextLayout.make(flat, runs: [], maxWidth: maxWidth, font: textFont)
+        let ns = flat as NSString
+        var lines: [String] = []
+        for (i, line) in tl.lines.enumerated() {
+            let last = i == maxTextLines - 1 || i == tl.lines.count - 1
+            guard !last || tl.lines.count <= maxTextLines && !cut else {
+                // The last allowed line: the rest of the text, cut to fit with "…" (tail truncation).
+                let rest = ns.substring(from: line.range.location)
+                lines.append(truncate(rest, maxWidth: maxWidth))
+                break
+            }
+            guard TextLayout.range(line.range.location, line.range.length, in: ns.length) != nil else { break }
+            lines.append(ns.substring(with: line.range))
+        }
+        return lines.isEmpty ? [""] : lines
+    }
+    /// `s` cut at the last character that leaves room for "…", trailing spaces dropped, then "…".
+    static func truncate(_ s: String, maxWidth: CGFloat) -> String {
+        let room = maxWidth - TextDraw.width("…", font: textFont)
+        let line = CTLineCreateWithAttributedString(NSAttributedString(string: s, attributes: [.font: textFont]))
+        let n = CTLineGetStringIndexForPosition(line, CGPoint(x: max(0, room), y: 0))
+        let ns = s as NSString
+        let cut = n == kCFNotFound ? ns.length : min(max(0, n), ns.length)
+        // A composed character is never split.
+        let safe = cut < ns.length ? ns.rangeOfComposedCharacterSequence(at: cut).location : cut
+        var head = ns.substring(to: safe)
+        while head.last == " " { head.removeLast() }
+        return head + "…"
     }
     static let titleFont = UIFont.systemFont(ofSize: 12, weight: .semibold)
     static let subFont = UIFont.systemFont(ofSize: 12)
@@ -729,7 +791,11 @@ enum RowBuilder {
                 case .receipt: gap = 4
                 default: gap = 3.5
                 }
-                if !threadMode { connector = "part:\(r.messageId):\(r.partIndex)" }
+                // My reply right under my own root draws no connector: Messages draws thread lines on the
+                // incoming side only (outgoing-thread-reply-take4: my reply under the preview of my root
+                // has no stub, and Instinct's replies take the line on the left). The mirrored arc ran
+                // from the root's centre through my root's text (hq-6d, cmux Home, 2026-10-11).
+                if !threadMode, !(outgoing && p.senderId == me) { connector = "part:\(r.messageId):\(r.partIndex)" }
             } else if let p = prev, p.senderId == m.senderId, m.date.timeIntervalSince(p.date) < groupGap, thread(p, at: prevIndex) == thread(m, at: idx) {
                 gap = 3      // measured 3 between parts of a group (text and media alike)
             } else if let p = prev, p.senderId != m.senderId, p.replyTo != nil, p.replyTo == m.replyTo {
@@ -751,7 +817,7 @@ enum RowBuilder {
             if let r = m.replyTo, !threadMode, connector == nil, let p = prev, p.id != r.messageId, p.replyTo != r {
                 let root = s.conversation.messages.first { $0.id == r.messageId }
                 let part = root.flatMap { r.partIndex < $0.parts.count ? $0.parts[r.partIndex] : nil }
-                let pv = ThreadPreview.make(root: r, part: part, count: replyCount[r.messageId] ?? 0)
+                let pv = ThreadPreview.make(root: r, part: part, count: replyCount[r.messageId] ?? 0, outgoing: root?.senderId == me, width: width)
                 rows.append(RowSpec(key: "preview:\(m.id)", kind: .threadPreview(pv), gap: ThreadPreview.gap, height: pv.height))
                 gap = ThreadPreview.replyGap
             }
@@ -822,7 +888,8 @@ enum RowBuilder {
     /// `rows(s, messages: messages, ..., width: width, exact: exact)` from `derived`, the rows that
     /// the same call made at another width with the same state, time and strings. A width changes
     /// only the part rows' measurement (size, text layout, markdown, estimate) and every row's
-    /// `width`; keys, gaps, separators, receipts and thread previews do not depend on it. So a
+    /// `width`, and a text root's preview (it wraps in the bubble column: made again from the row's
+    /// own root, count and side); keys, gaps, separators and receipts do not depend on it. So a
     /// divider drag or live resize step re-measures the parts and skips the derivation (receipts,
     /// reply counts, thread previews, day labels) over the loaded window. Nil when a part row
     /// does not name a loaded message (the caller then derives).
@@ -834,6 +901,11 @@ enum RowBuilder {
         for row in derived {
             var row = row
             row.width = width
+            if case let .threadPreview(pv) = row.kind, pv.isText {
+                let again = ThreadPreview.make(root: pv.root, part: pv.part, count: pv.count, outgoing: pv.outgoing, width: width)
+                row.kind = .threadPreview(again)
+                row.height = again.height
+            }
             guard case var .part(p) = row.kind else { out.append(row); continue }
             // Rows follow message order: the part's message is at or after the previous one.
             // (dropFirst(idx).first: past the end is the normal miss, not a fault.)

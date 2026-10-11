@@ -11,6 +11,16 @@ extension AppControl {
     func registerUpdateMethods(_ updater: UpdaterService, services appServices: AppServices) {
         service?.router.register([
             .mainActor("updates.status") { _ in .value(Self.json(updater.status, log: updater.log.recent)) },
+            // `updates.highlights {last?}`: the staged update's top changes (the
+            // UpdateHighlights contract, cx-ncc.45.5), null while nothing is
+            // staged; `last: true` reads the update this launch completed.
+            .mainActor("updates.highlights") { call in
+                let last = call.params["last"]?.boolValue == true
+                guard let highlights = last ? updater.lastUpdateHighlights : updater.stagedHighlights,
+                      let data = try? JSONEncoder().encode(highlights),
+                      let value = try? JSONValue.parse(data) else { return .value(.null) }
+                return .value(value)
+            },
             // `{build?, check?}`: rolls back to a kept build, or with check
             // only reports whether it would. Both daemons' stores count: the
             // app's and the Chief conversation owner's.
@@ -78,6 +88,14 @@ extension AppControl {
         }
         #if DEBUG
         service?.router.register([
+            // `debug.update_surfaces {action: "show-popover"}`: opens the active
+            // window's staged-update highlights popover (the React surface) for proofs.
+            .mainActor("debug.update_surfaces") { [weak services = appServices] _ in
+                guard let sidebar = services?.windows.active?.sidebar.container.sidebarView else {
+                    throw ControlError.invalidParams("debug.update_surfaces: no active window")
+                }
+                return .value(.object(sidebar.debugShowUpdateHighlights().mapValues { JSONValue.string($0) }))
+            },
             .mainActor("debug.update_indicator") { call in
                 updater.debugIndicatorPhase = UpdateIndicatorPhase(debugParams: call.params)
                 return .value(.object(["phase": .string(String(describing: updater.indicatorPhase))]))

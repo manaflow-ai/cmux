@@ -51,7 +51,15 @@ extension NSWindow {
     /// SDK, so they are looked up at run time; a later macOS without the
     /// symbols falls back to AppKit drawing.
     public func compositedSnapshot(includeChild: (NSWindow) -> Bool = { _ in true }) -> CGImage? {
-        let children = visibleChildWindows.filter(includeChild)
+        compositedSnapshot(adding: [], includeChild: includeChild)
+    }
+
+    /// `compositedSnapshot(includeChild:)` with `extra` windows composited
+    /// too: an app's panels over this window that are not its children (a
+    /// panel opened with no key window to attach to).
+    public func compositedSnapshot(adding extra: [NSWindow], includeChild: (NSWindow) -> Bool = { _ in true }) -> CGImage? {
+        var children = visibleChildWindows.filter(includeChild)
+        children += extra.filter { window in window !== self && !children.contains { $0 === window } }
         let image = children.isEmpty
             ? Self.windowServerImage(of: windowNumber)
             : Self.windowServerImage(of: [self] + children, croppedTo: self)

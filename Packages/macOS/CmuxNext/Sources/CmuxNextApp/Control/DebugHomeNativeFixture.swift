@@ -88,10 +88,24 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             // A refused send is never ok: a test cannot pass on a dropped send (cx-ebm.55).
             if let refusal = view.sendDraft() { return .object(["ok": .bool(false), "refused": .string(refusal)]) }
             ok = true
-        case "tapback": ok = view.debugTapbackNewestIncoming()
+        case "thread", "escape":
+            // "thread": a click on the newest "N Replies" or thread preview; "escape": Esc in the field.
+            // Both answer with the open thread's root (null: no thread is open).
+            let root = params["action"]?.stringValue == "thread" ? view.debugOpenNewestThread() : { view.debugEscape(); return view.debugOpenThread }()
+            return .object(["ok": .bool(true), "open_thread": root.map { .string($0) } ?? .null])
+        case "reply", "post_escape", "thread_state":
+            // "reply": Reply… in the newest text bubble's menu; "post_escape": a real Esc key press
+            // (`outside`: the key focus on the window, not the pane); "thread_state": no input.
+            switch params["action"]?.stringValue {
+            case "reply": _ = view.debugReplyNewest(mine: params["mine"]?.boolValue ?? false)
+            case "post_escape": view.debugPostEscape(outside: params["outside"]?.boolValue ?? false)
+            default: break
+            }
+            return .object(["ok": .bool(true), "open_thread": view.debugOpenThread.map { .string($0) } ?? .null])
+        case "tapback": ok = view.debugTapbackNewestIncoming(mine: params["mine"]?.boolValue ?? false)
         case "video": ok = view.debugToggleNewestVideo()
         case "scroll": view.debugScroll(by: CGFloat(params["dy"]?.doubleValue ?? -400)); ok = true
-        default: return .object(["error": .string("action must be focus, type, send, tapback, video, scroll, menu, geometry, link or texts")])
+        default: return .object(["error": .string("action must be focus, type, send, tapback, video, scroll, menu, geometry, link, texts, thread, escape, reply, post_escape or thread_state")])
         }
         return .object(["ok": .bool(ok)])
     }

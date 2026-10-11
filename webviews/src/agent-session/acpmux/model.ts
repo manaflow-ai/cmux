@@ -8,7 +8,7 @@ import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
 import { safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
-import { SUBAGENT_ROW } from "./subagents/subagentRows";
+import { SUBAGENT_OF, SUBAGENT_ROW } from "./subagents/subagentRows";
 import type { ComposerAttachment } from "./attachments";
 
 export type AcpmuxRow = {
@@ -47,6 +47,8 @@ export type AcpmuxRow = {
   prompt?: string;
   /// An edited-files card of a turn that has ended, which offers Undo (conversation/turns.ts).
   ended?: boolean;
+  /// The edits an edited-files card merges (their row ids), so Find reaches each (chatFind.ts).
+  merged?: string[];
   /// A shell mode command's block (shell/shellRuns.ts), which the page adds; never from acpmux.
   shell?: ShellRun;
   /// A subagent group's subagents (subagents/subagentFold.ts).
@@ -123,6 +125,9 @@ export type AcpmuxSnapshot = {
   type: "snapshot";
   protocolVersion: number;
   rows: AcpmuxRow[];
+  /// Each subagent's own view by subagent id: its rows, opened from its line in a group
+  /// (subagents/childRows.ts).
+  subagentViews?: Record<string, AcpmuxRow[]>;
   sessions: AcpmuxSessionEntry[];
   /** Connected peer names advertised by the acpmux daemon, including peers without chats yet. */
   peers?: string[];
@@ -359,6 +364,8 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   // subagent, the last with the list's 8px below (subagents/SubagentGroup.tsx).
   if (row.kind === SUBAGENTS) return 56;
   if (row.kind === SUBAGENT_ROW) return row.status === "last" || row.status === "only" ? 56 : 48;
+  // The child view's 28px "Subagent of" pill with 8px above and below it.
+  if (row.kind === SUBAGENT_OF) return 44;
   // The 27px disclosure line, and the live status lines in its place.
   if (row.kind === WORKED || row.kind === WORKING || row.kind === THINKING) return 35;
   // The 20px date line with 8px above it.

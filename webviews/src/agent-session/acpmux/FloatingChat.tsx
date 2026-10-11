@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { useT } from "./i18n";
 import { Icon } from "./icons/Icon";
 import type { FloatingState } from "./floatingState";
+import type { ComposerAttachment } from "./attachments";
 
 /// What the compact bar shows of the chat: working, waiting on the user, or quiet.
 export type FloatingStatus = "streaming" | "attention" | "idle";
@@ -16,6 +17,18 @@ export interface QuickFloating {
   setOnTop(onTop: boolean): void;
   setCollapsed(collapsed: boolean): void;
   moveToTab(): void;
+  /// Include focused tab: attaches what the user is looking at in cmux to the next prompt, as a chip.
+  includeContext(): void;
+}
+
+/// Include focused tab's chip from the App's `quick.context` reply (`{name, text}`), or nothing when
+/// the user is looking at nothing it can include. One chip at a time: a newer one replaces it. An
+/// untitled tab's chip is named `fallback`.
+export function contextAttachment(value: unknown, fallback: string): ComposerAttachment | undefined {
+  const raw = (value ?? {}) as { name?: unknown; text?: unknown };
+  if (typeof raw.text !== "string" || !raw.text.trim()) return undefined;
+  const name = typeof raw.name === "string" && raw.name.trim() ? raw.name : fallback;
+  return { id: "floating-context", kind: "text", name, mimeType: "text/plain", size: raw.text.length, text: raw.text };
 }
 
 /// The chat's state for the compact bar: an ask waiting on the user comes first, then a turn running.
@@ -25,7 +38,8 @@ export function floatingStatus(waiting: boolean, running: boolean): FloatingStat
 }
 
 /// The floating chat's keys while it holds a chat: ⌘J folds it to the compact bar and back, ⌘⇧P
-/// keeps it over other windows or not. They are the panel's own, like Return and Escape.
+/// keeps it over other windows or not, ⌘⇧I includes the focused tab. They are the panel's own,
+/// like Return and Escape.
 export function useFloatingKeys(floating: QuickFloating | undefined) {
   const latest = useRef(floating);
   latest.current = floating;
@@ -38,11 +52,12 @@ export function useFloatingKeys(floating: QuickFloating | undefined) {
       const key = event.key.toLowerCase();
       if (key === "j" && !event.shiftKey) current.setCollapsed(!current.state.collapsed);
       else if (key === "p" && event.shiftKey) current.setOnTop(!current.state.onTop);
+      else if (key === "i" && event.shiftKey && !current.state.collapsed) current.includeContext();
       else return;
       event.preventDefault();
       event.stopPropagation();
     };
-    // ui-allow: the floating panel's own window keys (⌘J, ⌘⇧P), wherever focus is in its page, like an app menu key.
+    // ui-allow: the floating panel's own window keys (⌘J, ⌘⇧P, ⌘⇧I), wherever focus is in its page, like an app menu key.
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);
   }, [holding]);
@@ -59,13 +74,23 @@ function StatusMark({ status }: { status: FloatingStatus }) {
   );
 }
 
-/// The open floating chat's header: its title, keep on top, fold to the compact bar, move to a tab.
+/// The open floating chat's header: its title, include the focused tab, keep on top, fold to the
+/// compact bar, move to a tab.
 export function FloatingHeader({ floating }: { floating: QuickFloating }) {
   const t = useT();
   return (
     <header className="acpmux-floating-header">
       <StatusMark status={floating.status} />
       <span className="acpmux-floating-title">{floating.title}</span>
+      <button
+        type="button"
+        className="acpmux-header-tool"
+        aria-label={t("floating.includeContext")}
+        title={`${t("floating.includeContext")} ⌘⇧I`}
+        onClick={() => floating.includeContext()}
+      >
+        <Icon name="composer.mention" size={15} />
+      </button>
       <button
         type="button"
         className="acpmux-header-tool"

@@ -3663,6 +3663,9 @@ mod chief;
 #[path = "cli/closed_delete.rs"]
 mod closed_delete;
 #[cfg(unix)]
+#[path = "cli/cloud_lease_gate.rs"]
+mod cloud_lease_gate;
+#[cfg(unix)]
 #[path = "cli/conversation_threads.rs"]
 mod conversation_threads;
 #[cfg(unix)]
@@ -3671,6 +3674,8 @@ mod explicit_socket;
 #[cfg(unix)]
 #[path = "cli/feed_local.rs"]
 mod feed_local;
+#[path = "cli/git_write.rs"]
+mod git_write;
 #[path = "cli/icon_assets.rs"]
 mod icon_assets;
 #[path = "cli/launch_credential.rs"]
@@ -3680,6 +3685,9 @@ mod launch_credential;
 mod left_dock_undock;
 #[path = "cli/lone_width.rs"]
 mod lone_width;
+#[cfg(unix)]
+#[path = "cli/new_terminal_cwd.rs"]
+mod new_terminal_cwd;
 #[cfg(unix)]
 #[path = "cli/settings_owner.rs"]
 mod settings_owner;
@@ -3817,3 +3825,7 @@ fn state_cli_tab_groups_and_caller_workspace_through_a_real_daemon() {
     state_cli(&server, None, &["tab", "group", "agents", "ungroup"]);
     assert_eq!(state_cli(&server, None, &["tab", "group", "list"]), serde_json::json!([]));
 }
+
+#[cfg(unix)]
+#[path = "cli/history.rs"]
+mod history;

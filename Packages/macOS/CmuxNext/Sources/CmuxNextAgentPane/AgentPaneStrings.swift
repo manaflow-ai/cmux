@@ -31,6 +31,11 @@ extension AgentPaneModel {
         String(localized: "agentPane.error.git", defaultValue: "The changes could not be read.", bundle: .module)
     }
 
+    /// A commit or push of the changes view failed or has no session host.
+    static var gitWriteFailedMessage: String {
+        String(localized: "agentPane.error.gitWrite", defaultValue: "The git command could not be completed.", bundle: .module)
+    }
+
     /// Shell mode's `shell.run` came without a key press or click in the pane.
     static var shellGestureMessage: String {
         String(localized: "agentPane.shell.gestureRequired", defaultValue: "Not run", bundle: .module)
@@ -129,6 +134,16 @@ extension AgentPaneView {
         case .keyNotHeld:
             reason = String(localized: "agentPane.remoteApprovals.failure.notHeld",
                             defaultValue: "the agent daemon that answers does not hold this app's key", bundle: .module)
+        case .daemonTooOld:
+            reason = String(localized: "agentPane.remoteApprovals.failure.tooOld",
+                            defaultValue: "the agent daemon there is too old for approvals from cmux. Update the machine, then try again",
+                            bundle: .module)
+        case .machineNotRunning:
+            reason = String(localized: "agentPane.remoteApprovals.failure.notRunning",
+                            defaultValue: "the machine is not running", bundle: .module)
+        case .notSingleOwner:
+            reason = String(localized: "agentPane.remoteApprovals.failure.notOwner",
+                            defaultValue: "approvals from cmux work only on a Cloud machine that you alone own", bundle: .module)
         case .failed(let message):
             reason = message
         }

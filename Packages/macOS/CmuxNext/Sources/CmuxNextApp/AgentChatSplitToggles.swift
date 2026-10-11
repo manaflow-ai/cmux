@@ -139,16 +139,20 @@ final class AgentChatSplitToggles {
     /// The chat header's state (cx-00n1): the tab's pin, whether the panes beside the chat show,
     /// and the splits whose button is lit, the ones a toggle click would close (each button's last
     /// split, while it is in the chat's workspace). One read, so ``AgentChatHeaderWatch`` observes
-    /// exactly what the page shows.
-    func headerState(chat: String, store: DaemonStore?) -> AgentPaneHeaderState {
+    /// exactly what the page shows. `pullRequest` names the chat folder's pull request (cx-tcwj): nil
+    /// for a chat whose folder is not on this Mac.
+    func headerState(chat: String, store: DaemonStore?, pullRequest: AgentChatPullRequest? = nil) -> AgentPaneHeaderState {
         guard let store else { return AgentPaneHeaderState() }
         let tabs = Self.workspaceTabs(of: chat, in: store) ?? []
         let splits = splits(in: tabs, chat: chat)
         let lit = Self.panels.filter { id in
             opened.lastIndex { $0.id == id }.flatMap { splits[$0] } != nil
         }
-        return AgentPaneHeaderState(pinned: store.tab(id: chat)?.pinned ?? false,
-                                    sideTabs: Self.sideTabs(of: chat, in: store) == .shown, lit: lit)
+        var state = AgentPaneHeaderState(pinned: store.tab(id: chat)?.pinned ?? false,
+                                         sideTabs: Self.sideTabs(of: chat, in: store) == .shown, lit: lit,
+                                         floatingChat: QuickComposerTunables.floatingChat.value)
+        state.pullRequest = pullRequest?.badge(cwd: store.tab(id: chat)?.cwd)
+        return state
     }
 
     /// [+] New tab, which becomes Hide tabs in the same spot (cx-qom0, ChatGPT's right column). On a

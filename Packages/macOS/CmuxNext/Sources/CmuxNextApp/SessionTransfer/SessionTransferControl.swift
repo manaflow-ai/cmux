@@ -8,14 +8,29 @@ import CmuxNextSettings
 enum SessionTransferControl {
     static func methods(services: AppServices) -> [ControlMethod] {
         [
-            .snapshot("session.transfer.list") { call in
+            .async("session.transfer.list") { [transfer = services.sessionTransfer] call in
+                // This Mac's chats, and the acpmux the taker moves them from.
+                let (chats, acpmux) = await MainActor.run {
+                    (transfer.localChats(), transfer.acpmuxEnvironment().map { (socket: $0.socketPath, home: $0.home.path) })
+                }
                 // The local daemon's workspaces only: `complete` closes on it.
                 let sessions = call.snapshot.topology.workspaces.filter { $0.machine == nil }.flatMap { workspace in
                     workspace.screens.flatMap(\.panes).flatMap { pane in
                         pane.tabs.compactMap { tab -> JSONValue? in
-                            // Local terminals only: a cmux-next agent chat knows its acpmux
-                            // session, not the harness's own id an adopt needs, and a
-                            // remote terminal carries a session id rather than its host.
+                            if let chat = chats[tab.id], let acpmux {
+                                return [
+                                    "surface": .string(tab.surface),
+                                    "workspace": .string(workspace.id),
+                                    "kind": "chat",
+                                    "title": .string(tab.title),
+                                    "cwd": .optional(tab.cwd),
+                                    "agent": .optional(chat.harness),
+                                    "agent_session": .string(chat.session),
+                                    "acpmux_socket": .string(acpmux.socket),
+                                    "acpmux_home": .string(acpmux.home),
+                                ]
+                            }
+                            // Local terminals: a remote terminal carries a session id rather than its host.
                             guard tab.kind == "terminal", tab.agentSessionID == nil else { return nil }
                             return [
                                 "surface": .string(tab.surface),
@@ -53,8 +68,16 @@ enum SessionTransferControl {
                     throw ControlError.invalidParams("source is required: a peer socket path or tag from session.transfer.peers")
                 }
                 let ids = Set(call.params["ids"]?.arrayValue?.compactMap(\.stringValue) ?? [])
+                // A chat running a turn moves only when its turn may stop.
+                let interrupt = call.params["interrupt"]?.boolValue == true
+                // A chat whose folder is not here (its failure's `missing_folder`) moves into `cwd`:
+                // that one chat only, so no other chat leaves its own folder.
+                let cwd = call.params["cwd"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+                if cwd != nil, ids.count != 1 {
+                    throw ControlError.invalidParams("cwd needs ids naming the one chat to move into it")
+                }
                 do {
-                    return try await transfer.pull(source: source, ids: ids)
+                    return try await transfer.pull(source: source, ids: ids, interrupt: interrupt, cwd: cwd)
                 } catch {
                     throw controlError(error)
                 }
@@ -87,6 +110,10 @@ private nonisolated func controlError(_ error: Error) -> ControlError {
     case SessionTransferService.Failure.unavailable: "unavailable"
     case SessionTransferService.Failure.missingAgentID: "invalid_params"
     case SessionTransferService.Failure.agentNotOpened: "unavailable"
+    case SessionTransferService.Failure.chatNotMoved: "unavailable"
+    case SessionTransferService.Failure.chatFolderMissing: "unavailable"
+    case SessionTransferService.Failure.chatInChats: "unavailable"
+    case SessionTransferService.Failure.sourceAgentsStopped: "unavailable"
     default: "internal_error"
     }
     return ControlError(code: code, message: SessionTransferService.message(for: error))

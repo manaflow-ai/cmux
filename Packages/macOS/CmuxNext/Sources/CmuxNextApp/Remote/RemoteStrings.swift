@@ -89,13 +89,10 @@ enum RemoteStrings {
         String(format: String(localized: "remote.install.body", defaultValue: "Downloads cmux-tui %1$@ from files.cmux.com, checks its SHA-256 checksum and installs it at %2$@ on %3$@, without sudo. A cmux-tui running there restarts on the new build; its terminals keep running.", table: "Remote", bundle: .module), commit, path, destination)
     }
     static var install: String { String(localized: "remote.button.install", defaultValue: "Install", table: "Remote", bundle: .module) }
-    static func forgetTitle(_ name: String) -> String {
-        String(format: String(localized: "remote.forget.title", defaultValue: "Forget %@?", table: "Remote", bundle: .module), name)
+    /// The toast after Forget Machine (its Undo brings the machine back).
+    static func forgotToast(_ name: String) -> String {
+        String(format: String(localized: "remote.forgot.toast", defaultValue: "Forgot %@", table: "Remote", bundle: .module), name)
     }
-    static var forgetBody: String {
-        String(localized: "remote.forget.body", defaultValue: "Removes the machine from the saved list with its personal order, groups and space pins. Nothing on the machine changes.", table: "Remote", bundle: .module)
-    }
-    static var forget: String { String(localized: "remote.button.forget", defaultValue: "Forget", table: "Remote", bundle: .module) }
 
     // MARK: Failures
 
@@ -138,6 +135,8 @@ enum RemoteStrings {
         case .connecting, .connected:
             if let failure = session.daemonFailure { return daemonFailed(failure) }
             return session.lastError
+        case .reconnecting:
+            return String(localized: "remote.status.reconnecting", defaultValue: "The connection dropped. cmux reconnects on its own; programs keep running on the machine.", table: "Remote", bundle: .module)
         case .authFailed(let message):
             return String(format: String(localized: "remote.status.authFailed", defaultValue: "SSH sign-in failed: %@ Check your key or agent, then choose Reconnect Machine.", table: "Remote", bundle: .module), message)
         case .hostKeyUntrusted(let message):
@@ -160,7 +159,7 @@ enum RemoteStrings {
         case .authFailed(let message), .hostKeyUntrusted(let message), .unreachable(let message),
              .installFailed(let message), .failed(let message): message
         case .needsInstall(let need): needText(need, session)
-        case .connecting, .connected: session.daemonFailure ?? session.lastError
+        case .connecting, .connected, .reconnecting: session.daemonFailure ?? session.lastError
         case .offline, .installing: session.lastError
         }
         guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }

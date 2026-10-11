@@ -81,6 +81,7 @@ extension AgentTabStore {
                                  environment: ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
                                  linkScheme: services.linkScheme, settings: services.settings)
         tabs.launchImages = AgentPaneLaunchImages(beside: services.environment.sidebarSnapshotFile)
+        tabs.unsentDrafts = AgentUnsentDrafts(beside: services.environment.sidebarSnapshotFile)
         // The Chief home's acpmux: the Chief host's subagent tabs attach there.
         let chief = ChiefHomeAcpmux(home: ChiefHome.resolve(tag: services.environment.tag))
         (tabs.chiefHost, tabs.chiefPaneHost) = (chief.host, chief.paneHost)
@@ -88,9 +89,9 @@ extension AgentTabStore {
         // This Mac's stable install id (the Cloud device id): only this host attaches to its acpmux.
         tabs.blankChatHandler = { [weak services] key in
             guard let services, let (tab, pane) = services.locateTab(key), let controller = services.paneController(for: pane) else { return nil }
-            return NewTabPage.handler(services, cwd: tab.cwd) { [weak controller] key, request in
+            return NewTabPage.handler(services, cwd: tab.cwd) { [weak controller, weak tabs] key, request in
                 guard let controller else { return }
-                NewTabPage.replace(key, with: request, cwd: request.cwd ?? tab.cwd, in: controller)
+                NewTabPage.replace(key, with: request, cwd: request.cwd ?? tab.cwd, in: controller, keep: tabs?.sessions[key] != nil)
             }
         }
         tabs.firstPageNewTab = { [weak services] cwd in
@@ -140,6 +141,14 @@ extension AgentTabStore {
             let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
             return tabs.lazy.compactMap(\.cwd).first { $0.hasPrefix("/") }
         }
+        tabs.remoteFolders = { [weak services] key in
+            guard let services, let (tab, _) = services.locateTab(key) else { return [] }
+            let store = services.machines.daemon(forTab: tab).store
+            var folders: [String] = []
+            for folder in store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).compactMap(\.cwd)
+                where folder.hasPrefix("/") && !folders.contains(folder) { folders.append(folder) }
+            return folders
+        }
         tabs.remoteHost = { [weak services, weak tabs] key in
             guard let services, let tabs, let (tab, _) = services.locateTab(key), let record = tab.agentSession else { return nil }
             let started = record.host.hasPrefix(AgentTabRemoteStart.registryPrefix)
@@ -158,16 +167,24 @@ extension AgentTabStore {
                 return AgentTabRefusedHost(refusal: .startUnsupported(machine: machine))
             }
             var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, endpoint: endpoint)
+            if started {
+                // The tab may still be provisional here: each handshake reads its store surface.
+                host.existing = { [weak tabs] in
+                    guard let tabs else { throw CancellationError() }
+                    return try await tabs.existingRemoteChat(key)
+                }
+            }
             if session == nil {
                 // Only a new chat this app opened on that machine starts there, and only through a
-                // daemon that serves the verb; never a fallback to this Mac (cx-k21v).
+                // daemon that serves the verb; never a fallback to this Mac (cx-k21v). It starts at
+                // the page's first send, never when the tab opens.
                 guard started else { return nil }
                 guard daemon.supports(DaemonCapabilities.shared.agentSessionStart) else {
                     return AgentTabRefusedHost(refusal: .startUnsupported(machine: machine))
                 }
-                host.start = { [weak tabs] in
+                host.start = { [weak tabs] cwd, harness in
                     guard let tabs else { throw CancellationError() }
-                    return try await tabs.startRemoteChat(key, machine: machine, endpoint: endpoint)
+                    return try await tabs.startRemoteChat(key, machine: machine, cwd: cwd, harness: harness, endpoint: endpoint)
                 }
             }
             // cx-0q7o: the app's own ssh exec to that machine restarts its acpmux with a key.
@@ -175,6 +192,13 @@ extension AgentTabStore {
                 host.approvals = AgentPaneRemoteApprovals(machineID: link.machineID, label: link.host.label) { [weak services, weak link] in
                     guard let services, let link else { return .failed("") }
                     return await services.ssh.restartWithApprovals(link)
+                }
+            } else if let cloud = services.machines.session(daemon.machineID), cloud.link != nil || cloud.appLink != nil {
+                // cx-psxg: a Cloud machine on the /api/vm link, through the web Cloud service; cx-kvmz:
+                // one on the Cloud app server link, through the API Worker with the person's session.
+                host.approvals = AgentPaneRemoteApprovals(machineID: cloud.machineID, label: cloud.machine.title) { [weak services, weak cloud] in
+                    guard let services, let cloud else { return .failed("") }
+                    return await services.cloud.restartWithApprovals(cloud)
                 }
             }
             return host

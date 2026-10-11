@@ -85,6 +85,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/newtab/AllChatsList.tsx#AllChatsList",
     "agent-session/acpmux/newtab/OpenTabsList.tsx#OpenTabsList",
     "agent-session/acpmux/newtab/ClosedList.tsx#ClosedList",
+    "agent-session/acpmux/newtab/RowGlyph.tsx#RowGlyph",
     "ui/VirtualList.tsx#VirtualList",
   ],
   variants: withAllChats({
@@ -92,6 +93,12 @@ export default agentPaneEntry({
       note: "No chats yet.",
       ready: newTab(),
       snapshot: noChat(),
+    },
+    "chats-unavailable": {
+      note: "The chat index did not answer: All chats says it could not load and offers Try again.",
+      ready: newTab(),
+      snapshot: noChat(),
+      native: {},
     },
     "many-chats": {
       note: "The running chat and the one waiting on the user as cards; every chat in All chats below, named apart by project. The list's rows stay inside the list (dogfood 2026-10-10: they drew from the page top over the field).",
@@ -330,8 +337,17 @@ export default agentPaneEntry({
       ready: newTab({ template: "classic", templateSwitcher: true }),
       snapshot: noChat(manySessions(4)),
     },
+    projects: {
+      note: "All chats' Projects view (cx-ncc.66): the chats grouped under their project folder, the newest project first; a header folds its chats.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(4)),
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Projects" });
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-all-group"));
+      },
+    },
     "switcher-off": {
-      note: "The template switcher is off by default until it is styled (cx-7qqu): no dots.",
+      note: "With Debug Settings newTab.templateSwitcher off (it is on by default, cx-l1jv): no dots.",
       ready: newTab(),
       snapshot: noChat(manySessions(4)),
       play: async (ctx) => {
@@ -341,12 +357,35 @@ export default agentPaneEntry({
       },
     },
     "switcher-on": {
-      note: "With Debug Settings newTab.templateSwitcher on, a dot switches the page in place (cx-7qqu).",
+      note: "The template dots, drawn like the space dots: a dot switches the page in place and the chip slides to it (cx-l1jv).",
       ready: newTab({ templateSwitcher: true }),
       snapshot: noChat(manySessions(6)),
       play: async (ctx) => {
         await ctx.click({ selector: '.nt-template-dot[data-template="threads"]' });
         await ctx.waitFor(() => ctx.document.querySelector('.nt-screen[data-template="threads"]'));
+      },
+    },
+    "switcher-keys": {
+      note: "The arrow keys switch templates from a focused dot and keep focus there, through Classic; arrowing onto Terminal only focuses it (cx-l1jv).",
+      ready: newTab({ templateSwitcher: true }),
+      snapshot: noChat(manySessions(6)),
+      play: async (ctx) => {
+        const onDot = (template: string) =>
+          ctx.document.activeElement?.matches(`.nt-template-input[value="${template}"]`);
+        await ctx.focus({ role: "radio", name: "Default" });
+        for (const template of ["composer", "threads", "console"]) {
+          await ctx.press("ArrowRight");
+          await ctx.waitFor(() => ctx.document.querySelector(`.nt-screen[data-template="${template}"]`));
+          if (!onDot(template)) throw new Error(`switching to ${template} with the keys moved focus off the dots`);
+        }
+        // Classic is another page, which focuses its field as it mounts: focus stays on the dots.
+        await ctx.press("ArrowRight");
+        await ctx.waitFor(() => !ctx.document.querySelector(".nt-screen") && onDot("classic"));
+        // Terminal would turn the page into a terminal: the keys only focus it.
+        await ctx.press("ArrowRight");
+        await ctx.waitFor(() => onDot("terminal"));
+        if (!ctx.document.querySelector('.nt-template-input[value="classic"]:checked'))
+          throw new Error("arrowing onto Terminal switched the page");
       },
     },
   }),

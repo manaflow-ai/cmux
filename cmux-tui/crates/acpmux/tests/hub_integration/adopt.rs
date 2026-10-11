@@ -44,7 +44,10 @@ async fn adopt_setup() -> (Arc<Hub>, TestClient, std::path::PathBuf, std::path::
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);
 
-    let root = std::env::temp_dir().join(format!("acpmux-adopt-hub-{}", uuid::Uuid::now_v7()));
+    // Under /tmp: a harness stand-in's path is read from `ps` split on spaces, and a worker's
+    // temp dir may have one (`/Library/Application Support/...`).
+    let root =
+        std::path::PathBuf::from("/tmp").join(format!("acpmux-adopt-hub-{}", uuid::Uuid::now_v7()));
     let project = root.join("project");
     std::fs::create_dir_all(&project).unwrap();
     let id = session_id();
@@ -87,6 +90,48 @@ fn adopt_if_live(harness: &str, id: &str, if_live: Option<&str>) -> Value {
 fn backdate(file: &std::path::Path) {
     let hour_ago = std::time::SystemTime::now() - Duration::from_secs(3600);
     std::fs::File::options().write(true).open(file).unwrap().set_modified(hour_ago).unwrap();
+}
+
+/// A running process named like a harness (`python3 <dir>/<name>`, a script
+/// that sleeps), which names no session. A recent write counts as live only
+/// while some harness runs, so a test that expects "written" starts one
+/// rather than depend on what else runs on the builder. A copied `sleep`
+/// would not do: a multicall coreutils exits on an unknown argv[0].
+fn harness_stand_in(dir: &std::path::Path, name: &str) -> std::process::Child {
+    let script = dir.join(name);
+    std::fs::create_dir_all(dir).unwrap();
+    std::fs::write(&script, "import time\ntime.sleep(60)\n").unwrap();
+    std::process::Command::new("python3").arg(&script).spawn().unwrap()
+}
+
+/// A recent write is live only while a harness outside acpmux runs: with
+/// none, the chat's harness has ended (Lawrence P0 2026-10-11); an unreadable
+/// process table keeps the write live (fails closed); harnesses under an
+/// `acpmux` process are its own.
+#[test]
+fn a_recent_write_is_live_only_while_a_harness_runs() {
+    use acpmux::adopt_live::{LiveUse, Proc, live_use};
+    let root = std::env::temp_dir().join(format!("acpmux-adopt-live-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let transcript = root.join("chat.jsonl");
+    std::fs::write(&transcript, "{}\n").unwrap();
+    let now = std::time::SystemTime::now() + Duration::from_secs(5);
+    let id = session_id();
+    let proc = |pid, ppid, command: &str| Proc { pid, ppid, command: command.to_owned() };
+    let shell = proc(10, 1, "/bin/zsh -l");
+    let recent = |procs: &[Proc]| {
+        matches!(live_use(&id, &transcript, procs, now), Some(LiveUse::RecentWrite { .. }))
+    };
+    assert!(!recent(std::slice::from_ref(&shell)));
+    assert!(recent(&[shell.clone(), proc(11, 10, "/opt/homebrew/bin/codex")]));
+    assert!(recent(&[shell.clone(), proc(11, 10, "node /usr/local/bin/claude --verbose")]));
+    assert!(recent(&[]));
+    let ours =
+        [shell.clone(), proc(20, 1, "/Applications/x/acpmux daemon"), proc(21, 20, "claude")];
+    assert!(!recent(&ours));
+    backdate(&transcript);
+    assert!(!recent(&[shell, proc(11, 10, "codex")]));
+    let _ = std::fs::remove_dir_all(root);
 }
 
 #[tokio::test]
@@ -144,8 +189,10 @@ async fn adopt_refuses_a_chat_live_in_another_process() {
     let record = json!({"type": "session_meta", "payload": {"id": live, "cwd": project}});
     std::fs::write(&rollout, format!("{record}\n")).unwrap();
     backdate(&rollout);
-    let mut other = std::process::Command::new("sh")
-        .args(["-c", "sleep 60", "codex", "resume", live.as_str()])
+    // python3, not `sh -c "sleep 60"`: sh execs a lone command, and the
+    // process the adopt then reads in `ps` is a bare `sleep 60`.
+    let mut other = std::process::Command::new("python3")
+        .args(["-c", "import time; time.sleep(60)", "codex", "resume", live.as_str()])
         .spawn()
         .unwrap();
     let refused = c.request(method::SESSION_NEW, adopt("fakecodex", &live)).await.unwrap_err();
@@ -158,7 +205,9 @@ async fn adopt_refuses_a_chat_live_in_another_process() {
     let _ = other.kill();
     let _ = other.wait();
 
-    // No process names it, but its transcript was just written.
+    // No process names it, but its transcript was just written while a
+    // Codex harness runs.
+    let mut harness = harness_stand_in(&root.join("bin"), "codex");
     std::fs::File::options()
         .write(true)
         .open(&rollout)
@@ -168,6 +217,8 @@ async fn adopt_refuses_a_chat_live_in_another_process() {
     let recent = c.request(method::SESSION_NEW, adopt("fakecodex", &live)).await.unwrap_err();
     assert!(recent.contains("written"), "{recent}");
     assert!(hub.sessions().is_empty());
+    let _ = harness.kill();
+    let _ = harness.wait();
 
     let opened =
         c.request(method::SESSION_NEW, adopt_if_live("fakecodex", &live, Some("open"))).await;
@@ -190,7 +241,10 @@ async fn adopt_forks_a_live_claude_chat_when_asked() {
     cfg.store.mode = StoreMode::Memory;
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);
-    let root = std::env::temp_dir().join(format!("acpmux-adopt-fork-{}", uuid::Uuid::now_v7()));
+    // Under /tmp: a harness stand-in's path is read from `ps` split on spaces, and a worker's
+    // temp dir may have one (`/Library/Application Support/...`).
+    let root = std::path::PathBuf::from("/tmp")
+        .join(format!("acpmux-adopt-fork-{}", uuid::Uuid::now_v7()));
     let project = root.join("project");
     std::fs::create_dir_all(&project).unwrap();
     let fork_id = session_id();
@@ -206,7 +260,8 @@ async fn adopt_forks_a_live_claude_chat_when_asked() {
         .await
         .unwrap();
 
-    // Just written: live.
+    // Just written while a Claude Code harness runs: live.
+    let mut harness = harness_stand_in(&root.join("bin"), "claude");
     let refused = c.request(method::SESSION_NEW, adopt("fakeclaude", &fork_id)).await.unwrap_err();
     assert!(refused.contains("written"), "{refused}");
     let forked =
@@ -221,5 +276,7 @@ async fn adopt_forks_a_live_claude_chat_when_asked() {
     };
     assert_eq!(mux("adopted"), Some(json!({"agentSessionId": fork_id, "fork": true})));
     assert_eq!(mux("resumed"), Some(json!({"level": "fork"})));
+    let _ = harness.kill();
+    let _ = harness.wait();
     let _ = std::fs::remove_dir_all(root);
 }

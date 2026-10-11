@@ -9,11 +9,11 @@ extension AgentTabStore {
     func wireHeader(_ model: AgentPaneModel, key provisional: String) {
         let actions = AgentChatTabActions(tab: { [weak self] in self?.resolve(provisional) ?? provisional },
                                           registry: { [weak self] in self?.actionRegistry }, files: { [weak self] in self?.openFiles?(self?.resolve(provisional) ?? provisional, $0, $1) })
-        let toggles = AgentChatSplitToggles()
+        let toggles = AgentChatSplitToggles(), pullRequest = AgentChatPullRequest()
         let watch = AgentChatHeaderWatch(state: { [weak self] in
             guard let self else { return AgentPaneHeaderState() }
             let chat = resolve(provisional)
-            return toggles.headerState(chat: chat, store: lookup(chat)?.store)
+            return toggles.headerState(chat: chat, store: lookup(chat)?.store, pullRequest: gitLink?(chat)?.isLocal == true ? pullRequest : nil)
         }, push: { [weak self] state in
             guard let view = self?.existingView(provisional) else { return }
             AgentPaneHeaderState.push(state, to: view)
@@ -43,7 +43,7 @@ extension AgentTabStore {
             else { toggles.open(id, cwd: nil, url: url, chat: chat, store: store, actions: actions) }
         }, saveQuickActions: { [weak self] list in
             await self?.customization.saveQuickActions(list) ?? false
-        })
+        }, moveToFloatingChat: { [weak self] session in actions.moveToFloatingChat(session, via: self?.moveToFloatingChat) })
         model.chatMenuItems = actions.menuItems
         model.onSearchWeb = actions.searchWeb
     }

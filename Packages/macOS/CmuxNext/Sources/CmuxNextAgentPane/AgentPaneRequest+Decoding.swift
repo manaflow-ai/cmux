@@ -37,6 +37,12 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "chat.unsentDraft":
+            if let text = params?["text"] as? String {
+                self = .unsentDraft(text)
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.checkpointAvailability":
             if let available = params?["available"] as? Bool {
                 self = .checkpointAvailability(available)
@@ -154,6 +160,12 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "harness.health":
+            if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128, !id.contains(where: \.isNewline) {
+                self = .harnessHealth(id, refresh: params?["refresh"] as? Bool == true)
+            } else {
+                self = .unsupported(method)
+            }
         case "project.list":
             let query = (params?["query"] as? String).map { String($0.prefix(512)) }
             self = .listProjects(query)
@@ -218,7 +230,13 @@ extension AgentPaneRequest {
             self = AgentPaneQuickStart(params: params).map(AgentPaneRequest.quickStartInBackground) ?? .unsupported(method)
         case "quick.setOnTop": self = (params?["onTop"] as? Bool).map(AgentPaneRequest.quickSetOnTop) ?? .unsupported(method)
         case "quick.setCollapsed": self = (params?["collapsed"] as? Bool).map(AgentPaneRequest.quickSetCollapsed) ?? .unsupported(method)
+        case "quick.floatingState": self = .quickFloatingState
+        case "quick.context": self = .quickContext
         case "turn.undo": self = AgentPaneTurnUndo(params: params).map(AgentPaneRequest.turnUndo) ?? .invalidTurnUndo
+        case "git.stage", "git.unstage":
+            self = .gitStage(AgentPaneGitStage(method: method, params: params))
+        case "git.pullRequest": self = .gitPullRequest(AgentPaneGitPullRequest(params: params))
+        case "project.instructions": self = .projectInstructions(AgentPaneProjectInstructions(params: params))
         case "git.githubRepository":
             if let cwd = params?["cwd"] as? String, cwd.hasPrefix("/"), !cwd.contains("\0") {
                 self = .githubRepository(cwd: cwd)
@@ -231,6 +249,8 @@ extension AgentPaneRequest {
             } else {
                 self = .invalidGit(method)
             }
+        case "git.commit", "git.push":
+            self = AgentPaneGitWrite(method: method, params: params).map(AgentPaneRequest.gitWrite) ?? .invalidGit(method)
         case "transport.open": self = .transportOpen
         case "transport.gesture": self = .transportGesture(AgentPaneGestureIntent(gestureParams: params))
         case "transport.gesture.release": self = .transportGestureRelease

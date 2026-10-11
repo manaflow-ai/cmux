@@ -47,7 +47,8 @@ export function virtualAnchor(anchor: UiAnchor) {
 
 export interface PopoverProps {
   open: boolean;
-  onOpenChange(open: boolean): void;
+  /** `escape`: closed by Escape, which a dialog may read as "revert". */
+  onOpenChange(open: boolean, details?: { escape: boolean }): void;
   /** Where it opens; it opens below. */
   anchor: UiAnchor;
   /** The accessible name of the popover (role dialog). */
@@ -55,6 +56,8 @@ export interface PopoverProps {
   className?: string;
   /** Which side of the anchor receives the popover. */
   side?: "top" | "bottom" | "inline-end" | "inline-start";
+  /** False keeps `side` while open (`useOpenSide` chose it); default flips when there is no room. */
+  flip?: boolean;
   /** Focus a field inside on open (default: the first focusable). */
   initialFocus?: React.RefObject<HTMLElement | null> | boolean;
   /** Where focus goes on close (default: back to where it was). */
@@ -69,18 +72,24 @@ export function Popover({
   label,
   className,
   side = "bottom",
+  flip = true,
   initialFocus,
   finalFocus,
   children,
 }: PopoverProps) {
   const container = usePortalContainer();
   return (
-    <BasePopover.Root open={open} onOpenChange={(next) => onOpenChange(next)} modal={false}>
+    <BasePopover.Root
+      open={open}
+      onOpenChange={(next, details) => onOpenChange(next, { escape: details.reason === "escape-key" })}
+      modal={false}
+    >
       <BasePopover.Portal container={container}>
         <BasePopover.Positioner
           className="ui-positioner"
           anchor={virtualAnchor(anchor)}
           side={side}
+          collisionAvoidance={flip ? undefined : { side: "none" }}
           align="start"
           sideOffset={UI_ANCHOR_GAP}
         >

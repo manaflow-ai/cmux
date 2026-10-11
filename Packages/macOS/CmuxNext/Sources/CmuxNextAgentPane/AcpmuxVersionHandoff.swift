@@ -1,13 +1,15 @@
+import Darwin
 import Foundation
 import os
 import CmuxNextCompat
 
 /// After an update: hand a running acpmux daemon of another build off to the
-/// bundled build (plans/cmux-next/durable-sessions.md section 3). Only a
-/// daemon that runs its agents under agent hosts (`_acpmux/status`
-/// `agentHosts`) is handed off: its SIGTERM detaches every agent and the new
-/// daemon adopts them. An older daemon would end its agents, so it keeps
-/// running until it exits on its own.
+/// bundled build (plans/cmux-next/durable-sessions.md section 3), and one whose
+/// executable was replaced with the app's bundle whatever its build
+/// (``replaced(pid:)``). Only a daemon that runs its agents under agent hosts
+/// (`_acpmux/status` `agentHosts`) is handed off: its SIGTERM detaches every
+/// agent and the new daemon adopts them. An older daemon would end its agents,
+/// so it keeps running until it exits on its own.
 nonisolated enum AcpmuxVersionHandoff {
     enum Decision: Equatable, Sendable {
         case keep(String)
@@ -27,12 +29,27 @@ nonisolated enum AcpmuxVersionHandoff {
         return build.isEmpty ? nil : build
     }
 
-    static func decide(_ running: String?, _ bundled: String?, _ agentHosts: Bool) -> Decision {
+    static func decide(_ running: String?, _ bundled: String?, _ agentHosts: Bool, replaced: Bool = false) -> Decision {
+        if replaced { return agentHosts ? .restart : .keep("its agents would end: no agent hosts") }
         guard let running else { return .keep("running build unknown") }
         guard let bundled else { return .keep("bundled build unknown") }
         if running == bundled { return .keep("same build") }
         guard agentHosts else { return .keep("its agents would end: no agent hosts") }
         return .restart
+    }
+
+    /// Whether daemon `pid` runs an executable whose file is gone: the app's bundle was replaced
+    /// in place after the daemon started (update-dev-daily.sh renames the old bundle aside and
+    /// deletes it; a reinstall), so it is an earlier install of this app. The server peer check
+    /// refuses it whatever its build, since its executable is not the bundled one, and every chat
+    /// would say acpmux did not start (cx-ame2k). Another install's daemon (NIGHTLY and Release
+    /// share `~/.acpmux`) runs a file that still exists.
+    static func replaced(pid: Int32) -> Bool {
+        guard kill(pid, 0) == 0 else { return false }
+        var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return true }
+        let path = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+        return !FileManager.default.fileExists(atPath: path)
     }
 
     /// The bundled acpmux's build (`<executable> --version`).
@@ -53,16 +70,18 @@ nonisolated enum AcpmuxVersionHandoff {
         }.value
     }
 
-    /// Hands the daemon described by `status` off when it runs another build
-    /// and keeps its agents across a restart. Returns true when it stopped
-    /// that daemon, so the caller starts the bundled one.
+    /// Hands the daemon described by `status` off when it runs another build or
+    /// a replaced bundle's executable, and keeps its agents across a restart.
+    /// Returns true when it stopped that daemon, so the caller starts the
+    /// bundled one.
     static func handOffIfStale(_ status: AcpmuxStatus, environment: AcpmuxEnvironment) async -> Bool {
         let bundled = await bundledBuild(environment)
-        guard decide(status.build, bundled, status.agentHosts) == .restart, let bundled, let pid = status.pid else {
+        let isReplaced = status.pid.map(Self.replaced(pid:)) ?? false
+        guard decide(status.build, bundled, status.agentHosts, replaced: isReplaced) == .restart, let pid = status.pid else {
             return false
         }
-        guard handedOff.withLock({ $0.insert(bundled).inserted }) else { return false }
-        logger.info("acpmux \(pid) runs build \(status.build ?? "?", privacy: .public); handing off to \(bundled, privacy: .public)")
+        guard handedOff.withLock({ $0.insert(bundled ?? "pid \(pid)").inserted }) else { return false }
+        logger.info("acpmux \(pid) runs build \(status.build ?? "?", privacy: .public)\(isReplaced ? " from a replaced bundle" : "", privacy: .public); handing off to \(bundled ?? "?", privacy: .public)")
         do {
             try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath)
         } catch {

@@ -8,6 +8,7 @@ import { handleGooglePubsub } from "./ingress/google-hooks.ts"
 import { handleSsoDiscover } from "./sso-discover.ts"
 import { handleStackWebhook, STACK_WEBHOOK_PATH } from "./stack-webhook.ts"
 import { principalForOwner, selectTeam, TEAM_SUBPROTOCOL_PREFIX } from "./team-select.ts"
+import { forwardHeaders, handleWireTicket, spendTicketAtEntry, wireCredential, wireUnauthenticated, type SpentTicket } from "./wire-ticket.ts"
 
 /** The owner each wire scope reaches (principalForOwner). */
 const WIRE_OWNER: Readonly<Record<string, string>> = { team: "cloud:TeamDO", feed: "cloud:FeedDO", cloud: "cloud:CloudDO", conv: "cloud:ConversationDO", mux: "cloud:MuxDO" }
@@ -33,7 +34,9 @@ export { PairingDO } from "./pairing-do.ts"
 export { HostDO } from "./host-do.ts"
 export { TeamVmDO } from "./team-vm-do.ts"
 export { CloudDO } from "./cloud-do.ts"
+export { WireTicketDO } from "./wire-ticket.ts"
 import { handleCloudBind, handleCloudKeyset } from "./cloud-link.ts"
+import { ACPMUX_PATH, handleCloudAcpmux } from "./cloud-acpmux.ts"
 export { AutomationRunWorkflow } from "./automation-workflow.ts"
 export { AutomationTail } from "./automation-tail.ts"
 export { AutomationEgress } from "./automation-egress.ts"
@@ -53,16 +56,17 @@ const gateUnreachable = (e: unknown) => {
 }
 
 /**
- * WebSocket gateway: `GET /v1/wire/{user|team|feed|cloud}` and `/v1/wire/conv/<conversation>` with subprotocols
- * `cmux.wire.v1, bearer.<token>` (browsers cannot set headers; the token stays
- * out of the URL and logs). The Worker authenticates and passes the principal
- * to the owner DO; frames never carry identity.
+ * WebSocket gateway: `GET /v1/wire/{user|team|feed|cloud}` and `/v1/wire/conv/<conversation>` with subprotocol
+ * `cmux.wire.v1`. The credential is the Authorization header (native clients), a `ticket.<ticket>`
+ * subprotocol from POST /v1/wire/ticket (browsers), or the legacy `bearer.<token>` subprotocol
+ * (wire-ticket.ts; invocation logs record every header but Authorization). The Worker
+ * authenticates and passes the principal to the owner DO; frames never carry identity.
  */
-const wire = async (request: Request, env: Env, scope: string, conversation?: string /* or agent for mux */): Promise<Response> => {
-  const protocols = (request.headers.get("Sec-WebSocket-Protocol") ?? "").split(",").map((s) => s.trim())
-  const token = protocols.find((p) => p.startsWith("bearer."))?.slice("bearer.".length)
-  const authenticatedToken = await authenticate(env, token)
-  if (!authenticatedToken?.user || !authenticatedToken.team) return new Response("unauthenticated", { status: 401 })
+const wire = async (request: Request, env: Env, spent: SpentTicket | undefined, scope: string, conversation?: string /* or agent for mux */): Promise<Response> => {
+  const credential = await wireCredential(request, env, scope, spent)
+  if (!credential.ok) return credential.response
+  const { principal: authenticatedToken, protocols } = credential
+  if (!authenticatedToken?.user || !authenticatedToken.team) return wireUnauthenticated()
   // A session names a shared team with the `team.<id>` subprotocol; TeamDO confirms the membership (team-select.ts).
   const selected = await selectTeam(env, { ...authenticatedToken, user: authenticatedToken.user, team: authenticatedToken.team }, protocols.find((p) => p.startsWith(TEAM_SUBPROTOCOL_PREFIX))?.slice(TEAM_SUBPROTOCOL_PREFIX.length))
   if (!selected.ok) return Response.json({ error: { code: selected.code, message: selected.message } }, { status: selected.code === "owner.unreachable" ? 503 : 403 })
@@ -101,7 +105,7 @@ const wire = async (request: Request, env: Env, scope: string, conversation?: st
               ? [env.MUX_DO, conversation]
               : [undefined, undefined]
   if (!ns || !entity) return new Response("not found", { status: 404 })
-  const headers = new Headers(request.headers)
+  const headers = forwardHeaders(request, protocols)
   headers.set("x-cmux-entity", entity)
   headers.set("x-cmux-principal", JSON.stringify(principal))
   const stub = (ns as DurableObjectNamespace).get((ns as DurableObjectNamespace).idFromName(entity))
@@ -148,17 +152,24 @@ const PROJECTION_COMPARE_CRON = "*/15 * * * *"
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url)
+    // A wire ticket is spent by the first request that carries it, on any path (wire-ticket.ts).
+    const spent = await spendTicketAtEntry(request, env)
     // The Cloud VM's bind agent (state-placement.md 5.8 item 2): the one-time bind token is the credential.
     if (url.pathname === "/v1/cloud/bind" && request.method === "POST") return handleCloudBind(request, env)
     if (url.pathname === "/v1/cloud/keyset") return handleCloudKeyset(request, env)
+    // The keyed acpmux start (cx-kvmz): outside the op path, so the key never becomes an op or a log line.
+    const acpmux = url.pathname.match(ACPMUX_PATH)
+    if (acpmux) return handleCloudAcpmux(request, env, acpmux[1]!, acpmux[2] as "keyed-start" | "person-holds")
+    // A single-use wire ticket for a browser socket (wire-ticket.ts): Authorization header only.
+    if (url.pathname === "/v1/wire/ticket") return handleWireTicket(request, env)
     const m = url.pathname.match(/^\/v1\/wire\/(user|team|feed|cloud)$/)
-    if (m && request.headers.get("Upgrade") === "websocket") return wire(request, env, m[1]!)
+    if (m && request.headers.get("Upgrade") === "websocket") return wire(request, env, spent, m[1]!)
     // Home (E5): one socket per conversation; the ConversationDO admits current participants only.
     const conv = url.pathname.match(/^\/v1\/wire\/conv\/(conv_(?:dm_)?[0-9A-HJKMNP-TV-Z]{26})$/)
-    if (conv && request.headers.get("Upgrade") === "websocket") return wire(request, env, "conv", conv[1]!)
+    if (conv && request.headers.get("Upgrade") === "websocket") return wire(request, env, spent, "conv", conv[1]!)
     // A chief's wake queue (mux:<agent>): the chief's agent token or its owner; install_kind is resolved.
     const mux = url.pathname.match(/^\/v1\/wire\/mux\/(agent_[A-Za-z0-9_.-]{1,64})$/)
-    if (mux && request.headers.get("Upgrade") === "websocket") return wire(request, env, "mux", mux[1]!)
+    if (mux && request.headers.get("Upgrade") === "websocket") return wire(request, env, spent, "mux", mux[1]!)
     // Home invite links: anonymous; the card answers only for open invites, the preview only with the secret.
     const card = url.pathname.match(/^\/v1\/invites\/card\/([dg][0-9A-HJKMNP-TV-Z]{26})$/)
     if (card && request.method === "GET") return handleInviteCard(env, card[1]!)

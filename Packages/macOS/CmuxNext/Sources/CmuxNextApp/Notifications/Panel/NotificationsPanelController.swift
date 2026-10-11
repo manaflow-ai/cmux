@@ -17,6 +17,7 @@ final class NotificationsPanelController {
 
     private let context: AppActionContext
     private var panel: NotificationsPanel?
+    private let motion = CornerPanelMotion()
     private let card = NotificationsPanelView()
     private(set) var rows: [NotificationsPanelRow] = []
     /// Whether the open panel has its first ledger reply.
@@ -32,7 +33,7 @@ final class NotificationsPanelController {
         card.onClearAll = { [weak self] in self?.perform("clearAllNotifications", nil) }
     }
 
-    var isShown: Bool { panel?.isVisible ?? false }
+    var isShown: Bool { (panel?.isVisible ?? false) && !motion.isClosing }
 
     func toggle() {
         if isShown { close() } else { show() }
@@ -64,7 +65,7 @@ final class NotificationsPanelController {
         }
         panel.onResignKey = { [weak self] in self?.close(restoringKey: false) }
         panel.onKeyElsewhere = { [weak self] in self?.close(restoringKey: false) }
-        panel.orderFront(nil)
+        motion.open(panel)
         panel.makeKey()
         panel.makeFirstResponder(card)
         reload()
@@ -77,11 +78,14 @@ final class NotificationsPanelController {
         watch?.cancel()
         watch = nil
         rows = []
-        guard let panel, panel.isVisible else { return }
+        guard let panel, isShown else { return }
         panel.onResignKey = nil
         if restoringKey, panel.isKeyWindow, let parent = panel.parent, parent.isVisible { parent.makeKey() }
-        panel.parent?.removeChildWindow(panel)
-        panel.orderOut(nil)
+        motion.close(panel) { [weak panel] in
+            guard let panel else { return }
+            panel.parent?.removeChildWindow(panel)
+            panel.orderOut(nil)
+        }
     }
 
     private func makePanel() -> NotificationsPanel {
@@ -170,7 +174,10 @@ final class NotificationsPanelController {
         card.select(selection.index(in: rows))
         guard let panel, panel.isVisible else { return }
         let top = panel.frame.maxY
-        panel.setFrame(NSRect(x: panel.frame.minX, y: top - height, width: NotificationsPanelView.width, height: height), display: true)
+        let frame = NSRect(x: panel.frame.minX, y: top - height, width: NotificationsPanelView.width, height: height)
+        guard frame != panel.frame else { return }
+        panel.setFrame(frame, display: true)
+        motion.resized(panel)
     }
 
     // MARK: Actions
@@ -202,7 +209,8 @@ final class NotificationsPanelController {
 
     /// Escape closes; Up and Down select; Return opens; Delete dismisses.
     private func handleKey(_ event: NSEvent) -> Bool {
-        guard event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty else { return false }
+        // A closing panel that kept the keys (no visible window to hand them to) takes none.
+        guard isShown, event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty else { return false }
         let selected = selection.index(in: rows).map { rows[$0] }
         switch event.keyCode {
         case 53:

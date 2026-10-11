@@ -25,6 +25,8 @@ use sha2::{Digest, Sha256};
 #[path = "conversation_import.rs"]
 mod import;
 pub(crate) use import::ImportedMessage;
+#[path = "conversation_threads.rs"]
+pub(crate) mod threads;
 
 /// The store's file inside the session state directory.
 pub(crate) const CONVERSATIONS_FILE: &str = "conversations.sqlite3";
@@ -203,6 +205,7 @@ impl ConversationStore {
              ) WITHOUT ROWID;",
         )?;
         transaction.execute_batch(attachments::SCHEMA)?;
+        transaction.execute_batch(threads::SCHEMA)?;
         crate::conversation_search::drop_search_index(&transaction)?;
         transaction.execute(
             "INSERT INTO meta(key, value) VALUES('schema_version', ?1)
@@ -471,15 +474,6 @@ fn apply_op_in(
         // After every reducer rule (the conformance corpus order), over the
         // head's loop-guard counters (no row window to fill with work cards).
         cmux_conversation::check_agent_streak(&head, actor, parts, now_ms).map_err(rejected)?;
-    }
-    if op.is_send() {
-        // The sender has read its own message, for every client of this
-        // owner (cx-59n8.2). The host does it, not the reducer: the reducer
-        // stays equal to the cloud reducer's conformance corpus. The change
-        // stays `message`; clients read the cursor from the summary.
-        let seq = commit.head.last_seq;
-        let cursor = commit.head.read_cursors.entry(actor.to_string()).or_insert(0);
-        *cursor = (*cursor).max(seq);
     }
     let origin = stamp_origin(&mut commit, actor, op);
     write_head(transaction, &commit.head)?;

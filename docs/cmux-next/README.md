@@ -19,10 +19,12 @@ From a cmux checkout:
 bash scripts/cmux-next/update-dev-daily.sh            # installs or updates ~/Applications/cmux NEXT DEV.app
 ```
 
-The script downloads `cmux-NEXT-DEV.zip` from the `cmux-next-dev` prerelease, checks its SHA-256
-and bundle id, asks the running app to quit normally, and swaps the app in place. Run it again
-whenever you want the latest build. It's signed but not notarized, so the script downloads it
-outside the browser's quarantine. Details are in [dev-daily.md](dev-daily.md).
+Run it whenever you want the latest build. When the published build is the one you have, it
+says so and leaves the app alone. Otherwise it downloads `cmux-NEXT-DEV.zip` from the
+`cmux-next-dev` prerelease, checks its SHA-256 and bundle id, quits the app keeping its sessions,
+swaps the app in place and opens it again: terminals, agents and chats come back by themselves.
+It's signed but not notarized, so the script downloads it outside the browser's quarantine.
+Details are in [dev-daily.md](dev-daily.md).
 
 To see how fresh it is, look at the asset's upload time, not the release date (the release
 entry keeps its creation date):
@@ -64,5 +66,8 @@ cmux-next by session id. Split layouts currently come over as tabs in one pane.
 Builds with different bundle ids (for example DEV and nightly-next, or a tagged dev build) keep
 separate state. To move live terminals from one to the other, an agent runs this on the
 destination's socket: `session.transfer.peers`, then `session.transfer.pull {source}`. The
-playbook in [classic-to-next.md](classic-to-next.md) has examples. Agent chats resume by
-session id; terminals are recreated at the destination.
+playbook in [classic-to-next.md](classic-to-next.md) has examples. Terminals are recreated at
+the destination. A cmux-next agent chat moves into the destination's acpmux with its history,
+queued prompts and unsent draft (`acpmux transfer`), then opens there; a chat in the middle of a
+reply moves only with `{interrupt: true}`. Builds that share one acpmux (Release and NIGHTLY)
+move only the tab. Classic agent chats resume by session id.

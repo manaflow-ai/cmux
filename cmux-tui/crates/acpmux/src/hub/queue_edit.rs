@@ -34,6 +34,10 @@ impl Hub {
             .filter(|p| !p.is_empty())
             .ok_or_else(|| RpcError::invalid_params("promptId is required"))?;
         let op = params.get("op").and_then(Value::as_str).unwrap_or_default();
+        // The queue moves as it is (`transfer_out.rs`).
+        if session.moving().is_some() {
+            return Err(super::queue::moving_error());
+        }
         let mut reply = json!({"sessionId": session.id, "promptId": prompt_id, "op": op});
         reply["ok"] = match op {
             "update" => {

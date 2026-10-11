@@ -18,6 +18,10 @@ mod drafts;
 mod permission_groups;
 #[path = "hub_integration/questions.rs"]
 mod questions;
+#[path = "hub_integration/seen.rs"]
+mod seen;
+#[path = "hub_integration/status_indicator.rs"]
+mod status_indicator;
 #[path = "hub_integration/steer_only.rs"]
 mod steer_only;
 #[path = "hub_integration/xai_requests.rs"]
@@ -787,28 +791,6 @@ async fn limit_error_fails_over_to_the_fallback_profile() {
 }
 
 #[tokio::test]
-async fn process_death_quotes_the_last_stderr_line() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
-    let s = c
-        .request(
-            method::SESSION_NEW,
-            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "die"}}}),
-        )
-        .await
-        .unwrap();
-    let id = s["sessionId"].as_str().unwrap().to_owned();
-    let r = c.request(method::SESSION_PROMPT, json!({"sessionId": id, "prompt": [{"type": "text", "text": "die: Not logged in · Please run /login"}]})).await;
-    let err = r.unwrap_err();
-    assert!(err.contains("agent process closed (fake): Not logged in"), "{err}");
-    let session = hub.resolve(&id).unwrap();
-    let last =
-        hub.events(&id, 0, 1000).unwrap().into_iter().rfind(|e| e.kind == "turn_result").unwrap();
-    assert_eq!(last.msg["status"], "failed");
-    assert!(last.msg["error"].as_str().unwrap().contains("Not logged in"));
-    assert_eq!(hub.session_summary(&session)["status"], "disconnected");
-}
-
-#[tokio::test]
 async fn family_defaults_presets_and_the_target_grammar() {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut agents = BTreeMap::new();
@@ -1389,11 +1371,10 @@ async fn session_cancel_as_a_request_is_answered() {
     );
 }
 
-#[path = "hub_integration/transcript_events.rs"]
-mod transcript_events;
-
 #[path = "hub_integration/handoff.rs"]
 mod handoff;
+#[path = "hub_integration/transcript_events.rs"]
+mod transcript_events;
 
 fn prompt_with_id(id: &str, text: &str, prompt_id: &str, resend: bool) -> Value {
     json!({
@@ -1493,7 +1474,6 @@ async fn a_resend_after_a_restart_is_answered_from_the_log() {
 
 #[path = "hub_integration/adopt.rs"]
 mod adopt;
-
 #[path = "hub_integration/preset_args.rs"]
 #[cfg(unix)]
 mod preset_args;
@@ -1509,3 +1489,9 @@ mod claude_failover;
 
 #[path = "hub_integration/fork_through.rs"]
 mod fork_through;
+#[path = "hub_integration/last_message.rs"]
+mod last_message;
+#[path = "hub_integration/transfer.rs"]
+mod transfer;
+#[path = "hub_integration/transfer_guard.rs"]
+mod transfer_guard;

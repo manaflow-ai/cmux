@@ -60,9 +60,18 @@ public final class ThemeStore {
     public func apply(_ input: ThemeInput) -> Bool {
         var input = input
         input.accent = accent
+        let previous = self.input
         self.input = input
         let derived = ThemeTokens.derive(from: input)
-        guard derived != tokens else { return false }
+        guard derived != tokens else {
+            // A color no token reads (`selection-foreground`) still reaches the scopes' input and
+            // the store's observers (Settings' Ghostty preview); nothing repaints.
+            if input != previous {
+                generation += 1
+                if publishesGlobally { ThemeScope.app.storeDidChange() }
+            }
+            return false
+        }
         tokens = derived
         generation += 1
         if publishesGlobally {
