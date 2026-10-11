@@ -14,6 +14,8 @@ use serde_json::{Value, json};
 
 use super::*;
 
+const FAKE_AGENT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../acpmux/tests/fake_agent.py");
+
 struct Daemon {
     dir: PathBuf,
     socket: PathBuf,
@@ -22,8 +24,13 @@ struct Daemon {
 }
 
 impl Daemon {
+    /// A machine whose acpmux has one harness, the test agent, as default.
     fn start(name: &str, host_kind: Option<&'static str>) -> Self {
-        Self::start_with(name, host_kind, None)
+        let config = json!({
+            "harnesses": {"fake": {"argv": ["python3", FAKE_AGENT], "family": "fake"}},
+            "defaultHarness": "fake",
+        });
+        Self::start_with(name, host_kind, Some(config))
     }
 
     /// With `acpmux_config`, the machine's acpmux runs that config.json.
@@ -185,9 +192,8 @@ fn an_unknown_host_kind_value_keeps_the_detected_kind() {
 /// harness) is refused from acpmux's catalog before any agent starts.
 #[test]
 fn agent_session_start_refuses_a_codex_alias_before_any_agent_starts() {
-    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/../acpmux/tests/fake_agent.py");
     let config = json!({
-        "harnesses": {"fcx": {"argv": ["python3", fake], "family": "codex"}},
+        "harnesses": {"fcx": {"argv": ["python3", FAKE_AGENT], "family": "codex"}},
         "defaultHarness": "fcx",
     });
     let daemon = Daemon::start_with("alias", None, Some(config));
