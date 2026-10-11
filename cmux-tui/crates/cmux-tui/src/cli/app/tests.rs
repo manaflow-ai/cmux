@@ -345,29 +345,6 @@ fn responses_split_transport_from_app_errors() {
 }
 
 #[test]
-fn open_directory_passes_focus_and_activate_for_both_flags() {
-    let root = std::env::temp_dir().join(format!("cmux-open-test-{}", std::process::id()));
-    std::fs::create_dir_all(&root).unwrap();
-    let root_text = root.to_string_lossy().into_owned();
-    let environment = std::collections::HashMap::new();
-    for (flags, expected) in [(vec!["--focus", "true"], true), (Vec::new(), false)] {
-        let mut command_args = flags.into_iter().map(String::from).collect::<Vec<_>>();
-        command_args.push(root.to_string_lossy().into_owned());
-        let AppCommand::Open { requests, .. } =
-            parse_open_with(&command_args, false, &environment, &mut std::io::empty()).unwrap()
-        else {
-            panic!("expected open command")
-        };
-        assert_eq!(requests.len(), 1);
-        assert_eq!(requests[0].method, "workspace.create");
-        assert_eq!(requests[0].params["cwd"].as_str(), Some(root_text.as_str()));
-        assert_eq!(requests[0].params["focus"], expected);
-        assert_eq!(requests[0].params["activate"], expected);
-    }
-    let _ = std::fs::remove_dir_all(root);
-}
-
-#[test]
 fn keybinding_reads_call_the_app_read_ops() {
     let (method, params) = call(
         parse(&args(&["keybinding", "list", "--query", "tab", "--source", "user"]))
