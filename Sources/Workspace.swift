@@ -5003,7 +5003,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         for panelID in retiredPanelIDs {
             _ = closePanel(panelID, force: true)
         }
-        guard panels.isEmpty, !isRetiredFromOwningTabManager else { return }
+        // Only replace what this repair removed. Callers that detach an
+        // already-empty workspace (the last-surface close path, Dock surface
+        // moves, session end) create their own replacement; adding one here
+        // too left those workspaces with two terminals.
+        guard !retiredPanelIDs.isEmpty, panels.isEmpty, !isRetiredFromOwningTabManager else { return }
         _ = createReplacementTerminalPanel()
     }
     private func clearRemoteTmuxWorkspaceCloseIntent(tabId: TabID) {

@@ -160,6 +160,7 @@
 		A77A000CA1B2C3D4E5F60001 /* AgentJournalTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77A000BA1B2C3D4E5F60001 /* AgentJournalTestSupport.swift */; };
 		C11757000000000000000041 /* AgentJournalTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77A000BA1B2C3D4E5F60001 /* AgentJournalTestSupport.swift */; };
 		F91571A81F2DEBDD19FA6A79 /* AgentMessageCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4D8C93336B3DC2F9B4299AA /* AgentMessageCenter.swift */; };
+		394797E69DC05B736C321BA5 /* AgentMessageHookClaimTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE9E0374E48A69A913AF07CE /* AgentMessageHookClaimTests.swift */; };
 		0B9B54FBC4F34942CE424D74 /* AgentMessageOffSwitchSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE3A25C746823752FEDCE827 /* AgentMessageOffSwitchSettingsTests.swift */; };
 		E506942F7E8A3C80F94EA4EB /* AgentNotificationAdmissionWaiters.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0F23A5D074809C236E5C607 /* AgentNotificationAdmissionWaiters.swift */; };
 		0A1107110000000000000010 /* AgentNotificationDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1107110000000000000011 /* AgentNotificationDelivery.swift */; };
@@ -2883,6 +2884,10 @@
 		791102010000000000000001 /* RemoteDisconnectPreparationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 791102020000000000000001 /* RemoteDisconnectPreparationService.swift */; };
 		E30780000000000000000016 /* RemoteDropUploadError+LocalizedError.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30780000000000000000015 /* RemoteDropUploadError+LocalizedError.swift */; };
 		CFSF00000000000000000007 /* RemoteFileExplorerProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFSR00000000000000000007 /* RemoteFileExplorerProvider.swift */; };
+		EB6AD4FF8F735E03B4D232BB /* RemoteHostColorRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1587427C0041C5F99CA5858 /* RemoteHostColorRegistry.swift */; };
+		C3004DE34CF0987FF3C4C4AE /* RemoteHostColorRegistryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BC0B62418BDA4E8CC349B91 /* RemoteHostColorRegistryTests.swift */; };
+		31F859C3ED241087545673E5 /* RemoteHostTitleSuffixes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01B00D60543FED12E7E67E33 /* RemoteHostTitleSuffixes.swift */; };
+		BF66BFF667A04A8A5F2A5A7B /* RemoteHostTitleSuffixesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CDDD435A165BE812C44956E /* RemoteHostTitleSuffixesTests.swift */; };
 		835000000000000000000001 /* RemoteInitialCommandBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 835000000000000000000003 /* RemoteInitialCommandBootstrap.swift */; };
 		835000000000000000000002 /* RemoteInitialCommandBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 835000000000000000000003 /* RemoteInitialCommandBootstrap.swift */; };
 		835000000000000000000006 /* RemoteInitialCommandBootstrapFailureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 835000000000000000000007 /* RemoteInitialCommandBootstrapFailureTests.swift */; };
@@ -4817,6 +4822,7 @@
 		A77A000DA1B2C3D4E5F60001 /* AgentJournalLifecycleCenterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentJournalLifecycleCenterTests.swift; sourceTree = "<group>"; };
 		A77A000BA1B2C3D4E5F60001 /* AgentJournalTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentJournalTestSupport.swift; sourceTree = "<group>"; };
 		B4D8C93336B3DC2F9B4299AA /* AgentMessageCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentMessageCenter.swift; sourceTree = "<group>"; };
+		AE9E0374E48A69A913AF07CE /* AgentMessageHookClaimTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentMessageHookClaimTests.swift"; sourceTree = "<group>"; };
 		EE3A25C746823752FEDCE827 /* AgentMessageOffSwitchSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentMessageOffSwitchSettingsTests.swift"; sourceTree = "<group>"; };
 		A0F23A5D074809C236E5C607 /* AgentNotificationAdmissionWaiters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNotificationAdmissionWaiters.swift; sourceTree = "<group>"; };
 		0A1107110000000000000011 /* AgentNotificationDelivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNotificationDelivery.swift; sourceTree = "<group>"; };
@@ -7368,6 +7374,10 @@
 		791102020000000000000001 /* RemoteDisconnectPreparationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteDisconnectPreparationService.swift; sourceTree = "<group>"; };
 		E30780000000000000000015 /* RemoteDropUploadError+LocalizedError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteDropUploadError+LocalizedError.swift"; sourceTree = "<group>"; };
 		CFSR00000000000000000007 /* RemoteFileExplorerProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteFileExplorerProvider.swift; sourceTree = "<group>"; };
+		E1587427C0041C5F99CA5858 /* RemoteHostColorRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteHostColorRegistry.swift; sourceTree = "<group>"; };
+		0BC0B62418BDA4E8CC349B91 /* RemoteHostColorRegistryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteHostColorRegistryTests.swift; sourceTree = "<group>"; };
+		01B00D60543FED12E7E67E33 /* RemoteHostTitleSuffixes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteHostTitleSuffixes.swift; sourceTree = "<group>"; };
+		9CDDD435A165BE812C44956E /* RemoteHostTitleSuffixesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteHostTitleSuffixesTests.swift; sourceTree = "<group>"; };
 		835000000000000000000003 /* RemoteInitialCommandBootstrap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteInitialCommandBootstrap.swift; sourceTree = "<group>"; };
 		835000000000000000000007 /* RemoteInitialCommandBootstrapFailureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteInitialCommandBootstrapFailureTests.swift; sourceTree = "<group>"; };
 		835000000000000000000005 /* RemoteInitialCommandBootstrapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteInitialCommandBootstrapTests.swift; sourceTree = "<group>"; };
@@ -11714,6 +11724,8 @@
 				541716FF0D90CB510EE3004A /* RemoteTmuxSession.swift */,
 				71D411EFBE33FE85901B9E6A /* RemoteTmuxCommandResult.swift */,
 				02B8A9858C9804AC9C37D7B4 /* RemoteTmuxHost.swift */,
+				E1587427C0041C5F99CA5858 /* RemoteHostColorRegistry.swift */,
+				01B00D60543FED12E7E67E33 /* RemoteHostTitleSuffixes.swift */,
 				0A17C0DE0A17C0DE0A17C001 /* RemoteTmuxAttachOutcome.swift */,
 				0A17C0DE0A17C0DE0A17C901 /* RemoteTmuxVersion.swift */,
 				92CA6F2F239631988B2FB0C8 /* WorkspaceRemoteTmuxNonInteractiveCloseRoute.swift */,
@@ -13160,6 +13172,8 @@
 				F11ED7AB0002000200020002 /* RemoteTmuxMirrorNewTabPlacementTests.swift */,
 				FA00C0DE0002BEEF0002CAFE /* RemoteTmuxWindowRegistryTests.swift */,
 				0A17C0DE0A17C0DE0A17C003 /* RemoteTmuxAuthTests.swift */,
+				0BC0B62418BDA4E8CC349B91 /* RemoteHostColorRegistryTests.swift */,
+				9CDDD435A165BE812C44956E /* RemoteHostTitleSuffixesTests.swift */,
 				7020C0DE7020C0DE7020A001 /* RemoteTmuxProxyTransportRetryTests.swift */,
 				6732BEEF6732BEEF6732B001 /* RemoteTmuxMasterReadinessTests.swift */,
 				7368BEEF7368BEEF7368B001 /* RemoteTmuxMissingTmuxTests.swift */,
@@ -13685,6 +13699,7 @@
 				1BFE43C6DD8EB27A54A3BF08 /* AgentSessionSearchTranscriptTests.swift */,
 				A8865CE84A6AA61A42957FE4 /* GlobalSearchSnippetTests.swift */,
 				7DDB3493A443AA76516695AA /* SearchIndexAgentSessionTests.swift */,
+				AE9E0374E48A69A913AF07CE /* AgentMessageHookClaimTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -16010,6 +16025,8 @@
 				791102010000000000000001 /* RemoteDisconnectPreparationService.swift in Sources */,
 				E30780000000000000000016 /* RemoteDropUploadError+LocalizedError.swift in Sources */,
 				CFSF00000000000000000007 /* RemoteFileExplorerProvider.swift in Sources */,
+				EB6AD4FF8F735E03B4D232BB /* RemoteHostColorRegistry.swift in Sources */,
+				31F859C3ED241087545673E5 /* RemoteHostTitleSuffixes.swift in Sources */,
 				835000000000000000000001 /* RemoteInitialCommandBootstrap.swift in Sources */,
 				D7AB12048000000000000003 /* RemoteInteractiveShellBootstrapBuilder+WorkingDirectory.swift in Sources */,
 				A5001643 /* RemoteInteractiveShellBootstrapBuilder.swift in Sources */,
@@ -17592,6 +17609,7 @@
 				4D13982D1102D5B3A801C310 /* AgentInboxProjectionTests.swift in Sources */,
 				A77A000EA1B2C3D4E5F60001 /* AgentJournalLifecycleCenterTests.swift in Sources */,
 				A77A000CA1B2C3D4E5F60001 /* AgentJournalTestSupport.swift in Sources */,
+				394797E69DC05B736C321BA5 /* AgentMessageHookClaimTests.swift in Sources */,
 				0B9B54FBC4F34942CE424D74 /* AgentMessageOffSwitchSettingsTests.swift in Sources */,
 				A5D41230A1B2C3D4E5F60718 /* AgentNotificationGateTests.swift in Sources */,
 				79390003AA11BB22CC33DD03 /* AgentNotificationLiveRetargetTests.swift in Sources */,
@@ -18411,6 +18429,8 @@
 				A6D1F0400000000000000002 /* ReleasingWindowControllerTests.swift in Sources */,
 				63A6792ED28244D28F5E9A83 /* RemoteClaudeTeamsRespawnRoutingTests.swift in Sources */,
 				791100030000000000000001 /* RemoteDisconnectLifecycleTests.swift in Sources */,
+				C3004DE34CF0987FF3C4C4AE /* RemoteHostColorRegistryTests.swift in Sources */,
+				BF66BFF667A04A8A5F2A5A7B /* RemoteHostTitleSuffixesTests.swift in Sources */,
 				835000000000000000000006 /* RemoteInitialCommandBootstrapFailureTests.swift in Sources */,
 				835000000000000000000004 /* RemoteInitialCommandBootstrapTests.swift in Sources */,
 				B11049000000000000000003 /* RemoteRelayTmuxCompatAuthorizationTests.swift in Sources */,
