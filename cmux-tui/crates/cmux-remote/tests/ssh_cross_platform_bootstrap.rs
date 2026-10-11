@@ -262,6 +262,58 @@ async fn ssh_on_demand_payload_replaces_an_older_remote_install() {
     assert_eq!(fs::read(&installed).unwrap(), fixture.payload);
 }
 
+/// A connection attempt that ends mid-download (its process exits) leaves the
+/// partial file; the next attempt resumes it instead of starting over.
+#[tokio::test]
+async fn ssh_on_demand_payload_resumes_a_partial_download() {
+    let fixture = OnDemandFixture::new();
+    fixture.publish(fixture.payload);
+    fs::create_dir_all(fixture.cache()).unwrap();
+    let partial = fixture.cache().join(format!("{}-{}.partial", fixture.digest, fixture.target));
+    fs::write(&partial, &fixture.payload[..10]).unwrap();
+    let (config, installed, _) = fixture.host("resume");
+    assert_eq!(
+        SshBootstrapper::new(config).unwrap().ensure_installed().await.unwrap(),
+        BootstrapOutcome::Installed
+    );
+    assert_eq!(fs::read(&installed).unwrap(), fixture.payload);
+    assert_eq!(fixture.cached_files(), vec![format!("{}-{}", fixture.digest, fixture.target)]);
+}
+
+/// A partial file that already holds the whole build is finished without any
+/// network access.
+#[tokio::test]
+async fn ssh_on_demand_payload_finishes_a_complete_partial_without_downloading() {
+    let fixture = OnDemandFixture::new();
+    fs::create_dir_all(fixture.cache()).unwrap();
+    let partial = fixture.cache().join(format!("{}-{}.partial", fixture.digest, fixture.target));
+    fs::write(&partial, fixture.payload).unwrap();
+    let (config, installed, _) = fixture.host("complete");
+    assert_eq!(
+        SshBootstrapper::new(config).unwrap().ensure_installed().await.unwrap(),
+        BootstrapOutcome::Installed
+    );
+    assert_eq!(fs::read(&installed).unwrap(), fixture.payload);
+}
+
+/// Cached builds of other versions are pruned once they are a month old.
+#[tokio::test]
+async fn ssh_on_demand_payload_prunes_month_old_builds_of_other_versions() {
+    let fixture = OnDemandFixture::new();
+    fixture.publish(fixture.payload);
+    fs::create_dir_all(fixture.cache()).unwrap();
+    let old = fixture.cache().join(format!("{}-{}", "0".repeat(64), fixture.target));
+    let recent = fixture.cache().join(format!("{}-{}", "1".repeat(64), fixture.target));
+    fs::write(&old, b"old build").unwrap();
+    fs::write(&recent, b"recent build").unwrap();
+    let month_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(31 * 86_400);
+    fs::File::options().write(true).open(&old).unwrap().set_modified(month_ago).unwrap();
+    let (config, _, _) = fixture.host("prune");
+    SshBootstrapper::new(config).unwrap().ensure_installed().await.unwrap();
+    assert!(!old.exists());
+    assert!(recent.exists());
+}
+
 #[tokio::test]
 async fn ssh_on_demand_payload_rejects_a_tampered_download_before_upload() {
     let fixture = OnDemandFixture::new();

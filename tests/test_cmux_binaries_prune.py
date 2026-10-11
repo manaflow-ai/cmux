@@ -251,6 +251,10 @@ class Workflow(unittest.TestCase):
         self.assertNotIn("|| true", pins_step["run"])
         self.assertIn("windows.txt", pins_step["run"])
         self.assertIn("nightly-next", pins_step["run"])
+        # A shipped classic nightly also downloads its bundled cmux-tui build's
+        # Linux SSH payloads at runtime, so its builds get the same window.
+        self.assertIn("for release in nightly-next nightly", pins_step["run"])
+        self.assertIn("cmux-nightly(-next)?-macos-", pins_step["run"])
         # The presigned deletes leave the runner only encrypted to the host's certificate.
         publish = next(step for step in job["steps"] if step.get("name") == "Publish the cold queue")
         script = publish["run"]

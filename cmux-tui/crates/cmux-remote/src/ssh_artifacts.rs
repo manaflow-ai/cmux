@@ -322,4 +322,36 @@ mod tests {
             Err(BootstrapError::Configuration(_))
         ));
     }
+
+    #[test]
+    fn unbundled_payload_without_a_cache_is_a_configuration_error() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("cmux-tui-ssh");
+        std::fs::create_dir(&directory).unwrap();
+        std::fs::write(
+            directory.join("manifest.json"),
+            format!(
+                r#"{{"commit":"fixture-build","binaries":{{"cmux-tui-x86_64-unknown-linux-musl":"{}"}}}}"#,
+                "a".repeat(64)
+            ),
+        )
+        .unwrap();
+        let executable = root.path().join("cmux-tui");
+        let without_cache = PayloadSource { base_url: "https://files.example", cache: None };
+        assert!(matches!(
+            payload(&executable, "fixture-build", "linux", "x86_64", &without_cache),
+            Err(BootstrapError::Configuration(_))
+        ));
+        let cache = root.path().join("cache");
+        let with_cache = PayloadSource { base_url: "https://files.example/", cache: Some(&cache) };
+        let Ok(Some(Payload::Published(published))) =
+            payload(&executable, "fixture-build", "linux", "x86_64", &with_cache)
+        else {
+            panic!("an unbundled pinned payload is published");
+        };
+        assert_eq!(
+            published.url,
+            "https://files.example/fixture-build/cmux-tui-x86_64-unknown-linux-musl"
+        );
+    }
 }
