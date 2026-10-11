@@ -309,6 +309,13 @@ def test_feat_push_concurrency_cannot_drop_an_unpublished_tree_key() -> None:
     assert '"$current_key" == "$key"' in preflight
     assert "retaining publication for superseded tree" in preflight
     assert "deterministic owner" in preflight
+    # cx-73f2: the controller's tree-claim authority elects atomically; the
+    # run-list election is only its fallback.
+    assert "scripts/ci/cmux-tui-tree-claim.sh" in preflight
+    assert "id-token: write" in preflight
+    owner_wait = workflow_job(artifacts, "tree-owner-wait")
+    assert "scripts/ci/cmux-tui-tree-claim.sh" in owner_wait
+    assert "id-token: write" in owner_wait
     assert "owner_run_id" in preflight
     # cx-73f2: no run's build, daemon tests or publish shares a group with
     # another run, so no run cancels another's work.
@@ -323,6 +330,9 @@ def test_feat_push_concurrency_cannot_drop_an_unpublished_tree_key() -> None:
     tree_publisher = workflow_job(artifacts, "publish-tree")
     assert "group: cmux-tui-tree-${{ needs.cmux-next-daemon-tests.outputs.key }}-${{ github.sha }}" in tree_publisher
     assert "cancel-in-progress: false" in tree_publisher
+    pr_tree_publisher = workflow_job(artifacts, "publish-pr-tree")
+    assert "group: cmux-tui-tree-${{ needs.cmux-next-daemon-tests.outputs.key }}-${{ github.run_id }}" in pr_tree_publisher
+    assert "cancel-in-progress: false" in pr_tree_publisher
     assert "replaces an older pending job" in artifacts
 
 

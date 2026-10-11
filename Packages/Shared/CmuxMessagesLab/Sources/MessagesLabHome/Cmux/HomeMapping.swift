@@ -247,9 +247,15 @@ enum HomeMapping {
     }
 
     /// The loaded window's place in the history: (messages before it, total).
-    static func window(_ items: [TranscriptItem], summary: ConversationSummary?) -> (start: Int, total: Int) {
+    /// HomeStore's window always ends at the newest message it has (Home has
+    /// no pager), so the total is the window's end, never the summary's
+    /// lastSeq: that can run ahead of the window (the inbox moves first, or
+    /// the view is made before its first page), and MessagesLab appends a
+    /// received message only while the window reaches the total (`atNewest`),
+    /// so every later message stayed hidden (cx-7nf0).
+    static func window(_ items: [TranscriptItem]) -> (start: Int, total: Int) {
         let first = items.first(where: { $0.seq != nil })?.seq ?? 1
         let start = max(0, Int(clamping: first) - 1) // // crash program: a seq past Int.max clamps
-        return (start, max(start + items.count, Int(clamping: summary?.lastSeq ?? 0)))
+        return (start, start + items.count)
     }
 }

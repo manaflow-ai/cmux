@@ -168,3 +168,61 @@ fn a_mirror_of_event_entities_previews_like_a_snapshot() {
     assert_eq!(task(&body, "task_a")["key"], "CMX-1");
     assert_eq!(task(&body, "task_new")["key"], "CMX-3");
 }
+
+/// The mirror as the Swift pane holds it: its own items, trimmed to what it
+/// shows (no descriptions, creators, timestamps or agent classes; settings
+/// with the key prefix only), as a demo owner or the socket filled them.
+fn pane_mirror() -> Value {
+    json!({
+        "seq": 4,
+        "me": {"kind": "user", "id": ME},
+        "settings": {"key_prefix": "CMX"},
+        "statuses": [
+            {"id": "st_backlog", "name": "Backlog", "category": "backlog", "position": 1, "color": 8},
+            {"id": "st_todo", "name": "Todo", "category": "unstarted", "position": 2, "color": 7},
+            {"id": "st_in_progress", "name": "In Progress", "category": "started", "position": 3, "color": 3}
+        ],
+        "labels": [{"id": "lbl_bug", "name": "bug", "color": 1, "archived": false}],
+        "projects": [{"id": "prj_app", "name": "App", "archived": false}],
+        "tasks": [
+            {"id": "task_1", "key": "CMX-1", "number": 1, "title": "One", "status": "st_todo",
+             "category": "unstarted", "priority": "high", "labels": ["lbl_bug"], "sort_key": "03",
+             "updated_at": 7, "archived": false, "deleted": false,
+             "delegate": {"principal": "agt_claude-leo", "harness": "claude", "on_behalf_of": ME},
+             "assignee": {"kind": "user", "id": ME}},
+            {"id": "task_7", "key": "CMX-7", "number": 7, "title": "Seven", "status": "st_backlog",
+             "category": "backlog", "priority": "none", "labels": [], "sort_key": "06",
+             "updated_at": 0, "archived": false, "deleted": false,
+             "attention": "needs_input"}
+        ],
+        "sessions": [
+            {"id": "asess_1", "task": "task_1", "status": "working", "plan": [],
+             "agent": {"principal": "agt_claude-leo", "harness": "claude", "on_behalf_of": ME}}
+        ]
+    })
+}
+
+#[test]
+fn a_pane_mirror_previews_with_the_owners_defaults() {
+    let intents = json!([
+        {"key": "k1", "op": "task.create", "params": {"id": "task_new", "title": "New"}},
+        {"key": "k2", "op": "task.update", "params": {"task": "task_7", "status": "st_in_progress"}},
+        {"key": "k3", "op": "task.delegate",
+         "params": {"task": "task_1", "session": "asess_2", "harness": "claude"}},
+        {"key": "k4", "op": "task.delegate",
+         "params": {"task": "task_7", "session": "asess_3", "harness": "codex"}}
+    ]);
+    let (code, body) = call(&json!({"mirror": pane_mirror(), "intents": intents, "now": 9}));
+    assert_eq!(code, OK);
+    // The next key follows the highest number; the default status is the
+    // owner's default for a team that never changed it.
+    let created = task(&body, "task_new");
+    assert_eq!(created["key"], "CMX-8");
+    assert_eq!(created["status"], "st_backlog");
+    assert_eq!(order(&body), ["task_1", "task_7", "task_new"]);
+    assert_eq!(task(&body, "task_7")["category"], "started");
+    // The mirrored session still blocks a second claude session on task_1.
+    assert_eq!(body["rejected"], json!(["k3"]));
+    assert_eq!(task(&body, "task_7")["delegate"]["principal"], "agt_codex-leo");
+    assert_eq!(task(&body, "task_1")["priority"], "high");
+}

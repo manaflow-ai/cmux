@@ -67,7 +67,7 @@ Lengths given as numbers are pixels (`em` where noted); strings are CSS values. 
 | `markdown.spacing.list`        | `"0.25em"`                         | `--cmux-md-list-spacing`                                                                                          |
 | `markdown.spacing.listIndent`  | `"1.8em"`                          | `--cmux-md-list-indent`                                                                                           |
 | `markdown.colors.text`         | the page text color                | `--cmux-md-text-color`                                                                                            |
-| `markdown.colors.link`         | `#0b63c7` / `#6cb0ff`              | `--cmux-md-link-color`                                                                                            |
+| `markdown.colors.link`         | the theme accent                   | `--cmux-md-link-color`                                                                                            |
 | `markdown.colors.quote`        | the secondary text color           | `--cmux-md-quote-color`                                                                                           |
 | `markdown.colors.quoteBorder`  | the separator color                | `--cmux-md-quote-border` (3px solid)                                                                              |
 | `markdown.colors.tableBorder`  | the separator color                | `--cmux-md-table-border` (1px solid)                                                                              |

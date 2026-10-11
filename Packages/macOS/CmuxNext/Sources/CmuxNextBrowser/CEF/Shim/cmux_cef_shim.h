@@ -147,6 +147,15 @@ typedef enum {
   // cancelled it; s1 = url, a = 1 when the user's gesture started it. The
   // host opens it in its app or asks first (BrowserExternalApps).
   CMUX_SHIM_EXTERNAL_URL = 40,
+  // A page asks for a permission the host decides (location;
+  // CEFShim/src/shim_permissions.mm). Chromium waits for
+  // cmux_shim_permission_continue (during the event or later). request =
+  // the prompt's token, a = the cef_permission_request_types_t bits,
+  // s1 = the requesting origin.
+  CMUX_SHIM_PERMISSION_PROMPT = 41,
+  // Chromium ended a waiting PERMISSION_PROMPT itself (the page navigated or
+  // closed); request = its token. Not sent after the host's answer.
+  CMUX_SHIM_PERMISSION_DISMISSED = 42,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -442,6 +451,11 @@ CMUX_SHIM_EXPORT int cmux_shim_download_continue(int download_id, const char* pa
 // when the download is unknown or has finished, or for pause/resume before
 // its first update.
 CMUX_SHIM_EXPORT int cmux_shim_download_control(int download_id, int command);
+// Answers PERMISSION_PROMPT (prompt_token = its token): result 1 allows,
+// 2 denies (Chromium remembers both for the origin); any other value drops
+// it unanswered (no dismissal is recorded; Chromium ends it with the page).
+// Returns 0 when the prompt is not waiting.
+CMUX_SHIM_EXPORT int cmux_shim_permission_continue(int prompt_token, int result);
 
 // Shutdown ordering (fork API v2).
 CMUX_SHIM_EXPORT void cmux_shim_close_all(void);

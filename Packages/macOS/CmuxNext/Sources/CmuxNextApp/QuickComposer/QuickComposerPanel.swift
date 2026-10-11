@@ -13,6 +13,9 @@ final class QuickComposerPanel: NSPanel, QuickComposerWindow, NSWindowDelegate {
     private let surface = Glass.makeOverlayPanel(cornerRadius: Metrics.panelCornerRadius)
     /// The floating chat (cx-b9qi, `QuickComposerPanel+Floating`).
     var holdsChat = false
+    /// Folded to its compact bar; `expandedHeight` is the height it opens back to.
+    var isCollapsed = false
+    var expandedHeight: CGFloat?
     let frames = FloatingChatFrames(defaults: .standard)
     let grip = FloatingChatGrip()
 

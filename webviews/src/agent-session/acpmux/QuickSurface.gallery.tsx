@@ -1,10 +1,26 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 import { componentEntry } from "../../gallery/format";
 import { QuickSurface } from "./QuickSurface";
+import type { FloatingStatus, QuickFloating } from "./FloatingChat";
 
 type Props = {
-  mode: "empty" | "transcript" | "waiting" | "long";
+  mode: "empty" | "transcript" | "waiting" | "long" | "floating" | "compact";
+  /// The floating chat's compact bar state (cx-b9qi).
+  status?: FloatingStatus;
 };
+
+function floating(mode: Props["mode"], status: FloatingStatus = "streaming"): QuickFloating | undefined {
+  if (mode !== "floating" && mode !== "compact") return undefined;
+  return {
+    state: { holding: true, onTop: true, collapsed: mode === "compact" },
+    status,
+    title: "Fix the flaky upload test",
+    line: "Retrying the third upload with backoff now.",
+    setOnTop: () => {},
+    setCollapsed: () => {},
+    moveToTab: () => {},
+  };
+}
 
 function transcript(mode: Props["mode"]) {
   if (mode === "empty") return undefined;
@@ -31,7 +47,7 @@ function composer() {
   );
 }
 
-function GalleryQuickSurface({ mode }: Props) {
+function GalleryQuickSurface({ mode, status }: Props) {
   return (
     <div className="acpmux-shell" data-quick-surface-fixture>
       <QuickSurface
@@ -42,6 +58,7 @@ function GalleryQuickSurface({ mode }: Props) {
           ) : undefined
         }
         composer={composer()}
+        floating={floating(mode, status)}
       />
     </div>
   );
@@ -72,8 +89,10 @@ export default componentEntry<Props>({
   covers: [
     "agent-session/acpmux/QuickSurface.tsx#QuickSurface",
     "agent-session/acpmux/QuickKeyHints.tsx#QuickKeyHints",
+    "agent-session/acpmux/FloatingChat.tsx#FloatingHeader",
+    "agent-session/acpmux/FloatingChat.tsx#FloatingCompactBar",
   ],
-  styles: () => import("./styles.css"),
+  styles: () => Promise.all([import("./styles.css"), import("./header/header.css")]),
   load: async () => GalleryQuickSurface,
   variants: {
     empty: {
@@ -86,5 +105,17 @@ export default componentEntry<Props>({
       note: "Asks sit between the quick transcript and composer without displacing the footer hints.",
     },
     long: { props: { mode: "long" } },
+    floating: {
+      props: { mode: "floating" },
+      note: "The floating chat (cx-b9qi) holds a running chat: its title, keep on top, compact bar and move to tab over the transcript.",
+    },
+    "compact-streaming": {
+      props: { mode: "compact", status: "streaming" },
+      note: "Folded to its compact bar while the agent works: the state mark breathes beside the title and the reply's last line.",
+    },
+    "compact-needs-input": {
+      props: { mode: "compact", status: "attention" },
+      note: "Folded while the chat waits on the user: the mark turns to the warning color.",
+    },
   },
 });
