@@ -54,7 +54,7 @@ public final class AgentPaneView: NSView {
     var remoteApprovalsNotice: NSStackView?
     var remoteApprovals: AgentPaneRemoteApprovals?
     /// Owns the inspector export panel and its in-flight state.
-    let logExport = AgentPaneLogExport()
+    let savePanel = AgentPaneSavePanel()
     /// On the shared page host (`cmux-page://cmux.agent/`, the `agent.pageHost` tunable): the page
     /// view and the provider that answers its calls and carries the host's pushes. Nil on the old
     /// host (`cmux-agent://pane`, deleted with P5 of the agent pane move).
@@ -178,9 +178,9 @@ public final class AgentPaneView: NSView {
         // Web Inspector and profiling for the pane (debug.agent_pane).
         webView.isInspectable = true
         #endif
-        model.onSaveLog = { [weak self] text, suggestedName in
+        model.onSaveFile = { [weak self] save in
             guard let self else { return false }
-            return try await logExport.save(text, suggestedName: suggestedName, window: window)
+            return try await savePanel.save(save, window: window)
         }
         model.onFramePacing = { [weak self] _ in self?.framePacingSettings() ?? [:] }
         model.onRenderRate = { [weak self] full in

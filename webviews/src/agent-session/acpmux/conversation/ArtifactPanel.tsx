@@ -5,20 +5,39 @@
 // pane on a dev server has no render frame, so there HTML and SVG show their source only.
 import { useState } from "react";
 import { useT } from "../i18n";
-import { previewHtml, type Artifact } from "./artifactPreview";
+import { documentName, previewHtml, type Artifact, type ArtifactKind } from "./artifactPreview";
 import { copyText } from "./clipboard";
 import { CodeBlock, languageLabel } from "./CodeBlock";
-import { Close, Copy } from "./icons";
+import { Check, Close, Copy, SaveTray } from "./icons";
 import { Markdown } from "./Markdown";
 import { canRender, ranRenders, RENDER_FRAME_URL, useRenderFrame } from "./RenderCard";
 
 export { OpenPreview } from "./OpenPreview";
 
-export function ArtifactPanel({ artifact, onClose }: { artifact: Artifact; onClose(): void }) {
+/// Saves a document through the host's save panel (`pane.saveFile`): "saved", "cancelled" when the user
+/// dismissed the panel (or one is already up), "unavailable" when no host could write it; the panel
+/// then copies the document instead, as the inspector's Export does.
+export type SaveDocument = (
+  text: string,
+  suggestedName: string,
+  kind: ArtifactKind,
+) => Promise<"saved" | "cancelled" | "unavailable">;
+
+export function ArtifactPanel({
+  artifact,
+  onClose,
+  onSave,
+}: {
+  artifact: Artifact;
+  onClose(): void;
+  /// Unset where the page has no host save panel (a gallery, a test): no Save.
+  onSave?: SaveDocument;
+}) {
   const t = useT();
   const previews = artifact.kind === "markdown" || canRender();
   const [tab, setTab] = useState<"preview" | "code">(previews ? "preview" : "code");
   const [copied, setCopied] = useState(false);
+  const [saved, setSaved] = useState(false);
   const title = languageLabel(artifact.lang, t);
   return (
     // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape closes the panel from its tabs, buttons or a focused frame's edge.
@@ -66,6 +85,22 @@ export function ArtifactPanel({ artifact, onClose }: { artifact: Artifact; onClo
           >
             <Copy size={14} />
           </button>
+          {onSave && (
+            <button
+              type="button"
+              className="cv-iconbtn cv-iconbtn--compact"
+              aria-label={saved ? t("artifact.saved") : t("artifact.save")}
+              title={saved ? t("artifact.saved") : t("artifact.save")}
+              onClick={() =>
+                void onSave(artifact.code, documentName(artifact), artifact.kind).then((outcome) => {
+                  setSaved(outcome === "saved");
+                  if (outcome === "unavailable") void copyText(artifact.code).then(() => setCopied(true));
+                })
+              }
+            >
+              {saved ? <Check size={14} /> : <SaveTray size={14} />}
+            </button>
+          )}
           <button
             type="button"
             className="cv-iconbtn cv-iconbtn--compact"

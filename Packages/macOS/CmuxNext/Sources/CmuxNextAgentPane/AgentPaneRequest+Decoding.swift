@@ -56,8 +56,16 @@ extension AgentPaneRequest {
                 self = .unsupported(method)
             }
         case "pane.saveLog":
-            if let text = params?["text"] as? String, !text.isEmpty, text.utf8.count <= Self.maximumLogBytes {
-                self = .saveLog(text: text, suggestedName: Self.logFileName(params?["suggestedName"] as? String))
+            if let save = AgentPaneSave(text: params?["text"], suggestedName: params?["suggestedName"], kind: .log) {
+                self = .saveFile(save)
+            } else {
+                self = .unsupported(method)
+            }
+        case "pane.saveFile":
+            // A document's kind only: the inspector's log has its own method.
+            if let kind = (params?["kind"] as? String).flatMap(AgentPaneSave.Kind.init(rawValue:)), kind != .log,
+               let save = AgentPaneSave(text: params?["text"], suggestedName: params?["suggestedName"], kind: kind) {
+                self = .saveFile(save)
             } else {
                 self = .unsupported(method)
             }
@@ -233,7 +241,7 @@ extension AgentPaneRequest {
         case "quick.floatingState": self = .quickFloatingState
         case "quick.context": self = .quickContext
         case "turn.undo": self = AgentPaneTurnUndo(params: params).map(AgentPaneRequest.turnUndo) ?? .invalidTurnUndo
-        case "git.stage", "git.unstage":
+        case "git.stage", "git.unstage", "git.stageHunk", "git.unstageHunk":
             self = .gitStage(AgentPaneGitStage(method: method, params: params))
         case "git.pullRequest": self = .gitPullRequest(AgentPaneGitPullRequest(params: params))
         case "project.instructions": self = .projectInstructions(AgentPaneProjectInstructions(params: params))
