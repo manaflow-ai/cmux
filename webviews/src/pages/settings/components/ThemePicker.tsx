@@ -22,6 +22,7 @@ export function ThemePicker({
   configColors,
   onPick,
   onPreview,
+  custom = () => false,
 }: {
   /** The picked theme name; null shows `configLabel` (the Ghostty config, or Match Terminal Theme). */
   value: string | null;
@@ -36,6 +37,8 @@ export function ThemePicker({
   onPick(name: string | null): void | Promise<unknown>;
   /** The highlighted row while the list is open; null when it closes or nothing is highlighted. */
   onPreview(name: string | null): void;
+  /** Whether a theme has the user's color edits (appearance.themeEdits): it reads "<name> (custom)". */
+  custom?(name: string): boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -54,6 +57,7 @@ export function ThemePicker({
   };
   useEffect(() => () => end.current(), []);
   const typed = query.trim().toLowerCase();
+  const label = (name: string) => (custom(name) ? t("settingsPage.theme.custom", name) : name);
   const shown = [CONFIG, ...names.filter((name) => name.toLowerCase().includes(typed))].filter(
     (name) => name !== CONFIG || typed === "",
   );
@@ -92,7 +96,7 @@ export function ThemePicker({
         onClick={() => setOpen(!open)}
       >
         <ThemeBall name={value ?? undefined} colors={value ? colors?.get(value) : configColors} />
-        <span className="theme-button-name">{value ?? configLabel}</span>
+        <span className="theme-button-name">{value ? label(value) : configLabel}</span>
         <Icon name="chevron" />
       </button>
       <Popover
@@ -133,7 +137,7 @@ export function ThemePicker({
                 }}
               >
                 <ThemeBall name={name} colors={colors?.get(name)} />
-                <span className="theme-option-name">{name}</span>
+                <span className="theme-option-name">{label(name)}</span>
                 {name === value && <Icon name="check" className="theme-option-check" />}
               </span>
             )

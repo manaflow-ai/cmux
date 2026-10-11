@@ -19,6 +19,7 @@ final class TerminalThemeSetting {
 
     private struct State: Equatable {
         var theme: String?
+        var edits = ThemeEdits.none
         var font: GhosttyRuntime.FontOverride
         var background: WindowBackgroundOverride
         /// `appearance.surfaces.terminal` is set: surfaces draw a
@@ -35,6 +36,7 @@ final class TerminalThemeSetting {
             self.init(theme: snapshot.appTheme,
                       font: GhosttyRuntime.FontOverride(family: snapshot.terminalFontFamily, size: snapshot.terminalFontSize),
                       background: snapshot.windowBackground, terminalOverridden: snapshot.surfaceBackgrounds.overridesTerminal)
+            edits = snapshot.themeEdits
         }
     }
 
@@ -57,23 +59,26 @@ final class TerminalThemeSetting {
     /// first window, which must not draw a frame in the defaults), then
     /// follows their changes.
     func follow(_ settings: SettingsController) {
-        // The theme follows `applied`, so a theme picker's live preview shows; the rest follows the
-        // loaded settings, so a slider's preview (font size, opacity) never reloads Ghostty per tick.
-        take(settings.snapshot, theme: settings.applied.appTheme)
+        // The theme and its edits follow `applied`, so a theme picker's live preview shows; the rest
+        // follows the loaded settings, so a slider's preview (font size, opacity) never reloads Ghostty per tick.
+        take(settings.snapshot, theme: settings.applied.appTheme, edits: settings.applied.themeEdits)
         observation = Task { [weak self] in
-            for await (snapshot, theme) in ObservationStream({ (settings.snapshot, settings.applied.appTheme) }) {
-                self?.take(snapshot, theme: theme)
+            for await (snapshot, theme, edits) in ObservationStream({
+                (settings.snapshot, settings.applied.appTheme, settings.applied.themeEdits)
+            }) {
+                self?.take(snapshot, theme: theme, edits: edits)
             }
         }
     }
 
-    private func take(_ snapshot: CmuxConfigSnapshot, theme: String?) {
+    private func take(_ snapshot: CmuxConfigSnapshot, theme: String?, edits: ThemeEdits) {
         backdropScope.setBackdropSelection(snapshot.backdropSelection)
         backdropScope.setAppearanceTuning(snapshot.experimentalAppearance ? snapshot.appearanceTuning : .identity)
         // Per-surface backgrounds (R55): every owner repaints from them.
         backdropScope.setSurfaceBackgrounds(snapshot.surfaceBackgrounds)
         var state = State(snapshot)
         state.theme = theme
+        state.edits = edits
         apply(state)
     }
 
@@ -107,6 +112,7 @@ final class TerminalThemeSetting {
 
     private static func set(_ state: State) {
         GhosttyRuntime.themeOverride = state.theme
+        GhosttyRuntime.themeEdits = state.edits
         GhosttyRuntime.fontOverride = state.font
         let family = state.font.family?.trimmingCharacters(in: .whitespaces) ?? ""
         DesignSettings.shared.terminalFontFamily = family.isEmpty ? nil : family
