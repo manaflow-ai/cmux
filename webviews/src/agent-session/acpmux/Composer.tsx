@@ -840,6 +840,7 @@ export function Composer({
       <div className="acpmux-composer-box" data-context-first={contextFirst ? "" : undefined}>
         <ComposerQueue
           queue={snapshot.queue}
+          paused={snapshot.summary?.queuePaused === true}
           t={t}
           onRemove={onQueueRemove}
           onChange={onQueueChange}
