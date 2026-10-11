@@ -105,13 +105,15 @@ def paced_drag(x, y, to_x, to_y, seconds=0.45):
     return {"frames": frames}
 
 
-def first_pill():
-    """The focused pane's first tab pill in window points (`debug.pane_chrome`)."""
-    for window in (rpc("debug.pane_chrome") or {}).get("windows") or []:
-        for pane in window.get("panes") or []:
-            if pane.get("pill"):
-                return pane["pill"]
-    return None
+def first_pill(busiest=False):
+    """The first pane's first tab pill in window points (`debug.pane_chrome`);
+    with `busiest`, the narrowest first pill of any pane (tabs narrow as a
+    pane fills)."""
+    pills = [pane["pill"] for window in (rpc("debug.pane_chrome") or {}).get("windows") or []
+             for pane in window.get("panes") or [] if pane.get("pill")]
+    if busiest and pills:
+        return min(pills, key=lambda pill: pill[2])
+    return pills[0] if pills else None
 
 
 def tabs():
@@ -146,9 +148,57 @@ def panes():
 
 
 def focus():
+    # Focus moves between split panes in a fresh workspace (a restored
+    # session's columns would fill the screen), then between strip columns.
+    action("newWorkspace")
+    time.sleep(1.0)  # test harness: the workspace settles
+    action("splitRight")
+    time.sleep(0.8)  # test harness: the split settles
+    action("splitDown")
+    time.sleep(0.8)  # test harness: the split settles
     save_layout("focus")
     record("focus", "left", lambda: action("focusLeft"))
     record("focus", "right", lambda: action("focusRight"))
+    record("focus", "up", lambda: action("focusUp"))
+    record("focus", "down", lambda: action("focusDown"))
+
+
+def groups():
+    # A tab group of two tabs collapses into its chip and expands again.
+    action("newWorkspace")
+    time.sleep(1.0)  # test harness: the workspace settles
+    for _ in range(3):
+        action("newSurface")
+        time.sleep(0.5)  # test harness: one tab at a time
+    rpc("action.run", {"action": "selectSurfaceByNumber", "args": {"index": 2}})
+    created = rpc("action.run", {"action": "tabGroup.create", "args": {"name": "Motion"}}) or {}
+    group = (created.get("created") or [None])[0]
+    rpc("action.run", {"action": "selectSurfaceByNumber", "args": {"index": 4}})
+    rpc("action.run", {"action": "tabGroup.addTab", "args": {"group": group}})
+    rpc("action.run", {"action": "selectSurfaceByNumber", "args": {"index": 1}})
+    time.sleep(0.8)  # test harness: the strip settles
+    save_layout("groups")
+    target = {"kind": "tabGroup", "id": group}
+    record("groups", "collapse", lambda: rpc("action.run", {"action": "tabGroup.collapse", "target": target}))
+    record("groups", "expand", lambda: rpc("action.run", {"action": "tabGroup.expand", "target": target}))
+
+
+def drag():
+    # A tab lifted, carried past two tabs and dropped, at pointer pace.
+    action("newWorkspace")
+    time.sleep(1.0)  # test harness: the workspace settles
+    for _ in range(3):
+        action("newSurface")
+        time.sleep(0.5)  # test harness: one tab at a time
+    save_layout("drag")
+    pill = first_pill(busiest=True)
+    if not pill:
+        print("drag: skipped, pane_chrome reports no tab pill", flush=True)
+        return
+    left, top, width, height = pill
+    x, y = left + width / 2, top + height / 2
+    record("drag", "reorder", lambda: paced_drag(x, y, x + width * 2.2, y), seconds=2.0)
+    record("drag", "back", lambda: paced_drag(x + width * 2, y, x, y), seconds=2.0)
 
 
 def key(name, *modifiers):
@@ -273,7 +323,7 @@ def hover():
     rpc("debug.tunables", {"action": "set", "key": "motion.fade.hoverOut", "value": None})
 
 
-SURFACES = {"tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts, "popups": popups, "hover": hover}
+SURFACES = {"tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts, "popups": popups, "hover": hover, "groups": groups, "drag": drag}
 
 
 def main():

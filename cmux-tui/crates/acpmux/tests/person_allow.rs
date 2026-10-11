@@ -887,3 +887,167 @@ async fn a_refused_relayed_allow_keeps_its_nonce_and_racing_answers_count_once()
     assert_eq!(counted, 1, "{ra} {rb}");
     assert_eq!(turn_said(&mut relay, rid).await, "chose yes");
 }
+
+/// cx-0q7o slice 2a: `initialize` names the daemon run that decision proofs
+/// bind (`personInstance`), the same one its prompts carry, so the app can
+/// tell a daemon it started from one that someone else restarted.
+#[tokio::test]
+async fn initialize_names_the_daemon_run_that_decision_proofs_bind() {
+    let d = Daemon::start("inst", Some(KEY));
+    let mut relay = Rpc::connect(&d.socket).await;
+    let init = relay.call("initialize", json!({"protocolVersion": 1})).await;
+    let named = init["result"]["_meta"]["acpmux"]["personInstance"].as_str().expect("an instance");
+    let named = named.to_owned();
+    let id = new_session(&mut relay, &d).await;
+    relay.send("session/prompt", prompt(&id, "ask: write")).await;
+    let pending = relay.note("_acpmux/permission_pending", |_| true).await;
+    assert_eq!(pending["personInstance"], json!(named));
+}
+
+/// A config home for a daemon that `acpmux daemon start` launches.
+fn start_home(tag: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("ams-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("work")).unwrap();
+    let dir = std::fs::canonicalize(&dir).unwrap();
+    std::fs::write(
+        dir.join("config.json"),
+        json!({"harnesses": {"fake": {"argv": ["python3", FAKE]}}, "defaultHarness": "fake",
+               "permissionPolicy": "ask"})
+        .to_string(),
+    )
+    .unwrap();
+    dir
+}
+
+/// `acpmux <args>` with this home, `stdin` as its standard input.
+fn acpmux_cli(home: &Path, args: &[&str], stdin: Option<&str>) -> std::process::Output {
+    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"));
+    cmd.args(args)
+        .env("ACPMUX_HOME", home)
+        .env("ACPMUX_SOCKET", home.join("s.sock"))
+        .env_remove("ACPMUX_LOGIN_ENV")
+        .env_remove("XPC_SERVICE_NAME")
+        .env_remove("CLAUDECODE")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let mut child = cmd.spawn().unwrap();
+    {
+        use std::io::Write;
+        let mut input = child.stdin.take().unwrap();
+        if let Some(text) = stdin {
+            input.write_all(text.as_bytes()).unwrap();
+        }
+    }
+    child.wait_with_output().unwrap()
+}
+
+/// cx-0q7o slice 2a (D2): the app's own ssh exec runs `acpmux daemon start
+/// --person-key-fd 0` with the key on stdin. The daemon it starts holds that
+/// key (the app's proof makes a connection the person); a second keyed start
+/// while a daemon runs refuses, since that daemon holds another key or none
+/// (a keyed restart stops it first).
+#[tokio::test]
+async fn daemon_start_hands_its_stdin_key_to_the_daemon_it_starts() {
+    let home = start_home("keyed");
+    let out = acpmux_cli(
+        &home,
+        &["--json", "daemon", "start", "--person-key-fd", "0"],
+        Some(&format!("{KEY}\n")),
+    );
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let status: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(status["personKey"], true, "{status}");
+    let socket = home.join("s.sock");
+    let (_app, reply, _) = Rpc::person_with(&socket, KEY).await;
+    assert!(reply.get("error").is_none(), "the started daemon does not hold the key: {reply}");
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let pid = status["pid"].as_u64().unwrap();
+        let meta = std::fs::metadata(format!("/proc/{pid}/environ")).unwrap();
+        assert_eq!(meta.uid(), 0, "the keyed daemon is dumpable");
+    }
+    let again =
+        acpmux_cli(&home, &["daemon", "start", "--person-key-fd", "0"], Some(&format!("{KEY}\n")));
+    assert!(!again.status.success(), "a keyed start went on while a daemon runs");
+    assert!(
+        String::from_utf8_lossy(&again.stderr).contains("already runs"),
+        "{}",
+        String::from_utf8_lossy(&again.stderr)
+    );
+    let _ = acpmux_cli(&home, &["daemon", "shutdown"], None);
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+/// cx-0q7o slice 2a (reviewer note 1): on a socket key descriptor the
+/// daemon first makes itself not dumpable and says so ("nodump"), and only
+/// then reads the key, so a same-uid process that opens
+/// /proc/<pid>/fd/<n> before that finds no key to read.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_key_reaches_the_daemon_only_after_it_is_not_dumpable() {
+    use std::io::{Read, Write};
+    use std::os::fd::FromRawFd;
+    use std::os::unix::fs::MetadataExt;
+    let home = start_home("nodump");
+    let mut fds = [-1i32; 2];
+    // SAFETY: a fresh socket pair; both ends are owned here.
+    let kind = libc::SOCK_STREAM | libc::SOCK_CLOEXEC;
+    assert_eq!(unsafe { libc::socketpair(libc::AF_UNIX, kind, 0, fds.as_mut_ptr()) }, 0);
+    let (ours, theirs) = (fds[0], fds[1]);
+    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"));
+    cmd.args([
+        "daemon",
+        "run",
+        "--memory",
+        "--ready-fd",
+        "1",
+        "--log",
+        "warn",
+        "--person-key-fd",
+        "3",
+    ])
+    .env("ACPMUX_HOME", &home)
+    .env("ACPMUX_SOCKET", home.join("s.sock"))
+    .env_remove("ACPMUX_LOGIN_ENV")
+    .env_remove("XPC_SERVICE_NAME")
+    .stdin(std::process::Stdio::null())
+    .stdout(std::process::Stdio::piped())
+    .stderr(std::process::Stdio::null());
+    // SAFETY: only dup2 between fork and exec (async-signal-safe).
+    unsafe {
+        cmd.pre_exec(move || {
+            if libc::dup2(theirs, 3) < 0 || libc::fcntl(3, libc::F_SETFD, 0) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    let mut child = cmd.spawn().unwrap();
+    // SAFETY: the child has its own copy on fd 3.
+    unsafe { libc::close(theirs) };
+    // SAFETY: our end, owned from here on.
+    let mut link = unsafe { std::os::unix::net::UnixStream::from_raw_fd(ours) };
+    link.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+    let mut said = [0u8; 7];
+    link.read_exact(&mut said).expect("the daemon says nodump before it reads the key");
+    assert_eq!(&said, b"nodump\n");
+    let meta = std::fs::metadata(format!("/proc/{}/environ", child.id())).unwrap();
+    assert_eq!(meta.uid(), 0, "the daemon asked for the key while dumpable");
+    link.write_all(format!("{KEY}\n").as_bytes()).unwrap();
+    link.shutdown(std::net::Shutdown::Write).unwrap();
+    let ready = BufReader::new(child.stdout.take().unwrap())
+        .lines()
+        .map_while(Result::ok)
+        .any(|line| serde_json::from_str::<Value>(&line).is_ok_and(|v| v["ready"] == true));
+    assert!(ready, "the daemon exited before its ready line");
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let (_app, reply, _) = rt.block_on(Rpc::person_with(&home.join("s.sock"), KEY));
+    assert!(reply.get("error").is_none(), "the daemon does not hold the key: {reply}");
+    // SAFETY: the pid of the child this test spawned and still owns.
+    unsafe { libc::kill(child.id() as i32, libc::SIGTERM) };
+    let _ = child.wait();
+    let _ = std::fs::remove_dir_all(&home);
+}

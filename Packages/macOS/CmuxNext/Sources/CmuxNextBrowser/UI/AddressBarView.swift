@@ -259,11 +259,6 @@ public final class AddressBarView: NSView {
         controller.send(.key(.enter(disposition)))
     }
 
-    /// The search engine inside `suggestionEngine` changed.
-    public func searchEngineDidChange() {
-        controller.send(.searchEngineChanged)
-    }
-
     /// Verification hook (`BrowserDebugWindow`, tests): focuses the field
     /// and types `text` one character at a time through the field editor,
     /// as keystrokes do.
@@ -296,7 +291,6 @@ public final class AddressBarView: NSView {
     }
 
     var fieldEditor: OmnibarFieldEditor? { field.editor }
-    var suggestionPanel: OmniboxSuggestionPanel { panel }
 
     // MARK: Events in
 

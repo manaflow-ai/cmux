@@ -100,8 +100,6 @@ final class TabCell {
     var presenceLayer: CALayer? // the acting agent's dot (TabCell+PresenceDot)
     var audioLayer: CALayer? // speaker of a tab playing sound (TabCell+AudioBadge)
 
-    var hasSpinnerLayer: Bool { spinnerLayer != nil }
-    var hasBadgeLayer: Bool { badgeLayer != nil }
     var hasCloseLayers: Bool { closeBackgroundLayer != nil || closeGlyphLayer != nil }
 
     private(set) var visibility = TabChromeVisibility(showsIcon: true, showsTitle: true, showsClose: false, centersContent: false)

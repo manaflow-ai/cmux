@@ -72,6 +72,10 @@ final class WindowManager {
     private(set) var isTerminating = false
     /// False in tests: windows are created but never ordered on screen.
     var ordersWindowsIn = true
+    /// Restore finished: windows saved in full screen may enter it.
+    var fullScreenRestoreReady = false
+    /// A restored window is entering full screen (one at a time).
+    var fullScreenRestoreRunning = false
     var onFirstWindow: ((WindowController) -> Void)?
     /// A window installed workspace content (links opened at launch wait for it).
     var onContentDidAppear: ((WindowController) -> Void)?
@@ -214,6 +218,8 @@ final class WindowManager {
         observeMembership()
         sessionRegistrar.start()
         registry.isLaunching = false
+        fullScreenRestoreReady = true
+        enterRestoredFullScreens()
         FirstWorkspaceLaunch(manager: self).land(firstWorkspace) // its New Tab page, not Home
     }
 
@@ -302,6 +308,7 @@ final class WindowManager {
         let behind = behindWindows.remove(controller.state.id) != nil
         if ordersWindowsIn, let window = controller.window { WindowActivation.show(window, behind ? .presentBehind : .present) }
         onPresent?(controller)
+        enterRestoredFullScreens()
     }
 
     /// Brings a window forward (not key and no activation under

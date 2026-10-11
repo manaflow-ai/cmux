@@ -6,26 +6,31 @@ public import CmuxTheme
 /// agent keeps its color across rows, panes and restarts, and the colors
 /// follow the terminal palette. Kept readable over the sidebar like the group
 /// colors (`GroupColor.themeRGB`).
-public nonisolated enum AgentPresenceColor {
+public nonisolated struct AgentPresenceColor: Sendable {
     /// The accents in pick order: the group colors' automatic order, then
     /// blue, which presence may use because it is never the app's selection.
     static let order: [GroupColor] = GroupColor.automaticOrder + [.blue]
 
-    /// The color for `key` in `tokens`' palette.
-    public static func rgb(forKey key: String, tokens: ThemeTokens) -> ThemeRGB {
-        let color = order[index(forKey: key, count: order.count)]
+    /// The agent's color key (its session id).
+    public let key: String
+
+    public init(key: String) { self.key = key }
+
+    /// The color in `tokens`' palette.
+    public func rgb(tokens: ThemeTokens) -> ThemeRGB {
+        let color = Self.order[Self.index(forKey: key, count: Self.order.count)]
         return color.themeRGB(tokens) ?? color.headerRGB(tokens)
     }
 
-    /// The color for `key` in the active theme scope.
-    @MainActor public static func color(forKey key: String) -> NSColor {
-        rgb(forKey: key, tokens: ThemeContext.active ?? ThemeScope.app.tokens).nsColor
+    /// The color in the active theme scope.
+    @MainActor public var color: NSColor {
+        rgb(tokens: ThemeContext.active ?? ThemeScope.app.tokens).nsColor
     }
 
-    /// Text on the presence color for `key`: black or white, whichever reads
-    /// better in the active theme.
-    @MainActor public static func ink(forKey key: String) -> NSColor {
-        GroupColor.ink(on: rgb(forKey: key, tokens: ThemeContext.active ?? ThemeScope.app.tokens)).nsColor
+    /// Text on the color: black or white, whichever reads better in the
+    /// active theme.
+    @MainActor public var ink: NSColor {
+        GroupColor.ink(on: rgb(tokens: ThemeContext.active ?? ThemeScope.app.tokens)).nsColor
     }
 
     /// FNV-1a over the key's Unicode scalars, modulo `count`.

@@ -147,20 +147,6 @@ public final class MockBrowserTab: BrowserTab {
         return BrowserNavigationID(rawValue: nextNavigation)
     }
 
-    /// Queues a prompt as if the page asked for it.
-    @discardableResult
-    public func presentPrompt(_ kind: BrowserPromptKind, origin: String) async -> BrowserPromptResponse {
-        await withCheckedContinuation { continuation in
-            var prompt: BrowserPrompt?
-            let made = BrowserPrompt(kind: kind, origin: origin) { [weak self] response in
-                self?.pendingPrompts.removeAll { $0 === prompt }
-                continuation.resume(returning: response)
-            }
-            prompt = made
-            pendingPrompts.append(made)
-        }
-    }
-
     func record(_ command: Command) { commands.append(command) }
 
     public func emit(_ intent: BrowserTabIntent) {

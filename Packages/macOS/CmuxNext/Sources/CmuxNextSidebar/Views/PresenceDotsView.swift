@@ -73,7 +73,7 @@ final class PresenceDotsView: NSView {
     override func updateLayer() {
         performWithTheme {
             for (dot, agent) in zip(dots, presence) {
-                dot.backgroundColor = AgentPresenceColor.color(forKey: agent.id).cgColor
+                dot.backgroundColor = AgentPresenceColor(key: agent.id).color.cgColor
             }
             overflow.textColor = Palette.textTertiary
         }
