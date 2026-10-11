@@ -163,6 +163,7 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
                 .attach(sessionName: "orphan", removed: true),
             ])
             #expect(run.argv.contains("'new-session' '-d' '-s' 'cmux-new-"))
+            #expect(run.argv.contains("'-x' '120' '-y' '40'"))
             #expect(run.argv.contains("'-P' '-F' '#{session_name}'"))
             #expect(run.argv.contains("'kill-session' '-t' '=orphan'"))
             #expect(run.tabs == 0)
@@ -382,6 +383,7 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
             // RemoteTmuxHost.tmuxRemoteCommand single-quotes every word of the remote
             // command, so the flags arrive individually quoted, not as one bare run.
             #expect(recordedArgv.contains("'new-session' '-d' '-s' 'cmux-new-"))
+            #expect(recordedArgv.contains("'-x' '120' '-y' '40'"))
             #expect(recordedArgv.contains("'-P' '-F' '#{session_name}'"))
             let created = try #require(manager.tabs.first { $0.title == "brand-new" })
             #expect(created.isRemoteTmuxMirror)
@@ -513,6 +515,87 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
             requestedSessionName: "requested",
             pendingRoutedSessionNames: ["cmux-new-routed"]
         ))
+    }
+
+    /// A shared view may reconcile through the manager that owns an existing mirror while
+    /// New Workspace was requested from another window. The new mirror and its selection
+    /// belong to the requesting manager, not whichever manager the view callback used.
+    @Test func multiplexedRoutedAdmissionUsesTheRequestingManager() throws {
+        let controller = RemoteTmuxController()
+        let view = RemoteTmuxViewConnection(host: hostA, ownerId: "routing-test")
+        let shared = RemoteTmuxControlConnection(host: hostA, sessionName: view.view.sessionName)
+        view.connection = shared
+        controller.multiplexedViewsByHost[hostA.connectionHash] = view
+
+        let existingManager = TabManager()
+        let requestingManager = TabManager()
+        let existing = RemoteTmuxLinkedWorkspaceModel.Workspace(
+            sessionName: "existing",
+            windowIds: ["@1"],
+            activeWindowId: "@1",
+            sessionId: 1
+        )
+        controller.applyMultiplexedWorkspaces(
+            host: hostA,
+            manager: existingManager,
+            workspaces: [existing],
+            shared: shared
+        )
+        let newName = "cmux-new-requesting-manager"
+        let newKey = RemoteTmuxController.connectionKey(host: hostA, sessionName: newName)
+        var completionResult: Bool?
+        controller.pendingMultiplexNewSessionManagers[newKey] = RemoteTmuxWeakTabManager(requestingManager)
+        controller.pendingMultiplexNewSessionCompletions[newKey] = { completionResult = $0 }
+        controller.multiplexIntentsByHost[hostA.connectionHash] = .init(
+            pendingSelect: .init(
+                sessionName: newName,
+                originatingTabId: requestingManager.selectedTab!.id
+            )
+        )
+
+        let routed = RemoteTmuxLinkedWorkspaceModel.Workspace(
+            sessionName: newName,
+            windowIds: ["@2"],
+            activeWindowId: "@2",
+            sessionId: 2
+        )
+        controller.applyMultiplexedWorkspaces(
+            host: hostA,
+            manager: existingManager,
+            workspaces: [existing, routed],
+            shared: shared
+        )
+
+        let created = try #require(requestingManager.tabs.first { $0.title == newName })
+        #expect(created.isRemoteTmuxMirror)
+        #expect(requestingManager.selectedTab?.id == created.id)
+        #expect(existingManager.tabs.first { $0.title == newName } == nil)
+        #expect(controller.sessionMirror(host: hostA, sessionName: newName)?.mirroredWorkspaceId == created.id)
+        #expect(completionResult == true)
+    }
+
+    /// A delayed shared-view stop can race a view replacement. Its callers still need
+    /// their completion, even when the old view is no longer the host-map entry.
+    @Test func replacedMultiplexedViewStillRunsStopCompletion() async {
+        let controller = RemoteTmuxController()
+        let oldView = RemoteTmuxViewConnection(host: hostA, ownerId: "old-view")
+        controller.multiplexedViewsByHost[hostA.connectionHash] = oldView
+        let pendingKey = RemoteTmuxController.connectionKey(host: hostA, sessionName: "cmux-new-pending")
+        controller.pendingMultiplexNewSessionCompletions[pendingKey] = { _ in }
+        var stopCompletionCount = 0
+
+        #expect(controller.stopMultiplexedHost(host: hostA) {
+            stopCompletionCount += 1
+        })
+        controller.multiplexedViewsByHost[hostA.connectionHash] = RemoteTmuxViewConnection(
+            host: hostA,
+            ownerId: "replacement-view"
+        )
+        for _ in 0..<8 { await Task.yield() }
+
+        #expect(stopCompletionCount == 1)
+        #expect(controller.pendingMultiplexHostStopCompletions[hostA.connectionHash] == nil)
+        controller.multiplexedViewsByHost[hostA.connectionHash] = nil
     }
 
     // MARK: - performNewWorkspaceAction hook

@@ -557,11 +557,24 @@ extension RemoteTmuxController {
             let sessionView = create.view
             let key = Self.connectionKey(host: host, sessionName: sessionView.sessionName)
             guard sessionMirrors[key] == nil else { continue }
+            let admissionManager: TabManager?
+            if let requestedManager = pendingMultiplexNewSessionManagers[key] {
+                admissionManager = requestedManager.value
+            } else {
+                admissionManager = manager
+            }
+            guard let admissionManager else {
+                if let completion = pendingMultiplexNewSessionCompletions.removeValue(forKey: key) {
+                    completion(false)
+                    multiplexedViewsByHost[hostHash]?.killWorkspaceSession(named: sessionView.sessionName)
+                }
+                continue
+            }
             // Select ONLY the session a user-initiated New Workspace created, and
             // only if the user is still on the tab the action originated from —
             // an unrelated session surfacing first must never steal focus.
             let selectNewlyCreated = create.select
-                && incomingIntents.pendingSelect.map { manager.selectedTab?.id == $0.originatingTabId } == true
+                && incomingIntents.pendingSelect.map { admissionManager.selectedTab?.id == $0.originatingTabId } == true
             let channel = RemoteTmuxSessionChannel(
                 underlying: shared,
                 sessionName: sessionView.sessionName,
@@ -575,7 +588,7 @@ extension RemoteTmuxController {
                 sessionName: sessionView.sessionName,
                 sessionId: sessionView.sessionId,
                 connection: channel,
-                into: manager,
+                into: admissionManager,
                 customTitle: pendingMultiplexWorkspaceNamesByHost[hostHash],
                 select: selectNewlyCreated
             ) != nil else {
@@ -681,13 +694,15 @@ extension RemoteTmuxController {
         Task { @MainActor [weak self, weak view] in
             guard let view else {
                 self?.pendingMultiplexHostStops.remove(hostHash)
-                self?.pendingMultiplexHostStopCompletions.removeValue(forKey: hostHash)
+                let completions = self?.pendingMultiplexHostStopCompletions.removeValue(forKey: hostHash) ?? []
+                completions.forEach { $0() }
                 return
             }
             await view.killWorkspaceSessions(named: pendingSessionNames)
             guard let self, self.multiplexedViewsByHost[hostHash] === view else {
                 self?.pendingMultiplexHostStops.remove(hostHash)
-                self?.pendingMultiplexHostStopCompletions.removeValue(forKey: hostHash)
+                let completions = self?.pendingMultiplexHostStopCompletions.removeValue(forKey: hostHash) ?? []
+                completions.forEach { $0() }
                 return
             }
             self.finishStoppingMultiplexedHost(host: host, view: view)
@@ -730,6 +745,9 @@ extension RemoteTmuxController {
         pendingMultiplexWorkspaceNamesByHost[hostHash] = nil
         requestedMultiplexSessionByHost[hostHash] = nil
         pendingMultiplexNewSessionCompletions = pendingMultiplexNewSessionCompletions.filter {
+            !$0.key.hasPrefix("\(hostHash)\u{1}")
+        }
+        pendingMultiplexNewSessionManagers = pendingMultiplexNewSessionManagers.filter {
             !$0.key.hasPrefix("\(hostHash)\u{1}")
         }
         releaseLoginOfferIfHostHasNoMirrors(host: host)

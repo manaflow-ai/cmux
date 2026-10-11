@@ -116,7 +116,12 @@ extension RemoteTmuxController {
         let name: String
         do {
             let result = try await transport(for: host).runTmux(
-                ["new-session", "-d", "-s", requestedName, "-P", "-F", "#{session_name}"]
+                [
+                    "new-session", "-d", "-s", requestedName,
+                    "-x", "\(RemoteTmuxViewConnection.defaultInitialCols)",
+                    "-y", "\(RemoteTmuxViewConnection.defaultInitialRows)",
+                    "-P", "-F", "#{session_name}",
+                ]
             )
             let created = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
             // A closed window no longer has a requester who can pick up this

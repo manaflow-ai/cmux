@@ -72,6 +72,10 @@ final class RemoteTmuxController {
     /// The stream publishes the new mirror asynchronously, so the callback fires from
     /// the reconcile that actually admits the workspace.
     var pendingMultiplexNewSessionCompletions: [String: (Bool) -> Void] = [:]
+    /// The requesting manager for each pending routed multiplexed session. The shared
+    /// view's callback normally reconciles into the manager that owns an existing mirror,
+    /// which can differ from the window that initiated New Workspace.
+    var pendingMultiplexNewSessionManagers: [String: RemoteTmuxWeakTabManager] = [:]
 
     init(newSessionEnvironment: RemoteTmuxNewSessionEnvironment = .live) {
         self.newSessionEnvironment = newSessionEnvironment
@@ -641,8 +645,10 @@ final class RemoteTmuxController {
         intents.pendingSelect = .init(sessionName: sessionName, originatingTabId: originatingTabId)
         multiplexIntentsByHost[hostHash] = intents
         let completionKey = Self.connectionKey(host: host, sessionName: sessionName)
+        pendingMultiplexNewSessionManagers[completionKey] = RemoteTmuxWeakTabManager(manager)
         pendingMultiplexNewSessionCompletions[completionKey] = { [weak self, weak manager] admitted in
             guard let self else { return }
+            self.pendingMultiplexNewSessionManagers.removeValue(forKey: completionKey)
             let isCurrent = self.newSessionRequestIDs[managerID] == requestID
                 && self.pendingMultiplexNewSessionRequests[managerID] == requestID
             if isCurrent {
@@ -685,6 +691,7 @@ final class RemoteTmuxController {
             self.pendingMultiplexNewSessionCompletions.removeValue(forKey: completionKey)?(false)
         }
         guard sent else {
+            pendingMultiplexNewSessionManagers.removeValue(forKey: completionKey)
             if pendingMultiplexNewSessionRequests[managerID] == requestID {
                 if var intents = multiplexIntentsByHost[hostHash],
                    intents.pendingSelect?.sessionName == sessionName {
@@ -1309,6 +1316,15 @@ final class RemoteTmuxController {
     /// connection.
     static func connectionKey(host: RemoteTmuxHost, sessionName: String) -> String {
         "\(host.connectionHash)\u{1}\(sessionName)"
+    }
+}
+
+@MainActor
+final class RemoteTmuxWeakTabManager {
+    weak var value: TabManager?
+
+    init(_ value: TabManager) {
+        self.value = value
     }
 }
 

@@ -124,6 +124,8 @@ enum RemoteTmuxRetryDelay {
 ///    linking").
 @MainActor
 final class RemoteTmuxViewConnection {
+    static let defaultInitialCols = 120
+    static let defaultInitialRows = 40
     let host: RemoteTmuxHost
     let view: RemoteTmuxViewSession
 
@@ -221,8 +223,8 @@ final class RemoteTmuxViewConnection {
     init(
         host: RemoteTmuxHost,
         ownerId: String,
-        initialCols: Int = 120,
-        initialRows: Int = 40
+        initialCols: Int = Self.defaultInitialCols,
+        initialRows: Int = Self.defaultInitialRows
     ) {
         self.host = host
         self.view = RemoteTmuxViewSession(ownerId: ownerId)
