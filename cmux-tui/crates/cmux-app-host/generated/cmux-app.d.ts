@@ -376,6 +376,10 @@ declare namespace Cmux {
   type WgPublicKey = string
   type WindowRecordDeleteResult = { id: string; revision: string }
   type WindowRecordSnapshot = { id: string; install_id: string; window_id: string; owner: string; revision: string; record: Cmux.JsonValue; updated_at_ms: string }
+  type WorkspaceAgentStart = { cwd: string | null; kind: Cmux.WorkspaceAgentStartKind; agent_home: string | null; skipped?: Cmux.WorkspaceAgentStartSkip }
+  type WorkspaceAgentStartKind = "seed" | "chosen" | "workspace" | "agent_home"
+  type WorkspaceAgentStartSkip = { cwd: string; reason: Cmux.WorkspaceAgentStartSkipReason }
+  type WorkspaceAgentStartSkipReason = "home" | "above_home" | "agent_home" | "missing"
   type WorkspaceGroupDeleteResult = { id: Cmux.StateId; ungrouped: Array<Cmux.WorkspaceRef> }
   type WorkspaceGroupSnapshot = { id: Cmux.StateId; room_id: Cmux.StateId; name: string; color: string | null; collapsed: boolean; index: number; top_index?: number | null; icon?: string | null; pinned?: boolean }
   type WorkspaceLogLevel = "info" | "progress" | "success" | "warning" | "error"
