@@ -220,6 +220,6 @@ nonisolated extension ActionSurfaceCatalog {
         "bookmark.manager": [p(.bookmark, .view, 301), p(.bookmarksBar, .view, 101)],
         // An agent chat's empty space (POLISH.md right-click contract): Change Background leads, from
         // its own plan, then Theme, the chat's zoom and Find in Chat.
-        "find": [p(.agentChat, .view, 0, label: AgentChatMenuLabels.findInChat)],
+        "find": [p(.agentChat, .layout, 100, label: AgentChatMenuLabels.findInChat)],
     ]
 }
