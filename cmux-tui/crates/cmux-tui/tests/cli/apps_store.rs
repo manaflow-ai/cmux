@@ -6,7 +6,7 @@
 #![cfg(unix)]
 
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -465,4 +465,114 @@ fn person_only_and_money_ops_never_reach_an_app() {
             call["name"],
         );
     }
+}
+
+/// A first-party app whose always-on server asks `cmux.host.link.get` at
+/// start and again once `<dir>/again` exists, recording each answer in
+/// `<dir>/link.jsonl` (cx-wmd8x).
+fn write_linked_app(apps: &Apps) {
+    write_script(
+        &apps.dir.join("servers").join("host-probe"),
+        "#!/bin/sh\nprintf '{\"t\":\"host.request\",\"id\":7,\"op\":\"cmux.host.link.get\",\"params\":{}}\\n'\n(while [ ! -e \"$2\" ]; do sleep 0.05; done; printf '{\"t\":\"host.request\",\"id\":8,\"op\":\"cmux.host.link.get\",\"params\":{}}\\n') &\nwhile IFS= read -r line; do\n  printf '%s\\n' \"$line\" >> \"$1\"\ndone\n",
+    );
+    let app = apps.dir.join("first-party").join("linked");
+    std::fs::create_dir_all(&app).unwrap();
+    let catalog = json!({ "family": "linked", "operations": [{
+        "name": "linked.ping", "owner": "app:cmux/linked", "class": "read", "risk": "read",
+        "idempotency": "forbidden", "input": { "type": "object" }, "docs": "d", "since": "linked/1"
+    }] });
+    std::fs::write(app.join("catalog.json"), catalog.to_string()).unwrap();
+    write_app(
+        &apps.dir.join("first-party"),
+        "cmux",
+        "linked",
+        json!({
+            "catalog": "catalog.json", "files": ["catalog.json"],
+            "scopes": { "linked:read": "Read." },
+            "server": {
+                "kind": "native",
+                "binaries": { "darwin-arm64": "host-probe", "darwin-x64": "host-probe", "linux-arm64": "host-probe", "linux-x64": "host-probe" },
+                "args": [apps.dir.join("link.jsonl").to_string_lossy(), apps.dir.join("again").to_string_lossy()],
+                "instances": "machine", "hosts": ["local"], "lifecycle": { "start": "always" },
+                "scopes": { "op:cmux.host.link.get": "Read where the link helper lives." }
+            }
+        }),
+    );
+}
+
+/// The `apps-logs` lines of `app` once one holds `needle` (or every line after 20 s).
+fn log_with(apps: &Apps, app: &str, needle: &str) -> Vec<String> {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let reply = apps.agent().rpc(json!({ "cmd": "apps-logs", "app": app }));
+        let lines: Vec<String> = ok(&reply)["lines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|l| l["message"].as_str().unwrap_or_default().to_string())
+            .collect();
+        if lines.iter().any(|l| l.contains(needle)) || Instant::now() > deadline {
+            return lines;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// cx-wmd8x: the app server's temporary folder is also its socket folder
+/// (`socket_dir` of `cmux.host.link.get`), a trust boundary. Through the
+/// daemon: a folder that is a symlink, or that other users may open, is never
+/// emptied or used; the server does not start and nothing it would have
+/// answered is sent. A clean start answers a 0700 folder short enough for the
+/// link socket; once that folder opens to other users, the next link answer
+/// refuses.
+#[test]
+fn app_socket_folder_refuses_a_symlink_or_an_open_folder() {
+    // The leaf the old layout uses on Linux (the test state dir is short).
+    for case in ["symlink", "open"] {
+        let apps = Apps::new(&format!("sd{case}"));
+        let parent = apps.dir.join("state").join("apps-tmp");
+        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&parent).unwrap();
+        let leaf = parent.join("cmux.linked");
+        let elsewhere = apps.dir.join("elsewhere");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        std::fs::write(elsewhere.join("keep"), "x").unwrap();
+        if case == "symlink" {
+            std::os::unix::fs::symlink(&elsewhere, &leaf).unwrap();
+        } else {
+            std::fs::create_dir(&leaf).unwrap();
+            std::fs::set_permissions(&leaf, std::fs::Permissions::from_mode(0o755)).unwrap();
+            std::fs::write(leaf.join("keep"), "x").unwrap();
+        }
+        write_linked_app(&apps);
+        apps.start();
+        ok(&apps.agent().rpc(json!({ "cmd": "apps-list" })));
+        let lines = log_with(&apps, "cmux/linked", "app socket folder");
+        assert!(
+            lines.iter().any(|l| l.contains("app socket folder")),
+            "{case}: the server start must refuse the folder: {lines:?}"
+        );
+        assert!(!apps.dir.join("link.jsonl").exists(), "{case}: a refused server answered nothing");
+        let kept = if case == "symlink" { elsewhere.join("keep") } else { leaf.join("keep") };
+        assert!(kept.exists(), "{case}: a refused folder is never emptied");
+    }
+
+    let apps = Apps::new("sdclean");
+    write_linked_app(&apps);
+    apps.start();
+    ok(&apps.agent().rpc(json!({ "cmd": "apps-list" })));
+    let first = apps.lines("link.jsonl", 1).swap_remove(0);
+    assert_eq!((first["t"].clone(), first["id"].clone()), (json!("host.result"), json!(7)), "{first}");
+    let socket_dir = PathBuf::from(first["value"]["socket_dir"].as_str().unwrap());
+    assert!(socket_dir.as_os_str().len() <= 104 - 1 - 27, "{}", socket_dir.display());
+    let meta = std::fs::symlink_metadata(&socket_dir).unwrap();
+    assert!(meta.is_dir() && !meta.file_type().is_symlink());
+    assert_eq!(meta.permissions().mode() & 0o777, 0o700, "{}", socket_dir.display());
+    std::fs::set_permissions(&socket_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::write(apps.dir.join("again"), "").unwrap();
+    let second = apps.lines("link.jsonl", 2).swap_remove(1);
+    assert_eq!(
+        (second["t"].clone(), second["id"].clone(), second["code"].clone()),
+        (json!("host.error"), json!(8), json!("apps.socket_dir_unsafe")),
+        "{second}"
+    );
 }
