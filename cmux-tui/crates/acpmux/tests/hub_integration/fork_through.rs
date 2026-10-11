@@ -225,3 +225,95 @@ async fn a_claude_fork_through_a_turn_after_a_failed_one_holds_that_turn_and_no_
     assert_eq!(fork["prompts"], json!(["first", "second"]), "{fork}");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Turns a fork inherited keep the times they happened: forking the fork
+/// through one of them holds that turn and no later one.
+#[tokio::test]
+async fn a_fork_of_a_claude_fork_through_an_inherited_turn_holds_that_turn_and_no_later_one() {
+    let root = std::env::temp_dir().join(format!("acpmux-fork-at-{}", uuid::Uuid::now_v7()));
+    let claude = root.join("claude");
+    std::fs::create_dir_all(&claude).unwrap();
+    let (hub, mut c) = claude_setup(&claude, &[]).await;
+    let s = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "src"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let say =
+        |id: &str, text: &str| json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]});
+    for text in ["first", "second", "third"] {
+        c.request(method::SESSION_PROMPT, say(&id, text)).await.unwrap();
+    }
+    let results = |id: &str| -> Vec<u64> {
+        hub.events(id, 0, 1000)
+            .unwrap()
+            .into_iter()
+            .filter(|e| e.kind == "turn_result")
+            .map(|e| e.seq)
+            .collect()
+    };
+    let f =
+        c.request(FORK_OP, json!({"sessionId": id, "throughSeq": results(&id)[1]})).await.unwrap();
+    let fid = f["sessionId"].as_str().unwrap().to_owned();
+    c.request(method::SESSION_PROMPT, say(&fid, "fresh")).await.unwrap();
+
+    let g = c
+        .request(FORK_OP, json!({"sessionId": fid, "throughSeq": results(&fid)[0]}))
+        .await
+        .unwrap();
+    let gid = g["sessionId"].as_str().unwrap().to_owned();
+    let fork = claude_history(&hub, &mut c, &gid).await;
+    assert_eq!(fork["prompts"], json!(["first"]), "{fork}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A Claude conversation that starts after the turn (Claude started fresh
+/// on a failover) cannot be forked through it: the fork is refused instead
+/// of resuming a conversation with none of the chat's turns.
+#[tokio::test]
+async fn a_claude_fork_through_a_turn_its_conversation_does_not_hold_is_refused() {
+    let root = std::env::temp_dir().join(format!("acpmux-fork-at-{}", uuid::Uuid::now_v7()));
+    let claude = root.join("claude");
+    std::fs::create_dir_all(&claude).unwrap();
+    let (hub, mut c) = claude_setup(&claude, &[]).await;
+    let s = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "src"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    for text in ["first", "second"] {
+        c.request(
+            method::SESSION_PROMPT,
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]}),
+        )
+        .await
+        .unwrap();
+    }
+    // The conversation now begins at the second prompt.
+    let sid = hub.resolve(&id).unwrap().meta().agent_session_id.unwrap();
+    let file = claude.join("projects").join("p").join(format!("{sid}.jsonl"));
+    let kept: Vec<String> = std::fs::read_to_string(&file)
+        .unwrap()
+        .lines()
+        .skip_while(|line| !line.contains("\"second\""))
+        .map(str::to_owned)
+        .collect();
+    std::fs::write(&file, kept.join("\n") + "\n").unwrap();
+    let first = hub
+        .events(&id, 0, 1000)
+        .unwrap()
+        .into_iter()
+        .find(|e| e.kind == "turn_result")
+        .unwrap()
+        .seq;
+
+    let refused = c.request(FORK_OP, json!({"sessionId": id, "throughSeq": first})).await;
+    assert!(refused.is_err(), "{refused:?}");
+    let _ = std::fs::remove_dir_all(&root);
+}
