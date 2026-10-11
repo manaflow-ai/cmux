@@ -228,6 +228,16 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if fetch_catalog {
         tokio::spawn(hub.catalog.clone().run());
     }
+    // Agent CLI health (`harness_health`): checked now and every few hours,
+    // off the startup path. `ACPMUX_HEALTH_FETCH=0` keeps newest-version
+    // lookups off (the local checks still run).
+    let fetch_latest = !std::env::var("ACPMUX_HEALTH_FETCH").is_ok_and(|v| v == "0");
+    hub.health.attach(crate::harness_health::Settings {
+        sources: fetch_latest.then(crate::harness_health::latest::Sources::public),
+        cache: Some(home().join("harness-health.json")),
+        home: dirs::home_dir().unwrap_or_default(),
+    });
+    tokio::spawn(hub.clone().run_health());
     // The ACP Registry (`registry.rs`): fetched once per daemon start; a copy
     // that changes which installed agents are harnesses reloads them (and
     // only then: a reload restarts pooled sessions).

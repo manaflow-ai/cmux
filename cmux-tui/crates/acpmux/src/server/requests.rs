@@ -879,7 +879,10 @@ async fn dispatch_request(
         | method::MUX_HARNESS_REMOVE
         | method::MUX_HARNESS_RESTORE
         | method::MUX_HARNESS_DOCTOR
-        | method::MUX_REGISTRY => super::harness_admin::handle(hub, conn.origin, m, &params).await,
+        | method::MUX_REGISTRY
+        | method::MUX_HARNESS_HEALTH => {
+            super::harness_admin::handle(hub, conn.origin, m, &params).await
+        }
         method::MUX_ROUTE_LIST
         | method::MUX_ROUTE_SHOW
         | method::MUX_ROUTE_ADD

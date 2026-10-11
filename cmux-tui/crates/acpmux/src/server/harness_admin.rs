@@ -140,6 +140,7 @@ pub(super) async fn handle(
                 .map_err(|e| RpcError::internal(format!("{e:#}")))?;
             admin::registry_value(&reg, &crate::config::which)
         }
+        method::MUX_HARNESS_HEALTH => return Ok(hub.harness_health(params).await),
         other => return Err(RpcError::method_not_found(other)),
     };
     Ok(reply)
