@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 import CmuxNextDesign
 
 /// A pane's agent name tag (cx-gg84): who is acting in the pane's selected
