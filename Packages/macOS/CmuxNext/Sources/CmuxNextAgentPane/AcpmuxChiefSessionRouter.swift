@@ -52,4 +52,10 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
     public func prewarm() async throws {
         try await local.prewarm()
     }
+
+    /// The folder of `sessionId` from the host that owns it (the chief's or
+    /// this Mac's acpmux), so a commit or push runs in that session's folder.
+    public func sessionFolder(sessionId: String) async throws -> AgentPaneSessionFolder? {
+        try await host(for: sessionId).sessionFolder(sessionId: sessionId)
+    }
 }

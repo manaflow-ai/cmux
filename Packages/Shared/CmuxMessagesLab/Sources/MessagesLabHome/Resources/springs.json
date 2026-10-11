@@ -1157,5 +1157,249 @@
    ],
    "note": "ours moved the rows above the root with transcript.receive from the first frame without the drop and ended 150 ms early (b5bd5f4, take 8402); a fit of the rise alone (from 881 pt, 0.113 s delay, 0.2 s; 1ef4cb2, take 8403) matched the rise but not the first frame's drop"
   }
+ },
+ "typing.scale": {
+  "event": "the typing bubble appears: scale 0 -> 1 about RowDraw.typingAnchor (19.1 pt left of, 8.7 pt above the bubble's centre)",
+  "unit": "scale",
+  "from": 0.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0026,
+    "duration": 0.2717,
+    "curve": [
+     0.559,
+     0.08,
+     0.352,
+     0.828
+    ],
+    "delta": 1.0
+   }
+  ],
+  "residual": {
+   "rms": 0.027,
+   "note": "box width and height over the final box; all three takes within 0.06"
+  },
+  "fit": {
+   "method": "lossless send-typed-media-take1 (+4.93 s) and typing-unfocused-take1 (+9.36 s, inactive window): per frame, the typing bubble's box (pixels over 34 levels in x 0-110 pt below the last outgoing bubble, its tail circles cut off) in window pt; time 0 = the rows' begin (transcript.typing fitted to each take's rows offset); tools/evidence/ANIMATIONS.md section 6. send-typed-take1 (+5.07 s) has the same scale curve but starts 40-60 pt higher (not modelled)",
+   "takes": [
+    "send-typed-media-take1",
+    "typing-unfocused-take1",
+    "send-typed-take1"
+   ]
+  }
+ },
+ "typing.opacity": {
+  "event": "the typing bubble appears: opacity 0 -> 1",
+  "unit": "opacity",
+  "from": 0.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0201,
+    "duration": 0.3538,
+    "curve": [
+     0.571,
+     1.0,
+     0.357,
+     0.954
+    ],
+    "delta": 1.0
+   }
+  ],
+  "residual": {
+   "rms": 0.015,
+   "note": "mean luminance of the box over the background (30), over its final value"
+  },
+  "fit": {
+   "method": "lossless send-typed-media-take1 (+4.93 s) and typing-unfocused-take1 (+9.36 s, inactive window): per frame, the typing bubble's box (pixels over 34 levels in x 0-110 pt below the last outgoing bubble, its tail circles cut off) in window pt; time 0 = the rows' begin (transcript.typing fitted to each take's rows offset); tools/evidence/ANIMATIONS.md section 6. send-typed-take1 (+5.07 s) has the same scale curve but starts 40-60 pt higher (not modelled)",
+   "takes": [
+    "send-typed-media-take1",
+    "typing-unfocused-take1",
+    "send-typed-take1"
+   ]
+  }
+ },
+ "typing.driftX": {
+  "event": "the typing bubble appears: its centre drifts 4.79 pt to the left into place (Springs.typingDrift.x)",
+  "unit": "pt (share of typingDrift.x)",
+  "from": 0.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.138,
+    "duration": 0.204,
+    "curve": [
+     0.42,
+     0.0,
+     0.58,
+     1.0
+    ],
+    "delta": 1.0
+   }
+  ],
+  "residual": {
+   "rmsPt": 0.23
+  },
+  "fit": {
+   "method": "lossless send-typed-media-take1 (+4.93 s) and typing-unfocused-take1 (+9.36 s, inactive window): per frame, the typing bubble's box (pixels over 34 levels in x 0-110 pt below the last outgoing bubble, its tail circles cut off) in window pt; time 0 = the rows' begin (transcript.typing fitted to each take's rows offset); tools/evidence/ANIMATIONS.md section 6. send-typed-take1 (+5.07 s) has the same scale curve but starts 40-60 pt higher (not modelled)",
+   "takes": [
+    "send-typed-media-take1",
+    "typing-unfocused-take1",
+    "send-typed-take1"
+   ]
+  }
+ },
+ "typing.driftY": {
+  "event": "the typing bubble appears: its centre drifts 7.66 pt down into place (Springs.typingDrift.y)",
+  "unit": "pt (share of typingDrift.y)",
+  "from": 0.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0,
+    "duration": 0.45,
+    "curve": [
+     0.42,
+     0.0,
+     0.58,
+     1.0
+    ],
+    "delta": 1.0
+   }
+  ],
+  "residual": {
+   "rmsPt": 2.31,
+   "maxPt": {
+    "send-typed-media-take1": 8.2,
+    "typing-unfocused-take1": 4.5,
+    "send-typed-take1": 57.2
+   }
+  },
+  "fit": {
+   "method": "lossless send-typed-media-take1 (+4.93 s) and typing-unfocused-take1 (+9.36 s, inactive window): per frame, the typing bubble's box (pixels over 34 levels in x 0-110 pt below the last outgoing bubble, its tail circles cut off) in window pt; time 0 = the rows' begin (transcript.typing fitted to each take's rows offset); tools/evidence/ANIMATIONS.md section 6. send-typed-take1 (+5.07 s) has the same scale curve but starts 40-60 pt higher (not modelled)",
+   "takes": [
+    "send-typed-media-take1",
+    "typing-unfocused-take1",
+    "send-typed-take1"
+   ]
+  }
+ },
+ "receipt.appearOpacity": {
+  "event": "a receipt label appears (Delivered): opacity 0 -> 1",
+  "unit": "opacity",
+  "from": 0.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0651,
+    "duration": 0.2571,
+    "curve": [
+     0.391,
+     0.234,
+     0.354,
+     0.693
+    ],
+    "delta": 1.0
+   }
+  ],
+  "residual": {
+   "rms": 0.007,
+   "max": 0.016
+  },
+  "fit": {
+   "method": "lossless send-typed-take1: per frame, the receipt label under the newest outgoing bubble (pixels over 45 levels in x 440-610 pt, 2.5-17.5 pt under the bubble; tools/evidence/ANIMATIONS.md section 7): opacity = mean brightness over the background in the final label box over its final value; scale = ink width over the final width. Time 0 = the rows' begin (transcript.delivered fitted to the bubble's rise: Messages 1.077 s after its first send frame; the responder schedules ours at 1.042 s)",
+   "takes": [
+    "send-typed-take1"
+   ]
+  }
+ },
+ "receipt.appearGrow": {
+  "event": "a receipt label appears (Delivered): scale Springs.receiptAppearScale (0.3) -> 1 about the label's centre",
+  "unit": "scale (share)",
+  "from": 0.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0646,
+    "duration": 0.2594,
+    "curve": [
+     0.139,
+     0.166,
+     0.386,
+     0.794
+    ],
+    "delta": 1.0
+   }
+  ],
+  "residual": {
+   "rms": 0.006,
+   "max": 0.015,
+   "note": "first visible frame 0.31 of the final width"
+  },
+  "fit": {
+   "method": "lossless send-typed-take1: per frame, the receipt label under the newest outgoing bubble (pixels over 45 levels in x 440-610 pt, 2.5-17.5 pt under the bubble; tools/evidence/ANIMATIONS.md section 7): opacity = mean brightness over the background in the final label box over its final value; scale = ink width over the final width. Time 0 = the rows' begin (transcript.delivered fitted to the bubble's rise: Messages 1.077 s after its first send frame; the responder schedules ours at 1.042 s)",
+   "takes": [
+    "send-typed-take1"
+   ]
+  }
+ },
+ "receipt.changeOut": {
+  "event": "a receipt label changes its text (Delivered -> Read): the old text's opacity 1 -> 0",
+  "unit": "opacity",
+  "from": 0.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0569,
+    "duration": 0.2293,
+    "curve": [
+     0.276,
+     0.144,
+     0.273,
+     0.938
+    ],
+    "delta": 1.0
+   }
+  ],
+  "residual": {
+   "rms": 0.003,
+   "max": 0.009
+  },
+  "fit": {
+   "method": "lossless send-typed-take1: per frame, the receipt label under the newest outgoing bubble (pixels over 45 levels in x 440-610 pt, 2.5-17.5 pt under the bubble; tools/evidence/ANIMATIONS.md section 7): opacity = mean brightness over the background in the final label box over its final value; scale = ink width over the final width. Time 0 = the responder's Read time (1.892 s after the first send frame; no row moves at Read in this take, so the schedule and the delay cannot be separated: the original recording's fit, timed from its rows, had 0.042 s)",
+   "takes": [
+    "send-typed-take1"
+   ]
+  }
+ },
+ "receipt.changeIn": {
+  "event": "a receipt label changes its text (Delivered -> Read): the new text's opacity 0 -> 1",
+  "unit": "opacity",
+  "from": 0.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.3093,
+    "duration": 0.2515,
+    "curve": [
+     0.262,
+     0.168,
+     0.235,
+     1.0
+    ],
+    "delta": 1.0
+   }
+  ],
+  "residual": {
+   "rms": 0.002,
+   "max": 0.006
+  },
+  "fit": {
+   "method": "lossless send-typed-take1: per frame, the receipt label under the newest outgoing bubble (pixels over 45 levels in x 440-610 pt, 2.5-17.5 pt under the bubble; tools/evidence/ANIMATIONS.md section 7): opacity = mean brightness over the background in the final label box over its final value; scale = ink width over the final width. Time 0 = the responder's Read time (1.892 s after the first send frame; no row moves at Read in this take, so the schedule and the delay cannot be separated: the original recording's fit, timed from its rows, had 0.042 s)",
+   "takes": [
+    "send-typed-take1"
+   ]
+  }
  }
 }

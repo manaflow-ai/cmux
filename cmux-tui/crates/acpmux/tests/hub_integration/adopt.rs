@@ -44,7 +44,10 @@ async fn adopt_setup() -> (Arc<Hub>, TestClient, std::path::PathBuf, std::path::
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);
 
-    let root = std::env::temp_dir().join(format!("acpmux-adopt-hub-{}", uuid::Uuid::now_v7()));
+    // Under /tmp: a harness stand-in's path is read from `ps` split on spaces, and a worker's
+    // temp dir may have one (`/Library/Application Support/...`).
+    let root =
+        std::path::PathBuf::from("/tmp").join(format!("acpmux-adopt-hub-{}", uuid::Uuid::now_v7()));
     let project = root.join("project");
     std::fs::create_dir_all(&project).unwrap();
     let id = session_id();
@@ -186,8 +189,10 @@ async fn adopt_refuses_a_chat_live_in_another_process() {
     let record = json!({"type": "session_meta", "payload": {"id": live, "cwd": project}});
     std::fs::write(&rollout, format!("{record}\n")).unwrap();
     backdate(&rollout);
-    let mut other = std::process::Command::new("sh")
-        .args(["-c", "sleep 60", "codex", "resume", live.as_str()])
+    // python3, not `sh -c "sleep 60"`: sh execs a lone command, and the
+    // process the adopt then reads in `ps` is a bare `sleep 60`.
+    let mut other = std::process::Command::new("python3")
+        .args(["-c", "import time; time.sleep(60)", "codex", "resume", live.as_str()])
         .spawn()
         .unwrap();
     let refused = c.request(method::SESSION_NEW, adopt("fakecodex", &live)).await.unwrap_err();
@@ -236,7 +241,10 @@ async fn adopt_forks_a_live_claude_chat_when_asked() {
     cfg.store.mode = StoreMode::Memory;
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);
-    let root = std::env::temp_dir().join(format!("acpmux-adopt-fork-{}", uuid::Uuid::now_v7()));
+    // Under /tmp: a harness stand-in's path is read from `ps` split on spaces, and a worker's
+    // temp dir may have one (`/Library/Application Support/...`).
+    let root = std::path::PathBuf::from("/tmp")
+        .join(format!("acpmux-adopt-fork-{}", uuid::Uuid::now_v7()));
     let project = root.join("project");
     std::fs::create_dir_all(&project).unwrap();
     let fork_id = session_id();
