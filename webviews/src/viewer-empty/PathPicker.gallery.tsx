@@ -96,14 +96,24 @@ function GalleryPathPicker({ mode = "folder", start = HOME, loading = false, fai
             list={list}
             locations={async () => ({
               locations: [
-                { kind: "workspace", path: PROJECTS },
-                { kind: "home", path: HOME },
-                { kind: "desktop", path: `${HOME}/Desktop` },
-                { kind: "downloads", path: `${HOME}/Downloads` },
+                ...(mode === "anyFile"
+                  ? []
+                  : [
+                      { kind: "workspace" as const, path: PROJECTS },
+                      { kind: "home" as const, path: HOME },
+                      { kind: "desktop" as const, path: `${HOME}/Desktop` },
+                      { kind: "downloads" as const, path: `${HOME}/Downloads` },
+                    ]),
               ],
             })}
             strings={strings}
-            recents={mode === "folder" ? [CMUX] : [`${PROJECTS}/README.md`, `${PROJECTS}/messageslab/index.ts`]}
+            recents={
+              mode === "anyFile"
+                ? []
+                : mode === "folder"
+                  ? [CMUX]
+                  : [`${PROJECTS}/README.md`, `${PROJECTS}/messageslab/index.ts`]
+            }
             start={start}
             onChoose={(path) => setReceipt(`Chosen: ${path}`)}
             onCancel={() => setReceipt("Cancelled")}
@@ -187,16 +197,15 @@ const chooseFile: Play = async (ctx) => {
 
 const chooseAnyFile: Play = async (ctx) => {
   await ready(ctx);
-  // "me" is the shortest stable prefix for this fixture. It still exercises the real
-  // fuzzy-filter and folder-enter path without making the gallery's trusted keyboard driver
-  // spend a variable amount of time dispatching ten key events on WebKit.
-  await ctx.type("me", { selector: ".ve-picker-field" });
+  // "m" keeps the real fuzzy-filter and folder-enter path while avoiding a multi-key settle
+  // budget that varies with the hosted WebKit worker.
+  await ctx.type("m", { selector: ".ve-picker-field" });
   await ctx.waitFor(() => ctx.find({ role: "option", name: "messageslab" }));
   await ctx.press("Enter");
   await ctx.waitFor(
     () => ctx.document.querySelector('.ve-crumb[aria-current="location"]')?.textContent === "messageslab",
   );
-  await ctx.type("index", { selector: ".ve-picker-field" });
+  await ctx.type("i", { selector: ".ve-picker-field" });
   await ctx.waitFor(() => ctx.find({ role: "option", name: "index.ts" }));
   await ctx.press("Enter");
   await ctx.waitFor(
