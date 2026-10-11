@@ -8419,7 +8419,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die Arbeitsbereiche aus klassischem cmux sind geöffnet."
+            "value": "Die Arbeitsbereiche aus dem klassischen cmux sind geöffnet."
           }
         },
         "fr": {
@@ -8479,7 +8479,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Klassisches cmux hat keine gespeicherten Arbeitsbereiche zum Importieren."
+            "value": "Das klassische cmux hat keine gespeicherten Arbeitsbereiche zum Importieren."
           }
         },
         "fr": {
@@ -8539,7 +8539,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arbeitsbereiche aus klassischem cmux konnten nicht importiert werden."
+            "value": "Arbeitsbereiche aus dem klassischen cmux konnten nicht importiert werden."
           }
         },
         "fr": {

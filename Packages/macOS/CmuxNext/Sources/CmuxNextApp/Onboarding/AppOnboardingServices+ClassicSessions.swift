@@ -8,8 +8,8 @@ extension AppOnboardingServices {
 
     /// Opens each workspace of classic's last saved session here and returns
     /// how many opened (0 when classic saved none). Recreates local workspace
-    /// shells and terminal tabs; classic commands, scrollback, and remote
-    /// panels are intentionally ignored.
+    /// shells and terminal tabs; classic commands, scrollback, browser panels
+    /// and SSH or Cloud VM workspaces are intentionally left out.
     func importClassicSessions() async throws -> Int {
         let importer = owner.classicSessions
         let workspaces = try await Task.detached { try (importer ?? ClassicSessionImporter()).read() }.value

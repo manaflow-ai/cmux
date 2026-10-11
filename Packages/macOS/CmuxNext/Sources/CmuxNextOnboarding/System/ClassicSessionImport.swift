@@ -84,6 +84,11 @@ public nonisolated struct ClassicSessionImporter: Sendable {
         let workspaces = ((root["windows"] as? [[String: Any]]) ?? []).flatMap { window in
             let manager = window["tabManager"] as? [String: Any] ?? window["tab_manager"] as? [String: Any] ?? [:]
             return (manager["workspaces"] as? [[String: Any]]) ?? []
+        }.filter { workspace in
+            // An SSH or Cloud VM workspace's terminals ran on another machine; a
+            // local shell in its folder would be the wrong place.
+            func bound(_ key: String) -> Bool { workspace[key].map { !($0 is NSNull) } ?? false }
+            return !bound("remote") && !bound("cloudVM")
         }
         let names = Self.names(workspaces.map(Self.clues))
         return zip(workspaces, names).map { Self.workspace($0, name: $1) }
