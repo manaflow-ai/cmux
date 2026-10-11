@@ -879,3 +879,12 @@ async fn queued_prompts_survive_when_the_agent_does_not() {
     let mut daemon = Daemon::with_env("qlost", "approve-all", &[("ACPMUX_AGENT_HOSTS", "0")]);
     queue_survives_restart(&mut daemon, Daemon::sigkill).await;
 }
+
+/// A stop that ends the agent with the daemon (SIGTERM with agent hosts off, as Quit Everything
+/// ends agents): the turn ends, and the queued prompts behind it wait for the next daemon instead
+/// of starting into a daemon that refuses them.
+#[tokio::test]
+async fn queued_prompts_survive_a_quit_that_ends_the_agent() {
+    let mut daemon = Daemon::with_env("qquit", "approve-all", &[("ACPMUX_AGENT_HOSTS", "0")]);
+    queue_survives_restart(&mut daemon, Daemon::sigterm).await;
+}
