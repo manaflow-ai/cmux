@@ -172,6 +172,8 @@ impl ConversationStore {
                     author: message.author.clone(),
                     parts: message.parts.clone(),
                     reply_to: None,
+                    answers: Vec::new(),
+                    answers_pending: Vec::new(),
                     thread_root: None,
                     created_at: message.created_at.clone(),
                     edited_at: None,

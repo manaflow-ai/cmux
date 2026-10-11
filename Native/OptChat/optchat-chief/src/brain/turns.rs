@@ -8,7 +8,7 @@ use std::sync::mpsc::channel;
 use optchat_core::Kind;
 
 use super::{
-    Brain, Engine, Input, PROGRESS_TICK, Phase, Queued, SETTLE_BOUND, Source, reply_entry,
+    Brain, Engine, Input, PROGRESS_TICK, Phase, Queued, SETTLE_BOUND, Source, answer_entry,
     reply_key_at,
 };
 use std::sync::atomic::Ordering;
@@ -381,10 +381,13 @@ impl Brain {
                 &optchat_core::block_pieces(&view.text)[..=m.piece].concat(),
             )
         });
+        let mut answers = self.state.carry_answers.clone();
+        add_answers(&mut answers, self.answers_of(&items));
         let done = self.log_items(&items, move |next, done| {
             if let Some(record) = mark_record {
                 next.last_mark = Some(record);
             }
+            next.carry_answers.clear();
             let first = done.ids.first().copied().unwrap_or(first_id);
             let stamp = done.stamps.first().map(String::as_str).unwrap_or("");
             next.turn = Some(PendingTurn {
@@ -393,6 +396,7 @@ impl Brain {
                 session,
                 first_id: Some(first_id),
                 items: opening,
+                answers,
                 ..PendingTurn::default()
             });
         })?;
@@ -689,8 +693,10 @@ impl Brain {
         self.taint_remote(items);
         let at = self.chat.status().messages;
         let batch: Vec<Item> = items.iter().map(item).collect();
+        let answers = self.answers_of(items);
         let logged = self.log_items(items, move |next, _| {
             if let Some(turn) = next.turn.as_mut() {
+                add_answers(&mut turn.answers, answers);
                 turn.mid.push(Batch {
                     at,
                     items: batch,
@@ -1037,13 +1043,73 @@ impl Brain {
         if let Some(orphan) = outcome.orphan {
             self.state.orphans.push(orphan);
         }
+        // E22: what this reply answers, and which of those messages still
+        // have subagents at work (more replies to them follow).
+        let answers = self
+            .state
+            .turn
+            .as_ref()
+            .filter(|t| t.key == key)
+            .map(|t| t.answers.clone())
+            .unwrap_or_default();
+        if superseded {
+            add_answers(&mut self.state.carry_answers, answers.clone());
+        } else if !answers.is_empty() {
+            self.state.last_answers = answers.clone();
+        }
+        let pending: Vec<String> = answers
+            .iter()
+            .filter(|id| {
+                self.state
+                    .spawns
+                    .values()
+                    .any(|s| s.answers.contains(id) && s.working())
+            })
+            .cloned()
+            .collect();
+        // Work announced as pending that this turn closes: a silent turn
+        // still answers with a done marker.
+        let closes = !superseded
+            && answers
+                .iter()
+                .any(|id| self.state.open_answers.contains(id) && !pending.contains(id));
+        if !superseded {
+            self.state
+                .open_answers
+                .retain(|id| !answers.contains(id) || pending.contains(id));
+            if conversation.is_some() && (!text.is_empty() || closes) {
+                add_answers(&mut self.state.open_answers, pending.clone());
+            }
+        }
+        let session = self
+            .state
+            .turn
+            .as_ref()
+            .filter(|t| t.key == key)
+            .map(|t| t.session.clone())
+            .unwrap_or_default();
         match conversation {
             Some(conversation) if !text.is_empty() => {
                 // Every mention of a subagent is its link (Lawrence 2026-10-10).
                 let text = self.link_subagents(&text);
                 self.state
                     .outbox
-                    .push(reply_entry(conversation, key, &text));
+                    .push(answer_entry(conversation, key, &text, answers, pending));
+            }
+            Some(conversation) if closes => {
+                (self.log)(&format!(
+                    "turn {key} said nothing; it closes its messages with a done marker"
+                ));
+                let mut entry = answer_entry(conversation, key, "", answers, pending);
+                if let cmux_conversation::Op::MessageSend { parts, .. } = &mut entry.op {
+                    *parts = vec![cmux_conversation::Part::Work {
+                        session,
+                        host: None,
+                        status: cmux_conversation::WorkStatus::Done,
+                        preview: None,
+                    }];
+                }
+                self.state.outbox.push(entry);
             }
             Some(_) => {}
             None => (self.log)(&format!(
@@ -1146,5 +1212,36 @@ fn item(queued: &Queued) -> Item {
             images,
             ..Item::default()
         },
+    }
+}
+
+/// Adds `more` to `answers`, each id once, in order.
+pub(super) fn add_answers(answers: &mut Vec<String>, more: Vec<String>) {
+    for id in more {
+        if !answers.contains(&id) {
+            answers.push(id);
+        }
+    }
+}
+
+impl Brain {
+    /// E22: the message ids that `items` answer: a human message's own id,
+    /// and for a subagent's report the messages of the turn that spawned it.
+    pub(super) fn answers_of(&self, items: &[Queued]) -> Vec<String> {
+        let mut answers = Vec::new();
+        for queued in items {
+            match &queued.source {
+                Source::Message { id, .. } if !id.is_empty() => {
+                    add_answers(&mut answers, vec![id.clone()]);
+                }
+                Source::Spawn(r) => {
+                    if let Some(record) = self.state.spawns.get(&r.spawn) {
+                        add_answers(&mut answers, record.answers.clone());
+                    }
+                }
+                _ => {}
+            }
+        }
+        answers
     }
 }
