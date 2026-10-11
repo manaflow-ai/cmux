@@ -1798,6 +1798,8 @@ never interprets it; `route` without `page` is a bad request). Sending more than
 is a bad request. The store records the source with the tab's frontend record in one
 commit and never reads conversation or session content. The tab is an
 ordinary store tab: move, split, drop, tear-off and reopen keep its source.
+A closed page tab's `closed.list` record names its `page`, so Recently Closed
+can title it by the page rather than its `about:blank` placeholder.
 With `origin` and `mutation_id` (sent together) a retry returns the tab the
 first request created with `replayed:true` and its current record; a retry
 after a crash creates the tab under the recorded content id; a retry after
