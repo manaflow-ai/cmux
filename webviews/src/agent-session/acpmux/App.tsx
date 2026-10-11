@@ -151,7 +151,7 @@ import type { PermissionDecision } from "./permissions/protocol";
 import { checkpointStrings } from "./checkpoints/strings";
 import { QUICK_MESSAGES, readSurface, useEscapeToDismiss, type PaneSurface } from "./paneSurface";
 import { QuickSurface } from "./QuickSurface";
-import { floatingStatus, type QuickFloating } from "./FloatingChat";
+import { contextAttachment, floatingStatus, type QuickFloating } from "./FloatingChat";
 import { setFloatingState, useFloatingState } from "./floatingState";
 import { FailedPrompt } from "./FailedPrompt";
 import { ReplayScreen } from "./replay/ReplayScreen";
@@ -3390,6 +3390,14 @@ function AcpmuxPane() {
         moveToTab: () => {
           if (snapshot.sessionId) postOpenInWindow(snapshot.sessionId);
         },
+        includeContext: () =>
+          void callNative(QUICK_MESSAGES.context)
+            .then((value) => {
+              const chip = contextAttachment(value, t("floating.focusedTab"));
+              if (chip) composerHandle.current?.attach(chip);
+              composerHandle.current?.focus();
+            })
+            .catch(() => undefined),
       }
     : undefined;
   if (quick)

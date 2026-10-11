@@ -134,6 +134,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case quickSetCollapsed(Bool)
     /// `quick.floatingState`: the page, once loaded, reads the floating chat's state.
     case quickFloatingState
+    /// `quick.context`: Include focused tab asks what the user is looking at in cmux.
+    case quickContext
     /// `git.diff` or `git.status` with `{cwd, …}`: the changes view's reads of
     /// the session's repository, which the App runs on the session host.
     case git(AgentPaneGitRequest)

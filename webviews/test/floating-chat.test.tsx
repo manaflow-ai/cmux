@@ -57,6 +57,7 @@ test("the floating chat's header and compact bar follow the App and ask it to ch
           setOnTop: (onTop) => asked.push(`onTop ${onTop}`),
           setCollapsed: (collapsed) => asked.push(`collapsed ${collapsed}`),
           moveToTab: () => asked.push("moveToTab"),
+          includeContext: () => asked.push("include"),
         }}
       />
     );
@@ -78,10 +79,16 @@ test("the floating chat's header and compact bar follow the App and ask it to ch
 
   act(() => button("Keep on top").click());
   act(() => button("Move to tab").click());
+  act(() => button("Include focused tab").click());
+  act(() => {
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "I", metaKey: true, shiftKey: true, bubbles: true }));
+  });
   act(() => {
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "j", metaKey: true, bubbles: true }));
   });
-  expect(asked).toEqual(["onTop false", "moveToTab", "collapsed true"]);
+  expect(asked.splice(0, 2)).toEqual(["onTop false", "moveToTab"]);
+  expect(asked.splice(0, 2)).toEqual(["include", "include"]);
+  expect(asked).toEqual(["collapsed true"]);
 
   // The App folded the panel and the chat now waits on the user.
   status = floatingStatus(true, true);
@@ -114,4 +121,20 @@ test("a chat tab's menu offers the floating chat only while the App says it is o
   expect(headerState().floatingChat).toBe(true);
   setHeaderState({ floatingChat: false, version: 3 });
   expect(headerState().floatingChat).toBe(false);
+});
+
+test("Include focused tab attaches what the App read as one chip, or nothing", async () => {
+  const { contextAttachment } = await import("../src/agent-session/acpmux/FloatingChat");
+  const { promptText } = await import("../src/agent-session/acpmux/attachments");
+  const chip = contextAttachment(
+    { name: "zsh · ~/src/app (selection)", text: "error: no such module 'Upload'" },
+    "Focused tab",
+  )!;
+  expect(chip.name).toBe("zsh · ~/src/app (selection)");
+  // The next prompt carries it under its name; a newer read replaces it (one id).
+  expect(promptText("Why does this fail?", [chip])).toContain("zsh · ~/src/app (selection)\n```");
+  expect(contextAttachment({ name: "", text: "x" }, "Focused tab")?.id).toBe(chip.id);
+  expect(contextAttachment({ name: "", text: "x" }, "Focused tab")?.name).toBe("Focused tab");
+  expect(contextAttachment(null, "Focused tab")).toBeUndefined();
+  expect(contextAttachment({ name: "Blank", text: "  " }, "Focused tab")).toBeUndefined();
 });
