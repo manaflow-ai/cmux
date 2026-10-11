@@ -27,6 +27,8 @@ export type PlayTarget =
 
 export type PlayContext = {
   click(target: PlayTarget): Promise<void>;
+  /** Opens a point-anchored context menu with a trusted right-click in the matrix runner. */
+  contextMenu(target: PlayTarget): Promise<void>;
   hover(target: PlayTarget): Promise<void>;
   focus(target: PlayTarget): Promise<void>;
   /** Moves a scroll container to an absolute offset or one of its edges. */
@@ -75,7 +77,7 @@ export type PopupMeasure = {
 };
 
 /** The interactions whose action-to-settled latency is useful in a gallery report. */
-export type PlayAction = "click" | "key" | "press-drag" | "hover" | "focus" | "type" | "scroll" | "select";
+export type PlayAction = "click" | "context-menu" | "key" | "press-drag" | "hover" | "focus" | "type" | "scroll" | "select";
 
 export const DEFAULT_CHECKS = {
   anchorMovePx: 0,

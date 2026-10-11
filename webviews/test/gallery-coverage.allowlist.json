@@ -127,7 +127,6 @@
     "ui/Breadcrumbs.tsx#Breadcrumbs",
     "ui/ChoiceGroup.tsx#ChoiceGroup",
     "ui/Combobox.tsx#Combobox",
-    "ui/ContextMenu.tsx#ContextMenu",
     "ui/Dialog.tsx#Dialog",
     "ui/Disclosure.tsx#Disclosure",
     "ui/DrillList.tsx#DrillList",
