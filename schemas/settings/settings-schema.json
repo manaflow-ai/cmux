@@ -308,6 +308,7 @@
               "sidebar.showProjects",
               "sidebar.groupBy",
               "sidebar.minimal",
+              "sidebar.density",
               "sidebar.minimalMode",
               "sidebar.cards.tips",
               "sidebar.side",
@@ -10416,6 +10417,73 @@
     },
     {
       "accepts" : [
+        "compact",
+        "expanded"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.compact",
+            "text" : "Compact"
+          },
+          "value" : "compact"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.expanded",
+            "text" : "Expanded"
+          },
+          "value" : "expanded"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "compact",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.density.help",
+        "text" : "Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.density",
+      "keywords" : [
+        "sidebar",
+        "density",
+        "expanded",
+        "compact",
+        "rows",
+        "preview",
+        "two lines",
+        "t3",
+        "codex"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "density"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.density",
+        "text" : "Sidebar Density"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "off",
         "bottom",
         "top",
@@ -18155,7 +18223,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "24bf0b2aaa5e31e65753e54adcadcb2598dc59360ae05df5a7ac46fb37ee0fff",
+  "schema_hash" : "b974af6511eea50127b3844707a417a55865794b7925b538fa5d99e6994bfa32",
   "sections" : [
     {
       "id" : "general",
