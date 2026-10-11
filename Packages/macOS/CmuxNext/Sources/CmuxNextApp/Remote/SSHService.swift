@@ -147,6 +147,7 @@ final class SSHService {
             saved.autoConnect = true
             rememberHost(saved)
             saved.offersInstall = offerInstall
+            if offerInstall { offerInstallWhenOld(saved) }
             reconnect(saved)
             logger.info("connect \(destination.description, privacy: .public): reusing \(saved.machineID, privacy: .public)")
             return saved
@@ -185,14 +186,14 @@ final class SSHService {
         return session
     }
 
-    /// The machine in the list for `destination`'s host, user and port. A part the user left out
-    /// (no user, no port) matches any; host names compare without case. The default session wins.
+    /// The machine in the list for `destination`'s host, user and port: the same user and port
+    /// (a part left out matches only a saved entry that left it out too, so `host` never picks
+    /// `root@host` or `host:2222`); host names compare without case. The default session wins.
     private func existing(_ destination: SSHDestination) -> SSHMachineSession? {
         let matches = machines.ssh.filter { session in
             let saved = session.host.destination
             return saved.host.caseInsensitiveCompare(destination.host) == .orderedSame
-                && (destination.user == nil || saved.user == destination.user)
-                && (destination.port == nil || saved.port == destination.port)
+                && saved.user == destination.user && saved.port == destination.port
         }
         return matches.first { $0.host.session == RemoteSessionName.defaultName } ?? matches.first
     }

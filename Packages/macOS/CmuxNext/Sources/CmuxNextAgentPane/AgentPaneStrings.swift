@@ -154,7 +154,7 @@ extension AgentPaneHostError {
     /// timeout.
     static func userMessage(for error: any Error) -> String {
         // A host's own localized refusal (a remote machine's start refusal) is said as it is.
-        if !(error is AgentPaneHostError), let described = (error as? any LocalizedError)?.errorDescription { return described }
+        if let refusal = error as? any AgentPaneHostRefusal { return refusal.userMessage }
         return switch error as? AgentPaneHostError {
         case .acpmuxNotFound:
             String(

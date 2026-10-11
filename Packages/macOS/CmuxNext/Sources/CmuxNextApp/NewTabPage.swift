@@ -279,7 +279,10 @@ extension PaneController {
             _ = services.registry.perform("focusBrowserAddressBar", invocation: invocation)
             return
         }
-        // `open` focuses the field of a New Tab page already showing, else opens one.
+        // `open` focuses the field of a New Tab page already showing, else opens one. In a pane
+        // of another machine a new tab is a chat on that machine (cx-k21v): Focus Location
+        // never starts one there.
+        guard daemon.isLocal else { return }
         NewTabPage.open(in: self, seed: nil)
     }
 }

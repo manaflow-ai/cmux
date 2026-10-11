@@ -20,36 +20,50 @@ extension AgentTabStore {
     /// creating starts once the store answered (the provisional surface names no daemon tab).
     func startRemoteChat(_ key: String, machine: String, endpoint: @escaping AgentSessionAttachClient.EndpointProvider) async throws
         -> AgentTabRemoteStart.Started {
+        if let running = remoteStarts[resolve(key)] { return try await running.value }
+        // task-owner: one start per tab, stored before its first wait, so a ready and a reconnect
+        // handshake that overlap share it (the daemon refuses a second start with `limit`)
+        let task = Task<AgentTabRemoteStart.Started, any Error> { [weak self] in
+            guard let self else { throw CancellationError() }
+            return try await runRemoteStart(key, machine: machine, endpoint: endpoint)
+        }
+        remoteStarts[resolve(key)] = task
+        defer { if remoteStarts[resolve(key)] == task { remoteStarts[resolve(key)] = nil } }
+        return try await task.value
+    }
+
+    private func runRemoteStart(_ key: String, machine: String, endpoint: @escaping AgentSessionAttachClient.EndpointProvider) async throws
+        -> AgentTabRemoteStart.Started {
         if let pending = remoteCreations[key] ?? remoteCreations[resolve(key)] { _ = try await pending.value() }
         let key = resolve(key)
-        if let running = remoteStarts[key] { return try await running.value }
         guard let (record, store) = lookup(key), let tab = store.tab(id: key), !ProvisionalTab.isProvisional(key) else {
             throw AgentRemoteStartRefusal(code: "agent_session.unknown_tab", machine: machine)
         }
-        if let session = sessions[key] ?? record.session { return .init(surface: tab.surface.rawValue, session: session) }
-        let seed = await remoteSeeds[key]?.peek()
-        guard let cwd = seed?.cwd ?? remoteFolder?(key) else { throw AgentRemoteStartRefusal.folderNeeded(machine: machine) }
         let surface = tab.surface.rawValue
-        let harness = seed?.harness
-        // task-owner: one start per tab; stored in remoteStarts so a reconnecting page waits for it
-        let task = Task<AgentTabRemoteStart.Started, any Error> {
-            let client = AgentSessionAttachClient(surface: surface, requestTimeout: AgentTabRemoteStart.timeout, endpoint: endpoint)
-            let result: Result<String, any Error>
-            do { result = .success(try await client.start(cwd: cwd, harness: harness)) } catch { result = .failure(error) }
-            await client.close()
-            switch result {
-            case .success(let session): return .init(surface: surface, session: session)
-            case .failure(let error as AgentSessionAttachError):
-                throw AgentRemoteStartRefusal(code: error.code, machine: machine, folder: cwd, detail: error.message)
-            case .failure(let error): throw error
-            }
+        if let session = sessions[key] ?? record.session { return .init(surface: surface, session: session) }
+        let seed = await remoteSeeds[key]?.peek()
+        // Only an absolute folder of that machine (a `~` or relative one is not its path).
+        guard let cwd = seed?.cwd.flatMap({ $0.hasPrefix("/") ? $0 : nil }) ?? remoteFolder?(key) else {
+            throw AgentRemoteStartRefusal.folderNeeded(machine: machine)
         }
-        remoteStarts[key] = task
-        defer { remoteStarts[key] = nil }
-        let started = try await task.value
-        // The daemon bound the session on its tab (it is the record's writer); this is the view mirror.
-        sessions[resolve(key)] = started.session
-        return started
+        let client = AgentSessionAttachClient(surface: surface, requestTimeout: AgentTabRemoteStart.timeout, endpoint: endpoint)
+        let result: Result<String, any Error>
+        do { result = .success(try await client.start(cwd: cwd, harness: seed?.harness)) } catch { result = .failure(error) }
+        await client.close()
+        switch result {
+        case .success(let session):
+            // The daemon bound the session on its tab (it is the record's writer); this is the view mirror.
+            if lookup(resolve(key)) != nil { sessions[resolve(key)] = session }
+            return .init(surface: surface, session: session)
+        case .failure(let error as AgentSessionAttachError):
+            // A start whose answer was lost already bound the tab: show that chat.
+            if error.code == "agent_session.bound", let session = lookup(resolve(key))?.record.session {
+                return .init(surface: surface, session: session)
+            }
+            throw AgentRemoteStartRefusal(code: error.code, machine: machine, folder: cwd, detail: error.message)
+        case .failure(let error):
+            throw error
+        }
     }
 }
 
@@ -67,7 +81,7 @@ nonisolated enum AgentTabRemoteStart {
 
 /// Why a chat could not start on another machine, in the user's language. ONE table maps every
 /// typed refusal of `agent-session-start` (cmux-tui/spec/commands.md) and the app's own checks.
-nonisolated struct AgentRemoteStartRefusal: LocalizedError, Equatable {
+nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHostRefusal, Equatable {
     let code: String
     let machine: String
     var folder: String?
@@ -80,6 +94,8 @@ nonisolated struct AgentRemoteStartRefusal: LocalizedError, Equatable {
 
     static func folderNeeded(machine: String) -> Self { Self(code: folderNeededCode, machine: machine) }
     static func startUnsupported(machine: String) -> Self { Self(code: AgentSessionAttachClient.startUnsupported, machine: machine) }
+
+    var userMessage: String { errorDescription ?? code }
 
     var errorDescription: String? {
         switch code {
@@ -102,6 +118,9 @@ nonisolated struct AgentRemoteStartRefusal: LocalizedError, Equatable {
         case "agent_session.acpmux_unavailable":
             RefusalStrings.format("handlers.refusal.agentRemoteStart.agentServiceDown",
                                   "The agent service on %@ did not start.", machine)
+        case "agent_session.limit":
+            RefusalStrings.format("handlers.refusal.agentRemoteStart.busy",
+                                  "%@ is starting other agent chats. Try again in a moment.", machine)
         case "agent_session.timeout":
             RefusalStrings.format("handlers.refusal.agentRemoteStart.timeout",
                                   "%@ did not start the agent in time. Try again.", machine)

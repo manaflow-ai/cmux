@@ -252,6 +252,15 @@ final class AgentTabStore {
         let kind = AgentPaneHostKind(record, localHost: localHost, chiefHost: chiefHost)
         // A Chief subagent runs on this Mac too, in the Chief home's acpmux.
         let local = kind != .remote
+        // A tab recorded for this Mac in another machine's tree with no chat yet (saved before
+        // cx-k21v): this Mac's New Tab page or chat there would start in this Mac's acpmux.
+        if kind == .local, (sessions[key] ?? record.session) == nil, daemonForTab(key)?.isLocal == false {
+            let refused = AgentTabRefusedHost(refusal: AgentRemoteStartRefusal(code: AgentRemoteStartRefusal.hostMismatchCode, machine: ""))
+            guard let view = makeView(AgentPaneModel(host: refused, allowsTabConversion: false)) else { return nil }
+            views[key] = view
+            track(key, in: store)
+            return view
+        }
         // A new chat on another machine starts there from its seed (``startRemoteChat``): the
         // folder and harness start it, the draft and prompt reach its page.
         let seed = local || record.host.hasPrefix(AgentTabRemoteStart.registryPrefix)

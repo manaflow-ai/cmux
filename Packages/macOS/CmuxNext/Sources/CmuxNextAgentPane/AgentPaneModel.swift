@@ -236,8 +236,11 @@ public final class AgentPaneModel {
                 // daemon lacks (gone, or a recreated daemon's) shows "This chat isn't
                 // available", never another chat (P1 2026-10-09).
                 if sessionId != nil { handshake.sessionMustExist = true }
-                let filled = await startFolders.apply(to: &handshake, ready: request == .ready, model: self)
-                handshake.githubRepository = await AgentPaneGitHubRepository.read(at: handshake.cwd)
+                // A chat its host already started (on another machine) gets no new-chat folder steps:
+                // they read this Mac's folders and disk (cx-k21v).
+                let started = handshake.connection?.remote != nil
+                let filled = started ? false : await startFolders.apply(to: &handshake, ready: request == .ready, model: self)
+                if !started { handshake.githubRepository = await AgentPaneGitHubRepository.read(at: handshake.cwd) }
                 handshake.revealTurn = pendingRevealTurn
                 pendingRevealTurn = nil
                 hasHandshake = true

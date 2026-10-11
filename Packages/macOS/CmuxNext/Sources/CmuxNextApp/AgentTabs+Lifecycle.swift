@@ -173,6 +173,7 @@ extension AgentTabStore {
         if let value = seeds.removeValue(forKey: key) { seeds[real] = value }
         if let value = remoteSeeds.removeValue(forKey: key) { remoteSeeds[real] = value }
         if let value = remoteCreations.removeValue(forKey: key) { remoteCreations[real] = value }
+        if let value = remoteStarts.removeValue(forKey: key) { remoteStarts[real] = value }
         if let value = pendingTurns.removeValue(forKey: key) { pendingTurns[real] = value }
         if linkedSessions.remove(key) != nil { linkedSessions.insert(real) }
         adoptions = adoptions.mapValues { $0 == key ? real : $0 }
