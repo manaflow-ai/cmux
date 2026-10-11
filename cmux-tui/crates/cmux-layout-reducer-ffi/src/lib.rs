@@ -1,5 +1,6 @@
 //! Narrow C ABI for `cmux-layout-reducer`'s sidebar drop resolver
-//! (`sidebar_drop`) and sidebar section layout reducer (`sidebar_layout`).
+//! (`sidebar_drop`) and sidebar section layout reducer (`sidebar_layout`),
+//! plus `cmux-tasks-core`'s optimistic Tasks preview (`tasks_preview`).
 
 use cmux_layout_reducer::{sidebar_drag, sidebar_drop, sidebar_layout};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -53,6 +54,13 @@ pub extern "C" fn cmux_layout_reducer_ffi_abi_version() -> u32 {
 }
 
 /// Resolves one JSON request. See the checked-in header for the pointer rules.
+///
+/// # Safety
+///
+/// `request` points to `request_len` readable bytes (or is null with length
+/// 0), `operation` is a NUL-terminated C string, `output` points to
+/// `output_capacity` writable bytes (or is null with capacity 0) and
+/// `output_len` is writable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_layout_reducer_json(
     request: *const u8,
@@ -112,6 +120,12 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: sidebar_layout::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&sidebar_layout::respond(&request)).map_err(|_| ERR_INVALID)?
+            }
+            b"tasks_preview" => {
+                let request: cmux_tasks_core::preview::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&cmux_tasks_core::preview::respond(&request))
+                    .map_err(|_| ERR_INVALID)?
             }
             _ => return Err(ERR_INVALID),
         };

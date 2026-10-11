@@ -267,6 +267,7 @@ pub(super) fn parse_workspace_status(
             }
             insert_optional_string(&mut params.fields, flags, "icon", "icon");
             insert_optional_string(&mut params.fields, flags, "color", "color");
+            status_flags::insert(&mut params.fields, flags, caller_terminal())?;
             Op::WorkspaceStatusSet
         }
         ("status", ["clear"]) => Op::WorkspaceStatusClear,
@@ -812,6 +813,8 @@ fn closed_members(value: &str) -> Result<Value, UsageError> {
         .map_err(|_| UsageError::new("--members must be member indexes like 0,2"))?;
     Ok(Value::Array(members))
 }
+
+mod status_flags;
 
 #[cfg(test)]
 mod tests;

@@ -505,7 +505,8 @@ body,
   border-radius: 6px;
 }
 .hc-switcher-row[data-highlighted] {
-  background: var(--page-selection);
+  background: var(--cmux-row-focus, var(--page-selection));
+  box-shadow: inset var(--cmux-row-focus-bar, 0px) 0 0 var(--cmux-accent, currentColor);
 }
 .hc-switcher-none {
   margin: 0;

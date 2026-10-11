@@ -27,6 +27,9 @@ export const POPOVER_LEFT = TICK_LEFT + 35;
 const TICK_WIDTHS = [26, 20, 14, 10, 6] as const;
 export const TICK_MAX_WIDTH = TICK_WIDTHS[0];
 export const TICK_REST_WIDTH = TICK_WIDTHS[TICK_WIDTHS.length - 1];
+/// The turn being read rests longer than the others (and in the accent, threadMinimap.css), so the
+/// reader sees where they are in the thread at a glance (cx-f7c).
+export const TICK_CURRENT_WIDTH = TICK_WIDTHS[2];
 /// Space kept free above and below the column and the popover.
 export const EDGE_MARGIN = 8;
 /// The pause before the first popover shows; moving between ticks shows the next at once.
