@@ -37,7 +37,8 @@ enum BrowserDownloadsMenu {
     }
 
     private static func row(_ download: BrowserDownload) -> NSMenuItem {
-        let item = NSMenuItem(title: download.filename, action: nil, keyEquivalent: "")
+        let item = NSMenuItem(title: middleTruncated(download.filename), action: nil, keyEquivalent: "")
+        if item.title != download.filename { item.toolTip = download.filename }
         item.subtitle = status(download)
         let icon = NSWorkspace.shared.icon(for: UTType(filenameExtension: (download.filename as NSString).pathExtension) ?? .data)
         icon.size = NSSize(width: 16, height: 16)
@@ -61,8 +62,18 @@ enum BrowserDownloadsMenu {
                 NSPasteboard.general.setString(source.absoluteString, forType: .string)
             })
         }
-        if !submenu.items.isEmpty { item.submenu = submenu }
+        // A row with nothing to do (a failed download with no web source) is drawn disabled, never
+        // as a live row that does nothing.
+        if submenu.items.isEmpty { item.isEnabled = false } else { item.submenu = submenu }
         return item
+    }
+
+    /// A long file name is cut in the middle, so its extension stays readable.
+    static func middleTruncated(_ name: String) -> String {
+        let limit = 60
+        guard name.count > limit else { return name }
+        let tail = limit / 3
+        return String(name.prefix(limit - tail - 1)) + "…" + String(name.suffix(tail))
     }
 
     /// The row's second line: progress and size while running, else how

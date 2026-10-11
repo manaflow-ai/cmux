@@ -166,10 +166,22 @@ enum AgentPaneContextMenu {
         let parent = NSMenuItem(title: AgentPaneMenuStrings.openLinks, action: nil, keyEquivalent: "")
         let submenu = NSMenu(title: parent.title)
         for link in links {
-            submenu.addItem(AgentPaneMenuAction.item(link.absoluteString) { open(link) })
+            let item = AgentPaneMenuAction.item(linkTitle(link)) { open(link) }
+            item.toolTip = link.absoluteString
+            submenu.addItem(item)
         }
         parent.submenu = submenu
         return [parent]
+    }
+
+    /// A link as its host and path, cut in the middle past 60 characters; the full address is the
+    /// item's tooltip.
+    static func linkTitle(_ link: URL) -> String {
+        let limit = 60
+        let bare = link.host.map { $0 + link.path + (link.query.map { "?" + $0 } ?? "") } ?? link.absoluteString
+        guard bare.count > limit else { return bare }
+        let tail = limit / 3
+        return String(bare.prefix(limit - tail - 1)) + "…" + String(bare.suffix(tail))
     }
 }
 

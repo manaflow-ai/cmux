@@ -105,6 +105,7 @@ final class PaletteContentView: NSView {
         footer.onCrumb = { model.openCrumb(at: $0) }
         footer.onClose = { model.handle(.closeItem) }
         actionsMenuView.onRun = { model.runActionsMenuCommand(at: $0) }
+        actionsMenuView.onHover = { model.hoverActionsMenuCommand(at: $0) }
     }
 
     // MARK: Rendering
@@ -142,7 +143,8 @@ final class PaletteContentView: NSView {
         let showEmpty = sections.isEmpty && !model.isLoading && !model.awaitsRank
         listHost.isHidden = showEmpty
         emptyTitle.isHidden = !showEmpty
-        emptyHint.isHidden = !showEmpty
+        // The hint is about the typed search; a page that is empty with nothing typed shows only its title.
+        emptyHint.isHidden = !showEmpty || model.query.isEmpty
 
         searchBar.update(
             query: model.query,
