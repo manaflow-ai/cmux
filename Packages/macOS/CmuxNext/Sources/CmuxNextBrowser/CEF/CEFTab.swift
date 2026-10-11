@@ -55,6 +55,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var navigation: BrowserNavigationID?
     @ObservationIgnored var nextNavigation: UInt64 = 0
     @ObservationIgnored var pendingURL: URL?
+    /// Chromium's loading flag: its OnLoadingStateChange also comes for back/forward changes alone (its error page commit).
+    @ObservationIgnored var chromiumLoading = false
     @ObservationIgnored var pendingFocus = false
     /// True while cmux's own `SetFocus(true)` runs (`chromiumRequestsFocus`).
     @ObservationIgnored var isGrantingFocus = false
