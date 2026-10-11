@@ -17739,7 +17739,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Commit changes…",
+      "title" : "Commit Changes…",
       "title_key" : "action.agentPane.git.commit",
       "title_table" : "Localizable"
     },
@@ -17766,7 +17766,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Push branch",
+      "title" : "Push Branch",
       "title_key" : "action.agentPane.git.push",
       "title_table" : "Localizable"
     },
