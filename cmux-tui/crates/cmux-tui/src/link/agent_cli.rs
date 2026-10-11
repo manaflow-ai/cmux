@@ -253,7 +253,7 @@ fn fresh(args: &Args, records: &Records) -> Result<Moved, Failed> {
                  lease ends that unread move",
                 lost.message()
             );
-            return Err(frozen(error, None));
+            return Err(frozen(&error, None));
         }
     };
     let transfer_id = begun["transfer_id"]
