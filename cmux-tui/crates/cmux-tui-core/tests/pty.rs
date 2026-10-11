@@ -4,28 +4,12 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::TryRecvError;
 use std::time::{Duration, Instant};
-
+mod support;
 use base64::Engine;
 use cmux_tui_core::platform::transport;
 use cmux_tui_core::{AttachFrame, CursorShape, DefaultColors, Mux, MuxEvent, Rgb, SurfaceOptions};
 use ghostty_vt::RenderState;
-
-fn wait_for<T>(mut f: impl FnMut() -> Option<T>, timeout: Duration) -> Option<T> {
-    let timeout_scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
-        .ok()
-        .and_then(|value| value.parse::<u32>().ok())
-        .filter(|scale| *scale > 0)
-        .unwrap_or(1);
-    let timeout = timeout.saturating_mul(timeout_scale);
-    let start = Instant::now();
-    while start.elapsed() < timeout {
-        if let Some(v) = f() {
-            return Some(v);
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    None
-}
+use support::{DaemonMuxOps, wait_for};
 
 fn shell_opts(script: &str) -> SurfaceOptions {
     SurfaceOptions {
@@ -335,8 +319,8 @@ fn surface_exit_detaches_terminal_view_and_emits_event() {
     mux.with_state(|state| {
         assert!(!state.surfaces.contains_key(&surface.id));
         assert_eq!(state.pane_of(surface.id), None, "exited view remained in the layout");
-        assert_eq!(state.workspaces.len(), 1);
-        assert!(state.workspaces[0].screens.is_empty());
+        // The process end took the last tab, so the workspace closed with it.
+        assert!(state.workspaces.is_empty(), "an emptied workspace was kept");
     });
     mux.shutdown();
 }

@@ -12,6 +12,179 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### Offscreen embedded platform behind `-Dembedded-offscreen`
+
+- Branch: `cmux-offscreen-platform`
+  ([manaflow-ai/ghostty#252](https://github.com/manaflow-ai/ghostty/pull/252),
+  merge `257a40956`), based on fork `main` at `dcb1d6965`.
+- Commits: `26d3de457` (font query JSON builds on non-CoreText backends),
+  `f6b196135` (offscreen platform), `d4f861aeb` (PIC static lib with the
+  option), `fac3a25fa` (reject multi-plane dmabuf exports, close every fd),
+  `d11eec801` (skip the frame when the offscreen context is not current),
+  `30b183f6e` (validate the initial scale, check every C ABI field),
+  `285c25641` (header docs: callback reentrancy, buffer reuse, EGL lifetime).
+- What: `GHOSTTY_PLATFORM_OFFSCREEN = 6` with
+  `ghostty_platform_offscreen_s { width, height, scale }` in
+  `ghostty_platform_u` (the union stays 40 bytes, so
+  `ghostty_surface_config_s` does not change). Ghostty owns one surfaceless
+  EGL context per drawing thread and renders into its own framebuffer.
+  `ghostty_surface_set_frame_callback` delivers an RGBA8 CPU readback
+  (`ghostty_offscreen_frame_s`, rows bottom-up) and, on Linux,
+  `ghostty_surface_set_dmabuf_callback` delivers a single-plane dmabuf
+  (`ghostty_dmabuf_frame_s`, the callback owns the fd; a failed export falls
+  back to the CPU readback). Offscreen surfaces draw on the app thread:
+  `renderer/Thread.zig` asks `apprt.Surface.mustDrawFromAppThread` per
+  surface, emits `GHOSTTY_ACTION_RENDER`, and the embedder calls
+  `ghostty_surface_draw`, which delivers the frame before it returns. The
+  path works with `GHOSTTY_SURFACE_IO_MANUAL_MIRROR` and never touches termio.
+  Everything is behind the build option `-Dembedded-offscreen` (default
+  `false`). Without it `Platform.Offscreen` is `void`, tag 6 fails with
+  `UnsupportedPlatform`, no EGL code is analyzed and no EGL symbol is
+  referenced. Metal rejects tag 6. The two setters are always exported, so the
+  header and the library stay in sync.
+- Why: the cross-platform GPUI client and the cmux-browser clients render
+  daemon terminals offscreen on Linux and Windows and composite the frames
+  themselves. One fork now serves them and the macOS app.
+- macOS app: the default GhosttyKit build (`-Demit-xcframework=true
+  -Dxcframework-target=universal -Doptimize=ReleaseFast`) is unchanged; PR 252
+  reports the archive has no EGL references. cmux-next does not use tag 6 or
+  the frame setters.
+- Coverage: the PR's ABI tests (tag, struct layout, union size),
+  `Platform.init` with and without the option, initial geometry and scale,
+  app-thread drawing for offscreen surfaces only, callback registration.
+  Linux and Windows runtime rendering was not verified in this fork.
+- Artifact: https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-257a4095671cfe332082f4aad474f6789ced9ffc-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `03ae3a4e640191f7d15d1a72bd512f97e8f2e46a4d759aaa6c7b1e3a34a713f0`
+  is pinned in `scripts/ghosttykit-checksums.txt`. Pinned by `feat-cmux-next`
+  (previous pin there `b1a49b601`).
+- Files touched (conflict surface for upstream merges): `include/ghostty.h`,
+  `src/apprt/embedded.zig`, `src/build/Config.zig`,
+  `src/build/GhosttyLib.zig`, `src/build_config.zig`, `src/renderer.zig`,
+  `src/renderer/Metal.zig`, `src/renderer/OpenGL.zig`,
+  `src/renderer/Thread.zig`, `src/renderer/opengl/EglContext.zig` (new).
+- Conflict notes:
+  - Keep tag 6. Tag 3 is the fork's embedder-owned `opengl` platform, and
+    upstream may give its own offscreen work a different number.
+  - If upstream changes the comptime `must_draw_from_app_thread` logic in
+    `renderer/Thread.zig`, keep the per-surface check: macOS surfaces must
+    still draw on the renderer thread.
+  - Keep the union size at 40 bytes when adding platform members.
+  - Known risk: the `opengl` and `offscreen` platforms must not mix on one
+    thread in a process. Offscreen makes Ghostty's shared EGL context current
+    on its drawing thread, while `opengl` expects the embedder's context to be
+    current; mixing them draws with GL object names from the wrong context.
+
+### PTY tee runs after the parser applies the bytes
+
+- Commit: `8bfc3b026` ([manaflow-ai/ghostty#242](https://github.com/manaflow-ai/ghostty/pull/242)),
+  directly on fork `main`.
+- File: `src/termio/Termio.zig`
+- What: `processOutput` calls the cmux PTY tee callback after
+  `processOutputAndAdvanceLocked`, still under the renderer mutex. Before, it
+  ran before the mutex was taken.
+- Why: a tee consumer could drain bytes the grid did not reflect yet. cmux's
+  predicted local echo reads the cursor under the renderer mutex and measures
+  its offsets from it, so with the tee first it saw output whose cursor move
+  had not happened. The existing consumers only enqueue (a buffered copy plus
+  a wakeup) and never take the renderer mutex, so this cannot deadlock.
+  cmux-next does not install a PTY tee.
+- Conflict notes: keep the tee after the parser and inside the mutex. A tee
+  callback must never take the renderer mutex.
+
+### Fork main between `b1a49b601` and `dcb1d6965`
+
+`feat-cmux-next` tracks fork `main` (coordinator decision, 2026-10-02). The pin
+`257a40956` therefore also brings the fork-main merges that sat between the
+previous pin `b1a49b601` and the #252 base `dcb1d6965`. Each change is
+described in its own section; this list maps the merges:
+
+- `8bfc3b026` #242: PTY tee after the parser (section above).
+- `f807ab278` #243: Cloud VT replay keeps the active viewport anchored
+  (section "Cloud VT replay keeps the active viewport anchored").
+- `e30b48042` #245: OSC 133;A prompt starts its own logical line (section 15).
+- `64cd5ebd4` #247: primary 133;P prompts and wrap padding (section 16).
+- `c0b769c31` #246, `572de52b4` #248, `92d285495` #249: VT replay blank cells
+  keep the default style (section "VT replay blank cells keep the default
+  style"). #246 is the fix on `e1b8bf5f4`, #248 the same fix on `9961d09be`
+  (`cd617fcf1` test, `e17043471` fix), #249 the same fix on `9d8d40319`.
+  They touch `src/terminal/formatter.zig`; a conflict between them resolves to
+  one copy of the style close before `splatByteAll(' ', blank_cells)`.
+- `4330ffa33` #250: merges `9c1e67c07` (the #247 prompt wrap fix plus the
+  #249 blank-cell fix) into fork `main`. No new code.
+- `dcb1d6965` #251: config API returns window padding (section "Config API
+  returns window padding"). Its fix commit `b1a49b601` was the previous pin.
+
+The cmux `main` pin `324c02738` ("libghostty: expose local-only binding flag",
+`GHOSTTY_BINDING_FLAGS_PREDICTION_LOCAL_ONLY`) is not on fork `main`, so this
+pin does not have it. cmux-next does not use that flag.
+
+### Config API returns window padding
+
+- Branch: `cmux-config-get-window-padding` ([manaflow-ai/ghostty#251](https://github.com/manaflow-ai/ghostty/pull/251), merge `dcb1d6965`)
+- Base: `9d8d40319` (`9961d09be` plus the styled blank row test fix)
+- Commits: `a230c2b25` (failing test), `b1a49b601` (fix)
+- Summary: `ghostty_config_get` returned false for `window-padding-x` and
+  `window-padding-y` because `WindowPadding` is a non-packed struct without
+  `cval`. `WindowPadding.C` and `cval` return `{top_left, bottom_right}` u32
+  points; `ghostty.h` declares `ghostty_config_window_padding_s`. cmux-next
+  reads it (`GhosttyRuntime.terminalPadding`) to put the terminal's first
+  column on the pane grid under the tab icons.
+- Coverage: the Ghostty test `c_get: window padding` (a step in
+  `build-ghosttykit.yml`), cmux-next `PaneAlignmentTests`.
+- Artifact: https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-b1a49b6015235d2b36a8473ff5ae72aa16db82b0-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `740cd227436bbb9d705158f87479dd58a07c6432715f0e708a7a8d88929443a9`
+- Was pinned by `feat-cmux-next` (previous pin there `9961d09be`); the pin
+  is now `257a40956`, which contains it through merge `dcb1d6965`.
+- Conflict note: if upstream adds its own C value for `WindowPadding`, keep
+  the field order `top_left`, `bottom_right`; cmux reads the header struct.
+### Layer display after teardown no longer reaches the freed renderer
+
+- Branch: `fix-metal-layer-display-cb-uaf`
+  ([manaflow-ai/ghostty#258](https://github.com/manaflow-ai/ghostty/pull/258)),
+  based on the previous pin `324c02738`.
+- Commits: `4eb8a9c12` (regression test), `e2a26bc94` (fix)
+- Summary: on macOS the host view keeps Ghostty's `IOSurfaceLayer` after
+  `ghostty_surface_free`, and its `-display` still called `drawFrame` through
+  `display_cb`/`display_ctx` on the freed renderer
+  ([#17483](https://github.com/manaflow-ai/cmux/issues/17483)).
+  `Metal.prepareDeinit` unbound them only on iOS. The macOS invalidation
+  block, which already runs on main after the renderer thread joins, now
+  clears both ivars, so `loopEnter` cannot rebind them. #17524 clears them
+  from the cmux side as well.
+- Coverage: Ghostty's `teardown invalidation makes display a no-op`, run by
+  `build-ghosttykit.yml` before packaging. It passed in
+  [run 37421168473](https://github.com/manaflow-ai/cmux/actions/runs/37421168473).
+- Artifact: https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-e2a26bc9457c3a7c8bc3701c63676b41fc4cdf2c-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `bee3bce68bd6d5eb1496e17ebb0e4e3e4aea48e78a2f62dfe8fe7b8e9d512cd9`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
+- Conflict note: upstream fixed the same bug in `4b4a5b241` by clearing the
+  callback in `IOSurfaceLayer.release()` from the freeing thread. On a merge,
+  keep the main-thread clear in `invalidateSurfaceUpdatesCallback`; taking
+  upstream's `release()` clear as well is harmless on macOS but bypasses the
+  iOS ownership check in `detachFromHostIfDisplayCallbackOwned`.
+
+### VT replay blank cells keep the default style
+
+- Branch: `fix-formatter-blank-cell-style-9d8d`
+  ([manaflow-ai/ghostty#249](https://github.com/manaflow-ai/ghostty/pull/249)),
+  based on `9d8d40319`. The same commits on top of `e1b8bf5f4` are
+  [manaflow-ai/ghostty#246](https://github.com/manaflow-ai/ghostty/pull/246);
+  cmux does not pin them because of
+  [#16040](https://github.com/manaflow-ai/cmux/issues/16040).
+- Commits: `1a3d3584c` (regression test), `559740279` (fix)
+- Summary: the VT and HTML formatters wrote pending blank cells as spaces
+  before switching to the next cell's style, so the spaces took the previous
+  cell's colors. Claude Code's mascot sets a black background and skips three
+  cells with CHA, which a Cloud replay painted as a black box. The formatter
+  now closes a non-default style before the pending blanks.
+- Coverage: Ghostty's `Page VT unstyled blank cells do not inherit the
+  previous background`.
+- Artifact: https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-55974027991e4230210712796cd87c7b3a2018ee-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `fadcca35636c45690dcfd180d0889f0adc3b0e636fadf7a97c74b14017031cf8`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
+- Conflict note: upstream has the same bug. Keep the close before
+  `splatByteAll(' ', blank_cells)`; it mirrors the row-break reset above it.
+
 ### Cloud VT replay keeps the active viewport anchored
 
 - Branch: `issue-15109-replay-fix`
@@ -125,12 +298,27 @@ When we change the fork, update this document and the parent submodule SHA.
 - SHA-256 `98697b9a49b36e835e900f716ac054cf2476d97bf40ea2742454e735ac5aa3a9`
   is pinned in `scripts/ghosttykit-checksums.txt`.
 
-The submodule pinned by this branch is `e1b8bf5f4`, the OSC 133;A prompt
-line fix (section 15, manaflow-ai/ghostty#245) on top of `9d8d40319`, which
-corrects the styled blank row test. Artifact
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-e1b8bf5f478c6aadbf70e51cdbb41930e92fda10-crashsubdir-cmux-crash-sentry-off-noi18n-v2
-has SHA-256 `d18c7ddcc9f503cf2b03dff07b7001f4fc04f60d3d22bf84b2b4d5d5ce9ec885`,
-pinned in `scripts/ghosttykit-checksums.txt`. The previous pin was `9961d09be`,
+The submodule pinned by this branch is `9c1e67c07`, a merge of `c318e7825` (the
+133;P prompt and wrap padding fix, section 16, manaflow-ai/ghostty#247) and
+`559740279` (the VT replay blank-cell style fix, manaflow-ai/ghostty#249),
+landed on fork main by manaflow-ai/ghostty#250. It carries `e1b8bf5f4` again;
+see [#16040](https://github.com/manaflow-ai/cmux/issues/16040). Artifact
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-9c1e67c073cce77d7c2bb2592b2bf84d502bb74e-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+has SHA-256 `4538cfea411ca43a420055594b96bcaf7e7b9bea70cb68fb669e2f1242e098d4`, pinned in
+`scripts/ghosttykit-checksums.txt`.
+Earlier: the submodule pinned by this branch is `559740279`, the VT replay blank-cell
+style fix (manaflow-ai/ghostty#249) on top of `9d8d40319`, which is `9961d09be`
+plus its styled blank row test fix. It leaves out `e1b8bf5f4`: with it, cmux
+DEV.app does not open its socket on current main
+([#16040](https://github.com/manaflow-ai/cmux/issues/16040)). Artifact
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-55974027991e4230210712796cd87c7b3a2018ee-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+has SHA-256 `fadcca35636c45690dcfd180d0889f0adc3b0e636fadf7a97c74b14017031cf8`,
+pinned in `scripts/ghosttykit-checksums.txt`. The previous pin was `9961d09be`
+(set by #15747); the pin before that was `e1b8bf5f4`,
+the OSC 133;A prompt line fix (section 15, manaflow-ai/ghostty#245) on top of
+`9d8d40319`, which corrects the styled blank row test (artifact SHA-256
+`d18c7ddcc9f503cf2b03dff07b7001f4fc04f60d3d22bf84b2b4d5d5ce9ec885`). The pin
+before that was `9961d09be`,
 the Cloud VT replay
 styled-blank-row fix on top of fork `main`, Ghostty #241's carried trailing
 row state, and the exact #239 startup-input commits. The previous pin was
@@ -2048,7 +2236,28 @@ tend to conflict together during rebases.
     semantic-prompt reflow should keep a prompt at column 0 of its own
     logical line.
 
-The current cmux pin is the merged head `34cbf180d`, which merges the surface
+### 16) Primary 133;P prompts and wrap padding
+
+- Commits:
+  - `f1906ae5a` (test: a 133;P primary prompt after a padded partial line must stay on its own line)
+  - `1975783f4` (terminal: start a 133;P primary prompt on its own logical line)
+  - `33620abfb` (terminal: drop the padding that forced a wrap before a prompt)
+  - `c318e7825` (test: narrow to a width that still fits the cursor)
+- Files:
+  - `src/terminal/Terminal.zig`
+  - `src/terminal/Screen.zig`
+- Summary:
+  - Ghostty's bash integration marks a ble.sh prompt with `133;P;k=i`, not
+    `133;A`. An explicit primary prompt start at column 0 of a soft-wrap
+    continuation row now breaks that wrap too.
+  - Breaking the wrap also clears the trailing unstyled spaces on the row
+    above. They were padding that forced the wrap, and as text they reflowed
+    into blank rows where a shell redraw could land.
+- Conflict notes:
+  - Keep `cursorBreakWrapIntoRow` limited to primary prompts: continuation
+    and right prompts must keep their wrap.
+
+An earlier cmux pin was the merged head `34cbf180d`, which merges the surface
 registry serialization (`e5c962a72`, section 14, landed on cmux `main` via
 branch `issue-5458-surface-registry-lock`) into the Cmd-click link fix line
 (`df789cd4b`, section 13) on top of the iOS render bounded-acquire pin

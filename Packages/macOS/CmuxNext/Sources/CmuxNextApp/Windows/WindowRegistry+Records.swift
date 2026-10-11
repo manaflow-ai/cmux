@@ -56,7 +56,8 @@ extension WindowRegistry {
             profileWorkspaces: Dictionary(
                 (state?.profileWorkspaces ?? [:]).compactMap { profile, workspace in
                     window.workspaceIDs.contains(workspace) ? (profile.rawValue, WorkspaceKey(rawValue: workspace)) : nil
-                }, uniquingKeysWith: { first, _ in first })
+                }, uniquingKeysWith: { first, _ in first }),
+            page: state?.page?.rawValue
         )
     }
 }

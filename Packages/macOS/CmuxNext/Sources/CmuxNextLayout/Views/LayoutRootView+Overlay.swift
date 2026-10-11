@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesign
 
 /// The overlay plane: pane rings and dims follow their hosts' displayed
 /// frames, and the rects of overlays that take the mouse are reported.
@@ -12,6 +13,16 @@ extension LayoutRootView {
         syncOverlay()
     }
 
+    /// Re-reads the plane's place and every ring's pane frame now. The
+    /// window calls it after its layout pass while the plane lives in the
+    /// overlay panel: an ancestor that moved this view (sidebar width) runs
+    /// no layout of this view, and the panel is another window.
+    /// Ring frames are in this view's coordinates, so only the plane's
+    /// frame can go stale: the rings sync only when it moved.
+    public func resyncOverlay() {
+        if overlayPlane.syncFrame() { syncOverlay() }
+    }
+
     /// Places every displayed pane's ring and dim over its host, in this
     /// view's (= the plane's) coordinates, and reports interactive rects.
     func syncOverlay() {
@@ -19,11 +30,14 @@ extension LayoutRootView {
         var shown: Set<ObjectIdentifier> = []
         for screen in screenViews.values where !screen.isHidden {
             let screenAlpha = screen.alphaValue
+            let covers = screen.coverRects.map { convert($0, from: screen) }
             for host in screen.displayedHosts {
                 let chrome = host.chrome
                 if chrome.superview !== plane { plane.addSubview(chrome, positioned: .below, relativeTo: highlight) }
                 let rect = convert(host.bounds, from: host)
                 if chrome.frame != rect { chrome.frame = rect }
+                // A strip pane's ring never draws over a docked column.
+                chrome.setExcluded(screen.isStripHost(host) ? covers.map { $0.offsetBy(dx: -rect.minX, dy: -rect.minY) } : [])
                 let alpha = host.alphaValue * screenAlpha
                 if chrome.alphaValue != alpha { chrome.alphaValue = alpha }
                 if chrome.isHidden != host.isHidden { chrome.isHidden = host.isHidden }
@@ -35,6 +49,7 @@ extension LayoutRootView {
             view.removeFromSuperview()
         }
         reportInteractiveRects()
+        notifyOverlaySync()
     }
 
     /// Rects (this view's coordinates) where native overlays in the root
@@ -66,7 +81,7 @@ extension LayoutRootView {
     /// click-catching panel above a page.
     public func setDividerHovered(_ id: String, _ hovered: Bool) {
         guard let active = model.activeScreenID else { return }
-        screenViews[active]?.setDividerHovered(id, hovered)
+        screenViews[active]?.refreshDividerHover()
     }
 
     private func reportInteractiveRects() {
@@ -79,18 +94,50 @@ extension LayoutRootView {
         planeHost.interactiveOverlayRectsDidChange(overlayPlane)
     }
 
-    /// Displayed pane rings, for `debug.layers`: pane id, frame in window
-    /// coordinates, and whether the ring shows.
-    public var overlayRings: [(pane: String, frameInWindow: CGRect, showsRing: Bool)] {
+    /// Displayed pane rings, for `debug.layers`: pane id, the pane's frame
+    /// in window coordinates, whether the ring shows, the rect the ring
+    /// strokes and the pane's rounded content rect it must equal (both in
+    /// window coordinates; the plane has the root's coordinates wherever it
+    /// lives, so the ring rect is read from the overlay itself).
+    /// `ringInSync`: the two rects agree within ``ringSyncTolerance`` (they
+    /// come through different coordinate conversions, so a fractional pane
+    /// size gives rounding noise near 1e-13 pt, not a lag).
+    public var overlayRings: [(pane: String, frameInWindow: CGRect, showsRing: Bool, ringInWindow: CGRect, contentInWindow: CGRect,
+                               ringInSync: Bool)] {
         guard let active = model.activeScreenID, let screen = screenViews[active], window != nil else { return [] }
         return screen.displayedHosts.map { host in
-            (host.pane.rawValue, host.convert(host.bounds, to: nil), host.chrome.showsRing && !host.chrome.isHidden)
+            let chrome = host.chrome
+            let ring = convert(chrome.ringFrame.offsetBy(dx: chrome.frame.minX, dy: chrome.frame.minY), to: nil)
+            let content = host.convert(host.roundedRect, to: nil)
+            return (host.pane.rawValue, host.convert(host.bounds, to: nil), chrome.showsRing && !chrome.isHidden,
+                    ring, content, Self.ringRectsMatch(ring, content))
         }
     }
 
-    /// The drop highlight's frame in window coordinates while it shows.
+    /// Far below a device pixel (0.5 pt at 2x), far above conversion noise.
+    public static let ringSyncTolerance: CGFloat = 0.001
+
+    static func ringRectsMatch(_ a: CGRect, _ b: CGRect) -> Bool {
+        abs(a.minX - b.minX) <= ringSyncTolerance && abs(a.minY - b.minY) <= ringSyncTolerance
+            && abs(a.width - b.width) <= ringSyncTolerance && abs(a.height - b.height) <= ringSyncTolerance
+    }
+
+    /// The drop highlight's material (`debug.layers`), and a pin for it
+    /// (`debug.drop_highlight`; nil follows this Mac).
+    public var dropHighlightMaterial: OverlayMaterial { highlight.material }
+    public func pinDropHighlightMaterial(_ material: OverlayMaterial?) { highlight.pinMaterial(material) }
+    /// The drop overlay style drawing now (`drop.overlay.style`).
+    public var dropHighlightStyle: DropOverlayStyle { highlight.style }
+
+    /// Whether the drop highlight is showing, and the outline ring's opacity
+    /// as drawn (nil for another style): a hidden ring that came back after
+    /// a drop shows here (`debug.drop_highlight` `report`).
+    public var dropHighlightShowing: Bool { highlight.isShowing }
+    public var dropRingOpacity: Float? { highlight.outline?.ringOpacity }
+
+    /// The drop highlight's target rect in window coordinates while it shows.
     public var dropHighlightFrameInWindow: CGRect? {
         guard highlight.isShowing, window != nil else { return nil }
-        return convert(highlight.frame, to: nil)
+        return highlight.convert(highlight.targetRect, to: nil)
     }
 }

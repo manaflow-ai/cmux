@@ -80,6 +80,7 @@ public struct SSHCommandLine: Sendable {
             "--reconnect-attempts", String(Self.linkReconnectAttempts),
         ]
         if let stateDir = host.remoteStateDir { args += ["--remote-state-dir", stateDir] }
+        if let socket = host.remoteMuxSocket { args += ["--remote-mux-socket", socket] }
         for option in Self.enforcedOptions { args += ["--ssh-arg", option] }
         return args
     }

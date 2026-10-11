@@ -1,7 +1,7 @@
 import Foundation
 
 /// Page Info strings (table `PageInfo`). English follows Chromium's
-/// `components/page_info_strings.grdp` with "Chrome" replaced by cmux.
+/// `components/page_info_strings.grdp` with the product name replaced by cmux.
 nonisolated enum PageInfoStrings {
     // Omnibar chip
     static var viewSiteInformation: String { String(localized: "pageInfo.chip.tooltip", defaultValue: "View site information", table: "PageInfo", bundle: .module) }
@@ -30,6 +30,17 @@ nonisolated enum PageInfoStrings {
     static func showCertificateIssuedBy(_ issuer: String) -> String {
         String(localized: "pageInfo.certificate.showIssuedBy", defaultValue: "Show certificate (issued by \(issuer))", table: "PageInfo", bundle: .module)
     }
+    static var certificateWarningsTurnedOff: String { String(localized: "pageInfo.security.warningsTurnedOff", defaultValue: "You have chosen to turn off security warnings for this site.", table: "PageInfo", bundle: .module) }
+    /// Under "Turn on warnings" on Chromium, which clears every site's choice.
+    static var certificateWarningsAllSites: String { String(localized: "pageInfo.security.turnOnWarnings.allSites", defaultValue: "For all sites in this profile", table: "PageInfo", bundle: .module) }
+    /// The notice after "Turn on warnings".
+    static func certificateWarningsOnAgain(_ scope: BrowserCertificateWarningScope) -> String {
+        switch scope {
+        case .site: String(localized: "pageInfo.security.warningsOnAgain.site", defaultValue: "Security warnings are on again for this site.", table: "PageInfo", bundle: .module)
+        case .profile: String(localized: "pageInfo.security.warningsOnAgain.profile", defaultValue: "Security warnings are on again for all sites in this profile.", table: "PageInfo", bundle: .module)
+        }
+    }
+    static var turnOnCertificateWarnings: String { String(localized: "pageInfo.security.turnOnWarnings", defaultValue: "Turn on warnings", table: "PageInfo", bundle: .module) }
     static var showCertificate: String { String(localized: "pageInfo.certificate.show", defaultValue: "Show certificate", table: "PageInfo", bundle: .module) }
 
     // Identity lines for non-web pages
@@ -90,7 +101,7 @@ nonisolated enum PageInfoStrings {
     static var close: String { String(localized: "pageInfo.close", defaultValue: "Close", table: "PageInfo", bundle: .module) }
     static var back: String { String(localized: "pageInfo.back", defaultValue: "Back", table: "PageInfo", bundle: .module) }
 
-    // Prompt bar (Chrome's permission prompt buttons)
+    // Prompt bar (permission prompt buttons)
     static var promptAllowWhileVisiting: String { String(localized: "pageInfo.prompt.allowWhileVisiting", defaultValue: "Allow while visiting the site", table: "PageInfo", bundle: .module) }
     static var promptAllowThisTime: String { String(localized: "pageInfo.prompt.allowThisTime", defaultValue: "Allow this time", table: "PageInfo", bundle: .module) }
     static var promptNeverAllow: String { String(localized: "pageInfo.prompt.neverAllow", defaultValue: "Never allow", table: "PageInfo", bundle: .module) }

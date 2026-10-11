@@ -3,20 +3,27 @@
 # Ghostty themes, terminfo (plus cmux's overlay), and shell integration into
 # <app>/Contents/Resources, where GhosttyRuntime points GHOSTTY_RESOURCES_DIR.
 #
-# The same sources as scripts/build-app-bundled-resources.sh (the legacy
-# target's phase) without its helper builds (ghostty CLI helper, cmux-cua),
-# which the cmux-next app does not ship yet. Sources, in order:
-#   ghostty/zig-out/share/{ghostty,terminfo}  (a local zig build), else
-#   Resources/ghostty/{themes,terminfo}        (checked in),
-#   Resources/terminfo-overlay, ghostty/src/shell-integration,
+# Ghostty's files come from ghostty-next, the Ghostty that GhosttyNextKit and
+# libghostty-vt build from (the cmux-tui daemon embeds the same shell
+# integration scripts). The cmux-next app ships no Ghostty CLI helper yet.
+# Sources, in order:
+#   ghostty-next/zig-out/share/{ghostty,terminfo}  (a local zig build), else
+#   Resources/ghostty/{themes,terminfo}             (checked in),
+#   Resources/terminfo-overlay, ghostty-next/src/shell-integration,
 #   Resources/shell-integration.
 set -euo pipefail
 
 dest="${TARGET_BUILD_DIR:?}/${UNLOCALIZED_RESOURCES_FOLDER_PATH:?}"
-share="${SRCROOT:?}/ghostty/zig-out/share"
+share="${SRCROOT:?}/ghostty-next/zig-out/share"
 
 sync_dir() {
   local src="$1" dst="$2"
+  # File-system synchronized groups can materialize a same-named resource
+  # before this legacy script runs. Replace that placeholder with the
+  # directory this phase owns.
+  if [[ -e "$dst" && ! -d "$dst" ]]; then
+    rm -f "$dst"
+  fi
   mkdir -p "$dst"
   rsync -a --delete "$src/" "$dst/"
 }
@@ -29,8 +36,10 @@ else
   echo "warning: no Ghostty resources found; themes will not resolve"
 fi
 
-if [[ -d "$SRCROOT/ghostty/src/shell-integration" ]]; then
-  sync_dir "$SRCROOT/ghostty/src/shell-integration" "$dest/ghostty/shell-integration"
+if [[ -d "$SRCROOT/ghostty-next/src/shell-integration" ]]; then
+  sync_dir "$SRCROOT/ghostty-next/src/shell-integration" "$dest/ghostty/shell-integration"
+else
+  echo "warning: no ghostty-next/src/shell-integration; shells start without Ghostty's integration"
 fi
 
 if [[ -d "$share/terminfo" ]]; then
@@ -45,5 +54,10 @@ fi
 
 if [[ -d "$SRCROOT/Resources/shell-integration" ]]; then
   sync_dir "$SRCROOT/Resources/shell-integration" "$dest/shell-integration"
+fi
+# Keeps the bundled `cmux` first on PATH after the user's startup files
+# (BundledCLIEnvironment.swift).
+if [[ -d "$SRCROOT/Resources/cmux-cli-path" ]]; then
+  sync_dir "$SRCROOT/Resources/cmux-cli-path" "$dest/cmux-cli-path"
 fi
 echo "bundled Ghostty resources into $dest"

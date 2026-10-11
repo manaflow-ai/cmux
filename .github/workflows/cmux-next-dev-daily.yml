@@ -1,0 +1,186 @@
+name: cmux NEXT DEV daily
+
+on:
+  # This workflow runs from the default branch, so the signing job evaluates
+  # trusted publisher code while consuming only the exact artifact from the
+  # completed feat-cmux-next push run.
+  workflow_run:
+    workflows: [cmux-next]
+    types: [completed]
+
+permissions: {}
+
+env:
+  # workflow_run matches a display name; pin the source file so renaming it
+  # fails the workflow-source guard instead of silently stopping publication.
+  SOURCE_WORKFLOW_PATHS: .github/workflows/cmux-next.yml
+
+concurrency:
+  group: cmux-next-dev-daily
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'feat-cmux-next' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    name: Sign and publish cmux NEXT DEV
+    environment: release
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: write
+    env:
+      SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+      SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+      RELEASE_TAG: cmux-next-dev
+      APP_NAME: cmux NEXT DEV
+      BUNDLE_ID: com.cmuxterm.app.debug.next
+      APP_ARCHIVE_NAME: cmux-NEXT-DEV.zip
+      # A source run may have red tests or lint while its app-producing Mac
+      # job succeeded. Those independent reds must not suppress this channel.
+      SOURCE_APP_PRODUCER_JOBS: |-
+        cmux app scheme compile (Debug)
+        cmux-next Release compile (Xcode 26)
+    steps:
+      - name: Require a successful app-producing job
+        id: source-gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          jobs="$(gh api "repos/$GH_REPO/actions/runs/$SOURCE_RUN_ID/jobs?filter=latest&per_page=100" \
+            --jq '.jobs[] | select(.conclusion == "success") | .name' || true)"
+          eligible=false
+          while IFS= read -r job_name; do
+            while IFS= read -r producer_name; do
+              if [[ -n "$job_name" && "$job_name" == "$producer_name" ]]; then
+                eligible=true
+              fi
+            done <<< "$SOURCE_APP_PRODUCER_JOBS"
+          done <<< "$jobs"
+          if [[ "$eligible" != true ]]; then
+            echo "::notice::cmux-next run $SOURCE_RUN_ID has no successful app-producing job; skipping daily publication"
+          fi
+          echo "eligible=$eligible" >> "$GITHUB_OUTPUT"
+
+      - name: Download the exact Release app artifact
+        id: source-artifact
+        if: steps.source-gate.outputs.eligible == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/cmux-next-dev-daily/source"
+          artifact_name="cmux-next-dev-daily-unsigned-${SOURCE_SHA}"
+          if gh run download "$SOURCE_RUN_ID" --repo "$GH_REPO" --name "$artifact_name" --dir "$RUNNER_TEMP/cmux-next-dev-daily/source"; then
+            archive="$(find "$RUNNER_TEMP/cmux-next-dev-daily/source" -type f -name '*.zip' -print -quit)"
+            test -f "$archive"
+            echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::cmux-next run $SOURCE_RUN_ID has no current Release app artifact; skipping daily publication"
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout trusted signing and updater scripts
+        if: steps.source-artifact.outputs.archive != ''
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Select Xcode
+        if: steps.source-artifact.outputs.archive != ''
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Unpack and verify channel identity
+        if: steps.source-artifact.outputs.archive != ''
+        env:
+          SOURCE_ARCHIVE: ${{ steps.source-artifact.outputs.archive }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/cmux-next-dev-daily/unpacked"
+          mkdir -p "$root"
+          /usr/bin/ditto -x -k "$SOURCE_ARCHIVE" "$root"
+          app="$(find "$root" -maxdepth 2 -type d -name "$APP_NAME.app" -print -quit)"
+          test -d "$app"
+          actual_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")"
+          actual_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$app/Contents/Info.plist")"
+          [[ "$actual_id" == "$BUNDLE_ID" ]] || { echo "unexpected bundle id: $actual_id" >&2; exit 1; }
+          [[ "$actual_name" == "$APP_NAME" ]] || { echo "unexpected app name: $actual_name" >&2; exit 1; }
+          /usr/libexec/PlistBuddy -c 'Delete :CMUXCommit' "$app/Contents/Info.plist" >/dev/null 2>&1 || true
+          /usr/libexec/PlistBuddy -c "Add :CMUXCommit string $SOURCE_SHA" "$app/Contents/Info.plist"
+          echo "app=$app" >> "$GITHUB_OUTPUT"
+        id: unpack
+
+      - name: Import the protected Developer ID certificate
+        if: steps.source-artifact.outputs.archive != ''
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          [[ -n "$APPLE_CERTIFICATE_BASE64" ]] || { echo "Missing APPLE_CERTIFICATE_BASE64" >&2; exit 1; }
+          [[ -n "$APPLE_CERTIFICATE_PASSWORD" ]] || { echo "Missing APPLE_CERTIFICATE_PASSWORD" >&2; exit 1; }
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$RUNNER_TEMP/cmux-next-dev-daily/cert.p12"
+          security delete-keychain cmux-next-dev-daily.keychain >/dev/null 2>&1 || true
+          security create-keychain -p "$KEYCHAIN_PASSWORD" cmux-next-dev-daily.keychain
+          security set-keychain-settings -lut 21600 cmux-next-dev-daily.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" cmux-next-dev-daily.keychain
+          security import "$RUNNER_TEMP/cmux-next-dev-daily/cert.p12" -k cmux-next-dev-daily.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          ./scripts/import-apple-developer-id-intermediates.sh cmux-next-dev-daily.keychain
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" cmux-next-dev-daily.keychain
+          security list-keychains -d user -s cmux-next-dev-daily.keychain
+          echo "CMUX_NEXT_DEV_DAILY_KEYCHAIN=cmux-next-dev-daily.keychain" >> "$GITHUB_ENV"
+
+      - name: Sign and verify cmux NEXT DEV
+        if: steps.source-artifact.outputs.archive != ''
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APP_PATH: ${{ steps.unpack.outputs.app }}
+        run: |
+          set -euo pipefail
+          [[ -n "$APPLE_SIGNING_IDENTITY" ]] || { echo "Missing APPLE_SIGNING_IDENTITY" >&2; exit 1; }
+          ./scripts/sign-cmux-bundle.sh "$APP_PATH" cmux.next-dev.entitlements "$APPLE_SIGNING_IDENTITY"
+          /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+
+      - name: Publish the rolling GitHub prerelease
+        if: steps.source-artifact.outputs.archive != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          APP_PATH: ${{ steps.unpack.outputs.app }}
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/$APP_ARCHIVE_NAME"
+          /usr/bin/ditto -c -k --keepParent "$APP_PATH" "$archive"
+          (
+            cd "$(dirname "$archive")"
+            shasum -a 256 "$(basename "$archive")"
+          ) > "$archive.sha256"
+          notes="$(cat <<EOF
+          Rolling cmux NEXT DEV Release build from feat-cmux-next commit $SOURCE_SHA.
+
+          This channel is Developer ID signed and intentionally not notarized; download with curl or gh so macOS does not add quarantine.
+          EOF
+          )"
+          if ! gh release view "$RELEASE_TAG" --repo "$GH_REPO" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --repo "$GH_REPO" --target "$SOURCE_SHA" --title 'cmux NEXT DEV' --notes "$notes" --prerelease --latest=false
+          else
+            gh release edit "$RELEASE_TAG" --repo "$GH_REPO" --target "$SOURCE_SHA" --title 'cmux NEXT DEV' --notes "$notes" --prerelease --latest=false
+          fi
+          gh release upload "$RELEASE_TAG" --repo "$GH_REPO" "$archive" "$archive.sha256" --clobber
+          echo "Published $RELEASE_TAG for $SOURCE_SHA"
+
+      - name: Cleanup signing keychain
+        if: always()
+        run: |
+          if [[ -n "${CMUX_NEXT_DEV_DAILY_KEYCHAIN:-}" ]]; then
+            security delete-keychain "$CMUX_NEXT_DEV_DAILY_KEYCHAIN" >/dev/null 2>&1 || true
+          fi

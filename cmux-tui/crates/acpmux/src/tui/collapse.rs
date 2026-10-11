@@ -1,9 +1,31 @@
 //! Collapse state for the transcript hierarchy: a turn (your message and
 //! everything the agent did until your next one), a group of consecutive
-//! tool calls, or one tool call or thought. Turns and groups start open;
-//! tool details and thoughts start closed. `toggled` records the flips.
+//! tool calls, or one tool call or thought. The live turn and groups start
+//! open; finished turns, tool details and thoughts start closed (thoughts
+//! open when shown, except the one still streaming). `toggled` records the
+//! flips. The defaults here match what the renderer draws.
 
 use super::*;
+use crate::transcript::{Item, Transcript};
+
+/// Whether `t` starts open before any flip, as the renderer draws it.
+fn default_open(tr: &Transcript, t: Toggle, show_thoughts: bool) -> bool {
+    let running = tr.status == "running";
+    match t {
+        // Finished work starts folded; the turn still running stays open.
+        Toggle::Turn(i) => {
+            let later_user =
+                tr.items.iter().skip(i + 1).any(|x| matches!(x, Item::User { queued: false, .. }));
+            running && !later_user
+        }
+        Toggle::Group(_) => true,
+        // The streaming thought shows one line; its details start closed.
+        Toggle::Item(i) => {
+            let streaming = running && i + 1 == tr.items.len();
+            matches!(tr.items.get(i), Some(Item::Thought { .. })) && show_thoughts && !streaming
+        }
+    }
+}
 
 impl App {
     fn toggled_set(&self) -> Option<&std::collections::HashSet<Toggle>> {
@@ -13,19 +35,12 @@ impl App {
     /// Whether a collapsible is open right now, with its default applied.
     pub(super) fn is_open(&self, t: Toggle) -> bool {
         let flipped = self.toggled_set().map(|s| s.contains(&t)).unwrap_or(false);
-        let default_open = match t {
-            Toggle::Turn(_) | Toggle::Group(_) => true,
-            Toggle::Item(i) => {
-                let is_thought = self
-                    .selected_id()
-                    .and_then(|id| self.transcripts.get(&id))
-                    .and_then(|tr| tr.items.get(i))
-                    .map(|it| matches!(it, crate::transcript::Item::Thought { .. }))
-                    .unwrap_or(false);
-                is_thought && self.show_thoughts
-            }
-        };
-        default_open ^ flipped
+        let base = self
+            .selected_id()
+            .and_then(|id| self.transcripts.get(&id))
+            .map(|tr| default_open(tr, t, self.show_thoughts))
+            .unwrap_or(matches!(t, Toggle::Group(_)));
+        base ^ flipped
     }
 
     pub(super) fn toggle(&mut self, t: Toggle) {
@@ -43,15 +58,11 @@ impl App {
         let mut set = std::collections::HashSet::new();
         for (i, it) in tr.items.iter().enumerate() {
             let t = match it {
-                crate::transcript::Item::User { .. } => Toggle::Turn(i),
-                crate::transcript::Item::Tool { .. } | crate::transcript::Item::Thought { .. } => {
-                    Toggle::Item(i)
-                }
+                Item::User { .. } => Toggle::Turn(i),
+                Item::Tool { .. } | Item::Thought { .. } => Toggle::Item(i),
                 _ => continue,
             };
-            let default_open = matches!(t, Toggle::Turn(_))
-                || (matches!(it, crate::transcript::Item::Thought { .. }) && self.show_thoughts);
-            if default_open != open {
+            if default_open(tr, t, self.show_thoughts) != open {
                 set.insert(t);
             }
         }
@@ -60,7 +71,7 @@ impl App {
         // as a group key as well; unused keys are harmless.
         if !open {
             for (i, it) in tr.items.iter().enumerate() {
-                if matches!(it, crate::transcript::Item::Tool { .. }) {
+                if matches!(it, Item::Tool { .. }) {
                     set.insert(Toggle::Group(i));
                 }
             }

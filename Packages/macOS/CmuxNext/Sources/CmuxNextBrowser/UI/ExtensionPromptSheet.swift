@@ -1,47 +1,40 @@
 import AppKit
+import CmuxNextDesign
 
-/// The native sheet for an extension prompt (`ExtensionInstallPrompt`):
-/// icon, title, what the extension can do, and the two answers. It attaches
-/// to the window of the tab that asked, like Chrome's tab-modal dialog, and
-/// never takes the app's focus by itself (a sheet on a no-activate window
-/// stays inactive until the user clicks it).
+/// The cmux dialog for an extension prompt (`ExtensionInstallPrompt`):
+/// icon, title, what the extension can do, and the two answers. It blocks
+/// only the tab that asked (a tab-scope dialog) and never takes the app's
+/// focus by itself.
 @MainActor final class ExtensionPromptSheet {
     let prompt: ExtensionInstallPrompt
-    private let alert = NSAlert()
-    private weak var window: NSWindow?
+    private var dialogID: Int?
     private var completion: ((ExtensionInstallPrompt.Answer) -> Void)?
 
     init(prompt: ExtensionInstallPrompt) {
         self.prompt = prompt
-        alert.messageText = Self.title(for: prompt)
-        alert.informativeText = Self.body(for: prompt)
-        if let data = prompt.icon, let image = NSImage(data: data) {
-            image.size = NSSize(width: 48, height: 48)
-            alert.icon = image
-        }
-        alert.addButton(withTitle: Self.acceptTitle(for: prompt.kind))
-        alert.addButton(withTitle: prompt.kind == .permissions ? Strings.extensionDeny : Strings.extensionCancel)
-        alert.window.setAccessibilityIdentifier("browser.extensionPrompt.\(prompt.id)")
     }
 
-    /// Shows the sheet on `window`; `completion` runs once with the answer.
-    func begin(on window: NSWindow, completion: @escaping (ExtensionInstallPrompt.Answer) -> Void) {
-        self.window = window
+    var spec: CmuxDialogSpec {
+        let deny = prompt.kind == .permissions ? Strings.extensionDeny : Strings.extensionCancel
+        return CmuxDialogSpec(title: Self.title(for: prompt), lines: [Self.body(for: prompt)],
+                              buttons: [CmuxDialogButton(id: "cancel", title: deny, role: .cancel),
+                                        CmuxDialogButton(id: "accept", title: Self.acceptTitle(for: prompt.kind), role: .default)],
+                              icon: prompt.icon, identifier: "browser.extensionPrompt.\(prompt.id)")
+    }
+
+    /// Shows the dialog in `scope`; `completion` runs once with the answer.
+    func begin(in scope: CmuxDialogScope, completion: @escaping (ExtensionInstallPrompt.Answer) -> Void) {
         self.completion = completion
-        alert.beginSheetModal(for: window) { [weak self] response in
-            self?.finish(response == .alertFirstButtonReturn ? .accept : .cancel)
+        dialogID = CmuxDialogCenter.shared.present(spec, in: scope) { [weak self] answer in
+            self?.finish(answer.button == "accept" ? .accept : .cancel)
         }
     }
 
-    /// Ends the sheet as if the user chose `answer` (debug socket, quit).
+    /// Ends the dialog as if the user chose `answer` (debug socket, quit).
     func end(_ answer: ExtensionInstallPrompt.Answer) {
         guard completion != nil else { return }
-        let code: NSApplication.ModalResponse = answer == .accept ? .alertFirstButtonReturn : .alertSecondButtonReturn
-        if let window, alert.window.sheetParent === window {
-            window.endSheet(alert.window, returnCode: code)
-        } else {
-            finish(answer)
-        }
+        if let dialogID, CmuxDialogCenter.shared.press(dialogID, button: answer == .accept ? "accept" : "cancel") { return }
+        finish(answer)
     }
 
     private func finish(_ answer: ExtensionInstallPrompt.Answer) {

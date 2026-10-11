@@ -5,7 +5,8 @@ public import CmuxNextTabs
 /// Maps a workspace's screens into the bottom screen tab bar. Screens are a
 /// tab strip of their own: one item per screen, in daemon order, with the
 /// screen's name, color, icon, pin, and group.
-public enum ScreenBarMapping {
+public struct ScreenBarMapping {
+    public static let shared = Self()
     public struct Snapshot: Equatable, Sendable {
         public var items: [TabItem]
         public var groups: [TabGroupItem]
@@ -17,7 +18,7 @@ public enum ScreenBarMapping {
     /// `untitled(n)` names the n-th (1-based) screen that has no name;
     /// `emojiIcon` renders an emoji icon (the App draws it to an image).
     @MainActor
-    public static func snapshot(_ workspace: WorkspaceModel, untitled: (Int) -> String,
+    public func snapshot(_ workspace: WorkspaceModel, untitled: (Int) -> String,
                                 emojiIcon: (String) -> TabIcon) -> Snapshot {
         let items = workspace.screens.enumerated().map { index, screen in
             item(screen, number: index + 1, untitled: untitled, emojiIcon: emojiIcon)
@@ -31,7 +32,7 @@ public enum ScreenBarMapping {
     }
 
     @MainActor
-    static func item(_ screen: ScreenModel, number: Int, untitled: (Int) -> String,
+    func item(_ screen: ScreenModel, number: Int, untitled: (Int) -> String,
                      emojiIcon: (String) -> TabIcon) -> TabItem {
         let name = screen.name?.trimmingCharacters(in: .whitespaces) ?? ""
         let tabs = screen.panes.flatMap(\.tabs)
@@ -40,7 +41,7 @@ public enum ScreenBarMapping {
         return TabItem(
             id: TabID(screen.id),
             title: name.isEmpty ? untitled(number) : name,
-            subtitle: focused.flatMap { $0.cwd.map(SidebarMapping.abbreviate) ?? $0.url },
+            subtitle: focused.flatMap { $0.cwd.map(SidebarMapping.shared.abbreviate) ?? $0.url },
             icon: icon(screen.icon, emoji: emojiIcon),
             isPinned: screen.pinned,
             isUnread: tabs.contains(where: \.hasUnread),
@@ -51,16 +52,17 @@ public enum ScreenBarMapping {
         )
     }
 
-    static func icon(_ value: String?, emoji: (String) -> TabIcon) -> TabIcon {
-        guard let value, !value.isEmpty else { return .none }
-        return isSymbolName(value) ? .symbol(value) : emoji(value)
+    func icon(_ value: String?, emoji: (String) -> TabIcon) -> TabIcon {
+        switch IconValue(wire: value) {
+        case .symbol(let name)?: .symbol(name)
+        case .emoji(let text)?: emoji(text)
+        case .image?, .svg?: .symbol("photo")
+        case nil: .none
+        }
     }
 
-    /// SF Symbol names are ASCII words joined by dots (`server.rack`,
-    /// `1.circle`); anything else is treated as an emoji.
-    public static func isSymbolName(_ value: String) -> Bool {
-        !value.isEmpty && value.unicodeScalars.allSatisfy { scalar in
-            scalar.isASCII && (scalar.properties.isAlphabetic || ("0"..."9").contains(scalar) || scalar == ".")
-        }
+    /// Whether `value` is an SF Symbol name (the one icon rule, ``IconValue``).
+    public func isSymbolName(_ value: String) -> Bool {
+        IconValue.isSymbolName(value)
     }
 }

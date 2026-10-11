@@ -5,7 +5,17 @@ public import Foundation
 public nonisolated struct SettingRefused: Error, Sendable, CustomStringConvertible {
     public let key: String
     public let value: JSONValue
+    public init(key: String, value: JSONValue) {
+        self.key = key
+        self.value = value
+    }
     public var description: String { "\(key) does not accept \(value.compactText)" }
+}
+
+/// A write through `setSetting(at:to:by:)` for a key `SettingsSchema` does not list.
+public struct SettingNotInSchema: Error, Sendable, CustomStringConvertible {
+    public let key: String
+    public var description: String { "\(key) is not a setting" }
 }
 
 extension SettingsController {
@@ -13,17 +23,52 @@ extension SettingsController {
     /// default applies) and any object the removal leaves empty. The file
     /// watcher then applies the change to every window and the Settings
     /// window reads it back from `snapshot`.
-    public func setSetting(_ descriptor: SettingDescriptor, to value: JSONValue?) async throws {
-        guard let value else { return try await removePruning(descriptor.path) }
-        guard descriptor.accepts(value) else { throw SettingRefused(key: descriptor.id, value: value) }
-        try await file.set(value, at: descriptor.path)
+    public func setSetting(_ descriptor: SettingDescriptor, to value: JSONValue?, by writer: SettingWriter) async throws {
+        if let source = managedKeys[descriptor.id] { throw SettingManaged(key: descriptor.id, source: source) }
+        guard writer.mayWrite(descriptor) else { throw SettingUserOnly(key: descriptor.id, writer: writer) }
+        // A renamed key's old key goes with the write, so it can never apply
+        // again behind the new value (or behind a reset to the default).
+        var legacy: [String]?
+        if let old = WorkspaceRowSetting.legacyPath(for: descriptor.path), try await file.value(at: old) != nil { legacy = old }
+        if let value {
+            guard descriptor.accepts(value) else { throw SettingRefused(key: descriptor.id, value: value) }
+            if let legacy {
+                try await file.apply([(path: descriptor.path, value: value), (path: legacy, value: nil)])
+            } else {
+                try await file.set(value, at: descriptor.path)
+            }
+            await reloadAfterWrite()
+        } else {
+            if let legacy { try await file.remove(legacy) }
+            try await removePruning(descriptor.path)
+        }
+        validatedWrites[descriptor.id, default: 0] += 1
+    }
+
+    /// `setSetting` for the schema key at `path`: the one write path of the
+    /// palette's typed setters and handlers. Throws `SettingRetired` for a
+    /// removed key and `SettingNotInSchema` when the schema lists no such key.
+    public func setSetting(at path: [String], to value: JSONValue?, by writer: SettingWriter) async throws {
+        if SettingsSchema.isRetired(path) {
+            // Removing a retired key from an old file is allowed.
+            if value == nil { return try await removePruning(path) }
+            throw SettingRetired(key: path.joined(separator: "."))
+        }
+        guard let descriptor = SettingsSchema.descriptor(for: path) else {
+            throw SettingNotInSchema(key: path.joined(separator: "."))
+        }
+        try await setSetting(descriptor, to: value, by: writer)
     }
 
     /// Advanced > Reset All Settings: removes every key the schema lists and
-    /// every shortcut override. Custom actions, tab bar buttons and keys the
-    /// schema does not know stay.
-    public func resetAllSettings() async throws {
-        for descriptor in SettingsSchema.all {
+    /// every shortcut override. Custom actions, tab bar buttons, keys the
+    /// schema does not know, `SettingsSchema.keptOnResetAll` (the theme and
+    /// terminal font) and managed keys (edits refused) stay.
+    public func resetAllSettings(by writer: SettingWriter) async throws {
+        // Reset All changes user-only keys too: only the user may run it.
+        guard writer == .user else { throw SettingUserOnly(key: "*", writer: writer) }
+        let managed = file.managedGuard.managedKeys
+        for descriptor in SettingsSchema.all where managed[descriptor.id] == nil && !SettingsSchema.keptOnResetAll.contains(descriptor.path) {
             try await removePruning(descriptor.path)
         }
         try await file.remove(["shortcuts", "bindings"])
@@ -41,9 +86,10 @@ extension SettingsController {
         try await file.remove(path)
         var parent = Array(path.dropLast())
         while !parent.isEmpty {
-            guard try await pruneEmpty(parent) else { return }
+            guard try await pruneEmpty(parent) else { break }
             parent.removeLast()
         }
+        await reloadAfterWrite()
     }
 
     /// Removes the object at `path` when it has no members. True when removed.

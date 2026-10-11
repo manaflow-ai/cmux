@@ -10,6 +10,11 @@ public enum BrowserPageOperation: Sendable, Hashable {
     case state
     /// Result: `{"value": <JSON>}`.
     case evaluate(String)
+    /// Runs the body of an async function and awaits what it returns.
+    /// Result: `{"value": <JSON>}`.
+    case evaluateAsync(String)
+    /// Result: `{"png_base64": …, "width": …, "height": …}` (image pixels).
+    case screenshot(BrowserPageCapture)
     /// The cookies of the tab's profile. Result: `{"cookies": [cookie JSON]}`
     /// for `.list`, `{}` otherwise.
     case cookies(BrowserPageCookieRequest)

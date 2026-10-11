@@ -26,7 +26,7 @@ nonisolated extension PageInfoStrings {
     static var deleteData: String { String(localized: "pageInfo.siteSettings.deleteData", defaultValue: "Delete data", table: "PageInfo", bundle: .module) }
     static var engineLimited: String { String(localized: "pageInfo.siteSettings.engineLimited", defaultValue: "Only the permissions this browser engine can enforce are listed.", table: "PageInfo", bundle: .module) }
 
-    // Certificate viewer (Chrome's viewer, General and Details)
+    // Certificate viewer (General and Details tabs)
     static func viewerTitle(_ name: String) -> String {
         String(localized: "pageInfo.viewer.title", defaultValue: "Certificate Viewer: \(name)", table: "PageInfo", bundle: .module)
     }
@@ -70,4 +70,5 @@ nonisolated extension PageInfoStrings {
     }
     static var noSiteInformation: String { String(localized: "pageInfo.error.noSiteInformation", defaultValue: "This page has no site information.", table: "PageInfo", bundle: .module) }
     static var notAWebPage: String { String(localized: "pageInfo.error.notAWebPage", defaultValue: "Site settings apply to web pages only.", table: "PageInfo", bundle: .module) }
+    static var certificateWarningsAlreadyOn: String { String(localized: "pageInfo.error.certificateWarningsAlreadyOn", defaultValue: "Security warnings are already on for this site.", table: "PageInfo", bundle: .module) }
 }

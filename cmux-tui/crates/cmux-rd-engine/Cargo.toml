@@ -1,0 +1,15 @@
+[package]
+name = "cmux-rd-engine"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "cmux remote desktop media engine for every source (desktop, remote browser): frame gate, congestion control, packetize with FEC, NACK history, feedback, recovery and exactly-once input (sans-I/O, injected clock)"
+
+[lints]
+workspace = true
+
+[dependencies]
+cmux-rd-core = { path = "../cmux-rd-core" }
+cmux-rd-proto = { path = "../cmux-rd-proto" }

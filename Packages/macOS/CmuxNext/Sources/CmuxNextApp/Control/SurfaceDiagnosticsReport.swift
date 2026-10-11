@@ -1,5 +1,7 @@
+import CmuxNextPages
 import AppKit
 import CmuxNextSettings
+import CmuxNextTerminal
 
 /// `debug.surfaces`: every window's panes with their surface state, the
 /// blank-pane count, and the content cache's live counts. Main actor: it
@@ -16,7 +18,9 @@ enum SurfaceDiagnosticsReport {
         return result
     }
 
-    static func make(_ services: AppServices) -> JSONValue {
+    /// `includeText` adds each terminal mirror's viewport text (`text`), so a
+    /// script can check that a view renders what its daemon terminal shows.
+    static func make(_ services: AppServices, includeText: Bool = false) -> JSONValue {
         let rows = statuses(services)
         var windows: [String: [JSONValue]] = [:]
         var order: [String] = []
@@ -28,6 +32,30 @@ enum SurfaceDiagnosticsReport {
                 object["workspace"] = .string(row.window.content?.workspace.id ?? "")
                 object["focused"] = .bool(row.pane.isFocusedInWorkspace)
                 if let tab = row.status.selectedTab { object["phase"] = .string(services.cache.phase(of: tab).rawValue) }
+                // A web page tab has no terminal lifecycle: report its paint state, not `restoring`.
+                if case .page(let view)? = row.pane.currentTabKey.flatMap(row.pane.existingContent(for:)),
+                   let page = view.content as? PageWebView {
+                    object["phase"] = .string(page.hasPainted ? "painted" : "loading")
+                }
+                if case .terminal(let entry)? = row.pane.currentTabKey.flatMap(row.pane.existingContent(for:)) {
+                    object["attach"] = .string(entry.io.attachPhase.journalName)
+                    object["link"] = .string(Self.linkName(entry.session.model.connection))
+                    let diagnostics = entry.session.diagnostics
+                    object["snapshots"] = JSONValue(diagnostics.restoredSnapshots)
+                    object["surface_swaps"] = JSONValue(diagnostics.swappedSurfaces)
+                    object["local_history_mismatch"] = JSONValue(diagnostics.localHistoryMismatches)
+                    object["local_snapshots"] = JSONValue(diagnostics.localSnapshots)
+                    object["skipped_images"] = JSONValue(diagnostics.skippedImages)
+                    if includeText { object["text"] = entry.session.surfaceView.viewportText().map(JSONValue.string) ?? .null }
+                    #if DEBUG
+                    if let grid = Self.grid(entry.session.surfaceView, window: row.window) { object["grid"] = grid }
+                    #endif
+                }
+                if case .placeholder(let view)? = row.pane.currentTabKey.flatMap(row.pane.existingContent(for:)) {
+                    // A remote-terminal tab whose session is away (data-model.md 1.4).
+                    object["placeholder"] = .string(view.statusText)
+                    if includeText { object["text"] = .string(view.snapshotText) }
+                }
                 pane = .object(object)
             }
             windows[key, default: []].append(pane)
@@ -46,6 +74,31 @@ enum SurfaceDiagnosticsReport {
             "parked_workspaces": JSONValue(services.windows.controllers.reduce(0) { $0 + $1.parked.count }),
             "hibernation": hibernation(services),
         ]
+    }
+
+    #if DEBUG
+    /// The terminal's grid in window points from the top-left (`debug.mouse`'s coordinates):
+    /// cell size, the first cell's corner and the view's frame, and the window for `debug.mouse`.
+    private static func grid(_ view: TerminalSurfaceView, window controller: WindowController) -> JSONValue? {
+        guard let window = view.window, let metrics = view.debugGridMetrics() else { return nil }
+        let frame = view.convert(view.bounds, to: nil)
+        let topLeft = InputJournal.topLeftPoint(NSPoint(x: frame.minX, y: frame.maxY), in: window, relativeTo: window)
+        return [
+            "window": .string(controller.state.id),
+            "cell_width": .number(metrics.cellWidth), "cell_height": .number(metrics.cellHeight),
+            "origin_x": .number(topLeft.x + metrics.paddingLeft), "origin_y": .number(topLeft.y + metrics.paddingTop),
+            "frame_x": .number(topLeft.x), "frame_y": .number(topLeft.y),
+            "frame_width": .number(frame.width), "frame_height": .number(frame.height),
+        ]
+    }
+    #endif
+
+    private static func linkName(_ status: TerminalConnectionStatus) -> String {
+        switch status {
+        case .connected: "connected"
+        case .exited: "exited"
+        case .disconnected(let cause, let reconnecting): "disconnected:\(cause)\(reconnecting ? ":reconnecting" : "")"
+        }
     }
 
     private static func hibernation(_ services: AppServices) -> JSONValue {

@@ -1,6 +1,6 @@
 import CmuxNextCloud
 public import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// The outcome of one finished ssh (or curl) run.
 public struct SSHProcessResult: Sendable {
@@ -14,11 +14,15 @@ public struct SSHProcessResult: Sendable {
 /// Foundation's pipe threads (bounded: 1 MiB stdout, 16 KiB stderr tail),
 /// never the main actor. The deadline terminates the process; cancelling
 /// the calling task does too.
-public enum SSHProcessRunner {
+public struct SSHProcessRunner {
+    public init() {}
     public enum Input: Sendable {
         case none
         case data(Data)
         case file(URL)
+        /// Writes stdin itself through the pipe's descriptor (a secret that must not be copied
+        /// into a `Data`, cx-0q7o); the pipe closes after it returns.
+        case writer(@Sendable (Int32) -> Void)
     }
 
     public static func run(_ argv: [String], input: Input = .none, environment: [String: String],
@@ -35,7 +39,7 @@ public enum SSHProcessRunner {
         switch input {
         case .none: process.standardInput = FileHandle.nullDevice
         case .file(let url): process.standardInput = try FileHandle(forReadingFrom: url)
-        case .data:
+        case .data, .writer:
             let pipe = Pipe()
             inputPipe = pipe
             process.standardInput = pipe
@@ -68,6 +72,11 @@ public enum SSHProcessRunner {
             let writer = inputPipe.fileHandleForWriting
             // Scripts are a few KiB, well under the pipe buffer.
             try? writer.write(contentsOf: data)
+            try? writer.close()
+        }
+        if case .writer(let write) = input, let inputPipe {
+            let writer = inputPipe.fileHandleForWriting
+            write(writer.fileDescriptor)
             try? writer.close()
         }
         let status: Int32

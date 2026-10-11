@@ -1,26 +1,38 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CodeViewHandle } from "@pierre/diffs/react";
 import type { DiffItem } from "../diff-stream";
 import { collectFindMatches, reanchorActiveMatch, type FindMatch } from "./model";
-import {
-  installFindHighlightPainter,
-  type FindHighlightPainter,
-  type FindPaintSnapshot,
-} from "./highlight";
+import { installFindHighlightPainter, type FindHighlightPainter, type FindPaintSnapshot } from "./highlight";
 
 export type FindDispatch = React.Dispatch<
-  | { type: "set-find-open"; open: boolean }
-  | { type: "set-find-query"; query: string }
+  { type: "set-find-open"; open: boolean } | { type: "set-find-query"; query: string }
 >;
 
 type UseDiffFindOptions = {
+  /** The items the code view shows (the file filter already applied). */
   items: DiffItem[];
   open: boolean;
   query: string;
   dispatch: FindDispatch;
   codeViewRef: React.MutableRefObject<CodeViewHandle<any> | null>;
   viewerContainerRef: React.MutableRefObject<HTMLDivElement | null>;
+  /**
+   * Expands a collapsed file so a match inside it can be shown, like the
+   * platform's find revealing collapsed content. Session-only: it does not
+   * change the remembered collapsed files.
+   */
+  revealItem: (itemId: string) => void;
 };
+
+/**
+ * A generated or large file that is still collapsed behind its "Load diff"
+ * button is not searched (as on GitHub): finding into it would load the very
+ * diff the viewer deferred. Loading it makes it searchable. Any other
+ * collapsed file is searched and expanded when a match in it is shown.
+ */
+export function isSearchableItem(item: DiffItem): boolean {
+  return !(item.collapsed && item.fileDiff?.cmuxDeferredReason != null);
+}
 
 export type DiffFindController = {
   matches: FindMatch[];
@@ -46,11 +58,13 @@ export type DiffFindController = {
  * disposed — clearing all highlights — when it unmounts.
  */
 export function useDiffFind(options: UseDiffFindOptions): DiffFindController {
-  const { items, open, query, dispatch, codeViewRef, viewerContainerRef } = options;
+  const { items, open, query, dispatch, codeViewRef, viewerContainerRef, revealItem } = options;
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
 
   const normalizedQuery = open ? query.toLowerCase() : "";
   const matches = useMemo(
-    () => (normalizedQuery === "" ? [] : collectFindMatches(items, normalizedQuery)),
+    () => (normalizedQuery === "" ? [] : collectFindMatches(items.filter(isSearchableItem), normalizedQuery)),
     [items, normalizedQuery],
   );
 
@@ -65,37 +79,67 @@ export function useDiffFind(options: UseDiffFindOptions): DiffFindController {
   const clampedIndex = matches.length === 0 ? 0 : Math.min(activeIndex, matches.length - 1);
   const activeMatch = matches[clampedIndex] ?? null;
 
-  const scrollToMatch = useCallback((match: FindMatch) => {
-    codeViewRef.current?.scrollTo({
-      type: "line",
-      id: match.itemId,
-      lineNumber: match.lineNumber,
-      side: match.side,
-      align: "center",
-      behavior: "instant",
-    });
-  }, [codeViewRef]);
+  const scrollToLine = useCallback(
+    (match: FindMatch) => {
+      codeViewRef.current?.scrollTo({
+        type: "line",
+        id: match.itemId,
+        lineNumber: match.lineNumber,
+        side: match.side,
+        align: "center",
+        behavior: "instant",
+      });
+    },
+    [codeViewRef],
+  );
 
-  const activeItemSpan = useCallback((match: FindMatch): { top: number; bottom: number } | null => {
-    const instance = codeViewRef.current?.getInstance();
-    if (instance == null) {
-      return null;
-    }
-    const top = instance.getTopForItem(match.itemId);
-    if (typeof top !== "number") {
-      return null;
-    }
-    let bottom = Number.POSITIVE_INFINITY;
-    const index = items.findIndex((item) => item.id === match.itemId);
-    for (let i = index + 1; i >= 0 && i < items.length; i += 1) {
-      const nextTop = instance.getTopForItem(items[i].id);
-      if (typeof nextTop === "number" && nextTop > top) {
-        bottom = nextTop;
-        break;
+  // A collapsed file has no rows to scroll to: expand it, and scroll once the
+  // expanded item has reached the code view (the layout effect below runs
+  // after CodeView's own layout effect has applied the new items).
+  const pendingRevealRef = useRef<FindMatch | null>(null);
+  const scrollToMatch = useCallback(
+    (match: FindMatch) => {
+      if (itemsRef.current.some((item) => item.id === match.itemId && item.collapsed)) {
+        pendingRevealRef.current = match;
+        revealItem(match.itemId);
+        return;
       }
+      pendingRevealRef.current = null;
+      scrollToLine(match);
+    },
+    [revealItem, scrollToLine],
+  );
+  useLayoutEffect(() => {
+    const pending = pendingRevealRef.current;
+    if (pending != null && items.some((item) => item.id === pending.itemId && !item.collapsed)) {
+      pendingRevealRef.current = null;
+      scrollToLine(pending);
     }
-    return { top, bottom };
-  }, [codeViewRef, items]);
+  }, [items, scrollToLine]);
+
+  const activeItemSpan = useCallback(
+    (match: FindMatch): { top: number; bottom: number } | null => {
+      const instance = codeViewRef.current?.getInstance();
+      if (instance == null) {
+        return null;
+      }
+      const top = instance.getTopForItem(match.itemId);
+      if (typeof top !== "number") {
+        return null;
+      }
+      let bottom = Number.POSITIVE_INFINITY;
+      const index = items.findIndex((item) => item.id === match.itemId);
+      for (let i = index + 1; i >= 0 && i < items.length; i += 1) {
+        const nextTop = instance.getTopForItem(items[i].id);
+        if (typeof nextTop === "number" && nextTop > top) {
+          bottom = nextTop;
+          break;
+        }
+      }
+      return { top, bottom };
+    },
+    [codeViewRef, items],
+  );
 
   // Reanchor the active index when the match list changes (query edits,
   // items streaming in). A QUERY change also jumps to its (re)anchored
@@ -150,24 +194,30 @@ export function useDiffFind(options: UseDiffFindOptions): DiffFindController {
     painterRef.current?.repaint();
   }, [normalizedQuery, clampedIndex, activeMatch, activeItemSpan, installPainterIfNeeded]);
 
-  const findBarRef = useCallback((element: HTMLElement | null) => {
-    findBarMountedRef.current = element != null;
-    if (element != null) {
-      installPainterIfNeeded();
-    } else {
-      painterRef.current?.dispose();
-      painterRef.current = null;
-    }
-  }, [installPainterIfNeeded]);
+  const findBarRef = useCallback(
+    (element: HTMLElement | null) => {
+      findBarMountedRef.current = element != null;
+      if (element != null) {
+        installPainterIfNeeded();
+      } else {
+        painterRef.current?.dispose();
+        painterRef.current = null;
+      }
+    },
+    [installPainterIfNeeded],
+  );
 
-  const goTo = useCallback((index: number) => {
-    const match = matches[index];
-    if (match == null) {
-      return;
-    }
-    setActiveIndex(index);
-    scrollToMatch(match);
-  }, [matches, scrollToMatch]);
+  const goTo = useCallback(
+    (index: number) => {
+      const match = matches[index];
+      if (match == null) {
+        return;
+      }
+      setActiveIndex(index);
+      scrollToMatch(match);
+    },
+    [matches, scrollToMatch],
+  );
 
   const goToNext = useCallback(() => {
     if (matches.length > 0) {
@@ -181,9 +231,12 @@ export function useDiffFind(options: UseDiffFindOptions): DiffFindController {
     }
   }, [goTo, matches.length]);
 
-  const setQuery = useCallback((nextQuery: string) => {
-    dispatch({ type: "set-find-query", query: nextQuery });
-  }, [dispatch]);
+  const setQuery = useCallback(
+    (nextQuery: string) => {
+      dispatch({ type: "set-find-query", query: nextQuery });
+    },
+    [dispatch],
+  );
 
   const closeFind = useCallback(() => {
     dispatch({ type: "set-find-open", open: false });

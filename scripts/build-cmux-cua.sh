@@ -2,7 +2,9 @@
 set -euo pipefail
 
 CMUX_CUA_REPO_URL="${CMUX_CUA_REPO_URL:-https://github.com/manaflow-ai/cmux-cua.git}"
-CMUX_CUA_PINNED_SHA="d6ebb0985554094e4a142b1c5e4e207fcb34f1d2"
+CMUX_CUA_PINNED_SHA="e8a8dbfd45a5d050058e7340f97ffe6f157c3128"
+CMUX_CUA_RELEASE_TAG="cmux-cua-v0.8.12"
+CMUX_CUA_DARWIN_UNIVERSAL_UNSIGNED_SHA256="7f140fe2f75dcb43649297440b7902fd21b938851984de9b018bc29583d72ba4"
 CMUX_CUA_SOURCE_OWNER_FILE=".cmux-cua-managed-source"
 CMUX_CUA_SOURCE_OWNER_VALUE="cmux-cua-cache-v2 $CMUX_CUA_PINNED_SHA"
 CMUX_CUA_HELPER_OWNER_FILE=".cmux-cua-managed-helper"
@@ -15,10 +17,16 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # toolchain, or the fake git/cargo in tests/test_cmux_cua_build_cache_safety.py)
 # must keep precedence over Homebrew's copies.
 export PATH="${PATH:+${PATH}:}${CARGO_HOME:-${HOME}/.cargo}/bin:/opt/homebrew/bin:/usr/local/bin"
+export CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP="${CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP:-none}"
 
 OUTPUT=""
 ARCHS_RAW=""
 PRINT_HELPER_ID=""
+# The nested "cmux Computer Use.app" is assembled only on request, by release
+# packaging that signs it with the Developer ID right after. A dev build never
+# gets one: an ad-hoc com.cmuxterm.cua copy cannot satisfy the release TCC row,
+# and a grant to it replaces that row (scripts/cmux-cua-helper-trust.sh).
+ASSEMBLE_HELPER_APP=0
 CACHE_DIR="${CMUX_CUA_CACHE_DIR:-${HOME:-/tmp}/Library/Caches/cmux/cmux-cua}"
 
 helper_bundle_id_for_host() {
@@ -81,6 +89,9 @@ Options:
   --cache-dir <path>    clone/build cache dir (default: ~/Library/Caches/cmux/cmux-cua)
   --print-helper-id <host-bundle-id>
                          Print the TCC-facing helper identity and exit
+  --helper-app          also assemble Contents/Library/cmux Computer Use.app
+                         (release packaging only; it must be Developer ID
+                         signed afterwards, see scripts/sign-cmux-bundle.sh)
   -h, --help            show this help
 
 Environment:
@@ -111,6 +122,10 @@ while (($#)); do
       [[ $# -ge 2 ]] || { usage; exit 2; }
       PRINT_HELPER_ID="$2"
       shift 2
+      ;;
+    --helper-app)
+      ASSEMBLE_HELPER_APP=1
+      shift
       ;;
     -h|--help)
       usage
@@ -339,6 +354,30 @@ TMPDIR_BUILD="$(mktemp -d "${TMPDIR:-/tmp}/cmux-cua-build.XXXXXX")"
 
 mkdir -p "$(dirname "$OUTPUT")"
 
+# Cargo keeps build-script output and compiled C objects in its target dir,
+# and the cmux-cua build scripts emit absolute SDK paths
+# (rustc-link-search=<SDK>/usr/lib/system) without rerun-if-env-changed. A
+# shared target dir therefore replays the first Xcode's SDK into every later
+# build: an Xcode 26.6 link then reads Xcode 27's libdispatch.tbd and ld fails
+# with "unknown architecture" (arm64e.x1). Pin SDKROOT to the selected Xcode's
+# own SDK and give every Xcode/SDK pair its own target dir.
+CUA_DEVELOPER_DIR="${DEVELOPER_DIR:-$(xcode-select -p 2>/dev/null || true)}"
+if [[ -z "${SDKROOT:-}" ]]; then
+  SDKROOT="$(xcrun --sdk macosx --show-sdk-path 2>/dev/null || true)"
+fi
+if [[ -z "$SDKROOT" ]]; then
+  echo "error: cannot resolve the macOS SDK of ${CUA_DEVELOPER_DIR:-the selected Xcode}" >&2
+  exit 1
+fi
+export SDKROOT
+CUA_TOOLCHAIN_KEY="$(
+  {
+    printf 'developer=%s\n' "$(cd "$CUA_DEVELOPER_DIR" 2>/dev/null && pwd -P || printf '%s' "$CUA_DEVELOPER_DIR")"
+    printf 'sdk=%s\n' "$(cd "$SDKROOT" 2>/dev/null && pwd -P || printf '%s' "$SDKROOT")"
+    cat "$CUA_DEVELOPER_DIR/../version.plist" "$SDKROOT/SDKSettings.json" 2>/dev/null || true
+  } | shasum -a 256 | cut -c1-16
+)"
+
 ensure_rust_target() {
   local target="$1"
   if command -v rustup >/dev/null 2>&1; then
@@ -372,8 +411,9 @@ for arch in "${ARCHS[@]}"; do
   # with a shared dir a "fresh" build of pin A can leave pin B's (or a dirty
   # CMUX_CUA_SRC checkout's) binary in place, defeating the SHA gate. Keying
   # by source dir prevents cross-revision reuse. Concurrent builds of one
-  # revision serialize on Cargo's own lock.
-  target_dir="$SRC_ROOT/.cmux-cargo-target"
+  # revision serialize on Cargo's own lock. One subdir per Xcode/SDK pair
+  # (CUA_TOOLCHAIN_KEY above).
+  target_dir="$SRC_ROOT/.cmux-cargo-target/xcode-$CUA_TOOLCHAIN_KEY"
   cargo_status=0
   for cargo_attempt in 1 2 3; do
     if CARGO_TARGET_DIR="$target_dir" \
@@ -434,7 +474,7 @@ cp "$CUA_LICENSE_SRC" "$(dirname "$OUTPUT")/cmux-cua-LICENSE.md"
 # top-level copy is what macOS shows in Accessibility and Screen Recording.
 _cua_bin_dir="$(cd "$(dirname "$OUTPUT")" && pwd -P)"
 _cua_contents="$(cd "$_cua_bin_dir/../.." 2>/dev/null && pwd -P || true)"
-if [ -n "${_cua_contents:-}" ] && [ "$(basename "$_cua_contents")" = "Contents" ]; then
+if [ "$ASSEMBLE_HELPER_APP" = 1 ] && [ -n "${_cua_contents:-}" ] && [ "$(basename "$_cua_contents")" = "Contents" ]; then
   HELPER_APP="$_cua_contents/Library/cmux Computer Use.app"
   HELPER_EXECUTABLE="cmux-cua"
   # This build phase runs before Xcode writes the processed host Info.plist.

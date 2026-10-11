@@ -1617,6 +1617,40 @@ class ContractParity(unittest.TestCase):
         self.assertNotEqual(reuse.key(blacksmith), reuse.key(workspace))
         self.assertEqual(reuse.portable_contract(workspace), blacksmith)
 
+    def test_an_sdkroot_naming_the_selected_sdk_is_not_a_product_input(self):
+        """/usr/bin/python3 is an xcrun shim that exports SDKROOT to the
+        interpreter, so one Mac hashed the selected SDK's path and the rest
+        hashed nothing (8b593349 was 8f68380f on cmux7s, dd3ed8d1 on cmux10s)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            sdks = Path(tmp)
+            real = sdks / "MacOSX26.5.sdk"
+            real.mkdir()
+            (sdks / "MacOSX.sdk").symlink_to(real.name)
+            other = sdks / "MacOSX15.sdk"
+            other.mkdir()
+            answers = {"xcodebuild": "Xcode 26.6\nBuild version 17F113",
+                       ("xcrun", "--sdk", "macosx", "--show-sdk-build-version"): "25F70",
+                       ("xcrun", "--sdk", "macosx", "--show-sdk-path"): str(real),
+                       ("sw_vers", "-productVersion"): "26.4"}
+
+            def contract(environ):
+                with mock.patch.dict(os.environ, environ, clear=True), \
+                        mock.patch.object(reuse, "read",
+                                          side_effect=lambda *args: answers.get(args, answers.get(args[0]))), \
+                        mock.patch.object(reuse.shutil, "which", return_value=None), \
+                        mock.patch.object(reuse.product_inputs, "local_identity", return_value={"source": "s"}):
+                    return reuse.contract(reuse.CANONICAL_DERIVED_DATA)
+            unset = contract({"CMUX_SKIP_ZIG_BUILD": "1"})
+            self.assertEqual(unset["environment"]["SDKROOT"], "")
+            for path in (real, sdks / "MacOSX.sdk"):
+                with self.subTest(sdkroot=path.name):
+                    self.assertEqual(reuse.key(contract({"CMUX_SKIP_ZIG_BUILD": "1", "SDKROOT": str(path)})),
+                                     reuse.key(unset))
+            # Another SDK still names another product.
+            elsewhere = contract({"CMUX_SKIP_ZIG_BUILD": "1", "SDKROOT": str(other)})
+            self.assertEqual(elsewhere["environment"]["SDKROOT"], str(other))
+            self.assertNotEqual(reuse.key(elsewhere), reuse.key(unset))
+
     def test_release_contract_still_names_the_runner_pool(self):
         # reuse_release_product.py calls contract() without a DerivedData path.
         small = self.contract_with({"CMUX_PRODUCT_RUNNER": "blacksmith-6vcpu-macos-26"})
@@ -1675,8 +1709,9 @@ class ContractParity(unittest.TestCase):
                           miss_reasons="" if hit else "no_matching_contract_artifact")
             return hit
 
-        def fake_switch(root):
+        def fake_switch(root, **kwargs):
             moves.append(root)
+            self.assertEqual(kwargs.get("wait_seconds"), 0)
             return root / "derived-data-compile-admission"
 
         output = tmp / "out"
@@ -1755,7 +1790,7 @@ class ContractParity(unittest.TestCase):
                 mock.patch.object(sys, "argv", ["reuse", "restore", str(derived)]), \
                 mock.patch.object(reuse, "ROOT_HELPER", helper), \
                 mock.patch.object(reuse, "canonical_roots", return_value=[first, second]), \
-                mock.patch.object(reuse, "switch_root", side_effect=lambda root: root / "derived-data-compile-admission"), \
+                mock.patch.object(reuse, "switch_root", side_effect=lambda root, **_: root / "derived-data-compile-admission"), \
                 mock.patch.object(reuse, "contract", return_value=own), \
                 mock.patch.object(reuse.products, "identity", return_value={}), \
                 mock.patch.object(reuse, "restore", side_effect=restore_then_fail):

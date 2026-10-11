@@ -321,6 +321,41 @@ private func sizeState(
     }
 }
 
+/// The phone may disconnect a Mac's view (the host Mac's own pane, or the
+/// Mac relaying this phone); the sheet confirms first, naming that Mac.
+@Suite struct MobileTerminalSizingMacDisconnectTests {
+    private let studio = participant("c3", user: "u_l", name: "Lawrence Chen", device: "Lawrence's Mac Studio", viewport: TerminalGridSize(cols: 200, rows: 60))
+    private let laptop = participant("c4", user: "u_l", name: "Lawrence Chen", device: "Lawrence's MacBook Pro", viewport: TerminalGridSize(cols: 100, rows: 30))
+    private let phone = participant("c3/mobile:p1", user: "u_l", name: "Lawrence Chen", kind: .iphone, device: "iPhone", viewport: TerminalGridSize(cols: 54, rows: 44))
+
+    private func presentation() -> MobileTerminalSizingPresentation {
+        MobileTerminalSizingPresentation(
+            state: sizeState(generation: 1, cols: 100, rows: 30, owners: ["c4"], participants: [studio, laptop, phone]),
+            selfParticipantID: "c3/mobile:p1",
+            localViewport: TerminalGridSize(cols: 54, rows: 44)
+        )
+    }
+
+    @Test func eachMacRowConfirmsWithItsOwnDeviceName() {
+        let p = presentation()
+        #expect(p.disconnectConfirmation(for: studio) == .device("Lawrence's Mac Studio"))
+        #expect(p.disconnectConfirmation(for: laptop) == .device("Lawrence's MacBook Pro"))
+    }
+
+    @Test func phoneAndSelfRowsNeedNoMacConfirmation() {
+        let p = presentation()
+        #expect(p.disconnectConfirmation(for: phone) == nil)
+        let other = participant("c5/mobile:p2", user: "u_k", kind: .iphone, device: "Kai's iPhone")
+        #expect(p.disconnectConfirmation(for: other) == nil)
+    }
+
+    @Test func everyMacRowIsDisconnectable() {
+        let p = presentation()
+        #expect(p.otherParticipants.map(\.id) == ["c3", "c4"])
+        #expect(p.otherParticipants.allSatisfy(p.canDisconnect))
+    }
+}
+
 @Suite struct MobileTerminalSizingRowStatusTests {
     @Test func ownerSetsSizeAndUncountedPhoneSaysNotCounted() throws {
         let presentation = MobileTerminalSizingPresentation(
@@ -395,6 +430,20 @@ private func sizeState(
         #expect(params.isEmpty)
     }
 
+    @Test func reportsAndReplaysCarryTheStableDeviceID() {
+        let identity = MobileTerminalDeviceIdentity(kind: .iphone, name: "Phone", model: "iPhone", deviceID: "ABC-1")
+        let builder = MobileTerminalViewportParameters(clientID: "c", identity: identity)
+        let report = builder.report(
+            workspaceID: "w", surfaceID: "s",
+            viewport: MobileTerminalViewportSize(columns: 50, rows: 30), generation: 1
+        )
+        let replay = builder.replay(viewport: MobileTerminalViewportSize(columns: 50, rows: 30), generation: 1)
+        #expect(report["device_id"] as? String == "abc-1")
+        #expect(replay["device_id"] as? String == "abc-1")
+        let anonymous = MobileTerminalViewportParameters(clientID: "c", identity: self.identity)
+        #expect(anonymous.replay(viewport: MobileTerminalViewportSize(columns: 50, rows: 30), generation: 1)["device_id"] == nil)
+    }
+
     @Test func countsOverrideSetAndClear() throws {
         #expect(report(.set(false))["counts_override"] as? Bool == false)
         #expect(report(.set(true))["counts_override"] as? Bool == true)
@@ -403,5 +452,45 @@ private func sizeState(
         let json = try JSONSerialization.data(withJSONObject: cleared)
         let text = try #require(String(data: json, encoding: .utf8))
         #expect(text.contains("\"counts_override\":null"))
+    }
+}
+
+/// The terminal title menu's "Connected Devices…" item.
+@Suite struct MobileTerminalConnectedDevicesMenuItemTests {
+    /// Offered on a shared-sizing Mac even when this phone's viewport equals
+    /// the grid, so the chip is hidden and nothing else opens the sheet.
+    @Test func offeredWhenSizesMatch() throws {
+        let presentation = MobileTerminalSizingPresentation(
+            state: sizeState(generation: 1, cols: 50, rows: 30),
+            selfParticipantID: "mobile:phone",
+            localViewport: TerminalGridSize(cols: 50, rows: 30)
+        )
+        #expect(!presentation.showsChip)
+        let item = try #require(MobileTerminalConnectedDevicesMenuItem(presentation: presentation))
+        #expect(item.otherDeviceCount == 1)
+    }
+
+    @Test func countsEveryOtherAttachedDevice() throws {
+        let state = sizeState(generation: 1, participants: [
+            participant("c3", user: "u_maya", name: "Maya Ortiz", device: "Mac Studio",
+                        viewport: TerminalGridSize(cols: 118, rows: 38)),
+            participant("c4", user: "u_li", name: "Li Chen", device: "MacBook Pro",
+                        viewport: TerminalGridSize(cols: 120, rows: 40)),
+            participant("mobile:phone", user: "u_maya", kind: .iphone, device: "iPhone",
+                        viewport: TerminalGridSize(cols: 50, rows: 30)),
+        ])
+        let presentation = MobileTerminalSizingPresentation(
+            state: state,
+            selfParticipantID: "mobile:phone",
+            localViewport: TerminalGridSize(cols: 50, rows: 30)
+        )
+        let item = try #require(MobileTerminalConnectedDevicesMenuItem(presentation: presentation))
+        #expect(item.otherDeviceCount == 2)
+    }
+
+    /// No published size state: the Mac does not support shared sizing (or
+    /// has not answered yet), so there is no sheet to open.
+    @Test func hiddenWithoutASizeState() {
+        #expect(MobileTerminalConnectedDevicesMenuItem(presentation: nil) == nil)
     }
 }

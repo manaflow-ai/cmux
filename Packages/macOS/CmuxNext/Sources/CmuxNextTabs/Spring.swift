@@ -7,32 +7,41 @@ public import Foundation
 /// applies mid-flight). Retargeting keeps value and velocity, so an
 /// interrupted animation continues from what is on screen.
 public struct Spring: Equatable, Sendable {
+    /// What the spring animates (the cmux-motion SpringKind rule). A size
+    /// (width, opacity) reaching 0 is something disappearing; a position
+    /// (a tab's x, the strip scroll) reaching 0 is an ordinary move.
+    public enum Kind: Sendable { case size, position }
+
     public var value: CGFloat
     public var velocity: CGFloat = 0
     public var target: CGFloat
-    /// The spring for moves toward a nonzero target. A move to 0 (close,
-    /// collapse, fade out) uses `.disappear`, which is faster.
+    /// The spring for moves. A size spring moving to 0 (close, collapse,
+    /// fade out) uses `.disappear`, which is faster; a position spring
+    /// always uses this token.
     public var token: MotionSpring
+    public let kind: Kind
     /// Settle distance. Geometry snaps to half points at 2x, so 0.25 pt of
     /// remaining travel is invisible; opacity uses a finer value.
     public var epsilon: CGFloat
     /// Pointer sample for `follow(_:at:)`.
     private var lastSample: (value: CGFloat, time: TimeInterval)?
 
-    public init(value: CGFloat, token: MotionSpring = .move, epsilon: CGFloat = 0.25) {
+    public init(value: CGFloat, token: MotionSpring = .move, kind: Kind = .size, epsilon: CGFloat = 0.25) {
         self.value = value
         self.target = value
         self.token = token
+        self.kind = kind
         self.epsilon = epsilon
     }
 
     public static func == (lhs: Spring, rhs: Spring) -> Bool {
-        lhs.value == rhs.value && lhs.velocity == rhs.velocity && lhs.target == rhs.target && lhs.token == rhs.token && lhs.epsilon == rhs.epsilon
+        lhs.value == rhs.value && lhs.velocity == rhs.velocity && lhs.target == rhs.target && lhs.token == rhs.token && lhs.kind == rhs.kind
+            && lhs.epsilon == rhs.epsilon
     }
 
     /// The token this step uses.
     public var activeToken: MotionSpring {
-        target <= 0.001 && value > target ? .disappear : token
+        kind == .size && target <= 0.001 && value > target ? .disappear : token
     }
 
     public var isSettled: Bool {

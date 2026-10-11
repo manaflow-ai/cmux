@@ -150,11 +150,20 @@ jobs:
           run-id: ${{ inputs.artifact_run_id }}
           github-token: ${{ github.token }}
 
+      - name: Download the generated third-party notices
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: package-notices
+          path: package-notices
+          run-id: ${{ inputs.artifact_run_id }}
+          github-token: ${{ github.token }}
+
       - name: Revalidate PyPI wheel contract
         run: |
           python3 cmux-tui/dist/scripts/validate_package_contract.py \
             --pypi-wheels dist \
-            --version "${{ inputs.version }}"
+            --version "${{ inputs.version }}" \
+            --notices-dir package-notices
 
       - name: Trusted publisher setup note
         run: |

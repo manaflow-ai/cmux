@@ -10,8 +10,8 @@ with nobody noticing. This skill finds the commit behind each failure on CI,
 never on the Mac (no full cmux builds on laptops).
 
 Use this skill for the SwiftPM package suites under `Packages/iOS` and `Packages/Shared` that `test-ios.yml` can run
-(`CMUXMobileCore`, `CmuxSyncStore`, `CmuxMobilePairedMac`, `CmuxMobileChanges`,
-`CmuxMobileShell`, `CmuxMobileShellModel`).
+(`CMUXMobileCore`, `CmuxSyncStore`, `CmuxMobilePairedMac`, `CmuxMobileShellModel`,
+`CmuxHomeCore`).
 
 ## Before you start
 
@@ -27,10 +27,10 @@ Use this skill for the SwiftPM package suites under `Packages/iOS` and `Packages
 
 ```bash
 T=scripts/ci/package_bisect.py
-python3 $T --package CmuxMobileShell start --points 6 <old-sha>..upstream/main
-python3 $T --package CmuxMobileShell status --wait     # up to 45 min
-python3 $T --package CmuxMobileShell next --dispatch   # split each break window
-python3 $T --package CmuxMobileShell cleanup           # delete probe branches
+python3 $T --package CMUXMobileCore start --points 6 <old-sha>..upstream/main
+python3 $T --package CMUXMobileCore status --wait     # up to 45 min
+python3 $T --package CMUXMobileCore next --dispatch   # split each break window
+python3 $T --package CMUXMobileCore cleanup           # delete probe branches
 ```
 
 - Each probe pushes `bisect/<name>/<sha10>` (the name defaults to the package): the old commit with today's iOS

@@ -28,7 +28,22 @@ public final class LayoutModel {
     /// Pins the width of new columns (tests, the demo); nil follows cmux.json
     /// `layout.defaultColumnWidth` (see `defaultColumnWidth`).
     public var defaultColumnWidthOverride: Double?
-    /// niri `center-focused-column`: the override, else the live setting
+    /// Pins `layout.newColumnWidth` (tests, the demo).
+    public var newColumnWidthModeOverride: NewColumnWidthMode?
+    /// Pins `layout.splitSizing` (tests, the demo).
+    public var splitSizingOverride: SplitSizing?
+    /// Pins the strip scrollbar mode (tests, the demo); nil follows
+    /// cmux.json `layout.stripScrollbar`.
+    public var stripScrollbarOverride: StripScrollbarMode?
+    /// The daemon serves edge-docks-v1: drops on a screen's top or bottom
+    /// edge band open a dock (DropZoneGeometry.dockTarget).
+    public var acceptsEdgeDockDrops = false
+    /// The daemon serves `rows-v1`: row heights and new rows may be sent.
+    /// Without it no row op leaves the model (plans/cmux-next/rows.md).
+    public var acceptsRowOps = false
+    /// Pins `layout.rows` (tests, the demo); nil follows cmux.json.
+    public var rowsEnabledOverride: Bool?
+    /// Column centering mode: the override, else the live setting
     /// while `followsDesignMetrics` is on, else `.never`.
     public var centerFocusedColumn: CenterFocusedColumn {
         centerFocusedColumnOverride ?? (followsDesignMetrics ? DesignSettings.shared.centerFocusedColumn : .never)
@@ -46,7 +61,9 @@ public final class LayoutModel {
     /// this model and `DesignSettings.shared`, so a density or metric override
     /// change relayouts every screen live.
     public var style: LayoutStyle {
-        followsDesignMetrics ? baseStyle.applyingDesignMetrics() : baseStyle
+        var style = followsDesignMetrics ? baseStyle.applyingDesignMetrics() : baseStyle
+        if let rowsEnabledOverride { style.rowsEnabled = rowsEnabledOverride }
+        return style
     }
 
     /// Panes that need attention (an unread notification), with the mark
@@ -67,10 +84,13 @@ public final class LayoutModel {
     /// True while a divider or column drag is in progress.
     public private(set) var isGestureActive = false
 
-    /// The latest one-shot "center this column" request (niri
-    /// `center-column`). The view scrolls the column to the viewport center
+    /// The latest one-shot "center this column" request. The view scrolls the column to the viewport center
     /// once per request; `sequence` distinguishes repeats of the same pane.
     public private(set) var centerRequest: ColumnCenterRequest?
+
+    /// The latest one-shot "show this column" request (``revealColumn(containing:)``). The view applies it
+    /// once the pane's column is in the strip, which may be a later snapshot than the request's.
+    public private(set) var revealRequest: ColumnCenterRequest?
 
     /// Receives every intent. Set by the App (or `MockLayoutSource`).
     @ObservationIgnored public var intentHandler: (@MainActor (LayoutIntent) -> Void)?
@@ -200,7 +220,13 @@ public final class LayoutModel {
     public func focus(_ pane: PaneID, notify: Bool, source: ColumnFocusSource = .programmatic) {
         guard let screen = screen(containing: pane) else { return }
         if activeScreenID != screen.id { activeScreenID = screen.id }
-        guard focusedPane != pane else { return }
+        if focusedPane == pane {
+            // A pointer or scroll can re-focus the already active pane. Keep the source current
+            // so a keyboard ring is dismissed immediately, without letting passive programmatic
+            // reveals overwrite that pointer state.
+            if source == .pointer || source == .scroll { lastFocusSource = source }
+            return
+        }
         lastFocusSource = source
         focusedPane = pane
         if notify { emit(.focus(pane)) }
@@ -225,16 +251,8 @@ public final class LayoutModel {
         emit(.selectScreen(id))
     }
 
-    /// Selects the next (or previous) screen, wrapping.
-    public func selectAdjacentScreen(forward: Bool) {
-        guard let index = screens.firstIndex(where: { $0.id == activeScreenID }), screens.count > 1 else { return }
-        let next = (index + (forward ? 1 : -1) + screens.count) % screens.count
-        selectScreen(screens[next].id)
-    }
-
     /// Scrolls the column holding `pane` (default: the focused pane) to the
-    /// center of the viewport and focuses that pane, like niri's
-    /// `center-column`. Client-local: scroll offsets are never sent to the
+    /// center of the viewport and focuses that pane. Client-local: scroll offsets are never sent to the
     /// daemon. Returns false when the pane is not in a columns screen.
     @discardableResult
     public func centerColumn(containing pane: PaneID? = nil) -> Bool {
@@ -242,6 +260,13 @@ public final class LayoutModel {
         focus(pane)
         centerRequest = ColumnCenterRequest(pane: pane, sequence: (centerRequest?.sequence ?? 0) &+ 1)
         return true
+    }
+
+    /// Scrolls the column holding `pane` into view, the least that shows it, and leaves focus where it
+    /// is: a tab opened beside a chat that keeps focus (cx-27j7). The strip otherwise follows focus
+    /// only, so a column added out of view would stay there. Client-local, like ``centerColumn(containing:)``.
+    public func revealColumn(containing pane: PaneID) {
+        revealRequest = ColumnCenterRequest(pane: pane, sequence: (revealRequest?.sequence ?? 0) &+ 1)
     }
 
     // MARK: Divider and column gestures
@@ -274,19 +299,6 @@ public final class LayoutModel {
         record(intent, key: .column(column), phase: phase)
     }
 
-    /// Cycles the focused pane's column through the width presets.
-    public func cycleColumnWidthPreset(forward: Bool = true) {
-        guard let focusedPane, let column = screen(containing: focusedPane)?.layout.column(containing: focusedPane) else { return }
-        let preset = ColumnWidthPreset.next(after: column.width, forward: forward)
-        setColumnWidth(column.id, width: preset.rawValue, transaction: .make(), phase: .ended)
-    }
-
-    /// Sets the focused pane's column to `preset`.
-    public func setFocusedColumnWidth(_ preset: ColumnWidthPreset) {
-        guard let focusedPane, let column = screen(containing: focusedPane)?.layout.column(containing: focusedPane) else { return }
-        setColumnWidth(column.id, width: preset.rawValue, transaction: .make(), phase: .ended)
-    }
-
     /// Marks the start and end of a pointer gesture so views skip animation
     /// while the pointer drives the layout.
     public func setGestureActive(_ active: Bool) {
@@ -303,6 +315,24 @@ public final class LayoutModel {
 
     public var hasPendingGestureIntents: Bool { !pendingIntents.isEmpty }
 
+    /// Cancels a pointer gesture that will get no release (its divider or
+    /// column went away mid-drag): its overrides and its coalesced intents
+    /// drop, so no stale `.changed` reaches the daemon or another column,
+    /// the last daemon values show, and `.cancelGesture` closes the
+    /// transaction for the App.
+    public func cancelGesture(_ transaction: LayoutTransactionID) {
+        pendingIntents = pendingIntents.filter { Self.transaction(of: $0.value) != transaction }
+        rejectTransaction(transaction)
+        emit(.cancelGesture(transaction))
+    }
+
+    private static func transaction(of intent: LayoutIntent) -> LayoutTransactionID? {
+        switch intent {
+        case .setSplitRatio(_, _, let transaction, _), .setColumnWidth(_, _, _, let transaction, _): transaction
+        default: nil
+        }
+    }
+
     private func record(_ intent: LayoutIntent, key: PendingKey, phase: LayoutGesturePhase) {
         switch phase {
         case .changed:
@@ -313,7 +343,7 @@ public final class LayoutModel {
         }
     }
 
-    private func updateScreens(_ transform: (ScreenLayout) -> ScreenLayout) {
+    func updateScreens(_ transform: (ScreenLayout) -> ScreenLayout) {
         var next = screens
         for index in next.indices {
             next[index].layout = transform(next[index].layout)
@@ -322,12 +352,6 @@ public final class LayoutModel {
     }
 
     // MARK: Structure
-
-    /// Requests a split of the focused pane.
-    public func splitFocusedPane(axis: SplitAxis) {
-        guard let focusedPane else { return }
-        emit(.split(focusedPane, axis: axis))
-    }
 
     public func dropTab(_ tab: TabID, on target: DropTarget) {
         emit(.dropTab(tab, target))
@@ -347,7 +371,7 @@ public final class LayoutModel {
         if keepAlivePanes != keepAlive { keepAlivePanes = keepAlive }
     }
 
-    private func emit(_ intent: LayoutIntent) {
+    func emit(_ intent: LayoutIntent) {
         intentHandler?(intent)
     }
 }

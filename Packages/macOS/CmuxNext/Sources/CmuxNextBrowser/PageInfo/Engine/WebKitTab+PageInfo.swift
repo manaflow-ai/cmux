@@ -9,10 +9,11 @@ public import WebKit
 extension WebKitTab: PageInfoProviding {
     public var pageInfoSettings: SiteSettingsRegistry { engine?.siteSettings ?? .shared }
 
-    /// WebKit has public API for these only: camera and microphone through
-    /// `WKUIDelegate`, JavaScript through `WKWebpagePreferences`. Location,
-    /// notifications, pop-ups, sound and the rest have no per-site hook.
-    public var supportedSitePermissions: Set<SitePermissionKind> { [.camera, .microphone, .javascript] }
+    /// WebKit has per-site hooks for these only: camera and microphone
+    /// through `WKUIDelegate`, location and notifications through its
+    /// private delegate methods (WebKitTab+Delegates), JavaScript through
+    /// `WKWebpagePreferences`. Pop-ups, sound and the rest have none.
+    public var supportedSitePermissions: Set<SitePermissionKind> { [.location, .camera, .microphone, .notifications, .javascript] }
 
     public var pageInfoInUse: Set<SitePermissionKind> {
         var kinds: Set<SitePermissionKind> = []
@@ -55,7 +56,7 @@ extension WebKitTab: PageInfoProviding {
 
     public func pageInfoDidChange(_ kind: SitePermissionKind, to setting: SitePermissionSetting, origin: String) async {
         guard setting == .block else { return }
-        // Blocking stops a capture in progress at once, as Chrome does.
+        // Blocking stops a capture in progress at once.
         switch kind {
         case .camera: await webView.setCameraCaptureState(.none)
         case .microphone: await webView.setMicrophoneCaptureState(.none)
@@ -77,31 +78,12 @@ extension WebKitTab: PageInfoProviding {
 
     // MARK: Engine hooks (WebKitTab+Delegates)
 
-    /// Answers a media capture request from the stored decisions, asking
-    /// only when the site has none, and stores the answer.
-    func decideMediaCapture(_ kind: BrowserPermissionKind, origin: String, decisionHandler: @escaping @MainActor (WKPermissionDecision) -> Void) {
-        let kinds: Set<SitePermissionKind> = switch kind {
-        case .camera: [.camera]
-        case .microphone: [.microphone]
-        case .cameraAndMicrophone: [.camera, .microphone]
-        }
-        pageInfoActivity.recordRequest(kinds)
-        let store = sitePermissions
-        Task { [weak self] in
-            await store.whenLoaded()
-            let settings = kinds.map { store.setting($0, for: origin) }
-            if settings.contains(.block) { return decisionHandler(.deny) }
-            if settings.allSatisfy({ $0 == .allow }) { return decisionHandler(.grant) }
-            guard let self else { return decisionHandler(.deny) }
-            self.enqueuePrompt(.permission(kind), origin: origin) { response in
-                switch response {
-                case .allow: kinds.forEach { store.set(.allow, $0, for: origin) }
-                case .deny: kinds.forEach { store.set(.block, $0, for: origin) }
-                default: break
-                }
-                decisionHandler(response == .allow || response == .allowOnce ? .grant : .deny)
-            }
-        }
+    /// Answers a permission request (camera and microphone, location,
+    /// notifications) from the stored decisions, asking only when the site
+    /// has none (`SitePermissionRequest`).
+    func decidePermission(_ kind: BrowserPermissionKind, origin: String, granted: @escaping @MainActor (Bool) -> Void) {
+        pageInfoActivity.recordRequest(kind.siteKinds)
+        SitePermissionRequest(kind: kind, origin: origin, store: sitePermissions).decide(ask: enqueuePrompt) { granted($0 == .grant) }
     }
 
     /// JavaScript on or off for the document a navigation loads.
@@ -117,7 +99,7 @@ extension WebKitTab: PageInfoProviding {
 
     /// Whether a document may run JavaScript under the per-site setting;
     /// nil leaves WebKit's default. A frame runs no script when its own
-    /// origin is blocked or when the top-level site is (Chrome keys the
+    /// origin is blocked or when the top-level site is (Chromium keys the
     /// setting on the top-level site; WebKit applies preferences per frame
     /// navigation, so each frame is decided here).
     static func allowsJavaScript(isMainFrame: Bool, frameOrigin: String?, topOrigin: String?,
@@ -129,29 +111,37 @@ extension WebKitTab: PageInfoProviding {
 
     /// Records the server's certificate when WebKit's own evaluation fails,
     /// so Page Info can show "Certificate is not valid" on the error page.
+    /// HTTP authentication and a host the user proceeded to past its
+    /// certificate are answered in WebKitTab+Challenges.swift.
     public func webView(
         _ webView: WKWebView,
         didReceive challenge: URLAuthenticationChallenge,
         completionHandler: @escaping @MainActor (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
     ) {
-        if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
-           let trust = challenge.protectionSpace.serverTrust {
-            // Evaluation can fetch intermediates or revocation data: never
-            // on the main thread (architecture.md 5a).
-            let box = ServerTrustBox(trust: trust)
-            Task.detached { [weak self] in
-                let result = box.evaluate()
-                await MainActor.run {
-                    guard let activity = self?.pageInfoActivity else { return }
-                    if let failure = result {
-                        activity.recordCertificateFailure(chain: failure.chain, reason: failure.reason)
-                    } else {
-                        activity.clearCertificateFailure()
-                    }
+        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+              let trust = challenge.protectionSpace.serverTrust else {
+            return answer(challenge, completionHandler: completionHandler)
+        }
+        // Evaluation can fetch intermediates or revocation data: never
+        // on the main thread (architecture.md 5a).
+        let box = ServerTrustBox(trust: trust)
+        let excepted = engine?.hasCertificateException(challenge.protectionSpace.host, profile: profileID) ?? false
+        if !excepted { completionHandler(.performDefaultHandling, nil) }
+        Task.detached { [weak self] in
+            let result = box.evaluate()
+            await MainActor.run {
+                if excepted {
+                    let trusted = result == nil
+                    completionHandler(trusted ? .performDefaultHandling : .useCredential, trusted ? nil : URLCredential(trust: box.trust))
+                }
+                guard let activity = self?.pageInfoActivity else { return }
+                if let failure = result {
+                    activity.recordCertificateFailure(chain: failure.chain, reason: failure.reason)
+                } else {
+                    activity.clearCertificateFailure()
                 }
             }
         }
-        completionHandler(.performDefaultHandling, nil)
     }
 }
 

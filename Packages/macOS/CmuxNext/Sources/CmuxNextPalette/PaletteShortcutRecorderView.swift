@@ -9,12 +9,13 @@ import CmuxNextDesign
 final class PaletteShortcutRecorderView: NSView {
     var onChoose: ((PaletteShortcutOption) -> Void)?
 
-    private let glass = Glass.makePanel(cornerRadius: PaletteLayout.cornerRadius)
+    /// The panel's material: glass, or opaque under Reduce Transparency.
+    let glass = Glass.makeOverlayPanel(cornerRadius: PaletteLayout.cornerRadius)
     private let content = FlippedView()
-    private let title = PaletteText.label(Typography.header, color: Palette.textSecondary)
+    private let title = PaletteText.label(Typography.header, tone: .secondary)
     private let action = PaletteText.label(Typography.bodyEmphasized)
     private let current = PaletteKeycapsView()
-    private let noneLabel = PaletteText.label(Typography.caption, color: Palette.textTertiary)
+    private let noneLabel = PaletteText.label(Typography.caption, tone: .tertiary)
     private let recorded = PaletteKeycapsView()
     private let message = NSTextField(wrappingLabelWithString: "")
     private var rowViews: [PaletteMenuRow] = []
@@ -22,9 +23,8 @@ final class PaletteShortcutRecorderView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         glass.translatesAutoresizingMaskIntoConstraints = true
-        glass.contentView = content
+        glass.contentView.addSubview(content)
         message.font = Typography.body
-        message.textColor = Palette.textSecondary
         message.maximumNumberOfLines = 4
         title.stringValue = PaletteStrings.recorderTitle
         noneLabel.stringValue = PaletteStrings.noShortcut
@@ -35,6 +35,23 @@ final class PaletteShortcutRecorderView: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyColors()
+    }
+
+    private func applyColors() {
+        performWithTheme {
+            glass.applyTheme()
+            message.textColor = Palette.textSecondary
+        }
+    }
 
     static var messageHeight: CGFloat { Typography.body.pointSize * 1.3 * 3 }
 
@@ -87,28 +104,29 @@ final class PaletteShortcutRecorderView: NSView {
     override func layout() {
         super.layout()
         glass.frame = bounds
-        content.frame = glass.bounds
+        content.frame = CGRect(origin: .zero, size: glass.bounds.size)
         let padding = PaletteLayout.horizontalPadding
         let width = bounds.width - 2 * padding
         var y = Metrics.space4
-        title.frame = NSRect(x: padding, y: y, width: width, height: title.intrinsicContentSize.height)
+        title.frame = content.pixelAligned(NSRect(x: padding, y: y, width: width, height: PaletteText.height(title)))
         y += PaletteLayout.headerRowHeight
-        let actionHeight = action.intrinsicContentSize.height
-        let currentSize = current.isHidden ? CGSize(width: PaletteText.fittingWidth(noneLabel), height: noneLabel.intrinsicContentSize.height)
+        let actionHeight = PaletteText.height(action)
+        let currentSize = current.isHidden ? CGSize(width: PaletteText.fittingWidth(noneLabel), height: PaletteText.height(noneLabel))
             : current.intrinsicContentSize
         let right = bounds.width - padding - currentSize.width
-        action.frame = NSRect(x: padding, y: y + (PaletteLayout.rowHeight - actionHeight) / 2, width: max(0, right - padding - Metrics.space4),
-                              height: actionHeight)
-        let currentFrame = NSRect(x: right, y: y + (PaletteLayout.rowHeight - currentSize.height) / 2, width: currentSize.width,
-                                  height: currentSize.height)
+        action.frame = content.pixelAligned(NSRect(x: padding, y: y + (PaletteLayout.rowHeight - actionHeight) / 2,
+                                                   width: max(0, right - padding - Metrics.space4), height: actionHeight))
+        let currentFrame = content.pixelAligned(NSRect(x: right, y: y + (PaletteLayout.rowHeight - currentSize.height) / 2,
+                                                       width: currentSize.width, height: currentSize.height))
         current.frame = currentFrame
         noneLabel.frame = currentFrame
         y += PaletteLayout.rowHeight
         let recordedSize = recorded.intrinsicContentSize
-        recorded.frame = NSRect(x: (bounds.width - recordedSize.width) / 2, y: y, width: recordedSize.width, height: recordedSize.height)
+        recorded.frame = content.pixelAligned(NSRect(x: (bounds.width - recordedSize.width) / 2, y: y,
+                                                     width: recordedSize.width, height: recordedSize.height))
         y += PaletteLayout.keycapSize + Metrics.space4
         message.preferredMaxLayoutWidth = width
-        message.frame = NSRect(x: padding, y: y, width: width, height: Self.messageHeight)
+        message.frame = content.pixelAligned(NSRect(x: padding, y: y, width: width, height: Self.messageHeight))
         y += Self.messageHeight + Metrics.space2
         for row in rowViews {
             row.frame = NSRect(x: Metrics.space2, y: y, width: bounds.width - 2 * Metrics.space2, height: PaletteLayout.actionsMenuRowHeight)

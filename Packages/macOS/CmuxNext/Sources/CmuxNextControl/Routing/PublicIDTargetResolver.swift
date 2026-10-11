@@ -17,23 +17,31 @@ enum PublicIDTargetResolver {
         guard let candidates = self.candidates(for: ControlRouter.normalizedKind(ref.kind), in: topology), topology.isLoaded else {
             return ref
         }
-        if let exact = candidates.first(where: { $0.names.contains(ref.id) }) {
-            return ControlTargetRef(kind: ref.kind, id: exact.modelID)
+        let exact = candidates.filter { $0.names.contains(ref.id) }
+        if let first = exact.first {
+            // Fallback ids (`handle:<n>` on daemons without the registry)
+            // repeat across sessions: refuse rather than act on the wrong machine.
+            guard Set(exact.map(\.sessionID)).count == 1 else { throw ambiguous(ref, exact) }
+            return ControlTargetRef(kind: ref.kind, id: first.modelID)
         }
         var seen = Set<String>()
-        let prefixed = candidates.filter { $0.names.contains { $0.hasPrefix(ref.id) } && seen.insert($0.modelID).inserted }
+        let prefixed = candidates.filter { $0.names.contains { $0.hasPrefix(ref.id) } && seen.insert(($0.sessionID ?? "") + "/" + $0.modelID).inserted }
         switch prefixed.count {
         case 0:
             throw notFound(ref)
         case 1:
             return ControlTargetRef(kind: ref.kind, id: prefixed[0].modelID)
         default:
-            throw ControlError(
-                code: "ambiguous",
-                message: ControlStrings.format("control.error.targetAmbiguous", "More than one %1$@ starts with %2$@", ref.kind, ref.id),
-                data: ["candidates": .array(prefixed.map { .string($0.names.first ?? $0.modelID) })]
-            )
+            throw ambiguous(ref, prefixed)
         }
+    }
+
+    private static func ambiguous(_ ref: ControlTargetRef, _ matches: [Candidate]) -> ControlError {
+        ControlError(
+            code: "ambiguous",
+            message: ControlStrings.format("control.error.targetAmbiguous", "More than one %1$@ starts with %2$@", ref.kind, ref.id),
+            data: ["candidates": .array(matches.map { .string($0.names.first ?? $0.modelID) })]
+        )
     }
 
     static func notFound(_ ref: ControlTargetRef) -> ControlError {
@@ -51,6 +59,9 @@ enum PublicIDTargetResolver {
         var modelID: String
         /// Every id the object answers to, the public one first.
         var names: [String]
+        /// The workspace's session (`ControlWorkspaceInfo.sessionID`); nil
+        /// for the home session and for kinds that do not carry one.
+        var sessionID: String? = nil
     }
 
     /// Nil for a kind the topology does not list.
@@ -59,7 +70,7 @@ enum PublicIDTargetResolver {
         let panes = screens.flatMap(\.panes)
         switch kind {
         case "workspace":
-            return topology.workspaces.map { Candidate(modelID: $0.id, names: [$0.publicID, $0.id]) }
+            return topology.workspaces.map { Candidate(modelID: $0.id, names: [$0.publicID, $0.id], sessionID: $0.sessionID) }
         case "screen":
             return screens.map { Candidate(modelID: $0.id, names: [$0.id]) }
         case "pane":

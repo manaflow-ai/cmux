@@ -13,10 +13,23 @@ public nonisolated struct ColumnResize: Hashable, Sendable {
 /// that opening it needs.
 public nonisolated struct NewColumnPlan: Hashable, Sendable {
     public var width: Double
-    public var resize: ColumnResize?
+    /// Existing columns whose width changes with the new column.
+    public var resizes: [ColumnResize]
+    /// The first width change (the fixed-width rule has at most one).
+    public var resize: ColumnResize? { resizes.first }
+
+    public init(width: Double, resize: ColumnResize? = nil) {
+        self.width = width
+        resizes = resize.map { [$0] } ?? []
+    }
+
+    public init(width: Double, resizes: [ColumnResize]) {
+        self.width = width
+        self.resizes = resizes
+    }
 }
 
-/// Width rules for new columns (plans/cmux-next/niri.md, "Column widths").
+/// Width rules for new columns (plans/cmux-next/column-scroll.md, "Column widths").
 public nonisolated enum NewColumnWidth {
     /// A lone column at least this wide counts as full width.
     static let fullWidth = 0.999
@@ -25,10 +38,10 @@ public nonisolated enum NewColumnWidth {
     /// screen with `columns`. `removing` is a pane that leaves in the same
     /// step (a dragged tab's only pane), so its column may disappear.
     ///
-    /// niri keeps every existing width. cmux adds one rule: a lone
+    /// Existing widths stay, with one rule: a lone
     /// full-width column (a workspace that has not scrolled yet) takes the
     /// rest of the viewport, `1 - width`, so both columns are fully
-    /// visible. niri proportions include the gaps, so `p + q = 1` fits exactly.
+    /// visible. Proportions include the gaps, so `p + q = 1` fits exactly.
     public static func plan(columns: [LayoutColumn], width: Double, removing: PaneID? = nil) -> NewColumnPlan {
         let range = ColumnWidthPreset.widthRange
         let width = min(max(width, range.lowerBound), range.upperBound)

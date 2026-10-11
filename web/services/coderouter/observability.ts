@@ -6,6 +6,7 @@ import * as analytics from "./analytics";
 import { errorSummary, exceptionEvent } from "./exceptionEvent";
 
 type CodeRouterFailure =
+  | "configuration"
   | "credential_decrypt"
   | "provider_usage"
   | "provider_refresh"
@@ -32,6 +33,7 @@ export type CoderouterFailureOptions = {
  * issues; everything else (provider transport, rate limits) is `warning`.
  */
 const OPERATOR_FAULT_FAILURES: ReadonlySet<CodeRouterFailure> = new Set([
+  "configuration",
   "credential_decrypt",
   "rds",
   "analytics_delivery",
@@ -44,7 +46,7 @@ const OPERATOR_FAULT_FAILURES: ReadonlySet<CodeRouterFailure> = new Set([
   "alerts",
 ]);
 
-const SENSITIVE_CONTEXT_KEY = /account.?id|authorization|body|content|cookie|credential|email|header|key|prompt|response|secret|session|team.?id|token/i;
+const SENSITIVE_CONTEXT_KEY = /account.?id|authorization|body|content|cookie|credential|email|handoff|header|key|lease|prompt|response|secret|session|team.?id|token/i;
 // A route finalizer emits one trace-linked exception after the handler returns.
 // Keep step failures out of Error Tracking while that route scope is active;
 // cron and other background callers still emit their standalone exception.

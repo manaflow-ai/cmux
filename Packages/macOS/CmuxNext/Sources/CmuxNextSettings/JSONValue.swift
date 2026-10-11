@@ -119,63 +119,126 @@ public enum JSONValue: Sendable, Hashable {
     }
 
     /// Single-line JSON text with sorted keys.
-    public var compactText: String { render(indent: nil, level: 0) }
+    public var compactText: String {
+        var out = ""
+        appendCompactText(to: &out)
+        return out
+    }
+
+    /// Appends ``compactText`` to `out` (one buffer, linear in the output size).
+    public func appendCompactText(to out: inout String) {
+        render(into: &out, indent: nil, level: 0, base: "")
+    }
 
     /// Pretty JSON text. `baseIndent` prefixes every line after the first so
     /// the value can be spliced into an indented document.
     public func prettyText(indentUnit: String = "  ", baseIndent: String = "") -> String {
-        render(indent: indentUnit, level: 0, base: baseIndent)
+        var out = ""
+        render(into: &out, indent: indentUnit, level: 0, base: baseIndent)
+        return out
     }
 
-    private func render(indent: String?, level: Int, base: String = "") -> String {
+    /// Appends the text of this value to `out`. Every level writes into the one buffer, so the
+    /// cost is linear in the output (no per-level string building and re-concatenation).
+    private func render(into out: inout String, indent: String?, level: Int, base: String) {
         switch self {
-        case .null: return "null"
-        case .bool(let value): return value ? "true" : "false"
+        case .null: out += "null"
+        case .bool(let value): out += value ? "true" : "false"
         case .number(let value):
-            if value.rounded() == value, abs(value) < 1e15 { return String(Int(value)) }
-            return String(value)
-        case .string(let value): return Self.quote(value)
+            if value.rounded() == value, abs(value) < 1e15 { out += String(Int(value)) } else { out += String(value) }
+        case .string(let value): Self.appendQuoted(value, to: &out)
         case .array(let items):
-            guard !items.isEmpty else { return "[]" }
-            guard let indent else { return "[" + items.map { $0.render(indent: nil, level: 0) }.joined(separator: ",") + "]" }
-            let inner = base + String(repeating: indent, count: level + 1)
-            let outer = base + String(repeating: indent, count: level)
-            let body = items.map { inner + $0.render(indent: indent, level: level + 1, base: base) }
-            return "[\n" + body.joined(separator: ",\n") + "\n" + outer + "]"
-        case .object(let members):
-            guard !members.isEmpty else { return "{}" }
-            let keys = members.keys.sorted()
+            guard !items.isEmpty else { out += "[]"; return }
             guard let indent else {
-                return "{" + keys.map { Self.quote($0) + ":" + members[$0]!.render(indent: nil, level: 0) }.joined(separator: ",") + "}"
+                out += "["
+                for (index, item) in items.enumerated() {
+                    if index > 0 { out += "," }
+                    item.render(into: &out, indent: nil, level: 0, base: base)
+                }
+                out += "]"
+                return
             }
             let inner = base + String(repeating: indent, count: level + 1)
-            let outer = base + String(repeating: indent, count: level)
-            let body = keys.map { inner + Self.quote($0) + ": " + members[$0]!.render(indent: indent, level: level + 1, base: base) }
-            return "{\n" + body.joined(separator: ",\n") + "\n" + outer + "}"
+            out += "[\n"
+            for (index, item) in items.enumerated() {
+                if index > 0 { out += ",\n" }
+                out += inner
+                item.render(into: &out, indent: indent, level: level + 1, base: base)
+            }
+            out += "\n"
+            out += base
+            for _ in 0..<level { out += indent }
+            out += "]"
+        case .object(let members):
+            guard !members.isEmpty else { out += "{}"; return }
+            let sorted = members.sorted { $0.key < $1.key }
+            guard let indent else {
+                out += "{"
+                for (index, member) in sorted.enumerated() {
+                    if index > 0 { out += "," }
+                    Self.appendQuoted(member.key, to: &out)
+                    out += ":"
+                    member.value.render(into: &out, indent: nil, level: 0, base: base)
+                }
+                out += "}"
+                return
+            }
+            let inner = base + String(repeating: indent, count: level + 1)
+            out += "{\n"
+            for (index, member) in sorted.enumerated() {
+                if index > 0 { out += ",\n" }
+                out += inner
+                Self.appendQuoted(member.key, to: &out)
+                out += ": "
+                member.value.render(into: &out, indent: indent, level: level + 1, base: base)
+            }
+            out += "\n"
+            out += base
+            for _ in 0..<level { out += indent }
+            out += "}"
         }
     }
 
     /// JSON string literal for `text`.
     public static func quote(_ text: String) -> String {
-        var result = "\""
+        var out = ""
+        appendQuoted(text, to: &out)
+        return out
+    }
+
+    private static let hexDigits: [Unicode.Scalar] = Array("0123456789abcdef".unicodeScalars)
+
+    /// Appends the JSON string literal for `text` to `out`. Escapes `"`, `\\`, `\n`, `\r`, `\t`,
+    /// backspace and form feed by name, other scalars below U+0020 as `\u00xx` (lowercase hex);
+    /// every other scalar is copied as is.
+    public static func appendQuoted(_ text: String, to out: inout String) {
+        out += "\""
+        // Fast path: nothing to escape (UTF-8 continuation and lead bytes are all >= 0x80).
+        guard text.utf8.contains(where: { $0 < 0x20 || $0 == 0x22 || $0 == 0x5C }) else {
+            out += text
+            out += "\""
+            return
+        }
         for scalar in text.unicodeScalars {
             switch scalar {
-            case "\"": result += "\\\""
-            case "\\": result += "\\\\"
-            case "\n": result += "\\n"
-            case "\r": result += "\\r"
-            case "\t": result += "\\t"
-            case "\u{08}": result += "\\b"
-            case "\u{0C}": result += "\\f"
+            case "\"": out += "\\\""
+            case "\\": out += "\\\\"
+            case "\n": out += "\\n"
+            case "\r": out += "\\r"
+            case "\t": out += "\\t"
+            case "\u{08}": out += "\\b"
+            case "\u{0C}": out += "\\f"
             default:
                 if scalar.value < 0x20 {
-                    result += String(format: "\\u%04x", scalar.value)
+                    out += "\\u00"
+                    out.unicodeScalars.append(hexDigits[Int(scalar.value >> 4)])
+                    out.unicodeScalars.append(hexDigits[Int(scalar.value & 0xF)])
                 } else {
-                    result.unicodeScalars.append(scalar)
+                    out.unicodeScalars.append(scalar)
                 }
             }
         }
-        return result + "\""
+        out += "\""
     }
 }
 

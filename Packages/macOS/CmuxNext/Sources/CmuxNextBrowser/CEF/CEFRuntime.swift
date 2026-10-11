@@ -31,24 +31,23 @@ final class CEFRuntime {
     // Routing tables (main thread).
     var tabsByBrowser: [Int32: CEFTab] = [:]
     var hosts: [CEFPaneKey: CEFPaneHost] = [:]
+    /// Profiles Chromium opened in this process (their files stay open
+    /// until shutdown, so a deleted one's directory waits for the next launch).
+    var usedProfiles: Set<BrowserProfileID> = []
     /// create_window tokens waiting for OnAfterCreated.
     var pendingWindows: [Int32: CEFPaneHost] = [:]
     /// The tab inside a synchronous cmux_tab_add call.
     var tabBeingAdded: CEFTab?
-    /// Browsers Chromium created while their pane's window was still being
-    /// created (see `adoptOrphan`).
-    var adoptions = CEFAdoptionLedger()
-    /// Tabs Chromium created in no window or in a window cmux does not host,
-    /// waiting for the fork to insert them into a pane window (fork API 8).
-    var unplaced: [Int32: CEFCreatedBy] = [:]
+    /// Tabs Chromium created itself, until a pane adopts them.
+    private(set) lazy var orphans = CEFOrphanTabs(runtime: self)
     /// How the next tabs inserted into a window open, by window id, from the
     /// window requests that sent them there (oldest first).
     var placements = CEFPlacementQueue()
-    /// Window requests so far (`debug.cef` `window_requests`).
-    var windowRequestLog = CEFWindowRequestLog()
+    /// Window requests: decisions, their log and link clicks.
+    private(set) lazy var windowRequests = CEFWindowRequests(runtime: self)
     /// Opens `url` in a new cmux tab when no Chromium window of its profile
     /// exists (the App sets it; the runtime has no panes of its own).
-    var openURLWithoutWindow: ((URL, BrowserNewTabDisposition) -> Void)?
+    var openURLWithoutWindow: ((URL, BrowserNewTabDisposition, BrowserProfileID?) -> Void)?
     /// An incognito request: the App opens `url` (nil: a new tab page) in a
     /// cmux incognito window, or in the incognito window of `source`.
     var openOffTheRecord: ((URL?, CEFTab?) -> Void)?
@@ -58,9 +57,9 @@ final class CEFRuntime {
     /// Off-the-record context keys created this launch, by profile.
     var offTheRecordContexts: [BrowserProfileID: Set<String>] = [:]
     /// Extension mirrors by profile.
-    var extensionStores: [BrowserProfileID: BrowserExtensionStore] = [:]
-    /// Extension prompts on screen, by Chromium prompt id (fork API 12).
-    var extensionPrompts: [Int32: ExtensionPromptSheet] = [:]
+    private(set) lazy var extensionStores = CEFExtensionStores(runtime: self)
+    /// Extension prompts on screen (fork API 12).
+    private(set) lazy var extensionPrompts = CEFExtensionPrompts(runtime: self)
     /// chrome.omnibox keyword sessions (fork API 12).
     let omniboxKeywords = CEFOmniboxKeywords()
     var nextRequest: Int32 = 1
@@ -307,12 +306,18 @@ final class CEFRuntime {
         )
         loadsUnpackedExtensions = !switchSet.loadExtensions.isEmpty
         shim.setExtensionDeveloperMode(loadsUnpackedExtensions ? 1 : 0)
-        // Pages use the theme color, never white or Chrome's #292929
+        // Pages use the theme color, never white or Chromium's #292929
         // (PageBackground); theme changes reach live tabs (fork API 12).
-        shim.setBackgroundColor(PageBackground.themeARGB)
+        shim.setBackgroundColor(PageBackground.appThemeARGB)
         ThemeStore.shared.addResponder(self)
+        // Extension popup windows keep their window id (CEFPopupWindows).
+        if CEFPopupWindows.isEnabled(forkAPIVersion: Int(shim.forkAPIVersion())) { shim.setPopupWindowsEnabled(1) }
         // chrome://newtab without an extension override (BrowserNewTabPage).
         shim.setNewTabPageURL(BrowserNewTabPage.blankURL)
+        // cmux-page:// first-party pages from their bundled roots (CEFPageSchemes).
+        for (id, entry) in CEFPageSchemes.firstParty where shim.pageSchemeAddFirstParty(id, entry.root.path, entry.csp) != 1 {
+            logger.error("cmux-page \(id, privacy: .public) refused by the shim")
+        }
         // Google Chrome's native messaging hosts after cmux's own.
         for folder in CEFNativeMessaging.googleChromeFolders(home: FileManager.default.homeDirectoryForCurrentUser) {
             _ = shim.addNativeMessagingDir(folder.path, folder.isUserLevel ? 1 : 0)
@@ -322,17 +327,17 @@ final class CEFRuntime {
         let locale = library.locale
         logger.info("CEF locale \(locale.locale, privacy: .public), accept-languages \(locale.acceptLanguages, privacy: .public)")
         let context = Unmanaged.passUnretained(self).toOpaque()
-        // Chromium never opens a window of its own (fork API 8); the fork
-        // installs it at OnContextInitialized.
+        // Chromium never opens a window (fork API 8) nor focuses a page of its own.
         shim.setWindowRequestHandler(cefWindowRequestCallback)
-        let ok = switchStorage.withUnsafeBufferPointer { buffer in
-            buffer.baseAddress!.withMemoryRebound(to: UnsafePointer<CChar>?.self, capacity: buffer.count) { list in
+        shim.setFocusRequestHandler(cefFocusRequestCallback)
+        let ok = switchStorage.withUnsafeBufferPointer { buffer in  // never empty (ends with nil); no base: 0, a failed init
+            buffer.baseAddress?.withMemoryRebound(to: UnsafePointer<CChar>?.self, capacity: buffer.count) { list in
                 shim.initialize(
                     layout.frameworkDirectory.path, layout.mainBundle.path, layout.helperExecutable.path,
                     storage.root.path, storage.logFile.path, 0, locale.locale, locale.acceptLanguages, list, context,
                     cefScheduleCallback, cefEventCallback, cefKeyCallback
                 )
-            }
+            } ?? 0
         }
         guard ok == 1 else {
             pump.stop()
@@ -342,7 +347,7 @@ final class CEFRuntime {
         terminationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { _ in
-            MainActor.assumeIsolated {
+            MainActor.assumeIsolated { // main-proof: observer on queue: .main
                 // The App shuts CEF down from applicationShouldTerminate. Reaching
                 // willTerminate with CEF live means that path was skipped; never
                 // spin the run loop here (architecture.md 5a), just let helpers
@@ -365,9 +370,10 @@ final class CEFRuntime {
         hosts = hosts.filter { $0.key.profile != profile || !$0.value.tabs.isEmpty }
     }
 
-    func host(for key: CEFPaneKey) -> CEFPaneHost {
+    func host(for key: CEFPaneKey, lifecycleTrace: BrowserLifecycleTrace = .shared, contextMenus: BrowserContextMenuBuilder = .shared) -> CEFPaneHost {
         if let host = hosts[key] { return host }
-        let host = CEFPaneHost(key: key, runtime: self)
+        usedProfiles.insert(key.profile)
+        let host = CEFPaneHost(key: key, runtime: self, lifecycleTrace: lifecycleTrace, contextMenus: contextMenus)
         hosts[key] = host
         return host
     }

@@ -1,0 +1,46 @@
+{
+  "name": "freestyle",
+  "version": "0.2.16",
+  "description": "Freestyle SDK and CLI — manage VMs, snapshots, VPCs, domains, and identities",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "freestyle": "dist/cli/index.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run typecheck && npm run build"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "ws": "^8.18.0",
+    "yargs": "^17.7.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.5.13",
+    "@types/yargs": "^17.0.33",
+    "typescript": "^5.7.0"
+  },
+  "optionalDependencies": {
+    "undici": "^7.16.0 || ^8.0.0"
+  }
+}

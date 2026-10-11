@@ -80,6 +80,13 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go suporta 2 vCPU, 4 GiB de RAM e 16 GiB de disco.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "resourcePool": {
+      "title": "Recursos de Cloud VM insuficientes",
+      "memoryMessage": "Suas VMs já usam {used} de {pool} GB de RAM. Esta VM precisa de {requested} GB.",
+      "vcpuMessage": "Suas VMs já usam {used} de {pool} vCPUs. Esta VM precisa de {requested} vCPUs.",
+      "upgradeAction": "Pause ou exclua uma VM, ou faça upgrade para o Max.",
+      "action": "Pause ou exclua uma VM."
     }
   },
   "billingRecovery": {
@@ -353,23 +360,25 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
-      "coderouterOverview": "visão geral",
-      "team": "equipe",
-      "mobileDevices": "Dispositivos móveis"
+      "coderouterGroup": "Coderouter",
+      "coderouterOverview": "Visão geral",
+      "team": "Equipe",
+      "mobileDevices": "Dispositivos móveis",
+      "settings": "Configurações",
+      "teams": "Equipes"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "Distribua solicitações LLM entre contas de provedores com failover e agendamento conforme o uso.",
-      "coderouterLink": "abrir coderouter",
-      "iosAppName": "app iOS",
+      "coderouterLink": "Abrir coderouter",
+      "iosAppName": "App iOS",
       "iosAppDescription": "Instale o aplicativo iOS do cmux via TestFlight (acesso beta).",
       "iosLink": "Abrir app iOS"
     },
     "coderouter": {
-      "metaTitle": "coderouter — cmux",
+      "metaTitle": "Coderouter — cmux",
       "metaDescription": "Gerencie contas de IA compartilhadas e distribua solicitações com o coderouter.",
-      "title": "coderouter",
+      "title": "Coderouter",
       "description": "O coderouter distribui solicitações LLM entre contas de provedores com failover e agendamento conforme o uso.",
       "machines": {
         "title": "Máquinas",
@@ -381,24 +390,171 @@
         "empty": "Nenhuma máquina usou o coderouter nos últimos {days} dias.",
         "unavailable": "O uso por máquina está temporariamente indisponível.",
         "estimateNote": "O valor equivalente em API é uma estimativa com base em preços de lista públicos, não o gasto real."
+      },
+      "metrics": {
+        "title": "Uso em 30 dias",
+        "scope": "Total da equipe {team}",
+        "period": "Últimos {days} dias",
+        "inputTokens": "Tokens de entrada",
+        "outputTokens": "Tokens de saída",
+        "tokens": "Total de tokens",
+        "apiEquivalent": "Valor equivalente em API",
+        "unpriced": "{share} desses tokens vieram de modelos sem preço de tabela e ficaram fora desse valor.",
+        "chartLabel": "Uso diário de tokens do CodeRouter",
+        "privacy": "Nenhum prompt, resposta, rótulo de conta ou identidade de membro é registrado ou exibido.",
+        "estimate": "O valor equivalente em API é quanto esses tokens custariam pelos preços públicos de tabela da API (tabela de preços {version}). Não é o valor que você pagou.",
+        "unavailable": "O uso da equipe está temporariamente indisponível."
       }
     },
     "accountMenu": {
       "label": "Menu da conta",
       "settings": "Configurações",
       "billing": "Cobrança",
+      "switchAccount": "Trocar de conta",
       "signOut": "Sair",
       "signingOut": "Saindo…",
       "signOutError": "Não foi possível sair. Tente novamente.",
       "organizationSwitchError": "Não foi possível trocar de organização. Tente novamente.",
-      "signIn": "Entrar"
+      "signIn": "Entrar",
+      "upgrade": "Fazer upgrade"
     },
     "billing": {
       "plan": {
         "heading": "Seu plano pessoal",
         "free": "Grátis",
-        "pro": "Pro",
-        "loading": "Carregando…"
+        "pro": "Pro"
+      },
+      "teamPanel": {
+        "notFound": "Esta equipe não está disponível. Talvez você tenha saído dela ou ela tenha sido excluída.",
+        "unavailable": "Não foi possível carregar a cobrança da equipe. Tente novamente em breve.",
+        "welcome": "O Team está ativo. Convide seus colegas na página de membros da equipe.",
+        "freeBody": "{team} está no plano Grátis. O Team dá agentes na nuvem a todos os membros, com uma única fatura compartilhada.",
+        "upgradeCta": "Fazer upgrade desta equipe",
+        "askAdmin": "Somente administradores da equipe podem alterar a cobrança. Peça a um administrador de {team} para fazer o upgrade.",
+        "memberReadOnly": "Somente administradores da equipe podem alterar este plano.",
+        "grantedBody": "O acesso ao Team foi concedido a {team} pela equipe do cmux. Não há assinatura para gerenciar.",
+        "seatsUsed": "{members} de {seats} em uso",
+        "overSeat": "{team} tem {members} membros e {seats} assentos pagos. Os assentos seguem o número de membros, então a assinatura é atualizada sozinha.",
+        "addSeats": "Adicionar assentos"
+      },
+      "teamList": {
+        "heading": "Escopos de cobrança",
+        "personal": "Conta pessoal",
+        "planBadges": {
+          "free": "Grátis",
+          "team": "Team",
+          "pro": "Pro",
+          "max": "Max",
+          "founders": "Founders"
+        }
+      },
+      "banners": {
+        "team_admin_required": "Somente administradores da equipe podem gerenciar a cobrança desta equipe.",
+        "team_not_found": "Essa equipe não está disponível. Talvez você tenha saído dela ou ela tenha sido excluída.",
+        "authorization_unavailable": "Não foi possível verificar as permissões da equipe. Tente novamente em breve.",
+        "personal_team_not_upgradable_to_team": "Sua conta pessoal usa Pro ou Max. Crie uma equipe para assinar o Team."
+      },
+      "team": {
+        "createCta": "Criar uma equipe"
+      },
+      "title": "Plano e cobrança",
+      "picker": {
+        "current": "Plano atual",
+        "upgradeTo": "Fazer upgrade para {plan}",
+        "switchTo": "Mudar para {plan}",
+        "cancelPlan": "Cancelar plano",
+        "resume": "Retomar {plan}",
+        "renewsOn": "Renova em {date}",
+        "endsOn": "Termina em {date}",
+        "perMonth": "por mês",
+        "perSeatMonth": "por assento por mês",
+        "paymentMethod": "Gerenciar forma de pagamento",
+        "invoices": "Faturas",
+        "heading": "Planos",
+        "actionError": "Não foi possível alterar o plano. Tente de novo.",
+        "unavailable": {
+          "cancelScheduled": "Retome o plano para alterá-lo.",
+          "granted": "Concedido pela cmux. Não há nada a alterar.",
+          "adminOnly": "Só administradores da equipe podem alterar o plano."
+        },
+        "names": {
+          "free": "Free",
+          "go": "Go",
+          "pro": "Pro",
+          "max": "Max",
+          "team": "Team"
+        },
+        "features": {
+          "free": [
+            "O terminal cmux completo para macOS",
+            "Qualquer agente CLI com suas próprias chaves",
+            "Histórico de sessões local"
+          ],
+          "go": [
+            "1 Cloud VM ativa",
+            "40 horas de VM por mês",
+            "2 VMs salvas"
+          ],
+          "pro": [
+            "Agentes na nuvem em Cloud VMs",
+            "Até 5 Cloud VMs que compartilham 20 vCPUs e 40 GB de RAM",
+            "O app cmux para iOS"
+          ],
+          "max": [
+            "Até 5 Cloud VMs que compartilham 80 vCPUs e 160 GB de RAM",
+            "Máquinas maiores",
+            "Tudo do Pro"
+          ],
+          "team": [
+            "Tudo do Pro para cada membro",
+            "Até 5 Cloud VMs por assento pago, que compartilham 20 vCPUs e 40 GB de RAM por assento pago em toda a equipe",
+            "Uma fatura para a equipe toda",
+            "Suporte prioritário"
+          ]
+        },
+        "billedAnnually": "cobrado anualmente"
+      },
+      "change": {
+        "title": "Mudar para {plan}?",
+        "upgradeBody": "O {plan} começa agora. Você paga {amount} hoje pelo restante deste período de cobrança. A partir de {date}, você paga {price} por mês.",
+        "downgradeBody": "O {plan} começa agora. A parte não usada do plano atual, {credit}, vira crédito nas próximas faturas. Sua próxima fatura, em {date}, é de {amount}.",
+        "confirm": "Mudar para {plan}",
+        "keep": "Manter o plano atual",
+        "switching": "Mudando…",
+        "previewError": "Não foi possível calcular o preço. Tente de novo.",
+        "paymentFailed": "Seu cartão foi recusado. Atualize a forma de pagamento e tente de novo.",
+        "error": "Não foi possível mudar o plano. Tente de novo."
+      },
+      "cancelDialog": {
+        "title": "Cancelar {plan}?",
+        "body": "Você mantém o {plan} até {date}. Depois disso, você perde:",
+        "bodyNoDate": "Você mantém o {plan} até o fim deste período de cobrança. Depois disso, você perde:",
+        "reasonLabel": "Por que você está cancelando? (opcional)",
+        "otherPlaceholder": "Conte mais (opcional)",
+        "confirm": "Cancelar plano",
+        "keep": "Manter {plan}",
+        "error": "Não foi possível cancelar o plano. Tente de novo.",
+        "resumeError": "Não foi possível retomar o plano. Tente de novo.",
+        "reasons": {
+          "too_expensive": "Caro demais",
+          "missing_feature": "Falta um recurso de que preciso",
+          "not_using": "Não uso o suficiente",
+          "other": "Outro"
+        }
+      },
+      "welcome": {
+        "title": "Boas-vindas ao {plan}",
+        "body": "Seu plano está ativo. Experimente primeiro:",
+        "ios": "Instalar o app para iOS",
+        "cloud": "Abrir o Cloud",
+        "team": "Criar uma equipe",
+        "banner": "Agora você está no {plan}.",
+        "bannerLink": "Plano e cobrança"
+      },
+      "appStore": {
+        "title": "Cobrado pela App Store",
+        "body": "Seu plano foi comprado no app cmux para iPhone e é cobrado pela Apple. Altere ou cancele nas suas assinaturas da App Store.",
+        "manage": "Gerenciar na App Store"
       }
     },
     "mobileDevices": {
@@ -409,7 +565,6 @@
       "loading": "Carregando dispositivos…",
       "empty": "Não há dispositivos registrados para esta equipe.",
       "unavailable": "Não foi possível carregar seus dispositivos. Atualize a página e tente novamente.",
-      "retry": "Tentar novamente",
       "mutationError": "Não foi possível concluir a alteração do dispositivo.",
       "revoke": "Revogar acesso",
       "deviceId": "Dispositivo",
@@ -420,7 +575,7 @@
       "relaySettings": "Configurações de relay",
       "relaySettingsDescription": "Escolha os servidores de relay usados por esta equipe. Insira uma URL por linha.",
       "saveRelaySettings": "Salvar configurações de relay",
-      "eyebrow": "nuvem / dispositivos",
+      "eyebrow": "Nuvem / dispositivos",
       "scopeActive": "Exibindo esta equipe",
       "emptyTitle": "Nenhum dispositivo conectado ainda",
       "emptyDescription": "Quando um dispositivo cmux for pareado com esta equipe, ele aparecerá aqui com plataforma, versão e controles de acesso.",
@@ -429,6 +584,516 @@
       "activeDevices": "Dispositivos ativos",
       "directoryRevision": "Revisão do diretório",
       "savingRelaySettings": "Salvando…"
+    },
+    "settings": {
+      "nav": {
+        "title": "Configurações",
+        "profile": "Perfil",
+        "auth": "E-mails e autenticação",
+        "notifications": "Notificações",
+        "sessions": "Sessões",
+        "apiKeys": "Chaves de API",
+        "account": "Conta",
+        "billing": "Cobrança",
+        "teamsGroup": "Equipes",
+        "createTeam": "Criar equipe",
+        "accountGroup": "Conta",
+        "billingGroup": "Cobrança",
+        "planBilling": "Plano e cobrança"
+      },
+      "ui": {
+        "save": "Salvar",
+        "saving": "Salvando…",
+        "cancel": "Cancelar",
+        "editLabel": "Editar {label}",
+        "required": "Este campo é obrigatório.",
+        "saveError": "Não foi possível salvar. Tente novamente.",
+        "actionError": "Algo deu errado. Tente novamente.",
+        "working": "Processando…",
+        "typeToConfirm": "Digite {text} para confirmar",
+        "imageSaveError": "Não foi possível salvar a imagem. Tente novamente.",
+        "invalidImage": "Escolha um arquivo de imagem válido.",
+        "uploadImage": "Enviar imagem",
+        "removeImage": "Remover imagem",
+        "zoom": "Zoom"
+      },
+      "profile": {
+        "title": "Perfil",
+        "description": "Seu nome e avatar.",
+        "displayNameTitle": "Nome de exibição",
+        "displayNameDescription": "Exibido para os colegas de equipe. Não é usado para entrar.",
+        "displayNameEmpty": "Não definido",
+        "imageTitle": "Imagem de perfil",
+        "imageDescription": "Envie uma imagem para usar como avatar.",
+        "imageUpload": "Alterar imagem de perfil"
+      },
+      "auth": {
+        "title": "E-mails e autenticação",
+        "description": "E-mails, métodos de login e autenticação multifator.",
+        "emails": {
+          "title": "E-mails",
+          "description": "E-mails verificados podem ser seu endereço de contato principal e podem ser usados para entrar.",
+          "add": "Adicionar um e-mail",
+          "addSubmit": "Adicionar",
+          "adding": "Adicionando…",
+          "cancel": "Cancelar",
+          "inputLabel": "Novo endereço de e-mail",
+          "placeholder": "Digite o e-mail",
+          "addError": "Não foi possível adicionar o e-mail. Tente novamente.",
+          "added": "{email} adicionado. Verifique essa caixa de entrada para encontrar o link de verificação.",
+          "addedVerificationFailed": "{email} adicionado, mas não foi possível enviar o e-mail de verificação. Use Enviar e-mail de verificação para tentar novamente.",
+          "verificationSent": "E-mail de verificação enviado para {email}.",
+          "actionError": "Não foi possível atualizar o e-mail. Tente novamente.",
+          "usedBySomeoneElse": "Este e-mail já é usado para login por outro usuário.",
+          "removeTitle": "Remover e-mail",
+          "removeBody": "Remover {email} da sua conta? Você pode adicioná-lo novamente depois.",
+          "remove": "Remover",
+          "actionsLabel": "Ações para {email}",
+          "validation": {
+            "required": "O e-mail é obrigatório.",
+            "invalid": "Digite um endereço de e-mail válido.",
+            "duplicate": "Este e-mail já está na sua conta."
+          },
+          "actions": {
+            "sendVerification": "Enviar e-mail de verificação",
+            "setPrimary": "Definir como principal",
+            "useForSignIn": "Usar para login",
+            "stopUsingForSignIn": "Parar de usar para login",
+            "remove": "Remover"
+          },
+          "disabled": {
+            "verifyFirst": "Verifique este e-mail primeiro.",
+            "lastSignInEmail": "Você não pode remover seu último e-mail de login."
+          },
+          "badges": {
+            "primary": "Principal",
+            "unverified": "Não verificado",
+            "usedForSignIn": "Usado para login"
+          }
+        },
+        "password": {
+          "title": "Senha",
+          "updateDescription": "Atualize sua senha.",
+          "setDescription": "Defina uma senha para sua conta.",
+          "update": "Atualizar senha",
+          "set": "Definir senha",
+          "updateSubmit": "Atualizar senha",
+          "setSubmit": "Definir senha",
+          "saving": "Salvando…",
+          "cancel": "Cancelar",
+          "saved": "Senha salva.",
+          "needsSignInEmail": "Para definir uma senha, adicione primeiro um e-mail de login.",
+          "saveError": "Não foi possível salvar a senha. Tente novamente.",
+          "oldPassword": "Senha antiga",
+          "newPassword": "Nova senha",
+          "repeatPassword": "Repita a nova senha",
+          "incorrect": "Senha incorreta.",
+          "requirements": "Esta senha não atende aos requisitos.",
+          "errors": {
+            "oldPassword": {
+              "required": "Digite sua senha antiga."
+            },
+            "newPassword": {
+              "required": "Digite uma nova senha.",
+              "tooShort": "Use pelo menos {min} caracteres.",
+              "tooLong": "Use no máximo {max} caracteres."
+            },
+            "newPasswordRepeat": {
+              "required": "Repita a nova senha.",
+              "mismatch": "As senhas não coincidem."
+            }
+          }
+        },
+        "passkey": {
+          "title": "Chave de acesso",
+          "registered": "Uma chave de acesso está registrada.",
+          "notRegistered": "Registre uma chave de acesso para entrar sem senha.",
+          "add": "Adicionar chave de acesso",
+          "registering": "Aguardando a chave de acesso…",
+          "registerError": "Não foi possível registrar a chave de acesso. A solicitação foi cancelada ou falhou. Tente novamente.",
+          "delete": "Remover chave de acesso",
+          "needsVerifiedEmail": "Para ativar o login com chave de acesso, adicione um e-mail de login verificado.",
+          "onlyMethod": "O login com chave de acesso não pode ser desativado porque é seu único método de login.",
+          "disableTitle": "Desativar login com chave de acesso",
+          "disableBody": "Você não poderá mais entrar com sua chave de acesso.",
+          "disable": "Desativar",
+          "disableError": "Não foi possível desativar o login com chave de acesso. Tente novamente."
+        },
+        "otp": {
+          "title": "Login com código de uso único",
+          "enabledDescription": "O login com link mágico ou código de uso único está ativado.",
+          "disabledDescription": "Entre com um link mágico ou código de uso único enviado aos seus e-mails de login.",
+          "enable": "Ativar",
+          "enableError": "Não foi possível ativar o login com código de uso único. Tente novamente.",
+          "disable": "Desativar",
+          "needsVerifiedEmail": "Para ativar o login com código de uso único, adicione um e-mail de login verificado.",
+          "onlyMethod": "O login com código de uso único não pode ser desativado porque é seu único método de login.",
+          "disableTitle": "Desativar login com código de uso único",
+          "disableBody": "Você não poderá mais entrar usando apenas um e-mail.",
+          "disableConfirm": "Desativar",
+          "disableError": "Não foi possível desativar o login com código de uso único. Tente novamente."
+        },
+        "mfa": {
+          "title": "Autenticação multifator",
+          "enabledDescription": "A autenticação multifator está ativada.",
+          "disabledDescription": "A autenticação multifator está desativada.",
+          "enable": "Ativar MFA",
+          "disable": "Desativar MFA",
+          "startError": "Não foi possível iniciar a configuração da MFA. Tente novamente.",
+          "enableError": "Não foi possível ativar a MFA. Tente novamente.",
+          "scan": "Escaneie este QR code com seu app autenticador.",
+          "qrAlt": "QR code para autenticação multifator",
+          "enterCode": "Depois, digite o código de seis dígitos:",
+          "incorrect": "Código incorreto. Tente novamente.",
+          "cancel": "Cancelar",
+          "disableTitle": "Desativar autenticação multifator",
+          "disableBody": "O login não pedirá mais um código do seu app autenticador.",
+          "disableConfirm": "Desativar MFA",
+          "disableError": "Não foi possível desativar a MFA. Tente novamente."
+        },
+        "connected": {
+          "title": "Contas conectadas",
+          "description": "Contas de outros provedores vinculadas à sua conta cmux.",
+          "usedForSignIn": "Usada para login",
+          "useForSignIn": "Usar para login",
+          "stopUsingForSignIn": "Parar de usar para login",
+          "remove": "Desvincular",
+          "lastMethod": "Este é seu único método de login.",
+          "actionsLabel": "Ações para {provider}",
+          "actionError": "Não foi possível atualizar a conta conectada. Tente novamente.",
+          "usedBySomeoneElse": "Esta conta já é usada para login por outro usuário.",
+          "removeTitle": "Desvincular {provider}",
+          "removeBody": "Você não poderá mais entrar com esta conta. Você pode vinculá-la novamente entrando com ela."
+        }
+      },
+      "notifications": {
+        "title": "Notificações",
+        "description": "Notificações por e-mail do cmux.",
+        "heading": "Escolha quais e-mails você quer receber",
+        "empty": "Não há categorias de e-mail para configurar.",
+        "cannotDisable": "(não pode ser desativado)",
+        "saveError": "Não foi possível salvar esta preferência. Tente novamente."
+      },
+      "sessions": {
+        "title": "Sessões",
+        "description": "Dispositivos em que você está conectado.",
+        "heading": "Sessões ativas",
+        "explanation": "Estes são os dispositivos em que você está conectado. Revogue uma sessão para desconectá-la.",
+        "revokeAll": "Revogar todas as outras sessões",
+        "revokeAllTitle": "Revogar outras sessões",
+        "revokeAllBody": "Isso desconecta {count, plural, one {# outra sessão} other {# outras sessões}}. Esta sessão continua conectada.",
+        "revokeAllConfirm": "Revogar sessões",
+        "revokeAllError": "Não foi possível revogar todas as sessões. A lista mostra as que restaram.",
+        "revokeError": "Não foi possível revogar a sessão. Tente novamente.",
+        "empty": "Nenhuma sessão ativa encontrada.",
+        "columns": {
+          "session": "Sessão",
+          "ip": "Endereço IP",
+          "location": "Local",
+          "lastUsed": "Último uso"
+        },
+        "current": "Sessão atual",
+        "other": "Outra sessão",
+        "impersonation": "Personificação",
+        "signedIn": "Conectado em {date}",
+        "actionsLabel": "Ações da sessão",
+        "revoke": "Revogar",
+        "cannotRevokeCurrent": "Você não pode revogar sua sessão atual.",
+        "unknownIp": "-",
+        "unknownLocation": "Desconhecido",
+        "never": "Nunca"
+      },
+      "apiKeys": {
+        "title": "Chaves de API",
+        "description": "Chaves que dão a programas acesso à sua conta.",
+        "disabled": "Chaves de API pessoais não estão ativadas para este projeto.",
+        "create": "Criar chave de API",
+        "createTitle": "Criar chave de API",
+        "createDescription": "Chaves de API concedem acesso programático à sua conta.",
+        "descriptionLabel": "Descrição",
+        "descriptionPlaceholder": "Por exemplo: Desenvolvimento, Produção, CI",
+        "descriptionRequired": "A descrição é obrigatória.",
+        "expiresIn": "Expira em",
+        "expiry": {
+          "1d": "1 dia",
+          "7d": "7 dias",
+          "30d": "30 dias",
+          "90d": "90 dias",
+          "1y": "1 ano",
+          "never": "Nunca"
+        },
+        "cancel": "Cancelar",
+        "createSubmit": "Criar",
+        "creating": "Criando…",
+        "createError": "Não foi possível criar a chave de API. Tente novamente.",
+        "showTitle": "Chave de API",
+        "showBody": "Aqui está sua chave de API.",
+        "showWarning": "Copie-a para um lugar seguro. Você não poderá vê-la novamente.",
+        "secretLabel": "Chave de API secreta",
+        "copy": "Copiar",
+        "copied": "Copiado",
+        "copyError": "Não foi possível copiar. Selecione a chave e copie-a manualmente.",
+        "acknowledge": "Entendo que não poderei ver esta chave novamente.",
+        "close": "Fechar",
+        "search": "Pesquisar chaves",
+        "statusFilter": "Filtrar por status",
+        "status": {
+          "valid": "Válida",
+          "expired": "Expirada",
+          "revoked": "Revogada"
+        },
+        "empty": "Ainda não há chaves de API.",
+        "noMatches": "Nenhuma chave de API corresponde a estes filtros.",
+        "columns": {
+          "description": "Descrição",
+          "status": "Status",
+          "key": "Chave",
+          "expiresAt": "Expira",
+          "createdAt": "Criada"
+        },
+        "never": "Nunca",
+        "actionsLabel": "Ações para {description}",
+        "revoke": "Revogar",
+        "revokeTitle": "Revogar chave de API",
+        "revokeBody": "Revogar a chave de API *****{lastFour}? Os apps que a usam perdem o acesso imediatamente.",
+        "revokeAcknowledge": "Entendo que isso desvinculará todos os apps que usam esta chave de API.",
+        "revokeConfirm": "Revogar chave",
+        "revokeError": "Não foi possível revogar a chave de API. Tente novamente."
+      },
+      "account": {
+        "title": "Conta",
+        "description": "Cobrança, saída e exclusão da conta.",
+        "billingTitle": "Cobrança",
+        "billingDescription": "Planos, faturas e formas de pagamento.",
+        "billingLink": "Abrir cobrança",
+        "signOutTitle": "Sair",
+        "signOutDescription": "Encerre sua sessão atual.",
+        "signOut": "Sair",
+        "signingOut": "Saindo…",
+        "signOutError": "Não foi possível sair. Tente novamente.",
+        "deleteTitle": "Excluir conta",
+        "deleteDescription": "Remova permanentemente sua conta e todos os dados associados.",
+        "delete": "Excluir conta",
+        "deleteConfirmTitle": "Excluir sua conta?",
+        "deleteConfirmBody": "Esta ação é irreversível e exclui todos os dados associados à sua conta.",
+        "deleteAcknowledge": "Entendo que minha conta e seus dados serão excluídos permanentemente.",
+        "deleteConfirm": "Excluir conta",
+        "deleteError": "Não foi possível excluir a conta. Tente novamente."
+      }
+    },
+    "teams": {
+      "common": {
+        "copy": "Copiar",
+        "copied": "Copiado",
+        "copyFailed": "Falha ao copiar"
+      },
+      "plan": {
+        "free": "Grátis",
+        "go": "Go",
+        "pro": "Pro",
+        "max": "Max",
+        "team": "Team"
+      },
+      "role": {
+        "admin": "Administrador",
+        "member": "Membro"
+      },
+      "errors": {
+        "generic": "Algo deu errado. Tente novamente.",
+        "network_error": "Não foi possível conectar ao cmux. Verifique sua conexão e tente novamente.",
+        "unauthorized": "Sua sessão terminou. Entre novamente.",
+        "forbidden": "Você não tem permissão para fazer isso.",
+        "team_not_found": "Esta equipe não existe mais.",
+        "invalid_request": "A solicitação não é válida. Verifique os campos e tente novamente.",
+        "rate_limited": "Muitas solicitações. Aguarde um momento e tente novamente.",
+        "last_admin": "Uma equipe precisa ter pelo menos um administrador. Promova outro membro primeiro.",
+        "member_not_found": "Essa pessoa não é mais membro.",
+        "invitation_not_found": "Esse convite não existe mais.",
+        "invitation_invalid": "Este convite é inválido, expirou ou já foi usado.",
+        "email_mismatch": "Este convite foi enviado para outro endereço de e-mail.",
+        "link_not_found": "Esse link de convite não existe mais.",
+        "link_invalid": "Este link de convite é inválido, expirou, foi revogado ou está cheio.",
+        "team_has_active_subscription": "Cancele a assinatura da equipe antes de excluí-la.",
+        "service_unavailable": "O serviço está temporariamente indisponível. Tente novamente em breve."
+      },
+      "list": {
+        "title": "Equipes",
+        "description": "As equipes compartilham membros, cobrança e contas do coderouter. Abra uma equipe para gerenciá-la.",
+        "create": "Criar equipe",
+        "count": "{count, plural, one {# equipe} other {# equipes}}",
+        "selected": "Atual",
+        "emptyTitle": "Nenhuma equipe ainda",
+        "emptyBody": "Crie uma equipe para convidar pessoas e compartilhar um único plano."
+      },
+      "new": {
+        "title": "Criar uma equipe",
+        "description": "Dê um nome à equipe, escolha um plano e convide pessoas.",
+        "stepsLabel": "Etapas",
+        "steps": {
+          "name": "Nome",
+          "plan": "Plano",
+          "invite": "Convidar"
+        },
+        "nameTitle": "Dê um nome à sua equipe",
+        "nameLabel": "Nome da equipe",
+        "namePlaceholder": "Engenharia Acme",
+        "nameError": {
+          "empty": "Digite um nome para a equipe.",
+          "tooLong": "Use no máximo {max} caracteres."
+        },
+        "cancel": "Cancelar",
+        "createAction": "Criar equipe",
+        "creating": "Criando…",
+        "planTitle": "Escolha um plano para {team}",
+        "planDescription": "Você pode alterar o plano depois na página de cobrança da equipe.",
+        "freeName": "Grátis",
+        "freePrice": "$0",
+        "teamName": "Team",
+        "teamPrice": "${price} por assento por mês",
+        "featureMembers": "Membros, funções e convites",
+        "featureProForEveryone": "Tudo do Pro para cada membro",
+        "featureCentralBilling": "Cobrança centralizada para toda a equipe",
+        "featurePrioritySupport": "Suporte prioritário",
+        "chooseFree": "Continuar com o Grátis",
+        "chooseTeam": "Fazer upgrade para o Team (${price}/assento/mês)",
+        "upgradeLater": "Os assentos seguem o número de membros: cada membro é cobrado e o total é atualizado quando alguém entra ou sai.",
+        "inviteTitle": "Convidar pessoas para {team}",
+        "inviteDescription": "Opcional. Você também pode convidar pessoas depois na página Membros da equipe.",
+        "inviteByEmail": "Convidar por e-mail",
+        "inviteByLink": "Link de convite",
+        "backToPlan": "Voltar aos planos",
+        "finish": "Ir para a equipe"
+      },
+      "invite": {
+        "emailsLabel": "Endereços de e-mail",
+        "emailsPlaceholder": "name@example.com, another@example.com",
+        "invalidEmail": "Endereço de e-mail inválido",
+        "removeEmail": "Remover {email}",
+        "roleLabel": "Função",
+        "roleMember": "Membro",
+        "roleAdmin": "Administrador",
+        "count": "{count}/{max}",
+        "send": "Enviar convites",
+        "sending": "Enviando…",
+        "invalidCount": "{count, plural, one {Corrija ou remova # endereço inválido antes de enviar.} other {Corrija ou remova # endereços inválidos antes de enviar.}}",
+        "overflow": "{count, plural, one {# endereço não foi adicionado: o limite é {max} por solicitação.} other {# endereços não foram adicionados: o limite é {max} por solicitação.}}",
+        "sent": "{count, plural, one {# convite enviado.} other {# convites enviados.}}"
+      },
+      "inviteFailure": {
+        "generic": "não pôde ser convidado",
+        "already_member": "já é membro",
+        "invite_failed": "não foi possível enviar o convite"
+      },
+      "links": {
+        "expiryLabel": "Expira",
+        "expiry": {
+          "1": "Em 1 dia",
+          "7": "Em 7 dias",
+          "30": "Em 30 dias",
+          "never": "Nunca"
+        },
+        "maxUsesLabel": "Máximo de usos",
+        "maxUsesPlaceholder": "Ilimitado",
+        "maxUsesInvalid": "O máximo de usos deve ser um número inteiro de 1 a {max}, ou vazio para ilimitado.",
+        "create": "Criar link",
+        "creating": "Criando…",
+        "memberOnly": "Quem entra pelo link se torna membro. Promova a administrador depois, se necessário.",
+        "showOnce": "Copie este link agora. Ele é exibido apenas uma vez.",
+        "empty": "Nenhum link de convite ativo.",
+        "createdAt": "Criado {at}",
+        "expiresAt": "Expira {at}",
+        "neverExpires": "Nunca expira",
+        "uses": "{count}/{max} usos",
+        "usesUnlimited": "{count, plural, one {# uso} other {# usos}}",
+        "revoke": "Revogar",
+        "revokeTitle": "Revogar este link de convite?",
+        "revokeBody": "Quem tiver o link não poderá mais entrar. Quem já entrou continua como membro.",
+        "actionsFor": "Ações do link ({created})"
+      },
+      "shell": {
+        "allTeams": "Todas as equipes",
+        "tabsLabel": "Configurações da equipe",
+        "tabs": {
+          "general": "Geral",
+          "members": "Membros",
+          "apiKeys": "Chaves de API",
+          "billing": "Cobrança"
+        },
+        "notFoundTitle": "Equipe não encontrada",
+        "notFoundBody": "Esta equipe não existe ou você não é membro dela.",
+        "backToTeams": "Voltar às equipes"
+      },
+      "general": {
+        "imageTitle": "Imagem da equipe",
+        "imageDescription": "Exibida ao lado do nome da equipe em todo o cmux.",
+        "imageUpload": "Enviar imagem da equipe",
+        "nameTitle": "Nome da equipe",
+        "nameDescription": "Visível para todos os membros.",
+        "nameReadOnly": "Somente administradores podem renomear a equipe.",
+        "nameError": {
+          "empty": "Digite um nome para a equipe.",
+          "tooLong": "Use no máximo {max} caracteres."
+        },
+        "profileTitle": "Seu nome nesta equipe",
+        "profileDescription": "Como os outros membros desta equipe veem você. Deixe vazio para usar o nome da sua conta.",
+        "profileLabel": "Seu nome de exibição na equipe",
+        "leaveTitle": "Sair da equipe",
+        "leaveDescription": "Você perde o acesso às contas compartilhadas e à cobrança desta equipe.",
+        "leaveAction": "Sair da equipe",
+        "leaveBlocked": "Você é o único administrador. Promova outro membro a administrador ou exclua a equipe antes de sair.",
+        "leaveConfirmTitle": "Sair de {team}?",
+        "leaveConfirmBody": "Você precisará de um novo convite para voltar.",
+        "deleteTitle": "Excluir equipe",
+        "deleteDescription": "Remove permanentemente a equipe, o acesso dos membros e os links de convite.",
+        "deleteAction": "Excluir equipe",
+        "deleteConfirmTitle": "Excluir {team}?",
+        "deleteConfirmBody": "Esta ação não pode ser desfeita.",
+        "openBilling": "Abrir cobrança da equipe"
+      },
+      "members": {
+        "title": "Membros",
+        "count": "{count, plural, one {# membro} other {# membros}}",
+        "memberColumn": "Membro",
+        "roleColumn": "Função",
+        "actionsColumn": "Ações",
+        "you": "Você",
+        "unnamed": "Membro sem nome",
+        "remove": "Remover",
+        "removeTitle": "Remover {name}?",
+        "removeBody": "A pessoa perde o acesso a esta equipe imediatamente. Você pode convidá-la novamente depois.",
+        "inviteTitle": "Convidar pessoas",
+        "inviteDescription": "Envie convites por e-mail. Cole uma lista separada por vírgulas, espaços ou quebras de linha (até 20).",
+        "pendingTitle": "Convites pendentes",
+        "pendingDescription": "Convites que ainda não foram aceitos.",
+        "pendingEmpty": "Nenhum convite pendente.",
+        "unknownEmail": "Endereço desconhecido",
+        "expires": "Expira {at}",
+        "resend": "Reenviar",
+        "resent": "Enviado",
+        "revoke": "Revogar",
+        "linksTitle": "Links de convite",
+        "linksDescription": "Um link reutilizável que qualquer pessoa pode usar para entrar como membro.",
+        "seatNudge": "{used} pessoas são membros ou foram convidadas, mas o plano tem {seats} assentos. Os convites continuam funcionando; adicione {over, plural, one {# assento} other {# assentos}} para cobrir todos.",
+        "seatNudgeAction": "Gerenciar assentos",
+        "actions": {
+          "makeAdmin": "Tornar administrador",
+          "makeMember": "Tornar membro",
+          "remove": "Remover da equipe",
+          "leave": "Sair da equipe"
+        },
+        "actionsFor": "Ações para {name}",
+        "lastAdminReason": "Uma equipe precisa de pelo menos um administrador. Promova outra pessoa primeiro.",
+        "demoteSelfTitle": "Deixar de ser administrador?",
+        "demoteSelfBody": "Você perde o acesso de administrador a esta equipe. Outro administrador pode devolvê-lo.",
+        "demoteSelfConfirm": "Tornar-me membro"
+      },
+      "apiKeys": {
+        "title": "Chaves de API da equipe",
+        "description": "Chaves que agem em nome desta equipe. Qualquer pessoa com uma chave pode usar o acesso da equipe, então guarde as chaves com segurança.",
+        "create": "Criar chave de API da equipe",
+        "disabled": "As chaves de API de equipe não estão ativadas neste projeto.",
+        "forbidden": "Você precisa da permissão Gerenciar chaves de API nesta equipe para ver as chaves."
+      }
     },
     "coderouterAccounts": {
       "transferAction": "Transferir",
@@ -455,18 +1120,14 @@
       "apiKeysTitle": "Chaves de API",
       "apiKeysDescription": "Crie chaves de longa duração para scripts e agentes. O segredo é exibido uma vez.",
       "apiKeysCount": "{count, plural, one {# chave} other {# chaves}}",
-      "apiKeysLoading": "Carregando chaves de API…",
-      "apiKeysLoadError": "Não foi possível carregar as chaves de API. Tente novamente em breve.",
-      "apiKeysRetry": "Tentar novamente",
-      "apiKeysEmptyBody": "Ainda não há chaves de API. Crie uma para autenticar um cliente CodeRouter.",
       "apiKeyPrefixColumn": "Chave",
       "apiKeyStatusColumn": "Situação",
       "apiKeySecretTitle": "Copie esta chave agora",
       "apiKeySecretBody": "Este segredo não será exibido novamente.",
       "apiKeyCopy": "Copiar chave de API",
       "apiKeyCopied": "Copiado",
-      "apiKeyCreatedAt": "criada {at}",
-      "apiKeyLastUsed": "último uso {at}",
+      "apiKeyCreatedAt": "Criada {at}",
+      "apiKeyLastUsed": "Último uso {at}",
       "apiKeyRevoked": "Revogada",
       "apiKeyLabelPlaceholder": "Por exemplo, CI ou produção",
       "createApiKeyAction": "Criar chave de API",
@@ -476,9 +1137,114 @@
       "revokingApiKeyAction": "Revogando",
       "apiKeyRevokeError": "Não foi possível revogar a chave de API.",
       "revokeApiKeyConfirmTitle": "Revogar esta chave de API?",
-      "apiKeyUsageDetail": "últimos 30 dias: {completions} conclusões · {tokens} tokens ({input} entrada / {output} saída) · equivalente de API {value}",
+      "apiKeyUsageDetail": "Últimos 30 dias: {completions} conclusões · {tokens} tokens ({input} entrada / {output} saída) · equivalente de API {value}",
       "apiKeyUsageUnavailable": "Uso indisponível",
       "revokeApiKeyConfirmBody": "Os clientes que usam esta chave perderão a autenticação imediatamente."
+    },
+    "cloud": {
+      "title": "Máquinas do Cloud e acesso do Mac",
+      "description": "Defina a rede de saída de cada máquina e revise os Macs com acesso WireGuard à sua rede privada de VMs do Cloud. Os registros de pareamento do iPhone e do Iroh ficam separados.",
+      "macAccessTitle": "Acesso do Mac",
+      "machines": {
+        "title": "Máquinas",
+        "empty": "Você não tem máquinas do Cloud.",
+        "personal": "pessoal",
+        "team": "equipe",
+        "status": {
+          "provisioning": "iniciando",
+          "running": "em execução",
+          "failed": "com falha",
+          "paused": "pausada",
+          "destroyed": "excluída"
+        }
+      },
+      "network": {
+        "open": "Rede",
+        "title": "Rede de saída de {name}",
+        "description": "Escolha o que esta máquina pode acessar. As alterações são aplicadas na hora, sem reiniciar.",
+        "loading": "Carregando a política de rede…",
+        "loadError": "Não foi possível carregar a política de rede desta máquina.",
+        "saveError": "Não foi possível aplicar esta política de rede.",
+        "unsupported": "Esta máquina não oferece suporte ao controle da rede de saída.",
+        "retry": "Tentar novamente",
+        "appliedLabel": "Status:",
+        "applied": {
+          "applied": "aplicada",
+          "pending": "aplicando",
+          "failed": "falha ao aplicar"
+        },
+        "unsaved": "alterações não salvas",
+        "refresh": "Atualizar",
+        "modeLabel": "Acesso de saída",
+        "mode": {
+          "full": {
+            "label": "Internet completa",
+            "description": "Qualquer endereço público."
+          },
+          "allowlist": {
+            "label": "Lista de permissões",
+            "description": "Somente as predefinições, os domínios e os intervalos de IP que você listar."
+          },
+          "none": {
+            "label": "Sem internet",
+            "description": "Somente os hosts do cmux listados abaixo."
+          }
+        },
+        "presetsTitle": "Predefinições",
+        "presetsNote": "Cada predefinição adiciona nomes de host exatos. Um serviço que usa outros subdomínios pode precisar de mais domínios.",
+        "domainsTitle": "Domínios",
+        "domainsNote": "Somente nomes de host exatos, somente HTTPS na porta 443. Curingas ainda não são compatíveis.",
+        "domainInput": "Domínio",
+        "rangesTitle": "Intervalos de IP",
+        "rangesNote": "O firewall do provedor aplica essas regras fora da máquina. Deixe a porta vazia para permitir todas as portas. Uma porta exige um protocolo.",
+        "cidrInput": "Intervalo de IP (CIDR)",
+        "portInput": "Porta",
+        "protocolInput": "Protocolo",
+        "anyProtocol": "qualquer",
+        "noteInput": "Observação (opcional)",
+        "allPorts": "todas as portas",
+        "dnsLabel": "Permitir DNS",
+        "dnsNote": "Permite que as ferramentas resolvam os nomes para os quais seus intervalos de IP apontam. Domínios não precisam de DNS. DNS aberto é um canal de saída: um processo pode enviar dados nos nomes que consulta.",
+        "requiredTitle": "Sempre permitidos",
+        "requiredNote": "O cmux precisa desses hosts em todos os modos para instalar e atualizar a CLI na máquina.",
+        "add": "Adicionar",
+        "remove": "Remover",
+        "discard": "Descartar alterações",
+        "close": "Fechar",
+        "apply": "Aplicar"
+      },
+      "revokeApiKeyConfirmBody": "Os clientes que usam esta chave perderão a autenticação imediatamente.",
+      "apiKeysEmptyTitle": "Nenhuma chave de API ainda",
+      "apiKeysEmptyHint": "Crie uma para autenticar um cliente do CodeRouter.",
+      "unavailableTitle": "Contas compartilhadas indisponíveis",
+      "unavailableBody": "O cmux não consegue acessar o serviço de contas compartilhadas agora. Contas adicionadas com cr add e contas Anthropic e Bedrock continuam funcionando."
+    },
+    "notFound": {
+      "title": "Página não encontrada",
+      "body": "Esta página do painel não existe ou foi movida.",
+      "home": "Ir para o painel"
+    },
+    "states": {
+      "errorTitle": "Não foi possível carregar {section}",
+      "errorTitleGeneric": "Não foi possível carregar esta seção",
+      "reason": {
+        "network": "Verifique sua conexão e tente novamente.",
+        "unavailable": "O cmux está temporariamente indisponível. Tente novamente em instantes.",
+        "forbidden": "Você não tem acesso a isto.",
+        "notFound": "Isto não existe mais ou você não tem acesso.",
+        "rateLimited": "Solicitações demais. Aguarde um momento e tente novamente.",
+        "generic": "Algo deu errado. Tente novamente."
+      },
+      "retry": "Tentar novamente",
+      "retrying": "Tentando novamente…"
+    },
+    "upgrade": {
+      "title": "Requer Pro",
+      "cloud": "Cloud VMs e agentes na nuvem fazem parte do Pro.",
+      "testflight": "O app cmux para iOS faz parte do Pro.",
+      "mobileDevices": "Conectar seu celular e tablet faz parte do Pro.",
+      "action": "Fazer upgrade para Pro",
+      "comparePlans": "Comparar planos"
     }
   },
   "community": {
@@ -1355,7 +2121,9 @@
           "ampIntegration": "Liga ou desliga os hooks do cmux para o Amp. Quando desligados, o plugin incluído continua instalado, mas inativo.",
           "suppressSubagentNotifications": "Suprime notificações visíveis de conclusão e alterações de status de agentes filhos aninhados do Codex ou Claude, mantendo seus eventos na telemetria do Feed.",
           "workspaceAutoNaming": "Nomeação automática opcional de espaços de trabalho e abas por IA a partir do conteúdo das conversas do agente. Quando ativada, o cmux resume as sessões de agentes compatíveis em títulos curtos usando o binário próprio de cada agente; renomeações manuais sempre prevalecem.",
-          "autoNamingAgent": "Qual agente gera os nomes automáticos para cada sessão. \"auto\" (padrão) nomeia cada sessão com o próprio agente; qualquer slug de agente (claude, codex, grok, opencode, pi, omp, …) substitui a nomeação de todas as sessões, mesmo as de outros agentes. Agentes não utilizáveis ou não instalados recorrem ao agente da própria sessão, de modo que a nomeação nunca falha."
+          "autoNamingAgent": "Qual agente gera os nomes automáticos para cada sessão. \"auto\" (padrão) nomeia cada sessão com o próprio agente; qualquer slug de agente (claude, codex, grok, opencode, pi, omp, …) substitui a nomeação de todas as sessões, mesmo as de outros agentes. Agentes não utilizáveis ou não instalados recorrem ao agente da própria sessão, de modo que a nomeação nunca falha.",
+          "agentAutoResume": "Envia `continue`, com espera progressiva, a um agente iniciado pelo cmux cujo turno terminou com um erro do serviço que pode ser repetido (modelo sem capacidade, sobrecarregado ou conexão perdida). Turnos aguardando uma pessoa nunca são retomados.",
+          "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
           "confirmQuit": "Controla quando o cmux pede confirmação antes de sair. Builds DEV sempre saem imediatamente, independentemente desta configuração. O app.warnBeforeQuit legado ainda é aceito como fallback booleano.",
@@ -1389,6 +2157,7 @@
           "defaultSearchEngine": "Mecanismo de busca padrão para consultas na barra de endereço do navegador que não são URLs. Use custom com customSearchEngineURLTemplate para outros provedores.",
           "customSearchEngineName": "Nome exibido quando defaultSearchEngine é custom.",
           "customSearchEngineURLTemplate": "URL de busca usada quando defaultSearchEngine é custom. Inclua o marcador da consulta ou %s para a consulta codificada. Sem marcador, o cmux adiciona q= à URL.",
+          "showLinkHoverURL": "Mostra o destino de um link no canto inferior esquerdo do painel do navegador enquanto o cursor está sobre o link ou quando o link tem o foco do teclado.",
           "urlAllowlist": "Padrões de host ou URL que restringem a navegação no navegador integrado. Os Ajustes sugerem origens de desenvolvimento local; salvar uma lista ativa a restrição opcional. Remova entradas para bloqueá-las ou deixe o valor do usuário vazio, sem uma política gerenciada, para desativar a restrição."
         },
         "workspaceGroups": {
@@ -1406,7 +2175,13 @@
           "compactAgentStatus": "Mostrar cada workspace em uma única linha: um ícone colorido antes do título indica o estado do agente, dos não lidos e da pull request e substitui as linhas de status dos agentes (por exemplo, Em execução ou Precisa de entrada), a linha de branch e diretório e as linhas de pull request, cujos detalhes passam para a dica do ícone. As outras entradas de status mantêm suas linhas.",
           "compactStatusIcons": "Nomes de SF Symbols que substituem o glifo de compactAgentStatus para cada estado, por exemplo {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Estados não definidos mantêm o símbolo integrado, e um nome que não pode ser exibido volta para ele.",
           "notificationMessageLineLimit": "Número máximo de linhas exibidas para a notificação mais recente abaixo do título de cada espaço de trabalho.",
-          "rightMaxWidth": "Largura máxima em pontos para a barra lateral direita. Quando omitida, o limite dinâmico integrado se aplica."
+          "rightMaxWidth": "Largura máxima em pontos para a barra lateral direita. Quando omitida, o limite dinâmico integrado se aplica.",
+          "showAgentUsage": "Acrescenta o uso do agente de código à entrada de status do Claude Code ou do Codex: modelo e janela de contexto consumida e, no Claude Code, um custo de API estimado (thread principal e subagentes) pelos preços de tabela publicados pela Anthropic. O custo é uma estimativa, não a sua fatura de assinatura; os níveis batch e priority, os preços para parceiros, o modo rápido e as taxas de ferramentas de servidor não são considerados.",
+          "beta": {
+            "conversations": {
+              "enabled": "Mostrar a visualização unificada de conversas no seletor da barra lateral."
+            }
+          }
         },
         "fileExplorer": {
           "description": "Configurações do explorador de arquivos (árvore de arquivos) na barra lateral direita.",
@@ -1470,9 +2245,17 @@
       "customActionsDesc": "Uma entrada <actions>actions</actions> é a unidade reutilizável que o cmux executa. Use ações quando o mesmo comportamento deve estar disponível na Command Palette, na barra de abas de superfície, em atalhos ou no menu do botão de mais. Mantenha <commands>commands</commands> para comandos shell reutilizáveis e layouts de workspace. Defina <palette>palette</palette> como false quando uma ação não deve aparecer na Command Palette.",
       "actionTypes": "Tipos de ação",
       "actionTypeBuiltin": "Cria um alias para uma ação integrada do cmux, como cmux.newTerminal, cmux.newBrowser, cmux.splitRight ou cmux.splitDown.",
+      "actionTypeBuiltinCopy": "Ações integradas de cópia: cmux.copyWorkingDirectory copia o diretório de trabalho do terminal, cmux.copyProjectRoot copia a raiz do repositório git (ou o diretório de trabalho fora de um repositório) e cmux.copyScreen copia a tela visível.",
+      "actionTypeBuiltinCopyRemote": "Em um workspace SSH, na nuvem ou de tmux remoto, cmux.copyProjectRoot copia o diretório de trabalho remoto, porque o cmux não consegue consultar o repositório git no outro host.",
       "actionTypeCommand": "Executa texto shell em um terminal. Use target para escolher o terminal atual ou uma nova aba no painel atual.",
       "actionTypeAgent": "Inicia um agente de programação compatível. Hoje oferece suporte a codex e claude, com argumentos opcionais.",
       "actionTypeWorkspaceCommand": "Executa uma definição de workspace nomeada em commands. Use para layouts com vários painéis, diretórios de trabalho personalizados e comandos de inicialização.",
+      "actionTypeSetting": "Altera uma configuração no seu cmux.json global, por exemplo para alternar uma configuração true/false ou percorrer uma lista de valores. Veja Ações de configuração abaixo.",
+      "actionTypeSettingPreset": "Aplica de uma vez um grupo nomeado de configurações definido em settingPresets.",
+      "settingActions": "Ações de configuração",
+      "settingActionsDesc": "Uma ação de configuração indica o <path>path</path> de uma configuração e exatamente um entre <set>set</set> (grava um valor), <toggle>toggle: true</toggle> (alterna uma configuração true/false), <cycle>cycle</cycle> (avança para o próximo valor de uma lista, voltando ao primeiro depois do último) ou <unset>unset: true</unset> (remove a chave do cmux.json, para que valha o valor da janela Configurações ou o padrão). toggle e cycle partem do valor que o cmux está usando, inclusive um definido na janela Configurações. Uma ação settingPreset aplica uma entrada de <presets>settingPresets</presets>, um cmux.json parcial cujos objetos aninhados são mesclados chave por chave. O cmux valida cada alteração com o esquema antes de salvar, mantém seus comentários e as demais chaves e aplica a alteração na hora. Ações de configuração e presets só rodam a partir do seu cmux.json global e dos pacotes que ele referencia; configurações de projeto não podem declará-los.",
+      "settingActionsCli": "As mesmas alterações funcionam a partir de um terminal: <set>cmux config set terminal.scrollSpeed 1.4</set>, <toggle>cmux config toggle fileEditor.wordWrap</toggle> e <preset>cmux config preset sidebar.quiet</preset>.",
+      "settingActionsLimits": "Com <confirm>confirm: true</confirm>, o cmux pergunta antes de salvar e mostra o comando cmux config equivalente. Os caminhos são divididos em cada \".\", então uma chave que contém \".\" (como uma entrada de <byCwd>workspaceGroups.byCwd</byCwd> para ~/src/app.web) não pode ser alterada dessa forma. Edite-a diretamente no cmux.json.",
       "actionFields": "Campos da ação",
       "actionFieldTitle": "Título da linha na Command Palette, rótulo do botão, título do item de menu e título do prompt de confiança, a menos que uma entrada substitua.",
       "actionFieldSubtitle": "Texto secundário na Command Palette. description é aceito como alias de subtitle.",
@@ -1548,63 +2331,8 @@
       "searchLabel": "Buscar atalhos de teclado",
       "noResults": "Nenhum atalho encontrado",
       "noResultsHint": "Tente um termo de busca diferente",
-      "cat": {
-        "workspaces": "Workspaces",
-        "workspacesBlurb": "Workspaces ficam na barra lateral. Cada workspace tem seu próprio conjunto de painéis e superfícies.",
-        "surfaces": "Superfícies",
-        "surfacesBlurb": "Superfícies são abas dentro de um painel.",
-        "splitPanes": "Painéis Divididos",
-        "canvas": "Canvas",
-        "canvasBlurb": "Um modo de layout 2D livre em que os painéis flutuam sobre um canvas infinito e rolável. Comandos de alinhamento e distribuição estão disponíveis na paleta de comandos.",
-        "browser": "Navegador",
-        "notifications": "Notificações",
-        "find": "Buscar",
-        "terminal": "Terminal",
-        "window": "Janela",
-        "diffViewer": "Visualizador de diffs"
-      },
-      "sc": {
-        "ws-new": "Novo workspace",
-        "ws-prev": "Workspace anterior",
-        "ws-next": "Workspace seguinte",
-        "ws-jump-1-8": "Ir para workspace 1–8",
-        "ws-jump-last": "Ir para último workspace",
-        "ws-close": "Fechar workspace",
-        "ws-rename": "Renomear workspace",
-        "sf-new": "Nova superfície",
-        "sf-prev-1": "Superfície anterior",
-        "sf-prev-2": "Superfície anterior",
-        "sf-jump-1-8": "Ir para superfície 1–8",
-        "sf-jump-last": "Ir para última superfície",
-        "sf-close": "Fechar superfície",
-        "sp-right": "Dividir à direita",
-        "sp-down": "Dividir abaixo",
-        "sp-focus": "Focar painel direcionalmente",
-        "sp-browser-right": "Dividir navegador à direita",
-        "sp-browser-down": "Dividir navegador abaixo",
-        "br-open": "Abrir superfície do navegador",
-        "br-addr": "Focar barra de endereço",
-        "br-forward": "Avançar",
-        "br-reload": "Recarregar página",
-        "br-devtools": "Abrir Ferramentas de Desenvolvedor",
-        "nt-panel": "Mostrar painel de notificações",
-        "nt-latest": "Ir para última não lida",
-        "nt-flash": "Disparar flash",
-        "fd-find": "Buscar",
-        "fd-next-prev": "Buscar próximo / anterior",
-        "fd-hide": "Ocultar barra de busca",
-        "fd-selection": "Usar seleção para busca",
-        "tm-clear": "Limpar histórico de rolagem",
-        "tm-copy": "Copiar (com seleção)",
-        "tm-paste": "Colar",
-        "tm-font": "Aumentar / diminuir tamanho da fonte",
-        "tm-reset": "Resetar tamanho da fonte",
-        "wn-new": "Nova janela",
-        "wn-settings": "Configurações",
-        "wn-reload": "Recarregar configuração",
-        "wn-quit": "Sair"
-      },
-      "metaTitle": "Atalhos de teclado"
+      "metaTitle": "Atalhos de teclado",
+      "fileEditorWordWrap": "Alternar quebra de linha no editor de arquivos (Option+Z)."
     },
     "api": {
       "title": "Referência da CLI",
@@ -2043,7 +2771,8 @@
       "maxLinesSetting": "TextBox Max Lines limita a altura do TextBox antes que o conteúdo comece a rolar.",
       "configTitle": "cmux.json",
       "configDesc": "Defina os mesmos padrões em ~/.config/cmux/cmux.json dentro de terminal:",
-      "focusNote": "Sessões restauradas mantêm a visibilidade e o estado de foco do TextBox salvos. Esses padrões se aplicam apenas a superfícies de terminal recém-criadas."
+      "focusNote": "Sessões restauradas mantêm a visibilidade e o estado de foco do TextBox salvos. Esses padrões se aplicam apenas a superfícies de terminal recém-criadas.",
+      "betaCallout": "TextBox é um recurso beta. Seus padrões e comportamento podem mudar durante os testes."
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: OpenCode multiagente no cmux",
@@ -2144,14 +2873,21 @@
       "planMax": "Max",
       "sizesDefault": "Máquinas novas usam 8 GB de memória quando você não escolhe um tamanho. Execute cmux vm ls --json para ver os tamanhos que seu plano permite.",
       "limitsTitle": "Limites do plano",
-      "limitsDesc": "Os limites do plano contam máquinas, não um conjunto compartilhado de CPU ou memória. Cada máquina recebe os recursos do seu tamanho.",
+      "limitsDesc": "Suas máquinas ativas compartilham um único conjunto de vCPUs e memória. Rode uma máquina grande ou várias pequenas. Máquinas pausadas não usam o conjunto. O disco é definido por máquina e não faz parte do conjunto.",
       "limitsFree": "Contas gratuitas não podem criar máquinas.",
-      "limitsPaid": "Contas Pro e Max podem ter até 50 máquinas ativas. Uma máquina está ativa enquanto está em execução ou iniciando.",
-      "limitsTeam": "Contas de equipe podem ter até 50 máquinas ativas por assento pago.",
-      "limitsMax": "Máquinas maiores que 24 GB exigem o cmux Max.",
+      "limitsPaid": "Contas Pro e Founder's Edition podem ter até 5 máquinas ativas que compartilham 20 vCPUs e 40 GB de memória. Uma máquina está ativa enquanto está em execução ou iniciando.",
+      "limitsTeam": "Contas de equipe podem ter até 5 máquinas ativas por assento pago. Cada assento pago adiciona 20 vCPUs e 40 GB de memória ao conjunto da equipe.",
+      "limitsMax": "Contas Max podem ter até 5 máquinas ativas que compartilham 80 vCPUs e 160 GB de memória. Uma máquina pode ter até 32 GB e 16 vCPUs no Pro e no Team, ou até 64 GB e 32 vCPUs no Max.",
+      "limitsPoolFull": "Se uma máquina nova, retomada, redimensionada ou bifurcada ultrapassar o conjunto, o cmux recusa a solicitação e mostra quanto do conjunto está em uso. Pause ou exclua uma máquina para liberar recursos, ou faça upgrade para o Max.",
       "limitsPricing": "Consulte a página de preços para ver os valores atuais. Não há medição de uso nem cobrança por excedente.",
+      "agentUpdatesTitle": "Manter agentes de programação atualizados",
+      "agentUpdatesDesc": "Com esta opção ativada, a máquina atualiza Claude Code, Codex, OpenCode, pi e agent-browser. Ela verifica depois que a máquina é criada e sempre que você se conecta, no máximo uma vez a cada 24 horas. A atualização roda de forma independente, então nunca bloqueia a conexão.",
+      "agentUpdatesSource": "Cada ferramenta vem da sua versão oficial no GitHub e é verificada pelo digest sha256 do arquivo da versão. O npm não é usado. Uma versão só é instalada depois de estar pública há 3 dias, e uma atualização nunca instala uma versão mais antiga. Um agente em execução mantém os arquivos com que começou, e uma atualização com falha mantém a versão atual.",
+      "agentUpdatesStatus": "O resultado da última verificação fica em /etc/cmux/agent-updates.state, e o log do atualizador em /var/log/cmux-agent-updates.log. Uma verificação com falha roda de novo na próxima conexão.",
+      "agentUpdatesToggle": "A janela New Machine ativa esta opção por padrão. Para mudar em uma máquina existente, clique com o botão direito na máquina e escolha Keep Agents Up to Date, ou execute cmux vm agent-updates. cmux vm new mantém as versões da imagem, a menos que você passe --agent-updates latest. Desativar as atualizações mantém as versões já instaladas.",
+      "agentUpdatesNetwork": "As atualizações usam apenas github.com, api.github.com, objects.githubusercontent.com e release-assets.githubusercontent.com. O cmux permite esses hosts em todos os modos de rede, incluindo Allowlist e No internet, então uma política de rede nunca bloqueia as atualizações.",
       "resizeTitle": "Redimensionar",
-      "resizeDesc": "Você pode aumentar uma máquina sem perder dados. Clique com o botão direito na máquina e escolha Resize machine, ou use cmux vm resize. O redimensionamento só pode aumentar uma máquina. O disco cresce em passos de 4 GB até 256 GB, a memória até 64 GB e a CPU até 32 vCPU. Seu plano define o máximo real.",
+      "resizeDesc": "Você pode aumentar uma máquina sem perder dados. Clique com o botão direito na máquina e escolha Resize machine, ou use cmux vm resize. O redimensionamento só pode aumentar uma máquina. O disco cresce em passos de 4 GB até 256 GB. A memória cresce até 32 GB e a CPU até 16 vCPU no Pro e no Team, ou até 64 GB e 32 vCPU no Max. Uma máquina maior usa mais do seu conjunto. Seu plano define o máximo real.",
       "pauseTitle": "Pausar e retomar",
       "pauseDesc": "cmux vm pause interrompe a computação da máquina. O disco, os espaços de trabalho e o histórico dos terminais permanecem. Os processos em execução param. cmux vm resume inicia a máquina novamente. Abrir uma máquina pausada ou executar um comando nela também a inicia.",
       "pauseIdle": "As máquinas não pausam sozinhas quando estão ociosas. Uma máquina continua rodando até você pausá-la ou excluí-la.",
@@ -2302,9 +3038,11 @@
       "errPlan": "As VMs do Cloud exigem um plano pago",
       "fixPlan": "Contas gratuitas não podem criar máquinas. Faça upgrade na página de preços.",
       "errSize": "Um tamanho exige um plano maior",
-      "fixSize": "Máquinas maiores que 24 GB exigem o cmux Max. Escolha um tamanho menor ou faça upgrade.",
+      "fixSize": "Máquinas maiores que 32 GB exigem o cmux Max. Escolha um tamanho menor ou faça upgrade.",
       "errLimit": "Limite de máquinas ativas atingido",
       "fixLimit": "Pause ou exclua uma máquina e tente de novo.",
+      "errPool": "Recursos de Cloud VM insuficientes",
+      "fixPool": "Suas máquinas ativas já usam as vCPUs ou a memória compartilhadas. Pause ou exclua uma máquina, escolha um tamanho menor ou faça upgrade para o Max.",
       "errLocked": "A máquina está bloqueada",
       "fixLocked": "Seu plano pago terminou e a máquina tem mais de 7 dias. Faça upgrade para se reconectar. Seus arquivos são mantidos.",
       "errAgentMissing": "claude ou codex: command not found",
@@ -4407,7 +5145,8 @@
   "pricing": {
     "billingUnavailable": "O faturamento não está disponível no momento. Tente novamente mais tarde.",
     "signedOutNotice": "Você não iniciou sessão. Entre para ver seu plano atual ou restaurar uma compra existente.",
-    "signedOutSignIn": "Entrar"
+    "signedOutSignIn": "Entrar",
+    "manageInAppStore": "Gerenciar na App Store"
   },
   "platforms": {
     "macos": "macOS",
@@ -4574,6 +5313,60 @@
     "signedOutBody": "Um aplicativo de linha de comando está aguardando você entrar. Entre com sua conta cmux para concluir a conexão deste terminal. Se você não iniciou esta solicitação, feche esta página.",
     "signInButton": "Entrar"
   },
+  "cmuxSignIn": {
+    "signInTitle": "Entre no cmux",
+    "signInSubtitle": "Uma conta para o app, o cloud e o painel.",
+    "signUpTitle": "Crie sua conta cmux",
+    "signUpSubtitle": "Uma conta para o app, o cloud e o painel.",
+    "continueWithProvider": "Continuar com {provider}",
+    "signInWithPasskey": "Entrar com uma chave de acesso",
+    "orContinueWith": "Ou continuar com",
+    "emailLabel": "E-mail",
+    "emailPlaceholder": "voce@empresa.com",
+    "continueWithEmail": "Continuar com e-mail",
+    "emailCodeTab": "E-mail",
+    "emailPasswordTab": "E-mail e senha",
+    "passwordLabel": "Senha",
+    "repeatPasswordLabel": "Repita a senha",
+    "signInButton": "Entrar",
+    "createAccountButton": "Criar conta",
+    "forgotPassword": "Esqueceu a senha?",
+    "noAccount": "Não tem uma conta?",
+    "signUpLink": "Cadastre-se",
+    "haveAccount": "Já tem uma conta?",
+    "signInLink": "Entrar",
+    "checkEmailTitle": "Verifique seu e-mail",
+    "checkEmailBody": "Digite o código de 6 caracteres que enviamos para {email}.",
+    "codeLabel": "Código",
+    "back": "Voltar",
+    "resendCode": "Reenviar código",
+    "chooseAccountTitle": "Escolha uma conta",
+    "chooseAccountSubtitle": "para continuar no cmux",
+    "useAnotherAccount": "Usar outra conta",
+    "forgetAccount": "Remover {account} desta lista",
+    "signedOut": "Desconectado",
+    "signingInAs": "Entrando como {account}…",
+    "sessionEnded": "Esta conta foi desconectada. Entre novamente para continuar.",
+    "redirecting": "Entrando…",
+    "lastUsed": "último usado",
+    "legal": "Ao continuar, você concorda com os {terms} e a {privacy}.",
+    "termsOfService": "Termos de Serviço",
+    "privacyPolicy": "Política de Privacidade",
+    "signUpDisabled": "Não é possível criar novas contas no momento.",
+    "noMethods": "O login não está disponível agora. Tente novamente mais tarde.",
+    "embeddedDisabled": "Os botões de login ficam desativados em páginas incorporadas. Abra esta página em uma aba própria.",
+    "errorInvalidEmail": "Digite um e-mail válido.",
+    "errorPasswordRequired": "Digite sua senha.",
+    "errorPasswordTooShort": "Use pelo menos {min} caracteres.",
+    "errorPasswordTooLong": "Use no máximo {max} caracteres.",
+    "errorPasswordsDontMatch": "As senhas não coincidem.",
+    "errorWrongPassword": "E-mail ou senha incorretos.",
+    "errorInvalidCode": "Esse código não é válido. Verifique seu e-mail e tente novamente.",
+    "errorInvalidTotp": "Esse código de dois fatores não é válido.",
+    "errorSignUpNotAllowed": "Não é possível criar novas contas no momento.",
+    "errorPasskey": "O login com chave de acesso não foi concluído. Tente novamente ou use outro método.",
+    "errorGeneric": "Algo deu errado. Tente novamente."
+  },
   "MobileRelease106": {
     "title": "Novidades da versão 1.0.6",
     "releaseLabel": "1.0.6 · Setembro de 2026",
@@ -4583,5 +5376,27 @@
     "updateDetail": "Requer cmux {stableVersion} ou posterior, ou NIGHTLY {nightlyVersion} ou posterior. Ative o emparelhamento com iOS em Ajustes > Celular em cada Mac.",
     "rollbackTitle": "Precisa manter uma compilação antiga no Mac?",
     "rollbackDetail": "Use cmux BETA 1.0.5 ({rollbackBuild}) em TestFlight > Compilações anteriores enquanto estiver disponível. Escolha exatamente essa compilação, pois as posteriores usam um serviço de conexão mais recente."
+  },
+  "teamInvite": {
+    "loading": "Carregando convite…",
+    "title": "Entrar em {team}",
+    "titleUnknown": "Entrar nesta equipe",
+    "body": "Você foi convidado para entrar nesta equipe no cmux.",
+    "join": "Entrar na equipe",
+    "joining": "Entrando…",
+    "signedInAs": "Conectado como {email}",
+    "alreadyMemberTitle": "Você já é membro de {team}",
+    "alreadyMemberTitleUnknown": "Você já é membro desta equipe",
+    "alreadyMemberBody": "Abra a equipe para gerenciá-la.",
+    "openTeam": "Abrir equipe",
+    "mismatchTitle": "Este convite é para outra conta",
+    "mismatchBody": "Você está conectado como {email}, mas o convite foi enviado para outro endereço. Entre com o endereço convidado ou adicione e verifique esse endereço nesta conta.",
+    "mismatchBodyUnknown": "O convite foi enviado para outro endereço. Entre com o endereço convidado ou adicione e verifique esse endereço nesta conta.",
+    "switchAccount": "Sair e trocar de conta",
+    "switching": "Saindo…",
+    "switchFailed": "Não foi possível sair. Tente novamente.",
+    "invalidTitle": "Este convite não é mais válido",
+    "invalidBody": "Ele expirou, foi revogado ou já foi usado. Peça um novo a um administrador da equipe.",
+    "goToTeams": "Ir para suas equipes"
   }
 }

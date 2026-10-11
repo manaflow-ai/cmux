@@ -108,14 +108,25 @@ impl Picker {
         }
         self.cursor = c;
     }
+    /// Move to the next selectable row in `dir`, skipping headers. At either
+    /// end the cursor stays put; it never wraps around.
     pub fn move_by(&mut self, dir: isize) {
         let n = self.visible.len();
         if n == 0 {
             return;
         }
-        self.cursor =
-            if dir > 0 { (self.cursor + 1).min(n - 1) } else { self.cursor.saturating_sub(1) };
-        self.snap_cursor(dir);
+        let mut c = self.cursor.min(n - 1);
+        loop {
+            let next = if dir > 0 { c + 1 } else { c.wrapping_sub(1) };
+            if next >= n {
+                break;
+            }
+            c = next;
+            if !self.rows[self.visible[c]].header {
+                self.cursor = c;
+                break;
+            }
+        }
         self.reveal = true;
     }
     pub fn selected(&self) -> Option<&PickRow> {

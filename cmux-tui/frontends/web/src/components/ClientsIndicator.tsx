@@ -12,9 +12,9 @@ interface ClientsIndicatorProps {
 
 function sizeLabel(client: ClientInfo): string {
   if (client.sizes.length === 0) return "—";
-  return client.sizes.map((size) => (
-    size.cols === null || size.rows === null ? "—" : `${size.cols}x${size.rows}`
-  )).join(", ");
+  return client.sizes
+    .map((size) => (size.cols === null || size.rows === null ? "—" : `${size.cols}x${size.rows}`))
+    .join(", ");
 }
 
 export function ClientsIndicator({ clients, onRefresh, onDetach }: ClientsIndicatorProps) {
@@ -62,7 +62,9 @@ export function ClientsIndicator({ clients, onRefresh, onDetach }: ClientsIndica
                   <strong>{client.name || t("unnamed")}</strong>
                   {client.self && <span className="client-self">{t("thisDevice")}</span>}
                 </div>
-                <div className="client-meta">{client.kind || "—"} · {client.transport}</div>
+                <div className="client-meta">
+                  {client.kind || "—"} · {client.transport}
+                </div>
                 <div className="client-sizes">{sizeLabel(client)}</div>
                 {!client.self && (
                   <button

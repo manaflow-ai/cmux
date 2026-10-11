@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import Observation
 
@@ -24,12 +25,34 @@ public final class LayoutRootView: NSView {
     let driver = DisplayLinkDriver()
     private var observationTask: Task<Void, Never>?
     private var eventMonitor: Any?
+    /// Key-window observers of the current window (`observeKeyWindow()`).
+    var keyWindowObservers: [any NSObjectProtocol] = []
     private var lastSnapshot: Snapshot?
+    /// The last reveal request applied; a newer one waits until its pane is in a screen's layout.
+    private var appliedReveal: ColumnCenterRequest?
     private var reportedVisible: Set<PaneID> = []
     private var reportedKeepAlive: Set<PaneID> = []
     var scrollLock: ScrollLock = .idle
     var consumeMomentum = false
     var dragTab: TabID?
+    /// The drop preview's rect for the current tab drag target, in screen
+    /// coordinates; nil when nothing is highlighted. The drag session flies
+    /// the ghost to it, so the ghost lands where the preview showed (R47).
+    public internal(set) var tabDragHighlightOnScreen: CGRect?
+    /// The zone hit the drop preview shows now; the next hit test holds it
+    /// near its line (`DropZoneGeometry.zone`). Nil while nothing shows.
+    var tabDropHit: DropTarget?
+    /// The pane the current drag empties, as the last preview decided the
+    /// split room with it: the drop decides with the same pane (cx-ohle).
+    var tabDragRemoving: PaneID?
+    /// The pane edge the drag is over and since when; it splits once held for the dwell.
+    var tabDragEdge: (hit: DropTarget, since: CFTimeInterval)?
+    /// When the edge under a held pointer arms (a new split); nil when none is pending. The
+    /// drag session hit-tests again then, so a still pointer sees the split preview.
+    public internal(set) var tabDragDwellDeadline: CFTimeInterval?
+    /// Overlay sync observers by id (`observeOverlaySync`).
+    var overlaySyncObservers: [Int: () -> Void] = [:]
+    var nextOverlaySyncObserver = 0
 
     /// Everything the view reads from the model, observed as one value.
     private struct Snapshot: Equatable, Sendable {
@@ -40,20 +63,26 @@ public final class LayoutRootView: NSView {
         var style: LayoutStyle
         var gestureActive: Bool
         var centerRequest: ColumnCenterRequest?
+        var revealRequest: ColumnCenterRequest?
         var centerMode: CenterFocusedColumn
         var attention: [PaneID: AttentionMark]
+        var scrollbar: StripScrollbarMode
     }
 
     /// `contentProvider` is held weakly; the App keeps it alive.
-    public init(model: LayoutModel, contentProvider: any LayoutPaneContentProvider) {
+    /// `scrollbarClock` runs the strip scrollbar's `auto` fade-out deadline;
+    /// tests inject a manual clock.
+    public init(model: LayoutModel, contentProvider: any LayoutPaneContentProvider,
+                scrollbarClock: any Clock<Duration> = ContinuousClock()) {
         self.model = model
-        self.context = LayoutViewContext(model: model, provider: contentProvider)
+        self.context = LayoutViewContext(model: model, provider: contentProvider, scrollbarClock: scrollbarClock)
         super.init(frame: .zero)
         wantsLayer = true
         layer?.masksToBounds = true
         context.requestFrames = { [weak self] in self?.driver.start() }
         driver.onFrame = { [weak self] dt in self?.frame(dt) ?? false }
         context.overlayNeedsSync = { [weak self] in self?.syncOverlay() }
+        highlight.needsFrame = { [weak self] in self?.driver.start() }
         overlayPlane.addSubview(highlight)
         addSubview(overlayPlane)
         registerForDraggedTypes([LayoutTabDrag.pasteboardType])
@@ -66,10 +95,15 @@ public final class LayoutRootView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    isolated deinit {
-        observationTask?.cancel()
-        if let eventMonitor { NSEvent.removeMonitor(eventMonitor) }
-        driver.detach()
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            observationTask?.cancel()
+            if let eventMonitor { NSEvent.removeMonitor(eventMonitor) }
+            for token in keyWindowObservers { NotificationCenter.default.removeObserver(token) }
+            driver.detach()
+        }
     }
 
     override public var isFlipped: Bool { true }
@@ -80,7 +114,7 @@ public final class LayoutRootView: NSView {
     @discardableResult
     public func moveFocus(_ direction: LayoutDirection) -> PaneID? {
         guard let active = model.activeScreenID, let view = screenViews[active] else { return nil }
-        return model.moveFocus(direction, frames: view.geometry.panes)
+        return model.moveFocus(direction, frames: view.navigationFrames)
     }
 
     /// The hosted content view of `pane`, if it has been created.
@@ -95,6 +129,13 @@ public final class LayoutRootView: NSView {
     public func splitPlacement(splitting pane: PaneID, axis: SplitAxis, removing: PaneID? = nil) -> SplitPlacement {
         guard let screen = model.screen(containing: pane), let view = screenViews[screen.id] else { return .split }
         return view.splitPlacement(splitting: pane, axis: axis, removing: removing)
+    }
+
+    /// Pane frames of the active screen for directional focus: docked
+    /// columns placed before and after the strip (one logical line).
+    public var navigationFrames: [PaneID: CGRect] {
+        guard let active = model.activeScreenID, let view = screenViews[active] else { return [:] }
+        return view.navigationFrames
     }
 
     /// Displayed frame of `pane` in this view's coordinates (active screen only).
@@ -114,31 +155,44 @@ public final class LayoutRootView: NSView {
             style: model.style,
             gestureActive: model.isGestureActive,
             centerRequest: model.centerRequest,
+            revealRequest: model.revealRequest,
             centerMode: model.centerFocusedColumn,
-            attention: model.attention
+            attention: model.attention,
+            scrollbar: model.stripScrollbar
         )
     }
 
     private func observe() {
         let model = model
         observationTask = Task { [weak self] in
-            for await snapshot in Observations({
+            for await snapshot in ObservationStream({
                 Snapshot(
                     screens: model.screens,
                     activeScreen: model.activeScreenID,
                     focused: model.focusedPane,
-                            dimsInactive: model.dimsInactivePanes,
+                    dimsInactive: model.dimsInactivePanes,
                     style: model.style,
                     gestureActive: model.isGestureActive,
                     centerRequest: model.centerRequest,
+                    revealRequest: model.revealRequest,
                     centerMode: model.centerFocusedColumn,
-                    attention: model.attention
+                    attention: model.attention,
+                    scrollbar: model.stripScrollbar
                 )
             }) {
                 guard let self else { return }
                 if snapshot != self.lastSnapshot { self.sync(snapshot) }
             }
         }
+    }
+
+    /// Mirrors the model now instead of on the observation's next turn.
+    /// The App calls it after applying a daemon tree, so the frame that
+    /// shows a workspace (or a split, close or new tab in it) already has
+    /// its panes and tab strips; the observation then finds nothing new.
+    public func syncWithModel() {
+        let current = snapshot()
+        if current != lastSnapshot { sync(current) }
     }
 
     var canAnimate: Bool { window != nil && driver.isAttached && !context.reduceMotion }
@@ -185,13 +239,20 @@ public final class LayoutRootView: NSView {
             // on layout changes, reveals focus, and springs back after a close.
             let focused = snapshot.focused.flatMap { screen.layout.contains($0) ? $0 : nil }
             let source: ColumnFocusSource = previous?.focused != snapshot.focused ? model.lastFocusSource : .programmatic
+            // Only a snap that stands in for Reduce Motion's spring shows the
+            // scrollbar, not one at launch or while out of the window.
             if view.syncScroll(focused: focused, source: source, mode: snapshot.centerMode,
-                               animated: previous != nil && canAnimate, reveals: !snapshot.gestureActive) {
+                               animated: previous != nil && canAnimate, reveals: !snapshot.gestureActive,
+                               showsScrollbarOnSnap: previous != nil && window != nil && driver.isAttached) {
                 needsFrames = true
             }
             if let request = snapshot.centerRequest, request != previous?.centerRequest, screen.layout.contains(request.pane),
                view.center(request.pane, animated: animated) {
                 needsFrames = true
+            }
+            if let request = snapshot.revealRequest, request != appliedReveal, screen.layout.contains(request.pane) {
+                appliedReveal = request
+                if view.center(request.pane, animated: animated, reveal: true) { needsFrames = true }
             }
         }
 
@@ -219,7 +280,7 @@ public final class LayoutRootView: NSView {
             if view.step(dt) { moving = true }
         }
         for id in Array(screenFrames.keys) {
-            if screenFrames[id]!.advance(dt, parameters: Motion.spring(.screen)) { moving = true }
+            if screenFrames[id]?.advance(dt, parameters: Motion.spring(.screen)) == true { moving = true }
         }
         applyScreenFrames()
         if highlight.step(dt) { moving = true }
@@ -309,6 +370,7 @@ public final class LayoutRootView: NSView {
             self.eventMonitor = nil
         }
         driver.detach()
+        observeKeyWindow()
         guard window != nil else {
             updateVisibility()
             return

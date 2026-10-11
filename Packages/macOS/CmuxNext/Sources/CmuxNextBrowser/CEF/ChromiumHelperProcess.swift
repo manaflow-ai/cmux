@@ -1,6 +1,6 @@
 public import Darwin
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// One Chromium helper process of this app and what it does, read from its
 /// argv (`--type`, `--utility-sub-type`, `--extension-process`,

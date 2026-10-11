@@ -9,11 +9,16 @@ public struct NotifyRequest: DaemonRequest {
     public var body: String
     public var level: NotificationLevel?
     public var surface: SurfaceID?
-    public init(title: String, body: String = "", level: NotificationLevel? = nil, surface: SurfaceID? = nil) {
+    /// Who posts it (`notification-source-v1`): `cli`, `terminal`, `agent` or
+    /// `daemon`; the daemon's default is `cli`.
+    public var source: String?
+    public init(title: String, body: String = "", level: NotificationLevel? = nil, surface: SurfaceID? = nil,
+                source: String? = nil) {
         self.title = title
         self.body = body
         self.level = level
         self.surface = surface
+        self.source = source
     }
 }
 
@@ -25,8 +30,30 @@ public struct AckTabNotificationsRequest: DaemonRequest {
         public var surface: SurfaceID
         public var cleared: Bool
         public var acknowledged: [String]
+        /// Local feed items of the tab owned elsewhere (`feed-local-owner-v1`):
+        /// `feed.moving` while handing off, `owner.unreachable` once moved.
+        /// Nil on older daemons.
+        public var refused: [Refused]?
+        public init(surface: SurfaceID, cleared: Bool, acknowledged: [String], refused: [Refused]? = nil) {
+            self.surface = surface
+            self.cleared = cleared
+            self.acknowledged = acknowledged
+            self.refused = refused
+        }
+    }
+    /// One local feed item the ack could not read.
+    public struct Refused: Decodable, Sendable, Hashable {
+        public var item: String
+        public var code: String
+        public var retryable: Bool
+        public init(item: String, code: String, retryable: Bool = true) {
+            self.item = item
+            self.code = code
+            self.retryable = retryable
+        }
     }
     public static let command = "ack-tab-notifications"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.notificationAck
     public var surface: SurfaceID
     public init(surface: SurfaceID) { self.surface = surface }
 }
@@ -53,6 +80,7 @@ public struct ListNotificationsRequest: DaemonRequest {
         public var notifications: [Entry]
     }
     public static let command = "list-notifications"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.notificationAck
     public var limit: Int?
     public init(limit: Int? = nil) { self.limit = limit }
 }

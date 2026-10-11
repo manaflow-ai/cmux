@@ -2,7 +2,7 @@ import AppKit
 import os
 
 /// Last line of defense against Chromium's own top-level windows (a
-/// `Browser` window with Chrome's tab strip and toolbar, Task Manager, the
+/// `Browser` window with Chromium's tab strip and toolbar, Task Manager, the
 /// feedback dialog, the profile picker). The fork routes every window
 /// request to cmux (fork API 8) and never shows a Browser it created on its
 /// own; this guard covers older forks and any path the fork misses. It
@@ -40,7 +40,7 @@ final class ChromiumWindowGuard {
                      NSWindow.didChangeOcclusionStateNotification] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
                 guard let window = note.object as? NSWindow else { return }
-                MainActor.assumeIsolated { self?.check(window) }
+                MainActor.assumeIsolated { self?.check(window) } // main-proof: observer on queue: .main
             })
         }
         for window in NSApp.windows { check(window) }

@@ -288,7 +288,6 @@ function PropertyGrid({
 export default function ConfigurationPage() {
   const locale = useLocale();
   const t = useTranslations("docs.configuration");
-  const shortcutTranslations = useTranslations("docs.keyboardShortcuts");
 
   const metadataProperties = {
     $schema: schemaProperties.$schema,
@@ -442,7 +441,7 @@ working-directory = ~/code`}</CodeBlock>
       </p>
       {shortcutCategories.map((category) => (
         <section key={category.id}>
-          <h4>{shortcutTranslations(`cat.${category.titleKey}` as never)}</h4>
+          <h4>{localizedShortcutText(category.title, locale)}</h4>
           <div className="not-prose overflow-hidden rounded-xl border border-border/70 bg-background/40">
             {category.shortcuts.map((shortcut, index) => (
               <div

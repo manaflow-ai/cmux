@@ -40,6 +40,20 @@ cmux browser "$TAB" text body
 cmux browser "$TAB" value "#email"
 cmux browser "$TAB" fill "#email" "$APP_USERNAME"
 cmux browser "$TAB" type "#search" "query"
+cmux browser "$TAB" wait "#results"
+cmux browser "$TAB" wait --url-contains /dashboard --timeout-ms 15000
+cmux browser "$TAB" wait --text "Saved"
+cmux browser "$TAB" wait --load-state complete
+cmux browser "$TAB" wait --function 'window.appReady === true'
+cmux browser "$TAB" screenshot --out page.png
+cmux browser "$TAB" screenshot --selector "#chart" --out chart.png
+cmux browser "$TAB" screenshot --full-page --out full.png
+cmux browser "$TAB" screenshot --out - > page.png
+cmux browser "$TAB" tabs
+cmux browser page tabs --all
+cmux browser "$TAB" new-tab https://example.com
+cmux browser "$TAB" select
+cmux browser "$TAB" close
 cmux browser "$TAB" cookies get --name session_id
 cmux browser "$TAB" cookies set session_id abc123 --domain .example.com --secure
 cmux browser "$TAB" cookies clear --domain example.com
@@ -54,6 +68,29 @@ cmux browser "$TAB" storage session clear
 for `state`. `fill` replaces the field's value; `type` types into it.
 Selectors are CSS selectors or snapshot refs (`e3`, `@e3`). Add `--json` before
 the scope for machine-readable output (`cmux --json browser "$TAB" state`).
+
+`wait` takes one condition: a selector (positional or `--selector`), else
+`--url-contains`, `--text`, `--load-state interactive|complete`, or
+`--function` (a JavaScript expression), in that order. With none it waits for
+the page to finish loading. The default timeout is 5000 ms (`--timeout-ms`, at
+most 120000, or `--timeout` in seconds); it exits 1 with `timeout` when the
+condition does not hold in time, and keeps waiting across a navigation.
+
+`screenshot` captures the visible viewport as a PNG. `--selector` captures one
+element (scrolled into view, clipped to the viewport); `--full-page` captures
+the whole document (at most 25 million CSS pixels and 48 viewport tiles;
+fixed headers repeat in WebKit tabs). Without `--out` the PNG is a new file in
+the temporary directory (kept for an hour, newest 32); `--out PATH` copies it there. It prints the path
+(`--json`: the tab, path, width and height). `--out -` writes only the PNG to
+stdout.
+
+`tabs` lists the browser tabs of the tab's workspace (`page tabs`: the focused
+workspace; `--all`: every workspace) with id, title, URL, pane and whether each
+is selected or focused. `new-tab [URL]` opens a browser tab in the same pane
+and prints its id under `created`; `select` (or `switch`) shows and focuses the
+tab; `close` closes it. They run the same actions as the tab strip, wait for
+them unless `--no-wait`, and refuse a tab that is not an app browser tab. They
+act on the tab you name; the old `tab switch|close <index>` has no equivalent.
 
 `cookies` reads and changes the tab profile's cookies (fields `name`, `value`,
 `domain`, `path`, `expires`, `secure`, `httpOnly`, `hostOnly`, `session_only`).
@@ -88,9 +125,10 @@ cmux browser browser_… close
 These run the same action as the menu or palette and return no page data:
 `browser screenshot-page`, `browser screenshot-section`,
 `browser toggle-developer-tools`, `browser show-javascript-console`,
-`browser delete-site-data`, `browser import-data`, `browser new-profile`,
-`browser zoom-in`, `browser zoom-out`, `browser toggle-design-mode`,
-`browser toggle-focus-mode`, `browser toggle-react-grab`.
+`browser delete-site-data`, `browser new-profile`,
+`browser toggle-design-mode`, `browser toggle-focus-mode`,
+`browser toggle-react-grab`. Page zoom is `cmux tab <tab_…> zoom in|out|reset`
+(the app's Zoom In, Zoom Out and Actual Size on the tab's pane).
 
 ```bash
 cmux action list --noun browser
@@ -98,16 +136,17 @@ cmux action describe "browser screenshot-page"
 cmux browser screenshot-page
 ```
 
-## Removed, no replacement yet
+## Not in the per-tab CLI (use the REPL)
 
-The old CLI's `wait`, `state save|load`, `console`,
-`errors`, `highlight`, `screenshot` (to stdout or a file), `download`,
+The old CLI's `state save|load`, `console`,
+`errors`, `highlight`, `download`,
 `dialog`, `frame`, `network`, `trace`, `screencast`, `geolocation`,
-`offline`, `viewport`, `hover`, `dblclick`, `check`, `uncheck`, `select`,
+`offline`, `viewport`, `hover`, `dblclick`, `check`, `uncheck`, form `select <selector> <value>`,
 `scroll`, `scroll-into-view`, `press`, `keydown`, `keyup`, `get attr|count|box|styles|html`,
-`tab list|new|switch|close` inside a browser, `identify`, `profile`,
-`design-mode status` and `--snapshot-after` have no command in the new CLI.
-Waits are not supported yet; do not poll with `eval`. For a one-shot read that
+`identify`, `profile`, `design-mode status` and `--snapshot-after` have no
+per-tab command (`wait` and `screenshot` are above). Cookies, storage, saved
+state, console, dialogs, downloads, hover and scroll are in the browser REPL
+([repl-guide.md](repl-guide.md)); do not poll with `eval`. For a one-shot read that
 `text` and `value` do not cover, `eval` returns the script's value.
 
 See also [snapshot-refs.md](snapshot-refs.md) and

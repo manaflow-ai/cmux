@@ -43,15 +43,13 @@ limit while upgraded clients traverse every page. Sign-out callers must invoke
 the authenticated revoke route with their captured binding id before discarding
 the Stack credential.
 
-There is no total active-binding limit per account or device. Postgres advisory
-locks keep request-rate limits concurrency-safe: six challenges per device per
-ten minutes, 32 outstanding challenges per account, 60 pair grants per account
-per hour, three relay mints per endpoint per ten minutes, 12 relay mints per
-endpoint per day, and 100 relay mints per account per day. A relay reservation
-remains active for 60 seconds, then the next account-scoped reservation marks it
-expired before applying those quotas. The optional Vercel Firewall rule is
-defense in depth. A tagged-build override widens challenge issuance only after
-an exact authenticated user-id and deployment-environment allowlist match.
+There is no total active-binding limit per account or device. Relay-token and
+relay-preference requests use the optional Vercel Firewall rules as their
+deployed ingress budget. A deliberate DEV-only bypass is available only when
+the deployment opts in, uses the development Stack project, presents a tagged
+debug namespace, and authenticates a member of the configured internal Stack
+team. Release and internal-beta namespaces never qualify, and a Stack or
+snapshot lookup failure falls back to the normal limiter.
 
 Registration bootstraps a relay credential only when it creates a binding.
 Signed refreshes of the same binding return `relay.status = "not_requested"`;

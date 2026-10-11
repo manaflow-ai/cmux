@@ -21,14 +21,43 @@ use serde_json::{Map, Value, json};
 
 use super::{GlobalArgs, OutputMode, UsageError};
 use crate::app_identity::AppIdentity;
+use events::stream_events;
+use open::{OpenRequest, parse_open};
+#[cfg(test)]
+use open::{is_web_url, parse_open_with};
+use page::{SCREENSHOT_TIMEOUT, parse_page, save_screenshot};
+pub(super) use run::{action_run_params, insert_run_key, request_with_retry};
+
+mod call;
+mod events;
+mod keybinding;
+mod open;
+mod page;
+mod run;
+mod settings;
+mod skew;
 
 /// Scopes that belong to the app, whatever follows.
-pub(super) const APP_SCOPES: &[&str] = &["app", "action", "settings", "window", "events"];
+pub(super) const APP_SCOPES: &[&str] = &[
+    "app",
+    "action",
+    "settings",
+    "window",
+    "events",
+    "history",
+    "bookmark",
+    "accounts",
+    "open",
+    "keybinding",
+    "ghostty",
+];
 
-/// Control-plane requests answer within the app's own 2 s deadline; a run
-/// that waits for its work may wait for a terminal to start (6 s).
-const READ_TIMEOUT: Duration = Duration::from_secs(5);
-const WAITING_RUN_TIMEOUT: Duration = Duration::from_secs(10);
+/// Control-plane requests answer within the app's own 2 s deadline. A run
+/// that waits for its work may wait for a terminal to start (6 s) or for a
+/// network action the app bounds itself (`ActionDescriptor.resultDeadline`,
+/// 40 s, Connect to CodeRouter), so the CLI gives the app longer than that.
+pub(super) const READ_TIMEOUT: Duration = Duration::from_secs(5);
+pub(super) const WAITING_RUN_TIMEOUT: Duration = Duration::from_secs(45);
 const MAX_RESPONSE_BYTES: u64 = 16 << 20;
 /// A `busy` app that says the run never started is asked again this many
 /// times, after the delay it names (`retry_after_ms`, else this default).
@@ -48,13 +77,71 @@ pub(super) enum ActionName {
 
 #[derive(Debug, PartialEq)]
 pub(super) enum AppCommand {
-    Call { method: &'static str, params: Value, timeout: Duration, pick: Option<&'static str> },
-    Events { params: Value },
+    /// `timeout: None` waits until the app answers (a person at a sheet).
+    Call {
+        method: &'static str,
+        params: Value,
+        timeout: Option<Duration>,
+        pick: Option<&'static str>,
+    },
+    Open {
+        requests: Vec<OpenRequest>,
+        /// `open -`: the first failed request ends the command, so a refused
+        /// URL is never followed by the next one.
+        stop_on_failure: bool,
+    },
+    /// `app call`: one method of a debug build (app/call.rs).
+    DebugCall {
+        method: String,
+        params: Map<String, Value>,
+    },
+    Events {
+        params: Value,
+    },
+    /// `browser.page.screenshot`, whose PNG goes to `out` (`-` is stdout,
+    /// none is a new file in the temporary directory).
+    Screenshot {
+        params: Value,
+        out: Option<String>,
+    },
+}
+
+/// The classic CLI's top-level discovery verbs: `cmux identify`, `cmux ping`
+/// and `cmux capabilities`, with the classic `--id-format <refs|uuids|both>`
+/// before or after the verb (ignored: these answers carry no refs). Skills,
+/// prompts and agent habits written for both apps still run them (cx-4w47
+/// D1); they are this app's `app identify|ping|capabilities`, the same
+/// `system.*` methods the classic CLI sends.
+fn classic_system_method(args: &[String]) -> Option<&'static str> {
+    let words = args.iter().map(String::as_str).collect::<Vec<_>>();
+    let verb = match words.as_slice() {
+        [verb] => *verb,
+        ["--id-format", format, verb] | [verb, "--id-format", format]
+            if matches!(*format, "refs" | "uuids" | "both") =>
+        {
+            *verb
+        }
+        _ => return None,
+    };
+    match verb {
+        "identify" => Some("system.identify"),
+        "ping" => Some("system.ping"),
+        "capabilities" => Some("system.capabilities"),
+        _ => None,
+    }
 }
 
 /// Parses an app scope. `Ok(None)` when `args` does not start with one.
 pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     let Some(scope) = args.first() else { return Ok(None) };
+    if let Some(method) = classic_system_method(args) {
+        return Ok(Some(AppCommand::Call {
+            method,
+            params: json!({}),
+            timeout: Some(READ_TIMEOUT),
+            pick: None,
+        }));
+    }
     if scope == "browser"
         && let Some(target) = args.get(1)
         && (target == "page" || target.starts_with("tab_"))
@@ -66,16 +153,23 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     }
     let messages = &crate::localization::catalog().app_control;
     let rest = &args[1..];
-    let call =
-        |method, params| AppCommand::Call { method, params, timeout: READ_TIMEOUT, pick: None };
+    let call = |method, params| AppCommand::Call {
+        method,
+        params,
+        timeout: Some(READ_TIMEOUT),
+        pick: None,
+    };
     let command = match (scope.as_str(), rest.first().map(String::as_str)) {
+        ("open", _) => parse_open(rest)?,
+        ("keybinding", _) => keybinding::parse(rest)?,
+        ("app", Some("call")) => call::parse(rest)?,
         ("app", Some("ping")) => call("system.ping", json!({})),
         ("app", Some("identify")) => call("system.identify", json!({})),
         ("app", Some("capabilities")) => call("system.capabilities", json!({})),
         ("window", Some("list")) => AppCommand::Call {
             method: "snapshot.get",
             params: json!({}),
-            timeout: READ_TIMEOUT,
+            timeout: Some(READ_TIMEOUT),
             pick: Some("windows"),
         },
         ("action", Some("list")) => {
@@ -101,20 +195,43 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             };
             run_action(id, tail, ActionName::Any)?
         }
-        ("settings", Some("get")) => match &rest[1..] {
-            [] => call("settings.get", json!({})),
-            [path] => call("settings.get", json!({ "path": path })),
-            _ => return Err(UsageError::new(messages.settings_usage)),
-        },
-        ("settings", Some("set")) => {
-            let [path, value] = positional::<2>(&rest[1..], messages.settings_usage)?;
-            // A JSON value when it parses as one, else the literal string.
-            let value = serde_json::from_str(&value).unwrap_or(Value::String(value));
-            call("settings.set", json!({ "path": path, "value": value }))
+        ("settings", Some("get" | "set" | "reset" | "unset")) => settings::parse(rest)?,
+        // The app's durable page, location, closed and agent history
+        // (plans/cmux-next/history.md): `history list|search`.
+        ("history", Some(verb @ ("list" | "search"))) => {
+            let (text, tail) = read_text(verb, &rest[1..], scope)?;
+            let options = Options::parse(tail, &["kind", "range", "limit"], &[])?;
+            let mut params = read_query(&options, text, &["kind", "range"]);
+            if let Some(limit) = options.value("limit") {
+                params.insert("limit".into(), json!(parse_limit(limit, scope)?));
+            }
+            call("history.list", Value::Object(params))
         }
-        ("settings", Some("unset")) => {
-            let [path] = positional::<1>(&rest[1..], messages.settings_usage)?;
-            call("settings.unset", json!({ "path": path }))
+        // The app's AI provider accounts, no secrets (`accounts.list`); the
+        // other `accounts` verbs are app actions.
+        ("accounts", Some("list")) => {
+            if rest.len() > 1 {
+                return Err(UsageError::new(messages.scope_usage.replace("{scope}", scope)));
+            }
+            call("accounts.list", json!({}))
+        }
+        // The Ghostty config keys and keybind actions cmux does not apply
+        // (R92 diagnostics): the same report as Settings > Terminal.
+        ("ghostty", Some("diagnostics")) => {
+            if rest.len() > 1 {
+                return Err(UsageError::new(messages.scope_usage.replace("{scope}", scope)));
+            }
+            call("ghostty.diagnostics", json!({}))
+        }
+        // Bookmarks of a browser profile (plans/cmux-next/bookmarks.md).
+        ("bookmark", Some(verb @ ("list" | "search"))) => {
+            let (text, tail) = read_text(verb, &rest[1..], scope)?;
+            let options = Options::parse(tail, &["folder", "profile", "limit"], &[])?;
+            let mut params = read_query(&options, text, &["folder", "profile"]);
+            if let Some(limit) = options.value("limit") {
+                params.insert("limit".into(), json!(parse_limit(limit, scope)?));
+            }
+            call("bookmark.list", Value::Object(params))
         }
         ("events", _) => {
             let options = Options::parse(rest, &["after", "name", "category"], &["no-heartbeats"])?;
@@ -151,153 +268,87 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     Ok(Some(command))
 }
 
-/// `cmux browser <tab_…|page> <verb> …`: page commands for a browser tab the
-/// app hosts (`page` is the focused tab). A daemon browser (`browser_…`) is
-/// the mux grammar's.
-fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, UsageError> {
+/// An action's `path` argument as the app must read it: a relative path
+/// names a folder or file of the caller's working directory, and the app
+/// runs elsewhere, so it is made absolute here (`.` parts dropped). An
+/// absolute path, `~/…`, or a non-string value is sent unchanged.
+fn caller_path(value: Value) -> Value {
+    let Some(text) = value.as_str() else { return value };
+    let path = std::path::Path::new(text);
+    if text.is_empty() || path.is_absolute() || text.starts_with('~') {
+        return value;
+    }
+    let Ok(cwd) = std::env::current_dir() else { return value };
+    let joined: PathBuf = cwd
+        .join(path)
+        .components()
+        .filter(|part| !matches!(part, std::path::Component::CurDir))
+        .collect();
+    json!(joined.to_string_lossy())
+}
+
+/// `cli` when a person runs the command at a terminal, else `script`.
+pub(super) fn action_origin() -> &'static str {
+    use std::io::IsTerminal;
+    if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() { "cli" } else { "script" }
+}
+
+/// An action argument's name from its flag: the catalog names arguments in
+/// camelCase (`--keep-sessions` is `keepSessions`).
+fn argument_name(flag: &str) -> String {
+    let mut name = String::with_capacity(flag.len());
+    let mut upper = false;
+    for character in flag.chars() {
+        if character == '-' || character == '_' {
+            upper = true;
+        } else if upper {
+            name.extend(character.to_uppercase());
+            upper = false;
+        } else {
+            name.push(character);
+        }
+    }
+    name
+}
+
+/// The text of a `search <text>` read (none for `list`) and the options
+/// after it.
+fn read_text<'a>(
+    verb: &str,
+    args: &'a [String],
+    scope: &str,
+) -> Result<(Option<&'a String>, &'a [String]), UsageError> {
+    if verb == "list" {
+        return Ok((None, args));
+    }
     let messages = &crate::localization::catalog().app_control;
-    let usage = || UsageError::new(messages.browser_page_usage);
-    let Some((verb, rest)) = args.split_first() else { return Err(usage()) };
+    match args.split_first() {
+        Some((text, tail)) if !text.starts_with("--") => Ok((Some(text), tail)),
+        _ => Err(UsageError::new(messages.search_text_usage.replace("{scope}", scope))),
+    }
+}
+
+/// The params of a `list` or `search` read: the named options and the text.
+fn read_query(options: &Options, text: Option<&String>, keys: &[&str]) -> Map<String, Value> {
     let mut params = Map::new();
-    if target != "page" {
-        params.insert("tab".into(), json!(target));
+    for key in keys {
+        if let Some(value) = options.value(key) {
+            params.insert((*key).into(), json!(value));
+        }
     }
-    let words: Vec<&String> = rest.iter().filter(|arg| !arg.starts_with("--")).collect();
-    let method = match (verb.as_str(), words.as_slice()) {
-        ("navigate" | "goto" | "open", [url]) => {
-            params.insert("url".into(), json!(url));
-            "browser.page.navigate"
-        }
-        ("back", []) => "browser.page.back",
-        ("forward", []) => "browser.page.forward",
-        ("reload", []) => "browser.page.reload",
-        ("state" | "url" | "title", []) => "browser.page.state",
-        ("eval", [script]) => {
-            params.insert("script".into(), json!(script));
-            "browser.page.eval"
-        }
-        ("snapshot", _) => {
-            let options = Options::parse(rest, &["selector", "max-depth"], &["interactive"])?;
-            if let Some(selector) = options.value("selector") {
-                params.insert("selector".into(), json!(selector));
-            }
-            if let Some(depth) = options.value("max-depth") {
-                let depth: u32 = depth.parse().map_err(|_| usage())?;
-                params.insert("max_depth".into(), json!(depth));
-            }
-            if options.flag("interactive") {
-                params.insert("interactive".into(), json!(true));
-            }
-            "browser.page.snapshot"
-        }
-        ("click" | "focus" | "text" | "value", [selector]) => {
-            params.insert("selector".into(), json!(selector));
-            match verb.as_str() {
-                "click" => "browser.page.click",
-                "focus" => "browser.page.focus",
-                "text" => "browser.page.text",
-                _ => "browser.page.value",
-            }
-        }
-        ("fill" | "type", [selector, text]) => {
-            params.insert("selector".into(), json!(selector));
-            params.insert("text".into(), json!(text));
-            if verb == "fill" { "browser.page.fill" } else { "browser.page.type" }
-        }
-        ("cookies", _) => cookies(rest, &mut params).ok_or_else(usage)??,
-        ("storage", _) => storage(rest, &mut params).ok_or_else(usage)?,
-        _ => return Err(usage()),
-    };
-    if !matches!(verb.as_str(), "snapshot" | "cookies" | "storage") && words.len() != rest.len() {
-        return Err(usage());
+    if let Some(text) = text {
+        params.insert("text".into(), json!(text));
     }
-    Ok(AppCommand::Call {
-        method,
-        params: Value::Object(params),
-        timeout: READ_TIMEOUT,
-        pick: None,
-    })
+    params
 }
 
-/// Leading words, then `--flags`.
-fn split_words(args: &[String]) -> (&[String], &[String]) {
-    args.split_at(args.iter().position(|arg| arg.starts_with("--")).unwrap_or(args.len()))
-}
-
-/// `cookies [get] [--name N] [--domain D] [--path P]`,
-/// `cookies set NAME VALUE [--url U | --domain D] [--path P] [--expires UNIX] [--secure] [--http-only]`,
-/// `cookies clear --all | [--name N] [--url U] [--domain D] [--path P]`.
-/// None is a usage error.
-fn cookies(
-    args: &[String],
-    params: &mut Map<String, Value>,
-) -> Option<Result<&'static str, UsageError>> {
-    let (words, flags) = split_words(args);
-    let (action, words) = match words.split_first() {
-        Some((action, words)) => (action.as_str(), words),
-        None => ("get", words),
-    };
-    let (valued, switches): (&[&str], &[&str]) = match action {
-        "get" => (&["name", "domain", "path"], &[]),
-        "set" => (&["name", "value", "url", "domain", "path", "expires"], &["secure", "http-only"]),
-        "clear" => (&["name", "url", "domain", "path"], &["all"]),
-        _ => return None,
-    };
-    let options = match Options::parse(flags, valued, switches) {
-        Ok(options) => options,
-        Err(error) => return Some(Err(error)),
-    };
-    match (action, words) {
-        ("set", [name, value]) => {
-            params.insert("name".into(), json!(name));
-            params.insert("value".into(), json!(value));
-        }
-        ("set", []) if options.value("name").is_some() && options.value("value").is_some() => {}
-        (_, []) if action != "set" => {}
-        _ => return None,
-    }
-    for key in valued {
-        let Some(value) = options.value(key) else { continue };
-        let value =
-            if *key == "expires" { json!(value.parse::<i64>().ok()?) } else { json!(value) };
-        params.insert((*key).into(), value);
-    }
-    for key in switches {
-        if options.flag(key) {
-            params.insert(key.replace('-', "_"), json!(true));
-        }
-    }
-    Some(Ok(match action {
-        "get" => "browser.page.cookies.get",
-        "set" => "browser.page.cookies.set",
-        _ => "browser.page.cookies.clear",
-    }))
-}
-
-/// `storage [local|session] [get [KEY] | set KEY VALUE | clear]`.
-fn storage(args: &[String], params: &mut Map<String, Value>) -> Option<&'static str> {
-    let mut words = args;
-    if let Some((area, rest)) = words.split_first()
-        && matches!(area.as_str(), "local" | "session")
-    {
-        params.insert("type".into(), json!(area));
-        words = rest;
-    }
-    match words {
-        [] => Some("browser.page.storage.get"),
-        [get] if get == "get" => Some("browser.page.storage.get"),
-        [get, key] if get == "get" => {
-            params.insert("key".into(), json!(key));
-            Some("browser.page.storage.get")
-        }
-        [set, key, value] if set == "set" => {
-            params.insert("key".into(), json!(key));
-            params.insert("value".into(), json!(value));
-            Some("browser.page.storage.set")
-        }
-        [clear] if clear == "clear" => Some("browser.page.storage.clear"),
-        _ => None,
-    }
+fn parse_limit(value: &str, scope: &str) -> Result<u64, UsageError> {
+    let messages = &crate::localization::catalog().app_control;
+    value
+        .parse::<u64>()
+        .ok()
+        .filter(|limit| *limit > 0)
+        .ok_or_else(|| UsageError::new(messages.scope_usage.replace("{scope}", scope)))
 }
 
 /// `action.run` for an action id or CLI name: `--target ID`, `--no-wait`
@@ -309,13 +360,8 @@ pub(super) fn run_action(
     name: ActionName,
 ) -> Result<AppCommand, UsageError> {
     let messages = &crate::localization::catalog().app_control;
-    let mut params = Map::new();
+    let mut params = action_run_params(action, name, action_origin());
     let mut arguments = Map::new();
-    params.insert("action".into(), json!(action));
-    if name == ActionName::Cli {
-        params.insert("cli".into(), json!(true));
-    }
-    params.insert("wait".into(), json!(true));
     let mut index = 0;
     while index < args.len() {
         let flag = args[index].as_str();
@@ -329,31 +375,44 @@ pub(super) fn run_action(
                 index += 1;
                 continue;
             }
+            "focus" => {
+                params.insert("focus".into(), json!(true));
+                index += 1;
+                continue;
+            }
             _ => {}
         }
+        // `--name value`, `--name=value`, or a bare `--name` (true) when no
+        // value follows (`cmux app quit --keep-sessions`).
         let (name, value) = match name.split_once('=') {
-            Some((name, value)) => (name.to_owned(), value.to_owned()),
-            None => {
-                let value = args.get(index + 1).ok_or_else(|| {
-                    UsageError::new(messages.missing_value.replace("{flag}", flag))
-                })?;
-                index += 1;
-                (name.to_owned(), value.clone())
-            }
+            Some((name, value)) => (name.to_owned(), json!(value)),
+            None => match args.get(index + 1) {
+                Some(value) if !value.starts_with("--") => {
+                    index += 1;
+                    (name.to_owned(), json!(value))
+                }
+                _ if name == "target" || name == "arg" => {
+                    return Err(UsageError::new(messages.missing_value.replace("{flag}", flag)));
+                }
+                _ => (name.to_owned(), json!(true)),
+            },
         };
         index += 1;
         match name.as_str() {
             "target" => {
-                params.insert("target".into(), json!(value));
+                params.insert("target".into(), value);
             }
             "arg" => {
-                let (key, value) = value.split_once('=').ok_or_else(|| {
-                    UsageError::new(messages.arg_shape.replace("{value}", &value))
-                })?;
+                let text = value.as_str().unwrap_or_default();
+                let (key, value) = text
+                    .split_once('=')
+                    .ok_or_else(|| UsageError::new(messages.arg_shape.replace("{value}", text)))?;
                 arguments.insert(key.into(), json!(value));
             }
             _ => {
-                arguments.insert(name.replace('-', "_"), json!(value));
+                let key = argument_name(&name);
+                let value = if key == "path" { caller_path(value) } else { value };
+                arguments.insert(key, value);
             }
         }
     }
@@ -364,7 +423,7 @@ pub(super) fn run_action(
     Ok(AppCommand::Call {
         method: "action.run",
         params: Value::Object(params),
-        timeout: if wait { WAITING_RUN_TIMEOUT } else { READ_TIMEOUT },
+        timeout: Some(if wait { WAITING_RUN_TIMEOUT } else { READ_TIMEOUT }),
         pick: None,
     })
 }
@@ -372,7 +431,13 @@ pub(super) fn run_action(
 pub(super) fn run(global: &GlobalArgs, command: AppCommand) -> i32 {
     match run_command(global, command) {
         Ran::Done(code) => code,
-        Ran::NoSuchCliAction(scope) => {
+        Ran::NoSuchCliAction { name, .. }
+            if super::action_hint::non_verb_action(&name).is_some() =>
+        {
+            super::action_hint::report(&name, global.output)
+                .unwrap_or(super::action_hint::EXIT_CODE)
+        }
+        Ran::NoSuchCliAction { scope, .. } => {
             let messages = &crate::localization::catalog().app_control;
             failure(
                 "usage.invalid",
@@ -389,48 +454,126 @@ pub(super) fn run(global: &GlobalArgs, command: AppCommand) -> i32 {
 /// the caller reports its own usage error. One connection, one `action.run`.
 pub(super) fn run_cli_action(global: &GlobalArgs, name: &str, args: &[String]) -> Option<i32> {
     let command = run_action(name, args, ActionName::Cli).ok()?;
-    let socket = socket_path(global).ok()?;
-    let stream = connect(&socket).ok()?;
-    match call(global, stream, command) {
+    // A named socket that is missing or not an app (a daemon's `--socket`)
+    // has no CLI action; the caller reports its own usage error.
+    let mut stream = connect_command(global).ok()?;
+    match call(global, &mut stream, command) {
         Ran::Done(code) => Some(code),
-        Ran::NoSuchCliAction(_) => None,
+        Ran::NoSuchCliAction { .. } => None,
     }
 }
 
 enum Ran {
     Done(i32),
-    /// The app ran nothing: no action marked for the CLI has this name.
-    NoSuchCliAction(String),
+    /// The app ran nothing: no action marked for the CLI has this name
+    /// (`scope` is its first word).
+    NoSuchCliAction {
+        scope: String,
+        name: String,
+    },
 }
 
 fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
-    let socket = match socket_path(global) {
-        Ok(socket) => socket,
-        Err(error) => return Ran::Done(failure("app.not_found", &error, global.output, 3)),
-    };
-    let stream = match connect(&socket) {
+    let mut stream = match connect_command(global) {
         Ok(stream) => stream,
-        Err(error) => return Ran::Done(failure("app.unreachable", &error, global.output, 3)),
+        Err(error) => return Ran::Done(super::wire::print_local_error(&error, global.output, 3)),
     };
-    call(global, stream, command)
+    call(global, &mut stream, command)
 }
 
-fn call(global: &GlobalArgs, mut stream: UnixStream, command: AppCommand) -> Ran {
-    let (method, mut params, timeout, pick) = match command {
-        AppCommand::Call { method, params, timeout, pick } => (method, params, timeout, pick),
+/// The app control connection of an app command ([`command_socket`]). A
+/// named socket that is missing or refuses is `socket.unreachable`, and one
+/// that does not answer as the cmux app is `socket.wrong_kind`; neither
+/// tries another socket.
+pub(super) fn connect_command(global: &GlobalArgs) -> Result<UnixStream, Value> {
+    let socket = command_socket(global)?;
+    let Some(flag) = socket.named_by else {
+        return connect(&socket.path).map_err(|message| typed("app.unreachable", message, None));
+    };
+    let messages = &crate::localization::catalog().app_control;
+    let path = socket.path.display().to_string();
+    let mut stream = UnixStream::connect(&socket.path).map_err(|error| {
+        let message = messages
+            .explicit_unreachable
+            .replace("{path}", &path)
+            .replace("{flag}", flag)
+            .replace("{error}", &error.to_string());
+        typed("socket.unreachable", message, Some(&socket))
+    })?;
+    // `--socket` may name a daemon's socket: the app answers `system.ping`
+    // with `pong`, anything else is another kind of socket, and no app
+    // request runs there. `--app-socket` names the app socket itself.
+    if flag == "--socket" {
+        // An app's refusal is an object with a code (a classic app in
+        // password mode refuses ping before `auth.login`); a daemon's
+        // refusal of the unknown line is a plain string.
+        let pong = exchange(&mut stream, "system.ping", json!({}), READ_TIMEOUT);
+        let is_app = match &pong {
+            Ok(Ok(result)) => result.get("pong") == Some(&Value::Bool(true)),
+            Ok(Err(error)) => error.get("code").is_some_and(Value::is_string),
+            Err(_) => false,
+        };
+        if !is_app {
+            let message = messages.wrong_kind.replace("{path}", &path);
+            return Err(typed("socket.wrong_kind", message, Some(&socket)));
+        }
+    }
+    Ok(stream)
+}
+
+fn typed(code: &str, message: String, socket: Option<&AppSocket>) -> Value {
+    let details = match socket {
+        Some(socket) => json!({
+            "socket": socket.path.display().to_string(),
+            "flag": socket.named_by,
+        }),
+        None => json!({}),
+    };
+    json!({ "code": code, "message": message, "details": details, "retryable": false })
+}
+
+fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ran {
+    let (method, mut params, timeout, pick, screenshot_out) = match command {
+        AppCommand::Call { method, params, timeout, pick } => (method, params, timeout, pick, None),
+        AppCommand::Screenshot { params, out } => {
+            ("browser.page.screenshot", params, Some(SCREENSHOT_TIMEOUT), None, Some(out))
+        }
         AppCommand::Events { params } => {
-            return Ran::Done(stream_events(&mut stream, params, global.output));
+            return Ran::Done(stream_events(stream, params, global.output));
+        }
+        AppCommand::DebugCall { method, params } => {
+            return Ran::Done(call::run(global, stream, &method, params));
+        }
+        AppCommand::Open { requests, stop_on_failure } => {
+            let mut status = 0;
+            for request in requests {
+                let timeout = Some(request.timeout());
+                if let Ran::Done(code) = call(
+                    global,
+                    stream,
+                    AppCommand::Call {
+                        method: request.method,
+                        params: request.params,
+                        timeout,
+                        pick: None,
+                    },
+                ) {
+                    status = status.max(code);
+                }
+                if stop_on_failure && status != 0 {
+                    break;
+                }
+            }
+            return Ran::Done(status);
         }
     };
     let cli_name = params.get("cli") == Some(&Value::Bool(true));
-    let key = if method == "action.run" {
-        match global.idempotency_key.clone().map(Ok).unwrap_or_else(|| {
-            super::command::random_prefixed("mutation").map_err(|error| error.to_string())
-        }) {
-            Ok(key) => {
-                params["idempotency_key"] = json!(key);
-                Some(key)
-            }
+    // Runs that may create or close something carry a key, so a retry is not a second run.
+    let keyed =
+        ["action.run", "browser.page.new_tab", "browser.page.select_tab", "browser.page.close"];
+    let key = if keyed.contains(&method) {
+        match insert_run_key(&mut params, global.idempotency_key.as_deref()) {
+            Ok(key) => Some(key),
             Err(error) => return Ran::Done(failure("app.transport", &error, global.output, 3)),
         }
     } else if global.idempotency_key.is_some() {
@@ -440,41 +583,60 @@ fn call(global: &GlobalArgs, mut stream: UnixStream, command: AppCommand) -> Ran
         None
     };
     let report = super::wire::KeyReport::new(key.as_deref());
-    let mut retries = 0;
-    let response = loop {
-        match request(&mut stream, method, params.clone(), timeout) {
-            Ok(Err(error)) if retries < BUSY_RETRIES && busy_before_running(&error) => {
-                retries += 1;
-                std::thread::sleep(busy_retry_delay(&error));
-            }
-            Ok(response) => break response,
-            Err(error) => {
-                let code = failure("app.transport", &error, global.output, 3);
-                report.finish(global.output);
-                return Ran::Done(code);
-            }
+    // An open-ended wait ends on Ctrl-C: the CLI's signal handlers would only
+    // set a flag that a blocking read never sees, so give SIGINT, SIGTERM and
+    // SIGHUP their default action back (the app's own deadline still ends it).
+    #[cfg(unix)]
+    if timeout.is_none() && crate::restore_default_termination_signals().is_err() {
+        return Ran::Done(130);
+    }
+    if output_shows_notes(global.output)
+        && let Some(note) = settings::waiting_note(method, &params)
+    {
+        eprintln!("{note}");
+    }
+    let response = match request_with_retry(stream, method, &params, timeout) {
+        Ok(response) => response,
+        Err(error) => {
+            let code = failure("app.transport", &error, global.output, 3);
+            report.finish(global.output);
+            return Ran::Done(code);
         }
     };
     match response {
+        Ok(result) if screenshot_out.is_some() => {
+            Ran::Done(save_screenshot(result, screenshot_out.flatten().as_deref(), global.output))
+        }
         Ok(result) => {
             let value = match pick {
                 Some(key) => result.get("topology").and_then(|topology| topology.get(key)).cloned(),
                 None => None,
             }
             .unwrap_or(result);
+            warn_unstable_handles(method, &value, global.output);
             Ran::Done(super::wire::print_local_success(&value, global.output))
         }
         Err(error) if cli_name && error_code(&error) == Some("not_found") => {
-            let scope = params["action"].as_str().unwrap_or_default();
-            Ran::NoSuchCliAction(scope.split(' ').next().unwrap_or_default().to_owned())
+            let name = params["action"].as_str().unwrap_or_default().to_owned();
+            let scope = name.split(' ').next().unwrap_or_default().to_owned();
+            Ran::NoSuchCliAction { scope, name }
         }
         Err(mut error) => {
+            if error_code(&error) == Some("method_not_found") {
+                skew::annotate(stream, method, &mut error);
+            }
+            settings::explain_refusal(method, &params, &mut error);
             report.annotate(&mut error, global.output);
             let code = super::wire::print_local_error(&error, global.output, 1);
             report.finish(global.output);
             Ran::Done(code)
         }
     }
+}
+
+/// Progress notes go to stderr for a person, never in JSON or quiet output.
+fn output_shows_notes(output: OutputMode) -> bool {
+    output == OutputMode::Human
 }
 
 fn error_code(error: &Value) -> Option<&str> {
@@ -499,23 +661,113 @@ fn busy_retry_delay(error: &Value) -> Duration {
         .min(MAX_BUSY_RETRY_DELAY)
 }
 
-fn socket_path(global: &GlobalArgs) -> Result<PathBuf, String> {
+/// The app control socket of a command the app serves (`cmux identify`,
+/// `cmux app …`, `cmux window list`, action verbs, `cmux coderouter …`).
+///
+/// This is the one owner of the explicit-socket rule for the app (cx-siev):
+/// a socket the caller names is the only socket tried, never a default
+/// path and never the app the inherited environment names. `--app-socket`
+/// names the app socket. Else `--socket` is the target, as in the classic
+/// CLI, where it names the app socket; a daemon there is
+/// `socket.wrong_kind` ([`connect_command`]). Else `--session` reaches only the
+/// app that owns that session. With no explicit route, the app the
+/// environment (`CMUX_SOCKET_PATH`, which is itself never replaced) or the
+/// bundle names.
+pub(super) fn command_socket(global: &GlobalArgs) -> Result<AppSocket, Value> {
+    if let Some(path) = &global.app_socket {
+        return Ok(AppSocket { path: path.clone(), named_by: Some("--app-socket") });
+    }
+    if let Some(path) = &global.socket {
+        return Ok(AppSocket { path: path.clone(), named_by: Some("--socket") });
+    }
+    let path = socket_path(global).map_err(|message| {
+        let code =
+            if explicit_daemon_route(global).is_some() { "socket.no_app" } else { "app.not_found" };
+        json!({ "code": code, "message": message, "details": {}, "retryable": false })
+    })?;
+    Ok(AppSocket { path, named_by: None })
+}
+
+/// An app control socket and the flag that named it (`None`: discovered).
+#[derive(Debug)]
+pub(super) struct AppSocket {
+    pub path: PathBuf,
+    pub named_by: Option<&'static str>,
+}
+
+/// The app half of a daemon command (focus follow, a browser tab the app
+/// renders, the agent snapshot, MCP app tools). With an explicit daemon
+/// route (`--socket`, `--session`) only the app that owns that daemon is
+/// reached, or `--app-socket` (cx-siev): never the app that the inherited
+/// environment names for some other session. With no explicit route, the
+/// app the environment or the bundle names.
+pub(super) fn socket_path(global: &GlobalArgs) -> Result<PathBuf, String> {
     let messages = &crate::localization::catalog().app_control;
     if let Some(path) = &global.app_socket {
         return Ok(path.clone());
     }
     let exe = std::env::current_exe().ok();
-    let identity = AppIdentity::detect(|key| std::env::var(key).ok(), exe.as_deref())
-        .ok_or_else(|| messages.no_app.to_owned())?;
+    let identity = AppIdentity::detect(|key| std::env::var(key).ok(), exe.as_deref());
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
-    Ok(identity.control_socket(&home))
+    let Some(flag) = explicit_daemon_route(global) else {
+        return identity
+            .map(|identity| identity.control_socket(&home))
+            .ok_or_else(|| messages.no_app.to_owned());
+    };
+    let no_app = || messages.explicit_no_app.replace("{flag}", flag);
+    let (daemon, _) = super::wire::resolve_socket_with_origin(global)
+        .map_err(|error| super::wire::resolve_failure_message(&error))?;
+    match identity {
+        Some(identity) if app_owns_daemon(&identity, &daemon) => Ok(identity.control_socket(&home)),
+        _ => Err(no_app()),
+    }
 }
 
-fn connect(socket: &PathBuf) -> Result<UnixStream, String> {
+/// The route that names a daemon explicitly while nothing names the app:
+/// `--socket`, `--session`, or `CMUX_TUI_SOCKET`/`CMUX_MUX_SOCKET` without
+/// `CMUX_SOCKET_PATH` (an app terminal sets both, so its app stays named).
+/// `None`: the app the environment or the bundle names may serve.
+fn explicit_daemon_route(global: &GlobalArgs) -> Option<&'static str> {
+    if global.socket.is_some() {
+        return Some("--socket");
+    }
+    if global.session.is_some() {
+        return Some("--session");
+    }
+    let set = |key: &str| std::env::var(key).is_ok_and(|value| !value.trim().is_empty());
+    if set("CMUX_SOCKET_PATH") {
+        return None;
+    }
+    ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET"].into_iter().find(|key| set(key))
+}
+
+/// Whether `daemon` is the own session socket of the app `identity` names
+/// (`DaemonLauncher`'s session, macOS only).
+#[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
+pub(super) fn app_owns_daemon(identity: &AppIdentity, daemon: &std::path::Path) -> bool {
+    #[cfg(target_os = "macos")]
+    if let Some(own) = crate::app_identity::app_daemon_socket(identity) {
+        let canonical = |path: &std::path::Path| {
+            std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned())
+        };
+        // Two spellings of one socket (`/var` is `/private/var` on macOS).
+        return own == daemon || canonical(&own) == canonical(daemon);
+    }
+    false
+}
+
+/// No app listens at `socket` (no file, or a stale one): the command needs
+/// the app, which a Chief without the app must hear plainly (E17).
+pub(super) fn connect(socket: &PathBuf) -> Result<UnixStream, String> {
     let messages = &crate::localization::catalog().app_control;
     UnixStream::connect(socket).map_err(|error| {
-        messages
-            .unreachable
+        let template = match error.kind() {
+            std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused => {
+                messages.needs_app
+            }
+            _ => messages.unreachable,
+        };
+        template
             .replace("{path}", &socket.display().to_string())
             .replace("{error}", &error.to_string())
     })
@@ -533,15 +785,81 @@ fn with_read_barrier(mut params: Value) -> Value {
     params
 }
 
-fn request(
+/// The app methods that place a new tab or report where the caller is: the
+/// app opens an agent's tabs in the column right of its chat
+/// (`beside_caller`) and marks the caller in `snapshot.get` and
+/// `system.identify`.
+const CALLER_METHODS: [&str; 4] =
+    ["action.run", "browser.open_split", "snapshot.get", "system.identify"];
+
+/// Who calls, from the environment: the acpmux agent session
+/// (`CMUX_AGENT_SESSION`, set by acpmux for the agent and its cmux MCP
+/// server), else the caller's own terminal (`CMUX_TUI_TERMINAL_ID`).
+pub(super) fn caller_from(env: impl Fn(&str) -> Option<String>) -> Option<Value> {
+    let set = |key: &str| env(key).filter(|value| !value.is_empty());
+    if let Some(session) = set("CMUX_AGENT_SESSION") {
+        return Some(json!({ "agent_session": session }));
+    }
+    set("CMUX_TUI_TERMINAL_ID").map(|terminal| json!({ "terminal_id": terminal }))
+}
+
+/// `params` with the caller added for a [`CALLER_METHODS`] method that names
+/// none, and whether it was added. `browser.open_split` names a terminal with
+/// its own `terminal_id`, so it gets only an agent caller.
+fn with_caller(method: &str, mut params: Value) -> (Value, bool) {
+    if !CALLER_METHODS.contains(&method) {
+        return (params, false);
+    }
+    let Some(caller) = caller_from(|key| std::env::var(key).ok()) else { return (params, false) };
+    if method == "browser.open_split" && caller.get("agent_session").is_none() {
+        return (params, false);
+    }
+    let mut added = false;
+    if let Some(object) = params.as_object_mut()
+        && !object.contains_key("caller")
+    {
+        object.insert("caller".into(), caller);
+        added = true;
+    }
+    (params, added)
+}
+
+/// An app from before `caller` refuses it as an unknown param (its
+/// `browser.open_split` takes no unknown params): the request is sent again
+/// without it, so a newer CLI still opens the tab there.
+fn refused_caller(response: &Result<Value, Value>) -> bool {
+    let Err(error) = response else { return false };
+    error_code(error) == Some("invalid_params")
+        && error.get("message").and_then(Value::as_str).is_some_and(|text| text.contains("caller"))
+}
+
+/// `timeout: None` reads until the app answers or closes the connection.
+pub(super) fn request(
     stream: &mut UnixStream,
     method: &str,
     params: Value,
-    timeout: Duration,
+    timeout: impl Into<Option<Duration>>,
 ) -> Result<Result<Value, Value>, String> {
-    let line = json!({ "id": 1, "method": method, "params": with_read_barrier(params) });
+    let timeout = timeout.into();
+    let (with, added) = with_caller(method, params.clone());
+    let response = exchange(stream, method, with_read_barrier(with), timeout)?;
+    if added && refused_caller(&response) {
+        return exchange(stream, method, with_read_barrier(params), timeout);
+    }
+    Ok(response)
+}
+
+/// One request with exactly `params` (no read barrier) and its response.
+fn exchange(
+    stream: &mut UnixStream,
+    method: &str,
+    params: Value,
+    timeout: impl Into<Option<Duration>>,
+) -> Result<Result<Value, Value>, String> {
+    let timeout = timeout.into();
+    let line = json!({ "id": 1, "method": method, "params": params });
     send_line(stream, &line)?;
-    stream.set_read_timeout(Some(timeout)).map_err(|error| error.to_string())?;
+    stream.set_read_timeout(timeout).map_err(|error| error.to_string())?;
     let mut reader = BufReader::new(
         stream.try_clone().map_err(|error| error.to_string())?.take(MAX_RESPONSE_BYTES),
     );
@@ -550,16 +868,16 @@ fn request(
     parse_response(&response)
 }
 
-fn send_line(stream: &mut UnixStream, value: &Value) -> Result<(), String> {
+pub(super) fn send_line(stream: &mut UnixStream, value: &Value) -> Result<(), String> {
     let mut bytes = serde_json::to_vec(value).map_err(|error| error.to_string())?;
     bytes.push(b'\n');
     stream.write_all(&bytes).map_err(|error| error.to_string())
 }
 
-fn read_error(error: &std::io::Error, timeout: Duration) -> String {
+fn read_error(error: &std::io::Error, timeout: Option<Duration>) -> String {
     let messages = &crate::localization::catalog().app_control;
-    match error.kind() {
-        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut => {
+    match (error.kind(), timeout) {
+        (std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut, Some(timeout)) => {
             messages.timeout.replace("{seconds}", &timeout.as_secs().to_string())
         }
         _ => error.to_string(),
@@ -586,38 +904,18 @@ pub(super) fn parse_response(line: &str) -> Result<Result<Value, Value>, String>
     }
 }
 
-/// `events.stream`: one JSON event per line until the app closes the
-/// stream or this process is interrupted. Blocking reads, no polling.
-fn stream_events(stream: &mut UnixStream, params: Value, output: OutputMode) -> i32 {
-    if let Err(error) =
-        send_line(stream, &json!({ "id": 1, "method": "events.stream", "params": params }))
+/// `accounts.list` with `handles_stable: false`: the Keychain salt failed,
+/// so the `acct_…` handles last only for this app launch.
+fn warn_unstable_handles(method: &str, value: &Value, output: OutputMode) {
+    if method == "accounts.list"
+        && output == OutputMode::Human
+        && value.get("handles_stable") == Some(&Value::Bool(false))
     {
-        return failure("app.transport", &error, output, 3);
+        eprintln!("{}", crate::localization::catalog().app_control.handles_unstable);
     }
-    let reader = match stream.try_clone() {
-        Ok(reader) => BufReader::new(reader),
-        Err(error) => return failure("app.transport", &error.to_string(), output, 3),
-    };
-    let mut stdout = std::io::stdout().lock();
-    for line in reader.lines() {
-        let Ok(line) = line else { return 3 };
-        let Ok(value) = serde_json::from_str::<Value>(&line) else { continue };
-        if value.get("ok").and_then(Value::as_bool) == Some(false) {
-            let error = value.get("error").cloned().unwrap_or(Value::Null);
-            return super::wire::print_local_error(&error, output, 1);
-        }
-        let written = match output {
-            OutputMode::Quiet => Ok(()),
-            _ => writeln!(stdout, "{line}").and_then(|()| stdout.flush()),
-        };
-        if written.is_err() {
-            return 0;
-        }
-    }
-    0
 }
 
-fn failure(code: &str, message: &str, output: OutputMode, exit_code: i32) -> i32 {
+pub(super) fn failure(code: &str, message: &str, output: OutputMode, exit_code: i32) -> i32 {
     super::wire::print_local_error(
         &json!({ "code": code, "message": message, "details": {}, "retryable": false }),
         output,
@@ -683,308 +981,4 @@ impl Options {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn args(words: &[&str]) -> Vec<String> {
-        words.iter().map(|word| (*word).to_owned()).collect()
-    }
-
-    fn call(command: AppCommand) -> (&'static str, Value) {
-        match command {
-            AppCommand::Call { method, params, .. } => (method, params),
-            AppCommand::Events { .. } => panic!("expected a call"),
-        }
-    }
-
-    #[test]
-    fn non_app_scopes_are_left_to_the_resource_grammar() {
-        assert_eq!(parse(&args(&["workspace", "list"])).unwrap(), None);
-        assert_eq!(parse(&args(&[])).unwrap(), None);
-    }
-
-    #[test]
-    fn unknown_words_run_the_action_with_that_cli_name() {
-        let (method, params) = call(parse(&args(&["app", "new-window"])).unwrap().unwrap());
-        assert_eq!(method, "action.run");
-        assert_eq!(params, json!({ "action": "app new-window", "cli": true, "wait": true }));
-    }
-
-    #[test]
-    fn action_runs_wait_by_default_and_no_wait_opts_out() {
-        let (_, params) = call(parse(&args(&["action", "run", "window.new"])).unwrap().unwrap());
-        assert_eq!(params, json!({ "action": "window.new", "wait": true }));
-        let command = parse(&args(&["action", "run", "window.new", "--no-wait"])).unwrap().unwrap();
-        let AppCommand::Call { timeout, .. } = &command else { panic!("expected a call") };
-        assert_eq!(*timeout, READ_TIMEOUT);
-        assert_eq!(call(command).1, json!({ "action": "window.new", "wait": false }));
-    }
-
-    #[test]
-    fn busy_is_retried_only_when_the_app_says_nothing_ran() {
-        let not_run = json!({ "code": "busy", "data": { "state": "not_run" } });
-        assert!(busy_before_running(&not_run));
-        assert!(busy_before_running(&json!({ "code": "busy", "data": { "not_run": true } })));
-        assert!(!busy_before_running(
-            &json!({ "code": "busy", "data": { "state": "in_progress" } })
-        ));
-        assert!(!busy_before_running(&json!({ "code": "busy" })));
-        assert!(!busy_before_running(
-            &json!({ "code": "timeout", "data": { "state": "not_run" } })
-        ));
-        assert_eq!(busy_retry_delay(&not_run), BUSY_RETRY_DELAY);
-        let later =
-            json!({ "code": "busy", "data": { "state": "not_run", "retry_after_ms": 60_000 } });
-        assert_eq!(busy_retry_delay(&later), MAX_BUSY_RETRY_DELAY);
-    }
-
-    /// A fake app control socket that answers each request line with the
-    /// next canned response and records what it received, per connection.
-    fn fake_app(responses: Vec<Value>) -> (PathBuf, std::thread::JoinHandle<Vec<Vec<Value>>>) {
-        use std::os::unix::net::UnixListener;
-        let dir = std::env::temp_dir().join(format!(
-            "cmux-app-cli-{}-{}",
-            std::process::id(),
-            super::super::command::random_prefixed("t").unwrap()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        let socket = dir.join("app.sock");
-        let listener = UnixListener::bind(&socket).unwrap();
-        listener.set_nonblocking(false).unwrap();
-        let handle = std::thread::spawn(move || {
-            let mut connections = Vec::new();
-            let mut responses = responses.into_iter();
-            // One connection is expected; a second one would show up here.
-            let (stream, _) = listener.accept().unwrap();
-            let mut reader = BufReader::new(stream.try_clone().unwrap());
-            let mut writer = stream;
-            let mut received = Vec::new();
-            let mut line = String::new();
-            while reader.read_line(&mut line).unwrap() > 0 {
-                received.push(serde_json::from_str::<Value>(&line).unwrap());
-                line.clear();
-                let Some(response) = responses.next() else { break };
-                writeln!(writer, "{response}").unwrap();
-            }
-            connections.push(received);
-            listener.set_nonblocking(true).unwrap();
-            if let Ok((stream, _)) = listener.accept() {
-                let mut extra = String::new();
-                let _ = BufReader::new(stream).read_line(&mut extra);
-                connections.push(vec![json!(extra)]);
-            }
-            let _ = std::fs::remove_dir_all(dir);
-            connections
-        });
-        (socket, handle)
-    }
-
-    fn global_for(socket: &std::path::Path) -> GlobalArgs {
-        GlobalArgs {
-            app_socket: Some(socket.to_path_buf()),
-            output: OutputMode::Quiet,
-            ..GlobalArgs::default()
-        }
-    }
-
-    #[test]
-    fn unknown_cli_name_is_one_action_run_and_not_found_means_not_an_action() {
-        let not_found =
-            json!({ "id": 1, "ok": false, "error": { "code": "not_found", "message": "x" } });
-        let (socket, app) = fake_app(vec![not_found]);
-        let ran =
-            run_cli_action(&global_for(&socket), "workspace frobnicate", &args(&["--x", "1"]));
-        assert_eq!(ran, None);
-        let connections = app.join().unwrap();
-        assert_eq!(connections.len(), 1, "opened more than one connection: {connections:?}");
-        let [request] = connections[0].as_slice() else { panic!("{connections:?}") };
-        assert_eq!(request["method"], "action.run");
-        assert_eq!(request["params"]["action"], "workspace frobnicate");
-        assert_eq!(request["params"]["cli"], true);
-        assert_eq!(request["params"]["wait"], true);
-        assert!(request["params"]["idempotency_key"].as_str().is_some_and(|key| !key.is_empty()));
-    }
-
-    #[test]
-    fn a_busy_run_that_never_started_is_resent_with_the_same_key() {
-        let busy = json!({ "id": 1, "ok": false, "error": { "code": "busy", "data": { "state": "not_run", "retry_after_ms": 1 } } });
-        let ran = json!({ "id": 1, "ok": true, "result": { "ran": true } });
-        let (socket, app) = fake_app(vec![busy, ran]);
-        let mut global = global_for(&socket);
-        global.idempotency_key = Some("mutation-retry-1".into());
-        let command = parse(&args(&["action", "run", "window.new"])).unwrap().unwrap();
-        assert_eq!(run(&global, command), 0);
-        let connections = app.join().unwrap();
-        assert_eq!(connections.len(), 1);
-        let keys: Vec<_> = connections[0]
-            .iter()
-            .map(|request| request["params"]["idempotency_key"].clone())
-            .collect();
-        assert_eq!(keys, vec![json!("mutation-retry-1"), json!("mutation-retry-1")]);
-    }
-
-    #[test]
-    fn a_run_that_may_have_started_is_not_retried() {
-        let timeout = json!({ "id": 1, "ok": false, "error": { "code": "timeout", "message": "slow", "data": { "state": "in_progress" } } });
-        let (socket, app) = fake_app(vec![timeout]);
-        let command = parse(&args(&["action", "run", "window.new"])).unwrap().unwrap();
-        assert_eq!(run(&global_for(&socket), command), 1);
-        let connections = app.join().unwrap();
-        assert_eq!(connections[0].len(), 1);
-    }
-
-    #[test]
-    fn action_run_maps_flags_to_target_and_arguments() {
-        let (_, params) = call(
-            parse(&args(&[
-                "action",
-                "run",
-                "tab.rename",
-                "--target",
-                "tab_0123",
-                "--title",
-                "Build",
-                "--arg",
-                "keep_case=true",
-                "--wait",
-            ]))
-            .unwrap()
-            .unwrap(),
-        );
-        assert_eq!(
-            params,
-            json!({
-                "action": "tab.rename",
-                "target": "tab_0123",
-                "wait": true,
-                "args": { "title": "Build", "keep_case": "true" },
-            })
-        );
-    }
-
-    #[test]
-    fn app_requests_wait_for_the_app_to_catch_up_with_the_daemon() {
-        assert_eq!(
-            with_read_barrier(json!({ "action": "x" })),
-            json!({ "action": "x", "after": "sync" })
-        );
-        assert_eq!(with_read_barrier(json!({ "after": 12 })), json!({ "after": 12 }));
-    }
-
-    #[test]
-    fn app_browser_tabs_take_page_commands_and_daemon_browsers_stay_with_the_mux() {
-        let (method, params) = call(
-            parse(&args(&["browser", "tab_01ab", "navigate", "https://cmux.com"]))
-                .unwrap()
-                .unwrap(),
-        );
-        assert_eq!(method, "browser.page.navigate");
-        assert_eq!(params, json!({ "tab": "tab_01ab", "url": "https://cmux.com" }));
-        let (method, params) =
-            call(parse(&args(&["browser", "page", "fill", "#q", "hello"])).unwrap().unwrap());
-        assert_eq!(method, "browser.page.fill");
-        assert_eq!(params, json!({ "selector": "#q", "text": "hello" }));
-        let (method, params) = call(
-            parse(&args(&["browser", "page", "snapshot", "--interactive", "--max-depth", "4"]))
-                .unwrap()
-                .unwrap(),
-        );
-        assert_eq!(method, "browser.page.snapshot");
-        assert_eq!(params, json!({ "interactive": true, "max_depth": 4 }));
-        assert_eq!(
-            parse(&args(&["browser", "browser_01ab", "navigate", "--url", "x"])).unwrap(),
-            None
-        );
-        assert!(parse(&args(&["browser", "page", "fill", "#q"])).is_err());
-    }
-
-    #[test]
-    fn cookies_and_storage_take_the_old_cli_forms() {
-        let page = |words: &[&str]| {
-            let mut all = vec!["browser", "tab_01ab"];
-            all.extend_from_slice(words);
-            parse(&args(&all)).map(|command| call(command.unwrap()))
-        };
-        let (method, params) = page(&["cookies"]).unwrap();
-        assert_eq!(method, "browser.page.cookies.get");
-        assert_eq!(params, json!({ "tab": "tab_01ab" }));
-        let (method, params) =
-            page(&["cookies", "get", "--name", "sid", "--domain=example"]).unwrap();
-        assert_eq!(method, "browser.page.cookies.get");
-        assert_eq!(params, json!({ "tab": "tab_01ab", "name": "sid", "domain": "example" }));
-        let (method, params) = page(&[
-            "cookies",
-            "set",
-            "sid",
-            "1",
-            "--url",
-            "https://cmux.com/",
-            "--expires",
-            "1900000000",
-            "--secure",
-            "--http-only",
-        ])
-        .unwrap();
-        assert_eq!(method, "browser.page.cookies.set");
-        assert_eq!(
-            params,
-            json!({ "tab": "tab_01ab", "name": "sid", "value": "1", "url": "https://cmux.com/",
-                    "expires": 1_900_000_000, "secure": true, "http_only": true })
-        );
-        let (_, params) = page(&["cookies", "set", "--name", "a", "--value", "b"]).unwrap();
-        assert_eq!(params, json!({ "tab": "tab_01ab", "name": "a", "value": "b" }));
-        let (method, params) = page(&["cookies", "clear", "--all"]).unwrap();
-        assert_eq!(method, "browser.page.cookies.clear");
-        assert_eq!(params, json!({ "tab": "tab_01ab", "all": true }));
-        for bad in [
-            &["cookies", "set", "sid"][..],
-            &["cookies", "set", "a", "b", "--expires", "soon"],
-            &["cookies", "get", "--all"],
-            &["cookies", "get", "extra"],
-            &["cookies", "eat"],
-        ] {
-            assert!(page(bad).is_err(), "{bad:?}");
-        }
-
-        let (method, params) = page(&["storage", "session", "get", "theme"]).unwrap();
-        assert_eq!(method, "browser.page.storage.get");
-        assert_eq!(params, json!({ "tab": "tab_01ab", "type": "session", "key": "theme" }));
-        let (method, params) = page(&["storage", "set", "theme", "dark"]).unwrap();
-        assert_eq!(method, "browser.page.storage.set");
-        assert_eq!(params, json!({ "tab": "tab_01ab", "key": "theme", "value": "dark" }));
-        let (method, params) = page(&["storage", "local", "clear"]).unwrap();
-        assert_eq!(method, "browser.page.storage.clear");
-        assert_eq!(params, json!({ "tab": "tab_01ab", "type": "local" }));
-        assert_eq!(page(&["storage"]).unwrap().0, "browser.page.storage.get");
-        assert!(page(&["storage", "local", "set", "k"]).is_err());
-        assert!(page(&["storage", "cookies"]).is_err());
-    }
-
-    #[test]
-    fn settings_set_takes_json_or_a_plain_string() {
-        let (_, params) =
-            call(parse(&args(&["settings", "set", "layout.panePadding", "4"])).unwrap().unwrap());
-        assert_eq!(params, json!({ "path": "layout.panePadding", "value": 4 }));
-        let (_, params) = call(
-            parse(&args(&["settings", "set", "window.titlebar", "minimal"])).unwrap().unwrap(),
-        );
-        assert_eq!(params, json!({ "path": "window.titlebar", "value": "minimal" }));
-    }
-
-    #[test]
-    fn responses_split_transport_from_app_errors() {
-        assert_eq!(
-            parse_response(r#"{"id":1,"ok":true,"result":{"pong":true}}"#),
-            Ok(Ok(json!({"pong":true})))
-        );
-        assert_eq!(
-            parse_response(r#"{"id":1,"ok":false,"error":{"code":"not_found"}}"#),
-            Ok(Err(json!({"code":"not_found"})))
-        );
-        assert!(
-            parse_response("ERROR: Access denied - only processes started inside cmux can connect")
-                .is_err()
-        );
-        assert!(parse_response("").is_err());
-    }
-}
+mod tests;

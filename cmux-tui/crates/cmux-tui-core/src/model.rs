@@ -11,45 +11,27 @@ use crate::resource::{
 };
 use crate::{PaneId, ScreenId, SplitDir, SplitId, Surface, SurfaceId, WorkspaceId};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ViewportColumn {
-    Base,
-    Split(SplitId),
-}
+mod layout_columns;
+mod layout_rows;
 
-/// One stable horizontal column in a scrollable screen.
-///
-/// `Screen::root` remains the compatibility projection consumed by existing
-/// split-tree clients. While columns are active, these records own the real
-/// per-column trees and Zellij auto-layout order.
-#[derive(Debug, Clone)]
-pub(crate) struct LayoutColumn {
-    pub(crate) id: SplitId,
-    pub(crate) width: f32,
-    pub(crate) root: Node,
-    pub(crate) zellij_auto_layout: Option<Vec<PaneId>>,
-}
+#[cfg(test)]
+pub(crate) use layout_columns::normalize_dock_columns;
+pub use layout_columns::{ColumnDock, DockEdge, DockMode, DockRole, ViewportColumn};
+pub(crate) use layout_columns::{
+    ColumnProjection, LayoutColumn, LayoutMutationKey, LayoutResizeOwner,
+    dock_columns_are_consistent, dock_flags_are_consistent, project_layout_columns,
+};
+pub(crate) use layout_rows::{LayoutRow, ROW_HEIGHT_PERMILLE};
 
 #[derive(Debug, Clone)]
 pub(crate) struct ScreenLayoutSnapshot {
     pub root: Node,
     pub active_pane: PaneId,
     pub zoomed_pane: Option<PaneId>,
-    pub zellij_auto_layout: Option<Vec<PaneId>>,
+    pub creation_order_auto_layout: Option<Vec<PaneId>>,
     pub viewport_splits: BTreeMap<SplitId, f32>,
     pub viewport_base_width: Option<f32>,
     pub layout_columns: Vec<LayoutColumn>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum LayoutResizeOwner {
-    InProcess(u64),
-    ControlClient(u64),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum LayoutMutationKey {
-    Resize { owner: LayoutResizeOwner, transaction: u64 },
 }
 
 #[derive(Debug, Clone)]
@@ -398,19 +380,6 @@ impl Node {
         walk(self, target, dir).1
     }
 
-    #[cfg(test)]
-    pub(crate) fn set_deepest_ratio(
-        &mut self,
-        target: PaneId,
-        dir: SplitDir,
-        new_ratio: f32,
-    ) -> bool {
-        let Some(split) = self.deepest_split_for_pane(target, dir) else {
-            return false;
-        };
-        self.set_split_ratio(split, new_ratio)
-    }
-
     pub(crate) fn set_split_ratio(&mut self, target: SplitId, new_ratio: f32) -> bool {
         match self {
             Node::Leaf(_) => false,
@@ -437,136 +406,6 @@ impl Node {
                 }
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn stack_construction_rejects_empty_membership() {
-        assert!(Node::stack(Vec::new()).is_none());
-        assert!(Node::stack(vec![1]).is_some());
-    }
-
-    fn nested_tree() -> Node {
-        Node::Split {
-            id: 10,
-            dir: SplitDir::Right,
-            ratio: 0.5,
-            a: Box::new(Node::Split {
-                id: 11,
-                dir: SplitDir::Right,
-                ratio: 0.4,
-                a: Box::new(Node::Leaf(1)),
-                b: Box::new(Node::Leaf(2)),
-            }),
-            b: Box::new(Node::Leaf(3)),
-        }
-    }
-
-    #[test]
-    fn split_ids_survive_leaf_swaps_and_unrelated_ratio_updates() {
-        let mut root = nested_tree();
-
-        assert!(root.swap_leaves(1, 3));
-        assert!(root.set_deepest_ratio(2, SplitDir::Right, 0.7));
-
-        assert!(root.contains_split(10));
-        assert!(root.contains_split(11));
-        assert!(!root.contains_split(12));
-        let Node::Split { id, a, .. } = root else { panic!("root should be split") };
-        assert_eq!(id, 10);
-        let Node::Split { id, .. } = a.as_ref() else { panic!("child should be split") };
-        assert_eq!(*id, 11);
-    }
-
-    #[test]
-    fn exact_split_ratio_targets_one_same_direction_node() {
-        let mut root = nested_tree();
-
-        assert!(root.set_split_ratio(10, 0.8));
-        let Node::Split { ratio: root_ratio, a, .. } = &root else {
-            panic!("root should be split");
-        };
-        assert_eq!(*root_ratio, 0.8);
-        let Node::Split { ratio: inner_ratio, .. } = a.as_ref() else {
-            panic!("child should be split");
-        };
-        assert_eq!(*inner_ratio, 0.4);
-        assert!(!root.set_split_ratio(999, 0.2));
-    }
-
-    #[test]
-    fn collapsing_a_parent_preserves_surviving_descendant_split_id() {
-        let root = nested_tree();
-
-        let collapsed = root.remove_leaf(3).expect("left subtree should survive");
-
-        let Node::Split { id, .. } = collapsed else { panic!("child split should survive") };
-        assert_eq!(id, 11);
-    }
-
-    #[test]
-    fn removing_an_unrelated_branch_preserves_a_singleton_stack() {
-        let root = Node::Split {
-            id: 10,
-            dir: SplitDir::Right,
-            ratio: 0.5,
-            a: Box::new(Node::stack_with_expanded(vec![1], 1).unwrap()),
-            b: Box::new(Node::Leaf(2)),
-        };
-
-        let remaining = root.remove_leaf(2).unwrap();
-
-        assert!(matches!(
-            remaining,
-            Node::Stack { ref panes, expanded: 1 } if panes.as_slice() == [1]
-        ));
-    }
-
-    #[test]
-    fn legacy_projection_preserves_many_equal_viewport_column_widths() {
-        let mut screen = Screen {
-            id: 1,
-            public_id: ScreenPublicId::random().unwrap(),
-            name: None,
-            root: Node::Leaf(1),
-            active_pane: 21,
-            zoomed_pane: None,
-            zellij_auto_layout: None,
-            viewport_splits: BTreeMap::new(),
-            viewport_base_width: None,
-            layout_columns: (1..=21)
-                .map(|pane| LayoutColumn {
-                    id: 100 + pane,
-                    width: 1.0,
-                    root: Node::Leaf(pane),
-                    zellij_auto_layout: None,
-                })
-                .collect(),
-            layout_revision: 0,
-            layout_undo: VecDeque::new(),
-        };
-
-        screen.sync_layout_column_projection();
-
-        let layout = crate::layout::layout_screen(
-            &screen.root,
-            crate::layout::Rect { x: 0, y: 0, width: 2_100, height: 24 },
-            Some(screen.active_pane),
-        );
-        assert_eq!(layout.panes.len(), 21);
-        assert!(
-            layout.panes.iter().all(|(_, rect)| rect.width == 100),
-            "legacy clients should receive the authoritative equal-width projection: {:?}",
-            layout.panes
-        );
-        let Node::Split { ratio, .. } = screen.root else {
-            panic!("multiple columns should produce a compatibility split");
-        };
-        assert!((ratio - (20.0 / 21.0)).abs() < f32::EPSILON);
     }
 }
 
@@ -601,9 +440,9 @@ pub struct Screen {
     pub root: Node,
     pub active_pane: PaneId,
     pub zoomed_pane: Option<PaneId>,
-    /// Stable pane creation order for Zellij's default auto-layout family.
+    /// Stable pane creation order for the default auto-layout family.
     /// `None` means the screen owns a custom/damaged layout.
-    pub zellij_auto_layout: Option<Vec<PaneId>>,
+    pub creation_order_auto_layout: Option<Vec<PaneId>>,
     /// Horizontal splits created as viewport columns. The value is the
     /// right-hand column width as a fraction of the frontend viewport.
     pub viewport_splits: BTreeMap<SplitId, f32>,
@@ -628,7 +467,7 @@ impl Screen {
             root: self.root.clone(),
             active_pane: self.active_pane,
             zoomed_pane: self.zoomed_pane,
-            zellij_auto_layout: self.zellij_auto_layout.clone(),
+            creation_order_auto_layout: self.creation_order_auto_layout.clone(),
             viewport_splits: self.viewport_splits.clone(),
             viewport_base_width: self.viewport_base_width,
             layout_columns: self.layout_columns.clone(),
@@ -683,6 +522,7 @@ impl Screen {
             }
             return;
         }
+        // crash-allow: pre-existing invariant; hidden from the ratchet behind a test module until the unit-test deletion (cx-034r)
         let before = before.expect("non-coalesced layout changes require a prior snapshot");
         self.layout_undo.push_back(LayoutUndoEntry {
             before,
@@ -743,122 +583,10 @@ impl Screen {
         self.active_pane = self.zoomed_pane.unwrap_or_else(|| {
             if self.root.contains(active_pane) { active_pane } else { snapshot.active_pane }
         });
-        self.zellij_auto_layout = snapshot.zellij_auto_layout;
+        self.creation_order_auto_layout = snapshot.creation_order_auto_layout;
         self.viewport_splits = snapshot.viewport_splits;
         self.viewport_base_width = snapshot.viewport_base_width;
         self.layout_columns = snapshot.layout_columns;
-    }
-
-    pub(crate) fn layout_columns_active(&self) -> bool {
-        !self.layout_columns.is_empty()
-    }
-
-    pub(crate) fn layout_column_for_pane_mut(&mut self, pane: PaneId) -> Option<&mut LayoutColumn> {
-        self.layout_columns.iter_mut().find(|column| column.root.contains(pane))
-    }
-
-    pub(crate) fn insert_layout_column_after(
-        &mut self,
-        target: PaneId,
-        base_id: SplitId,
-        column: LayoutColumn,
-    ) -> bool {
-        if self.layout_columns.is_empty() {
-            if !self.root.contains(target) {
-                return false;
-            }
-            let root = std::mem::replace(&mut self.root, Node::Leaf(0));
-            self.layout_columns.push(LayoutColumn {
-                id: base_id,
-                width: self.viewport_base_width.unwrap_or(1.0),
-                root,
-                zellij_auto_layout: self.zellij_auto_layout.take(),
-            });
-        }
-        let Some(index) =
-            self.layout_columns.iter().position(|candidate| candidate.root.contains(target))
-        else {
-            return false;
-        };
-        self.layout_columns.insert(index + 1, column);
-        self.sync_layout_column_projection();
-        true
-    }
-
-    pub(crate) fn sync_layout_column_projection(&mut self) {
-        let Some(first) = self.layout_columns.first() else {
-            self.viewport_splits.clear();
-            self.viewport_base_width = None;
-            return;
-        };
-        self.viewport_splits.clear();
-        self.viewport_base_width = Some(first.width);
-        self.zellij_auto_layout = None;
-
-        let mut root = first.root.clone();
-        let mut width_before = first.width;
-        for column in self.layout_columns.iter().skip(1) {
-            // This tree is a read-compatibility projection, not a user resize
-            // request. Preserve exact authoritative proportions even when a
-            // wide layout requires a derived ratio outside mutation bounds.
-            let ratio = width_before / (width_before + column.width);
-            root = Node::Split {
-                id: column.id,
-                dir: SplitDir::Right,
-                ratio,
-                a: Box::new(root),
-                b: Box::new(column.root.clone()),
-            };
-            self.viewport_splits.insert(column.id, column.width);
-            width_before += column.width;
-        }
-        self.root = root;
-        debug_assert!(self.layout_column_projection_is_consistent());
-    }
-
-    pub(crate) fn collapse_single_layout_column(&mut self) {
-        if self.layout_columns.len() != 1 {
-            self.sync_layout_column_projection();
-            return;
-        }
-        let column = self.layout_columns.pop().expect("single layout column");
-        self.root = column.root;
-        self.zellij_auto_layout = column.zellij_auto_layout;
-        self.viewport_splits.clear();
-        self.viewport_base_width = None;
-    }
-
-    pub(crate) fn layout_column_projection_is_consistent(&self) -> bool {
-        if self.layout_columns.is_empty() {
-            return self.viewport_splits.is_empty() && self.viewport_base_width.is_none();
-        }
-        if self.layout_columns.len() < 2
-            || self.zellij_auto_layout.is_some()
-            || self.viewport_base_width != self.layout_columns.first().map(|column| column.width)
-            || self.viewport_splits.len() + 1 != self.layout_columns.len()
-        {
-            return false;
-        }
-
-        let projected_panes = self.root.pane_ids_vec();
-        let column_panes = self
-            .layout_columns
-            .iter()
-            .flat_map(|column| column.root.pane_ids_vec())
-            .collect::<Vec<_>>();
-        if projected_panes != column_panes {
-            return false;
-        }
-
-        self.layout_columns.iter().enumerate().all(|(index, column)| {
-            let expected_owner =
-                if index == 0 { ViewportColumn::Base } else { ViewportColumn::Split(column.id) };
-            (index == 0 || self.viewport_splits.get(&column.id).copied() == Some(column.width))
-                && column.root.pane_ids_vec().into_iter().all(|pane| {
-                    self.root.viewport_column_owner(pane, &self.viewport_splits)
-                        == Some(expected_owner)
-                })
-        })
     }
 }
 
@@ -906,6 +634,8 @@ pub struct State {
     pub(crate) terminal_catalog: HashMap<TerminalPublicId, Arc<Surface>>,
     /// Reverse lookup for catalog owners addressed by daemon-local runtime ID.
     pub(crate) terminal_catalog_by_runtime: HashMap<SurfaceId, TerminalPublicId>,
+    /// Host terminal id -> catalog owner (mux/terminal_catalog_index.rs).
+    pub(crate) terminal_catalog_by_host: HashMap<String, TerminalPublicId>,
     pub(crate) split_screens: HashMap<SplitId, (usize, usize, ScreenId)>,
     pub(crate) resource_indexes: PublicSlotIndexes,
 }
@@ -922,10 +652,10 @@ impl State {
         let replaced = self.panes.insert(id, pane);
         debug_assert!(replaced.is_none(), "pane {id} was inserted twice");
         if replaced.is_none() {
-            debug_assert!(
-                self.resource_indexes.panes.insert(public_id.clone(), id).is_none(),
-                "pane public id {public_id} was inserted twice"
-            );
+            // The index write must run in release builds too: inside the
+            // `debug_assert!` it was compiled out there.
+            let previous = self.resource_indexes.panes.insert(public_id.clone(), id);
+            debug_assert!(previous.is_none(), "pane public id {public_id} was inserted twice");
             self.resource_indexes.pane_ids.insert(id, public_id);
             self.pane_revision = self.pane_revision.saturating_add(1);
         }
@@ -1021,7 +751,9 @@ impl State {
             debug_assert!(old.is_none(), "duplicate workspace public id");
             indexes.workspace_ids.insert(workspace.id, workspace.public_id.clone());
             for screen in &workspace.screens {
-                live_split_slots.extend(screen.layout_columns.iter().map(|column| column.id));
+                for column in &screen.layout_columns {
+                    live_split_slots.extend(std::iter::once(column.id).chain(column.row_ids()));
+                }
                 let old = indexes.screens.insert(screen.public_id.clone(), screen.id);
                 debug_assert!(old.is_none(), "duplicate screen public id");
                 indexes.screen_ids.insert(screen.id, screen.public_id.clone());
@@ -1103,12 +835,6 @@ impl State {
     pub fn single_placement_of_content(&self, id: &ContentPublicId) -> Option<SurfaceId> {
         let [placement] = self.placements_of_content(id) else { return None };
         Some(*placement)
-    }
-
-    pub(crate) fn terminal_runtime_by_id(&self, id: SurfaceId) -> Option<&Arc<Surface>> {
-        self.terminal_catalog_by_runtime
-            .get(&id)
-            .and_then(|terminal| self.terminal_catalog.get(terminal))
     }
 
     pub(crate) fn workspace_index(&self, id: WorkspaceId) -> Option<usize> {

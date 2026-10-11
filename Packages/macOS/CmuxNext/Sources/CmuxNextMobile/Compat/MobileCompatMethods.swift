@@ -1,7 +1,8 @@
 /// The shipped-iOS mobile RPC inventory and what the cmux-next adapter does
 /// with each method. Unlisted methods answer `method_not_found`; the phone
 /// gates every such feature on a capability this Mac does not advertise.
-public enum MobileCompatMethods {
+public struct MobileCompatMethods {
+    public init() {}
     public enum Support: String, Sendable {
         /// Backed by the daemon tree or a terminal attach.
         case implemented

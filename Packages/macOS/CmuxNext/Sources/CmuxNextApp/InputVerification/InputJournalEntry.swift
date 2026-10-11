@@ -43,6 +43,9 @@ nonisolated struct InputJournalEntry: Hashable, Sendable, Codable {
         /// A tab content lifecycle step (show, hide, page window shown or
         /// hidden, a late completion dropped), plans/cmux-next/tab-lifecycle.md.
         case content(tab: String, event: String)
+        /// No-activate mode gave the keyboard back (NoActivateKeyboardGuard):
+        /// what took it, why it was not the user's, and the app it went to.
+        case keyboardGivenBack(trigger: String, cause: String, restoredTo: Int32?)
     }
 
     enum KeyPhase: String, Hashable, Sendable, Codable {

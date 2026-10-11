@@ -1,8 +1,13 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 16b0cbbce9b2cda10369f6a7b3aa64e1f950fef885ef7efd434dd222663ac474. */
+/* cmux-tui mux protocol 12, IR 2304aafc2ea0c866da63b1459d38e771c9ca3f8c655dc06fed821ca8d3c6e703. */
 
 
 import type * as T from "./types.js";
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type ActivityChangedEvent = { event: "activity-changed" } & {
+  "activity": T.ActivitySnapshot;
+};
 
 /** Protocol v11; emission: emitted; streams: subscribe. */
 export type AgentChangedEvent = { event: "agent-changed" } & {
@@ -15,9 +20,34 @@ export type AgentChangedEvent = { event: "agent-changed" } & {
   "updated_at_ms": bigint;
 };
 
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type AgentPresenceChangedEvent = { event: "agent-presence-changed" } & {
+  /** What the agent is doing now; null clears the surface's presence and every other field is then null. */
+  "activity": (T.AgentPresenceActivity) | null;
+  /** Adapter identity (claude, codex, ...). */
+  "agent": (string) | null;
+  /** The 1-based line the tool call targets, when the tool input names one. */
+  "line": (bigint) | null;
+  /** The file the tool call targets, when the tool input names one. */
+  "path": (string) | null;
+  /** The agent's portable session id, a stable identity for colour. */
+  "session": (string) | null;
+  "surface": T.Id;
+  /** The native tool name of the current or last tool call. */
+  "tool": (string) | null;
+  /** When the hook observed the event; null on clear. */
+  "updated_at_ms": (bigint) | null;
+};
+
 /** Protocol v5; emission: emitted; streams: subscribe. */
 export type BellEvent = { event: "bell" } & {
   "surface": T.Id;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type BookmarksChangedEvent = { event: "bookmarks-changed" } & {
+  "bookmarks_revision": bigint;
+  "browser_profile_id": string;
 };
 
 /** Protocol v6; emission: emitted; streams: attach-browser. */
@@ -58,6 +88,69 @@ export type ClientDetachedEvent = { event: "client-detached" } & {
 export type ClientListInvalidatedEvent = { event: "client-list-invalidated" } & {
 };
 
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudConversationChangedEvent = { event: "cloud-conversation-changed" } & {
+  "account"?: string;
+  "change": (T.JsonValue) | null;
+  "conversation": string;
+  "rev": bigint;
+  "seq": bigint;
+  "transaction": string;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudConversationResyncedEvent = { event: "cloud-conversation-resynced" } & {
+  "account"?: string;
+  "conversation": string;
+  "messages": (T.JsonValue) | null;
+  "rev": bigint;
+  "seq": bigint;
+  "summary": (T.JsonValue) | null;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudInboxChangedEvent = { event: "cloud-inbox-changed" } & {
+  "account"?: string;
+  "entries": (T.JsonValue) | null;
+  "seq": bigint;
+  "transaction": string;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudInboxResetEvent = { event: "cloud-inbox-reset" } & {
+  "account"?: string;
+  "seq": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudMuxResyncedEvent = { event: "cloud-mux-resynced" } & {
+  "account"?: string;
+  "pending": (T.JsonValue) | null;
+  "seq": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudMuxWakeEvent = { event: "cloud-mux-wake" } & {
+  "account"?: string;
+  "seq": bigint;
+  "wakes": (T.JsonValue) | null;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudSessionNeededEvent = { event: "cloud-session-needed" } & {
+  "expires_at"?: (bigint) | null;
+  "reason": string;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudSubscriptionStateEvent = { event: "cloud-subscription-state" } & {
+  "account"?: string;
+  "conversation"?: (string) | null;
+  "reason"?: (string) | null;
+  "scope": string;
+  "state": string;
+};
+
 /** Protocol v6; emission: emitted; streams: attach-byte. */
 export type ColorsChangedEvent = { event: "colors-changed" } & {
   "bg": (T.ColorHex) | null;
@@ -76,6 +169,28 @@ export type ColorsChangedEvent = { event: "colors-changed" } & {
 export type ConfigReloadRequestedEvent = { event: "config-reload-requested" } & {
 };
 
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type ConversationChangedEvent = { event: "conversation-changed" } & {
+  "change": (T.JsonValue) | null;
+  "conversation": string;
+  "rev": bigint;
+  "transaction": (string) | null;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type ConversationDraftEvent = { event: "conversation-draft" } & {
+  "conversation": string;
+  "item": T.JsonValue;
+  "participant": string;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type ConversationTypingEvent = { event: "conversation-typing" } & {
+  "conversation": string;
+  "on": boolean;
+  "participant": string;
+};
+
 /** Protocol v12; emission: emitted; streams: control. */
 export type DaemonShutdownEvent = { event: "daemon-shutdown" } & {
 };
@@ -84,6 +199,7 @@ export type DaemonShutdownEvent = { event: "daemon-shutdown" } & {
 export type DetachedEvent = { event: "detached" } & {
   "by"?: T.SizeDetachActor;
   "reason"?: T.DetachReason;
+  "scope"?: string;
   "surface": T.Id;
   "view"?: string;
 };
@@ -138,6 +254,7 @@ export type NotificationEvent = { event: "notification" } & {
   "body": string;
   "level": T.NotificationLevel;
   "notification": T.Id;
+  "source"?: T.NotificationSource;
   "surface": (T.Id) | null;
   "title": string;
 };
@@ -240,6 +357,14 @@ export type ScreenAddedEvent = { event: "screen-added" } & {
   "workspace": T.Id;
 };
 
+/** Protocol v12; emission: emitted; streams: subscribe-deltas. */
+export type ScreenChangedEvent = { event: "screen-changed" } & {
+  "entity": T.Screen;
+  "index"?: (bigint) | null;
+  "screen": T.Id;
+  "workspace": T.Id;
+};
+
 /** Protocol v7; emission: emitted; streams: subscribe-deltas. */
 export type ScreenClosedEvent = { event: "screen-closed" } & {
   "entity": T.Screen;
@@ -260,6 +385,13 @@ export type ScrollChangedEvent = { event: "scroll-changed" } & {
   "at_bottom": boolean;
   "offset": bigint;
   "surface": T.Id;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type SettingsChangedEvent = { event: "settings-changed" } & {
+  "keys": Array<string>;
+  "origin": "user" | "cli" | "mcp" | "script" | "remote" | "app" | "file";
+  "revision": bigint;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe, attach-byte, attach-render. */
@@ -340,6 +472,19 @@ export type TabRenamedEvent = { event: "tab-renamed" } & {
   "screen": T.Id;
   "surface": T.Id;
   "workspace": T.Id;
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type TerminalClipboardReadEvent = { event: "terminal-clipboard-read" } & {
+  "host": T.TerminalClipboardHost;
+  "location": T.TerminalClipboardLocation;
+  "request_id": string;
+  "terminal_id": string;
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type TerminalClipboardReadCancelledEvent = { event: "terminal-clipboard-read-cancelled" } & {
+  "request_id": string;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
@@ -457,14 +602,28 @@ export interface UnknownEvent {
 
 /** Every event emitted by protocol v12. */
 export type KnownCmuxEvent =
+  | ActivityChangedEvent
   | AgentChangedEvent
+  | AgentPresenceChangedEvent
   | BellEvent
+  | BookmarksChangedEvent
   | BrowserStateEvent
   | ClientAttachedEvent
   | ClientChangedEvent
   | ClientDetachedEvent
+  | CloudConversationChangedEvent
+  | CloudConversationResyncedEvent
+  | CloudInboxChangedEvent
+  | CloudInboxResetEvent
+  | CloudMuxResyncedEvent
+  | CloudMuxWakeEvent
+  | CloudSessionNeededEvent
+  | CloudSubscriptionStateEvent
   | ColorsChangedEvent
   | ConfigReloadRequestedEvent
+  | ConversationChangedEvent
+  | ConversationDraftEvent
+  | ConversationTypingEvent
   | DaemonShutdownEvent
   | DetachedEvent
   | EmptyEvent
@@ -485,9 +644,11 @@ export type KnownCmuxEvent =
   | RenderStateEvent
   | ResizedEvent
   | ScreenAddedEvent
+  | ScreenChangedEvent
   | ScreenClosedEvent
   | ScreenRenamedEvent
   | ScrollChangedEvent
+  | SettingsChangedEvent
   | SizeStateEvent
   | StatusEvent
   | SurfaceExitedEvent
@@ -498,6 +659,8 @@ export type KnownCmuxEvent =
   | TabChangedEvent
   | TabClosedEvent
   | TabRenamedEvent
+  | TerminalClipboardReadEvent
+  | TerminalClipboardReadCancelledEvent
   | TerminalReapedEvent
   | TerminalRegistryChangedEvent
   | TitleChangedEvent
@@ -518,11 +681,24 @@ export type SerializedButNotEmittedEvent =
 /** Known subscribe stream events. */
 export type KnownSubscribeEvent =
   | AgentChangedEvent
+  | AgentPresenceChangedEvent
   | BellEvent
+  | BookmarksChangedEvent
   | ClientAttachedEvent
   | ClientChangedEvent
   | ClientDetachedEvent
+  | CloudConversationChangedEvent
+  | CloudConversationResyncedEvent
+  | CloudInboxChangedEvent
+  | CloudInboxResetEvent
+  | CloudMuxResyncedEvent
+  | CloudMuxWakeEvent
+  | CloudSessionNeededEvent
+  | CloudSubscriptionStateEvent
   | ConfigReloadRequestedEvent
+  | ConversationChangedEvent
+  | ConversationDraftEvent
+  | ConversationTypingEvent
   | EmptyEvent
   | FrontendProjectionChangedEvent
   | GraphicsStatusEvent
@@ -536,9 +712,11 @@ export type KnownSubscribeEvent =
   | PaneClosedEvent
   | PersonalChangedEvent
   | ScreenAddedEvent
+  | ScreenChangedEvent
   | ScreenClosedEvent
   | ScreenRenamedEvent
   | ScrollChangedEvent
+  | SettingsChangedEvent
   | SizeStateEvent
   | StatusEvent
   | SurfaceExitedEvent
@@ -565,6 +743,7 @@ export type TreeDeltaEvent =
   | PaneAddedEvent
   | PaneClosedEvent
   | ScreenAddedEvent
+  | ScreenChangedEvent
   | ScreenClosedEvent
   | ScreenRenamedEvent
   | TabAddedEvent

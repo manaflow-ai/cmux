@@ -1,3 +1,6 @@
+import CmuxNextDesign
+
+
 /// The focus of one window: the single owner of "what has the keyboard"
 /// (plans/cmux-next/focus.md section 4). Client-local, never persisted,
 /// never sent to the daemon. AppKit first responder, Ghostty surface focus,
@@ -92,6 +95,12 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
         case findBar(pane: String, tab: String)
         /// The page's docked DevTools has the keyboard.
         case devTools(pane: String, tab: String)
+        /// An agent chat tab's page has the keyboard.
+        case agentPage(pane: String, tab: String)
+        /// An internal page tab (`LocalPageTab`) has the keyboard.
+        case page(pane: String, tab: String)
+        /// A conversation tab (Home) has the keyboard: its message box.
+        case conversation(pane: String, tab: String)
         /// A focused pane with no content to type into (empty, loading).
         case emptyPane(pane: String)
         case sidebar
@@ -103,7 +112,7 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
         var pane: String? {
             switch self {
             case .terminal(let pane, _), .browserPage(let pane, _), .addressBar(let pane, _), .findBar(let pane, _),
-                 .devTools(let pane, _): pane
+                 .devTools(let pane, _), .agentPage(let pane, _), .page(let pane, _), .conversation(let pane, _): pane
             case .emptyPane(let pane): pane
             default: nil
             }
@@ -112,7 +121,7 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
         var tab: String? {
             switch self {
             case .terminal(_, let tab), .browserPage(_, let tab), .addressBar(_, let tab), .findBar(_, let tab),
-                 .devTools(_, let tab): tab
+                 .devTools(_, let tab), .agentPage(_, let tab), .page(_, let tab), .conversation(_, let tab): tab
             default: nil
             }
         }
@@ -140,6 +149,9 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
             case .addressBar: "addressBar"
             case .findBar: "findBar"
             case .devTools: "devTools"
+            case .agentPage: "agentPage"
+            case .page: "page"
+            case .conversation: "conversation"
             case .emptyPane: "emptyPane"
             case .sidebar: "sidebar"
             case .sidebarField: "sidebarField"
@@ -154,6 +166,7 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
     struct Context: Hashable, Sendable, Codable {
         var terminal = false
         var browser = false
+        var agent = false
     }
 
     var windowKey = false
@@ -184,6 +197,9 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
     var generation: UInt64 = 0
     /// The sidebar is hidden: it cannot be a focus target.
     var sidebarHidden = false
+    /// `layout.closeFocus`: the successor rule when the focused pane closes
+    /// (close-focus.md). The coordinator copies the setting in.
+    var closeFocus: CloseFocusPolicy = .previousNeighbor
 
     var resolved: Resolved {
         if let top = overlays.last { return .overlay(top) }
@@ -207,6 +223,9 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
             case (.browser, .devTools): return .devTools(pane: pane, tab: tab.id)
             case (.browser, _): return .browserPage(pane: pane, tab: tab.id)
             case (.terminal, _): return .terminal(pane: pane, tab: tab.id)
+            case (.agent, _): return .agentPage(pane: pane, tab: tab.id)
+            case (.page, _): return .page(pane: pane, tab: tab.id)
+            case (.conversation, _): return .conversation(pane: pane, tab: tab.id)
             case (.other, _): return .emptyPane(pane: pane)
             }
         }
@@ -222,6 +241,7 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
         switch underlying {
         case .terminal: return Context(terminal: true)
         case .browserPage, .addressBar, .findBar, .devTools: return Context(browser: true)
+        case .agentPage: return Context(agent: true)
         default: return Context()
         }
     }

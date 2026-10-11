@@ -52,6 +52,8 @@ use crate::remote_runtime::{
     load_shutdown_outcome, start_client_runtime, start_daemon_runtime,
 };
 use crate::session::{RemoteSession, Session};
+mod remote_link_mux;
+use remote_link_mux::{mux_owner_args, socket_for};
 
 const DEFAULT_STARTUP_TIMEOUT: Duration = Duration::from_secs(90);
 const WIREGUARD_HUB_START_TIMEOUT: Duration = Duration::from_secs(10);
@@ -74,7 +76,7 @@ pub fn run(
     match run_inner(args, usage, load_config) {
         Ok(()) => 0,
         Err(error) => {
-            crate::client_log::stderr_log!("remote", "cmux-tui: {error:#}");
+            crate::client_log::stderr_log!("remote", "{BIN}: {error:#}");
             1
         }
     }
@@ -136,6 +138,7 @@ fn remote_help_requested(args: &[String]) -> bool {
         "--ssh-binary",
         "--remote-binary",
         "--remote-state-dir",
+        "--remote-mux-socket",
         "--agent-hooks",
         "--wireguard-config",
         "--wireguard-hub",
@@ -231,6 +234,7 @@ struct ConnectFlags {
     ssh_binary: String,
     remote_binary: String,
     remote_state_dir: Option<String>,
+    remote_mux_socket: Option<String>,
     ssh_args: Vec<String>,
     /// Coding-agent providers whose hooks the SSH host installs on attach.
     agent_hooks: Vec<String>,
@@ -472,6 +476,9 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
             "--remote-state-dir" => {
                 flags.remote_state_dir = Some(value("--remote-state-dir")?);
             }
+            "--remote-mux-socket" => {
+                flags.remote_mux_socket = Some(value("--remote-mux-socket")?);
+            }
             "--ssh-arg" => flags.ssh_args.push(value("--ssh-arg")?),
             "--agent-hooks" => {
                 flags.agent_hooks.extend(agent_hook_providers(&value("--agent-hooks")?));
@@ -498,7 +505,7 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
                 return Err(anyhow!(catalog().remote_client.help_invalid_options));
             }
             option if option.starts_with('-') => {
-                return Err(anyhow!(catalog().remote_client.unknown_option(option)));
+                return Err(anyhow!(catalog().remote_client.connect_option_refused(option)));
             }
             route => {
                 if route.starts_with("cmux://enroll/") {
@@ -548,6 +555,11 @@ fn run_connect(
     let mut flags = parse_connect_flags(args)?;
     if preset_route.is_some() {
         flags.route = preset_route;
+    }
+    // A client with its own state directory (the app's link, cx-fdjq) keeps
+    // its client log there, as `remote-link --state-dir` does (cx-bduj).
+    if let Some(root) = flags.state_dir.as_deref() {
+        crate::client_log::use_path(root.join("client.log"));
     }
     connect_with_flags(flags, load_config)
 }
@@ -682,6 +694,7 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         remote_binary: flags.remote_binary.clone(),
         remote_session: flags.ssh_session.clone(),
         remote_state_dir: flags.remote_state_dir.clone(),
+        remote_mux_socket: flags.remote_mux_socket.clone(),
         extra_args: flags.ssh_args.clone(),
         maximum_frame_bytes: crate::remote_runtime::MAX_CARRIER_FRAME_BYTES,
         agent_hooks: flags.agent_hooks.clone(),
@@ -1055,7 +1068,10 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
 
 #[path = "remote_browser_proxy.rs"]
 mod remote_browser_proxy;
+#[path = "remote_wg_hub.rs"]
+mod remote_wg_hub;
 use remote_browser_proxy::{parse_browser_proxy_args, serve_browser_proxy};
+use remote_wg_hub::run_wg;
 
 #[derive(Debug, PartialEq, Eq)]
 enum RpcInputEvent {
@@ -1252,6 +1268,7 @@ pub(crate) fn validate_managed_ssh_options(options: &ManagedSshOptions) -> anyho
         remote_binary: options.remote_binary.clone(),
         remote_session: options.session.clone(),
         remote_state_dir: None,
+        remote_mux_socket: None,
         extra_args: options.ssh_args.clone(),
         maximum_frame_bytes: crate::remote_runtime::MAX_CARRIER_FRAME_BYTES,
         agent_hooks: Vec::new(),
@@ -1583,6 +1600,8 @@ fn parse_known_daemons_args(args: &[String]) -> anyhow::Result<KnownDaemonsArgs>
                 require_unique_flag(&mut seen, "--json")?;
                 json = true;
             }
+            // A global --socket names a session; pinned identities are this client's.
+            "--socket" => _ = strict_option_value(args, &mut index, "--socket")?,
             option => {
                 return Err(anyhow!(
                     catalog().remote_client.unknown_option_for_command(option, "known-daemons")
@@ -1595,9 +1614,6 @@ fn parse_known_daemons_args(args: &[String]) -> anyhow::Result<KnownDaemonsArgs>
         [action] if action == "list" => KnownDaemonsAction::List,
         [action, fingerprint] if action == "forget" => {
             KnownDaemonsAction::Forget(fingerprint.clone())
-        }
-        [action] if action == "forget" => {
-            return Err(anyhow!(catalog().remote_client.known_forget_arity));
         }
         [action, ..] if action == "forget" => {
             return Err(anyhow!(catalog().remote_client.known_forget_arity));
@@ -1697,105 +1713,6 @@ fn read_invitation_ticket_file(path: &Path) -> anyhow::Result<String> {
         .to_string())
 }
 
-struct WgHubFlags {
-    config: PathBuf,
-    socket: PathBuf,
-    exit_with_parent: bool,
-}
-
-fn parse_wg_hub_flags(args: &[String]) -> anyhow::Result<WgHubFlags> {
-    let mut config = None;
-    let mut socket = None;
-    let mut exit_with_parent = false;
-    let mut index = 0;
-    while index < args.len() {
-        let argument = args[index].as_str();
-        index += 1;
-        let mut value = |name: &str| -> anyhow::Result<PathBuf> {
-            let value = args
-                .get(index)
-                .cloned()
-                .ok_or_else(|| anyhow!(catalog().remote_client.option_needs_value(name)))?;
-            index += 1;
-            Ok(PathBuf::from(value))
-        };
-        match argument {
-            "--config" => {
-                if config.replace(value("--config")?).is_some() {
-                    return Err(anyhow!(catalog().remote_client.option_once("--config")));
-                }
-            }
-            "--socket" => {
-                if socket.replace(value("--socket")?).is_some() {
-                    return Err(anyhow!(catalog().remote_client.option_once("--socket")));
-                }
-            }
-            "--exit-with-parent" => exit_with_parent = true,
-            "-h" | "--help" => return Err(anyhow!(catalog().remote_client.help_invalid_options)),
-            other => return Err(anyhow!(catalog().remote_client.unknown_option(other))),
-        }
-    }
-    Ok(WgHubFlags {
-        config: config
-            .ok_or_else(|| anyhow!(catalog().remote_client.wg_hub_option_required("--config")))?,
-        socket: socket
-            .ok_or_else(|| anyhow!(catalog().remote_client.wg_hub_option_required("--socket")))?,
-        exit_with_parent,
-    })
-}
-
-/// `cmux-tui wg hub --config <wg-quick> --socket <unix path>`: own one
-/// WireGuard tunnel and serve SOCKS5 CONNECT for sidecars on a Unix socket.
-///
-/// Prints one JSON readiness line, then runs until SIGTERM, SIGINT, or the
-/// opted-in parent lifecycle ends. It removes the socket on the way out.
-/// Every error before readiness exits non-zero through the caller.
-fn run_wg(args: &[String]) -> anyhow::Result<()> {
-    match args.first().map(String::as_str) {
-        Some("hub") => {}
-        Some(action) => return Err(anyhow!(catalog().remote_client.unknown_action("wg", action))),
-        None => return Err(anyhow!(catalog().remote_client.wg_hub_help)),
-    }
-    let flags = parse_wg_hub_flags(&args[1..])?;
-    let owner = flags.exit_with_parent.then(current_parent_process_id);
-    let async_runtime = tokio_runtime()?;
-    let net =
-        start_wireguard_with_timeout(&async_runtime, &flags.config, WIREGUARD_HUB_START_TIMEOUT)?;
-    async_runtime.block_on(net.wait_for_handshake(WIREGUARD_HUB_HANDSHAKE_TIMEOUT)).map_err(
-        |error| anyhow!(catalog().remote_client.wireguard_start_failed(&error.to_string())),
-    )?;
-    let hub = async_runtime
-        .block_on(cmux_remote::wireguard_hub::serve_wireguard_hub(net, flags.socket))
-        .map_err(|error| {
-            anyhow!(catalog().remote_client.wireguard_hub_serve_failed(&error.to_string()))
-        })?;
-    let ready = serde_json::json!({
-        "event": "hub-ready",
-        "socket": hub.path().display().to_string(),
-        "routes": hub.routes().iter().map(ToString::to_string).collect::<Vec<_>>(),
-    });
-    println!("{}", serde_json::to_string(&ready)?);
-    let _ = io::stdout().flush();
-    async_runtime
-        .block_on(async {
-            if let Some(owner) = owner {
-                tokio::select! {
-                    result = crate::wait_for_shutdown_signal_async() => result,
-                    _ = wait_for_parent_exit(owner) => Ok(()),
-                }
-            } else {
-                crate::wait_for_shutdown_signal_async().await
-            }
-        })
-        .map_err(|error| {
-            anyhow!(catalog().remote_client.wireguard_hub_signal_failed(&error.to_string()))
-        })?;
-    async_runtime.block_on(hub.shutdown()).map_err(|error| {
-        anyhow!(catalog().remote_client.wireguard_hub_serve_failed(&error.to_string()))
-    })?;
-    Ok(())
-}
-
 #[cfg(unix)]
 fn current_parent_process_id() -> u32 {
     unsafe { libc::getppid() }.try_into().unwrap_or_default()
@@ -1820,12 +1737,19 @@ fn parent_process_is(_: u32) -> bool {
 /// waits on a kernel process-exit event (kqueue `NOTE_EXIT`, Linux pidfd);
 /// it used to re-check `getppid` every 100 ms. Kernels without pidfd keep
 /// the old check as a fallback.
+///
+/// The kernel wait runs on a detached thread, not tokio's blocking pool: a
+/// blocking task cannot be cancelled, so a runtime shut down by a signal
+/// would wait for the parent to exit before the process could.
 async fn wait_for_parent_exit(expected: u32) {
     if !parent_process_is(expected) {
         return;
     }
-    let watched = tokio::task::spawn_blocking(move || wait_for_process_exit(expected)).await;
-    if matches!(watched, Ok(Ok(()))) {
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    let waiter = thread::Builder::new().name("cmux-parent-exit".into()).spawn(move || {
+        let _ = sender.send(wait_for_process_exit(expected));
+    });
+    if waiter.is_ok() && matches!(receiver.await, Ok(Ok(()))) {
         return;
     }
     while parent_process_is(expected) {
@@ -1913,25 +1837,14 @@ fn start_wireguard(
     runtime: &tokio::runtime::Runtime,
     path: &Path,
 ) -> anyhow::Result<Arc<cmux_wg::WgNet>> {
-    start_wireguard_with_timeout_inner(runtime, path, None)
+    let config = read_wireguard_config(path)?;
+    let net = runtime.block_on(cmux_wg::WgNet::start_with_new_socket(config)).map_err(|error| {
+        anyhow!(catalog().remote_client.wireguard_start_failed(&error.to_string()))
+    })?;
+    Ok(Arc::new(net))
 }
 
-/// Starts a hub tunnel with a deadline around endpoint resolution and UDP setup.
-/// A DNS/network stall must produce a child error so the app can retry, rather
-/// than leaving the Unix socket absent until the app-side readiness timeout.
-fn start_wireguard_with_timeout(
-    runtime: &tokio::runtime::Runtime,
-    path: &Path,
-    timeout: Duration,
-) -> anyhow::Result<Arc<cmux_wg::WgNet>> {
-    start_wireguard_with_timeout_inner(runtime, path, Some(timeout))
-}
-
-fn start_wireguard_with_timeout_inner(
-    runtime: &tokio::runtime::Runtime,
-    path: &Path,
-    timeout: Option<Duration>,
-) -> anyhow::Result<Arc<cmux_wg::WgNet>> {
+fn read_wireguard_config(path: &Path) -> anyhow::Result<cmux_wg::WgConfig> {
     let text = cmux_remote::secret_file::read_owner_only_string(path, MAX_WIREGUARD_CONFIG_BYTES)
         .map_err(|error| {
         anyhow!(
@@ -1940,28 +1853,9 @@ fn start_wireguard_with_timeout_inner(
                 .wireguard_config_unreadable(&path.display().to_string(), &error.to_string())
         )
     })?;
-    let config = cmux_wg::WgConfig::parse_wg_quick(&text).map_err(|error| {
+    cmux_wg::WgConfig::parse_wg_quick(&text).map_err(|error| {
         anyhow!(catalog().remote_client.wireguard_config_invalid(&error.to_string()))
-    })?;
-    let net = match timeout {
-        // The timeout future must be built inside the runtime: `tokio::time::timeout`
-        // registers its sleep with the current reactor at construction, and there is
-        // none on this thread, so building it as `block_on`'s argument panics.
-        Some(timeout) => runtime
-            .block_on(async {
-                tokio::time::timeout(timeout, cmux_wg::WgNet::start_with_new_socket(config)).await
-            })
-            .map_err(|_| anyhow!("WireGuard startup timed out after {timeout:?}"))?
-            .map_err(|error| {
-                anyhow!(catalog().remote_client.wireguard_start_failed(&error.to_string()))
-            })?,
-        None => {
-            runtime.block_on(cmux_wg::WgNet::start_with_new_socket(config)).map_err(|error| {
-                anyhow!(catalog().remote_client.wireguard_start_failed(&error.to_string()))
-            })?
-        }
-    };
-    Ok(Arc::new(net))
+    })
 }
 
 fn read_invitation_uri(path: &Path) -> anyhow::Result<Zeroizing<String>> {
@@ -2060,7 +1954,16 @@ fn print_admin_response(action: &str, response: AdminResponse, json: bool) -> an
 /// hosted ingress on branded machine domains requires.
 /// `wireguard-hub`: `remote connect --wireguard-hub` and `wg hub` exist, so the
 /// app may reach private-network machines through a shared in-process tunnel.
-pub const PROBE_CAPABILITIES: &[&str] = &["direct-ws-user-agent", "wireguard-hub", "browser-proxy"];
+/// `remote-link-mux-socket` and `remote-link-strict-flags`: see
+/// `cmux_remote::provider::REMOTE_LINK_MUX_SOCKET_CAPABILITY`; an SSH client
+/// that needs one refuses a remote without it (cx-z3zh).
+pub const PROBE_CAPABILITIES: &[&str] = &[
+    "direct-ws-user-agent",
+    "wireguard-hub",
+    "browser-proxy",
+    cmux_remote::provider::REMOTE_LINK_MUX_SOCKET_CAPABILITY,
+    cmux_remote::provider::REMOTE_LINK_STRICT_FLAGS_CAPABILITY,
+];
 
 fn run_probe(args: &[String]) -> anyhow::Result<()> {
     let value = serde_json::json!({
@@ -2213,20 +2116,93 @@ fn run_install_self(args: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn run_remote_link(args: &[String]) -> anyhow::Result<()> {
-    if !args.iter().any(|argument| argument == "--stdio") {
+struct RemoteLinkArgs {
+    session: String,
+    state_dir: Option<PathBuf>,
+    mux_socket: Option<PathBuf>,
+    link_socket: Option<PathBuf>,
+    agent_hooks: Option<String>,
+}
+
+/// Strict: an unknown flag is an error, never skipped. An older remote that
+/// skipped `--mux-socket` attached to its default daemon (cx-z3zh); a flag
+/// this build does not know means the client is newer, so refuse loudly.
+/// A new flag also gets a `remote-probe` capability
+/// (`SshProviderConfig::required_remote_capabilities`).
+fn parse_remote_link_args(args: &[String]) -> anyhow::Result<RemoteLinkArgs> {
+    let mut parsed = RemoteLinkArgs {
+        session: "main".into(),
+        state_dir: None,
+        mux_socket: None,
+        link_socket: None,
+        agent_hooks: None,
+    };
+    let mut stdio = false;
+    let mut seen = BTreeSet::new();
+    let mut index = 0;
+    while index < args.len() {
+        let argument = args[index].as_str();
+        index += 1;
+        match argument {
+            "--stdio" => {
+                require_unique_flag(&mut seen, "--stdio")?;
+                stdio = true;
+            }
+            "--session" => {
+                require_unique_flag(&mut seen, "--session")?;
+                parsed.session = strict_option_value(args, &mut index, "--session")?;
+            }
+            "--state-dir" => {
+                require_unique_flag(&mut seen, "--state-dir")?;
+                parsed.state_dir =
+                    Some(strict_option_value(args, &mut index, "--state-dir")?.into());
+            }
+            "--mux-socket" => {
+                require_unique_flag(&mut seen, "--mux-socket")?;
+                parsed.mux_socket =
+                    Some(strict_option_value(args, &mut index, "--mux-socket")?.into());
+            }
+            "--link-socket" => {
+                require_unique_flag(&mut seen, "--link-socket")?;
+                parsed.link_socket =
+                    Some(strict_option_value(args, &mut index, "--link-socket")?.into());
+            }
+            "--agent-hooks" => {
+                require_unique_flag(&mut seen, "--agent-hooks")?;
+                parsed.agent_hooks = Some(strict_option_value(args, &mut index, "--agent-hooks")?);
+            }
+            other => {
+                return Err(anyhow!(catalog().remote_client.remote_link_unknown_option(other)));
+            }
+        }
+    }
+    if !stdio {
         return Err(anyhow!("remote-link currently requires --stdio"));
     }
-    let session = flag_value(args, "--session").unwrap_or_else(|| "main".into());
-    let state_dir = flag_value(args, "--state-dir").map(PathBuf::from);
-    let mux_socket = flag_value(args, "--mux-socket").map(PathBuf::from);
+    Ok(parsed)
+}
+
+fn run_remote_link(args: &[String]) -> anyhow::Result<()> {
+    let RemoteLinkArgs { session, state_dir, mux_socket, link_socket, agent_hooks } =
+        parse_remote_link_args(args)?;
+    // A link with its own state directory keeps its client log there too,
+    // never in the user's default state root (cx-bduj).
+    if let Some(root) = state_dir.as_deref() {
+        crate::client_log::use_path(root.join("client.log"));
+    }
     let (session_state, default_link, _) = daemon_paths(&session, state_dir.as_deref())?;
-    let link = flag_value(args, "--link-socket").map(PathBuf::from).unwrap_or(default_link);
-    if let Some(providers) = flag_value(args, "--agent-hooks") {
+    let link = link_socket.unwrap_or(default_link);
+    if let Some(providers) = agent_hooks {
         install_agent_hooks(agent_hook_providers(&providers));
     }
     ensure_daemon(&session, state_dir.as_deref(), &session_state, &link, mux_socket.as_deref())?;
-    tokio_runtime()?.block_on(proxy_stdio(&link))
+    let runtime = tokio_runtime()?;
+    let result = runtime.block_on(proxy_stdio(&link));
+    // Tokio reads stdin on a blocking thread that cannot be cancelled: when
+    // the link side ended first, do not wait for the next byte on stdin
+    // before exiting (cx-bj1o review).
+    runtime.shutdown_background();
+    result
 }
 
 /// `--agent-hooks claude,codex` names providers; empty items are dropped.
@@ -2249,7 +2225,7 @@ fn install_agent_hooks(providers: Vec<String>) {
     if result.failed {
         crate::client_log::stderr_log!(
             "remote",
-            "cmux-tui: agent hook install failed: {}",
+            "{BIN}: agent hook install failed: {}",
             result.value["errors"]
         );
     }
@@ -2527,10 +2503,9 @@ fn ensure_daemon(
     // exec'ing a "(deleted)" path, and daemon/client builds never skew.
     let executable = cmux_tui_core::platform::self_exe_for_spawn()?;
     let log_path = session_state.join("daemon.log");
-    let explicit_mux_socket = mux_socket_override
-        .map(Path::to_path_buf)
-        .or_else(|| std::env::var_os("CMUX_MUX_SOCKET").map(PathBuf::from));
+    let explicit_mux_socket = socket_for(mux_socket_override, session, state_root, session_state)?;
     let mux_socket_is_derived = explicit_mux_socket.is_none();
+    let attach_only = mux_socket_override.is_some();
     let mux_socket = explicit_mux_socket
         .map_or_else(|| cmux_tui_core::server::try_default_socket_path(session), Ok)?;
     if mux_socket_is_derived {
@@ -2539,11 +2514,15 @@ fn ensure_daemon(
         cmux_tui_core::server::prepare_socket_parent(&mux_socket, true)?;
     }
     if connect_same_user_socket(&mux_socket).is_err() {
+        if attach_only {
+            return Err(remote_link_mux::not_running(&mux_socket));
+        }
         let log = open_private_daemon_file(&log_path, true)
             .with_context(|| format!("could not open daemon log {}", log_path.display()))?;
         let mut mux_owner = Command::new(&executable);
+        log_under_state_root(&mut mux_owner, state_root);
         mux_owner
-            .args(mux_owner_args(session, &mux_socket, mux_socket_is_derived))
+            .args(mux_owner_args(session, &mux_socket, mux_socket_is_derived, state_root))
             .stdin(Stdio::null())
             .stdout(Stdio::from(log.try_clone()?))
             .stderr(Stdio::from(log));
@@ -2569,6 +2548,7 @@ fn ensure_daemon(
     if let Some(state_root) = state_root {
         command.arg("--state-dir").arg(state_root);
     }
+    log_under_state_root(&mut command, state_root);
     command.stdin(Stdio::null());
     command.stdout(Stdio::from(log.try_clone()?)).stderr(Stdio::from(log));
     configure_detached_process(&mut command);
@@ -2576,17 +2556,15 @@ fn ensure_daemon(
     wait_for_detached_socket(&mut child, link, Duration::from_secs(20), "remote daemon", &log_path)
 }
 
-/// Arguments for the headless mux owner `ensure_daemon` starts. A derived
-/// socket path is left for the owner to derive again from the same session,
-/// so it keeps the owner checks it applies to its own runtime directory.
-fn mux_owner_args(session: &str, mux_socket: &Path, mux_socket_is_derived: bool) -> Vec<OsString> {
-    let mut args: Vec<OsString> =
-        ["--headless", "--session", session].into_iter().map(OsString::from).collect();
-    if !mux_socket_is_derived {
-        args.push("--socket".into());
-        args.push(mux_socket.into());
+/// The mux owner and sidecar of a link with its own state directory log to
+/// `<state-dir>/client.log`, as the link does, unless `CMUX_TUI_LOG_FILE`
+/// already names a file (cx-bduj).
+fn log_under_state_root(command: &mut Command, state_root: Option<&Path>) {
+    if let Some(root) = state_root
+        && std::env::var_os("CMUX_TUI_LOG_FILE").is_none()
+    {
+        command.env("CMUX_TUI_LOG_FILE", root.join("client.log"));
     }
-    args
 }
 
 /// Connect to a socket this daemon's own user serves. The daemon only starts
@@ -2827,7 +2805,17 @@ where
         copy(&mut socket_read, &mut stdout).await?;
         stdout.shutdown().await
     };
-    tokio::try_join!(upload, download)?;
+    // The SSH carrier is the link: when stdin ends (the client or sshd went
+    // away), nothing reads stdout anymore either. Waiting for the sidecar to
+    // close its side kept this process alive, re-parented to pid 1, with the
+    // link socket open, so the daemon never started the resume lease and the
+    // browser runtimes of the link's streams lived on (cx-bj1o). Either side
+    // ending now ends the relay; dropping the socket closes the link, and the
+    // daemon keeps terminals and resumable streams for its resume lease.
+    tokio::select! {
+        result = upload => result?,
+        result = download => result?,
+    }
     Ok(())
 }
 
@@ -2981,20 +2969,6 @@ mod tests {
     }
 
     #[test]
-    fn private_socket_remote_mux_owner_derives_its_own_socket() {
-        let socket = Path::new("/tmp/cmux-tui-501/work.sock");
-        assert_eq!(
-            mux_owner_args("work", socket, true),
-            ["--headless", "--session", "work"].map(OsString::from)
-        );
-        assert_eq!(
-            mux_owner_args("work", socket, false),
-            ["--headless", "--session", "work", "--socket", "/tmp/cmux-tui-501/work.sock"]
-                .map(OsString::from)
-        );
-    }
-
-    #[test]
     fn probe_capabilities_include_direct_ws_user_agent() {
         assert!(PROBE_CAPABILITIES.contains(&"direct-ws-user-agent"));
         assert!(PROBE_CAPABILITIES.contains(&"wireguard-hub"));
@@ -3029,26 +3003,6 @@ mod tests {
         assert!(!flags.exit_with_parent);
         let owned = ["ws://[fd00::1]:1337/v1/link", "--exit-with-parent"].map(str::to_string);
         assert!(parse_connect_flags(&owned).unwrap().exit_with_parent);
-    }
-
-    #[test]
-    fn wg_hub_flags_require_config_and_socket() {
-        let full =
-            ["hub", "--config", "/tmp/wg.conf", "--socket", "/tmp/wg.sock"].map(str::to_string);
-        let flags = parse_wg_hub_flags(&full[1..]).unwrap();
-        assert_eq!(flags.config, PathBuf::from("/tmp/wg.conf"));
-        assert_eq!(flags.socket, PathBuf::from("/tmp/wg.sock"));
-        assert!(!flags.exit_with_parent);
-        let owned = ["--config", "/tmp/wg.conf", "--socket", "/tmp/wg.sock", "--exit-with-parent"]
-            .map(str::to_string);
-        assert!(parse_wg_hub_flags(&owned).unwrap().exit_with_parent);
-        let missing = ["--config", "/tmp/wg.conf"].map(str::to_string);
-        assert!(parse_wg_hub_flags(&missing).is_err());
-        let unknown =
-            ["--config", "/tmp/wg.conf", "--socket", "/tmp/s", "--bogus"].map(str::to_string);
-        assert!(parse_wg_hub_flags(&unknown).is_err());
-        let not_hub = ["frobnicate"].map(str::to_string);
-        assert!(run_wg(&not_hub).is_err());
     }
 
     #[cfg(unix)]
@@ -3338,29 +3292,6 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn wireguard_hub_start_deadline_is_built_inside_the_runtime() {
-        use std::os::unix::fs::PermissionsExt;
-
-        // `wg hub` runs on a plain thread and hands its runtime to the starter.
-        // The deadline future used to be built as `block_on`'s argument, where no
-        // reactor exists, and every hub start panicked with "there is no reactor
-        // running". A literal endpoint keeps DNS out of the test; the start may
-        // still fail, and any `Result` is the pass condition.
-        let directory = tempfile::tempdir().unwrap();
-        let config = directory.path().join("hub.conf");
-        fs::write(
-            &config,
-            "[Interface]\nPrivateKey = yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=\nAddress = 100.64.0.1/32\nMTU = 1200\n\n[Peer]\nPublicKey = xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg=\nAllowedIPs = 10.0.0.0/24\nEndpoint = 127.0.0.1:1\n",
-        )
-        .unwrap();
-        fs::set_permissions(&config, fs::Permissions::from_mode(0o600)).unwrap();
-        let runtime = tokio_runtime().unwrap();
-        let started = start_wireguard_with_timeout(&runtime, &config, Duration::from_secs(5));
-        drop(started);
-    }
-
-    #[cfg(unix)]
-    #[test]
     fn invitation_file_requires_owner_only_permissions() {
         use std::os::unix::fs::PermissionsExt;
 
@@ -3485,6 +3416,20 @@ mod tests {
             )
             .await
             .is_err()
+        );
+    }
+
+    #[test]
+    fn remote_mux_socket_flag_reaches_the_ssh_provider() {
+        let flags = parse_connect_flags(&[
+            "ssh://server.example".into(),
+            "--remote-mux-socket".into(),
+            "~/.cmux/brains/chief/daemon/cmux.sock".into(),
+        ])
+        .unwrap();
+        assert_eq!(
+            flags.remote_mux_socket.as_deref(),
+            Some("~/.cmux/brains/chief/daemon/cmux.sock")
         );
     }
 
@@ -4352,7 +4297,7 @@ mod tests {
         )
         .expect_err("remote stop terminated an embedded server");
 
-        assert!(error.to_string().contains("cmux server stop"), "{error:#}");
+        assert!(error.to_string().contains("cmux daemon stop"), "{error:#}");
         assert!(error.to_string().contains("SSH"), "{error:#}");
     }
 

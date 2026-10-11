@@ -167,3 +167,64 @@ async fn dropping_the_tunnel_ends_its_streams() {
     assert!(matches!(read, Ok(0) | Err(_)), "stream should end after its tunnel is dropped");
     server.shutdown().await;
 }
+
+#[tokio::test]
+async fn a_rebound_client_keeps_its_stream() {
+    let LoopbackPair { client, server, client_socket, server_socket, server_v4, .. } =
+        loopback_pair().await.unwrap();
+    let server = WgNet::start(server, server_socket).await.unwrap();
+    let client = WgNet::start(client, client_socket).await.unwrap();
+    let mut listener = server.listen(5555).await.unwrap();
+    let (go, gate) = tokio::sync::oneshot::channel::<()>();
+    let served = tokio::spawn(async move {
+        let mut stream = listener.accept().await.expect("accepted");
+        let mut hello = [0u8; 6];
+        stream.read_exact(&mut hello).await.expect("hello");
+        assert_eq!(&hello, b"before");
+        gate.await.expect("go");
+        stream.write_all(b"server first").await.expect("write");
+        let mut echo = vec![0u8; 64 * 1024];
+        stream.read_exact(&mut echo).await.expect("read");
+        stream.write_all(&echo).await.expect("echo");
+    });
+
+    let mut stream = within(client.connect(SocketAddr::new(server_v4, 5555))).await.unwrap();
+    within(stream.write_all(b"before")).await.unwrap();
+    let moved = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    within(client.rebind_socket(moved)).await.unwrap();
+    go.send(()).unwrap();
+
+    let mut first = [0u8; 12];
+    within(stream.read_exact(&mut first)).await.unwrap();
+    assert_eq!(&first, b"server first");
+    round_trip(&mut stream, &payload(64 * 1024)).await;
+    within(served).await.unwrap();
+    client.shutdown().await;
+    server.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_rebound_client_is_reachable_at_its_new_address() {
+    let LoopbackPair { client, server, client_socket, server_socket, client_v4, .. } =
+        loopback_pair().await.unwrap();
+    let server = WgNet::start(server, server_socket).await.unwrap();
+    let client = WgNet::start(client, client_socket).await.unwrap();
+    within(client.wait_for_handshake(Duration::from_secs(2))).await.unwrap();
+    within(server.wait_for_handshake(Duration::from_secs(2))).await.unwrap();
+    let mut listener = client.listen(6000).await.unwrap();
+
+    // No TCP has run yet and the old socket closes, so the datagram the
+    // rebind sends (an authenticated keepalive) is the only thing that can
+    // tell the server where the client went.
+    let moved = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    within(client.rebind_socket(moved)).await.unwrap();
+    let mut dialed = within(server.connect(SocketAddr::new(client_v4, 6000))).await.unwrap();
+    let mut accepted = within(listener.accept()).await.expect("accepted");
+    within(dialed.write_all(b"found you")).await.unwrap();
+    let mut greeting = [0u8; 9];
+    within(accepted.read_exact(&mut greeting)).await.unwrap();
+    assert_eq!(&greeting, b"found you");
+
+    client.shutdown().await;
+    server.shutdown().await;
+}

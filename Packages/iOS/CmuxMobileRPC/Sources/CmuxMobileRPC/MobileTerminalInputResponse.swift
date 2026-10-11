@@ -28,3 +28,25 @@ public struct MobileTerminalInputResponse: Decodable, Sendable {
         try JSONDecoder().decode(Self.self, from: data)
     }
 }
+
+/// Typed decoder for the `mobile.terminal.paste` RPC result.
+///
+/// A paste can be accepted while its submit key fails, so callers must inspect
+/// `submitted` instead of treating a successful RPC response as a committed
+/// prompt.
+public struct MobileTerminalPasteResponse: Decodable, Sendable {
+    public let submitted: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case submitted
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        submitted = try container.decodeIfPresent(Bool.self, forKey: .submitted) ?? false
+    }
+
+    public static func decode(_ data: Data) throws -> MobileTerminalPasteResponse {
+        try JSONDecoder().decode(Self.self, from: data)
+    }
+}

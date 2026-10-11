@@ -1652,7 +1652,7 @@ _cmux_report_pr_for_path() {
     err_file="$(/usr/bin/mktemp "${TMPDIR:-/tmp}/cmux-gh-pr-view.XXXXXX" 2>/dev/null || true)"
     [[ -n "$err_file" ]] || return 1
     gh_output="$(
-        builtin cd "$repo_path" 2>/dev/null \
+        builtin cd -q "$repo_path" 2>/dev/null \
             && gh pr view "$branch" \
                 "${gh_repo_args[@]}" \
                 --json number,state,url \

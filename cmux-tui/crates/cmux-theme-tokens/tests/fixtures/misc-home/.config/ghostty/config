@@ -1,0 +1,10 @@
+palette = 1=#ff0000
+palette = 300=#00ff00
+palette = 2=nonsense
+selection-background = cell-foreground
+selection-foreground = #abc
+background-opacity = 0.85
+background-blur-radius = 20
+background-blur = macos-glass-clear
+foreground = white
+background = 1e1e2e

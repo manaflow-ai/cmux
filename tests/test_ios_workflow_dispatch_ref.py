@@ -53,19 +53,6 @@ class IOSWorkflowDispatchRefTests(unittest.TestCase):
         self.assertEqual(
             detect["outputs"]["device_families"], "${{ steps.families.outputs.json }}"
         )
-        self.assertEqual(jobs["ios-simulator"]["needs"], ["runner", "detect-ios-changes", "ios-simulator-build"])
-        self.assertEqual(
-            jobs["ios-simulator"]["strategy"]["matrix"]["family"],
-            "${{ fromJSON(needs.detect-ios-changes.outputs.device_families) }}",
-        )
-        # Matrix membership is the admission decision. In particular, an empty
-        # request must not select both families and then skip both test steps.
-        simulator_steps = jobs["ios-simulator"]["steps"]
-        run_tests = next(step for step in simulator_steps if step.get("name") == "Run iOS simulator tests")
-        self.assertNotIn("if", run_tests)
-        for step in simulator_steps:
-            self.assertNotIn("inputs.device_family", step.get("if", ""))
-            self.assertNotEqual(step.get("name"), "Skip unrequested family")
         for requested, expected in (
             (None, ["iphone", "ipad"]),
             ("", ["iphone", "ipad"]),
@@ -111,6 +98,12 @@ class IOSWorkflowDispatchRefTests(unittest.TestCase):
         self.assertIn("target_sha: ${{ steps.target.outputs.sha }}", detect)
         self.assertIn("ref: ${{ github.ref }}", detect)
         self.assertIn("fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}", detect)
+        # Full history must stay blobless: fetching every blob of every branch
+        # overran the job's five-minute timeout and cancelled routing.
+        self.assertIn("filter: blob:none", detect)
+        # A blobless clone must never need the promisor remote mid-step:
+        # rename scoring would lazily fetch blobs and exit 128 if that fails.
+        self.assertIn("git diff --name-only --no-renames", detect)
         self.assertIn("id: target", detect)
         self.assertIn("GITHUB_TOKEN: ${{ github.token }}", detect)
         self.assertIn("REQUESTED_REF: ${{ inputs.ref }}", detect)
@@ -129,7 +122,7 @@ class IOSWorkflowDispatchRefTests(unittest.TestCase):
         resolved_ref = f"ref: {resolved_sha}"
 
         self.assertNotIn("ref: ${{ inputs.ref || github.ref", workflow)
-        for job in ("package-conventions-lint", "mobile-core-package", "ios-simulator-build", "ios-simulator"):
+        for job in ("package-conventions-lint", "mobile-core-package", "ios-simulator-build"):
             with self.subTest(job=job):
                 self.assertIn(resolved_ref, job_block(job))
 
@@ -232,13 +225,13 @@ class IOSNativeLintAdmissionTests(unittest.TestCase):
                     self.assertFalse(self.admitted(job, lint=lint))
 
     def test_success_and_legitimately_unselected_lint_admit_native_work(self):
-        for job in ("mobile-core-package", "ios-simulator-build", "ios-simulator"):
+        for job in ("mobile-core-package", "ios-simulator-build"):
             with self.subTest(job=job):
                 self.assertTrue(self.admitted(job))
                 self.assertTrue(self.admitted(job, lint="skipped", should_lint="false"))
 
     def test_no_native_work_for_unselected_failed_or_cancelled_detection(self):
-        for job in ("mobile-core-package", "ios-simulator-build", "ios-simulator"):
+        for job in ("mobile-core-package", "ios-simulator-build"):
             with self.subTest(job=job):
                 self.assertFalse(self.admitted(job, should_run="false"))
                 self.assertFalse(self.admitted(job, cancelled=True))
@@ -264,15 +257,10 @@ class IOSNativeLintAdmissionTests(unittest.TestCase):
 
     def test_no_native_work_without_a_picked_pool(self):
         # runs-on reads the runner job's JSON; without it there is no pool.
-        for job in ("mobile-core-package", "ios-simulator-build", "ios-simulator"):
+        for job in ("mobile-core-package", "ios-simulator-build"):
             for runner in ("pending", "failure", "cancelled", "skipped"):
                 with self.subTest(job=job, runner=runner):
                     self.assertFalse(self.admitted(job, runner=runner))
-
-    def test_consumers_require_a_completed_successful_producer(self):
-        for producer in ("pending", "in_progress", "failure", "cancelled", "skipped"):
-            with self.subTest(producer=producer):
-                self.assertFalse(self.admitted("ios-simulator", producer=producer))
 
 
 if __name__ == "__main__":

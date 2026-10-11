@@ -24,14 +24,14 @@ public struct LineSplitter: Sendable {
     public mutating func append(_ chunk: Data) throws(Failure) -> [Data] {
         buffer.append(chunk)
         var lines: [Data] = []
-        var start = buffer.startIndex
-        while let newline = buffer[start...].firstIndex(of: 0x0A) {
-            let line = buffer[start..<newline]
+        var rest = buffer
+        while let newline = rest.firstIndex(of: 0x0A) {
+            let line = rest.prefix(upTo: newline)
             if line.count > maximumLineBytes { throw .lineTooLong(limit: maximumLineBytes) }
             if !line.isEmpty { lines.append(Data(line)) }
-            start = buffer.index(after: newline)
+            rest = rest.suffix(from: newline).dropFirst()
         }
-        buffer = Data(buffer[start...])
+        buffer = Data(rest)
         if buffer.count > maximumLineBytes { throw .lineTooLong(limit: maximumLineBytes) }
         return lines
     }

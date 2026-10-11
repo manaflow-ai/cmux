@@ -49,7 +49,7 @@ enum TerminalPasteboard {
     }
 
     /// Backslash-escapes characters the shell would interpret, matching what
-    /// Terminal.app and Ghostty insert for a dropped file.
+    /// Ghostty inserts for a dropped file.
     static func shellEscaped(_ path: String) -> String {
         let special: Set<Character> = [" ", "\\", "\t", "\n", "'", "\"", "`", "!", "$", "&", "*", "(", ")", "[", "]", "{", "}", "<", ">", "|", ";", "?", "#", "~", "="]
         var result = ""

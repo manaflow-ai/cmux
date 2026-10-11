@@ -68,14 +68,14 @@ public final class SitePermissionStore {
     // MARK: Writing
 
     /// Stores `setting` for `kind` on `origin`. The default value clears the
-    /// decision, as choosing "Ask (default)" does in Chrome.
+    /// decision, as choosing "Ask (default)" does.
     public func set(_ setting: SitePermissionSetting, _ kind: SitePermissionKind, for origin: String) {
         var site = decisions[origin] ?? [:]
         if setting == kind.defaultSetting { site[kind] = nil } else { site[kind] = setting }
         update(origin, site)
     }
 
-    /// Clears every decision of `origin` (Chrome "Reset permissions").
+    /// Clears every decision of `origin` ("Reset permissions").
     public func reset(origin: String) {
         guard decisions[origin] != nil else { return }
         update(origin, [:])

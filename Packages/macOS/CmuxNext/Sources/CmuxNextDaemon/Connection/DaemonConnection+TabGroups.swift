@@ -1,6 +1,6 @@
 import Foundation
 
-/// Chrome-style tab groups (`tab-groups-v1`) and saved groups
+/// Tab groups (`tab-groups-v1`) and saved groups
 /// (`saved-tab-groups-v1`). Every call throws
 /// `DaemonError.missingCapabilities` on daemons without the command.
 extension DaemonConnection {
@@ -109,14 +109,6 @@ extension DaemonConnection {
         let result = try await requestNew(ReopenSavedTabGroupRequest(saved: saved, pane: pane, transaction: transaction))
         guard let index, let group = result.groupID else { return result }
         return try await moveTabGroup(group, to: result.pane ?? pane, index: index, transaction: transaction)
-    }
-
-    @available(*, deprecated, renamed: "reopenSavedTabGroup(_:in:index:transaction:)")
-    @discardableResult
-    public func openSavedTabGroup(_ saved: SavedTabGroupID, in pane: PaneID? = nil, index: Int? = nil,
-                                  transaction: ClientTransactionID? = nil) async throws -> TabGroupResult {
-        guard let pane else { throw DaemonError.malformedResponse("reopen-saved-tab-group requires a pane") }
-        return try await reopenSavedTabGroup(saved, in: pane, index: index, transaction: transaction)
     }
 
     /// Unsaves the record linked to a live group; the group stays.

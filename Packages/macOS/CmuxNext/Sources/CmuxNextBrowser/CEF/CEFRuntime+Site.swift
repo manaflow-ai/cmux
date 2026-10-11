@@ -22,10 +22,16 @@ extension CEFRuntime {
         return raw < 0 ? nil : CEFContentSetting(rawValue: raw)
     }
 
-    /// Stores `value` for `kind` on `url` (`.default` clears the exception).
+    /// Stores `value` for `kind` on `url` (`.default` clears the exception);
+    /// url "" sets the profile default.
     @discardableResult
     func setContentSetting(_ browser: Int32, url: String, kind: SitePermissionKind, value: CEFContentSetting) -> Bool {
         shim?.setContentSetting(browser, url, kind.rawValue, value.rawValue) == 1
+    }
+
+    /// Answers a waiting PERMISSION_PROMPT (`CEFPermissionPrompts`).
+    func permissionContinue(_ token: Int32, _ outcome: SitePermissionRequest.Outcome) {
+        _ = shim?.permissionContinue(token, outcome == .grant ? 1 : outcome == .deny ? 2 : 0)
     }
 
     /// Every cookie of the tab's profile.
@@ -48,7 +54,18 @@ extension CEFRuntime {
         return CEFSSLStatus.parse(json)
     }
 
-    private func siteCall(_ browser: Int32, what: String,
+    /// Forgets every certificate error the user proceeded past in the tab's
+    /// profile (CEF has no per-host call) and closes the profile's
+    /// connections, so the next load verifies the server again. False when
+    /// the shim could not do it.
+    func clearCertificateExceptions(_ browser: Int32) async -> Bool {
+        let reply = try? await siteCall(browser, what: "certificate exceptions clear") { shim, id in
+            shim.clearCertificateExceptions(browser, id)
+        }
+        return reply?.value == 1
+    }
+
+    func siteCall(_ browser: Int32, what: String,
                           start: (CEFShimLibrary, Int32) -> Int32) async throws -> CEFSiteReply {
         guard let shim else { throw BrowserTabError.closed }
         let id = nextSiteReply
@@ -69,10 +86,12 @@ extension CEFRuntime {
 }
 
 extension CEFRuntime: ThemeResponsive {
-    /// The Ghostty theme changed: live Chromium tabs repaint their page
-    /// background (fork API 12; the shim skips an unchanged color).
+    /// The Ghostty theme changed: Chromium's process default follows it.
+    /// Each attached tab owns its background, set from its view's theme
+    /// scope (`CEFTab.pageThemeDidChange`), so this reaches only browsers
+    /// still being created (fork API 12; the shim skips an unchanged color).
     func themeDidChange() {
         guard state == .ready else { return }
-        shim?.setBackgroundColor(PageBackground.themeARGB)
+        shim?.setBackgroundColor(PageBackground.appThemeARGB)
     }
 }

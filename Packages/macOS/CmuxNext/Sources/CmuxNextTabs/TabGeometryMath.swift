@@ -1,7 +1,8 @@
 public import CoreGraphics
 
 /// Drag reorder math.
-public enum TabReorderMath {
+public struct TabReorderMath {
+    public init() {}
     /// Index at which a dragged tab lands among `otherWidths` (the tabs of its
     /// group in order, without the dragged tab). Picks the slot whose leading
     /// edge is nearest to the dragged tab's leading edge.
@@ -22,7 +23,8 @@ public enum TabReorderMath {
 }
 
 /// Horizontal overflow scrolling math.
-public enum TabScrollMath {
+public struct TabScrollMath {
+    public init() {}
     public static func maxOffset(contentWidth: CGFloat, viewportWidth: CGFloat) -> CGFloat {
         max(0, contentWidth - viewportWidth)
     }
@@ -48,9 +50,12 @@ public enum TabScrollMath {
         return clamp(offset, contentWidth: contentWidth, viewportWidth: viewportWidth)
     }
 
-    /// Which edges show a fade for a scroll offset.
+    /// Which edges show a fade for a scroll offset: an edge with more than
+    /// half a point of tabs hidden beyond it. The offset is clamped first,
+    /// so a rubber band past either end never flashes a fade.
     public static func fadedEdges(offset: CGFloat, contentWidth: CGFloat, viewportWidth: CGFloat) -> (leading: Bool, trailing: Bool) {
         let maximum = maxOffset(contentWidth: contentWidth, viewportWidth: viewportWidth)
-        return (offset > 0.5, offset < maximum - 0.5)
+        let clamped = clamp(offset, contentWidth: contentWidth, viewportWidth: viewportWidth)
+        return (clamped > 0.5, clamped < maximum - 0.5)
     }
 }

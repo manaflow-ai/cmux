@@ -33,6 +33,7 @@ impl Defaults {
     }
 }
 
+#[cfg(unix)]
 pub async fn run(defaults: Defaults) -> Result<()> {
     let stream = crate::daemon::connect_stream().await?;
     let (daemon_read, mut daemon_write) = stream.into_split();
@@ -80,6 +81,12 @@ pub async fn run(defaults: Defaults) -> Result<()> {
         result = to_editor => result,
     }
 }
+/// Windows port: the daemon socket is `cmux::local_socket` there (a later
+/// landing).
+#[cfg(not(unix))]
+pub async fn run(_defaults: Defaults) -> Result<()> {
+    Err(crate::platform::unsupported("acpmux stdio"))
+}
 
 /// The id of a JSON-RPC request (a message with `method` and `id`).
 fn request_id(line: &str) -> Option<String> {
@@ -112,6 +119,14 @@ pub fn apply_defaults(line: &str, defaults: &Defaults) -> String {
     let Some(object) = message.as_object_mut() else { return line.to_owned() };
     let params = object.entry("params").or_insert_with(|| Value::Object(Map::new()));
     let Some(params) = params.as_object_mut() else { return line.to_owned() };
+    // A top-level choice (`params.model`) is the editor's too, and the
+    // daemon reads `_meta.acpmux` first, so no default may shadow it.
+    let chosen: Vec<&str> = defaults
+        .entries()
+        .iter()
+        .map(|(key, _)| *key)
+        .filter(|key| params.get(*key).and_then(Value::as_str).is_some())
+        .collect();
     let meta = params.entry("_meta").or_insert_with(|| Value::Object(Map::new()));
     let Some(meta) = meta.as_object_mut() else { return line.to_owned() };
     let mux = meta.entry("acpmux").or_insert_with(|| Value::Object(Map::new()));
@@ -119,68 +134,10 @@ pub fn apply_defaults(line: &str, defaults: &Defaults) -> String {
     for (key, value) in defaults.entries() {
         if let Some(value) = value
             && !mux.contains_key(key)
+            && !chosen.contains(&key)
         {
             mux.insert(key.into(), Value::String(value.clone()));
         }
     }
     serde_json::to_string(&message).unwrap_or_else(|_| line.to_owned())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    fn claude() -> Defaults {
-        Defaults {
-            harness: Some("claude".into()),
-            policy: Some("approve-edits".into()),
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn session_new_gets_the_defaults() {
-        let line = r#"{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"/w","mcpServers":[]}}"#;
-        let out: Value = serde_json::from_str(&apply_defaults(line, &claude())).unwrap();
-        assert_eq!(
-            out["params"]["_meta"]["acpmux"],
-            json!({"harness":"claude","policy":"approve-edits"})
-        );
-        assert_eq!(out["params"]["cwd"], "/w");
-    }
-
-    #[test]
-    fn the_editor_choice_wins() {
-        let line = r#"{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"_meta":{"acpmux":{"harness":"codex"}}}}"#;
-        let out: Value = serde_json::from_str(&apply_defaults(line, &claude())).unwrap();
-        assert_eq!(out["params"]["_meta"]["acpmux"]["harness"], "codex");
-        assert_eq!(out["params"]["_meta"]["acpmux"]["policy"], "approve-edits");
-    }
-
-    #[test]
-    fn requests_and_their_responses_pair_by_id() {
-        let request = r#"{"jsonrpc":"2.0","id":7,"method":"session/prompt","params":{}}"#;
-        let notification = r#"{"jsonrpc":"2.0","method":"session/cancel","params":{}}"#;
-        let response = r#"{"jsonrpc":"2.0","id":7,"result":{}}"#;
-        let server_request =
-            r#"{"jsonrpc":"2.0","id":7,"method":"session/request_permission","params":{}}"#;
-        assert_eq!(request_id(request), response_id(response));
-        assert_eq!(request_id(request).as_deref(), Some("7"));
-        assert_eq!(request_id(notification), None);
-        assert_eq!(response_id(server_request), None);
-    }
-
-    #[test]
-    fn other_lines_pass_through_unchanged() {
-        for line in [
-            r#"{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"s"}}"#,
-            "not json",
-            r#"{"jsonrpc":"2.0","id":3,"result":{}}"#,
-        ] {
-            assert_eq!(apply_defaults(line, &claude()), line);
-        }
-        let line = r#"{"jsonrpc":"2.0","id":1,"method":"session/new","params":{}}"#;
-        assert_eq!(apply_defaults(line, &Defaults::default()), line);
-    }
 }

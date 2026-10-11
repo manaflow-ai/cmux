@@ -12,8 +12,8 @@ enum ExtensionHandlers {
             // The menu runs a tracking loop; a CLI or palette caller returns first.
             entry.chrome.presentExtensionsMenu()
         })
-        registry.bind("browser.extensions.manage", run: { try openChromium(BrowserExtensionLinks.manage, context, $0) })
-        registry.bind("browser.extensions.webStore", run: { try openChromium(BrowserExtensionLinks.webStore, context, $0) })
+        registry.bind("browser.extensions.manage", run: { try openChromium(URL.browserExtensionManagement, context, $0) })
+        registry.bind("browser.extensions.webStore", run: { try openChromium(URL.browserExtensionWebStore, context, $0) })
         registry.bind("browser.extensions.loadUnpacked", run: { invocation in
             let (tab, store) = try managedStore(context, invocation)
             if let path = invocation["path"]?.stringValue, !path.isEmpty {

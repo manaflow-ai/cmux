@@ -75,9 +75,12 @@ private final class SlowWorkExecutor: ControlActionExecutor {
     @Test func terminalCreatePastItsDeadlineSaysTheTerminalMayAppear() async throws {
         let registry = ActionRegistry.standard()
         registry.context = RegistryReachabilityTests.fullContext
-        // The work outlives the test: only the deadline can answer.
+        // The work outlives the test: only the deadline can answer. The
+        // deadline leaves the main actor seconds to start the work: a create
+        // that never started answers a plain timeout, which is right, and a
+        // 150 ms deadline lost that race in the full parallel suite (#17601).
         let router = ControlRouter(identity: testIdentity(), executor: SlowWorkExecutor(delay: .seconds(30)),
-                                   configuration: .init(requestDeadline: .milliseconds(50), terminalStartDeadline: .milliseconds(150)))
+                                   configuration: .init(requestDeadline: .milliseconds(50), terminalStartDeadline: .seconds(5)))
         router.updateCatalog(RegistryControlBridge.catalog(from: registry))
         let result = await Self.run(router, "newSurface", target: "tab:t1")
         guard case .failure(let error) = result else {

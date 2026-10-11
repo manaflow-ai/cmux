@@ -30,8 +30,10 @@ finish the provider step or the 2FA code in the tab, then confirm with
 
 ## Saved state and cookies
 
-Removed. The old `state save|load` and `cookies get|set|clear` commands have no
-replacement in the new CLI. The tab keeps its login in the browser profile for
+The per-tab CLI has no cookie commands; the browser REPL has them
+([repl-guide.md](repl-guide.md)). `page.context().clearCookies()` returns
+`{ restoreIds }` and `page.context().restoreCookies(result)` undoes it; you
+never delete the backup (only the person can). The tab keeps its login in the browser profile for
 as long as the profile keeps its cookies. To clear site data for the focused
 browser, the UI action `cmux browser delete-site-data` exists; check its
 arguments with `cmux action describe "browser delete-site-data"`.

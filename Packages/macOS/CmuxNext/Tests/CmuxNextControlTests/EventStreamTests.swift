@@ -9,7 +9,7 @@ import Testing
 /// name filters, then live events.
 @Suite(.serialized) struct EventStreamTests {
     @Test func snapshotCursorThenFilteredReplayAndLiveEvents() throws {
-        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor())
+        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), configuration: .loadTolerant)
         let server = ControlSocketServer(configuration: .init(path: temporarySocketPath(), accessMode: .allowAll), router: router)
         try server.start()
         defer { server.stop() }

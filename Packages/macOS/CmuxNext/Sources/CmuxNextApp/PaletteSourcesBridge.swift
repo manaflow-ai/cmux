@@ -2,13 +2,44 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextPalette
+import CmuxNextSettings
 
 /// Feeds the palette's workspace and tab pages from the daemon store.
 enum PaletteSourcesBridge {
     static func make(services: AppServices) -> PaletteSources {
+        var sources = makeBase(services: services)
+        // cmux.json `palette.scopes.<id>.prefix`, read on every open.
+        sources.scopePrefixes = { [weak services] in
+            let assigned = services?.settings?.snapshot.paletteScopePrefixes.assigned ?? [:]
+            return Dictionary(uniqueKeysWithValues: assigned.map { (PaletteScopeID($0.key), $0.value) })
+        }
+        // Theme rows draw the theme's swatch strip (R98), from the catalog's
+        // cache (read off the main thread at launch).
+        sources.argumentSwatches = { [weak services] source, value in
+            guard source == ActionSuggestions.ghosttyThemes else { return [] }
+            return services?.themes.catalog.swatches(for: value) ?? []
+        }
+        return sources
+    }
+
+    private static func makeBase(services: AppServices) -> PaletteSources {
         PaletteSources(workspaces: WorkspaceSource(services: services), tabs: TabSource(services: services),
-                       targets: ScreenTargetSource(services: services, next: WindowTargetSource(services: services)),
-                       context: { [weak services] in services.map(capturedTargets) ?? [] })
+                       targets: targetSource(services),
+                       context: { [weak services] in services.map(capturedTargets) ?? [] },
+                       // Theme pickers preview the highlighted theme live.
+                       argumentPreview: { [weak services] action, _, value, target in
+                           services?.themes.pickerPreview(action, value: value, target: target)
+                       })
+    }
+
+    /// Target lists for the palette's argument pages, each kind from its
+    /// owner; rename prompts also start from the titles listed here.
+    static func targetSource(_ services: AppServices) -> any PaletteTargetSource {
+        let windows = WindowTargetSource(services: services)
+        let profiles = BrowserProfileTargetSource(services: services, next: windows)
+        let screens = ScreenTargetSource(services: services, next: profiles)
+        let tabs = TabAndGroupTargetSource(services: services, next: screens)
+        return SidebarSectionTargetSource(services: services, next: tabs)
     }
 
     /// The active window's focused objects when the palette opens: the
@@ -60,7 +91,8 @@ enum PaletteSourcesBridge {
 
         func closeWorkspace(id: String) {
             guard let (workspace, daemon) = services.machines.workspace(id: id), let key = workspace.key else { return }
-            let terminals = WorkspaceClose.terminals(of: workspace, on: daemon)
+            guard !HomeRules.isHome(workspace) else { return services.registry.refuse(RefusalStrings.homeNotClosable) }
+            let terminals = WorkspaceClose.closing(workspace, on: daemon)
             daemon.send("close-workspace") { connection in try await WorkspaceClose.close(key, terminals: terminals, on: connection) }
         }
     }

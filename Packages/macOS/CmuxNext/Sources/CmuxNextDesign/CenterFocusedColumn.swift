@@ -1,8 +1,8 @@
-/// niri `layout { center-focused-column "never" | "always" | "on-overflow" }`.
-/// cmux.json: `layout.centerFocusedColumn`. See plans/cmux-next/niri.md.
+/// Column centering mode: "never" | "always" | "on-overflow".
+/// cmux.json: `layout.centerFocusedColumn`. See plans/cmux-next/column-scroll.md.
 public nonisolated enum CenterFocusedColumn: String, Hashable, Sendable, CaseIterable {
     /// Scroll the least amount that makes the focused column fully visible
-    /// (niri default).
+    /// (default).
     case never
     /// Always center the focused column (clamped at the strip ends).
     case always
@@ -10,7 +10,7 @@ public nonisolated enum CenterFocusedColumn: String, Hashable, Sendable, CaseIte
     /// not fit on screen together; otherwise scroll the least amount.
     case onOverflow = "on-overflow"
 
-    /// Parses the cmux.json value; also accepts niri's spelling variants.
+    /// Parses the cmux.json value; also accepts `onOverflow` and `on_overflow`.
     public init?(configValue: String) {
         switch configValue.lowercased() {
         case "never": self = .never

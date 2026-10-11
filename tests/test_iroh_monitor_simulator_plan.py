@@ -6,6 +6,15 @@ DRIVER = Path(__file__).resolve().parents[1] / "scripts/run-iroh-release-gate.sh
 
 
 class MonitorSimulatorPlanTests(unittest.TestCase):
+    def test_gate_script_has_phase_timeout_and_reason(self):
+        script = DRIVER.read_text(encoding="utf-8")
+        self.assertIn("PHASE_TIMEOUT_SECONDS", script)
+        self.assertIn("run_phase_with_timeout prewarm", script)
+        self.assertIn("phase '{label}' timed out", script)
+        self.assertIn("build phase timed out", script)
+        self.assertIn("phase 'report' timed out", script)
+        self.assertIn("phase 'launch' timed out", script)
+
     def test_prebuilt_soak_accepts_a_dedicated_simulator(self):
         result = subprocess.run(
             [str(DRIVER), "--mode", "relay-only", "--tag", "soki", "--skip-build",

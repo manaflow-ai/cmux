@@ -111,7 +111,7 @@ public actor CloudTunnelHub {
         )
         let enrollment = try await api.enrollTunnel(request)
         guard generation == self.generation else { throw CancellationError() }
-        try paths.writeSecret(WireGuardConfig.completed(enrollment, privateKey: key.rawRepresentation.base64EncodedString()),
+        try paths.writeSecret(WireGuardConfig.shared.completed(enrollment, privateKey: key.rawRepresentation.base64EncodedString()),
                               to: paths.wireGuardConfig)
         let socketPath = paths.hubSocket
         unlink(socketPath)
