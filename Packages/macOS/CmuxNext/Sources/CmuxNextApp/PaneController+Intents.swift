@@ -257,11 +257,8 @@ extension PaneController {
         // Home keeps its tabs: no promote entries.
         let kept = Set(TabPromotion.menuRemovals(kind: workspaceKind))
         guard let tab, tab.kind == .browser else {
-            // Hibernation discards a page; a terminal has none. Only a
-            // terminal whose shell ended offers Restart.
-            let restartable = tab.map(TabRestart.isRestartable) ?? false
-            let hidden: Set<ActionID> = restartable ? ["hibernateTab", "wakeTab", "toggleTabAudioMute"] : ["hibernateTab", "wakeTab", "toggleTabAudioMute", TabRestart.action]
-            let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: kept.union(hidden))
+            // Hibernation discards a page; a terminal has none (Restart only once its shell ended).
+            let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: kept.union(["hibernateTab", "wakeTab", "toggleTabAudioMute"]).union(TabRestart.hiddenMenuItems(tab)))
             return registry.makeContextMenu(for: .tab, target: target, entries: entries)
         }
         // A browser tab offers the engine it is not on.

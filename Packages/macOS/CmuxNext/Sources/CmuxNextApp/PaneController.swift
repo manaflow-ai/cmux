@@ -336,7 +336,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         }
         guard let tab = pane.tabs.first(where: { $0.id == key }) else { return nil }
         switch tab.kind {
-        case .pty: return terminalContent(tab)
+        case .pty: return TerminalTabContent.make(tab, in: self)
         case .browser where tab.appTab != nil: return appTabContent(tab)
         case .browser where tab.isFrontendOwned:
             return services.cache.browser(for: tab).map(TabContent.browser)
