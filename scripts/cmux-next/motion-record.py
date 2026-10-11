@@ -148,6 +148,24 @@ def panes():
     record("panes", "equalize", lambda: action("equalizeSplits"))
     record("panes", "zoom", lambda: action("toggleSplitZoom"))
     record("panes", "unzoom", lambda: action("toggleSplitZoom"))
+    # Departures: a pane moved to another workspace, a lone tab moved into the
+    # pane beside it (its pane closes), and a strip column closed mid-strip.
+    action("splitRight")
+    time.sleep(0.8)  # test harness: the split settles
+    record("panes", "move-away", lambda: action("pane.moveToNewWorkspace"))
+    print("after move-away:", json.dumps(rpc("debug.windows"))[:300], flush=True)
+    action("splitRight")
+    time.sleep(0.8)  # test harness: the split settles
+    record("panes", "merge-left", lambda: action("moveSurfaceToPaneLeft"))
+    action("workspace.newAtBottom")
+    time.sleep(1.0)  # test harness: the workspace settles
+    for _ in range(2):
+        action("newColumn")
+        time.sleep(0.8)  # test harness: one column at a time
+    action("focusLeft")
+    time.sleep(0.5)  # test harness: the focus settles
+    save_layout("panes-strip")
+    record("panes", "close-mid-strip", lambda: action("closePane"))
 
 
 def focus():
