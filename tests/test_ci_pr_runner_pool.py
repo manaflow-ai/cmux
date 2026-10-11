@@ -1256,18 +1256,35 @@ class PerJobPlacement(unittest.TestCase):
     def test_the_plan_names_each_job(self):
         plan = routing(**FULL)
         self.assertTrue(plan.admission)
-        self.assertEqual(plan.after, (*(f"shard-{index}" for index in range(1, 8)), "lag", "cli-product"))
+        self.assertEqual(plan.after, (*(f"shard-{index}" for index in range(1, 8)), "lag", "cli-product",
+                                      "cli-regressions-1", "cli-regressions-2", "cli-regressions-3"))
         self.assertEqual(plan.side, ("claude-wrapper", "remote-daemon"))
-        self.assertEqual(plan.peak, 11)
+        self.assertEqual(plan.peak, 14)
         # With no Release helper the package lane is a third side lane: the most any run holds.
         self.assertEqual(routing(**FULL, release_build="false").peak, pool.MAX_RUN_JOBS)
         # The unit-ci label runs all seven shards; selected suites one worker, shard 8.
         self.assertEqual(routing(unit_suite="true").after, tuple(f"shard-{index}" for index in range(1, 8)))
         self.assertEqual(routing(unit_suite="true", unit_selectors="Suite").after, ("shard-8",))
         self.assertEqual(routing(unit_suite="true", unit_in_admission="true", unit_selectors="Suite").after, ())
-        # A CLI-only run compiles, then runs cli-product-tests; nothing beside it.
+        # A CLI-only run compiles, then runs cli-product-tests and the three
+        # cli-regressions shards; nothing beside it.
         cli_only = routing(macos="false", cli="true")
-        self.assertEqual((cli_only.admission, cli_only.after, cli_only.side), (True, ("cli-product",), ()))
+        self.assertEqual((cli_only.admission, cli_only.after, cli_only.side),
+                         (True, ("cli-product", "cli-regressions-1", "cli-regressions-2", "cli-regressions-3"), ()))
+        self.assertEqual(cli_only.peak, 4)
+
+    def test_the_cli_regression_shards_are_root_jobs_without_the_gui_token(self):
+        shards = ("cli-regressions-1", "cli-regressions-2", "cli-regressions-3")
+        # They run no XCTest, so they take the root label, not the one gui runner per mini.
+        self.assertFalse(any(pool.gui_token_job(key) for key in shards))
+        self.assertTrue(pool.gui_token_job("cli-product"))
+        # Owned priority: right after cli-product, in shard order.
+        ranked = sorted(("remote-daemon", *reversed(shards), "cli-product"), key=pool.priority)
+        self.assertEqual(ranked, ["cli-product", *shards, "remote-daemon"])
+        # Each shard holds a root runner while it runs; cli-product holds the gui runner.
+        plan = routing(macos="false", cli="true")
+        keys = ("admission", "cli-product", *shards)
+        self.assertEqual(pool.root_held(plan, keys, gui_runners=True), 3)
 
     def test_the_package_lane_is_a_side_lane_only_without_the_release_helper(self):
         # A package change under the compile-only policy: no helper build.
