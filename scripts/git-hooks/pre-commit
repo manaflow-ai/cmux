@@ -68,9 +68,10 @@ fi
 
 # A missing formatter is a hard failure for agents and CI, never a silent skip
 # (lanes committed unformatted Rust and web code for days because rustfmt and
-# vp were missing on the agent host). People get a warning instead.
+# vp were missing on the agent host). People get a warning instead. Codex
+# shells set CODEX_CI and CODEX_THREAD_ID; Claude Code shells set CLAUDECODE.
 REQUIRE_FORMATTERS=0
-for var in CMUX_AGENT CMUX_REQUIRE_FORMATTERS CI CLAUDECODE CODEX_SANDBOX; do
+for var in CMUX_AGENT CMUX_REQUIRE_FORMATTERS CI CLAUDECODE CODEX_CI CODEX_THREAD_ID CODEX_SANDBOX; do
     if [[ -n "${!var:-}" && "${!var}" != 0 ]]; then
         REQUIRE_FORMATTERS=1
     fi

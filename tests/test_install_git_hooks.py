@@ -216,7 +216,7 @@ class InstallGitHooksTests(unittest.TestCase):
     # Formatters at the commit boundary: the hook formats staged Rust in every
     # Cargo package (not only cmux-tui), and a missing formatter stops an agent's
     # commit instead of skipping silently.
-    AGENT_VARS = ("CMUX_AGENT", "CMUX_REQUIRE_FORMATTERS", "CI", "CLAUDECODE", "CODEX_SANDBOX")
+    AGENT_VARS = ("CMUX_AGENT", "CMUX_REQUIRE_FORMATTERS", "CI", "CLAUDECODE", "CODEX_CI", "CODEX_THREAD_ID", "CODEX_SANDBOX")
 
     def formatter_env(self, with_rustfmt, **extra):
         """Only the tools the hook needs on PATH, plus a recording rustfmt."""
@@ -278,6 +278,9 @@ class InstallGitHooksTests(unittest.TestCase):
         self.assertNotEqual(agent.returncode, 0, agent.stderr)
         self.assertIn("rustfmt is unavailable", agent.stderr)
         self.assertIn("do not pass --no-verify", agent.stderr)
+        # A Codex shell sets CODEX_THREAD_ID, not CMUX_AGENT.
+        codex = self.run_pre_commit(self.formatter_env(with_rustfmt=False, CODEX_THREAD_ID="thread"))
+        self.assertNotEqual(codex.returncode, 0, codex.stderr)
         person = self.run_pre_commit(self.formatter_env(with_rustfmt=False))
         self.assertEqual(person.returncode, 0, person.stderr)
         self.assertIn("rustfmt is unavailable", person.stderr)
