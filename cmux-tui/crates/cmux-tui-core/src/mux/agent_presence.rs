@@ -55,6 +55,16 @@ pub struct AgentPresence {
     pub updated_at_ms: u64,
 }
 
+/// One terminal's presence and the journal sequence of the newest hook
+/// event that touched it. Hooks can finish committing out of order, so an
+/// event older than the watermark never changes presence; a cleared slot
+/// keeps its watermark until the terminal closes.
+#[derive(Debug, Default)]
+pub(super) struct PresenceSlot {
+    sequence: u64,
+    presence: Option<AgentPresence>,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum PresenceStep {
     Unchanged,
@@ -79,18 +89,25 @@ pub(super) fn next_presence(
         .map(str::trim)
         .filter(|tool| !tool.is_empty() && tool.len() <= MAX_PRESENCE_TOOL_BYTES)
         .map(Arc::<str>::from);
+    let agent: Option<Arc<str>> = payload
+        .get("adapter")
+        .and_then(|adapter| adapter.get("id"))
+        .and_then(Value::as_str)
+        .map(Arc::from);
     let base = AgentPresence {
         activity: AgentActivity::Thinking,
-        agent: payload
-            .get("adapter")
-            .and_then(|adapter| adapter.get("id"))
-            .and_then(Value::as_str)
-            .map(Arc::from),
         session: field("agent_session_id")
             .and_then(Value::as_str)
             .and_then(|session| published_agent_session_id(terminal_id, session))
             .map(Arc::from)
-            .or_else(|| previous.and_then(|previous| previous.session.clone())),
+            // Events without a session id (tool hooks of some harnesses)
+            // keep the session only when the same adapter reports them.
+            .or_else(|| {
+                previous
+                    .filter(|previous| previous.agent == agent)
+                    .and_then(|previous| previous.session.clone())
+            }),
+        agent,
         tool: None,
         path: None,
         line: None,
@@ -213,7 +230,7 @@ impl Mux {
     /// Apply one freshly committed (not replayed) journal event to the live
     /// presence table and broadcast the change. Hook events for a terminal
     /// with no live placement are dropped: presence has nothing to point at.
-    pub(super) fn apply_agent_presence(&self, ingress: &crate::JournalIngress) {
+    pub(super) fn apply_agent_presence(&self, ingress: &crate::JournalIngress, sequence: u64) {
         if ingress.producer_id != crate::agent_hooks::AGENT_HOOK_PRODUCER_ID
             || ingress.payload.get("native_event").and_then(Value::as_str)
                 == Some(crate::journal_reducers::LEGACY_SCREEN_DETECT_NATIVE_EVENT)
@@ -229,23 +246,41 @@ impl Mux {
             return;
         };
         let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else { return };
+        // Emit while holding the table so two events of one terminal reach
+        // subscribers in the order they changed it. `emit` takes only the
+        // subscriber lock and never this one.
         let mut table = self.agent_presence.lock().unwrap();
-        let presence = match next_presence(table.get(&terminal_id), ingress, &terminal_id, now_ms())
+        let slot = table.entry(terminal_id.clone()).or_default();
+        if slot.sequence >= sequence && slot.sequence != 0 {
+            return;
+        }
+        slot.sequence = sequence;
+        let presence = match next_presence(slot.presence.as_ref(), ingress, &terminal_id, now_ms())
         {
             PresenceStep::Unchanged => return,
             PresenceStep::Set(presence) => {
-                if table.get(&terminal_id) == Some(&presence) {
+                if slot.presence.as_ref() == Some(&presence) {
                     return;
                 }
-                table.insert(terminal_id, presence.clone());
+                slot.presence = Some(presence.clone());
                 Some(Arc::new(presence))
             }
             PresenceStep::Clear => {
-                table.remove(&terminal_id);
+                slot.presence = None;
                 None
             }
         };
-        drop(table);
         self.emit(MuxEvent::AgentPresenceChanged { surface, presence });
+    }
+
+    /// Clear a terminal's presence when its agent record goes idle or done
+    /// by any path, including a screen-detected exit or a socket report that
+    /// sends no hook event (a Ctrl-C'd or crashed agent).
+    pub(super) fn clear_agent_presence(&self, terminal_id: &TerminalPublicId, surface: SurfaceId) {
+        let mut table = self.agent_presence.lock().unwrap();
+        let Some(slot) = table.get_mut(terminal_id) else { return };
+        if slot.presence.take().is_some() {
+            self.emit(MuxEvent::AgentPresenceChanged { surface, presence: None });
+        }
     }
 }
