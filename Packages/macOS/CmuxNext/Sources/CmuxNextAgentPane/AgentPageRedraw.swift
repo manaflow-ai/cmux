@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 import WebKit
 
 /// A chat shown again after another tab (cx-f6i7): its pane may have changed size meanwhile (the

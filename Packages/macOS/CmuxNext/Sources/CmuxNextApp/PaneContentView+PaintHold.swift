@@ -20,7 +20,11 @@ extension AgentPaneView: PaneFirstPaintGated {
     var awaitsFirstPaint: Bool { !model.hasPainted || redraw.awaits(self) }
 
     func whenFirstPainted(_ body: @escaping () -> Void) {
-        if model.hasPainted { redraw.when(self, body) } else { model.whenPainted(body) }
+        guard model.hasPainted else { return model.whenPainted(body) }
+        // It may answer from this view's own layout(): the hold ends once the window's pass is done.
+        redraw.when(self) { [weak self] in
+            if let window = self?.window as? ShellWindow { window.afterLayoutPass(body) } else { body() }
+        }
     }
 }
 
