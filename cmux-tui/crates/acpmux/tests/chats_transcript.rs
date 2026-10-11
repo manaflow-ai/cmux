@@ -16,6 +16,8 @@ use tokio::sync::mpsc;
 const DROID_ID: &str = "4f1c2a3b-5d6e-4f70-8a9b-0c1d2e3f4a5b";
 const CONTINUE_ID: &str = "7a8b9c0d-1e2f-4a3b-8c4d-5e6f7a8b9c0d";
 const AMP_ID: &str = "T-0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b";
+const CLAUDE_ID: &str = "5b6c7d8e-9f0a-4b1c-8d2e-3f4a5b6c7d8e";
+const CODEX_ID: &str = "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c";
 
 struct Home(PathBuf);
 
@@ -68,6 +70,35 @@ fn amp(h: &Path, project: &Path) {
         {"role": "assistant", "content": [{"type": "thinking", "thinking": "hm"}, {"type": "text", "text": "Renamed."}]},
     ]});
     write(&h.join(format!(".local/share/amp/threads/{AMP_ID}.json")), &thread.to_string());
+}
+
+/// A Claude Code chat (one a client shows read-only before its first send when it cannot adopt).
+fn claude(h: &Path, project: &Path) {
+    let line = |kind: &str, content: Value, at: &str| {
+        json!({"type": kind, "isSidechain": false, "cwd": project, "sessionId": CLAUDE_ID,
+               "timestamp": at, "message": {"role": kind, "content": content}})
+    };
+    let lines = [
+        line("user", json!("Explain the parser"), "2026-10-02T09:00:00.000Z"),
+        line(
+            "assistant",
+            json!([{"type": "text", "text": "It reads lines."}]),
+            "2026-10-02T09:00:02.000Z",
+        ),
+    ];
+    let text: String = lines.iter().map(|line| format!("{line}\n")).collect();
+    write(&h.join(format!(".claude/projects/-work-api/{CLAUDE_ID}.jsonl")), &text);
+}
+
+fn codex(h: &Path, project: &Path) {
+    let lines = [
+        json!({"type": "session_meta", "payload": {"id": CODEX_ID, "cwd": project, "timestamp": "2026-10-02T09:00:00Z"}}),
+        json!({"type": "event_msg", "timestamp": "2026-10-02T09:00:01Z", "payload": {"type": "user_message", "message": "Bump the version"}}),
+        json!({"type": "event_msg", "timestamp": "2026-10-02T09:00:03Z", "payload": {"type": "agent_message", "message": "Bumped to 1.2."}}),
+    ];
+    let text: String = lines.iter().map(|line| format!("{line}\n")).collect();
+    let name = format!("sessions/2026/10/02/rollout-2026-10-02T09-00-00-{CODEX_ID}.jsonl");
+    write(&h.join(".codex").join(name), &text);
 }
 
 async fn hub_on(h: &Path) -> Arc<Hub> {
@@ -137,6 +168,8 @@ async fn a_chat_with_no_acp_resume_gives_its_prompts_and_answers_on_the_local_so
     droid(&h.0, &project);
     continue_dev(&h.0, &project);
     amp(&h.0, &project);
+    claude(&h.0, &project);
+    codex(&h.0, &project);
     let hub = hub_on(&h.0).await;
     let (tx, mut rx) = connect(&hub, Origin::Local).await;
 
