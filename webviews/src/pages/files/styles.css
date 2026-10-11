@@ -90,3 +90,11 @@ html[data-cmux-page="files"] body { overflow: hidden; }
 }
 
 .files-muted { color: var(--page-text-3); }
+
+/* Why the last file did not open, pinned under the tree until the selection moves. */
+.files-notice {
+  flex: none;
+  margin: 0;
+  padding-inline: 12px;
+  border-top: 1px solid var(--page-separator);
+}

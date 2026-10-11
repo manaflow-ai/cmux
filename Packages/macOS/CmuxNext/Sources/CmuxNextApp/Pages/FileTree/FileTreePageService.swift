@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import typealias CmuxNextBridge.StripTabID
 import typealias CmuxNextDaemon.SurfaceID
 import CmuxNextIcons
 import CmuxNextPages

@@ -1,5 +1,7 @@
 import CmuxNextAgentPane
+import CmuxNextDaemon
 import CmuxNextPages
+import CmuxNextSettings
 import Foundation
 
 /// The owner side of the Files page (`cmux.files.*`, cx-p4rt), for one tab's folder: `root` (the
@@ -18,7 +20,7 @@ final class FileTreePageProvider: PageProvider {
         self.open = open
     }
 
-    func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
+    func call(_ op: String, params: CmuxNextSettings.JSONValue, context: PageCallContext) async throws -> CmuxNextSettings.JSONValue {
         guard let folder else { throw PageError(code: "cmux.files.no_folder", message: FileTreeStrings.noFolder, retryable: false) }
         switch op {
         case "cmux.files.root":
@@ -34,10 +36,10 @@ final class FileTreePageProvider: PageProvider {
         }
     }
 
-    private func list(_ directory: URL) async throws -> JSONValue {
+    private func list(_ directory: URL) async throws -> CmuxNextSettings.JSONValue {
         guard let link else { throw PageError(code: "cmux.files.unavailable", message: FileTreeStrings.unavailable, retryable: true) }
         do {
-            let reply = try await JSONValue.parse(link.read("git.files.list", params: ["path": .string(directory.path)]))
+            let reply = try await CmuxNextSettings.JSONValue.parse(link.read("git.files.list", params: ["path": .string(directory.path)]))
             return ["entries": reply["entries"] ?? .array([]), "truncated": reply["truncated"] ?? .bool(false)]
         } catch let failure as AgentPaneGitFailure {
             throw PageError(code: "cmux.files.unavailable", message: FileTreeStrings.message(for: failure), retryable: true)
@@ -45,7 +47,7 @@ final class FileTreePageProvider: PageProvider {
     }
 
     /// `path` ('/'-separated, "" for the folder itself) inside `folder`; anything that could leave it
-    /// (absolute, `..`, `.`, empty components, NUL) is refused.
+    /// (absolute, `..`, `.`, empty components, NUL, or a symlink pointing outside) is refused.
     nonisolated static func resolve(_ path: String?, in folder: URL) throws -> URL {
         guard let path else { throw PageError.invalidParams("path is required") }
         guard !path.isEmpty else { return folder }
@@ -53,6 +55,12 @@ final class FileTreePageProvider: PageProvider {
         guard !path.contains("\u{0}"), parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
             throw PageError.invalidParams("path must be relative to the folder")
         }
-        return parts.reduce(folder) { $0.appendingPathComponent(String($1)) }
+        let target = parts.reduce(folder) { $0.appendingPathComponent(String($1)) }
+        let root = folder.resolvingSymlinksInPath().path
+        let real = target.resolvingSymlinksInPath().path
+        guard real == root || real.hasPrefix(root.hasSuffix("/") ? root : root + "/") else {
+            throw PageError.invalidParams("path must be relative to the folder")
+        }
+        return target
     }
 }

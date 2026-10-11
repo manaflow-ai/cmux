@@ -86,5 +86,5 @@ test("Files is off until added from the right-click menu, then runs and lights l
   // A remote chat's folder is not on this Mac: no Files button, even when added.
   render(false);
   expect(files()).toBeNull();
-  configureQuickActions({});
+  act(() => configureQuickActions({}));
 });

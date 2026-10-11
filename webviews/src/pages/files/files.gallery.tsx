@@ -18,9 +18,10 @@ type Props = { tree?: MockTree; expand?: string[]; failure?: { code: string; mes
 function FilesGallery({ tree = sampleTree, expand = [], failure }: Props) {
   const [store] = useState(() => new FilesStore(new MockFilesProvider(tree, undefined, failure)));
   const [strings] = useState(() => createStrings(table));
+  const [opened] = useState(expand);
   useEffect(() => {
-    void store.start().then(() => expand.forEach((path) => store.expand(path)));
-  }, [store]);
+    void store.start().then(() => opened.forEach((path) => store.expand(path)));
+  }, [store, opened]);
   return <FilesPage store={store} strings={strings} />;
 }
 

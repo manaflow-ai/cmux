@@ -18,10 +18,11 @@ enum FilePageHandlers {
         services.pages.register(services.viewers.markdownPages)
         services.pages.register(services.viewers.editorPages)
         services.pages.register(services.viewers.fileTrees)
-        // The chat header's Files (cx-p4rt) reads the chat's folder on the chat's machine, as its git reads do.
+        // The chat header's Files (cx-p4rt) shows this Mac's folders only: it opens files and checks
+        // symlinks here, so a chat whose session runs on another machine gets no tree.
         services.agentTabs.openFiles = { [weak services] chat, folder, target in
-            services?.viewers.fileTrees.openBeside(folder: URL(fileURLWithPath: folder), chat: chat, target: target,
-                                                   link: services?.agentTabs.gitLink?(chat))
+            guard let services, let link = services.agentTabs.gitLink?(chat), link === services.agentGit.local else { return }
+            services.viewers.fileTrees.openBeside(folder: URL(fileURLWithPath: folder), chat: chat, target: target, link: link)
         }
         // R96: a recovered draft of a local file opens as an unsaved edit (the launch notice's Open),
         // in the page of its file type (D11): a markdown file in the markdown page, others in the

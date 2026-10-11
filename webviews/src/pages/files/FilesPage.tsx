@@ -6,7 +6,7 @@ import { useEffect, useRef, useSyncExternalStore, type KeyboardEvent, type React
 import { FileIcon } from "../../file-icons";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import type { Strings } from "../shared/i18n";
-import { parentPath, type FilesStore, type FolderState, type Row } from "./store";
+import { joinPath, parentPath, type FilesStore, type FolderState, type Row } from "./store";
 
 const TYPEAHEAD_MS = 600;
 const rowId = (path: string) => `files-row-${encodeURIComponent(path)}`;
@@ -15,7 +15,7 @@ export function FilesPage({ store, strings }: { store: FilesStore; strings: Stri
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const tree = useRef<HTMLDivElement>(null);
   const typed = useRef({ text: "", at: 0 });
-  const { rows, selected, root, folders } = snapshot;
+  const { rows, selected, root, folders, expanded } = snapshot;
   const index = rows.findIndex((row) => row.path === selected);
   const current = index >= 0 ? rows[index] : undefined;
 
@@ -24,6 +24,17 @@ export function FilesPage({ store, strings }: { store: FilesStore; strings: Stri
     if (selected !== undefined) document.getElementById(rowId(selected))?.scrollIntoView({ block: "nearest" });
   }, [selected]);
 
+  // The tree takes the keys as soon as it shows, and again whenever the tab's window comes forward.
+  const ready = root !== undefined;
+  useEffect(() => {
+    if (!ready) return;
+    const focus = () => tree.current?.focus({ preventScroll: true });
+    focus();
+    window.addEventListener("focus", focus);
+    return () => window.removeEventListener("focus", focus);
+  }, [ready]);
+
+  if (snapshot.unavailable) return <p className="files-message">{strings.t("files.page.unavailable")}</p>;
   if (snapshot.failed) return <p className="files-message">{snapshot.failed}</p>;
   if (!root) return <p className="files-message files-muted">{strings.t("files.page.loading")}</p>;
 
@@ -112,7 +123,46 @@ export function FilesPage({ store, strings }: { store: FilesStore; strings: Stri
     return items;
   };
 
-  const rootState = folders.get("");
+  // A folder's rows, each open folder's rows under it, then the folder's own status line after them.
+  const renderFolder = (folder: string, depth: number): ReactNode[] => {
+    const state = folders.get(folder);
+    const nodes: ReactNode[] = [];
+    for (const entry of state?.entries ?? []) {
+      const path = joinPath(folder, entry.name);
+      const row = {
+        path,
+        name: entry.name,
+        kind: entry.kind,
+        depth,
+        expanded: entry.kind === "directory" && expanded.has(path),
+      };
+      nodes.push(
+        <FilesRow
+          key={path}
+          row={row}
+          selected={path === selected}
+          onPointerDown={() => {
+            store.select(path);
+            tree.current?.focus({ preventScroll: true });
+          }}
+          onClick={() => row.kind === "directory" && store.toggle(path)}
+          onDoubleClick={() => row.kind === "file" && void store.open(path)}
+        />,
+      );
+      if (row.expanded) nodes.push(...renderFolder(path, depth + 1));
+    }
+    nodes.push(
+      <FolderStatus
+        key={`status:${folder}`}
+        state={state}
+        depth={depth}
+        strings={strings}
+        empty={!state?.entries?.length}
+      />,
+    );
+    return nodes;
+  };
+
   return (
     <div className="files">
       <header className="files-header" title={root.folder}>
@@ -128,24 +178,10 @@ export function FilesPage({ store, strings }: { store: FilesStore; strings: Stri
           aria-activedescendant={selected !== undefined ? rowId(selected) : undefined}
           onKeyDown={onKeyDown}
         >
-          {rows.map((row) => (
-            <FilesRow
-              key={row.path}
-              row={row}
-              selected={row.path === selected}
-              folder={row.expanded ? folders.get(row.path) : undefined}
-              strings={strings}
-              onPointerDown={() => {
-                store.select(row.path);
-                tree.current?.focus({ preventScroll: true });
-              }}
-              onClick={() => row.kind === "directory" && store.toggle(row.path)}
-              onDoubleClick={() => row.kind === "file" && void store.open(row.path)}
-            />
-          ))}
-          <FolderStatus state={rootState} depth={0} strings={strings} empty={rows.length === 0} />
+          {renderFolder("", 0)}
         </div>
       </ContextMenu>
+      {snapshot.notice ? <p className="files-status is-failed files-notice">{snapshot.notice}</p> : null}
     </div>
   );
 }
@@ -153,48 +189,39 @@ export function FilesPage({ store, strings }: { store: FilesStore; strings: Stri
 function FilesRow({
   row,
   selected,
-  folder,
-  strings,
   onPointerDown,
   onClick,
   onDoubleClick,
 }: {
   row: Row;
   selected: boolean;
-  /** An expanded folder's listing, for its loading, empty, cut or failed line. */
-  folder?: FolderState;
-  strings: Strings;
   onPointerDown: () => void;
   onClick: () => void;
   onDoubleClick: () => void;
 }) {
   const directory = row.kind === "directory";
-  const lastChild = (folder?.entries?.length ?? 0) === 0 || folder?.truncated || folder?.failed || folder?.loading;
   return (
-    <>
-      <div
-        id={rowId(row.path)}
-        className={`files-row${selected ? " is-selected" : ""}`}
-        role="treeitem"
-        aria-level={row.depth + 1}
-        aria-selected={selected}
-        aria-expanded={directory ? row.expanded : undefined}
-        style={{ paddingInlineStart: 8 + row.depth * 14 }}
-        onPointerDown={onPointerDown}
-        onClick={onClick}
-        onDoubleClick={onDoubleClick}
-      >
-        <span
-          className={`files-chevron${directory ? "" : " is-leaf"}${row.expanded ? " is-open" : ""}`}
-          aria-hidden="true"
-        />
-        {directory ? <span className="files-folder" aria-hidden="true" /> : <FileIcon path={row.name} />}
-        <span className="files-name">{row.name}</span>
-      </div>
-      {row.expanded && lastChild ? (
-        <FolderStatus state={folder} depth={row.depth + 1} strings={strings} empty={!folder?.entries?.length} />
-      ) : null}
-    </>
+    // The tree owns focus and every key (aria-activedescendant), so a row takes only the pointer.
+    // oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/interactive-supports-focus
+    <div
+      id={rowId(row.path)}
+      className={`files-row${selected ? " is-selected" : ""}`}
+      role="treeitem"
+      aria-level={row.depth + 1}
+      aria-selected={selected}
+      aria-expanded={directory ? row.expanded : undefined}
+      style={{ paddingInlineStart: 8 + row.depth * 14 }}
+      onPointerDown={onPointerDown}
+      onClick={onClick}
+      onDoubleClick={onDoubleClick}
+    >
+      <span
+        className={`files-chevron${directory ? "" : " is-leaf"}${row.expanded ? " is-open" : ""}`}
+        aria-hidden="true"
+      />
+      {directory ? <span className="files-folder" aria-hidden="true" /> : <FileIcon path={row.name} />}
+      <span className="files-name">{row.name}</span>
+    </div>
   );
 }
 

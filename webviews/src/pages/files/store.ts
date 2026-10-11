@@ -25,8 +25,13 @@ export interface FilesSnapshot {
   root?: RootInfo;
   /** Why the page has no folder (no tab folder, not a repository, an old session host). */
   failed?: string;
+  /** The page has no host to ask; the page says so in its own words. */
+  unavailable?: boolean;
+  /** Why the last file did not open; the next selection clears it. */
+  notice?: string;
   rows: Row[];
   folders: ReadonlyMap<string, FolderState>;
+  expanded: ReadonlySet<string>;
   selected?: string;
 }
 
@@ -36,10 +41,14 @@ export const parentPath = (path: string) => path.slice(0, Math.max(0, path.lastI
 export class FilesStore {
   private root?: RootInfo;
   private failed?: string;
+  private unavailable = false;
+  private notice?: string;
+  /** The latest `list` request per folder: an older reply that lands after a newer one is dropped. */
+  private requests = new Map<string, number>();
   private folders = new Map<string, FolderState>();
   private expanded = new Set<string>();
   private selected?: string;
-  private snapshot: FilesSnapshot = { rows: [], folders: this.folders };
+  private snapshot: FilesSnapshot = { rows: [], folders: this.folders, expanded: new Set() };
   private listeners = new Set<() => void>();
 
   constructor(
@@ -55,7 +64,10 @@ export class FilesStore {
   getSnapshot = () => this.snapshot;
 
   async start(): Promise<void> {
-    if (!this.client) return this.fail("cmux.files.unavailable");
+    if (!this.client) {
+      this.unavailable = true;
+      return this.emit();
+    }
     try {
       this.root = await this.client.call<RootInfo>(FilesOps.root, {});
     } catch (error) {
@@ -76,6 +88,7 @@ export class FilesStore {
   select(path: string | undefined): void {
     if (this.selected === path) return;
     this.selected = path;
+    this.notice = undefined;
     this.emit();
   }
 
@@ -102,7 +115,8 @@ export class FilesStore {
     try {
       await this.client?.call(FilesOps.open, { path });
     } catch (error) {
-      this.setFolder(parentPath(path), { failed: isPageError(error) ? error.message : String(error) });
+      this.notice = isPageError(error) ? error.message : String(error);
+      this.emit();
     }
   }
 
@@ -121,14 +135,38 @@ export class FilesStore {
 
   private async list(path: string): Promise<void> {
     if (!this.client) return;
+    const request = (this.requests.get(path) ?? 0) + 1;
+    this.requests.set(path, request);
     this.setFolder(path, { loading: true, failed: undefined });
     try {
       const listing = await this.client.call<Listing>(FilesOps.list, { path });
+      if (this.requests.get(path) !== request) return;
+      this.forgetGone(path, listing.entries);
       this.setFolder(path, { entries: listing.entries, truncated: listing.truncated, loading: false });
     } catch (error) {
+      if (this.requests.get(path) !== request) return;
       const failed = isPageError(error) ? error.message : String(error);
       this.setFolder(path, { loading: false, failed });
     }
+  }
+
+  /** Drops what `folder` no longer holds as a folder: its expansion, listing and anything under it. */
+  private forgetGone(folder: string, entries: FileEntry[]): void {
+    const kept = new Set(
+      entries.filter((entry) => entry.kind === "directory").map((entry) => joinPath(folder, entry.name)),
+    );
+    const known = new Set([...this.expanded, ...this.folders.keys()]);
+    const gone = [...known].filter((path) => path !== folder && parentPath(path) === folder && !kept.has(path));
+    if (gone.length === 0) return;
+    const inside = (path: string) => gone.some((top) => path === top || path.startsWith(`${top}/`));
+    this.folders = new Map(this.folders);
+    for (const path of [...known].filter(inside)) {
+      this.expanded.delete(path);
+      this.folders.delete(path);
+      this.requests.delete(path);
+    }
+    if (this.selected !== undefined && gone.some((top) => this.selected!.startsWith(`${top}/`)))
+      this.selected = folder || undefined;
   }
 
   private setFolder(path: string, patch: Partial<FolderState>): void {
@@ -161,8 +199,11 @@ export class FilesStore {
     this.snapshot = {
       root: this.root,
       failed: this.failed,
+      unavailable: this.unavailable,
+      notice: this.notice,
       rows: this.rows(),
       folders: this.folders,
+      expanded: new Set(this.expanded),
       selected: this.selected,
     };
     for (const listener of this.listeners) listener();
