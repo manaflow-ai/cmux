@@ -76,6 +76,13 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
         if (!replied || replied.id !== replyTo.message_id || replied.conversation !== head.id) fail("unknown_message")
         if (replyTo.part_index >= replied!.parts.length) fail("invalid_part_index")
       }
+      // A null thread_root is no thread (as serde reads it in Rust).
+      const threadRoot = op.thread_root ?? undefined
+      if (threadRoot !== undefined) {
+        const root = request.thread_target
+        // A thread has one level: a reply in a thread cannot be a root (Rust `InvalidThreadRoot`).
+        if (!root || root.id !== threadRoot || root.conversation !== head.id || root.thread_root !== undefined) fail("invalid_thread_root")
+      }
       const nowMs = parseRfc3339Millis(now) ?? 0
       // Every head carries the loop guard (O(1), no row window, so work cards cannot hide agent
       // turns). A head written before the counters existed falls back to the row window once.
@@ -102,9 +109,15 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
         author: request.actor,
         parts,
         ...(replyTo === undefined ? {} : { reply_to: { message_id: replyTo.message_id, part_index: replyTo.part_index } }),
+        ...(threadRoot === undefined ? {} : { thread_root: threadRoot }),
         created_at: now,
         reactions: []
       }
+      // A sender that had read everything before its send has read its own message too, for
+      // every client of this owner. One that had not keeps its cursor, so a message it never
+      // read (an agent's unhandled turn, a channel message behind a thread reply) stays unread.
+      // The change stays `message`; clients read the cursor from the head.
+      if ((head.read_cursors[request.actor] ?? 0) >= head.last_seq) next.read_cursors = sortedRecord({ ...head.read_cursors, [request.actor]: next.last_seq })
       return { head: next, message, change: { kind: "message", message } }
     }
     // Edits, retractions and reactions change a message, not the list order,

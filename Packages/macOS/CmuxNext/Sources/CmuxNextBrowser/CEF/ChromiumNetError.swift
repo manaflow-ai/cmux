@@ -33,9 +33,11 @@ nonisolated struct ChromiumNetError {
         }
     }
 
-    func loadError(failingURL: URL?) -> BrowserLoadError {
+    func loadError(failingURL: URL?, engineShowsPage: Bool) -> BrowserLoadError {
         let message = Self.certificateCodes.contains(code) ? "\(sentence) (\(name))" : "\(sentence)\n\(name)"
-        return BrowserLoadError(domain: Self.domain, code: code, message: message, failingURL: failingURL)
+        var error = BrowserLoadError(domain: Self.domain, code: code, message: message, failingURL: failingURL)
+        error.engineShowsPage = engineShowsPage
+        return error
     }
 
     /// Proceed on cmux's certificate warning page. Chromium failed the load
@@ -44,10 +46,17 @@ nonisolated struct ChromiumNetError {
     /// page loads again: continued for an overridable error on an IP
     /// address, which HSTS never covers (RFC 6797), otherwise left to
     /// Chromium's interstitial, which knows the host's HSTS state (the shim
-    /// then marks that load error `chromiumInterstitial`). False when the
-    /// browser is gone.
+    /// then marks that load error `chromiumInterstitial`). Then loads the
+    /// page again.
     @MainActor
-    static func proceed(code: Int, host: String, browser: Int32, shim: CEFShimLibrary?) -> Bool {
+    static func proceed(on tab: CEFTab) {
+        guard let browser = tab.browserID, let error = tab.state.loadError, let url = error.failingURL, let host = url.host(),
+              proceed(code: error.code, host: host, browser: browser, shim: tab.runtime.shim) else { return }
+        tab.load(url)
+    }
+
+    @MainActor
+    private static func proceed(code: Int, host: String, browser: Int32, shim: CEFShimLibrary?) -> Bool {
         var v4 = in_addr(), v6 = in6_addr()
         let isAddress = inet_pton(AF_INET, host, &v4) == 1 || inet_pton(AF_INET6, host, &v6) == 1
         let chromiumDecides = !(isAddress && overridableCertificateCodes.contains(code))

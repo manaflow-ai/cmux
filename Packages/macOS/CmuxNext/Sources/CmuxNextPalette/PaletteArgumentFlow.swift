@@ -146,6 +146,7 @@ struct PaletteArgumentFlow {
                 frecencyKey: "argument:\(descriptor.id.rawValue):\(argument.name):\(option.id)"
             )
             item.swatches = option.swatches
+            item.ball = PaletteGroupColor.ball(action: descriptor.id, argument: argument.name, value: option.id)
             return item
         }
         items.insert(contentsOf: extra, at: min(pinnedCount ?? items.count, items.count))

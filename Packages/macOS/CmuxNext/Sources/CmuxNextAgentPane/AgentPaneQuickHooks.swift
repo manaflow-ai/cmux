@@ -19,30 +19,35 @@ public struct AgentPaneQuickHooks {
     /// `quick.floatingState`: what the floating chat draws now, for a page that loads after the
     /// last push (a tab moved to the panel, a reload).
     public var floatingState: () -> AgentPaneFloatingState
+    /// `quick.context`: what the user is looking at in cmux (Include focused tab), nil for nothing.
+    public var context: @MainActor () async -> AgentPaneQuickContext?
 
     public init(dismiss: @escaping () -> Void,
                 openInWindow: @escaping (String?) -> Void,
                 startInBackground: @escaping @MainActor (AgentPaneQuickStart) async -> Void,
                 setOnTop: @escaping (Bool) -> Void = { _ in },
                 setCollapsed: @escaping (Bool) -> Void = { _ in },
-                floatingState: @escaping () -> AgentPaneFloatingState = { AgentPaneFloatingState() }) {
+                floatingState: @escaping () -> AgentPaneFloatingState = { AgentPaneFloatingState() },
+                context: @escaping @MainActor () async -> AgentPaneQuickContext? = { nil }) {
         self.dismiss = dismiss
         self.openInWindow = openInWindow
         self.startInBackground = startInBackground
         self.setOnTop = setOnTop
         self.setCollapsed = setCollapsed
         self.floatingState = floatingState
+        self.context = context
     }
 }
 
 extension AgentPaneQuickHooks {
     /// The panel requests that leave the chat's session alone.
-    func respond(to request: AgentPaneRequest) -> [String: Any] {
+    func respond(to request: AgentPaneRequest) async -> [String: Any] {
         switch request {
         case .quickDismiss: dismiss()
         case .quickSetOnTop(let onTop): setOnTop(onTop)
         case .quickSetCollapsed(let collapsed): setCollapsed(collapsed)
         case .quickFloatingState: return AgentPaneReply.success(floatingState().reply)
+        case .quickContext: return AgentPaneReply.success(await context()?.reply ?? NSNull())
         default: return AgentPaneModel.unsupported(String(describing: request))
         }
         return AgentPaneReply.success()

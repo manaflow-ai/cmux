@@ -9,7 +9,8 @@ extension UpdaterService {
     /// The update staged: record it for the build it installs.
     func recordStagedUpdate() {
         guard let lastUpdates, let build = stagedBuild(), let record = updateRecord(toBuild: build),
-              record.changelog != recordedUpdate?.changelog || build != recordedUpdate?.toBuild else { return }
+              record.changelog != recordedUpdate?.changelog || record.highlights != recordedUpdate?.highlights
+                || build != recordedUpdate?.toBuild else { return }
         recordedUpdate = record
         // task-owner: one small file write that ends by itself; a newer record replaces it.
         Task.detached { lastUpdates.write(record) }
@@ -19,7 +20,7 @@ extension UpdaterService {
     /// changed after staging. Synchronous: the process ends soon after.
     func recordBeforeInstall() {
         guard let lastUpdates, let recorded = recordedUpdate, let record = updateRecord(toBuild: recorded.toBuild),
-              record.changelog != recorded.changelog else { return }
+              record.changelog != recorded.changelog || record.highlights != recorded.highlights else { return }
         recordedUpdate = record
         // concurrency-allow: at most one ~1 KB atomic write per update, at the click, only when the notes changed after staging.
         lastUpdates.write(record)
@@ -31,7 +32,7 @@ extension UpdaterService {
         let changelog = stagedChangelog ?? UpdateChangelog(version: stagedVersion ?? toBuild, date: nil, lines: [])
         return WhatsNewLastUpdate(fromVersion: identity.shortVersion, fromBuild: identity.build,
                                   toVersion: stagedVersion ?? changelog.version ?? toBuild, toBuild: toBuild,
-                                  stagedAt: now(), changelog: changelog)
+                                  stagedAt: now(), changelog: changelog, highlights: stagedHighlights)
     }
 }
 

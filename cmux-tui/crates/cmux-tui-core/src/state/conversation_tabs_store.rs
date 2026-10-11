@@ -24,6 +24,11 @@
 //! like any tab instead of living only in one app session. The store keeps
 //! only the page id; the app draws the page. A connection that did not
 //! negotiate `page-tabs-v1` reads a page tab as `browser` without its record.
+//!
+//! `page-tab-route-v1` adds the page's `route` (a viewer's file or folder,
+//! a page's sub-view), so a closed page or viewer tab reopens on what it
+//! showed (plans/cmux-next/reopen-closed.md 3.0). The app sets it when it
+//! creates the tab; the store never interprets it.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -36,6 +41,11 @@ pub(crate) const CONVERSATION_TABS_CAPABILITY: &str = "conversation-tabs-v1";
 pub(crate) const AGENT_SESSION_TABS_CAPABILITY: &str = "agent-session-tabs-v1";
 /// The page source of a conversation tab (one of the app's own pages).
 pub(crate) const PAGE_TABS_CAPABILITY: &str = "page-tabs-v1";
+/// The `route` of a page tab (what the page shows), kept with the tab and in
+/// its closed-history record.
+pub(crate) const PAGE_TAB_ROUTE_CAPABILITY: &str = "page-tab-route-v1";
+/// The longest page route, in bytes.
+pub(crate) const MAX_PAGE_ROUTE_BYTES: usize = 4096;
 /// The canonical `content_kind` (v2) and raw tab `kind` of a conversation tab.
 pub(crate) const CONVERSATION_KIND: &str = "conversation";
 /// The frontend record of a conversation tab: no page is loaded.
@@ -88,7 +98,22 @@ pub(crate) fn create_conversation_tabs_schema(transaction: &Transaction<'_>) -> 
                   json_object('conversation', conversation, 'owner', owner)
            FROM conversation_tabs WHERE origin IS NOT NULL AND mutation_id IS NOT NULL;",
     )?;
-    add_agent_session_host_name(transaction)
+    add_agent_session_host_name(transaction)?;
+    add_page_route(transaction)
+}
+
+/// `page_tabs.route`, added to databases created before it (`page-tab-route-v1`).
+fn add_page_route(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    let present = transaction
+        .query_row("SELECT 1 FROM pragma_table_info('page_tabs') WHERE name = 'route'", [], |_| {
+            Ok(())
+        })
+        .optional()?
+        .is_some();
+    if !present {
+        transaction.execute_batch("ALTER TABLE page_tabs ADD COLUMN route TEXT;")?;
+    }
+    Ok(())
 }
 
 /// `agent_session_tabs.host_name`, added to databases created before it.
@@ -112,7 +137,8 @@ fn add_agent_session_host_name(transaction: &Transaction<'_>) -> anyhow::Result<
 /// an acpmux agent session that runs on the install `host` (`host_name` is
 /// that machine's display name). A new chat has no session yet; the tab's
 /// session changes by compare-and-swap (`bind-conversation-tab-session`).
-/// A page tab (`page-tabs-v1`) shows one of the app's own pages by id.
+/// A page tab (`page-tabs-v1`) shows one of the app's own pages by id, on
+/// its `route` (`page-tab-route-v1`) when the app gave one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConversationTabRecord {
     Conversation {
@@ -127,6 +153,7 @@ pub enum ConversationTabRecord {
     },
     Page {
         page: String,
+        route: Option<String>,
     },
 }
 
@@ -191,11 +218,18 @@ impl ConversationTabRecord {
                     );
                 }
             }
-            Self::Page { page } => {
+            Self::Page { page, route } => {
                 anyhow::ensure!(
                     token(page, 64, b"-_.") && !page.bytes().any(|byte| byte.is_ascii_uppercase()),
                     "bad request: page must be 1 to 64 lowercase letters, digits or '-', '_', '.'"
                 );
+                if let Some(route) = route {
+                    anyhow::ensure!(
+                        (1..=MAX_PAGE_ROUTE_BYTES).contains(&route.len())
+                            && !route.chars().any(char::is_control),
+                        "bad request: route must be 1 to 4096 bytes without control characters"
+                    );
+                }
             }
         }
         Ok(())
@@ -209,7 +243,8 @@ impl ConversationTabRecord {
             Self::AgentSession { host, session, harness, host_name } => json!({"agent_session": {
                 "host": host, "session": session, "harness": harness, "host_name": host_name,
             }}),
-            Self::Page { page } => json!({"page": page}),
+            Self::Page { page, route: None } => json!({"page": page}),
+            Self::Page { page, route: Some(route) } => json!({"page": page, "route": route}),
         }
     }
 
@@ -223,7 +258,7 @@ impl ConversationTabRecord {
                 harness: text(&agent["harness"]),
                 host_name: text(&agent["host_name"]),
             },
-            (None, Some(page)) => Self::Page { page: text(page)? },
+            (None, Some(page)) => Self::Page { page: text(page)?, route: text(&value["route"]) },
             (None, None) => Self::Conversation {
                 conversation: text(&value["conversation"])?,
                 owner: text(&value["owner"])?,
@@ -265,10 +300,10 @@ pub(crate) fn write_conversation_tab(
                 params![browser_id, host, session, harness, host_name],
             )?;
         }
-        ConversationTabRecord::Page { page } => {
+        ConversationTabRecord::Page { page, route } => {
             transaction.execute(
-                "INSERT INTO page_tabs(browser_id, page) VALUES(?1, ?2)",
-                params![browser_id, page],
+                "INSERT INTO page_tabs(browser_id, page, route) VALUES(?1, ?2, ?3)",
+                params![browser_id, page, route],
             )?;
         }
     }
@@ -461,9 +496,12 @@ pub(crate) fn read_conversation_tabs(
         let (id, record) = row?;
         rows.insert(id, record);
     }
-    let mut statement = connection.prepare("SELECT browser_id, page FROM page_tabs")?;
+    let mut statement = connection.prepare("SELECT browser_id, page, route FROM page_tabs")?;
     for row in statement.query_map([], |row| {
-        Ok((row.get::<_, String>(0)?, ConversationTabRecord::Page { page: row.get(1)? }))
+        Ok((
+            row.get::<_, String>(0)?,
+            ConversationTabRecord::Page { page: row.get(1)?, route: row.get(2)? },
+        ))
     })? {
         let (id, record) = row?;
         rows.insert(id, record);
@@ -517,11 +555,11 @@ pub(crate) fn tab_conversation_wire(
         Some(record) => Some(record),
         None => connection
             .query_row(
-                "SELECT p.page FROM resource_tabs AS t
+                "SELECT p.page, p.route FROM resource_tabs AS t
                  JOIN page_tabs AS p ON p.browser_id = t.content_id
                  WHERE t.public_id = ?1",
                 [tab_id],
-                |row| Ok(ConversationTabRecord::Page { page: row.get(0)? }),
+                |row| Ok(ConversationTabRecord::Page { page: row.get(0)?, route: row.get(1)? }),
             )
             .optional()?,
     };

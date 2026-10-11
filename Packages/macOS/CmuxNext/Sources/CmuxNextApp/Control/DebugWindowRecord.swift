@@ -8,7 +8,8 @@ import UniformTypeIdentifiers
 
 /// DEBUG ONLY. `debug.window_record` {dir, seconds (at most 8), window?}:
 /// the window as the window server composited it (`compositedSnapshot`,
-/// as `debug.window_snapshot`), once per display frame of its screen (a
+/// as `debug.window_snapshot`, plus the app's panels over it that are not
+/// its children, such as the palette opened with no key window), once per display frame of its screen (a
 /// FrameClient of the window's FrameScheduler, 120 Hz on ProMotion), as JPEG frames
 /// `DIR/frame-NNNNN.jpg` plus `DIR/frames.json` (index, host time in
 /// seconds since the first frame). Returns at once; the recording stops by
@@ -67,7 +68,7 @@ enum DebugWindowRecord {
             let t0 = start0 ?? now
             start0 = t0
             guard now - t0 <= seconds else { finish(); return false }
-            guard let image = window.compositedSnapshot() else { return true }
+            guard let image = window.compositedSnapshot(adding: overlayPanels()) else { return true }
             let index = times.count
             times.append(now - t0)
             let url = dir.appendingPathComponent(String(format: "frame-%05d.jpg", index))
@@ -77,6 +78,16 @@ enum DebugWindowRecord {
                 CGImageDestinationFinalize(dest)
             }
             return true
+        }
+
+        /// The app's visible panels over the window that are not its children
+        /// (the palette opened with no key window, hover cards), so the
+        /// recording shows them as a person sees them.
+        private func overlayPanels() -> [NSWindow] {
+            NSApplication.shared.windows.filter { other in
+                other !== window && other is NSPanel && other.isVisible && other.windowNumber > 0
+                    && other.alphaValue > 0 && other.frame.intersects(window.frame)
+            }
         }
 
         /// The client goes idle when `tick` returns false.

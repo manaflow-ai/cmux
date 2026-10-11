@@ -16,6 +16,8 @@ import Observation
 /// sign-out the daemon has evidence for, and its update command. Update and Update all type that
 /// command into a terminal tab the same way; an update that needs sudo is never typed (the page
 /// shows the command). Refresh asks the daemon to check again, so a finished update shows.
+/// Update Automatically asks acpmux to run a harness's update itself after a check finds it
+/// outdated (`_acpmux/harness/health {autoUpdate}`; never one that needs sudo).
 @MainActor
 @Observable
 final class SettingsHarnesses {
@@ -57,6 +59,11 @@ final class SettingsHarnesses {
                     "outdated": .bool(health?["outdated"]?.boolValue ?? false),
                     "auth": .string(health?["auth"]?.stringValue ?? "unknown"),
                     "update": update ?? .null,
+                    "autoUpdate": .bool(health?["autoUpdate"]?.boolValue ?? false),
+                    "lastAutoUpdate": health?["lastAutoUpdate"].flatMap { last -> JSONValue? in
+                        guard let ok = last["ok"]?.boolValue else { return nil }
+                        return ["ok": .bool(ok), "detail": .string(last["detail"]?.stringValue ?? "")]
+                    } ?? .null,
                 ]
             }),
         ]
@@ -86,29 +93,8 @@ final class SettingsHarnesses {
         // The rows show first: a check can take a while. A failed one (an older daemon without
         // the method, a timeout) keeps the health already shown.
         guard let checked = try? await environment.harness(.health, params: ["refresh": recheck]),
-              mine == generation, let read = Self.healthRows(checked) else { return }
+              mine == generation, let read = AgentCLIUpdates.rows(checked) else { return }
         health = read
-    }
-
-    private static func healthRows(_ data: Data) -> [String: JSONValue]? {
-        guard let rows = (try? JSONValue.parse(data))?["harnesses"]?.arrayValue else { return nil }
-        return Dictionary(rows.compactMap { row in row["id"]?.stringValue.map { ($0, row) } }, uniquingKeysWith: { first, _ in first })
-    }
-
-    /// The update a click may type for harness `id`: its daemon's argv, each word single-quoted;
-    /// nil when it is not outdated, needs sudo, or holds a character no shell quotes alike.
-    private func updateLine(_ id: String) -> String? {
-        guard let row = health[id], row["outdated"]?.boolValue == true, let plan = row["update"],
-              plan["elevated"]?.boolValue == false,
-              let argv = plan["argv"]?.arrayValue?.compactMap(\.stringValue), let program = argv.first,
-              // Never sudo, whatever the daemon says.
-              !["sudo", "doas", "su", "pkexec"].contains((program as NSString).lastPathComponent) else { return nil }
-        let unsafe: (Character) -> Bool = { character in
-            character == "'" || character == "\\" || character.isNewline
-                || character.unicodeScalars.contains { $0.properties.generalCategory == .control }
-        }
-        guard !argv.contains(where: { $0.contains(where: unsafe) }) else { return nil }
-        return argv.map { "'" + $0 + "'" }.joined(separator: " ")
     }
 
     /// Types `line` into a new terminal tab; refuses a line that could not be typed safely.
@@ -129,13 +115,20 @@ final class SettingsHarnesses {
             guard let id = params["id"]?.stringValue, rows.contains(where: { $0.id == id }) else {
                 throw PageError.invalidParams("id must be a listed harness")
             }
-            try type(updateLine(id))
+            try type(health[id].flatMap(AgentCLIUpdates.line))
+        case "autoUpdate":
+            // acpmux keeps the choice and runs the update after a check finds it outdated.
+            guard let id = params["id"]?.stringValue, rows.contains(where: { $0.id == id }), let on = params["on"]?.boolValue else {
+                throw PageError.invalidParams("autoUpdate needs a listed harness id and on")
+            }
+            guard let environment = environment() else { throw PageError(code: "cmux.page.unavailable", message: "no acpmux") }
+            let answer = try await environment.harness(.health, params: ["autoUpdate": ["id": id, "on": on] as [String: any Sendable]])
+            if let read = AgentCLIUpdates.rows(answer) { health = read }
         case "updateAll":
-            // Two harnesses from one package update once; each line runs whether the one before failed.
-            var lines: [String] = []
-            for row in rows { if let line = updateLine(row.id), !lines.contains(line) { lines.append(line) } }
-            guard !lines.isEmpty else { throw PageError.invalidParams("no harness can be updated here") }
-            openTerminal(lines.joined(separator: "; "))
+            guard let line = AgentCLIUpdates.allLine(rows.compactMap { health[$0.id] }) else {
+                throw PageError.invalidParams("no harness can be updated here")
+            }
+            openTerminal(line)
         case "signIn", "check":
             guard let id = params["id"]?.stringValue, rows.contains(where: { $0.id == id && $0.kind != "terminal" }) else {
                 throw PageError.invalidParams("id must be a listed harness")

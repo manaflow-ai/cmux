@@ -109,7 +109,7 @@ final class PaletteRowCell: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("palette.row")
 
     private let icon = NSImageView()
-    private let swatch = PaletteSwatchView()
+    let swatch = PaletteSwatchView()
     private let title = PaletteText.label(Typography.body, tone: nil)
     private let subtitle = PaletteText.label(Typography.caption, tone: .secondary)
     private let accessory = PaletteText.label(Typography.caption, tone: .tertiary)
@@ -118,6 +118,8 @@ final class PaletteRowCell: NSTableCellView {
     private var titleText = ""
     private var highlights: [Int] = []
     private var isSelected = false
+    private var swatches: [ThemeRGB] = []
+    private var ball: PaletteBall?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -141,9 +143,11 @@ final class PaletteRowCell: NSTableCellView {
                 ?? item.brand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: Metrics.iconSize) }
                 ?? PaletteText.symbol(item.symbol ?? "command", size: Metrics.iconSize)
         }
-        swatch.colors = item.swatches
-        swatch.isHidden = item.swatches.isEmpty
-        icon.isHidden = !item.swatches.isEmpty
+        swatches = item.swatches
+        ball = item.ball
+        let drawsColor = !item.swatches.isEmpty || item.ball != nil
+        swatch.isHidden = !drawsColor
+        icon.isHidden = drawsColor
         self.isSelected = isSelected
         titleText = item.title
         highlights = row.highlights
@@ -178,6 +182,7 @@ final class PaletteRowCell: NSTableCellView {
         performWithTheme {
             icon.contentTintColor = isSelected ? Palette.textPrimary : Palette.textSecondary
             title.attributedStringValue = Self.highlighted(titleText, highlights)
+            swatch.colors = ball.map { [$0.color.ballRGB(marksContent: $0.marksContent)] } ?? swatches
         }
     }
 

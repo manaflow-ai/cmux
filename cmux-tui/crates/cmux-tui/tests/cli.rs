@@ -3681,6 +3681,9 @@ mod left_dock_undock;
 #[path = "cli/lone_width.rs"]
 mod lone_width;
 #[cfg(unix)]
+#[path = "cli/new_terminal_cwd.rs"]
+mod new_terminal_cwd;
+#[cfg(unix)]
 #[path = "cli/settings_owner.rs"]
 mod settings_owner;
 #[cfg(unix)]

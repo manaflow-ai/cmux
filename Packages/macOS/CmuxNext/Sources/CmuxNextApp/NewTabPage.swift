@@ -156,13 +156,16 @@ enum NewTabPage {
         let hotkeys = newActions.compactMapValues { services.registry.shortcutDisplay(for: $0) }
         // An SSH or Cloud tab's page shows that machine's folder, never this Mac's home (cx-gaq9).
         let machine = NewTabPageMachine(services, selected: selected)
+        var bar = omnibar(services, excluding: selectedID)
+        // A page on another machine offers that machine's folders only (cx-k21v).
+        if let remote = machine.remoteFolders { (bar.folders, bar.projects) = (remote, remote) }
         return AgentPaneNewTab(
             kind: kind(selectedID: selectedID, selectedKind: selected?.kind),
             // The source tab's folder is what the page's chat or terminal starts in; the field
             // itself always starts empty, with its placeholder (never `~` or a URL).
             hotkeys: hotkeys, cwd: machine.cwd,
-            omnibar: omnibar(services, excluding: selectedID),
-            projects: projects(services),
+            omnibar: bar,
+            projects: machine.remoteFolders ?? projects(services),
             defaultKind: (services.settings?.snapshot.newTabKind ?? NewTabDefaultKind.fallback).rawValue,
             layout: NewTabTunables.layout.value.pageLayout,
             lastAgent: services.newTabChoices.agent,

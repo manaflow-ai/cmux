@@ -163,3 +163,123 @@ async fn a_chat_being_moved_takes_no_prompt_and_an_aborted_move_gives_it_back() 
     src.request(method::SESSION_PROMPT, prompt(&id, "p-again", "again")).await.unwrap();
     assert_eq!(texts(&mut src, &id, "user_message").await, ["hi", "until-cancel", "a", "again"]);
 }
+
+/// Records of `kind` in a session's log, their `msg`.
+async fn records(c: &mut TestClient, id: &str, kind: &str) -> Vec<Value> {
+    let page = c
+        .request(method::MUX_EVENTS, json!({"sessionId": id, "afterSeq": 0, "kinds": [kind]}))
+        .await
+        .unwrap();
+    page["events"].as_array().unwrap().iter().map(|e| e["msg"].clone()).collect()
+}
+
+/// `hub` on a unix socket of its own, as a sibling build's daemon listens; its path.
+async fn listen(hub: &Arc<Hub>) -> std::path::PathBuf {
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    // `/tmp`, not the temp dir: a worker's can be too long for a socket path.
+    let path = std::path::PathBuf::from("/tmp")
+        .join(format!("acpmux-move-{}-{n}.sock", std::process::id()));
+    let listener = acpmux::server::bind_unix(&path).await.unwrap();
+    tokio::spawn(acpmux::server::serve_unix(hub.clone(), listener));
+    path
+}
+
+/// Waits until `id`'s status on `c` is `status`.
+async fn wait_status(c: &mut TestClient, id: &str, status: &str) {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        let info = c.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+        if info["status"] == status {
+            return;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "never {status}: {info}");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+#[tokio::test]
+async fn a_move_whose_client_goes_away_before_the_bundle_is_read_gives_the_chat_back_on_its_own() {
+    let (a, mut src) = setup(PermissionPolicy::ApproveAll).await;
+    a.set_transfer_lease(Duration::from_secs(2));
+    let id = busy_chat(&mut src, &[("p-a", "a")]).await;
+    let begin = src
+        .request("_acpmux/transfer_begin", json!({"sessionId": id, "interrupt": true}))
+        .await
+        .unwrap();
+    // One small page, then the client is gone.
+    let path = begin["files"][0]["path"].clone();
+    let read = json!({"transferId": begin["transferId"], "path": path, "offset": 0, "limit": 1});
+    src.request("_acpmux/transfer_read", read).await.unwrap();
+
+    // No target can have the chat: it comes back here, runs its queue and takes prompts.
+    src.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "echo: a").await;
+    src.request(method::SESSION_PROMPT, prompt(&id, "p-again", "again")).await.unwrap();
+    let aborted = records(&mut src, &id, "transfer_aborted").await;
+    assert_eq!(aborted.len(), 1, "{aborted:?}");
+    assert_eq!(aborted[0]["reason"], "stalled", "{aborted:?}");
+}
+
+#[tokio::test]
+async fn a_move_whose_client_goes_away_after_the_target_took_the_chat_commits_on_its_own() {
+    let (a, mut src) = setup(PermissionPolicy::ApproveAll).await;
+    a.set_transfer_lease(Duration::from_secs(2));
+    let (b, mut dst) = setup(PermissionPolicy::ApproveAll).await;
+    let socket = listen(&b).await;
+    let id = busy_chat(&mut src, &[("p-a", "a")]).await;
+    let begin = src
+        .request(
+            "_acpmux/transfer_begin",
+            json!({"sessionId": id, "interrupt": true, "to": {"socket": socket}}),
+        )
+        .await
+        .unwrap();
+    let received =
+        dst.request("_acpmux/transfer_receive", json!({"manifest": begin})).await.unwrap();
+    let receive_id = received["receiveId"].as_str().unwrap().to_owned();
+    copy_bundle(&mut src, &mut dst, &begin, &receive_id).await;
+    dst.request("_acpmux/transfer_finish", json!({"receiveId": receive_id})).await.unwrap();
+    // The client is gone before its commit: the source asks the target, which has the chat.
+
+    wait_status(&mut src, &id, "closed").await;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    while !texts(&mut dst, &id, "user_message").await.contains(&"a".to_owned()) {
+        assert!(tokio::time::Instant::now() < deadline, "the moved queue never ran");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert_eq!(texts(&mut src, &id, "user_message").await, ["hi", "until-cancel"]);
+    let committed = records(&mut src, &id, "transferred").await;
+    assert_eq!(committed.len(), 1, "{committed:?}");
+}
+
+#[tokio::test]
+async fn a_move_whose_client_goes_away_before_the_target_finished_is_dropped_there_and_given_back()
+{
+    let (a, mut src) = setup(PermissionPolicy::ApproveAll).await;
+    a.set_transfer_lease(Duration::from_secs(2));
+    let (b, mut dst) = setup(PermissionPolicy::ApproveAll).await;
+    let socket = listen(&b).await;
+    let id = busy_chat(&mut src, &[("p-a", "a")]).await;
+    let begin = src
+        .request(
+            "_acpmux/transfer_begin",
+            json!({"sessionId": id, "interrupt": true, "to": {"socket": socket}}),
+        )
+        .await
+        .unwrap();
+    let received =
+        dst.request("_acpmux/transfer_receive", json!({"manifest": begin})).await.unwrap();
+    let receive_id = received["receiveId"].as_str().unwrap().to_owned();
+    // Every page is copied, but the client is gone before its finish.
+    copy_bundle(&mut src, &mut dst, &begin, &receive_id).await;
+
+    // The target drops the receive and the chat comes back here, its queue running.
+    src.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "echo: a").await;
+    let late = dst.request("_acpmux/transfer_finish", json!({"receiveId": receive_id})).await;
+    assert!(late.as_ref().is_err_and(|e| e.contains("transfer.unknown")), "{late:?}");
+    // A client that kept the bundle cannot start the move over there either.
+    let again = dst.request("_acpmux/transfer_receive", json!({"manifest": begin})).await;
+    assert!(again.as_ref().is_err_and(|e| e.contains("transfer.forgotten")), "{again:?}");
+    let there = dst.request(method::MUX_INFO, json!({"sessionId": id})).await;
+    assert!(there.is_err(), "the target has no copy: {there:?}");
+}

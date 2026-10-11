@@ -13,7 +13,7 @@
   --ui-popup-shadow:
     0 8px 24px color-mix(in srgb, black 18%, transparent),
     0 1px 3px color-mix(in srgb, black 14%, transparent),
-    inset 0 0 0 0.5px color-mix(in srgb, white 12%, transparent);
+    inset 0 0 0 0.5px color-mix(in srgb, currentColor 12%, transparent);
   --ui-row-height: 28px;
   --ui-row-radius: 5px;
   --ui-row-padding-inline: 8px;

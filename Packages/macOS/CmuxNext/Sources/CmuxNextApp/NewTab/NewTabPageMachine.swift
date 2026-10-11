@@ -11,20 +11,26 @@ struct NewTabPageMachine {
     /// This Mac's home for a local tab; nil on another machine, whose home the app does not
     /// know, so a typed `~/path` is never read as a file on this Mac.
     let home: String?
+    /// The project choices on another machine: the folders its workspaces' tabs report there;
+    /// nil for this Mac (the page lists this Mac's projects). Never this Mac's folders (cx-k21v).
+    let remoteFolders: [String]?
 
     @MainActor init(_ services: AppServices, selected: TabModel?) {
         guard let selected else {
-            (cwd, home) = (nil, NSHomeDirectory())
+            (cwd, home, remoteFolders) = (nil, NSHomeDirectory(), nil)
             return
         }
         let daemon = services.machines.daemon(forTab: selected)
         guard !daemon.isLocal else {
-            (cwd, home) = (selected.cwd, NSHomeDirectory())
+            (cwd, home, remoteFolders) = (selected.cwd, NSHomeDirectory(), nil)
             return
         }
         let store = daemon.store
         let workspace = store.pane(containing: selected.surface).flatMap { store.workspace(containing: $0.handle) }
         let folder = workspace?.screens.flatMap(\.panes).flatMap(\.tabs).lazy.compactMap(\.cwd).first
-        (cwd, home) = (selected.cwd ?? folder, nil)
+        var folders: [String] = []
+        for path in store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).compactMap(\.cwd)
+            where path.hasPrefix("/") && !folders.contains(path) { folders.append(path) }
+        (cwd, home, remoteFolders) = (selected.cwd ?? folder, nil, folders)
     }
 }

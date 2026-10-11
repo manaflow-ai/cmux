@@ -98,10 +98,17 @@ nonisolated enum RefusalStrings {
     static var daemonUnavailable: String {
         text("handlers.refusal.daemonUnavailable", "cmux could not start its background service. Quit and reopen cmux to try again.")
     }
+    /// The local daemon is alive but has spent over 2 minutes restoring the
+    /// session's terminals (`server.restore_timeout`); cmux keeps trying.
+    static var daemonRestoreTimedOut: String {
+        text("handlers.refusal.daemonRestoreTimedOut",
+             "cmux is still restoring your terminals. This is taking longer than 2 minutes; cmux keeps trying.")
+    }
     /// A daemon error as a user-facing reason: a missing capability goes
     /// through the capability gate's text, never its id.
     static func describe(_ error: any Error) -> String {
         if case DaemonError.missingCapabilities(let names) = error { return needsDaemonCapability(names.first ?? "") }
+        if case DaemonError.sessionRestoreTimedOut = error { return daemonRestoreTimedOut }
         return String(describing: error)
     }
     /// The home session's spaces and workspace groups are not loaded yet.

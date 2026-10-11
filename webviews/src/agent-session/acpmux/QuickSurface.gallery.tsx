@@ -19,6 +19,7 @@ function floating(mode: Props["mode"], status: FloatingStatus = "streaming"): Qu
     setOnTop: () => {},
     setCollapsed: () => {},
     moveToTab: () => {},
+    includeContext: () => {},
   };
 }
 

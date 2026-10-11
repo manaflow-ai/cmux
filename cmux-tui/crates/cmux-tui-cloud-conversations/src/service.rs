@@ -67,7 +67,8 @@ pub trait CloudBackend: Send + Sync {
         client_version: Option<&str>,
         body: &Value,
     ) -> Result<HttpReply, TransportError>;
-    /// Opens `url` with subprotocols `cmux.wire.v1, bearer.<bearer>`.
+    /// Opens `url` with subprotocol `cmux.wire.v1` and the bearer in the
+    /// `authorization` header (cx-dgsp; legacy subprotocol only for an old Worker).
     fn connect(
         &self,
         url: &str,
@@ -336,6 +337,34 @@ impl CloudConversations {
         );
         let (value, _) = read_value(self.post("/v1/read", &body)?)?;
         history_data(value)
+    }
+
+    /// `cloud-conversation-thread`: `conversation.thread`, the owner's value
+    /// unchanged (root, replies, has_more, thread).
+    pub fn thread(
+        &self,
+        conversation: &str,
+        root: &str,
+        after_seq: Option<u64>,
+        limit: Option<u32>,
+    ) -> Result<Value, CloudError> {
+        require_conversation(conversation)?;
+        if root.is_empty() || root.len() > 128 {
+            return Err(CloudError::BadRequest("root must be a message id".into()));
+        }
+        let mut params = json!({"conversation": conversation, "root": root});
+        if let Some(after_seq) = after_seq {
+            params["after_seq"] = json!(after_seq);
+        }
+        if let Some(limit) = limit {
+            if !(1..=MAX_PAGE).contains(&limit) {
+                return Err(CloudError::BadRequest(format!("limit must be 1-{MAX_PAGE}")));
+            }
+            params["limit"] = json!(limit);
+        }
+        let (value, _) =
+            read_value(self.post("/v1/read", &read_body("conversation.thread", params))?)?;
+        Ok(value)
     }
 
     /// The leased chief's wake queue (`cloud-mux-subscribe`): the agent is

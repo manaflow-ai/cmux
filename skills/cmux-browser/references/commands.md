@@ -54,6 +54,22 @@ cmux browser page tabs --all
 cmux browser "$TAB" new-tab https://example.com
 cmux browser "$TAB" select
 cmux browser "$TAB" close
+cmux browser "$TAB" press Enter
+cmux browser "$TAB" press Tab --selector "#email"
+cmux browser "$TAB" hover "#menu"
+cmux browser "$TAB" select "#size" m
+cmux browser "$TAB" check "#terms"
+cmux browser "$TAB" uncheck "#newsletter"
+cmux browser "$TAB" scroll --dy 600
+cmux browser "$TAB" scroll "#results" --dy 300
+cmux browser "$TAB" scroll-into-view "#footer"
+cmux browser "$TAB" cookies get --name session_id
+cmux browser "$TAB" cookies set session_id abc123 --domain .example.com --secure
+cmux browser "$TAB" cookies clear --domain example.com
+cmux browser "$TAB" storage local get
+cmux browser "$TAB" storage local set theme dark
+cmux browser "$TAB" storage session get draft
+cmux browser "$TAB" storage session clear
 ```
 
 `goto` and `open` are accepted for `navigate`; `url` and `title` are accepted
@@ -83,6 +99,39 @@ and prints its id under `created`; `select` (or `switch`) shows and focuses the
 tab; `close` closes it. They run the same actions as the tab strip, wait for
 them unless `--no-wait`, and refuse a tab that is not an app browser tab. They
 act on the tab you name; the old `tab switch|close <index>` has no equivalent.
+
+`press KEY` sends a key to the focused element (or `--selector`'s element,
+focused first). Keys are W3C key or code names (`Enter`, `Tab`, `Escape`,
+`ArrowDown`, `PageDown`, `F5`, `Space`, `Shift`, `KeyA`, `Slash`, `Numpad1`) or
+one character; any other name is sent as is, so `Control+a` is one opaque key,
+not a combination. The events are page-level (untrusted): Space activates
+buttons and checkboxes and Enter submits a single-line form field, but browser
+defaults such as Tab moving focus do not run. `hover` sends pointer and mouse
+over, enter and move events. `select SELECTOR VALUE` picks an option by its
+value (`select` with no arguments is the tab verb above). `check` and
+`uncheck` click only when the state differs and fail with `not_checkable`,
+`disabled` or `not_changed`. `scroll` scrolls the page, or one element, by
+`--dx`/`--dy` CSS pixels (`scroll 400` is `--dy 400`) and prints the new
+position. The old flag forms (`--selector`, `--value`, `--key`) and verb
+aliases (`key`, `scrollintoview`) still work. These act once and do not retry
+for an element that is still loading.
+
+`cookies` reads and changes the tab profile's cookies (fields `name`, `value`,
+`domain`, `path`, `expires`, `secure`, `httpOnly`, `hostOnly`, `session_only`).
+`get` filters by `--name`, `--value`, `--path`, `--expires`, `--secure` and
+`--http-only` (exact), `--domain` (substring) and `--url` (the cookies a request
+there would send).
+`set NAME VALUE` takes the domain from `--domain` (a leading dot covers
+subdomains), else `--url`'s host, else the tab's page; `--path` defaults to `/`, and `--expires` takes Unix
+seconds; a time already past is refused (use `clear`). `clear` takes the same
+filters, `--domain` meaning that domain and its subdomains, and reports how many
+it cleared. It needs at least one and only reaches the tab's site (its host,
+parent domains and subdomains), because the store is the person's browser
+profile; `--all` is refused.
+
+`storage local|session` (default `local`) reads one key or every key with
+`get`, writes with `set KEY VALUE` and empties the area with `clear`, in the
+page's origin.
 
 ## Daemon browsers (`browser_…`)
 
@@ -117,14 +166,13 @@ cmux browser screenshot-page
 
 ## Not in the per-tab CLI (use the REPL)
 
-The old CLI's `cookies`, `storage`, `state save|load`, `console`,
+The old CLI's `state save|load`, `console`,
 `errors`, `highlight`, `download`,
 `dialog`, `frame`, `network`, `trace`, `screencast`, `geolocation`,
-`offline`, `viewport`, `hover`, `dblclick`, `check`, `uncheck`, form `select <selector> <value>`,
-`scroll`, `scroll-into-view`, `press`, `keydown`, `keyup`, `get attr|count|box|styles|html`,
+`offline`, `viewport`, `dblclick`, `keydown`, `keyup`, `get attr|count|box|styles|html`,
 `identify`, `profile`, `design-mode status` and `--snapshot-after` have no
-per-tab command (`wait` and `screenshot` are above). Cookies, storage, saved
-state, console, dialogs, downloads, hover and scroll are in the browser REPL
+per-tab command (`wait`, `screenshot` and the input verbs are above). Cookies,
+storage, saved state, console, dialogs and downloads are in the browser REPL
 ([repl-guide.md](repl-guide.md)); do not poll with `eval`. For a one-shot read that
 `text` and `value` do not cover, `eval` returns the script's value.
 
