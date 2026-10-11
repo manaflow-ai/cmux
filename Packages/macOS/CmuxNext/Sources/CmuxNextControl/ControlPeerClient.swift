@@ -8,7 +8,8 @@ import Foundation
 /// transfer action uses the same JSON-lines protocol as the CLI. The client
 /// only accepts a single response line and sets socket deadlines before any
 /// blocking I/O; a stale build can therefore never hold the App's main actor.
-public enum ControlPeerClient {
+public struct ControlPeerClient {
+    public init() {}
     public enum Failure: Error, Sendable, Equatable, CustomStringConvertible {
         case socket(String)
         case timeout
