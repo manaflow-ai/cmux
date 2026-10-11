@@ -55,11 +55,6 @@ struct SessionTransferItem: Sendable, Equatable, Identifiable {
     }
 }
 
-struct SessionTransferOffer: Sendable, Equatable {
-    let itemCount: Int
-    let sourceBuilds: [String]
-}
-
 struct SessionTransferPeer: Sendable {
     let path: String
     let app: String
@@ -77,32 +72,12 @@ struct SessionTransferPeer: Sendable {
 final class SessionTransferService {
     @ObservationIgnored private weak var services: AppServices?
     @ObservationIgnored private var activeTask: Task<Void, Never>?
-    /// A launch offer for the sidebar notice. It is intentionally local to the
-    /// destination build: dismissing it never mutates a source build.
-    private(set) var offer: SessionTransferOffer?
-
     init(services: AppServices) { self.services = services }
 
     deinit { activeTask?.cancel() }
 
-    /// A newer build announces a sibling only when it actually has movable
-    /// records. The action remains the single mutation path when the person
-    /// clicks the palette command or invokes `session.moveHere` by CLI.
-    func announceAvailablePeers() {
-        Task { [weak self] in
-            guard let self, offer == nil else { return }
-            guard let peers = try? await discover() else { return }
-            let count = peers.reduce(0) { $0 + $1.items.count }
-            guard count > 0 else { return }
-            offer = SessionTransferOffer(itemCount: count, sourceBuilds: peers.map(\.build))
-        }
-    }
-
-    func dismissOffer() { offer = nil }
-
     func start(source: String? = nil, ids: Set<String> = []) {
         activeTask?.cancel()
-        offer = nil
         activeTask = Task { [weak self] in
             guard let self else { return }
             do {
@@ -129,7 +104,7 @@ final class SessionTransferService {
         try await connection.closeTabs(ids, endTerminals: true)
     }
 
-    /// Builds the list used by the launch notice and by `session.transfer.list`.
+    /// The sibling builds and their movable sessions, for `session.moveHere`.
     nonisolated func discover() async throws -> [SessionTransferPeer] {
         let current = await MainActor.run { services?.environment.launch }
         let paths = ControlSocketPath.shared.peerSocketPaths().filter { $0 != current?.socketPath }
@@ -263,11 +238,16 @@ final class SessionTransferService {
 
     private static func message(for error: Error) -> String {
         switch error {
-        case Failure.noSessions: "No sessions are available to move from another cmux build."
-        case Failure.missingAgentID: "The selected agent has no resumable session id."
-        case Failure.unavailable: "Session transfer is unavailable while cmux is starting."
-        case Failure.invalidSurfaces: "The source build returned invalid session identifiers."
-        default: "Could not move sessions from the other cmux build."
+        case Failure.noSessions:
+            String(localized: "sessionTransfer.error.noSessions", defaultValue: "No sessions are available to move from another cmux build.", bundle: .module)
+        case Failure.missingAgentID:
+            String(localized: "sessionTransfer.error.missingAgentID", defaultValue: "The selected agent has no resumable session id.", bundle: .module)
+        case Failure.unavailable:
+            String(localized: "sessionTransfer.error.unavailable", defaultValue: "Session transfer is unavailable while cmux is starting.", bundle: .module)
+        case Failure.invalidSurfaces:
+            String(localized: "sessionTransfer.error.invalidSurfaces", defaultValue: "The source build returned invalid session identifiers.", bundle: .module)
+        default:
+            String(localized: "sessionTransfer.error.failed", defaultValue: "Could not move sessions from the other cmux build.", bundle: .module)
         }
     }
 
