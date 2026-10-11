@@ -143,6 +143,23 @@ def reached():
     return page("document.title") == "secure test"
 
 
+def nested_holes(status):
+    """Holes of the Chromium page window inside another one: an even-odd mask cancels them
+    (the page then covers cmux's view)."""
+    holes = json.loads(status.get("holes") or "[]")
+    inside = lambda a, b: a[0] >= b[0] and a[1] >= b[1] and a[0] + a[2] <= b[0] + b[2] and a[1] + a[3] <= b[1] + b[3]
+    return [a for i, a in enumerate(holes) for j, b in enumerate(holes) if i != j and inside(a, b)]
+
+
+def stays_shown(engine, what, predicate):
+    """cmux's page is still there after Chromium committed its own page under it."""
+    time.sleep(2)
+    status = page_status()
+    check(predicate(status), f"{engine}: {what} stays shown ({status})")
+    if engine == "chromium":
+        check(not nested_holes(status), f"{engine}: {what}: no page window hole is inside another ({status.get('holes')})")
+
+
 def run_engine(engine, port):
     print(f"== {engine}", flush=True)
 
@@ -152,6 +169,8 @@ def run_engine(engine, port):
     check(bool(shown), f"{engine}: an unresolvable host shows cmux's error page ({page_status()})")
     if engine == "chromium":
         check(bool(shown) and "ERR_NAME_NOT_RESOLVED" in shown, f"{engine}: the error page names the error ({shown!r})")
+    if shown:
+        stays_shown(engine, "the error page", lambda status: bool(status.get("error")))
     close_tab()
 
     # 2. and 3. A self-signed certificate: an IP address, then a name.
@@ -161,6 +180,7 @@ def run_engine(engine, port):
         warned = quiet_wait(lambda: page_status().get("certificate") == "1", 30)
         check(bool(warned), f"{engine}: {host}'s untrusted certificate shows cmux's certificate warning ({page_status()})")
         if warned:
+            stays_shown(engine, f"{host}'s certificate warning", lambda status: status.get("certificate") == "1")
             # Proceed is a person's action (refused over action.run): press the button.
             reply = page_status(press="proceed")
             check(reply.get("pressed") == "1", f"{engine}: Proceed runs on {host} ({reply})")
