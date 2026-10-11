@@ -31,7 +31,10 @@ class InstallGitHooksTests(unittest.TestCase):
         self.repo = self.root / "repository"
         self.global_config = self.root / "gitconfig"
         self.global_config.write_text("")
-        self.env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        # Fixture commits stand for a person: an agent or CI environment makes a
+        # missing formatter fatal, and these fixtures have none.
+        self.env = {key: value for key, value in os.environ.items()
+                    if not key.startswith("GIT_") and key not in self.AGENT_VARS}
         self.env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=str(self.global_config),
                         HOME=str(self.root))
         git_fixture_env.without_auto_maintenance(self.env)
@@ -209,6 +212,75 @@ class InstallGitHooksTests(unittest.TestCase):
 
         self.assertNotEqual(hook_result.returncode, 0, "trusted normalizer must reject the fixture")
         self.assertFalse(marker.exists(), "a helper from the checked-out branch executed")
+
+    # Formatters at the commit boundary: the hook formats staged Rust in every
+    # Cargo package (not only cmux-tui), and a missing formatter stops an agent's
+    # commit instead of skipping silently.
+    AGENT_VARS = ("CMUX_AGENT", "CMUX_REQUIRE_FORMATTERS", "CI", "CLAUDECODE", "CODEX_SANDBOX")
+
+    def formatter_env(self, with_rustfmt, **extra):
+        """Only the tools the hook needs on PATH, plus a recording rustfmt."""
+        bin_dir = self.root / ("bin-rustfmt" if with_rustfmt else "bin-plain")
+        bin_dir.mkdir(exist_ok=True)
+        for tool in ("git", "bash", "sh", "sed", "awk", "grep", "cut", "sort", "head", "cat", "env", "dirname", "basename", "mktemp", "rm"):
+            found = shutil.which(tool)
+            if found and not (bin_dir / tool).exists():
+                (bin_dir / tool).symlink_to(found)
+        self.rustfmt_log = self.root / "rustfmt.log"
+        if with_rustfmt:
+            fake = bin_dir / "rustfmt"
+            fake.write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >> {shlex.quote(str(self.rustfmt_log))}\n')
+            fake.chmod(0o755)
+        env = dict(self.env, PATH=str(bin_dir), **extra)
+        return env
+
+    def stage_rust_package(self, root, edition, source="fn main() {}\n", config=None):
+        package = self.repo / root
+        (package / "src").mkdir(parents=True)
+        (package / "Cargo.toml").write_text(f'[package]\nname = "probe"\nedition = "{edition}"\n')
+        if config is not None:
+            (package / "rustfmt.toml").write_text(config)
+        (package / "src/main.rs").write_text(source)
+        self.git("add", root)
+        return package / "src/main.rs"
+
+    def run_pre_commit(self, env):
+        hook = Path(self.local_hooks_path()) / "pre-commit"
+        return subprocess.run([str(hook)], cwd=self.repo, env=env, text=True, capture_output=True)
+
+    def test_pre_commit_formats_rust_outside_cmux_tui_with_its_edition(self):
+        self.assertEqual(self.install().returncode, 0)
+        source = self.stage_rust_package("Native/OptChat/probe", "2024")
+        result = self.run_pre_commit(self.formatter_env(with_rustfmt=True))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = self.rustfmt_log.read_text().splitlines() if self.rustfmt_log.exists() else []
+        self.assertEqual(len(calls), 1, calls)
+        # No rustfmt.toml in the checkout: rustfmt's defaults, never a config
+        # found above the checkout.
+        edition_flag, edition, config_flag, config, path = calls[0].split(" ")
+        self.assertEqual((edition_flag, edition, config_flag, path),
+                         ("--edition", "2024", "--config-path", str(source.resolve())), calls)
+        self.assertFalse(Path(config).resolve().is_relative_to(self.repo.resolve()), config)
+
+    def test_pre_commit_uses_the_package_rustfmt_config(self):
+        self.assertEqual(self.install().returncode, 0)
+        source = self.stage_rust_package("workers/probe", "2021", config="max_width = 100\n")
+        result = self.run_pre_commit(self.formatter_env(with_rustfmt=True))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        config = (self.repo / "workers/probe/rustfmt.toml").resolve()
+        self.assertEqual(self.rustfmt_log.read_text().splitlines(),
+                         [f"--edition 2021 --config-path {config} {source.resolve()}"])
+
+    def test_missing_rustfmt_stops_an_agent_commit_and_warns_a_person(self):
+        self.assertEqual(self.install().returncode, 0)
+        self.stage_rust_package("Native/OptChat/probe", "2021")
+        agent = self.run_pre_commit(self.formatter_env(with_rustfmt=False, CMUX_AGENT="1"))
+        self.assertNotEqual(agent.returncode, 0, agent.stderr)
+        self.assertIn("rustfmt is unavailable", agent.stderr)
+        self.assertIn("do not pass --no-verify", agent.stderr)
+        person = self.run_pre_commit(self.formatter_env(with_rustfmt=False))
+        self.assertEqual(person.returncode, 0, person.stderr)
+        self.assertIn("rustfmt is unavailable", person.stderr)
 
     def test_merge_driver_does_not_follow_checked_out_script_changes(self):
         result = self.install()
