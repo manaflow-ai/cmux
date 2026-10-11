@@ -3,10 +3,11 @@
 
     actions_artifact_prune.py --repo OWNER/NAME [--delete] [--max-deletes N]
 
-Until cmux#19180 (2026-10-11), cmux-tui-build-package.yml set no retention-days, so every feat push's
-binaries, relay binaries, npm-packages and pypi-wheels kept the repository's 90-day default, and
-gallery evidence stages kept 14 days. New uploads now expire on their own (3 days, 1 for gallery
-stages); this deletes the backlog uploaded before that, and anything a later caller forgets to cap.
+Until cmux#19180 (feat-cmux-next, 2026-10-11), cmux-tui-build-package.yml set no retention-days, so
+every push's binaries, relay binaries, npm-packages and pypi-wheels kept the repository's 90-day
+default, and gallery evidence stages kept 14 days. feat-cmux-next uploads now expire on their own (3
+days, 1 for gallery stages); this deletes the backlog, main's copies, and anything a later caller
+forgets to cap.
 
 Rules, by exact artifact name (the repository-wide artifact list returns HTTP 500 at this size, so
 each name is listed on its own):
@@ -16,13 +17,15 @@ each name is listed on its own):
   gallery-stage-<stage>-<shard>                                         older than 1 day
 
 An artifact from a run of cmux-tui-release.yml, cmux-tui-nightly.yml or relay-publish-npm.yml is kept
-for 30 days, because tui-publish-npm.yml and tui-publish-pypi.yml download those by run id.
+for 30 days, because tui-publish-npm.yml and tui-publish-pypi.yml download those by run id. If
+cmux-tui-release.yml cannot be found the run stops: a rename must not quietly drop that protection.
 
 Without --delete this is a dry run: it lists and reports, and sends no DELETE. One run sends at most
---max-deletes deletes and stops when fewer than 50 API calls remain in the hour (GITHUB_TOKEN allows
-about 1,000 an hour per repository), so the backlog drains over several hourly runs. Each name is
-read from its oldest page forward and stops at the first page entirely inside its window. The token
-comes from GITHUB_TOKEN.
+--max-deletes deletes, paced under GitHub's secondary limit (a DELETE costs 5 of 900 points a minute),
+and stops cleanly when fewer than 50 API calls remain in the hour or GitHub asks it to slow down, so
+a backlog drains over several hourly runs. Each name is read from its oldest page forward and stops
+at the first page entirely inside its window. An artifact already gone (GitHub expired it between
+the list and the delete) counts as done. The token comes from GITHUB_TOKEN.
 """
 from __future__ import annotations
 
@@ -31,6 +34,7 @@ import datetime as dt
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -42,6 +46,12 @@ STAGE_DAYS = 1
 RELEASE_DAYS = 30
 QUOTA_FLOOR = 50  # API calls left in the hour when a run stops deleting
 RELEASE_WORKFLOWS = ("cmux-tui-release.yml", "cmux-tui-nightly.yml", "relay-publish-npm.yml")
+REQUIRED_WORKFLOW = "cmux-tui-release.yml"  # the publish workflows accept only its runs
+DELETE_INTERVAL = 0.4  # seconds between deletes: at most 150 a minute, 750 of the 900 points
+
+
+class SlowDown(Exception):
+    """GitHub's secondary rate limit: stop this run; the next one continues."""
 
 
 def rules() -> dict[str, int]:
@@ -66,9 +76,15 @@ class GitHub:
             "Authorization": f"Bearer {self.token}", "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28"})
         self.calls += 1
-        with urllib.request.urlopen(request, timeout=60) as response:
-            body = response.read()
-            remaining = response.headers.get("X-RateLimit-Remaining")
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                body = response.read()
+                remaining = response.headers.get("X-RateLimit-Remaining")
+        except urllib.error.HTTPError as error:
+            if error.code == 429 or (error.code == 403 and (
+                    error.headers.get("Retry-After") or error.headers.get("X-RateLimit-Remaining") == "0")):
+                raise SlowDown(f"{method} {path}: HTTP {error.code}") from error
+            raise
         if remaining is not None and remaining.isdigit():
             self.remaining = int(remaining)
         return json.loads(body) if body else None
@@ -90,7 +106,8 @@ class GitHub:
                 data = self.request("GET", f"/actions/workflows/{workflow}/runs",
                                     {"created": f">={since.strftime('%Y-%m-%d')}", "per_page": 100, "page": page})
             except urllib.error.HTTPError as error:
-                if error.code == 404:  # the workflow is not on this branch: no release runs to keep
+                # A workflow not on the default branch has no runs to keep, except the one that must exist.
+                if error.code == 404 and workflow != REQUIRED_WORKFLOW:
                     return ids
                 raise
             batch = data.get("workflow_runs", [])
@@ -100,11 +117,21 @@ class GitHub:
             page += 1
 
     def delete(self, artifact_id: int) -> None:
-        self.request("DELETE", f"/actions/artifacts/{artifact_id}")
+        try:
+            self.request("DELETE", f"/actions/artifacts/{artifact_id}")
+        except urllib.error.HTTPError as error:
+            if error.code not in (404, 410):  # already gone is done
+                raise
+        time.sleep(DELETE_INTERVAL)
 
 
 def created(artifact: dict) -> dt.datetime:
     return dt.datetime.fromisoformat(artifact["created_at"].replace("Z", "+00:00"))
+
+
+def expiring(artifact: dict, now: dt.datetime) -> bool:
+    stamp = artifact.get("expires_at")
+    return bool(stamp) and dt.datetime.fromisoformat(stamp.replace("Z", "+00:00")) <= now
 
 
 def prune(api, now: dt.datetime, *, delete: bool, max_deletes: int) -> dict:
@@ -117,37 +144,51 @@ def prune(api, now: dt.datetime, *, delete: bool, max_deletes: int) -> dict:
     for name, days in rules().items():
         cutoff = now - dt.timedelta(days=days)
         row = summary["by_name"].setdefault(name, {"candidates": 0, "bytes": 0})
-        if summary["capped"]:
+        if summary["capped"] or low_quota(api):
+            summary["capped"] = True
             break
-        for page in api.artifact_pages(name):
-            fresh = 0
-            for artifact in sorted(page, key=created):
-                if artifact.get("expired") or artifact.get("name") != name:
-                    continue
-                if created(artifact) >= cutoff:
-                    fresh += 1
-                    continue
-                run = (artifact.get("workflow_run") or {}).get("id")
-                if run in protected and created(artifact) >= since:
-                    summary["kept_release"] += 1
-                    continue
-                size = int(artifact.get("size_in_bytes") or 0)
-                row["candidates"] += 1
-                row["bytes"] += size
-                summary["candidates"] += 1
-                summary["candidate_bytes"] += size
-                if not delete:
-                    continue
-                if summary["deleted"] >= max_deletes or low_quota(api):
-                    summary["capped"] = True
-                    break
-                api.delete(artifact["id"])
-                summary["deleted"] += 1
-                summary["deleted_bytes"] += size
-            # Pages run oldest to newest: once a whole page is inside its window, the rest are too.
-            if summary["capped"] or (page and fresh == len(page)):
-                break
+        try:
+            capped = prune_name(api, name, cutoff, now, since, protected, row, summary,
+                                delete=delete, max_deletes=max_deletes)
+        except SlowDown as error:
+            print(f"stopping: {error}", file=sys.stderr)
+            capped = True
+        summary["capped"] = summary["capped"] or capped
     return summary
+
+
+def prune_name(api, name, cutoff, now, since, protected, row, summary, *, delete, max_deletes) -> bool:
+    """True when this run must stop here (delete cap or API quota)."""
+    for page in api.artifact_pages(name):
+        fresh = 0
+        for artifact in sorted(page, key=created):
+            if artifact.get("expired") or expiring(artifact, now) or artifact.get("name") != name:
+                continue
+            if created(artifact) >= cutoff:
+                fresh += 1
+                continue
+            run = (artifact.get("workflow_run") or {}).get("id")
+            if run in protected and created(artifact) >= since:
+                summary["kept_release"] += 1
+                continue
+            size = int(artifact.get("size_in_bytes") or 0)
+            row["candidates"] += 1
+            row["bytes"] += size
+            summary["candidates"] += 1
+            summary["candidate_bytes"] += size
+            if not delete:
+                continue
+            if summary["deleted"] >= max_deletes or low_quota(api):
+                return True
+            api.delete(artifact["id"])
+            summary["deleted"] += 1
+            summary["deleted_bytes"] += size
+        # Pages run oldest to newest: once a whole page is inside its window, the rest are too.
+        if page and fresh == len(page):
+            return False
+        if low_quota(api):
+            return True
+    return False
 
 
 def low_quota(api) -> bool:

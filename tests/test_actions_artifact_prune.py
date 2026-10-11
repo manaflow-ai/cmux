@@ -4,6 +4,8 @@ import datetime as dt
 from pathlib import Path
 import sys
 import unittest
+from unittest import mock
+import urllib.error
 
 import yaml
 
@@ -98,6 +100,36 @@ class Prune(unittest.TestCase):
         summary = prune.prune(api, NOW, delete=True, max_deletes=10)
         self.assertEqual(api.deleted, [5, 4])
         self.assertTrue(summary["capped"])
+
+    def test_artifacts_github_is_already_expiring_are_left_to_it(self):
+        old = art(1, "npm-packages", 10)
+        old["expires_at"] = (NOW - dt.timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        api = FakeAPI([old, art(2, "npm-packages", 10)])
+        prune.prune(api, NOW, delete=True, max_deletes=10)
+        self.assertEqual(api.deleted, [2])
+
+    def test_a_secondary_rate_limit_stops_the_run_cleanly(self):
+        api = FakeAPI([art(i, "npm-packages", 4 + i) for i in range(1, 4)])
+        real_delete = api.delete
+
+        def delete(artifact_id):
+            if api.deleted:
+                raise prune.SlowDown("DELETE: HTTP 403")
+            real_delete(artifact_id)
+
+        api.delete = delete
+        summary = prune.prune(api, NOW, delete=True, max_deletes=10)
+        self.assertEqual(api.deleted, [3])
+        self.assertTrue(summary["capped"])
+
+    def test_an_already_deleted_artifact_counts_as_done_but_a_missing_release_workflow_stops(self):
+        github = prune.GitHub("o/r", "t")
+        gone = urllib.error.HTTPError("u", 404, "Not Found", {}, None)
+        with mock.patch.object(github, "request", side_effect=gone), mock.patch.object(prune.time, "sleep"):
+            github.delete(1)
+            self.assertEqual(github.runs_since("relay-publish-npm.yml", NOW), [])
+            with self.assertRaises(urllib.error.HTTPError):
+                github.runs_since("cmux-tui-release.yml", NOW)
 
     def test_a_failed_release_lookup_stops_before_any_delete(self):
         api = FakeAPI([art(1, "npm-packages", 10)])
