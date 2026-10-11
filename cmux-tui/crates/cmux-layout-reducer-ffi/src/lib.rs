@@ -1,5 +1,6 @@
 //! Narrow C ABI for `cmux-layout-reducer`'s sidebar drop resolver
-//! (`sidebar_drop`) and sidebar section layout reducer (`sidebar_layout`).
+//! (`sidebar_drop`) and sidebar section layout reducer (`sidebar_layout`),
+//! plus `cmux-tasks-core`'s optimistic Tasks preview (`tasks_preview`).
 
 use cmux_layout_reducer::{sidebar_drag, sidebar_drop, sidebar_layout};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -119,6 +120,12 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: sidebar_layout::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&sidebar_layout::respond(&request)).map_err(|_| ERR_INVALID)?
+            }
+            b"tasks_preview" => {
+                let request: cmux_tasks_core::preview::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&cmux_tasks_core::preview::respond(&request))
+                    .map_err(|_| ERR_INVALID)?
             }
             _ => return Err(ERR_INVALID),
         };
