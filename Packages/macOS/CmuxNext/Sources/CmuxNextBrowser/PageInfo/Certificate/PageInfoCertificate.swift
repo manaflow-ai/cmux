@@ -86,12 +86,6 @@ public nonisolated struct PageInfoCertificate: Hashable, Sendable {
     public var publicKeySHA256: String { Self.hex(SHA256.hash(data: subjectPublicKeyInfo)) }
     public var sha1Fingerprint: String { Self.hex(Insecure.SHA1.hash(data: der)) }
 
-    /// Valid at `date` by its validity period only (not chain trust).
-    public func isWithinValidity(at date: Date = Date()) -> Bool {
-        guard let notBefore, let notAfter else { return false }
-        return notBefore <= date && date <= notAfter
-    }
-
     /// PEM text of the certificate.
     public var pem: String {
         let body = der.base64EncodedString(options: [.lineLength64Characters, .endLineWithLineFeed])

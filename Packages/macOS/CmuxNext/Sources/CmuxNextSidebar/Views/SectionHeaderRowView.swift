@@ -198,7 +198,6 @@ final class SectionHeaderRowView: SidebarRowView {
         needsLayout = true
     }
 
-    var nameFrame: NSRect { name.frame }
     /// Whether the fold chevron shows (tests).
     var showsChevron: Bool { !chevron.isHidden }
 }

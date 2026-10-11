@@ -20,8 +20,6 @@ public struct ImportPlan: Sendable, Equatable {
     public var mergeTarget: String?
 
     public static let defaultHistoryLimit = 5_000
-    /// The id of cmux's default browser profile.
-    public static let defaultProfileID = "default"
 
     public init(items: [Item], historyLimit: Int = ImportPlan.defaultHistoryLimit, mergeTarget: String? = nil) {
         self.items = items.filter { !$0.kinds.isEmpty }

@@ -140,11 +140,6 @@ public final class CmuxToastCenter {
             self?.end(serial, .timeout)
         }
     }
-
-    /// Cmd-Z with no other modifier (for the dispatcher).
-    public static func isUndoKey(_ event: NSEvent) -> Bool {
-        event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command && event.charactersIgnoringModifiers == "z"
-    }
 }
 
 /// One shown toast. `onAction` runs once when its action runs; `onDismiss`
