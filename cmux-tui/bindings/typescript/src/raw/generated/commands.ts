@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR a022e30f7e34663021fc7552c04cbb599ee78abb3fc9bdb6b742934913f8367a. */
+/* cmux-tui mux protocol 12, IR c5af6f455d6d1e2b58b25ca367c301915a6a1ea7a06a493fcfbafe2e21850065. */
 
 
 import type * as T from "./types.js";
@@ -1806,6 +1806,13 @@ export interface ResolveTerminalRequest extends CmuxRequestBase {
   "terminal_id": string;
 }
 
+/** Protocol v12; authority: control. */
+export interface RestartTabRequest extends CmuxRequestBase {
+  cmd: "restart-tab";
+  "surface": T.TabRef;
+}
+export type RestartTabResult = T.JsonValue;
+
 /** Protocol v6; authority: control. */
 export interface RunRequest extends CmuxRequestBase {
   cmd: "run";
@@ -2625,6 +2632,7 @@ export type CmuxRequest =
   | ResizeAttachedViewRequest
   | ResizeSurfaceRequest
   | ResolveTerminalRequest
+  | RestartTabRequest
   | RunRequest
   | SaveScreenGroupRequest
   | SaveTabGroupRequest
@@ -4127,6 +4135,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 9;
     capability: null;
+    stream: null;
+  };
+  "restart-tab": {
+    request: RestartTabRequest;
+    result: RestartTabResult;
+    authority: "control";
+    since: 12;
+    capability: "tab-restart-v1";
     stream: null;
   };
   "run": {

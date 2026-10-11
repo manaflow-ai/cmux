@@ -120,6 +120,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let downloadURL: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32
     let downloadContinue: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32
     let downloadControl: @convention(c) (Int32, Int32) -> Int32
+    /// Answers PERMISSION_PROMPT: 1 allow, 2 deny, else no answer.
+    let permissionContinue: @convention(c) (Int32, Int32) -> Int32
 
     // Page Info site state (ABI 3).
     let contentSetting: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
@@ -296,6 +298,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         downloadURL = try r("cmux_shim_download_url")
         downloadContinue = try r("cmux_shim_download_continue")
         downloadControl = try r("cmux_shim_download_control")
+        permissionContinue = try r("cmux_shim_permission_continue")
         contentSetting = try r("cmux_shim_content_setting")
         setContentSetting = try r("cmux_shim_set_content_setting")
         visitCookies = try r("cmux_shim_visit_cookies")

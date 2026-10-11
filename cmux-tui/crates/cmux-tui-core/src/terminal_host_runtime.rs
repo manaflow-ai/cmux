@@ -734,7 +734,7 @@ pub use shared::records::{
     acknowledge_terminal_host_exit_record, load_terminal_host_exit_records,
     load_terminal_host_records, remove_stale_terminal_host_record, terminal_host_exit_record,
     terminal_host_record_liveness, validate_terminal_host_exit_record,
-    validate_terminal_host_record,
+    validate_terminal_host_record, wait_for_terminal_host_exit,
 };
 #[cfg(unix)]
 pub(crate) use shared::records::{

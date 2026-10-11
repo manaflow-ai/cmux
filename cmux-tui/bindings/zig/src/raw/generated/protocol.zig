@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "a022e30f7e34663021fc7552c04cbb599ee78abb3fc9bdb6b742934913f8367a";
+pub const ir_sha256 = "c5af6f455d6d1e2b58b25ca367c301915a6a1ea7a06a493fcfbafe2e21850065";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -7034,6 +7034,25 @@ pub fn resolveTerminal(client: anytype, request: ResolveTerminalRequest) !wire.D
     );
 }
 
+pub const RestartTabRequest = struct {
+    surface: TabRef,
+};
+
+pub const RestartTabResult = JsonValue;
+
+pub fn restartTab(client: anytype, request: RestartTabRequest) !wire.Decoded(RestartTabResult) {
+    return client.callTyped(
+        RestartTabResult,
+        .{
+            .name = "restart-tab",
+            .authority = "control",
+            .since = 12,
+            .capability = "tab-restart-v1",
+        },
+        request,
+    );
+}
+
 pub const RunRequest = struct {
     argv: wire.Field([]const []const u8) = .absent,
     cols: wire.Field(u16) = .absent,
@@ -9905,7 +9924,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 248;
+pub const command_count: usize = 249;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -10086,6 +10105,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "resize-attached-view", .authority = "frontend", .since = 10, .capability = "view-attachment-lease-v1", .stream = null },
     .{ .name = "resize-surface", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "resolve-terminal", .authority = "control", .since = 9, .capability = null, .stream = null },
+    .{ .name = "restart-tab", .authority = "control", .since = 12, .capability = "tab-restart-v1", .stream = null },
     .{ .name = "run", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "save-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
     .{ .name = "save-tab-group", .authority = "control", .since = 12, .capability = "saved-tab-groups-v1", .stream = null },

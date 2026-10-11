@@ -15,6 +15,8 @@ export type ReplayTimeline = {
   /** Replay time of the last event. */
   duration: number;
   tools: ReplayMark[];
+  /** Each finished turn's `turn_result`: where Continue from here can fork. */
+  turnEnds: { seq: number; time: number }[];
 };
 
 /// Speeds the replay bar steps through, slowest first.
@@ -23,6 +25,7 @@ export const REPLAY_SPEEDS = [0.5, 1, 2, 4, 8, 16] as const;
 export function replayTimeline(events: readonly EventRecord[]): ReplayTimeline {
   const steps: ReplayTimeline["steps"] = [];
   const tools: ReplayMark[] = [];
+  const turnEnds: ReplayTimeline["turnEnds"] = [];
   let time = 0;
   let previous: number | undefined;
   for (const event of [...events].sort((a, b) => a.seq - b.seq)) {
@@ -33,8 +36,9 @@ export function replayTimeline(events: readonly EventRecord[]): ReplayTimeline {
     const update = event.dir === "in" && event.msg?.method === "session/update" ? event.msg.params?.update : undefined;
     if (update?.sessionUpdate === "tool_call")
       tools.push({ seq: event.seq, time, label: String(update.title ?? update.kind ?? "") });
+    if (event.dir === "mux" && event.kind === "turn_result") turnEnds.push({ seq: event.seq, time });
   }
-  return { steps, duration: time, tools };
+  return { steps, duration: time, tools, turnEnds };
 }
 
 /** The last event at or before replay time `time`, which the transcript shows through (0: none). */
@@ -70,4 +74,11 @@ export function toolMark(
   let previous: ReplayMark | undefined;
   for (const mark of timeline.tools) if (mark.time < time - RESTART_WINDOW_MS) previous = mark;
   return previous;
+}
+
+/** The last turn finished by replay time `time`, which Continue from here forks through. */
+export function continueSeq(timeline: ReplayTimeline, time: number): number | undefined {
+  let seq: number | undefined;
+  for (const end of timeline.turnEnds) if (end.time <= time) seq = end.seq;
+  return seq;
 }
