@@ -6,7 +6,7 @@
 use super::*;
 
 /// The CLI's output for `args`, success or not.
-fn state_cli_output(server: &HeadlessServer, args: &[&str]) -> std::process::Output {
+fn state_cli_output(server: &HeadlessServer, args: &[&str]) -> Output {
     Command::new(bin())
         .arg("--json")
         .args(args)
