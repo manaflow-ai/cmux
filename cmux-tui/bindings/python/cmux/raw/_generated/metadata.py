@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '471310f7c5824f4af3c568f5a0d5f7f84b41030b4e4cd086301614dc158cb9e7'
+IR_SHA256 = '857bce729ad06d308d44ddb2a8567fd1b9a9eb8ddfb514ae90729c378284fae3'
 
 
 @dataclass(frozen=True)
@@ -1228,6 +1228,17 @@ COMMANDS = {
             'session_id': CommandFieldMetadata(None, None),
         },
     ),
+    'get-blob': CommandMetadata(
+        'get-blob',
+        'control',
+        12,
+        'icon-assets-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'blob': CommandFieldMetadata(None, None),
+        },
+    ),
     'get-browser-provider': CommandMetadata(
         'get-browser-provider',
         'local-admin',
@@ -2099,6 +2110,18 @@ COMMANDS = {
         None,
         {
             'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'put-blob': CommandMetadata(
+        'put-blob',
+        'control',
+        12,
+        'icon-assets-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'data': CommandFieldMetadata(None, None),
+            'media_type': CommandFieldMetadata(None, None),
         },
     ),
     'put-frontend-projection': CommandMetadata(

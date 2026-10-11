@@ -31,6 +31,7 @@ const motionVariables = {
   focus: "--agent-motion-focus",
   fadeIn: "--agent-motion-in",
   fadeOut: "--agent-motion-out",
+  move: "--agent-motion-move",
 } as const;
 
 export function applyAgentTheme(theme: AgentSessionTheme): void {

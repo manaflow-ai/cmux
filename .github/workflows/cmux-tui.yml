@@ -382,6 +382,20 @@ jobs:
           cargo clippy --all-targets --locked -- -D warnings
           cargo test --locked
 
+      # cmux-layout-reducer-ffi is its own workspace too (no committed
+      # Cargo.lock): its C ABI tests cover the sidebar reducer and the Tasks
+      # preview. cmux-app-ffi links it, and build-app-ffi.sh builds --locked,
+      # so a stale cmux-app-ffi/Cargo.lock fails here with the needed diff.
+      - name: cmux-layout-reducer-ffi (own workspace)
+        working-directory: cmux-tui/crates/cmux-layout-reducer-ffi
+        run: |
+          cargo fmt --check
+          cargo clippy --all-targets -- -D warnings
+          cargo test
+          cd ../cmux-app-ffi
+          cargo metadata --format-version 1 > /dev/null
+          git diff --exit-code -- Cargo.lock
+
   valgrind-leak-check-shard:
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next

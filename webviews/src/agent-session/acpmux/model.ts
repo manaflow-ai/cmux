@@ -110,6 +110,15 @@ export type AcpmuxCatalogModel = {
   contextWindow?: number;
 };
 
+/// A change to a waiting prompt (`_acpmux/queue_edit`): its text, its place (0 runs next), or
+/// send it now.
+export type QueueEdit =
+  | { op: "update"; text: string }
+  | { op: "move"; index: number }
+  | { op: "send_now" }
+  /** Runs a queue a failed turn paused; any of its prompts names it. */
+  | { op: "resume" };
+
 export type AcpmuxSnapshot = {
   type: "snapshot";
   protocolVersion: number;
@@ -139,6 +148,10 @@ export type AcpmuxSnapshot = {
     confirmedModel?: string;
     effort?: string;
     promptCapabilities?: { image?: boolean };
+    /// The agent takes a prompt mid-turn (acpmux `steering`); without it a steer stops the turn.
+    steering?: boolean;
+    /// A turn failed: the queued prompts wait until the user resumes the queue (acpmux `queuePaused`).
+    queuePaused?: boolean;
     status?: string;
     enforcement?: Enforcement;
     modes?: {

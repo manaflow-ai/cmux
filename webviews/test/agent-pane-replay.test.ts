@@ -6,6 +6,8 @@
 // - With the session-replay experiment on, the chat menu's Replay plays the chat back read-only:
 //   the prompt first, the answer only once replay time reaches it, no composer.
 // - Back returns to the live chat.
+// - `]` and `[` jump between tool calls, the scrubber moves replay time either way, and the speed
+//   button plays it faster.
 //
 // Real Chromium from Playwright; skipped where it is not installed (the hosted webviews job).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -84,6 +86,30 @@ await requireBrowserLane("agent-pane-replay.test.ts", async () => {
     });
     await vite.listen();
     browser = await chromium.launch({ headless: true });
+    // In CI the first load of a cold dev server never showed the chat, while every later load
+    // did within seconds. Load it here, again if it stalls, so the tests time only the replay;
+    // a stalled load's page errors go to the log.
+    const { port } = vite.httpServer!.address() as { port: number };
+    const endpoint = `ws://127.0.0.1:${daemon.port}/`;
+    for (let attempt = 1; ; attempt++) {
+      const warm = await browser.newPage();
+      const errors: string[] = [];
+      warm.on("pageerror", (error) => errors.push(error.message));
+      warm.on("console", (message) => message.type() === "error" && errors.push(message.text()));
+      await warm.goto(
+        `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${REPLAY_SESSION}`,
+      );
+      try {
+        await warm.getByText("All 12 tests in api/client.test.ts pass.").waitFor({ timeout: 25_000 });
+        await warm.close();
+        break;
+      } catch (error) {
+        console.warn(`agent-pane-replay: load ${attempt} stalled`, errors);
+        await warm.close();
+        if (attempt === 3) throw error;
+      }
+    }
+    eventRequests.length = 0;
   });
   afterAll(async () => {
     await browser?.close();
@@ -117,8 +143,8 @@ await requireBrowserLane("agent-pane-replay.test.ts", async () => {
       // The turn took over a minute; replay shortens its 45 s wait to 2 s.
       await replay.getByText("All 12 tests in api/client.test.ts pass.").waitFor({ timeout: 40_000 });
       // The turn ends at 0:17, after its last words: Pause turns back into Play.
-      await replay.getByRole("button", { name: "Play" }).waitFor();
-      const ended = await replay.getByRole("button", { name: "Play" }).count();
+      await replay.getByRole("button", { name: "Play", exact: true }).waitFor();
+      const ended = await replay.getByRole("button", { name: "Play", exact: true }).count();
 
       await replay.getByRole("button", { name: "Back to chat" }).click();
       await page.locator(".acpmux-replay").waitFor({ state: "detached" });
@@ -135,6 +161,57 @@ await requireBrowserLane("agent-pane-replay.test.ts", async () => {
         ended: 1,
         liveComposers: 1,
         read: true,
+      });
+      await page.close();
+    });
+
+    test("jumps between tool calls, scrubs both ways and plays faster", async () => {
+      const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+      await page.addInitScript(() => localStorage.setItem("cmux.experiments", '{"session-replay":"on"}'));
+      const { port } = vite!.httpServer!.address() as { port: number };
+      const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
+      await page.goto(
+        `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${REPLAY_SESSION}`,
+      );
+      await page.getByText("All 12 tests in api/client.test.ts pass.").waitFor();
+      await page.getByRole("button", { name: "Chat actions" }).click();
+      await page.getByRole("menuitem", { name: "Replay" }).click();
+      const replay = page.locator(".acpmux-replay");
+      const answer = replay.getByText("All 12 tests in api/client.test.ts pass.");
+      const clock = async () => (await replay.locator(".acpmux-replay-clock").textContent())?.split(" / ")[0];
+      await replay.getByRole("button", { name: "Pause", exact: true }).click();
+      // The keys act on the replay while the Pause button keeps focus.
+
+      // Tool calls start at 0:02 (read), 0:04 (tests), 0:11 (edit) and 0:13 (tests again).
+      const jumps: (string | undefined)[] = [];
+      for (const key of ["]", "]", "]", "[", "["]) {
+        await page.keyboard.press(key);
+        jumps.push(await clock());
+      }
+
+      const scrub = replay.getByRole("slider", { name: "Replay position" });
+      await scrub.fill("17700");
+      await answer.waitFor();
+      await scrub.fill("0");
+      await answer.waitFor({ state: "detached" });
+      const rewound = await clock();
+
+      const speeds: (string | null)[] = [];
+      for (let step = 0; step < 4; step++) {
+        await replay.getByRole("button", { name: "Playback speed" }).click();
+        speeds.push(await replay.getByRole("button", { name: "Playback speed" }).textContent());
+      }
+      const started = Date.now();
+      await replay.getByRole("button", { name: "Play", exact: true }).click();
+      await answer.waitFor({ timeout: 15_000 });
+      // 17.7 s of replay time at 16x.
+      const fast = Date.now() - started < 8_000;
+
+      expect({ jumps, rewound, speeds, fast }).toEqual({
+        jumps: ["0:02", "0:04", "0:11", "0:04", "0:02"],
+        rewound: "0:00",
+        speeds: ["2×", "4×", "8×", "16×"],
+        fast: true,
       });
       await page.close();
     });

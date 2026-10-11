@@ -59,6 +59,13 @@ import CmuxNextCompat
     public let permissionOptions = AcpmuxPermissionOptions()
     /// The sessions this pane started or shows.
     public let sessions = AcpmuxPaneSessions()
+    /// Each shown prompt's decision nonce and daemon run, for a relayed allow's proof (cx-0q7o).
+    public let decisions = AcpmuxDecisionContexts()
+    /// The keyed restart the chat's machine offers, when it runs on another machine.
+    private(set) var remoteApprovals: AgentPaneRemoteApprovals?
+    /// Told when an allow went to another daemon run without the person's proof: that daemon
+    /// holds no key of this app for that run, so it refuses the allow.
+    public var onRemoteApprovalsOff: (@MainActor (AgentPaneRemoteApprovals?) -> Void)?
     /// The pane's own roots (``AcpmuxPathPolicy/Scope/roots``), asked at each frame.
     public var roots: @MainActor () -> [String] = { [] }
     /// Folders that are roots only when the user picks one by a gesture (the new tab page's scan).
@@ -143,11 +150,13 @@ import CmuxNextCompat
         let id = current
         localAppToken = connection.localAppToken
         socketPath = connection.socketPath
+        remoteApprovals = connection.remote?.approvals
+        decisions.reset()
         sentFirst = false
         let ids = AcpmuxRequestIds()
         requestIds = ids
         let socket = AcpmuxPaneSocket(request: connection.request, wire: connection.remote?.makeWire(), limits: limits,
-                                      options: permissionOptions, sessions: sessions, ids: ids) { [weak self] in
+                                      options: permissionOptions, sessions: sessions, decisions: decisions, ids: ids) { [weak self] in
             // task-owner: one wake for the pacer; arrived(_:) ignores a stale connection
             Task { @MainActor [weak self] in self?.arrived(id) }
         }
@@ -224,6 +233,15 @@ import CmuxNextCompat
     /// `transport.gesture`: reserves the current gesture for one pick sent later on this connection.
     public func reserveGesture(_ intent: AgentPaneGestureIntent) -> String? {
         guard socket != nil else { return nil }
+        // cx-0q7o: a permission answer's ticket only for a prompt of this pane's session that the
+        // pane was shown, and only for an option that prompt offers as an allow. Page script can
+        // still turn a click into an allow of such a prompt (cx-ocdz: a native person-input gate
+        // for the permission card is the fix).
+        if intent.method == "_acpmux/permission_respond" {
+            guard case .string(let session)? = intent.params["sessionId"], case .string(let permission)? = intent.params["permissionId"],
+                  case .string(let option)? = intent.params["optionId"], sessions.contains(session),
+                  permissionOptions.isKnownAllow(permissionId: permission, optionId: option) else { return nil }
+        }
         return gestures.reserve(connection: current, intent: intent)
     }
 

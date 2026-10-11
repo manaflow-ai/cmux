@@ -533,6 +533,7 @@ const SessionRow = memo(function SessionRow({
       {...keyboard}
       type="button"
       data-session-id={session.sessionId}
+      data-focus-ring="row"
       className={`acpmux-session-row${flat ? " is-flat" : ""}${selected ? " is-selected" : ""}${open ? " is-open" : ""}${session.status === "closed" ? " is-closed" : ""}`}
       aria-current={selected ? "true" : undefined}
       aria-label={

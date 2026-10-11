@@ -225,6 +225,15 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert "actions/runs/$OWNER_RUN_ID" in owner_wait
     assert "skipping duplicate build" in owner_wait
     assert "taking over" in owner_wait
+    # The elections read the REST API: $SERVER_URL/repos/... is github.com's
+    # 404 page, which the silent curls took for "no other run", so every
+    # concurrent run of a key built it (cmuxterm-hq#1279).
+    assert "$SERVER_URL/repos/" not in artifacts
+    for body in (preflight, owner_wait):
+        assert "API_URL: ${{ github.api_url }}" in body
+    assert "$API_URL/repos/$REPOSITORY/actions/runs/$OWNER_RUN_ID" in owner_wait
+    # Any branch's run of the same commit owns it, not only feat-cmux-next's.
+    assert "runs?head_sha=$SHA&event=push" in preflight
     assert "refs/heads/main" in preflight
     for job in ("build", "cmux-next-daemon-tests"):
         body = workflow_job(artifacts, job)
@@ -301,13 +310,12 @@ def test_feat_push_concurrency_cannot_drop_an_unpublished_tree_key() -> None:
     assert "retaining publication for superseded tree" in preflight
     assert "deterministic owner" in preflight
     assert "owner_run_id" in preflight
-    # cx-73f2: a feat-cmux-next push builds in one group per tree key, so runs
-    # of one key share a builder and no key is cancelled or delayed by another;
-    # every other run keeps a group of its own, and the daemon tests and the
-    # publish stay per run, so the run that holds the build slot publishes.
+    # cx-73f2: no run's build, daemon tests or publish shares a group with
+    # another run, so no run cancels another's work.
     build = workflow_job(artifacts, "build")
-    assert ("group: cmux-tui-build-${{ needs.tree-preflight.outputs.key }}${{ !(github.event_name == 'push' && "
-            "github.ref == 'refs/heads/feat-cmux-next') && format('-{0}', github.run_id) || '' }}") in build
+    # The build job calls a reusable workflow: a shared group let each newer
+    # same-key build cancel the running one (run 38126073200), so it is per run.
+    assert "group: cmux-tui-build-${{ needs.tree-preflight.outputs.key }}-${{ github.run_id }}" in build
     assert "cancel-in-progress: false" in build
     daemon = workflow_job(artifacts, "cmux-next-daemon-tests")
     assert "group: cmux-tui-daemon-${{ needs.tree-preflight.outputs.key }}-${{ github.sha }}" in daemon
@@ -315,8 +323,6 @@ def test_feat_push_concurrency_cannot_drop_an_unpublished_tree_key() -> None:
     tree_publisher = workflow_job(artifacts, "publish-tree")
     assert "group: cmux-tui-tree-${{ needs.cmux-next-daemon-tests.outputs.key }}-${{ github.sha }}" in tree_publisher
     assert "cancel-in-progress: false" in tree_publisher
-    notify = workflow_job(artifacts, "notify-unpublished-tree")
-    assert "needs.build.result == 'cancelled'" in notify
     assert "replaces an older pending job" in artifacts
 
 
@@ -2256,6 +2262,23 @@ def test_cmux_tui_artifacts_never_drops_a_feat_cmux_next_push() -> None:
     dispatched = evaluate("workflow_dispatch", feat, "c" * 40)
     assert dispatched != evaluate("push", feat, "c" * 40)
     assert "c" * 40 in dispatched
+
+def test_cmux_next_daemon_tests_take_the_owned_side_lane_like_the_build_legs() -> None:
+    # 2026-10-11: the daemon tests named MACOS_RUNNER_PR directly while the
+    # build legs beside them take the owned side lane on attempt 1. Once every
+    # same-repo branch push ran this workflow (#19169), 16 daemon-test jobs sat
+    # queued on Blacksmith macOS at its cap while the minis had room. The first
+    # attempt uses the same route as the build legs; a rerun goes to the PR pool.
+    document = yaml.load(workflow("cmux-tui-artifacts.yml"), Loader=yaml.BaseLoader)
+    jobs = document["jobs"]
+    build_route = jobs["build"]["with"]["macos_runner"]
+    retry_route = jobs["build"]["with"]["macos_retry_runner"]
+    daemon = jobs["cmux-next-daemon-tests"]["runs-on"]
+    assert "vars.CI_SIDE_LANE_RUNNER" in build_route
+    assert daemon == build_route, daemon
+    assert "github.run_attempt == 1" in daemon
+    assert retry_route.split("|| ", 1)[1] in daemon  # a rerun falls back to the PR pool
+
 
 if __name__ == "__main__":
     unittest.main()

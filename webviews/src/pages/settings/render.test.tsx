@@ -15,7 +15,14 @@ const surface = "var(--cmux-surface-background, transparent)";
 const bootstrapRule =
   "html{background:var(--cmux-surface-background) !important}body{background:transparent !important}";
 // --accent marks an on control (a switch, a default button), never a surface (layout.css).
-const allowedFills = new Set(["transparent", "none", "var(--accent-soft)", "var(--input-bg)", "var(--accent)"]);
+const allowedFills = new Set([
+  "transparent",
+  "none",
+  "var(--accent-soft)",
+  "var(--input-bg)",
+  "var(--accent)",
+  "var(--row-focus)",
+]);
 const containerTags = new Set([
   "HTML",
   "BODY",

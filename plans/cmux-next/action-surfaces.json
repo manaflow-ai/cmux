@@ -17605,6 +17605,72 @@
     },
     {
       "cli" : "guiOnly",
+      "cli_name" : "action agent-pane-previous-turn",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "",
+        "modifiers" : [
+          "ctrl",
+          "opt"
+        ]
+      },
+      "id" : "agentPane.previousTurn",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Previous Turn",
+      "title_key" : "action.agentPane.previousTurn",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action agent-pane-next-turn",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "",
+        "modifiers" : [
+          "ctrl",
+          "opt"
+        ]
+      },
+      "id" : "agentPane.nextTurn",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Next Turn",
+      "title_key" : "action.agentPane.nextTurn",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
       "cli_name" : "action agent-pane-permission-allow-once",
       "context_menu" : "guiOnly",
       "context_menus" : [

@@ -1653,7 +1653,13 @@ static CLOUD_TEMPLATE_ENV: std::sync::OnceLock<CloudTemplateEnv> = std::sync::On
 /// path cannot be resolved reports its build id only.
 #[cfg(unix)]
 fn install_daemon_build() {
+    // cmux-remote (which stamps the source revision) is a Unix-only
+    // dependency; a Windows daemon reports its package version until the
+    // stamp moves to a cross-platform crate.
+    #[cfg(unix)]
     let build_id = cmux_remote::ssh_bootstrap::BUILD_IDENTITY;
+    #[cfg(not(unix))]
+    let build_id = env!("CARGO_PKG_VERSION");
     let cli_path = std::env::current_exe().and_then(std::fs::canonicalize).unwrap_or_default();
     cmux_tui_core::server::install_daemon_build(cmux_tui_core::server::DaemonBuild::new(
         build_id, cli_path,
