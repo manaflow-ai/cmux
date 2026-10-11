@@ -719,6 +719,12 @@ final class CommandPaletteFocusStealerClassificationTests: XCTestCase {
                 super.delegate = newValue
             }
         }
+
+        /// macOS 27's NSTextView initializer reads its own `delegate`. Only
+        /// reads after construction belong to the code under test.
+        func resetDelegateReadCount() {
+            delegateReadCount = 0
+        }
     }
 
     func testTreatsGhosttySurfaceViewAsFocusStealer() {
@@ -748,6 +754,7 @@ final class CommandPaletteFocusStealerClassificationTests: XCTestCase {
 
     func testDoesNotReadTextViewDelegateForFocusStealerClassification() {
         let textView = DelegateTrackingTextView(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
+        textView.resetDelegateReadCount()
 
         XCTAssertFalse(textView.isCommandPaletteFocusStealingTerminalOrBrowser)
         XCTAssertEqual(
@@ -2051,7 +2058,10 @@ final class UpdateChannelSettingsTests: XCTestCase {
     func testResolvedFeedFallsBackWhenInfoFeedMissing() {
         let resolver = UpdateFeedResolver()
         let resolved = resolver.resolve(infoFeedURL: nil)
-        XCTAssertEqual(resolved.url, resolver.fallbackFeedURL)
+        XCTAssertEqual(
+            resolved.url,
+            "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast-\(resolver.hostArchitecture.rawValue).xml"
+        )
         XCTAssertFalse(resolved.isNightly)
         XCTAssertTrue(resolved.usedFallback)
     }
@@ -2059,7 +2069,10 @@ final class UpdateChannelSettingsTests: XCTestCase {
     func testResolvedFeedFallsBackWhenInfoFeedEmpty() {
         let resolver = UpdateFeedResolver()
         let resolved = resolver.resolve(infoFeedURL: "")
-        XCTAssertEqual(resolved.url, resolver.fallbackFeedURL)
+        XCTAssertEqual(
+            resolved.url,
+            "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast-\(resolver.hostArchitecture.rawValue).xml"
+        )
         XCTAssertFalse(resolved.isNightly)
         XCTAssertTrue(resolved.usedFallback)
     }

@@ -23,4 +23,5 @@ python3 tests/test_ci_reusable_workflow_permissions.py
 ./scripts/lint-pbxproj-test-wiring.sh --target cmuxTests --tests-dir cmuxCLITestSupport
 ./scripts/lint-pbxproj-test-wiring.sh --target cmuxUITests --tests-dir cmuxUITests
 ./tests/test_ci_pbxproj_app_sources_wiring.sh
+python3 tests/test_strings_output_encoding.py
 stage end test

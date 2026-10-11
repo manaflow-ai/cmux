@@ -45,6 +45,19 @@ strip_if_macho "$APP_PATH/Contents/Resources/bin/cmux"
 strip_if_macho "$APP_PATH/Contents/Resources/bin/cmux-tui"
 strip_if_macho "$APP_PATH/Contents/Resources/bin/cmux-diff-sidecar"
 
+# cmux-tui SSH bootstrap payloads are installed 0644, so strip_if_macho's
+# executable check would skip them. Only the macOS builds are Mach-O; the Linux
+# builds arrive stripped. sign-cmux-tui-ssh-payloads.sh signs these afterwards
+# and re-pins their checksums in manifest.json, so the strip needs no re-pin.
+if [ -d "$APP_PATH/Contents/Resources/bin/cmux-tui-ssh" ]; then
+  while IFS= read -r -d '' payload; do
+    if "$FILE_TOOL" "$payload" | grep -q 'Mach-O'; then
+      echo "stripping cmux-tui SSH payload: $payload"
+      "$STRIP_TOOL" -S -x "$payload"
+    fi
+  done < <(find "$APP_PATH/Contents/Resources/bin/cmux-tui-ssh" -maxdepth 1 -name 'cmux-tui-*-apple-darwin' -type f -print0 | sort -z)
+fi
+
 if [ -d "$APP_PATH/Contents/PlugIns" ]; then
   while IFS= read -r -d '' binary; do
     strip_if_macho "$binary"

@@ -26,6 +26,11 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_surface_handle_ignores_stale_workspace.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_open_wrapper.py"
 lane = "macos-shell"
 
@@ -502,6 +507,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_change_areas.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_strings_output_encoding.py"
 lane = "linux-guard"
 
 [[test]]
@@ -990,6 +999,18 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_r2_cache_census.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_r2_storage_census.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_binaries_prune.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_actions_artifact_prune.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1696,4 +1717,16 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_testbox_source_mtimes.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_release_per_arch_stable.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_compose_stable_appcast.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cli_package_graph.py"
 lane = "linux-guard"

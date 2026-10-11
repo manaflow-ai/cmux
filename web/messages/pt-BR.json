@@ -30,6 +30,11 @@
       "message": "Esta máquina foi criada antes de uma atualização do Cloud e não pode ser conectada.",
       "action": "Crie uma nova máquina, copie seus arquivos com cmux vm pull e cmux vm push e depois exclua esta."
     },
+    "guestUnresponsive": {
+      "title": "A máquina não está respondendo",
+      "message": "Esta máquina não respondeu a tempo, então a solicitação não pôde ser concluída.",
+      "action": "Pause a máquina, depois retome-a e tente novamente. No app para Mac, escolha Pausar máquina e depois Retomar máquina. Em um terminal, execute cmux vm pause '<machine>' e depois cmux vm resume '<machine>'."
+    },
     "networkRuleCapacity": {
       "title": "Regras de rede no limite",
       "message": "Sua política de rede foi salva, mas não foi aplicada: o cmux Cloud atingiu a capacidade de regras de rede.",
