@@ -57,6 +57,9 @@ impl Hub {
             "lastPrompt": m.last_prompt,
             "preview": m.preview.as_deref().map(|p| short_text(p, 160)),
             "queued": session.queued(),
+            // The agent takes a prompt mid-turn (`_meta.acpmux.steer`); else a steer waits, or
+            // with `interrupt` stops the turn and runs next.
+            "steering": session.steering.load(Ordering::SeqCst),
             "turn": turn.map(|t| json!({"startedAt": t.started_at, "client": t.client, "prompt": t.prompt_preview, "turnId": t.turn_id, "promptId": t.prompt_id, "turnSeq": t.turn_seq})),
             "queue": session.queue().into_iter().map(|q| json!({"promptId": q.prompt_id, "turnId": q.turn_id, "client": q.client, "prompt": q.preview, "queuedAt": q.queued_at})).collect::<Vec<_>>(),
             "pendingPermissions": session.pending_permissions().len(),
@@ -106,6 +109,10 @@ impl Hub {
             "build": BUILD,
             "pid": std::process::id(),
             "startedAt": self.started_at,
+            // Whether this run holds a person key, and its id (`hub/person.rs`):
+            // the app checks that a daemon it started with a key still runs.
+            "personKey": self.person.has_key(),
+            "personInstance": self.person.instance(),
             "home": crate::config::home(),
             "userHome": dirs::home_dir(),
             "socket": crate::config::socket_path(),

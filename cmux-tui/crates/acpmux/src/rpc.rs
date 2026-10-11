@@ -208,6 +208,7 @@ pub mod method {
     pub const MUX_RENAME: &str = "_acpmux/rename";
     pub const MUX_KILL: &str = "_acpmux/kill";
     pub const MUX_QUEUE_REMOVE: &str = "_acpmux/queue_remove";
+    pub const MUX_QUEUE_EDIT: &str = "_acpmux/queue_edit";
     pub const MUX_INFO: &str = "_acpmux/info";
     pub const MUX_EVENTS: &str = "_acpmux/events";
     pub const MUX_PERMISSION_RESPOND: &str = "_acpmux/permission_respond";

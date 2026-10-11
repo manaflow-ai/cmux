@@ -152,6 +152,11 @@ export function NewTabScreen(props: Props) {
     if (key && props.onOpenChat) return props.onOpenChat(key);
     props.onOpenSession(id);
   };
+  // A card's Open in Terminal, by its chat's key, as All chats opens one (only cards with a key offer it).
+  const openCardInTerminal = (id: string) => {
+    const key = cards.find((card) => card.sessionId === id)?.chatKey;
+    if (key) props.onOpenChatInTerminal?.(key);
+  };
   const list = useRef<HTMLDivElement>(null);
   // The box scrolls past its cap; the selected row stays in view. Only the box scrolls (not the
   // screen around it, as scrollIntoView would). A callback ref: it runs when a row becomes the
@@ -395,7 +400,13 @@ export function NewTabScreen(props: Props) {
       )}
       {sections.closed && <ClosedList items={closed} onReopen={(id) => props.onJump("closed", id)} />}
       {sections.chats !== "none" && !allChats && (
-        <ChatCards cards={cards} variant={sections.chats} onOpen={openCard} onShowAll={props.onShowAll} />
+        <ChatCards
+          cards={cards}
+          variant={sections.chats}
+          onOpen={openCard}
+          {...(props.onOpenChatInTerminal ? { onOpenInTerminal: openCardInTerminal } : {})}
+          onShowAll={props.onShowAll}
+        />
       )}
       {allChats && props.loadChatsPage && props.onOpenChat && (
         <AllChatsList

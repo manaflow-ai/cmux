@@ -91,10 +91,10 @@ extension AgentPaneView {
             edit: { [weak self] text in self?.runMessageAction("chat.editPrompt", ["text": text]) },
             open: { [weak self] url in self?.openLink(url) },
             search: { [weak self] text in self?.model.onSearchWeb?(text) },
-            openImage: { [weak self] in self?.runMessageAction("chat.menu.openImage", [:]) }))
+            page: { [weak self] name, params in self?.runMessageAction(name, params) }))
     }
 
-    /// Retry, Edit and Resend, and Open Image: the page's own actions, with the menu choice as the gesture.
+    /// Retry, Edit and Resend, Open Image and a path's Open: the page's own actions, with the menu choice as the gesture.
     private func runMessageAction(_ name: String, _ params: [String: String]) {
         guard let data = try? JSONSerialization.data(withJSONObject: params) else { return }
         model.transport.gestures.record()

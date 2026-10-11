@@ -1,15 +1,33 @@
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
+import { KeyboardScope } from "../../../ui/KeyboardScope";
 import { AcpmuxDirectClient, type EventRecord } from "../direct";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
-import { clockLabel, replayTimeline, seqAt, type ReplayTimeline } from "./timeline";
+import { clockLabel, REPLAY_SPEEDS, replayTimeline, seqAt, toolMark, type ReplayTimeline } from "./timeline";
 import "./replay.css";
 
 type Loaded = { client: AcpmuxDirectClient; timeline: ReplayTimeline };
 
+/// How far the arrow keys move replay time.
+const ARROW_STEP_MS = 5_000;
+
+/// Shows replay time `time.current`: the transcript through that point, the scrubber's thumb and
+/// (once a second) the clock.
+function showAt(
+  loaded: Loaded,
+  time: RefObject<number>,
+  scrub: RefObject<HTMLInputElement | null>,
+  setSecond: (second: number) => void,
+) {
+  loaded.client.seekReplay(seqAt(loaded.timeline, time.current));
+  if (scrub.current) scrub.current.value = String(Math.round(time.current));
+  setSecond(Math.floor(time.current / 1000));
+}
+
 /// A recorded chat played back read-only, as it happened (cx-osmw): its events fold into the
 /// transcript on replay time (timeline.ts), with no composer and nothing sent to the agent.
+/// Scrub with the bar, change speed, and jump between tool calls (also `[` and `]`).
 export function ReplayScreen({
   sessionId,
   title,
@@ -29,8 +47,11 @@ export function ReplayScreen({
   const [loaded, setLoaded] = useState<Loaded | "loading" | "failed">("loading");
   const [rows, setRows] = useState<AcpmuxRow[]>([]);
   const [playing, setPlaying] = useState(true);
-  // Replay time lives in a ref: the clock label re-renders once a second, not every frame.
+  const [speed, setSpeed] = useState<number>(1);
+  // Replay time lives in a ref and the scrubber is uncontrolled: a frame moves both without a
+  // render; the clock label re-renders once a second.
   const time = useRef(0);
+  const scrub = useRef<HTMLInputElement>(null);
   const [second, setSecond] = useState(0);
 
   useEffect(() => {
@@ -53,32 +74,64 @@ export function ReplayScreen({
   const ready = typeof loaded === "object" ? loaded : undefined;
   useEffect(() => {
     if (!ready) return;
-    const show = () => {
-      ready.client.seekReplay(seqAt(ready.timeline, time.current));
-      setSecond(Math.floor(time.current / 1000));
-    };
-    show();
+    showAt(ready, time, scrub, setSecond);
     if (!playing) return;
     let last = performance.now();
     let frame = requestAnimationFrame(function tick(now) {
-      time.current = Math.min(time.current + (now - last), ready.timeline.duration);
+      time.current = Math.min(time.current + (now - last) * speed, ready.timeline.duration);
       last = now;
-      show();
+      showAt(ready, time, scrub, setSecond);
       if (time.current >= ready.timeline.duration) setPlaying(false);
       else frame = requestAnimationFrame(tick);
     });
     return () => cancelAnimationFrame(frame);
-  }, [ready, playing]);
+  }, [ready, playing, speed]);
 
+  const seek = (to: number) => {
+    if (!ready) return;
+    time.current = Math.min(Math.max(to, 0), ready.timeline.duration);
+    showAt(ready, time, scrub, setSecond);
+  };
   const togglePlaying = () => {
     if (!ready) return;
     // Play at the end starts over.
-    if (!playing && time.current >= ready.timeline.duration) time.current = 0;
+    if (!playing && time.current >= ready.timeline.duration) seek(0);
     setPlaying(!playing);
   };
+  const jump = (direction: "next" | "previous") => {
+    const mark = ready && toolMark(ready.timeline, time.current, direction);
+    if (mark) seek(mark.time);
+  };
+  const speeds: readonly number[] = REPLAY_SPEEDS;
+  const nextSpeed = () => setSpeed(speeds[(speeds.indexOf(speed) + 1) % speeds.length]!);
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (!ready || event.metaKey || event.ctrlKey || event.altKey) return;
+    const target = event.target as HTMLElement;
+    // A focused control keeps its own keys: Space and Enter press a button, arrows move the
+    // scrubber, and a text field keeps every key.
+    if (target.closest("textarea, select, [contenteditable]")) return;
+    if (target.closest("button") && (event.key === " " || event.key === "Enter")) return;
+    if (target.closest("input") && event.key.startsWith("Arrow")) return;
+    const action: Record<string, () => void> = {
+      " ": togglePlaying,
+      ArrowLeft: () => seek(time.current - ARROW_STEP_MS),
+      ArrowRight: () => seek(time.current + ARROW_STEP_MS),
+      "[": () => jump("previous"),
+      "]": () => jump("next"),
+    };
+    const run = action[event.key];
+    if (!run) return;
+    event.preventDefault();
+    run();
+  };
+  // The keys act anywhere in the replay; each also has a button. Focus starts on Play.
+  const play = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (ready) play.current?.focus();
+  }, [ready]);
 
   return (
-    <div className="acpmux-replay">
+    <KeyboardScope className="acpmux-replay" handleKeyDown={onKeyDown}>
       <header className="acpmux-replay-bar">
         <button type="button" className="acpmux-replay-button" aria-label={t("replay.back")} onClick={onClose}>
           <Icon name="nav.back" />
@@ -86,19 +139,9 @@ export function ReplayScreen({
         <span className="acpmux-replay-badge">{t("replay.badge")}</span>
         <span className="acpmux-replay-title">{title}</span>
         {ready && (
-          <>
-            <button
-              type="button"
-              className="acpmux-replay-button"
-              aria-label={playing ? t("replay.pause") : t("replay.play")}
-              onClick={togglePlaying}
-            >
-              <Icon name={playing ? "media.pause" : "media.play"} />
-            </button>
-            <output className="acpmux-replay-clock">
-              {clockLabel(second * 1000)} / {clockLabel(ready.timeline.duration)}
-            </output>
-          </>
+          <output className="acpmux-replay-clock">
+            {clockLabel(second * 1000)} / {clockLabel(ready.timeline.duration)}
+          </output>
         )}
       </header>
       {loaded === "loading" ? (
@@ -110,8 +153,71 @@ export function ReplayScreen({
       ) : loaded.timeline.steps.length === 0 ? (
         <p className="acpmux-replay-note">{t("replay.empty")}</p>
       ) : (
-        transcript(rows)
+        <>
+          {transcript(rows)}
+          <div className="acpmux-replay-controls">
+            <button
+              type="button"
+              className="acpmux-replay-button"
+              aria-label={t("replay.previousTool")}
+              title={t("replay.previousTool")}
+              onClick={() => jump("previous")}
+            >
+              <Icon name="media.previous" />
+            </button>
+            <button
+              ref={play}
+              type="button"
+              className="acpmux-replay-button"
+              aria-label={playing ? t("replay.pause") : t("replay.play")}
+              onClick={togglePlaying}
+            >
+              <Icon name={playing ? "media.pause" : "media.play"} />
+            </button>
+            <button
+              type="button"
+              className="acpmux-replay-button"
+              aria-label={t("replay.nextTool")}
+              title={t("replay.nextTool")}
+              onClick={() => jump("next")}
+            >
+              <Icon name="media.next" />
+            </button>
+            <div className="acpmux-replay-track">
+              <input
+                ref={scrub}
+                type="range"
+                className="acpmux-replay-scrub"
+                min={0}
+                max={Math.max(loaded.timeline.duration, 1)}
+                step={10}
+                defaultValue={0}
+                aria-label={t("replay.position")}
+                aria-valuetext={clockLabel(second * 1000)}
+                onInput={(event) => seek(Number(event.currentTarget.value))}
+              />
+              {loaded.timeline.tools.map((mark) => (
+                <span
+                  key={mark.seq}
+                  className="acpmux-replay-tick"
+                  aria-hidden="true"
+                  title={mark.label}
+                  style={{ left: `${(mark.time / Math.max(loaded.timeline.duration, 1)) * 100}%` }}
+                />
+              ))}
+            </div>
+            <button
+              type="button"
+              className="acpmux-replay-speed"
+              aria-label={t("replay.speed")}
+              title={t("replay.speed")}
+              onClick={nextSpeed}
+            >
+              {speed}×
+            </button>
+          </div>
+        </>
       )}
-    </div>
+    </KeyboardScope>
   );
 }

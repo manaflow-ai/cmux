@@ -210,10 +210,12 @@ final class TabCell {
         themeScope.perform { backgroundLayer.shadowColor = Palette.shadow.cgColor }
         backgroundLayer.shadowRadius = Metrics.space3
         backgroundLayer.shadowOffset = CGSize(width: 0, height: Metrics.space1)
-        backgroundLayer.shadowOpacity = isLifted ? 0.22 : 0
+        Motion.set(backgroundLayer, "shadowOpacity", to: Float(isLifted ? 0.22 : 0), fade: .lift)
         updateStacking()
         if isLifted { titleFade.stopMarquee(animated: false) }
-        updateColors(animated: true)
+        // The lifted fill reads as solid from the first frame, so nothing it
+        // passes over (a group chip) shows through while it would ease in.
+        updateColors(animated: !isLifted)
     }
 
     /// `showing` is whether the fill that changed shows: the tab's by
