@@ -7,7 +7,18 @@ public nonisolated struct AcpmuxChatsStore: Sendable, Equatable {
 
     public init() {}
 
+    /// Every chat, newest first. O(n): only for readers that need the whole
+    /// list (the palette's chats page, the projects relay off the main actor);
+    /// per-change readers use `count`, `chat(id:)` and `newest(_:)`.
     public var chats: [AcpmuxChat] { orderedKeys.compactMap { values[$0] } }
+
+    public var count: Int { orderedKeys.count }
+
+    /// One chat by key, O(1).
+    public func chat(id: String) -> AcpmuxChat? { values[id] }
+
+    /// The newest `limit` chats, O(limit).
+    public func newest(_ limit: Int) -> [AcpmuxChat] { orderedKeys.prefix(max(0, limit)).compactMap { values[$0] } }
 
     /// Replaces the mirror from a page response. Only the initial page is sorted.
     public mutating func reset(_ result: [String: Any]) {
@@ -48,13 +59,15 @@ public nonisolated struct AcpmuxChatsStore: Sendable, Equatable {
     public mutating func apply(_ change: Change) {
         switch change {
         case .removed(let key):
-            values[key] = nil
-            if let index = orderedKeys.firstIndex(of: key) { orderedKeys.remove(at: index) }
+            if let old = values[key] {
+                removeKey(of: old)
+                values[key] = nil
+            }
         case .activity(let key, let attention, let preview):
             values[key]?.attention = attention
             values[key]?.preview = preview
         case .upserted(let key, let chat):
-            if values[key] != nil, let index = orderedKeys.firstIndex(of: key) { orderedKeys.remove(at: index) }
+            if let old = values[key] { removeKey(of: old) }
             values[key] = chat
             let insertion = Self.insertionIndex(chat, in: orderedKeys, values: values)
             orderedKeys.insert(key, at: insertion)
@@ -71,6 +84,24 @@ public nonisolated struct AcpmuxChatsStore: Sendable, Equatable {
 
     private static func isNewer(_ lhs: AcpmuxChat, _ rhs: AcpmuxChat) -> Bool {
         lhs.updatedAt > rhs.updatedAt || (lhs.updatedAt == rhs.updatedAt && lhs.id > rhs.id)
+    }
+
+    /// Drops `chat`'s key from the order: a binary search on its sort key
+    /// (updatedAt, id is a total order), not a scan of every key.
+    /// `values` must still hold `chat` under its key.
+    private mutating func removeKey(of chat: AcpmuxChat) {
+        var low = 0
+        var high = orderedKeys.count
+        while low < high {
+            let middle = (low + high) / 2
+            if let current = values[orderedKeys[middle]], Self.isNewer(current, chat) { low = middle + 1 } else { high = middle }
+        }
+        let index = low
+        if index < orderedKeys.count, orderedKeys[index] == chat.id {
+            orderedKeys.remove(at: index)
+        } else if let index = orderedKeys.firstIndex(of: chat.id) {
+            orderedKeys.remove(at: index)
+        }
     }
 
     private static func insertionIndex(_ chat: AcpmuxChat, in keys: [String], values: [String: AcpmuxChat]) -> Int {

@@ -7,11 +7,15 @@ import os
 /// The device-wide acpmux chat index for sidebar and palette clients.
 @MainActor
 final class ChatsFeed {
-    private(set) var chats: [AcpmuxChat] = []
+    /// The mirror (a copy-on-write value: taking it is O(1), so readers that
+    /// need every chat take it off the main actor).
+    private(set) var store = AcpmuxChatsStore()
+    /// Every chat, newest first. O(n) per read: per-change readers use
+    /// `chat(id:)` and `newest(_:)`; a publish no longer builds this list.
+    var chats: [AcpmuxChat] { store.chats }
     private(set) var isEnabled = true
     private(set) var isReady = false
     private let socket: String
-    private var store = AcpmuxChatsStore()
     private var observers: [(owner: () -> AnyObject?, changed: @MainActor () -> Void)] = []
     private var subscription: AgentActivityLineConnection?
     private var directoryWatch: (any DispatchSourceFileSystemObject)?
@@ -22,6 +26,12 @@ final class ChatsFeed {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-chats")
 
     init(socketPath: String) { socket = socketPath }
+
+    /// One chat by key, O(1).
+    func chat(id: String) -> AcpmuxChat? { store.chat(id: id) }
+
+    /// The newest `limit` chats, O(limit).
+    func newest(_ limit: Int) -> [AcpmuxChat] { store.newest(limit) }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
     nonisolated deinit {
@@ -144,7 +154,6 @@ final class ChatsFeed {
     }
 
     private func publish() {
-        chats = store.chats
         observers.removeAll { $0.owner() == nil }
         for observer in observers { observer.changed() }
     }
