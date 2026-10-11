@@ -117,7 +117,9 @@ button.acpmux-edited-file:focus-visible{outline:1.5px solid var(--agent-muted);o
 .acpmux-git-message{min-height:44px;max-height:160px;resize:vertical;padding:7px 10px;border:1px solid var(--agent-border);border-radius:10px;background:var(--agent-input-bg);color:var(--agent-text);font:inherit;font-size:var(--text-body)}
 .acpmux-git-message:focus-visible{outline:none;border-color:color-mix(in srgb,var(--agent-text) 35%,transparent)}
 .acpmux-git-form-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.acpmux-git-scope{display:inline-flex;gap:2px;padding:2px;border-radius:14px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)))}
+.acpmux-git-message-keys{display:contents}
+/* A ui/ChoiceGroup fieldset: its native border, margin and min-width reset. */
+.acpmux-git-scope{display:inline-flex;gap:2px;margin:0;border:0;min-width:0;padding:2px;border-radius:14px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)))}
 .acpmux-git-scope-option{display:inline-flex;align-items:center;height:24px;padding:0 10px;border-radius:12px;color:var(--agent-muted);font-size:var(--text-detail);cursor:pointer}
 .acpmux-git-scope-option input{position:absolute;opacity:0;pointer-events:none}
 .acpmux-git-scope-option[data-checked=true]{background:var(--agent-page-bg);color:var(--agent-text)}
