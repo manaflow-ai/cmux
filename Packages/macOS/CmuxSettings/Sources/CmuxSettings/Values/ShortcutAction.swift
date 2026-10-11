@@ -109,6 +109,12 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case reopenClosedBrowserPanel
     case newSurface
     case toggleTerminalCopyMode
+    /// Jumps the focused terminal's scrollback to the previous agent prompt
+    /// on its agent turn rail.
+    case previousAgentTurn
+    /// Jumps the focused terminal's scrollback to the next agent prompt on
+    /// its agent turn rail.
+    case nextAgentTurn
     case focusTextBoxInput
     /// Cycles the TextBox submit button to the next configured action.
     case cycleTextBoxSubmitAction
@@ -323,7 +329,8 @@ extension ShortcutAction {
             return .key(ShortcutContextKnownKey.commandPaletteVisible.rawValue)
         case .renameTab, .renameWorkspace:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
-        case .sendCtrlFToTerminal, .pasteLastScreenshot, .sizeTerminalToMyWindow, .clearScreenKeepScrollback:
+        case .sendCtrlFToTerminal, .pasteLastScreenshot, .sizeTerminalToMyWindow, .clearScreenKeepScrollback,
+             .previousAgentTurn, .nextAgentTurn:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
         case .focusHistoryBack, .focusHistoryForward:
             return .not(.atom(.browserFocus))
