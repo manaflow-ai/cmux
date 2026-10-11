@@ -18,7 +18,7 @@ use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use tokio::sync::Mutex;
 
 /// The session/update variants and ids this translator emits are plain ACP.
@@ -233,6 +233,11 @@ pub struct Translator {
     /// Claude's task ids of running subagents -> their Agent tool call
     /// (`task_updated` names only the task).
     subagent_tasks: Mutex<HashMap<String, String>>,
+    /// The chat model's context window as Claude Code last reported it (a
+    /// result's `modelUsage`), 0 until then: `usage_update`'s `size`.
+    context_window: AtomicU64,
+    /// The tokens the chat's context last held (its last `message_delta`).
+    context_used: AtomicU64,
 }
 
 #[derive(Debug, Clone)]
@@ -273,6 +278,8 @@ impl Translator {
             subagents: Mutex::new(HashMap::new()),
             background_subagents: Mutex::new(HashSet::new()),
             subagent_tasks: Mutex::new(HashMap::new()),
+            context_window: AtomicU64::new(0),
+            context_used: AtomicU64::new(0),
         })
     }
 

@@ -81,8 +81,13 @@ impl Translator {
                                     .and_then(Value::as_u64)
                                     .unwrap_or(0)
                                 + u.get("output_tokens").and_then(Value::as_u64).unwrap_or(0);
+                            // A subagent's usage is its own context, not the chat's.
+                            if parent.is_none() {
+                                self.context_used.store(used, Ordering::SeqCst);
+                            }
+                            let size = self.context_window.load(Ordering::SeqCst);
                             out.push(upd(
-                                json!({"sessionUpdate": "usage_update", "used": used, "size": 0}),
+                                json!({"sessionUpdate": "usage_update", "used": used, "size": size}),
                             ));
                         }
                     }
@@ -315,6 +320,17 @@ impl Translator {
                 if startup_noise {
                     return out;
                 }
+                // The window Claude Code reports for the chat's model: the pane's
+                // context ring fills by used over it (cx-ncc.79).
+                if let Some(window) = self.result_context_window(line).await {
+                    self.context_window.store(window, Ordering::SeqCst);
+                    let used = self.context_used.load(Ordering::SeqCst);
+                    if used > 0 && parent.is_none() {
+                        out.push(upd(
+                            json!({"sessionUpdate": "usage_update", "used": used, "size": window}),
+                        ));
+                    }
+                }
                 // A steered line Claude Code has not read yet: it runs it as
                 // one more turn of this prompt, whose result ends it (when
                 // echoes come at all; without them the steer fails below).
@@ -402,6 +418,17 @@ impl Translator {
     /// moves it to the background, and `task_notification` ends a background
     /// one (its Agent tool call returned at launch). Returns the subagent's
     /// `subagent_state_update` when it ended.
+    /// A result's context window for the chat's model (`modelUsage`, keyed by
+    /// model id): the chat model's entry, else the largest one reported (a
+    /// subagent's smaller model never shrinks the chat's).
+    async fn result_context_window(&self, line: &Value) -> Option<u64> {
+        let usage = line.get("modelUsage")?.as_object()?;
+        let window =
+            |entry: &Value| entry.get("contextWindow").and_then(Value::as_u64).filter(|w| *w > 0);
+        let model = self.model.lock().await.clone();
+        usage.get(&model).and_then(window).or_else(|| usage.values().filter_map(window).max())
+    }
+
     async fn subagent_task(&self, sub: &str, line: &Value) -> Option<Value> {
         let task = line.get("task_id").and_then(Value::as_str).unwrap_or("");
         let tool = match line.get("tool_use_id").and_then(Value::as_str) {
