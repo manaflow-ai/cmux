@@ -18,7 +18,7 @@ import { eq } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { cloudVms } from "../../db/schema";
 import { hasProviderTlsRuleLimitCause, ProviderGuestUnresponsiveError, type CreateOptions } from "./drivers/types";
-import { isVmProviderHang, withVmAnswerDeadline } from "./routeDeadline";
+import { isVmProviderHang, withVmAnswerDeadline, withVmRouteDeadline, type VmRouteDeadline } from "./routeDeadline";
 import * as Layer from "effect/Layer";
 import type {
   AttachEndpoint,
@@ -346,8 +346,11 @@ export const vmWorkflowRuntime = ManagedRuntime.make(VmWorkflowLive);
  * to an HTTP response through the responder table in `routeHelpers`, a defect
  * is a bug and propagates as a thrown error.
  */
-export function runVmWorkflowExit<A>(program: VmWorkflowProgram<A>): Promise<Exit.Exit<A, VmWorkflowError>> {
-  return vmWorkflowRuntime.runPromiseExit(program);
+export function runVmWorkflowExit<A>(
+  program: VmWorkflowProgram<A>,
+  options: { readonly deadline?: VmRouteDeadline } = {},
+): Promise<Exit.Exit<A, VmWorkflowError>> {
+  return vmWorkflowRuntime.runPromiseExit(options.deadline ? withVmRouteDeadline(program, options.deadline) : program);
 }
 
 /**
