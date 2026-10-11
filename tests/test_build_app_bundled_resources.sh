@@ -50,16 +50,22 @@ cat > "$SRCROOT/scripts-build-cua" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 output=""
+helper_app=""
 while [[ $# -gt 0 ]]; do
-  [[ "$1" == "--output" ]] && output="$2" && shift 2 || shift
+  case "$1" in
+    --output) output="$2"; shift 2 ;;
+    --helper-app) helper_app="$2"; shift 2 ;;
+    *) shift ;;
+  esac
 done
 mkdir -p "$(dirname "$output")"
 printf 'cua-helper\n' > "$output"
-printf 'license\n' > "${output}-LICENSE.md"
+printf 'license\n' > "$(dirname "$output")/cmux-cua-LICENSE.md"
 chmod +x "$output"
-if [[ "$output" == *.app/Contents/Resources/bin/cmux-cua ]]; then
-  resources_dir="${output%/bin/cmux-cua}"
-  helper_app="$resources_dir/../Library/cmux Computer Use.app"
+if [[ -z "$helper_app" && "$output" == *.app/Contents/Resources/bin/cmux-cua ]]; then
+  helper_app="${output%/Resources/bin/cmux-cua}/Library/cmux Computer Use.app"
+fi
+if [[ -n "$helper_app" ]]; then
   mkdir -p "$helper_app/Contents/MacOS" "$helper_app/Contents/Resources"
   printf 'cua-helper-app\n' > "$helper_app/Contents/MacOS/cmux-cua"
   chmod +x "$helper_app/Contents/MacOS/cmux-cua"
@@ -127,7 +133,20 @@ if grep -q 'skipping helper rebuilds' "$TMP_DIR/third.log"; then
 fi
 [[ -f "$BUILD_DIR/Resources/ghostty/nested/file" ]]
 
+APP_BIN="$BUILD_DIR/cmux.app/Contents/Resources/bin"
+mkdir -p "$APP_BIN"
+printf 'legacy-client\n' > "$APP_BIN/cmux-cua"
+chmod +x "$APP_BIN/cmux-cua"
+printf 'legacy-license\n' > "$APP_BIN/cmux-cua-LICENSE.md"
 run_app_phase > "$TMP_DIR/app-first.log"
+# The Computer Use helper's executable is the only copy of the cmux-cua
+# engine in the app. A second copy in Resources/bin costs ~11.5 MiB per
+# architecture and is removed from bundles built before the change.
+if [[ -e "$APP_BIN/cmux-cua" || -e "$APP_BIN/cmux-cua-LICENSE.md" ]]; then
+  echo 'FAIL: the app bundle still ships Resources/bin/cmux-cua' >&2
+  exit 1
+fi
+[[ -x "$BUILD_DIR/cmux.app/Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua" ]]
 RESOURCE_BUNDLE="$BUILD_DIR/cmux.app/Contents/Resources/CmuxFoundation_CmuxFoundation.bundle"
 CLI_RESOURCE_BUNDLE="$BUILD_DIR/cmux.app/Contents/Resources/bin/CmuxFoundation_CmuxFoundation.bundle"
 [[ -d "$CLI_RESOURCE_BUNDLE" && ! -L "$CLI_RESOURCE_BUNDLE" ]]

@@ -283,7 +283,10 @@ def run_wrapper(
     original_settings_directory_modes: dict[str, int] | None = None,
     capture_cua_auth: bool = False,
 ) -> tuple[int, list[str], list[str], str, str, str, str, str, str, str]:
-    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-test-") as td:
+    # Root the sandbox under HOME: the wrapper trusts the installed Computer Use
+    # client only when no ancestor is group- or world-writable, which rules out
+    # a /tmp root.
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-test-", dir=str(Path.home())) as td:
         tmp = Path(td)
         wrapper_dir = tmp / "cmux.app" / "Contents" / "Resources" / "bin"
         real_dir = tmp / "real-bin"
@@ -1988,9 +1991,27 @@ def test_passthrough_flags_bypass_hook_injection(failures: list[str]) -> None:
 
 # --- cmux computer use MCP injection ------------------------------------------
 #
-# The wrapper attaches the bundled cmux Computer Use client via --mcp-config.
-# Source checkouts without the bundled binary fail closed. There is no ambient
-# executable override and no Node/Bun MCP fallback.
+# The wrapper attaches the app-installed cmux Computer Use helper as the MCP
+# client via --mcp-config, the same executable the Codex wrapper uses. The app
+# no longer ships a separate Resources/bin/cmux-cua copy. Without a trusted
+# installed helper the wrapper fails closed. There is no ambient executable
+# override and no Node/Bun MCP fallback.
+
+
+def installed_helper_executable(home: Path, scope: str = "default") -> Path:
+    return (
+        home
+        / "Library"
+        / "Application Support"
+        / "cmux"
+        / "cmux-cua"
+        / "helper"
+        / scope
+        / "cmux Computer Use.app"
+        / "Contents"
+        / "MacOS"
+        / "cmux-cua"
+    )
 
 
 def computer_use_sandbox(
@@ -2004,6 +2025,8 @@ def computer_use_sandbox(
     path_helper_trap: bool = False,
     auth_token: bool = True,
     auth_token_file: bool = False,
+    legacy_bin_client: bool = False,
+    exported_client: bool = False,
 ):
     def setup(tmp: Path, env: dict) -> None:
         sandbox_home = tmp / "home"
@@ -2024,11 +2047,21 @@ def computer_use_sandbox(
             env["CMUX_CUA_AUTH_TOKEN_FILE"] = str(token_file)
         elif auth_token:
             env["CMUX_CUA_SOCKET_AUTH_TOKEN"] = "cmux-test-auth-token"
-        if bundled_driver:
+        if legacy_bin_client:
             make_executable(
                 tmp / "cmux.app" / "Contents" / "Resources" / "bin" / "cmux-cua",
                 "#!/usr/bin/env bash\nexit 0\n",
             )
+        if exported_client:
+            exported = tmp / "exported" / "cmux Computer Use.app" / "Contents" / "MacOS" / "cmux-cua"
+            exported.parent.mkdir(parents=True)
+            make_executable(exported, "#!/usr/bin/env bash\nexit 0\n")
+            env["CMUX_CUA_CLIENT_PATH"] = str(exported)
+        if bundled_driver:
+            installed = installed_helper_executable(sandbox_home)
+            installed.parent.mkdir(parents=True)
+            make_executable(installed, "#!/usr/bin/env bash\nexit 0\n")
+            write_helper_info(installed.parents[1] / "Info.plist", "com.cmuxterm.cua")
             helper_driver = (
                 tmp
                 / "cmux.app"
@@ -2056,7 +2089,7 @@ def computer_use_sandbox(
             override = override_dir / "cmux-cua"
             make_executable(override, "#!/usr/bin/env bash\nexit 0\n")
             override.chmod(0o775)
-            env["CMUX_CUA_EXTERNAL_CLIENT"] = str(override)
+            env["CMUX_CUA_CLIENT_PATH"] = str(override)
         if group_writable_ancestor:
             # Group-writable (not world-writable) parent with a
             # correctly-permissioned driver: rejection can only come from the
@@ -2066,7 +2099,7 @@ def computer_use_sandbox(
             ancestor_dir.chmod(0o775)
             ancestor = ancestor_dir / "cmux-cua"
             make_executable(ancestor, "#!/usr/bin/env bash\nexit 0\n")
-            env["CMUX_CUA_EXTERNAL_CLIENT"] = str(ancestor)
+            env["CMUX_CUA_CLIENT_PATH"] = str(ancestor)
         if path_helper_trap:
             helper_dir = tmp / "path-helper-trap"
             helper_dir.mkdir(parents=True, exist_ok=True)
@@ -2197,12 +2230,14 @@ def expect_cmux_cua_config(
     if bundled_client:
         expect(
             isinstance(command, str)
-            and Path(command).parts[-3:] == (
-                "Resources",
-                "bin",
+            and Path(command).parts[-4:] == (
+                "cmux Computer Use.app",
+                "Contents",
+                "MacOS",
                 expected_name,
-            ),
-            f"{context}: proxy command must use the bundled cmux Computer Use client, got {command}",
+            )
+            and "Resources" not in Path(command).parts,
+            f"{context}: proxy command must use the installed cmux Computer Use helper, got {command}",
             failures,
         )
     env = server.get("env", {})
@@ -2398,6 +2433,39 @@ def test_computer_use_rejects_external_client_override(failures: list[str]) -> N
     expect(
         extract_injected_mcp_config(real_argv) is None,
         f"computer use override must be ignored when the bundled cmux-cua client is absent, got {real_argv}",
+        failures,
+    )
+
+
+def test_computer_use_ignores_legacy_bundled_client(failures: list[str]) -> None:
+    # A Resources/bin/cmux-cua left by an older app is not the installed helper
+    # cmux stages and authorizes, so it must not become the MCP client.
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=computer_use_sandbox(bundled_driver=False, legacy_bin_client=True),
+    )
+    expect(code == 0, f"computer use legacy client: wrapper exited {code}: {stderr}", failures)
+    expect(
+        extract_injected_mcp_config(real_argv) is None,
+        f"computer use legacy client: expected no injection without the installed helper, got {real_argv}",
+        failures,
+    )
+
+
+def test_computer_use_uses_app_exported_client_path(failures: list[str]) -> None:
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=computer_use_sandbox(bundled_driver=False, exported_client=True),
+    )
+    expect(code == 0, f"computer use exported client: wrapper exited {code}: {stderr}", failures)
+    config = extract_injected_mcp_config(real_argv)
+    expect_cmux_cua_config(config, failures, "computer use exported client", "cmux-cua", bundled_client=True)
+    command = (config or {}).get("mcpServers", {}).get("cmux-cua", {}).get("command", "")
+    expect(
+        "exported" in Path(command).parts,
+        f"computer use exported client: expected CMUX_CUA_CLIENT_PATH to select the client, got {command!r}",
         failures,
     )
 
@@ -3831,6 +3899,8 @@ def main() -> int:
     test_computer_use_probe_uses_absolute_system_helpers(failures)
     test_computer_use_driver_does_not_require_external_runtime_auth(failures)
     test_computer_use_rejects_external_client_override(failures)
+    test_computer_use_ignores_legacy_bundled_client(failures)
+    test_computer_use_uses_app_exported_client_path(failures)
     test_computer_use_driver_skipped_for_strict_mcp_config(failures)
     test_computer_use_driver_skipped_when_disabled(failures)
     test_computer_use_driver_skipped_when_no_driver_available(failures)
