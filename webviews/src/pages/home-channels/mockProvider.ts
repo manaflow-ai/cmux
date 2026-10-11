@@ -240,6 +240,15 @@ export class MockHomeProvider implements PageClient {
         this.emit({ messages: [list[index]!] });
         return {} as R;
       }
+      case HomeOps.createGroup: {
+        const ids = (params.participants as string[] | undefined) ?? [];
+        const people = [chief, builder, reviewer, docs].filter((p) => ids.includes(p.id));
+        const id = `c-${this.data.conversations.length + 1}`;
+        const created = conversation(id, String(params.title ?? ""), "group", people, []);
+        this.data.conversations.push(created);
+        this.data.messages.set(created.id, []);
+        return { conversation: created.id } as R;
+      }
       case HomeOps.search:
         return { hits: [] } as R;
       default:

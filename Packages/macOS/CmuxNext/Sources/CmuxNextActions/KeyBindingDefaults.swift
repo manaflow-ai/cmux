@@ -89,9 +89,25 @@ public nonisolated struct KeyBindingDefaults {
         KeyBinding(keys: [Shortcut("l", modifiers: [.control, .command])], command: "focusRight"),
     ]
 
+    /// Cmd-[ / Cmd-] are focus history Back / Forward everywhere but a web
+    /// page, as in the shipping cmux (chief decision, cx-442;
+    /// plans/cmux-next/terminal-shortcuts.md). In a terminal they win over
+    /// Ghostty's default `goto_split:previous/next`; a `super+[` keybind in the
+    /// user's Ghostty config still wins over them. In a web page, the Markdown
+    /// viewer and other surfaces with their own Back / Forward, the more
+    /// specific catalog entry on the same key comes later and wins.
+    public static let focusHistoryAliases: [KeyBinding] = [
+        KeyBinding(keys: [Shortcut("[", modifiers: [.command])], command: "focusHistoryBack", when: notWebPage),
+        KeyBinding(keys: [Shortcut("]", modifiers: [.command])], command: "focusHistoryForward", when: notWebPage),
+    ]
+    /// Not in a web page, and not in the code editor, whose Cmd-[ / Cmd-] are outdent / indent.
+    static let notWebPage = WhenClause.and([
+        .notEquals(KeyContext.surfaceKind, .string("page")), .not(.has(KeyContext.codeEditorFocusedKey)),
+    ])
+
     /// Aliases that follow their action's catalog key: present only while
     /// the action has its default key (no cmux.json override or chord).
-    public static var actionAliases: [KeyBinding] { paneResizeAliases + paneFocusAliases }
+    public static var actionAliases: [KeyBinding] { paneResizeAliases + paneFocusAliases + focusHistoryAliases }
 
     /// Actions whose default key Monaco also uses for editing (R127,
     /// webviews/src/pages/editor/README.md): while the code editor has the

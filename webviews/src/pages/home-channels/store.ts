@@ -227,6 +227,26 @@ export class HomeChannelsStore {
     }
   }
 
+  /** Creates a channel (a titled group) with these members and opens it. Resolves true when the
+   * owner created it. */
+  async createChannel(title: string, participants: readonly string[]): Promise<boolean> {
+    const name = title.trim();
+    if (!this.client || !name || participants.length === 0) return false;
+    try {
+      const result = await this.client.call<{ conversation?: string }>(HomeOps.createGroup, {
+        title: name,
+        participants,
+        idempotencyKey: this.key("create"),
+      });
+      await this.reloadInbox();
+      if (result.conversation) await this.select(result.conversation);
+      return true;
+    } catch (error) {
+      this.set({ error: describe(error) });
+      return false;
+    }
+  }
+
   /** Adds my reaction, or takes it back when I already reacted with it. */
   async react(message: HomeMessage, value: string): Promise<void> {
     if (!this.client) return;
