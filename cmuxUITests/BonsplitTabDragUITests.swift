@@ -1007,7 +1007,10 @@ final class BonsplitTabDragUITests: XCTestCase {
         let actionButtonCount = 10
         let (app, dataPath) = launchConfiguredApp(
             startWithHiddenSidebar: true,
-            windowSize: "520x420",
+            // Exercise the app's minimum test window size. The original
+            // report reproduced in a narrow split pane, where a revealed
+            // action lane can cover the entire trailing tab body.
+            windowSize: "320x420",
             actionButtonCount: actionButtonCount,
             fourTabSetup: true
         )
@@ -1066,6 +1069,11 @@ final class BonsplitTabDragUITests: XCTestCase {
             XCTAssertTrue(
                 waitForCondition(timeout: 2.0) { tab.exists && tab.isHittable },
                 "Expected \(expectedTitle) to remain hittable beside the revealed action lane. gamma=\(gammaTab.frame) delta=\(deltaTab.frame)"
+            )
+            XCTAssertLessThanOrEqual(
+                tab.frame.maxX,
+                firstActionButton.frame.minX + 1,
+                "Expected \(expectedTitle) to be fully clear of the revealed action lane before clicking. tab=\(tab.frame) firstAction=\(firstActionButton.frame) lastAction=\(lastActionButton.frame)"
             )
             tab.click()
             XCTAssertTrue(
