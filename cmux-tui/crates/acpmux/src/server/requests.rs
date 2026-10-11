@@ -121,7 +121,7 @@ async fn dispatch_request(
                     method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
                     method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT,
                     method::MUX_INFO, method::MUX_EVENTS, method::MUX_PERMISSION_RESPOND,
-                    method::MUX_DRAFT_GET, method::MUX_DRAFT_SET,
+                    method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_ASK,
                     method::MUX_SET_POLICY, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
                 ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
                 "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds"], "trustGate": true}}
@@ -852,6 +852,17 @@ async fn dispatch_request(
                 .ok_or_else(|| RpcError::invalid_params("text is required"))?;
             let draft = hub.set_composer_draft(&s, text).map_err(RpcError::invalid_params)?;
             Ok(json!({"sessionId": s.id, "draft": draft}))
+        }
+        method::MUX_ASK => {
+            let s = hub.resolve(session_key(&params)?)?;
+            let text = str_param(&params, "text")
+                .ok_or_else(|| RpcError::invalid_params("text is required"))?;
+            let opts = crate::hub::PromptOptions {
+                control: super::remote_guard::control_of(conn.origin, &params),
+                trust_gate: super::trust_gate::gated(conn.origin, &params),
+                ..Default::default()
+            };
+            hub.ask_aside(&s, text, &conn.label(), opts).await
         }
         method::MUX_TAG => {
             let s = hub.resolve(session_key(&params)?)?;
