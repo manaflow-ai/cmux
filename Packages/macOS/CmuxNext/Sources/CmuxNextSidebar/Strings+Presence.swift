@@ -27,3 +27,8 @@ extension Strings {
         }
     }
 }
+
+extension SidebarPresence {
+    /// Who is doing what, localized: `Claude Code · Editing app.rs:42`.
+    public var summary: String { Strings.presenceLine(self) }
+}

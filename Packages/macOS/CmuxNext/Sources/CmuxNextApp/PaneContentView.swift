@@ -35,6 +35,9 @@ final class PaneContentView: NSView, PaneContentChrome {
         didSet { if barPosition != oldValue { updateBand() } }
     }
     private var placementObservation: Task<Void, Never>?
+    /// The acting agent's name tag (`PaneContentView+AgentTag`).
+    let agentTag = AgentPresenceTagView()
+    private var agentTagObservation: Task<Void, Never>?
     /// No strip: the chat dock or a lone chat with one tab (``ChatDockChrome``).
     var hidesStrip = false {
         didSet {
@@ -81,6 +84,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         stripScope.root(stripView)
         reveal.hold(stripView, until: .tabs)
         reveal.hold(contentHost, until: .pane)
+        agentTagObservation = observeAgentTag(stripModel)
         themeDidChange()
         tokenObservation = Task { [weak self] in
             for await _ in ObservationStream({ PaneChromeMetrics.current }) {
@@ -105,6 +109,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         MainActor.assumeIsolated {
             tokenObservation?.cancel()
             placementObservation?.cancel()
+            agentTagObservation?.cancel()
         }
     }
 
@@ -130,6 +135,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         // bounds so Ghostty and its find/glass overlays get a real first
         // layout pass instead of staying at width zero.
         if let content, content.frame != contentHost.bounds { content.frame = contentHost.bounds }
+        layoutAgentTag()
         if hostChanged { onResize?() }
     }
 

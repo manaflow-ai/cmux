@@ -34,7 +34,7 @@ public nonisolated enum SidebarTunables {
     /// into the row; the daemon feed (`agent-presence-v1`) runs either way.
     public static let presenceDots = Tunable<Bool>.toggle(
         "sidebar.presenceDots", .sidebar, "Agent presence dots",
-        help: "A round dot per agent acting in the workspace right now, in the agent's theme color; hover lists what each one touches (prototype).",
+        help: "A round dot per agent acting right now, in the agent's theme color: on its workspace row (hover lists what each one touches) and on its tab chip (prototype).",
         default: false, code: "SidebarTunables.presenceDots")
 
     public static var all: [TunableDescriptor] {

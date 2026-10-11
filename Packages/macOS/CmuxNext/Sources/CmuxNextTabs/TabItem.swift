@@ -51,6 +51,8 @@ public struct TabItem: Identifiable, Hashable, Sendable {
     /// gives new tabs: a small dot of its color, named in the hover card and
     /// to VoiceOver (plans/cmux-next/data-model.md section 5).
     public var profileBadge: TabProfileBadge?
+    /// The agent acting in the tab right now (cx-gg84): a dot in its presence color.
+    public var presence: TabPresence?
     /// A browser tab playing sound, or muted: a speaker after the title.
     public var audio: TabAudio?
 
