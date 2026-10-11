@@ -377,6 +377,10 @@ final class AppControl {
             .mainActor("debug.quit") { [weak services] call in
                 .value(services.map { DebugQuit.run(call.params, $0) } ?? .null)
             },
+            // Every window's toasts (R96): list, a person's action run, the undo key.
+            .mainActor("debug.toast") { [weak services] call in
+                .value(services.map { DebugToast.run(call.params, $0) } ?? .null)
+            },
             // Every open cmux dialog (R96): list, fixtures, keys, presses.
             .mainActor("debug.dialog") { [weak services] call in
                 .value(services.map { DebugDialog.run(call.params, $0) } ?? .null)
