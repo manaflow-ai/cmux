@@ -60,7 +60,6 @@ final class GroupHeaderRowView: SidebarRowView {
         layer?.addSublayer(dot)
         pill.actions = ["bounds": NSNull(), "position": NSNull(), "backgroundColor": NSNull()]
         dot.actions = ["bounds": NSNull(), "position": NSNull(), "backgroundColor": NSNull()]
-        glyph.drawsUncoloredSymbolAsText = true
         [glyph, name, pin, chevron, activity, badge, addButton, moreButton].forEach(addSubview)
         moreButton.onPress = { [weak self] in self?.onMore?() }
         addButton.onPress = { [weak self] in self?.onAdd?() }
@@ -146,10 +145,17 @@ final class GroupHeaderRowView: SidebarRowView {
 
     override func updateLayer() {
         performWithTheme {
-            // The name in the sidebar's own text colors; the group's color is the dot and its line.
-            name.textColor = Palette.textPrimary
-            pin.contentTintColor = Palette.textTertiary
-            chevron.contentTintColor = Palette.textSecondary
+            // One ink for every glyph on the header (cx-qno.22): name, icon,
+            // pin, chevron, + and more, from the surface under them (the
+            // sidebar, or the drop fill), at text contrast on it and on the
+            // buttons' hover and pressed fills. The group's color is the dot and its line.
+            let ink = Palette.glyphInk(over: isDropTarget ? \.selectionFill : nil)
+            name.textColor = ink
+            glyph.uncoloredSymbolInk = ink
+            pin.contentTintColor = ink
+            chevron.contentTintColor = ink
+            moreButton.tintOverride = ink
+            addButton.tintOverride = ink
             dot.backgroundColor = (tint == .palette(.grey) ? Palette.textTertiary : tint.headerFill).cgColor
             // The header is its dot and label (cx-fo2t): no hover or selection
             // fill, so it never reads as a workspace row. A drop still shows.

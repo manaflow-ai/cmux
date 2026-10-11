@@ -25,6 +25,7 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/status": ([], []),
         "_acpmux/draft_get": (["sessionId"], []),
         "_acpmux/draft_set": (["sessionId", "text"], []),
+        "_acpmux/ask": (["sessionId", "text"], []),
         "_acpmux/queue_remove": (["sessionId", "promptId"], []),
         "_acpmux/queue_edit": (["sessionId", "promptId", "op", "text", "index"], []),
         // `_meta`: only the gesture ticket of the person's pick (cx-0q7o), never anything else.
