@@ -3,6 +3,7 @@
 // turn's hunks, reaches memoized rows without changing their versions.
 import { createContext } from "react";
 import type { HunkReview } from "../changes/hunkReview";
+import type { MessageBranch } from "./branches";
 
 export type TurnActions = {
   /// Fork the session through the turn whose summary event is `throughSeq`; absent when
@@ -15,6 +16,12 @@ export type TurnActions = {
   edit?: {
     seqs: ReadonlyMap<string, number>;
     send: (rowId: string, throughSeq: number, text: string) => Promise<boolean>;
+  };
+  /// A prompt's versions (cx-ncc.61): the prompts an edit replaced or made, each with its sibling chats,
+  /// and the open that shows one of them in this pane.
+  branches?: {
+    of: ReadonlyMap<string, MessageBranch>;
+    open: (sessionId: string) => void;
   };
   /// Send a turn's prompt again (the last turn's Retry), preserving its attachments.
   retry?: (rowId: string, prompt: string) => void;

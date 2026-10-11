@@ -122,6 +122,7 @@ import {
 import { callChipHost } from "./chips/host";
 import { RenderCard, canRender } from "./conversation/RenderCard";
 import { ArtifactPanel, type SaveDocument } from "./conversation/ArtifactPanel";
+import { branchesFromKey, branchesKey, forkAnchor, messageBranches } from "./conversation/branches";
 import { ArtifactContext, type Artifact } from "./conversation/artifactPreview";
 import { artifactVersions } from "./conversation/artifactVersions";
 import { renderCall } from "./conversation/renderCall";
@@ -2077,8 +2078,25 @@ function AcpmuxPane() {
     [retryModelsKey],
   );
   // Retry sends the turn's prompt as the composer would; a failed send shows in the transcript.
+  // A prompt's versions (cx-ncc.61), kept the same map while they stay the same.
+  const versionsKey = branchesKey(
+    messageBranches(
+      snapshot.summary?.sessionId,
+      snapshot.rows,
+      snapshot.sessions,
+      snapshot.forkedAtSeq,
+      !snapshot.canLoadOlder,
+    ),
+  );
+  const stableBranches = useMemo(() => branchesFromKey(versionsKey), [versionsKey]);
   const turnActions = useMemo<TurnActions>(
     () => ({
+      ...(stableBranches.size > 0 && {
+        branches: {
+          of: stableBranches,
+          open: (sessionId: string) => void callNative("chat.select", { sessionId }).catch(() => undefined),
+        },
+      }),
       ...(forkable && {
         fork: (throughSeq: number) => void callNative("chat.fork", { throughSeq }).catch(() => undefined),
         forkSeq,
@@ -2128,6 +2146,7 @@ function AcpmuxPane() {
       switchModel: () => void openPicker(translate(PICKER_LABELS.model)),
     }),
     [
+      stableBranches,
       forkable,
       forkSeq,
       stableEditSeqs,
@@ -2986,7 +3005,16 @@ function AcpmuxPane() {
           "chat.editResend": async ({ rowId, throughSeq, text }) => {
             harnessSwitch.cancel();
             const attachments = client.retryAttachmentsFor(String(rowId ?? ""));
-            const forked = await client.fork(Number(throughSeq));
+            // A fork's own edited prompt edits again from the chat it was forked from, at the same
+            // turn, so every version of the prompt is a sibling (conversation/branches.ts).
+            const current = snapshotRef.current;
+            const anchor = current
+              ? forkAnchor(current.summary?.sessionId, current.rows, current.sessions, current.forkedAtSeq)
+              : undefined;
+            const forked =
+              anchor && anchor.row.id === rowId
+                ? await client.fork(anchor.forkSeq, anchor.parentId)
+                : await client.fork(Number(throughSeq));
             if (!forked) return false;
             await persistSession(forked);
             // The reader may open another chat while the fork is saved: the edit belongs to the fork.
