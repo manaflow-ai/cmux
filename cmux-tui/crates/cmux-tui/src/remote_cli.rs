@@ -2066,7 +2066,11 @@ fn print_admin_response(action: &str, response: AdminResponse, json: bool) -> an
 /// hosted ingress on branded machine domains requires.
 /// `wireguard-hub`: `remote connect --wireguard-hub` and `wg hub` exist, so the
 /// app may reach private-network machines through a shared in-process tunnel.
-pub const PROBE_CAPABILITIES: &[&str] = &["direct-ws-user-agent", "wireguard-hub", "browser-proxy"];
+/// `ssh-payload-download`: a remote platform's build that the app does not
+/// bundle is downloaded once, checked against the bundled manifest and cached,
+/// so the app's packager may ship only its checksum.
+pub const PROBE_CAPABILITIES: &[&str] =
+    &["direct-ws-user-agent", "wireguard-hub", "browser-proxy", "ssh-payload-download"];
 
 fn run_probe(args: &[String]) -> anyhow::Result<()> {
     let value = serde_json::json!({
@@ -3004,6 +3008,13 @@ mod tests {
     fn probe_capabilities_include_direct_ws_user_agent() {
         assert!(PROBE_CAPABILITIES.contains(&"direct-ws-user-agent"));
         assert!(PROBE_CAPABILITIES.contains(&"wireguard-hub"));
+    }
+
+    #[test]
+    fn probe_capabilities_include_ssh_payload_download() {
+        // The app's packager bundles Linux SSH payloads only for a client
+        // without this capability (scripts/install-cmux-tui-client.sh).
+        assert!(PROBE_CAPABILITIES.contains(&"ssh-payload-download"));
     }
 
     #[test]
