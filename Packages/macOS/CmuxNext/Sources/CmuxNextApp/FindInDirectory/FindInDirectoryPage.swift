@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextPalette
+import CmuxNextCompat
 
 /// The matches of one Find in Directory search as a palette page: one row
 /// per matching line, filtered by the palette's matcher on the line, the
@@ -39,7 +40,7 @@ enum FindInDirectoryPage {
         let location = "\(match.relativePath):\(match.line)"
         let secondary = [
             PaletteCommand(id: "reveal", title: FindInDirectoryStrings.revealInFinder, symbol: "folder",
-                           effect: .perform { NSWorkspace.shared.activateFileViewerSelecting([url]) }),
+                           effect: .perform { NSWorkspace.shared.revealInBackground([url]) }),
             PaletteCommand(id: "copyPath", title: FindInDirectoryStrings.copyPath, symbol: "doc.on.doc",
                            effect: .perform { copy(match.path) }),
             PaletteCommand(id: "copyRelativePath", title: FindInDirectoryStrings.copyRelativePath, symbol: "doc.on.doc",
@@ -51,7 +52,7 @@ enum FindInDirectoryPage {
             id: "\(match.path):\(match.line):\(match.column)", title: match.preview, subtitle: location,
             symbol: "doc.text", keywords: [location],
             primary: PaletteCommand(id: "open", title: FindInDirectoryStrings.open, symbol: "return",
-                                    effect: .perform { NSWorkspace.shared.open(url) }),
+                                    effect: .perform { NSWorkspace.shared.openInBackground(url) }),
             secondary: secondary)
     }
 

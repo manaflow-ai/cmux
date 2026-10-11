@@ -1004,7 +1004,13 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             guard let r = model.rows[checked: i] else { continue } // checked
             let key = r.spec.key
             if r.ghost, r.removedAt == t {
-                ledger.add(key, .content, "opacity", from: 1, to: 0, key == "typing" ? Springs.typingOut : Springs.ghostOut, begin: begin)
+                // A received message replaces the typing bubble: Messages fades it out with the same
+                // curve as a received text's fade-in (ANIMATIONS.md section 3).
+                let out: SpringElement
+                if key != "typing" { out = Springs.ghostOut }
+                else if case .receive = action { out = Springs.typingOutOnReceive }
+                else { out = Springs.typingOut }
+                ledger.add(key, .content, "opacity", from: 1, to: 0, out, begin: begin)
                 continue
             }
             guard r.insertedAt == t, oldSnap.index(key) == nil, newKeys.contains(key) else {
@@ -1036,11 +1042,22 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
                     // An outgoing insert's opacity follows the scroll's
                     // progress (measured on both 120 fps inserts).
                     // A received photo's opacity follows the scroll too (send-typed-media take: 0.02 ->
-                    // 1.0 over the move); a received text fades in after 0.2 s.
-                    ledger.add(key, .content, "opacity", from: 0, to: 1, p.outgoing || Springs.isMedia(p.part) ? el : Springs.receivedFade, begin: begin)
+                    // 1.0 over the move). A received text cross-fades in from the first frame; a received
+                    // thread reply draws its connector at full opacity, then fades its bubble in (only the
+                    // bubble's bitmap fades, so the connector in the same content layer shows at once).
+                    if p.outgoing || Springs.isMedia(p.part) {
+                        ledger.add(key, .content, "opacity", from: 0, to: 1, el, begin: begin)
+                    } else if p.connectorRoot != nil {
+                        // `.receiptNew` is the cell's bitmap layer (the bubble and its text). A tiled long
+                        // text draws outside it: the whole content fades.
+                        ledger.add(key, TiledBubble.applies(r.spec) ? .content : .receiptNew, "opacity", from: 0, to: 1, Springs.receivedThreadFade, begin: begin)
+                    } else {
+                        ledger.add(key, .content, "opacity", from: 0, to: 1, Springs.receivedTextFade, begin: begin)
+                    }
                     if p.connectorRoot != nil {
-                        ledger.add(key, .connector, "strokeEnd", from: 0, to: 1, Springs.connectorDraw, begin: begin)
-                        ledger.add(key, .connectorLine, "transform.scale.y", from: 0, to: 1, Springs.connectorDraw, begin: begin)
+                        let draw = p.outgoing ? Springs.connectorDraw : Springs.connectorDrawOnReceive
+                        ledger.add(key, .connector, "strokeEnd", from: 0, to: 1, draw, begin: begin)
+                        ledger.add(key, .connectorLine, "transform.scale.y", from: 0, to: 1, draw, begin: begin)
                     }
                 } else if case .send = action {
                     // Hidden while the morph flies (text rows); see startMorph.
@@ -1172,7 +1189,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     private var deferredReveals: [String: Double] = [:]
 
     /// Rows this commit adds under a hold: the sent text row (under its flying bubble until the
-    /// landing) and a received text row (its fade-in waits `Springs.receivedFade`'s delay). Their
+    /// landing) and a received thread reply (its bubble's fade-in waits `Springs.receivedThreadFade`'s delay). Their
     /// bitmaps are drawn off main instead of in this commit; the reveal shows them (`revealRows`).
     /// Same conditions as the holds `startMorph` and `animateRows` add.
     private func deferHiddenRows(_ action: Action, _ state: AppState, t: Double, oldSnap: TranscriptModel.TailSnapshot, newOffset: CGFloat) {
@@ -1181,14 +1198,16 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             guard let m = state.conversation.messages.last, m.senderId == state.me, let (key, _) = morphRow(m) else { return }
             deferRow(key, until: .infinity)
         case .receive:
-            let delay = Springs.receivedFade.components.first?.delay ?? 0
-            // Two frames: the off-main bitmap has more time than that before the fade starts.
-            guard delay > 2.0 / 60 else { return }
             let band = model.range(newOffset - layout.rowsTop - 600, newOffset - layout.rowsTop + cvHeight + 600)
             for i in band.reversed() {
                 guard let r = model.rows[checked: i], r.insertedAt == t else { continue } // checked
                 guard !r.ghost, case let .part(p) = r.spec.kind, !p.outgoing, !Springs.isMedia(p.part),
                       oldSnap.index(r.spec.key) == nil, !TiledBubble.applies(r.spec) else { continue }
+                // The fade animateRows gives this row (a thread reply waits for its connector).
+                let fade = p.connectorRoot != nil ? Springs.receivedThreadFade : Springs.receivedTextFade
+                let delay = fade.components.first?.delay ?? 0
+                // Two frames: the off-main bitmap has more time than that before the fade starts.
+                guard delay > 2.0 / 60 else { continue }
                 deferRow(r.spec.key, until: t + delay)
             }
         default:

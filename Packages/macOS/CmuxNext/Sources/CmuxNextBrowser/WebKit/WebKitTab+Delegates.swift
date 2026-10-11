@@ -1,6 +1,7 @@
 import AppKit
 public import Foundation
 public import WebKit
+import CmuxNextCompat
 
 // MARK: - Navigation
 
@@ -37,7 +38,7 @@ extension WebKitTab: WKNavigationDelegate {
             // Other apps open only from a click in the main frame, never from
             // a script or a redirect.
             if isUserLinkClick, navigationAction.targetFrame?.isMainFrame ?? true {
-                NSWorkspace.shared.open(url)
+                NSWorkspace.shared.openInBackground(url)
             }
             return
         }

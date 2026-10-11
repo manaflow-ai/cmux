@@ -38,3 +38,6 @@
 .acpmux-status>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-handoff-header-tools{flex:none}
 @media (prefers-reduced-motion:no-preference){.ui-popup.acpmux-chat-menu-popover{animation:ui-popup-open var(--ui-popup-open) ease-out}}
+/* The right-click menu host (cx-00n1): no box of its own, so the tools keep their row. */
+.acpmux-header-customize{display:contents}
+.acpmux-header-customize-check{display:inline-block;width:1.2em}

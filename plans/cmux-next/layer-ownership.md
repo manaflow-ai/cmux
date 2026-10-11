@@ -24,7 +24,7 @@ Exceptions that stay (recorded decisions, not violations):
 | --- | --- | --- | --- | --- | --- |
 | Terminals: PTY, process, output, cwd, title, exit, grid size | Rust | session host + per-PTY terminal host | Swift, TUI, CLI, iOS | v2 ops + terminal stream | host process, terminals registry |
 | Layout: workspaces, screens, columns, panes, tabs, groups, pins, names, colors | Rust | workspace store reducer (`cmux-layout-reducer`, `cmux-tui-core::state`) | Swift mirror, TUI, CLI, iOS | v2 ops + `state` events | store registry + journal |
-| Sidebar section layout (sections, items, limits) | Rust | `cmux-tui-core/src/state/sidebar_layout*.rs` | Swift mirror + SidebarPendingEdits | `sidebar_layout.get/update` | store |
+| Sidebar section layout (sections, items, limits) | Rust | `cmux-layout-reducer/src/sidebar_layout.rs` (reducer), `cmux-tui-core/src/state/sidebar_layout_{ops,store}.rs` | Swift mirror + SidebarPendingEdits | `sidebar_layout.get/update` | store |
 | Window records, per-window selection, focused pane | Swift (the owning install) | that install only, per-record CAS | Swift, CLI, TUI | v2 ops into its own record | store row per `(install_id, window_id)` |
 | Focus, hover, drag, scroll, palette query, omnibar draft | Swift / TS (local UI) | the view | that view | none | none |
 | Notifications, unread, rings | Rust | session host notification ledger | Swift, CLI, iOS | v2 events | registry |
