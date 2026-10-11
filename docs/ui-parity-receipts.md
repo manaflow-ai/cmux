@@ -30,6 +30,7 @@ called out explicitly. Missing or stale current-head captures remain pending.
 | [#18965](https://github.com/manaflow-ai/cmux/pull/18965) | `ebf7625ab2109c10d6512543086d3b65f64f643f` | `gallery.visual-media-board`: `all-previews` | 420 / 760 / 1080 px | [Gallery diff artifacts](https://github.com/manaflow-ai/cmux/actions/runs/38087624403#artifacts); bundle present and inspectable; no isolated scripted play; aggregate artifact reports 4,613 removed states, 39 broken states, and 31 play failures |
 | [#19119](https://github.com/manaflow-ai/cmux/pull/19119) | `9614aaadff6f0e4e55dc35287976b67252aa8096` | `gallery.visual-media-board`: `all-previews` playback | 420 / 760 / 1080 px | [Gallery diff artifacts](https://github.com/manaflow-ai/cmux/actions/runs/38092149972#artifacts); exact head merged as `b7dde99fca40`; aggregate receipt says no state changes and 33 play checks failed, with no isolated media-entry failure identified |
 | [#19037](https://github.com/manaflow-ai/cmux/pull/19037) | `a39e0df83126359bed2961cfb92cb8f4336b2d25` | `agent-pane.chat-find-bar`: `empty`, `matches`, `next-match`, `no-results` | 360 / 640 px | [Gallery diff artifacts](https://github.com/manaflow-ai/cmux/actions/runs/38091931574#artifacts); exact head merged as `645af3db5fa7`; aggregate receipt reports 38 changed states, 39 broken states, and 29 play checks failed; no isolated Find in Chat failure identified |
+| local minimap lane | `4500186bb48b` | `agent-pane.thread-minimap`: `long-chat` plus transcript replacement regression | 880 / 1040 / 1240 px | Local focused test: 2 passed, 57 assertions; gallery coverage 80 entries / 691 variants; gallery build passes; hosted capture pending |
 
 The component entries use the following interaction receipts and checks:
 
@@ -105,6 +106,8 @@ The component entries use the following interaction receipts and checks:
 - **#19118, Gallery browse matched variant:** the exact head makes a filtered contact-sheet card open the variant named by the query instead of retaining the entry's recommended starting variant. The hosted gallery diff ran all base, head, and repeat shards successfully at the exact head; this is shell-browse evidence with no component entry or isolated interaction-latency sample.
 
 - **#19047, Quick Surface:** the four variants cover the empty composer, a short transcript, a waiting trust ask, and a longer transcript. The fixture keeps the quick host anchor and composer footer stable while content changes, and declares zero anchor movement, zero layout shift, and a 33 ms long-frame limit. The hosted gallery diff reported no state changes or play failures at `4056beac0da`; its 360 / 520 / 720 px matrix is visual and layout evidence, not an input-latency measurement.
+
+- **Local minimap lane (`4500186bb48b`), transcript replacement:** a long transcript's hovered late tick is cleared when the turn list or session changes, leaving exactly one visible roving tab stop and no stale preview. The local rerender test passes 2/2 with 57 assertions; this is state and focus evidence rather than a geometry change, and hosted visual capture plus cross-engine hover play remain untested.
 
 The report-only PRs have synthetic, local comparison evidence rather than a viewport matrix:
 
