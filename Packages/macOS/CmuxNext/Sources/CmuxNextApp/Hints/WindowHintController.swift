@@ -5,7 +5,9 @@ import CmuxNextBrowser
 /// the window gets a one or two letter label (``LinkHintSession``'s Vimium
 /// labels) and typing a whole label clicks that control, as the person's own
 /// click. The controls come from the window's accessibility tree
-/// (``WindowHintTargets``). Typing a label's last letter with Shift
+/// (``WindowHintTargets``) and, for first-party web pages, from the link
+/// hint script; labels show once the pages answer (keys typed before that
+/// wait for them). Typing a label's last letter with Shift
 /// right-clicks the control instead, so every context menu opens from the
 /// keyboard. The key router hands this controller every key while labels
 /// show; Escape, a chord, any other key, a click or another window ends it.
@@ -24,20 +26,43 @@ final class WindowHintController {
         var hints: [Hint]
     }
 
-    private var session: Session?
+    /// Asking the pages for their targets; the keys typed meanwhile.
+    private struct Pending {
+        let task: Task<Void, Never>
+        weak var window: NSWindow?
+        var keys: [NSEvent] = []
+    }
 
-    var isActive: Bool { session != nil }
+    private var session: Session?
+    private var pending: Pending?
+
+    var isActive: Bool { session != nil || pending != nil }
 
     /// Labels the controls of `controller`'s window, or ends a session that
     /// shows (the action toggles). Returns false when nothing is clickable.
     @discardableResult
     func toggle(in controller: WindowController) -> Bool {
-        guard session == nil else {
+        guard !isActive else {
             cancel()
             return true
         }
         guard let window = controller.window, let content = window.contentView else { return false }
-        let targets = WindowHintTargets.collect(in: content)
+        let found = WindowHintTargets.collect(in: content)
+        guard !found.pages.isEmpty else { return show(found.targets, in: controller) }
+        let task = Task { [weak self, weak controller] in
+            let pages = await WindowHintTargets.pageTargets(of: found.pages, clip: found.bounds)
+            guard !Task.isCancelled, let self, let controller, let waiting = self.pending else { return }
+            self.pending = nil
+            let targets = found.targets + pages
+            guard self.show(Array(targets.prefix(WindowHintTargets.limit)), in: controller) else { return }
+            for event in waiting.keys where self.session != nil { _ = self.interceptKeyDown(event, in: waiting.window) }
+        }
+        pending = Pending(task: task, window: window)
+        return true
+    }
+
+    private func show(_ targets: [WindowHintTargets.Target], in controller: WindowController) -> Bool {
+        guard let window = controller.window else { return false }
         var keys = LinkHintSession(mode: .follow)
         guard keys.show(targets.map(\.point)) != .cancel, let labelled = keys.hints else { return false }
         let hints = zip(labelled, targets).map { Hint(label: $0.0.label, target: $0.1) }
@@ -55,6 +80,15 @@ final class WindowHintController {
     /// whether the key was consumed; a key that ends the session without
     /// being a hint key goes on to the focused view.
     func interceptKeyDown(_ event: NSEvent, in window: NSWindow?) -> Bool {
+        if pending != nil, session == nil {
+            // Escape or another window ends the wait; anything else waits for the labels.
+            guard event.keyCode != 53, window === pending?.window else {
+                cancel()
+                return event.keyCode == 53
+            }
+            pending?.keys.append(event)
+            return true
+        }
         guard var current = session, let home = current.window, window === home else {
             cancel()
             return false
@@ -89,6 +123,8 @@ final class WindowHintController {
     }
 
     func cancel() {
+        pending?.task.cancel()
+        pending = nil
         session?.overlay.removeFromSuperview()
         session = nil
     }
