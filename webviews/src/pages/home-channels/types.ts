@@ -13,6 +13,7 @@ export const HomeOps = {
   search: "cmux.home.search",
   edit: "cmux.home.edit",
   retract: "cmux.home.retract",
+  createGroup: "cmux.home.createGroup",
   events: "cmux.home.events",
 } as const;
 
@@ -38,6 +39,8 @@ export interface HomeConversation {
   lastSeq: number;
   rev: number;
   updatedAt: number;
+  /** When the conversation was created (hosts that send it; else updatedAt stands in). */
+  createdAt?: number;
   /** Messages after my read cursor. */
   unread: number;
   /** Mentions of me after my read cursor (the owner's count; 0 where the owner keeps none). */
