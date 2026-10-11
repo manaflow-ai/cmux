@@ -15,6 +15,17 @@ struct WebThemeCaretSelectionTests {
         #expect(variables["--cmux-text-selection"] == WebTheme.css(ThemeRGB(hex: 0x335577)))
     }
 
+    /// Many themes select by inverse video (`selection-background` = the foreground, with a dark
+    /// `selection-foreground`). Pages and fields draw only the fill, so that fill would hide the
+    /// text: such a selection keeps the accent tint.
+    @Test @MainActor func anInverseVideoSelectionKeepsTextReadable() {
+        let input = ThemeInput(background: background, foreground: foreground,
+                               selectionBackground: foreground, selectionForeground: background)
+        let tokens = ThemeTokens.derive(from: input)
+        #expect(WebTheme(tokens).variables["--cmux-text-selection"]?.contains("var(--cmux-accent") == true)
+        #expect(tokens.textPrimary.contrast(with: tokens.textSelection.composited(over: background)) >= ThemeTokens.minimumMarkContrast)
+    }
+
     @Test @MainActor func withoutOneSelectionKeepsTheAccentTint() {
         let variables = WebTheme(ThemeTokens.derive(from: ThemeInput(background: background, foreground: foreground))).variables
         #expect(variables["--cmux-text-selection"]?.contains("var(--cmux-accent") == true)
