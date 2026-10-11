@@ -1344,6 +1344,8 @@ export class AcpmuxDirectClient {
       if (event.kind === "forked") {
         this.forkedAtSeq = event.seq;
       } else if (event.kind === "user_message") {
+        // A prompt, or a steer (which starts no turn but splits it), starts a new checklist.
+        this.planRow = undefined;
         const promptId = typeof msg.promptId === "string" ? msg.promptId : undefined;
         const text = typeof msg.text === "string" ? msg.text : undefined;
         const fallbackPromptId =
@@ -1378,7 +1380,6 @@ export class AcpmuxDirectClient {
         this.turnOpen = true;
       } else if (event.kind === "turn_started") {
         this.turnOpen = true;
-        this.planRow = undefined;
         this.rows.set("typing", { id: "typing", version: 1, at: event.at, kind: "typing" });
       } else if (event.kind === "message_superseded") {
         const oldMessageId = typeof msg.oldMessageId === "string" ? msg.oldMessageId : undefined;
@@ -1503,6 +1504,12 @@ export class AcpmuxDirectClient {
     } else if (event.kind === "plan") {
       const plan = planEntries(update.entries);
       const existing = this.planRow ? this.rows.get(this.planRow) : undefined;
+      // A cleared list (TodoWrite with no todos, Codex's empty plan) takes the checklist away.
+      if (Array.isArray(update.entries) && plan.length === 0) {
+        if (existing) this.rows.delete(existing.id);
+        this.planRow = undefined;
+        return;
+      }
       const id = existing ? existing.id : `plan-${event.seq}`;
       this.planRow = id;
       this.rows.set(id, {

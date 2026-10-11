@@ -479,10 +479,11 @@ fn todo_plan(input: &Value) -> Option<Value> {
         .iter()
         .filter_map(|todo| {
             let content = todo.get("content").and_then(Value::as_str)?;
-            let status = match todo.get("status").and_then(Value::as_str) {
-                Some(status @ ("in_progress" | "completed")) => status,
-                _ => "pending",
-            };
+            let status = todo
+                .get("status")
+                .and_then(Value::as_str)
+                .filter(|status| matches!(*status, "in_progress" | "completed"))
+                .unwrap_or("pending");
             Some(json!({"content": content, "status": status, "priority": "medium"}))
         })
         .collect();

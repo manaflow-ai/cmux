@@ -10,7 +10,9 @@ export function PlanList({ entries }: { entries: readonly AcpmuxPlanEntry[] }) {
   const done = entries.filter((entry) => entry.status === "completed").length;
   return (
     <div className="cv-plan">
-      <div className="cv-plan__heading">{t("plan.progress", { done, total: entries.length })}</div>
+      <div className="cv-plan__heading">
+        {entries.length === 1 ? t("plan.progress.one", { done }) : t("plan.progress", { done, total: entries.length })}
+      </div>
       <ul className="cv-plan__items">
         {entries.map((entry, index) => (
           // Items have no ids, and a list only grows or changes status in place.

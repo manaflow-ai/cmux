@@ -1936,7 +1936,7 @@ pre.cv-math-source {
 .cv-plan__item[data-status="completed"] .cv-plan__mark {
   border-color: transparent;
   background: var(--cv-text-muted);
-  color: var(--agent-page-bg);
+  color: var(--agent-accent-text, #fff);
 }
 .cv-plan__item[data-status="in_progress"] {
   font-weight: 600;
