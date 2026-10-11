@@ -22,6 +22,20 @@ extension ScreenContentView {
     /// edge): strip rings and highlights are clipped out of these.
     var coverRects: [CGRect] { PaneArrival.covers(geometry, docks: growingDocks) }
 
+    /// What hides `host`'s ring and dim (local coordinates): the docked columns over a strip pane,
+    /// and any shown pane stacked above it that overlaps it mid-motion (an unzoom's pane springing
+    /// back over the panes it uncovers), so a ring never draws over the pane in front of it.
+    func ringCovers(of host: PaneHostView, docks: [CGRect]) -> [CGRect] {
+        var rects = isStripHost(host) ? docks : []
+        guard let index = subviews.firstIndex(of: host) else { return rects }
+        for case let above as PaneHostView in subviews[(index + 1)...] where !above.isHidden && above.alphaValue > 0.99 {
+            let body = above.convert(above.roundedRect, to: self)
+            let shared = body.intersection(host.frame)
+            if shared.width > 0.5 && shared.height > 0.5 { rects.append(body) }
+        }
+        return rects
+    }
+
     /// True when the scroll moves this divider or column edge.
     func scrolls(_ kind: DividerHandleView.Kind) -> Bool {
         switch kind {

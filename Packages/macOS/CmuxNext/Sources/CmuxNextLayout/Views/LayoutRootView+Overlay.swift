@@ -30,14 +30,14 @@ extension LayoutRootView {
         var shown: Set<ObjectIdentifier> = []
         for screen in screenViews.values where !screen.isHidden {
             let screenAlpha = screen.alphaValue
-            let covers = screen.coverRects.map { convert($0, from: screen) }
+            let docks = screen.coverRects
             for host in screen.displayedHosts {
                 let chrome = host.chrome
                 if chrome.superview !== plane { plane.addSubview(chrome, positioned: .below, relativeTo: highlight) }
                 let rect = convert(host.bounds, from: host)
                 if chrome.frame != rect { chrome.frame = rect }
-                // A strip pane's ring never draws over a docked column.
-                chrome.setExcluded(screen.isStripHost(host) ? covers.map { $0.offsetBy(dx: -rect.minX, dy: -rect.minY) } : [])
+                // A ring never draws over a docked column (strip panes) or a pane in front of it.
+                chrome.setExcluded(screen.ringCovers(of: host, docks: docks).map { convert($0, from: screen).offsetBy(dx: -rect.minX, dy: -rect.minY) })
                 let alpha = host.alphaValue * screenAlpha
                 if chrome.alphaValue != alpha { chrome.alphaValue = alpha }
                 if chrome.isHidden != host.isHidden { chrome.isHidden = host.isHidden }
