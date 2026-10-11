@@ -102,5 +102,5 @@ async fn copy(
     if let Some(name) = name {
         finish["name"] = json!(name);
     }
-    Ok(dst.request("_acpmux/transfer_finish", finish).await?)
+    dst.request("_acpmux/transfer_finish", finish).await
 }
