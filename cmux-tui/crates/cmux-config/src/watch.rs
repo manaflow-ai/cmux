@@ -44,7 +44,15 @@ impl Watcher {
     ) -> notify::Result<Watcher> {
         let (sender, receiver) = channel::<Message>();
         let stop = sender.clone();
-        let watcher = notify::recommended_watcher(move |event| {
+        let watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
+            // Linux inotify (notify 8) also reports opens and read-only closes. The
+            // reload this watch triggers opens the watched file, so passing those
+            // on would loop forever (one reload per open, ~40k/s), and an open of
+            // any file in a watched ancestor (every exec reads /etc/ld.so.cache)
+            // would wake this thread. Only changes are hints.
+            if event.as_ref().is_ok_and(|event| !is_change(&event.kind)) {
+                return;
+            }
             let _ = sender.send(Message::Event(event));
         })?;
         let inner: Shared = Arc::new(Mutex::new(Some(watcher)));
@@ -122,6 +130,17 @@ fn run(
         if relevant {
             on_hint();
         }
+    }
+}
+
+/// An event that can mean a file changed: everything but an open, a read or
+/// a read-only close (a close after a write is a change).
+fn is_change(kind: &notify::EventKind) -> bool {
+    use notify::event::{AccessKind, AccessMode, EventKind};
+    match kind {
+        EventKind::Access(AccessKind::Close(AccessMode::Write)) => true,
+        EventKind::Access(_) => false,
+        _ => true,
     }
 }
 
