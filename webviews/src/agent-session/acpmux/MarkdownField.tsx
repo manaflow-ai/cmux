@@ -1,5 +1,6 @@
 import React, { useCallback, useImperativeHandle, useLayoutEffect, useRef } from "react";
 import { COMPOSER_READY_EVENT } from "./composerFocus";
+import { activeFormats, applyFormat, type MarkdownFormat } from "./markdownFormat";
 import "./markdownField.css";
 import {
   Editor,
@@ -55,6 +56,10 @@ export type MarkdownFieldHandle = {
   /// `markdown` (the field's value) as the agent gets it: the characters the user typed, with
   /// markdown syntax only where the field formatted it (`**bold**`, a code span, a list).
   agentText(markdown: string): string;
+  /// Applies or removes a Markdown format at the selection (a surface's format toolbar).
+  format(format: MarkdownFormat, href?: string): void;
+  /// The formats active at the selection, for the toolbar's pressed states.
+  formats(): Set<MarkdownFormat>;
 };
 
 export type PlainPrompt = { value: string; selectionStart: number; selectionEnd: number };
@@ -458,6 +463,10 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
         },
         // Before the editor exists nothing was typed: the value is what came in.
         agentText: (markdown) => (remark.current ? typedText(remark.current, markdown) : markdown),
+        format: (format, href) => {
+          if (editor.current && view.current) applyFormat(editor.current, view.current, format, href);
+        },
+        formats: () => (view.current ? activeFormats(view.current.state) : new Set()),
       }),
     [],
   );
