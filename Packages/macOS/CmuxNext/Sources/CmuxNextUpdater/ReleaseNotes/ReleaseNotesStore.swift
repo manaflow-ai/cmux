@@ -67,11 +67,10 @@ nonisolated public struct ReleaseNotesStore: Sendable {
         return data
     }
 
-    /// The checked media of these notes (cx-urd.61.1), cached beside them and fetched with the
-    /// same fetcher; `bundledDirectories` hold the app's reviewed What's New media.
+    /// The checked media of these notes (cx-urd.61.1), cached beside them, fetched with a short
+    /// deadline; `bundledDirectories` hold the app's reviewed What's New media.
     public func media(bundledDirectories: [URL]) -> ReleaseMediaStore {
-        ReleaseMediaStore(cache: cache.appending(path: "media", directoryHint: .isDirectory),
-                          bundledDirectories: bundledDirectories, fetcher: fetcher)
+        ReleaseMediaStore(cache: cache.appending(path: "media", directoryHint: .isDirectory), bundledDirectories: bundledDirectories)
     }
 
     /// Build numbers only: never a path.
