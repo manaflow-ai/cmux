@@ -4,6 +4,53 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_errors! {
+    /// The error codes firewall.list declares.
+    FirewallListError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Comment on a GitHub issue or pull request as the cmux GitHub App installation.
+    GithubIssueCommentOp {
+        name: "github.issue.comment",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConnectionDO",
+        risk: "send-external",
+        principals: [Session, Install],
+        params: GithubIssueCommentParams,
+        result: Value,
+        error: GithubIssueCommentError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct GithubIssueCommentParams {
+    pub connection: ConnectionId,
+    pub repo: String,
+    pub issue: i64,
+    pub body: String,
+}
+
+wire_errors! {
+    /// The error codes github.issue.comment declares.
+    GithubIssueCommentError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        IntegrationUnavailable = "integration.unavailable",
+        MutationIndeterminate = "mutation.indeterminate",
+        PolicyDenied = "policy.denied",
+        ProviderError = "provider.error",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
 wire_op! {
     /// Search Home messages in conversations you are a current human participant of (newest first, with a short Top section).
     HomeSearchOp {
@@ -845,57 +892,4 @@ wire_errors! {
         RevisionConflict = "revision.conflict",
         ValidationInvalid = "validation.invalid",
     }
-}
-
-wire_op! {
-    /// Disconnect: deletes the stored provider credential at once and marks the connection revoked.
-    IntegrationRevokeOp {
-        name: "integration.revoke",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConnectionDO",
-        risk: "destructive",
-        principals: [Session],
-        params: IntegrationRevokeParams,
-        result: Connection,
-        error: IntegrationRevokeError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationRevokeParams {
-    pub connection: ConnectionId,
-}
-
-wire_errors! {
-    /// The error codes integration.revoke declares.
-    IntegrationRevokeError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Accept an invite from its link (/i/<code>#<secret>). The Worker turns the secret into the proof the owner checks; a group invite may wait for the inviter's approval.
-    InviteAcceptOp {
-        name: "invite.accept",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "mutate-own",
-        principals: [Session],
-        params: InviteAcceptParams,
-        result: HomeConversationCommit,
-        error: InviteAcceptError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct InviteAcceptParams {
-    pub code: String,
-    pub secret: String,
 }
