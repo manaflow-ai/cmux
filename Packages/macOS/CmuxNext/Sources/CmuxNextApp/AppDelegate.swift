@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextControl
@@ -237,7 +238,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let feed = services.chatsFeed { AgentPageChats.wire(services.agentTabs, to: feed, opener: services.chatsOpener) }
         AgentPageChats.wirePager(services.agentTabs, environment: QuitAgents.environment(services), opener: services.chatsOpener)
         NewTabClosed.wire(services.agentTabs, services: services)
-        services.agentTabs.harnessHealth = { [weak services] id in
+        AgentPaneHarnessHealth.provider = { [weak services] id in
             let rows = (try? await services?.agentHarnesses.health()) ?? []
             return rows.first { $0["id"]?.stringValue == id }?.foundationObject as? [String: Any]
         }
