@@ -124,14 +124,18 @@ struct AgentPaneRelayedAllowTests {
 
         // A ticket only for an option the prompt offers as an allow, of a prompt the pane saw.
         transport.gestures.record()
-        #expect(transport.reserveGesture(try #require(Self.intent(option: "no"))) == nil)
-        #expect(transport.reserveGesture(try #require(Self.intent(option: "yes", permission: "p-unseen"))) == nil)
-        let ticket = try #require(transport.reserveGesture(try #require(Self.intent(option: "yes"))))
+        let deny = try #require(Self.intent(option: "no"))
+        let unseen = try #require(Self.intent(option: "yes", permission: "p-unseen"))
+        let allow = try #require(Self.intent(option: "yes"))
+        #expect(transport.reserveGesture(deny) == nil)
+        #expect(transport.reserveGesture(unseen) == nil)
+        let ticket = try #require(transport.reserveGesture(allow))
         let error = await transport.send(connection: id, frames: [Self.allow(ticket: ticket)])
         #expect(error == nil, "\(String(describing: error))")
         _ = await inbox.frame(containing: "\"id\":7")
         let sent = try #require(server.peers.first?.frames.first { $0.contains("permission_respond") })
-        let params = try #require(((try JSONSerialization.jsonObject(with: Data(sent.utf8))) as? [String: Any])?["params"] as? [String: Any])
+        let object = try JSONSerialization.jsonObject(with: Data(sent.utf8)) as? [String: Any]
+        let params = try #require(object?["params"] as? [String: Any])
         #expect(params["optionId"] as? String == "yes")
         #expect(params["_meta"] == nil, "the ticket reached acpmux, or a proof went to the daemon's own prompt: \(sent)")
         #expect(!bannerShown)
@@ -160,11 +164,15 @@ struct AgentPaneRelayedAllowTests {
             _ = await inbox.frame(containing: "permission_pending")
 
             transport.gestures.record()
-            let ticket = withTicket ? try #require(transport.reserveGesture(try #require(Self.intent(option: "yes")))) : nil
+            let allow = try #require(Self.intent(option: "yes"))
+            let reserved = withTicket ? transport.reserveGesture(allow) : nil
+            if withTicket { #expect(reserved != nil, "no ticket for a seen prompt's allow option") }
+            let ticket = reserved
             let error = await transport.send(connection: id, frames: [Self.allow(ticket: ticket)])
             #expect(error == nil, "\(String(describing: error))")
             let sent = await wire.sent(containing: "permission_respond")
-            let params = try #require(((try JSONSerialization.jsonObject(with: Data(sent.utf8))) as? [String: Any])?["params"] as? [String: Any])
+            let object = try JSONSerialization.jsonObject(with: Data(sent.utf8)) as? [String: Any]
+            let params = try #require(object?["params"] as? [String: Any])
             let acpmux = (params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
             if withTicket {
                 #expect(acpmux?["decisionNonce"] as? String == Self.nonce)
