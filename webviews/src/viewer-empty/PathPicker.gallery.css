@@ -3,10 +3,10 @@
   background: var(--cmux-background, Canvas);
 }
 
-/* The dialog is portaled outside the fixture host. Keep the any-file gallery sheet at a fixed
-   size so its filtered list does not move the surrounding surface. The product sheet remains
-   content-sized because this stylesheet is gallery-only. */
-.ve-picker[data-mode="anyFile"] {
+/* The dialog is portaled outside the fixture host. Keep the gallery sheet at a fixed size so
+   changing folder levels does not move the query field or surrounding surface. The product
+   sheet remains content-sized because this stylesheet is gallery-only. */
+.ve-picker {
   height: min(480px, 78vh);
 }
 
