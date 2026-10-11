@@ -256,7 +256,7 @@ final class AgentTabStore {
         // when there is one: no cold load and React mount on the open path (cx-ec99).
         // (Its folder rides on the page context, `newTab.cwd`; a first page's seed holds only that.)
         if local, kind == .local, sessions[key] == nil, record.session == nil, let newTab = newTabPages[key],
-           let spare = takeSpare?() {
+           seed?.holdsOnlyFolder ?? true, let spare = takeSpare?() {
             standaloneViews.remove(spare)
             wire(spare.model, key: key)
             views[key] = spare

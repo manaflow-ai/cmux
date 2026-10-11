@@ -258,7 +258,9 @@ final class NewTabSparePool {
     private var warmedOnce = false
 
     private func armWarmTimer() {
-        if !warmedOnce {
+        // Only the launch warm is instant: a `take()` that found nothing (it set
+        // `usedThisSession`) must not make a web view in the person's keystroke.
+        if !warmedOnce, !usedThisSession {
             warmedOnce = true
             return warmNow()
         }
