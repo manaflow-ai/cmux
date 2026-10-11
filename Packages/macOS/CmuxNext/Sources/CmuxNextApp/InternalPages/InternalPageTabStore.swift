@@ -49,6 +49,11 @@ final class InternalPageTabStore {
     /// Store page tabs a live tree has listed; gone from it, they closed.
     @ObservationIgnored private var seenLive: Set<String> = []
 
+    /// Whether `daemon` keeps a page tab's route (`page-tab-route-v1`).
+    func keepsRoutes(_ daemon: DaemonService) -> Bool {
+        daemon.supports(DaemonCapabilities.shared.pageTabRoute)
+    }
+
     /// The `origin` of the app's `new-conversation-tab` requests for page tabs.
     static let createOrigin = "cmux-next-page-tab"
 

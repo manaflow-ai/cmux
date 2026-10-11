@@ -1,6 +1,5 @@
 import AppKit
 import CmuxNextBridge
-import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextPages
@@ -185,7 +184,7 @@ final class FilePageService: InternalPageProvider {
         tabs[key] = tab
         // A store tab only on this Mac's daemon that keeps the route: a file path of this Mac never
         // goes to another machine's daemon, and a tab without its route could not come back.
-        if let window, pane.daemon.isLocal, pane.daemon.supports(DaemonCapabilities.shared.pageTabRoute),
+        if let window, pane.daemon.isLocal, services.pages.keepsRoutes(pane.daemon),
            services.pages.openStoreTab(kind.page, in: pane, window: window, focus: focus, key: key) != nil {
             return key
         }
