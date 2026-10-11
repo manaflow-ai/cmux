@@ -170,12 +170,6 @@ class Client : public CefClient,
     return WebStoreRequestHandler(request->GetURL().ToString());
   }
 
-  // TEMP trace (cx-zjcq): CMUX_SHIM_TRACE_LOADS=1 logs main-frame load events.
-  static void TraceLoad(const char* what, int browser, int code, const std::string& url) {
-    static const bool on = getenv("CMUX_SHIM_TRACE_LOADS") != nullptr;
-    if (on) fprintf(stderr, "cmux-trace %s browser=%d code=%d url=%s\n", what, browser, code, url.c_str());
-  }
-
   // MARK: Certificate errors
 
   // The host shows its own certificate warning page: a main-frame
@@ -188,7 +182,6 @@ class Client : public CefClient,
                           CefRefPtr<CefSSLInfo>, CefRefPtr<CefCallback> callback) override {
     CefURLParts parts;
     const std::string host = CefParseURL(request_url, parts) ? CefString(&parts.host).ToString() : std::string();
-    TraceLoad("OnCertificateError", browser->GetIdentifier(), cert_error, request_url.ToString());
     switch (TakeCertificateProceed(browser->GetIdentifier(), host, cert_error)) {
       case CertificateProceed::kContinue:
         callback->Continue();
@@ -421,7 +414,6 @@ class Client : public CefClient,
 
   void OnLoadStart(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, TransitionType) override {
     if (frame->IsMain()) {
-      TraceLoad("OnLoadStart", browser->GetIdentifier(), 0, frame->GetURL().ToString());
       ForgetCertificateState(browser->GetIdentifier());
       Emit(CMUX_SHIM_LOAD_START, browser->GetIdentifier(), 0, 0, 0, frame->GetURL().ToString());
     }
@@ -429,7 +421,6 @@ class Client : public CefClient,
 
   void OnLoadEnd(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, int status) override {
     if (frame->IsMain()) {
-      TraceLoad("OnLoadEnd", browser->GetIdentifier(), status, frame->GetURL().ToString());
       Emit(CMUX_SHIM_LOAD_END, browser->GetIdentifier(), 0, status);
     }
   }
@@ -437,7 +428,6 @@ class Client : public CefClient,
   void OnLoadError(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, ErrorCode code,
                    const CefString& text, const CefString& url) override {
     if (frame->IsMain()) {
-      TraceLoad("OnLoadError", browser->GetIdentifier(), code, url.ToString());
       std::string error_text = text.ToString();
       bool chromium_interstitial = false;
       const int error = CertificateLoadError(browser->GetIdentifier(), code, &error_text, &chromium_interstitial);
