@@ -690,8 +690,24 @@ fn random_token() -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// The daemon lock, held while the daemon runs. Dropping it unlocks
+/// explicitly: a child forked but not yet exec'd shares the open file
+/// description, so closing this descriptor alone would leave the lock held
+/// after the daemon exits, and the next daemon would find it taken.
+#[cfg_attr(not(unix), allow(dead_code))]
+struct DaemonLock(std::fs::File);
+
 #[cfg(unix)]
-fn acquire_lock(path: &PathBuf) -> Result<std::fs::File> {
+impl Drop for DaemonLock {
+    fn drop(&mut self) {
+        use std::os::unix::io::AsRawFd;
+        // SAFETY: flock on the descriptor this guard owns.
+        unsafe { libc::flock(self.0.as_raw_fd(), libc::LOCK_UN) };
+    }
+}
+
+#[cfg(unix)]
+fn acquire_lock(path: &PathBuf) -> Result<DaemonLock> {
     use std::os::unix::io::AsRawFd;
     let file = std::fs::OpenOptions::new()
         .create(true)
@@ -703,11 +719,11 @@ fn acquire_lock(path: &PathBuf) -> Result<std::fs::File> {
     if rc != 0 {
         return Err(anyhow!("another acpmux daemon holds {}", path.display()));
     }
-    Ok(file)
+    Ok(DaemonLock(file))
 }
 /// Windows port: the daemon lock is `LockFileEx` there (a later landing).
 #[cfg(not(unix))]
-fn acquire_lock(_path: &PathBuf) -> Result<std::fs::File> {
+fn acquire_lock(_path: &PathBuf) -> Result<DaemonLock> {
     Err(crate::platform::unsupported("the acpmux daemon"))
 }
 
