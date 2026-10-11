@@ -352,6 +352,11 @@ async fn permission_prompt_survives_a_daemon_upgrade_restart_and_reaches_the_age
 
     daemon.start();
     daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    // The adopted prompt is pending again once the new run records its new
+    // nonce (`permission_reissued`); an answer before that finds no prompt.
+    daemon.wait_event(&session, "permission_reissued", |e| {
+        e["kind"] == "permission_reissued" && e["msg"]["permissionId"] == json!(permission_id)
+    });
     let mut rpc = daemon.rpc().await;
     // A deny: this plain socket client is not the person (`hub/person.rs`),
     // and the answer still reaches the adopted agent.
