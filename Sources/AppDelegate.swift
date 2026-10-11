@@ -14579,6 +14579,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 event,
                 preferredWindow: event.window ?? shortcutRoutingActiveWindow
             ) {
+#if DEBUG
+                if event.keyCode == 53 { cmuxDebugLog("appMonitor.escape consumedByRecorder type=\(event.type.rawValue)") }
+#endif
                 return nil
             }
             if event.type == .systemDefined {
@@ -14607,8 +14610,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 let shortcutTimingStart = CmuxTypingTiming.start()
 #endif
                 let shortcutStart = ProcessInfo.processInfo.systemUptime
-                let handledByShortcut = cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: self)
+                let handledByFindRoute = cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: self)
+                let handledByShortcut = handledByFindRoute
                     || self.handleCustomShortcut(event: event)
+#if DEBUG
+                if event.keyCode == 53 { cmuxDebugLog("appMonitor.escape findRoute=\(handledByFindRoute) handled=\(handledByShortcut)") }
+#endif
 #if DEBUG
                 shortcutMs = (ProcessInfo.processInfo.systemUptime - shortcutStart) * 1000.0
                 CmuxTypingTiming.logDuration(

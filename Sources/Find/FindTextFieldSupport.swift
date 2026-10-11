@@ -277,6 +277,11 @@ class FindSelectionTrackingTextField: NSTextField {
         guard cmuxKeyMonitor == nil else { return }
         cmuxKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             let eventWindow = event.window ?? (event.windowNumber > 0 ? NSApp.window(withWindowNumber: event.windowNumber) : nil)
+#if DEBUG
+            if cmuxFindEventIsPlainEscape(event) {
+                cmuxDebugLog("find.fieldMonitor.escape self=\(self != nil) sameWindow=\(eventWindow == nil || eventWindow === self?.window) editor=\(self?.currentEditor() != nil) frIsEditor=\(self.map { $0.window?.firstResponder === $0.currentEditor() } ?? false) onEscape=\(self?.cmuxOnEscape != nil)")
+            }
+#endif
             guard let self,
                   eventWindow == nil || eventWindow === self.window,
                   let editor = self.currentEditor() as? NSTextView,

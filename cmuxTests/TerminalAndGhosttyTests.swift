@@ -13,6 +13,7 @@ import WebKit
 import CMUXMobileCore
 import ObjectiveC.runtime
 import Bonsplit
+import CMUXDebugLog
 import UserNotifications
 
 #if canImport(cmux_DEV)
@@ -5759,9 +5760,19 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         }
 
         beforeEscape()
+        UserDefaults.standard.set(true, forKey: "cmuxShortcutMonitorTrace")
+        CMUXDebugLog.logDebugEvent("ESCLOG begin")
         NSApp.sendEvent(escapeKeyDown)
         NSApp.sendEvent(escapeKeyUp)
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        UserDefaults.standard.removeObject(forKey: "cmuxShortcutMonitorTrace")
+        if surface.searchState != nil {
+            CMUXDebugLog.DebugEventLog.shared.dump()
+            let lines = ((try? String(contentsOfFile: CMUXDebugLog.DebugEventLog.currentLogPath(), encoding: .utf8)) ?? "")
+                .split(separator: "\n")
+            let start = lines.lastIndex(where: { $0.contains("ESCLOG begin") }) ?? max(0, lines.count - 80)
+            for line in lines[start...].prefix(120) { print("ESCLOG \(line)") }
+        }
 
         XCTAssertNil(surface.searchState, "Escape should dismiss find overlay when search text is empty", file: file, line: line)
         XCTAssertEqual(
