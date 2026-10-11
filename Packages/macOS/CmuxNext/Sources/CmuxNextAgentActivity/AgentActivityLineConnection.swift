@@ -1,4 +1,4 @@
-import CmuxNextWakeups
+public import CmuxNextWakeups
 import Darwin
 public import Foundation
 import CmuxNextCompat
@@ -27,15 +27,16 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
     /// The longest one send may block on a peer that does not read.
     static let sendTimeout = timeval(tv_sec: 10, tv_usec: 0)
 
-    /// The uid the socket's server must run as before anything is sent
-    /// (nil: no check). The CUA helper's clients pass this user's uid, so an
-    /// impostor server never receives a token.
-    let expectedServerUID: uid_t?
+    /// Whether the socket's server, read on this connection, may get the
+    /// first frame (nil: no check). The CUA clients pass
+    /// ``CuaHelperIdentity/isHelperServer(_:)``: this user's process running
+    /// the Developer ID signed helper, so an impostor never receives a token.
+    let acceptsServer: (@Sendable (UnixSocketPeer) -> Bool)?
     let path: String
 
-    public init(path: String, expectedServerUID: uid_t? = nil) {
+    public init(path: String, acceptsServer: (@Sendable (UnixSocketPeer) -> Bool)? = nil) {
         self.path = path
-        self.expectedServerUID = expectedServerUID
+        self.acceptsServer = acceptsServer
     }
 
     public func start(send: Data, onLine: @escaping @Sendable (Data) -> Void, onClose: @escaping @Sendable () -> Void) {
@@ -46,7 +47,7 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
             descriptor = fd
             // An impostor server must not get the request (or its token): the
             // check is on this very connection, before its first byte.
-            if let expectedServerUID, Self.peerUID(fd) != expectedServerUID {
+            if let acceptsServer, !(UnixSocketPeer(descriptor: fd).map(acceptsServer) ?? false) {
                 return finish()
             }
             let reader = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
@@ -166,19 +167,12 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
         return fd
     }
 
-    /// The uid of the process at the other end of `fd` (LOCAL_PEERCRED).
-    static func peerUID(_ fd: Int32) -> uid_t? {
-        var credentials = xucred()
-        var length = socklen_t(MemoryLayout<xucred>.size)
-        guard getsockopt(fd, SOL_LOCAL, LOCAL_PEERCRED, &credentials, &length) == 0,
-              credentials.cr_version == XUCRED_VERSION else { return nil }
-        return credentials.cr_uid
-    }
 
     /// Sends one request line and returns the first reply line, or throws
     /// after `deadline`.
-    static func oneShot(path: String, send: Data, deadline: Duration, expectedServerUID: uid_t? = nil) async throws -> Data {
-        let connection = AgentActivityLineConnection(path: path, expectedServerUID: expectedServerUID)
+    static func oneShot(path: String, send: Data, deadline: Duration,
+                        acceptsServer: (@Sendable (UnixSocketPeer) -> Bool)? = nil) async throws -> Data {
+        let connection = AgentActivityLineConnection(path: path, acceptsServer: acceptsServer)
         let once = OnceBox()
         let timeout = DemandTimer(owner: "agent-activity.request-deadline")
         defer { timeout.cancel() }
