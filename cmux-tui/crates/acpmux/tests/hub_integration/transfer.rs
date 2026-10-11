@@ -12,7 +12,7 @@
 use super::*;
 
 /// The `text` of every record of `kind` in a session's log.
-async fn texts(c: &mut TestClient, id: &str, kind: &str) -> Vec<String> {
+pub(super) async fn texts(c: &mut TestClient, id: &str, kind: &str) -> Vec<String> {
     let page = c
         .request(method::MUX_EVENTS, json!({"sessionId": id, "afterSeq": 0, "limit": 5000}))
         .await
@@ -27,7 +27,12 @@ async fn texts(c: &mut TestClient, id: &str, kind: &str) -> Vec<String> {
 }
 
 /// Pages every file of the bundle `begin` describes from `src` into the target's `receive_id`.
-async fn copy_bundle(src: &mut TestClient, dst: &mut TestClient, begin: &Value, receive_id: &str) {
+pub(super) async fn copy_bundle(
+    src: &mut TestClient,
+    dst: &mut TestClient,
+    begin: &Value,
+    receive_id: &str,
+) {
     let transfer_id = begin["transferId"].as_str().unwrap();
     for file in begin["files"].as_array().unwrap() {
         let path = file["path"].as_str().unwrap();
