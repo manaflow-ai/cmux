@@ -95,6 +95,47 @@ extension AgentPaneView {
         String(localized: "agentPane.inspector.needsFocus", defaultValue: "Opening the ACP inspector requires focus.", bundle: .module)
     }
 
+    /// cx-0q7o: an allow went to an agent daemon on another machine that holds no key of this
+    /// app (it was started outside cmux), so it refuses the allow.
+    static func remoteApprovalsOffTitle(_ machine: String) -> String {
+        String(format: String(localized: "agentPane.remoteApprovals.off.title", defaultValue: "Remote approvals are off on %@",
+                              bundle: .module), machine)
+    }
+
+    static func remoteApprovalsOffDetail(_ machine: String) -> String {
+        String(format: String(localized: "agentPane.remoteApprovals.off.detail",
+                              defaultValue: "The agent daemon on %@ was started outside cmux, so cmux cannot prove that an approval comes from you. Restart it from cmux to approve here.",
+                              bundle: .module), machine)
+    }
+
+    static var remoteApprovalsRestart: String {
+        String(localized: "agentPane.remoteApprovals.restart", defaultValue: "Restart with approvals", bundle: .module)
+    }
+
+    /// The machine's name when the chat's route names none (a peer of this Mac's agent daemon).
+    static var remoteApprovalsThisMachine: String {
+        String(localized: "agentPane.remoteApprovals.thisMachine", defaultValue: "the other machine", bundle: .module)
+    }
+
+    static func remoteApprovalsRestartFailed(_ machine: String, _ failure: AgentPaneRemoteApprovals.Failure) -> String {
+        let reason: String
+        switch failure {
+        case .noRandomness:
+            reason = String(localized: "agentPane.remoteApprovals.failure.noRandomness", defaultValue: "this Mac could not make a key",
+                            bundle: .module)
+        case .daemonTookNoKey(let line):
+            reason = line ?? String(localized: "agentPane.remoteApprovals.failure.noKey",
+                                    defaultValue: "the new agent daemon did not take the key", bundle: .module)
+        case .keyNotHeld:
+            reason = String(localized: "agentPane.remoteApprovals.failure.notHeld",
+                            defaultValue: "the agent daemon that answers does not hold this app's key", bundle: .module)
+        case .failed(let message):
+            reason = message
+        }
+        return String(format: String(localized: "agentPane.remoteApprovals.restartFailed",
+                                     defaultValue: "Could not restart the agent daemon on %@: %@", bundle: .module), machine, reason)
+    }
+
     /// Shown when the pane runs on another cmux install's acpmux (NIGHTLY and Release share
     /// `~/.acpmux`): this app cannot allow that daemon's requests (cx-fcaq).
     static var otherInstallMessage: String {

@@ -87,6 +87,20 @@ extension AgentPaneTransport {
             frame.withLock { (($0["params"] as? [String: Any])?[key] as? String) }
         }
 
+        /// Adds the person's decision proof (`_meta.acpmux`) of a relayed allow.
+        func setDecision(nonce: String, proof: String) {
+            frame.withLock { object in
+                var params = object["params"] as? [String: Any] ?? [:]
+                var meta = params["_meta"] as? [String: Any] ?? [:]
+                var acpmux = meta["acpmux"] as? [String: Any] ?? [:]
+                acpmux["decisionNonce"] = nonce
+                acpmux["personDecision"] = proof
+                meta["acpmux"] = acpmux
+                params["_meta"] = meta
+                object["params"] = params
+            }
+        }
+
         /// Sets a string param of the frame.
         func setParam(_ key: String, _ value: String) {
             frame.withLock { object in
@@ -288,6 +302,11 @@ extension AgentPaneTransport {
             guard id == current, self.socket === socket else { return .stop(.staleConnection) }
             if !confirmed { return Self.refuse(.refuse(.harnessNotConfirmed, method: facts.method, requestID: facts.pageID), socket: socket) }
         }
+        // cx-0q7o: an allow for a prompt of another daemon run carries the person's decision
+        // proof, made here (the key never reaches the page), when this app holds that run's key.
+        if !facts.isFirst, facts.needsGesture, facts.method == "_acpmux/permission_respond" {
+            signRelayedAllow(box, sessionId: facts.sessionId)
+        }
         // The daemon sees only relay-owned ids; a page id is used by one request at a time.
         var relayID: Int?
         if let pageID = facts.pageID {
@@ -315,6 +334,23 @@ extension AgentPaneTransport {
             return .stop(error)
         }
         return .sent
+    }
+
+    /// The decision proof of an allow for a prompt of another daemon run (a peer of the local
+    /// daemon, or the acpmux of a chat on another machine), from the newest `permission_pending`
+    /// of that prompt. The daemon's own prompts need none (this connection is the person). A run
+    /// without a key of this app gets the allow unproved (it refuses it), and the pane says so.
+    private func signRelayedAllow(_ box: FrameBox, sessionId: String?) {
+        guard let session = sessionId, let permission = box.param("permissionId"), let option = box.param("optionId"),
+              let context = decisions.context(session: session, permission: permission),
+              context.instance != decisions.localInstance else { return }
+        guard let key = AcpmuxRemotePersonKeys.shared.key(instance: context.instance) else {
+            onRemoteApprovalsOff?(remoteApprovals)
+            return
+        }
+        let proof = key.decisionProof(instance: context.instance, session: session, permission: permission, option: option,
+                                      nonce: context.nonce)
+        box.setDecision(nonce: context.nonce, proof: proof)
     }
 
     /// Asks the user to confirm a mode that does not ask (the native sheet); false without one.
