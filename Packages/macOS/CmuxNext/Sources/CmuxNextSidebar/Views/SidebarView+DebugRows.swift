@@ -34,6 +34,15 @@ public struct SidebarDebugRow: Sendable {
     public var disclosureIcon: String? = nil
     public var disclosureFrame: CGRect? = nil
     public var disclosureShown: Bool = false
+
+    /// The row with what its view draws now: its fill and its disclosure.
+    func drawn(by view: SidebarRowView?) -> SidebarDebugRow {
+        var row = self
+        let disclosure = view?.debugDisclosure
+        row.fill = view?.debugFill == true
+        (row.disclosureIcon, row.disclosureFrame, row.disclosureShown) = (disclosure?.icon, disclosure?.frame, disclosure?.shown == true)
+        return row
+    }
 }
 
 /// One sidebar layout item (a top or bottom region row), for
@@ -121,13 +130,10 @@ extension SidebarView {
             let inWindow = list.convert(list.frame(for: row), to: nil)
             let height = window?.contentView?.bounds.height ?? 0
             let windowFrame = CGRect(x: inWindow.minX, y: height - inWindow.maxY, width: inWindow.width, height: inWindow.height)
-            let disclosure = view?.debugDisclosure
             return SidebarDebugRow(key: String(describing: row.key), title: title, frame: list.frame(for: row), windowFrame: windowFrame,
                                    viewFrame: view?.frame, viewAlpha: view?.alphaValue, inList: view?.superview === list,
                                    suppressed: list.suppressed.contains(row.key), selected: view?.isSelected == true, muted: muted,
-                                   activity: activity, icon: icon, shownFrame: view?.shownFrame, clips: view?.clipsToBounds == true, group: row.group?.rawValue,
-                                   fill: view?.debugFill == true, disclosureIcon: disclosure?.icon, disclosureFrame: disclosure?.frame,
-                                   disclosureShown: disclosure?.shown == true)
+                                   activity: activity, icon: icon, shownFrame: view?.shownFrame, clips: view?.clipsToBounds == true, group: row.group?.rawValue).drawn(by: view)
         }
         let selection = model.orderedSelection.map { model.workspace($0)?.title ?? $0.rawValue }
         let dragging = list.drag.map { drag in drag.hiddenKeys.map { String(describing: $0) } } ?? []
