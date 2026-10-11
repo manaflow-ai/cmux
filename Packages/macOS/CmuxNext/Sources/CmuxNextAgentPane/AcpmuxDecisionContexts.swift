@@ -1,5 +1,5 @@
 public import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// The decision nonce and daemon run of each prompt this pane was shown (acpmux
 /// `_acpmux/permission_pending`, cx-0q7o): what a relayed allow's proof covers. The newest one per

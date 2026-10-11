@@ -1,7 +1,7 @@
 public import Foundation
 import CommonCrypto
 import Security
-import Synchronization
+import CmuxNextCompat
 
 /// A person key this app made for an acpmux daemon on another machine (cx-0q7o slice 2c, acpmux
 /// `hub/person.rs`). The 32 bytes live in one buffer this object allocates, never in an array,
