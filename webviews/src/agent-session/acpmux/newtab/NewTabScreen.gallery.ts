@@ -293,7 +293,7 @@ export default agentPaneEntry({
       snapshot: noChat(manySessions(4)),
     },
     "switcher-off": {
-      note: "The template switcher is off by default until it is styled (cx-7qqu): no dots.",
+      note: "With Debug Settings newTab.templateSwitcher off (it is on by default, cx-l1jv): no dots.",
       ready: newTab(),
       snapshot: noChat(manySessions(4)),
       play: async (ctx) => {
@@ -303,12 +303,29 @@ export default agentPaneEntry({
       },
     },
     "switcher-on": {
-      note: "With Debug Settings newTab.templateSwitcher on, a dot switches the page in place (cx-7qqu).",
+      note: "The template dots, drawn like the space dots: a dot switches the page in place and the chip slides to it (cx-l1jv).",
       ready: newTab({ templateSwitcher: true }),
       snapshot: noChat(manySessions(6)),
       play: async (ctx) => {
         await ctx.click({ selector: '.nt-template-dot[data-template="threads"]' });
         await ctx.waitFor(() => ctx.document.querySelector('.nt-screen[data-template="threads"]'));
+      },
+    },
+    "switcher-keys": {
+      note: "The arrow keys switch templates from a focused dot and keep focus there; arrowing onto Terminal only focuses it (cx-l1jv).",
+      ready: newTab({ templateSwitcher: true }),
+      snapshot: noChat(manySessions(6)),
+      play: async (ctx) => {
+        await ctx.focus({ role: "radio", name: "Default" });
+        await ctx.press("ArrowRight");
+        await ctx.waitFor(() => ctx.document.querySelector('.nt-screen[data-template="composer"]'));
+        if (!ctx.document.activeElement?.matches(".nt-template-input"))
+          throw new Error("an arrow-key switch moved focus off the dots");
+        await ctx.press("ArrowLeft");
+        await ctx.press("ArrowLeft");
+        await ctx.waitFor(() => ctx.document.activeElement?.matches('.nt-template-input[value="terminal"]'));
+        if (!ctx.document.querySelector('.nt-screen[data-template="default"]'))
+          throw new Error("arrowing onto Terminal left the page");
       },
     },
   }),
