@@ -69,6 +69,11 @@ public struct ThemeTokens: Hashable, Sendable {
     /// Selected text in chrome text fields (the terminal's selection color
     /// when the config sets one).
     public var textSelection: ThemeRGB
+    /// The config's own selection color (`selection-background`); nil when it names none.
+    public var terminalSelection: ThemeRGB?
+    /// Text carets: the terminal's cursor color when the config names one, else the primary
+    /// text, at least 3:1 on the background.
+    public var caret: ThemeRGB
 
     // Status, from the ANSI palette
     /// Needs-attention marks (ANSI yellow).
@@ -189,6 +194,8 @@ public struct ThemeTokens: Hashable, Sendable {
             glassTint: bg.withAlpha(isDark ? 0.40 : 0.30),
             shadow: bg.mixed(toward: .black, 0.85),
             textSelection: input.selectionBackground ?? bg.mixed(toward: fg, 0.22),
+            terminalSelection: input.selectionBackground,
+            caret: input.cursor.map { readable($0, over: bg, minimum: minimumMarkContrast) } ?? primary,
             attention: status(3),
             danger: status(1),
             success: status(2),

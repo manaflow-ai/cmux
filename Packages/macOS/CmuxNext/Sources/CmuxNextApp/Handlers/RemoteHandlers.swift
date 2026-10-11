@@ -141,7 +141,7 @@ enum RemoteHandlers {
                     return
                 }
                 switch status {
-                case .connecting, .connected, .installing, .needsInstall, .unreachable, .failed: continue
+                case .connecting, .connected, .reconnecting, .installing, .needsInstall, .unreachable, .failed: continue
                 case .offline, .authFailed, .hostKeyUntrusted, .installFailed:
                     if status != .offline { CloudPresenter.show(RemoteStrings.connectFailedTitle(session.host.label),
                                                                  RemoteStrings.detail(session) ?? "", in: CloudHandlers.window(context)) }
