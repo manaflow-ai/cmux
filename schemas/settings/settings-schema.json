@@ -190,6 +190,7 @@
             "rows" : [
               "appearance.theme",
               "appearance.appTheme",
+              "appearance.themeEdits",
               "appearance.accent"
             ],
             "title" : {
@@ -5325,6 +5326,69 @@
         "text" : "App Theme"
       },
       "validation" : "domain:theme"
+    },
+    {
+      "accepts" : [
+        {
+
+        },
+        {
+          "*" : "★",
+          "Work" : ""
+        }
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : {
+
+      },
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.appTheme",
+        "text" : "App Theme"
+      },
+      "help" : {
+        "key" : "settings.appearance.themeEdits.help",
+        "text" : "Your color changes to a theme, such as \"Rose Pine/background\": \"#1f1d2e\". The theme itself never changes; remove an entry to reset that color."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.themeEdits",
+      "keywords" : [
+        "theme",
+        "custom",
+        "edit",
+        "color",
+        "colour",
+        "palette",
+        "background",
+        "foreground",
+        "cursor",
+        "selection"
+      ],
+      "kind" : "string_map",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "themeEdits"
+      ],
+      "refuses" : [
+        "★",
+        [
+
+        ],
+        {
+          "Work" : 1
+        }
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.themeEdits",
+        "text" : "Theme Edits"
+      },
+      "validation" : "portable"
     },
     {
       "accepts" : [
@@ -18155,7 +18219,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "24bf0b2aaa5e31e65753e54adcadcb2598dc59360ae05df5a7ac46fb37ee0fff",
+  "schema_hash" : "9aed2f352e032323ab99e56b7844eab6b2bc759f78be4190840ee26a36d99fe5",
   "sections" : [
     {
       "id" : "general",

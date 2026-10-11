@@ -554,6 +554,17 @@
       "title" : "Theme",
       "type" : "string"
     },
+    "appearance.themeEdits" : {
+      "default" : {
+
+      },
+      "description" : "Your color changes to a theme, such as \"Rose Pine/background\": \"#1f1d2e\". The theme itself never changes; remove an entry to reset that color.",
+      "properties" : {
+
+      },
+      "title" : "Theme Edits",
+      "type" : "object"
+    },
     "browser.customSearchEngine.search" : {
       "default" : "",
       "description" : "Used when Search Engine is Custom. Put {searchTerms} where the typed text goes.",

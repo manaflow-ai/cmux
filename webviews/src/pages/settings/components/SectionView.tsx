@@ -38,8 +38,11 @@ export function SectionView({ section, focus }: { section: string; focus: string
   const category = categoryById(section);
   // The theme studio draws appearance.theme and appearance.appTheme itself.
   const studio = category.lead.includes("themeStudio");
-  const drawn = new Set([THEME_KEY, APP_THEME_KEY, THEME_EDITS_KEY]);
-  const groups = category.groups.filter((group) => !(studio && group.rows.every((row) => drawn.has(row.key))));
+  const drawn = new Set([THEME_KEY, APP_THEME_KEY]);
+  // appearance.themeEdits is the pickers' "(custom)" themes, never a row of its own.
+  const groups = category.groups
+    .map((group) => ({ ...group, rows: group.rows.filter((row) => row.key !== THEME_EDITS_KEY) }))
+    .filter((group) => group.rows.length > 0 && !(studio && group.rows.every((row) => drawn.has(row.key))));
   return (
     <div className="section" data-section={category.id}>
       <h1 className="section-title">{text(category.title)}</h1>

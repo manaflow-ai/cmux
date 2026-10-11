@@ -23,7 +23,10 @@ export function themeEditKey(theme: string, token: ThemeEditToken): string {
 }
 
 /** `theme`'s edits, token to `#rrggbb`; bad entries are left out, as the app drops them. */
-export function editsFor(edits: ThemeEditMap | null | undefined, theme: string): Partial<Record<ThemeEditToken, string>> {
+export function editsFor(
+  edits: ThemeEditMap | null | undefined,
+  theme: string,
+): Partial<Record<ThemeEditToken, string>> {
   const found: Partial<Record<ThemeEditToken, string>> = {};
   if (!edits) return found;
   for (const [key, value] of Object.entries(edits)) {
