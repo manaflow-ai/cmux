@@ -2,16 +2,28 @@
 //! Reopen Closed and the daemon's L2 respawn of a terminal.
 //!
 //! One row per internal terminal id. It keeps what is needed to start the
-//! terminal again and nothing that can carry a credential:
+//! terminal again, minus what looks like a credential:
 //! - `cwd`: the launch directory, then each directory the shell reports with
 //!   OSC 7 after the daemon validated it (a `file://` URL on this host, see
 //!   `platform::terminal_pwd_to_local_path`). Only absolute paths are kept.
 //! - `kind`: `shell` or `command`. A shell keeps its path (from the user's
 //!   `SHELL` or the configured default, never from a later program); a
-//!   command keeps only its program basename. The full argv stays in daemon
-//!   memory. Shell-integration arguments and bundle paths are never stored:
-//!   they go stale with every app update, and the host derives integration
-//!   again from the current bundle when it starts the shell.
+//!   command keeps its program basename. Shell-integration arguments and
+//!   bundle paths are never stored: they go stale with every app update, and
+//!   the host derives integration again from the current bundle when it
+//!   starts the shell.
+//! - `argv_json`: a command's argv, so a respawn by a later daemon (after a
+//!   daemon crash, an update or a reboot) offers the command line like the
+//!   daemon that launched it did, instead of only naming the program. This
+//!   reverses the earlier rule that argv stayed in daemon memory only: losing
+//!   the command after every daemon restart left command tabs with nothing to
+//!   rerun. The risk that rule guarded against, argv carrying a credential, is
+//!   cut down by [`stored_argv`]: secret-named flags and their values,
+//!   `name=value` arguments with a secret name, known token prefixes and long
+//!   high-entropy values are dropped, and an argv over [`ARGV_CAP`] bytes is
+//!   not stored. The argv is only typed on the new prompt, never with a
+//!   newline, so it never runs on its own. It is not copied into the closed
+//!   history: reopen never runs a command again, so it has no use there.
 //! - `env`: values of the named keys in [`ENV_KEYS`] only, minus any key that
 //!   names a secret ([`names_secret`]).
 //! - `title`, `agent` (`{harness, session_id}`), `updated_at_ms`.
@@ -56,6 +68,15 @@ pub(crate) const ENV_KEYS: &[&str] = &[
 const SECRET_WORDS: &[&str] =
     &["TOKEN", "KEY", "SECRET", "PASSWORD", "AUTH", "COOKIE", "CREDENTIAL"];
 
+/// The largest argv (as JSON) a relaunch record stores; a longer one keeps
+/// only its program name.
+pub(crate) const ARGV_CAP: usize = 64 * 1024;
+
+/// Prefixes of well-known tokens (OpenAI and Anthropic `sk-`, GitHub,
+/// Slack `xox?-`). An argument or `name=value` value starting with one is
+/// never stored.
+const TOKEN_PREFIXES: &[&str] = &["sk-", "ghp_", "gho_", "ghs_", "ghu_", "github_pat_", "xox"];
+
 /// Shells whose argv may still be "the user's shell" with integration flags.
 const SHELLS: &[&str] = &["bash", "zsh", "fish", "nu", "elvish", "sh", "dash", "ksh", "tcsh"];
 
@@ -90,6 +111,8 @@ pub(crate) struct RelaunchRecord {
     pub kind: RelaunchKind,
     pub shell_path: Option<String>,
     pub program: Option<String>,
+    /// A command's argv without credential-like arguments ([`stored_argv`]).
+    pub argv: Option<Vec<String>>,
     pub env: Vec<(String, String)>,
 }
 
@@ -102,18 +125,82 @@ impl RelaunchRecord {
         default_shell: &str,
         env: &[(String, String)],
     ) -> Self {
-        let (kind, shell_path, program) = match argv {
-            None => (RelaunchKind::Shell, Some(default_shell.to_string()), None),
+        let (kind, shell_path, program, argv) = match argv {
+            None => (RelaunchKind::Shell, Some(default_shell.to_string()), None, None),
             Some(argv) if is_interactive_shell(argv) => {
-                (RelaunchKind::Shell, argv.first().cloned(), None)
+                (RelaunchKind::Shell, argv.first().cloned(), None, None)
             }
-            Some(argv) => (RelaunchKind::Command, None, argv.first().map(|arg| basename(arg))),
+            Some(argv) => (
+                RelaunchKind::Command,
+                None,
+                argv.first().map(|arg| basename(arg)),
+                stored_argv(argv),
+            ),
         };
         let mut env = env.iter().filter(|(key, _)| keeps_env_key(key)).cloned().collect::<Vec<_>>();
         env.sort();
         env.dedup_by(|later, earlier| later.0 == earlier.0);
-        Self { cwd: cwd.and_then(absolute), kind, shell_path, program, env }
+        Self { cwd: cwd.and_then(absolute), kind, shell_path, program, argv, env }
     }
+}
+
+/// `argv` as a relaunch record keeps it: without a flag whose name names a
+/// secret ([`names_secret`]: `--token`, `--password`, `--client-secret`,
+/// `--api-key`, ...) and the value after it, without a `name=value` argument
+/// whose name names one (`api_key=...`, `--token=...`), and without a value
+/// that looks like a token ([`looks_like_credential`]). None when nothing
+/// usable is left or the result is over [`ARGV_CAP`].
+pub(crate) fn stored_argv(argv: &[String]) -> Option<Vec<String>> {
+    let (program, arguments) = argv.split_first()?;
+    let mut kept = vec![program.clone()];
+    let mut arguments = arguments.iter().peekable();
+    while let Some(argument) = arguments.next() {
+        if let Some((name, value)) = argument.split_once('=') {
+            if names_secret(name.trim_start_matches('-')) || looks_like_credential(value) {
+                continue;
+            }
+        } else if argument.starts_with('-') && names_secret(argument.trim_start_matches('-')) {
+            arguments.next_if(|value| !value.starts_with('-'));
+            continue;
+        }
+        if looks_like_credential(argument) {
+            continue;
+        }
+        kept.push(argument.clone());
+    }
+    let size = serde_json::to_string(&kept).map_or(usize::MAX, |json| json.len());
+    (size <= ARGV_CAP).then_some(kept)
+}
+
+/// Whether `value` looks like a token: a known token prefix
+/// ([`TOKEN_PREFIXES`]), or over 32 characters of token alphabet
+/// (`A-Za-z0-9+/=_.-`) mixing upper case, lower case and digits with at
+/// least 4 bits of entropy per character. Paths, URLs and hex digests (no
+/// upper case) are kept.
+fn looks_like_credential(value: &str) -> bool {
+    if TOKEN_PREFIXES.iter().any(|prefix| value.starts_with(prefix)) {
+        return true;
+    }
+    if value.len() <= 32
+        || !value.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"+/=_.-".contains(&byte))
+        || !value.bytes().any(|byte| byte.is_ascii_uppercase())
+        || !value.bytes().any(|byte| byte.is_ascii_lowercase())
+        || !value.bytes().any(|byte| byte.is_ascii_digit())
+    {
+        return false;
+    }
+    let mut counts = [0usize; 256];
+    value.bytes().for_each(|byte| counts[usize::from(byte)] += 1);
+    let length = value.len() as f64;
+    let entropy: f64 = counts
+        .iter()
+        .filter(|&&count| count > 0)
+        .map(|&count| {
+            let share = count as f64 / length;
+            -share * share.log2()
+        })
+        .sum();
+    entropy >= 4.0
 }
 
 fn basename(path: &str) -> String {
@@ -169,6 +256,8 @@ pub(super) fn create_schema(transaction: &Transaction<'_>) -> anyhow::Result<()>
            SELECT terminal_id FROM terminal_hosts WHERE lifecycle = 'tombstoned'
          );",
     )?;
+    // Added after the table shipped: rows of an older daemon read no argv.
+    super::mutation_ledger::add_nullable_column(transaction, "terminal_relaunch", "argv_json")?;
     Ok(())
 }
 
@@ -187,8 +276,8 @@ impl WorkspaceRegistry {
         let env = record.env.iter().map(|(key, value)| (key.clone(), json!(value)));
         self.connection.get().execute(
             "INSERT INTO terminal_relaunch(
-               terminal_id, cwd, kind, shell_path, program, env_json, updated_at_ms
-             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)
+               terminal_id, cwd, kind, shell_path, program, env_json, updated_at_ms, argv_json
+             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
              ON CONFLICT(terminal_id) DO NOTHING",
             params![
                 terminal_id,
@@ -198,6 +287,7 @@ impl WorkspaceRegistry {
                 record.program,
                 Value::Object(env.collect::<Map<_, _>>()).to_string(),
                 now_ms()?,
+                record.argv.as_ref().map(|argv| json!(argv).to_string()),
             ],
         )?;
         Ok(())
@@ -226,6 +316,8 @@ pub(crate) struct StoredRelaunch {
     pub kind: RelaunchKind,
     pub shell_path: Option<String>,
     pub program: Option<String>,
+    /// A command's argv as stored, filtered again on read ([`stored_argv`]).
+    pub argv: Option<Vec<String>>,
     pub env: Vec<(String, String)>,
     /// `(harness, session_id)` of the agent the terminal last ran.
     pub agent: Option<(String, String)>,
@@ -248,7 +340,7 @@ impl WorkspaceRegistry {
             .connection
             .get()
             .query_row(
-                "SELECT cwd, kind, shell_path, program, env_json, agent_json
+                "SELECT cwd, kind, shell_path, program, env_json, agent_json, argv_json
                  FROM terminal_relaunch WHERE terminal_id = ?1",
                 [terminal_id],
                 |row| {
@@ -259,11 +351,14 @@ impl WorkspaceRegistry {
                         row.get::<_, Option<String>>(3)?,
                         row.get::<_, String>(4)?,
                         row.get::<_, Option<String>>(5)?,
+                        row.get::<_, Option<String>>(6)?,
                     ))
                 },
             )
             .optional()?;
-        let Some((cwd, kind, shell_path, program, env, agent)) = row else { return Ok(None) };
+        let Some((cwd, kind, shell_path, program, env, agent, argv)) = row else {
+            return Ok(None);
+        };
         let kind = if kind == "command" { RelaunchKind::Command } else { RelaunchKind::Shell };
         let env: Value = serde_json::from_str(&env).context("terminal_relaunch env is not JSON")?;
         let env = env
@@ -279,8 +374,12 @@ impl WorkspaceRegistry {
                 let session_id = agent["session_id"].as_str()?.to_string();
                 resumable_session_id(&session_id).then_some((harness, session_id))
             });
+        let argv = argv
+            .filter(|_| kind == RelaunchKind::Command)
+            .and_then(|argv| serde_json::from_str::<Vec<String>>(&argv).ok())
+            .and_then(|argv| stored_argv(&argv));
         let cwd = cwd.and_then(|cwd| absolute(&cwd));
-        Ok(Some(StoredRelaunch { cwd, kind, shell_path, program, env, agent }))
+        Ok(Some(StoredRelaunch { cwd, kind, shell_path, program, argv, env, agent }))
     }
 
     /// Record (`Some`) or forget (`None`) the agent session terminal
