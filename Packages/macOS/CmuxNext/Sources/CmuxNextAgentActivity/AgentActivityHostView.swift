@@ -8,6 +8,8 @@ public final class AgentActivityHostView: NSView {
     public let model: AgentActivityModel
     public let webView: WKWebView
     private let source: any AgentActivitySource
+    /// The theme payload the loaded page last got, so a repaint with the same colors is free.
+    private var appliedTheme: String?
 
     /// Makes an Activity web view for a model and its native data source.
     public init(model: AgentActivityModel, source: any AgentActivitySource) {
@@ -18,6 +20,13 @@ public final class AgentActivityHostView: NSView {
         let bridge = AgentActivityBridge(model: model, source: source)
         model.layout = AgentActivityTunables.layout.value
         configuration.userContentController.addScriptMessageHandler(bridge, contentWorld: .page, name: AgentActivityBridge.handlerName)
+        // The shared web theme (`window.cmuxTheme`, `--cmux-*`), as on every cmux page: the
+        // bootstrap, then the app's colors for the first frame; the view's scope follows on load.
+        configuration.userContentController.addUserScript(
+            WKUserScript(source: WebTheme.bootstrapScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        configuration.userContentController.addUserScript(
+            WKUserScript(source: Self.theme(.app).applyScript, injectionTime: .atDocumentStart,
+                         forMainFrameOnly: true))
         let webView = WKWebView(frame: .zero, configuration: configuration)
         self.webView = webView
         super.init(frame: .zero)
@@ -49,6 +58,31 @@ public final class AgentActivityHostView: NSView {
 
     public override func layout() { super.layout(); webView.frame = bounds }
 
+    public override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyTheme()
+    }
+
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyTheme()
+    }
+
+    /// Gives the page this view's scope colors when they changed; `reload` after a navigation,
+    /// whose new document has only the document-start colors.
+    fileprivate func applyTheme(reload: Bool = false) {
+        if reload { appliedTheme = nil }
+        let theme = Self.theme(themeScope)
+        guard theme.payloadJSON != appliedTheme else { return }
+        appliedTheme = theme.payloadJSON
+        webView.evaluateJavaScript(theme.applyScript, completionHandler: nil)
+    }
+
+    private static func theme(_ scope: ThemeScope) -> WebTheme {
+        WebTheme(scope.tokens, reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
+                 surface: .internalPage)
+    }
+
     private func pushState() {
         guard webView.url != nil else { return }
         let state = AgentActivityBridge.state(model)
@@ -64,6 +98,10 @@ private final class AgentActivityBridge: NSObject, WKScriptMessageHandlerWithRep
     let source: any AgentActivitySource
 
     init(model: AgentActivityModel, source: any AgentActivitySource) { self.model = model; self.source = source }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
+        view?.applyTheme(reload: true)
+    }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) async -> (Any?, String?) {
         guard let body = message.body as? [String: Any], let method = body["method"] as? String else {
