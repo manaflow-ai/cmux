@@ -214,6 +214,38 @@ struct AgentNotificationReconcilerTests {
         )
     }
 
+    @Test func freshEventsFromRetiredSurfaceCannotMoveSessionBack() throws {
+        var reconciler = AgentNotificationReconciler()
+        let origin = UUID().uuidString
+        let destination = UUID().uuidString
+        _ = reconciler.apply(
+            event(1, .errorReported, source: "claude", session: "moved", surfaceID: origin)
+        )
+        let moved = reconciler.apply(
+            event(2, .messagePublished, source: "claude", session: "moved", request: "move",
+                  surfaceID: destination)
+        )
+        #expect(moved.disposition == .accepted)
+
+        let late = reconciler.apply(
+            event(3, .errorReported, source: "claude", session: "moved", occurredAt: 3,
+                  surfaceID: origin)
+        )
+        #expect(late.disposition == .stale)
+        #expect(late.invalidatedCorrelationKeys.isEmpty)
+
+        let moveBack = reconciler.apply(
+            event(4, .sessionStarted, source: "claude", session: "moved", notify: false,
+                  surfaceID: origin)
+        )
+        #expect(moveBack.disposition == .observation)
+        #expect(
+            reconciler.apply(
+                event(5, .errorReported, source: "claude", session: "moved", surfaceID: origin)
+            ).disposition == .accepted
+        )
+    }
+
     @Test func idleObservedMoveReturnsOriginInvalidation() throws {
         var reconciler = AgentNotificationReconciler()
         let origin = UUID().uuidString

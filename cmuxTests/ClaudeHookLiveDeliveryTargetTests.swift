@@ -427,6 +427,53 @@ struct ClaudeHookLiveDeliveryTargetTests {
         )
     }
 
+    /// A nested SessionStart may move an agent away from a parent-owned pane.
+    /// Suppression must cover cleanup of the previous pane as well as the new
+    /// pane, so a child recovery cannot clear the parent's visible state.
+    @Test func suppressedSessionMoveDoesNotClearPreviousPane() throws {
+        let context = try Harness.makeContext(name: "suppressed-session-move")
+        defer { context.cleanup() }
+        let sessionId = "suppressed-session-move-id"
+
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [Self.liveWorkspaceId: [Self.liveSurfaceId, Self.otherSurfaceId]],
+            pidTarget: nil
+        )
+
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "1"
+        assertSuccessfulHook(Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        ))
+
+        let commandCountBeforeMove = context.state.snapshot().count
+        environment["CMUX_SURFACE_ID"] = Self.otherSurfaceId
+        assertSuccessfulHook(Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        ))
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+
+        let moveCommands = Array(context.state.snapshot().dropFirst(commandCountBeforeMove))
+        #expect(
+            !moveCommands.contains { command in
+                command.contains("clear_notifications --tab=\(Self.liveWorkspaceId) --panel=\(Self.liveSurfaceId)")
+                    || (command.contains("set_status claude_code Idle")
+                        && command.contains("--tab=\(Self.liveWorkspaceId)")
+                        && command.contains("--panel=\(Self.liveSurfaceId)"))
+            },
+            "A suppressed recovery must not mutate the previous parent pane; saw \(moveCommands)"
+        )
+    }
+
     /// A SessionStart without pid, explicit surface, caller tty, or an existing
     /// session record has no proof of ownership. The workspace's focused pane is
     /// only a UI fallback and must never receive another process's identity.
