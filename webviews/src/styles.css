@@ -25,12 +25,14 @@
 
 :root {
   color-scheme: light dark;
-  --cmux-diff-bg-light: #fff;
-  --cmux-diff-bg-dark: #000;
-  --cmux-diff-fg-light: #000;
-  --cmux-diff-fg-dark: #fff;
-  --cmux-diff-selection-bg-light: #abd8ff;
-  --cmux-diff-selection-bg-dark: #3f638b;
+  /* Until applyDiffViewerAppearance sets them from the terminal theme: the page theme's
+     (WebTheme.swift), else black and white. */
+  --cmux-diff-bg-light: var(--cmux-app-content, #fff);
+  --cmux-diff-bg-dark: var(--cmux-app-content, #000);
+  --cmux-diff-fg-light: var(--cmux-app-text, #000);
+  --cmux-diff-fg-dark: var(--cmux-app-text, #fff);
+  --cmux-diff-selection-bg-light: var(--cmux-text-selection, #abd8ff);
+  --cmux-diff-selection-bg-dark: var(--cmux-text-selection, #3f638b);
   --cmux-diff-ui-font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
   /* 13 px UI text, the classic viewer's size (its 2x screenshots). */
   --cmux-diff-ui-font-size: 13px;
@@ -526,7 +528,7 @@ body {
   text-align: center;
 }
 .base-picker-status-error {
-  color: color-mix(in lab, #ff5f56 70%, var(--cmux-diff-fg));
+  color: var(--cmux-diff-deletion-fg);
 }
 .base-picker-group-header {
   padding: 8px 8px 4px;
@@ -1210,7 +1212,7 @@ body[data-loading="true"] #status::before {
   animation: cmuxDiffPendingSpin 800ms linear infinite;
 }
 #status[data-error="true"] {
-  color: light-dark(#b42318, #ff8a80);
+  color: var(--cmux-diff-deletion-fg);
 }
 @keyframes cmuxDiffPendingSpin {
   to { transform: rotate(360deg); }
@@ -1307,9 +1309,10 @@ body[data-loading="true"] #status::before {
   max-width: 680px;
   border: 1px solid var(--cmux-diff-border);
   border-radius: 10px;
+  /* A step toward the text color: lighter on a dark theme, a faint gray on a light one. */
   background: light-dark(
-    color-mix(in lab, var(--cmux-diff-bg) 92%, #fff),
-    color-mix(in lab, var(--cmux-diff-bg) 90%, #fff)
+    color-mix(in lab, var(--cmux-diff-bg) 97%, var(--cmux-diff-fg)),
+    color-mix(in lab, var(--cmux-diff-bg) 90%, var(--cmux-diff-fg))
   );
   box-shadow: 0 1px 2px color-mix(in lab, #000 10%, transparent), 0 2px 8px color-mix(in lab, #000 6%, transparent);
   color: var(--cmux-diff-fg);
@@ -2144,20 +2147,37 @@ svg[data-icon-fill] {
     transition: none;
   }
 }
-/* Language icon hues, matching the @pierre/trees built-in icon colors so a
-   file looks the same in its header and in the files tree. */
-.cmux-file-icon[data-icon-hue="gray"] { color: light-dark(#84848a, #adadb1); }
-.cmux-file-icon[data-icon-hue="red"] { color: light-dark(#d52c36, #ff6762); }
-.cmux-file-icon[data-icon-hue="orange"] { color: light-dark(#d47628, #ffa359); }
-.cmux-file-icon[data-icon-hue="yellow"] { color: light-dark(#d5a910, #ffd452); }
-.cmux-file-icon[data-icon-hue="green"] { color: light-dark(#199f43, #5ecc71); }
-.cmux-file-icon[data-icon-hue="teal"] { color: light-dark(#17a5af, #64d1db); }
-.cmux-file-icon[data-icon-hue="cyan"] { color: light-dark(#1ca1c7, #68cdf2); }
-.cmux-file-icon[data-icon-hue="blue"] { color: light-dark(#1a85d4, #69b1ff); }
-.cmux-file-icon[data-icon-hue="indigo"] { color: light-dark(#693acf, #9d6afb); }
-.cmux-file-icon[data-icon-hue="purple"] { color: light-dark(#a631be, #d568ea); }
-.cmux-file-icon[data-icon-hue="pink"] { color: light-dark(#d32a61, #ff678d); }
-.cmux-file-icon[data-icon-hue="mauve"] { color: light-dark(#594c5b, #79697b); }
+/* Language icon hues, from the terminal theme's ANSI palette like code colors (syntax-theme.ts:
+   each hue takes the nearest slot's code role, at least 3:1 on the background); a hue between two
+   slots mixes them. fileTreeUnsafeCSS points the files tree's icon hues here, so a file looks the
+   same in its header and in the tree. */
+:root {
+  --cmux-file-icon-gray: light-dark(var(--cmux-syntax-light-comment), var(--cmux-syntax-dark-comment));
+  --cmux-file-icon-red: light-dark(var(--cmux-syntax-light-tag), var(--cmux-syntax-dark-tag));
+  --cmux-file-icon-yellow: light-dark(var(--cmux-syntax-light-constant), var(--cmux-syntax-dark-constant));
+  --cmux-file-icon-green: light-dark(var(--cmux-syntax-light-string), var(--cmux-syntax-dark-string));
+  --cmux-file-icon-cyan: light-dark(var(--cmux-syntax-light-type), var(--cmux-syntax-dark-type));
+  --cmux-file-icon-blue: light-dark(var(--cmux-syntax-light-function), var(--cmux-syntax-dark-function));
+  --cmux-file-icon-purple: light-dark(var(--cmux-syntax-light-keyword), var(--cmux-syntax-dark-keyword));
+  --cmux-file-icon-vermilion: var(--cmux-file-icon-red);
+  --cmux-file-icon-orange: color-mix(in oklab, var(--cmux-file-icon-red), var(--cmux-file-icon-yellow));
+  --cmux-file-icon-teal: color-mix(in oklab, var(--cmux-file-icon-cyan) 70%, var(--cmux-file-icon-green));
+  --cmux-file-icon-indigo: color-mix(in oklab, var(--cmux-file-icon-blue), var(--cmux-file-icon-purple));
+  --cmux-file-icon-pink: color-mix(in oklab, var(--cmux-file-icon-purple), var(--cmux-file-icon-red));
+  --cmux-file-icon-mauve: color-mix(in oklab, var(--cmux-file-icon-purple), var(--cmux-file-icon-gray));
+}
+.cmux-file-icon[data-icon-hue="gray"] { color: var(--cmux-file-icon-gray); }
+.cmux-file-icon[data-icon-hue="red"] { color: var(--cmux-file-icon-red); }
+.cmux-file-icon[data-icon-hue="orange"] { color: var(--cmux-file-icon-orange); }
+.cmux-file-icon[data-icon-hue="yellow"] { color: var(--cmux-file-icon-yellow); }
+.cmux-file-icon[data-icon-hue="green"] { color: var(--cmux-file-icon-green); }
+.cmux-file-icon[data-icon-hue="teal"] { color: var(--cmux-file-icon-teal); }
+.cmux-file-icon[data-icon-hue="cyan"] { color: var(--cmux-file-icon-cyan); }
+.cmux-file-icon[data-icon-hue="blue"] { color: var(--cmux-file-icon-blue); }
+.cmux-file-icon[data-icon-hue="indigo"] { color: var(--cmux-file-icon-indigo); }
+.cmux-file-icon[data-icon-hue="purple"] { color: var(--cmux-file-icon-purple); }
+.cmux-file-icon[data-icon-hue="pink"] { color: var(--cmux-file-icon-pink); }
+.cmux-file-icon[data-icon-hue="mauve"] { color: var(--cmux-file-icon-mauve); }
 
 /* R139 desktop feel for the chrome this file restyles (the toolbar and its
    pill, the files sidebar, the file bars, the file menu): not selectable, an
