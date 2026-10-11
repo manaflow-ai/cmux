@@ -103,6 +103,14 @@ nonisolated enum NotificationSettingsSchema {
                 default: .string(defaults.feedMirror.terminal.rawValue), keywords: ["cloud", "iphone", "push", "osc"]
             ),
             SettingDescriptor(
+                ["feed", "agentPermissionPrompts"], section: .notifications, group: feed,
+                title: SettingsText.keyed("settings.feed.agentPermissionPrompts", "Send Agent Permission Requests to the Feed"),
+                help: SettingsText.keyed("settings.feed.agentPermissionPrompts.help",
+                                        "Each request's tool and command summary goes to your own cmux feed, so your iPhone can answer it."),
+                kind: .toggle, default: .bool(defaults.feedMirror.agentPermissionPrompts),
+                keywords: ["cloud", "iphone", "push", "approve", "allow"]
+            ),
+            SettingDescriptor(
                 ["notifications", "attention", "style"], section: .notifications, group: ring,
                 title: SettingsText.keyed("settings.attention.style", "Style"),
                 kind: .choice([

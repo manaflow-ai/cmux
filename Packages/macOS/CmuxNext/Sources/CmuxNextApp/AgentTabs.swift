@@ -354,7 +354,10 @@ final class AgentTabStore {
         DebugTimings.markLaunch("agent_pane.view_created")
         view.customization = customization.current
         view.shortcuts = shortcuts
-        pageSettings.apply(to: NewTabOmnibar.installed(on: view))
+        pageSettings.apply(to: view)
+        // A New Tab page draws its own first frame: no native loading mark (Lawrence 2026-10-10,
+        // React-only New Tab). Chat panes keep it.
+        if model.newTab != nil { view.showsLoadingState = false }
         pageChats.seed(view)
         model.onShowContextUsage = { [weak pageSettings] show in try await pageSettings?.setShowContextUsage(show) }
         customization.start()
