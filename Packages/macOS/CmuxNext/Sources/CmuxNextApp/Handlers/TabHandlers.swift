@@ -65,15 +65,18 @@ enum TabHandlers {
                 pane.newTerminalTab(cwd: pane.tab(id)?.cwd)
             }
         })
-        let history = ClosedTabTracker(services: ctx.services)
-        ctx.services.closedTabs = history
+        ctx.services.closedTabs = ClosedTabsFeed(services: ctx.services)
+        // Cmd-Shift-T (reopen-closed.md 4): the newest closed group of the key window at any
+        // level, from the daemon's closed history (the only one); then a window the user closed.
         registry.bind("reopenClosedBrowserPanel", invoke: { _ in
-            // The daemon's history first; the app's tracker covers daemons without it.
-            if let entry = DaemonClosedHistory.entries([.tab], in: ctx.services).first {
+            guard DaemonClosedHistory.isServed(in: ctx.services) else {
+                return ctx.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.shared.stateResources))
+            }
+            if let entry = DaemonClosedHistory.newest(for: ctx.services.windows.active?.state.id, in: ctx.services) {
                 return DaemonClosedHistory.reopen(entry, services: ctx.services)
             }
-            guard let record = history.popLast() ?? ctx.refuseQuietly(RefusalStrings.noRecentlyClosedTab) else { return }
-            history.reopen(record, fallback: ctx.services.windows.active?.focusedPane)
+            if ctx.services.windows.reopenClosedWindow() { return }
+            ctx.refuseQuietly(RefusalStrings.noRecentlyClosedTab)
         })
     }
 
