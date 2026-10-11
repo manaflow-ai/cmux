@@ -133,12 +133,31 @@ extension PaneContentView {
     }
 
     /// `incoming` stays invisible until it paints; `outgoing` stays shown until then.
+    /// A strip that hides with this swap (the tab over a lone chat closed)
+    /// stays, and `outgoing` keeps its place under it: the pane changes in
+    /// one frame, when the swap shows (cx-f6i7).
     func beginPaintHold(outgoing: NSView, incoming: NSView) {
+        if hidesStrip, !stripView.isHidden, !isBandActive, outgoing.frame.height > 0 {
+            holdKeepsStrip = true
+            // The host is not flipped: a fixed height on the strip's far side.
+            outgoing.autoresizingMask = barPosition == .top ? [.width, .maxYMargin] : [.width, .minYMargin]
+        }
         paintHold.begin(outgoing: outgoing, incoming: incoming, in: contentHost) { [weak self] outgoing in
-            guard let self, outgoing.superview === contentHost, outgoing !== content else { return }
+            guard let self else { return }
+            if holdKeepsStrip {
+                holdKeepsStrip = false
+                stripView.isHidden = hidesStrip
+                needsLayout = true
+            }
+            guard outgoing.superview === contentHost, outgoing !== content else { return }
             retire(outgoing)
             (outgoing as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
         }
+    }
+
+    /// The strip's height while a hold keeps it after it hid.
+    var keptStripHeight: CGFloat {
+        PaneChromeMetrics.current.resolvedStripHeight(scale: window?.backingScaleFactor ?? 2)
     }
 
     /// Ends the hold: the outgoing view goes and the incoming one shows, in one frame.
