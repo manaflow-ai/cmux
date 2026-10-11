@@ -419,12 +419,12 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
         overlayLayer.interactiveRects + (WindowOverlayHost.existingHost(for: self)?.occluderRects ?? [])
     }
 
+    /// Nested `endEditing(for:)` calls, and whether a responder change waits for them to end (ShellWindow+Events.swift).
+    var editTeardown = (depth: 0, pending: false)
+
     override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
         let accepted = super.makeFirstResponder(responder)
-        if accepted { cursorRectHold?.firstResponderDidChange(in: self) }
-        if accepted, let controller = windowController as? WindowController {
-            controller.focus.responderDidChange(FocusResponderClassifier.classify(firstResponder, in: controller), source: .current)
-        }
+        if accepted { cursorRectHold?.firstResponderDidChange(in: self); reportResponder() }
         return accepted
     }
 }

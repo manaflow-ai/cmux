@@ -113,6 +113,7 @@ public final class TabStripView: NSView {
     var drag: TabStripDrag?
     /// Order shown after a local reorder until the model's order changes.
     var orderOverride: [TabID]?
+    let reorderSettle = DemandTimer(owner: "TabStrip.reorderSettle")  // ends a reorder the model never shows
     /// Tab torn out of this strip and handed to the App's drag session. Its
     /// slot stays collapsed until the model drops it or the App restores it.
     var detachedID: TabID?
