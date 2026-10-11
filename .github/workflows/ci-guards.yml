@@ -763,6 +763,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_r2_cache_prune.py
 
+      - name: Validate the R2 binaries pruner
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_binaries_prune.py
+
       - name: Validate the Actions artifact pruner
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_actions_artifact_prune.py
