@@ -4,6 +4,7 @@
 
 use std::time::{Duration, Instant};
 
+use super::super::origin_gate::{set_role_for_test, set_verified_app_for_test};
 use super::super::tests::captured_writer;
 use super::super::*;
 use crate::cloud_conversations::testing::{FakeBackend, wait_until};
@@ -143,6 +144,9 @@ fn every_command_requires_a_trusted_local_connection() {
 #[test]
 fn op_forwards_the_key_and_returns_the_owner_result() {
     let (mux, client, backend) = cloud_mux();
+    // `origin: "user"` is the verified cmux app's (cloud-lease-app-only-v1).
+    set_role_for_test(&mux, client, "main");
+    set_verified_app_for_test(&mux, client, true);
     sign_in(&mux, client);
     backend.reply("/v1/ops", 200, json!({"ok":true,"op":"dm.open",
         "value":{"conversation":{"id":"conv_dm_0123456789ABCDEFGHJKMNPQRS","owner":"cloud"}},"revision":"1",
