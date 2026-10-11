@@ -56,7 +56,7 @@ extension CMUXCLI {
     /// PID-only diagnostics describe the hook's dispatch context, not a
     /// replacement executable. Preserve an existing binding in that case, but
     /// never synthesize a bare `omp` command from the missing capture.
-    private func ompLaunchCaptureIsUnavailable(
+    func ompLaunchCaptureIsUnavailable(
         _ launchCommand: AgentHookLaunchCommandRecord?
     ) -> Bool {
         guard let launchCommand,
