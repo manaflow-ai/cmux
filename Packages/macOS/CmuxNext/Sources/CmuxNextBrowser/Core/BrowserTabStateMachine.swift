@@ -108,7 +108,9 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
         case .failed(let id, let error):
             guard id == state.activeNavigation else { return }
             if error.isBenignInterruption {
-                endWithoutError()
+                // Only a cancelled retry of the failed address shows its error
+                // again; a cancelled load replaced by another does not.
+                endWithoutError(restoresError: error.failingURL == errorBeforeStart?.failingURL)
             } else {
                 state.phase = .failed(error)
                 state.progress = 0
@@ -117,7 +119,7 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
 
         case .stopped:
             guard state.isLoading else { return }
-            endWithoutError()
+            endWithoutError(restoresError: true)
 
         case .progress(let value):
             guard state.isLoading else { return }
@@ -185,10 +187,11 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
         }
     }
 
-    private mutating func endWithoutError() {
+    private mutating func endWithoutError(restoresError: Bool) {
         if state.phase == .provisional {
             state.url = committedURL
-            state.phase = errorBeforeStart.map { .failed($0) } ?? (committedURL == nil ? .idle : .finished)
+            let restored = restoresError ? errorBeforeStart : nil
+            state.phase = restored.map { .failed($0) } ?? (committedURL == nil ? .idle : .finished)
         } else {
             state.phase = .finished
         }

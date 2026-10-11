@@ -5,6 +5,8 @@
 enum CEFEventTrace {
     private static var events: [Int32: [String]] = [:]
     private static let limit = 16
+    /// Browsers kept; identifiers only grow, so the oldest go first.
+    private static let browsers = 32
 
     static func record(_ browser: Int32, _ event: CEFShimEvent) {
         let line: String? = switch event {
@@ -16,6 +18,7 @@ enum CEFEventTrace {
         default: nil
         }
         guard let line else { return }
+        if events[browser] == nil, events.count >= browsers, let oldest = events.keys.min() { events[oldest] = nil }
         events[browser, default: []].append(line)
         if let count = events[browser]?.count, count > limit { events[browser]?.removeFirst(count - limit) }
     }
