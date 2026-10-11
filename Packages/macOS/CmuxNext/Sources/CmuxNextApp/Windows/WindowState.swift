@@ -76,8 +76,9 @@ final class WindowState {
     /// The focused pane last written to this window's record (or restored
     /// from it), so a focus change saves the record once.
     var savedFocusedPane: String?
-    /// The window was saved in full screen: it enters full screen once it
-    /// is on screen after a relaunch, then this clears.
+    /// The window was saved in full screen and has not entered it again
+    /// since the relaunch (`WindowManager.enterRestoredFullScreens`). Saves
+    /// keep `full_screen` while it is set.
     var restoresFullScreen = false
 
     init(id: String = UUID().uuidString.lowercased(), workspaceID: String? = nil, machineID: String? = nil) {

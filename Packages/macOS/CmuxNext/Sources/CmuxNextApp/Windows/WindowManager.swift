@@ -72,6 +72,10 @@ final class WindowManager {
     private(set) var isTerminating = false
     /// False in tests: windows are created but never ordered on screen.
     var ordersWindowsIn = true
+    /// Restore finished: windows saved in full screen may enter it.
+    var fullScreenRestoreReady = false
+    /// A restored window is entering full screen (one at a time).
+    var fullScreenRestoreRunning = false
     var onFirstWindow: ((WindowController) -> Void)?
     /// A window installed workspace content (links opened at launch wait for it).
     var onContentDidAppear: ((WindowController) -> Void)?
@@ -214,6 +218,8 @@ final class WindowManager {
         observeMembership()
         sessionRegistrar.start()
         registry.isLaunching = false
+        fullScreenRestoreReady = true
+        enterRestoredFullScreens()
         FirstWorkspaceLaunch(manager: self).land(firstWorkspace) // its New Tab page, not Home
     }
 
@@ -235,7 +241,6 @@ final class WindowManager {
         if services.environment.testWindow == nil, let frame = restored.window(front)?.frame {
             launch.window?.setFrame(WindowPlacementFallback.visible(frame, display: restored.window(front)?.display), display: true)
         }
-        enterRestoredFullScreen(launch)
         return launch
     }
 
@@ -303,19 +308,7 @@ final class WindowManager {
         let behind = behindWindows.remove(controller.state.id) != nil
         if ordersWindowsIn, let window = controller.window { WindowActivation.show(window, behind ? .presentBehind : .present) }
         onPresent?(controller)
-        enterRestoredFullScreen(controller)
-    }
-
-    /// A window saved in full screen enters it again, once, after it is on
-    /// screen (next run loop turn: AppKit ignores the toggle before that).
-    /// Test windows never do.
-    private func enterRestoredFullScreen(_ controller: WindowController) {
-        guard controller.state.restoresFullScreen, ordersWindowsIn, services.environment.testWindow == nil else { return }
-        controller.state.restoresFullScreen = false
-        Task { @MainActor [weak controller] in
-            guard let window = controller?.window, window.isVisible, !window.styleMask.contains(.fullScreen) else { return }
-            window.toggleFullScreen(nil)
-        }
+        enterRestoredFullScreens()
     }
 
     /// Brings a window forward (not key and no activation under
