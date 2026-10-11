@@ -3,14 +3,17 @@
 
 Reads the pull requests merged into feat-cmux-next or main since the last run
 (GitHub GraphQL search, one query per run; never a REST polling loop), takes
-every bead id in each title (cx-xxxx, cx-xxxx.N), and for each open bead:
-  - closes it with "landed <sha> (#N): <title>", as its assignee (the claim
-    guard refuses anyone else without --force, which this never passes) or as
-    leo when it is unassigned;
-  - only comments on an epic, a bead with open children, or a bead another
-    open pull request still names: the landing is part of it, not all of it.
-    A bead whose next pull request opens only after this merge still closes;
-    its reason says to reopen it then.
+the beads each one names, and for each open bead closes it only when the
+landing says it is the whole bead:
+  - the title or body says "closes", "fixes" or "resolves" <bead> (the
+    convention for the final pull request of a bead), or
+  - the title names the bead with no part or slice marker ("part 2", "2/3",
+    "slice", "partial", "wip", ...) and no other open pull request names it,
+and the bead is not an epic and has no open children. It closes with
+"landed <sha> (#N): <title>", as its assignee (the claim guard refuses anyone
+else without --force, which this never passes) or as leo when it is
+unassigned. Any other landing gets a bd comment with the pull request link: a
+partial close is worse than none. A bead the body only mentions is untouched.
 A closed or unknown bead is skipped. The board is reached through BEADS_SSH_HOST
 (the host whose ~/agent-tasks holds the board) or, for tests, BEADS_BD_COMMAND
 (an executable run with bd's arguments); with neither set it refuses to run.
@@ -38,11 +41,13 @@ REPO = "manaflow-ai/cmux"
 BASES = ("feat-cmux-next", "main")
 OVERLAP = timedelta(hours=1)
 BEAD_ID = re.compile(r"\bcx-[a-z0-9]{2,8}(?:\.[0-9]+)*\b")
+CLOSES = re.compile(r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b:?\s+(" + BEAD_ID.pattern[2:] + r")", re.I)
+PART = re.compile(r"\b(?:part|slice|step|phase|stage)\s*\d+|\b\d+\s*/\s*\d+\b|\b(?:partial|wip|slice|follow-?up)\b", re.I)
 QUERY = """
 query($q: String!, $after: String) {
   search(query: $q, type: ISSUE, first: 100, after: $after) {
     pageInfo { hasNextPage endCursor }
-    nodes { ... on PullRequest { number title mergedAt mergeCommit { oid } baseRefName } }
+    nodes { ... on PullRequest { number title body url mergedAt mergeCommit { oid } baseRefName } }
   }
 }
 """
@@ -99,6 +104,14 @@ def bd_json(*args: str):
         return None
 
 
+def explicit_closes(pull: dict) -> list[str]:
+    return [match.lower() for match in CLOSES.findall(f"{pull['title']}\n{pull.get('body') or ''}")]
+
+
+def beads_named(pull: dict) -> list[str]:
+    return list(dict.fromkeys(BEAD_ID.findall(pull["title"]) + explicit_closes(pull)))
+
+
 def handle(pull: dict, bead_id: str, dry_run: bool) -> str:
     shown = bd_json("show", bead_id)
     if not shown:
@@ -107,19 +120,24 @@ def handle(pull: dict, bead_id: str, dry_run: bool) -> str:
     if bead.get("status") == "closed":
         return f"skip {bead_id}: already closed"
     sha = (pull.get("mergeCommit") or {}).get("oid", "")[:12]
+    link = pull.get("url") or f"https://github.com/{REPO}/pull/{pull['number']}"
     landed = f"landed {sha} (#{pull['number']}): {pull['title']}"
     assignee = bead.get("assignee") or ""
     actor = assignee if assignee and assignee != "unassigned" else "leo"
     children = bd_json("children", bead_id) or []
     open_children = [child["id"] for child in children if child.get("status") != "closed"]
-    still_open = open_pull_requests_naming(bead_id)
+    explicit = bead_id in explicit_closes(pull)
+    still_open = [] if explicit else open_pull_requests_naming(bead_id)
     why = ("an epic" if bead.get("issue_type") == "epic"
            else f"open children {', '.join(open_children)}" if open_children
+           else "" if explicit
+           else "a part or slice marker in the title" if PART.search(pull["title"])
            else f"open pull requests {', '.join(f'#{n}' for n in still_open)}" if still_open
            else "")
     if why:
         if not dry_run:
-            bd("--actor", actor, "comment", bead_id, f"{landed} (part of this bead: {why}; not closed)")
+            bd("--actor", actor, "comment", bead_id,
+               f"{landed} {link} (not closed: {why}; the final pull request says \"closes {bead_id}\")")
         return f"comment {bead_id} as {actor}: {why}"
     if not dry_run:
         result = bd("--actor", actor, "close", bead_id, "--reason",
@@ -188,7 +206,7 @@ def main() -> int:
             if number in handled:
                 continue
             outcomes = [handle(pull, bead_id, args.dry_run)
-                        for bead_id in dict.fromkeys(BEAD_ID.findall(pull["title"]))]
+                        for bead_id in beads_named(pull)]
             for outcome in outcomes:
                 print(f"#{number} {outcome}")
             if not any(outcome.startswith("failed ") for outcome in outcomes):
