@@ -32,6 +32,8 @@ pub struct HomeMessage {
     pub parts: Vec<HomePart>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reply_to: Option<HomePartRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_root: Option<MessageId>,
     pub created_at: Timestamp,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub edited_at: Option<Timestamp>,

@@ -19,6 +19,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 mod fetch;
 mod guards;
+#[cfg(unix)]
+mod history;
 mod private_data;
 mod proxy;
 pub use proxy::{NameResolver, system_resolver};
@@ -91,6 +93,9 @@ pub struct Gate {
     proxied: std::sync::atomic::AtomicBool,
     /// The host's log of private-data operations (private_data.rs).
     private_data: Arc<crate::private_data_log::PrivateDataLog>,
+    /// The daemon's history link (history.rs), when the host has one.
+    #[cfg(unix)]
+    history: Option<Arc<crate::history_link::HistoryLink>>,
 }
 
 /// Finds the URL of the frame that holds keyboard focus. Same-origin child
@@ -118,6 +123,8 @@ impl Gate {
             resolver: system_resolver(),
             proxied: std::sync::atomic::AtomicBool::new(false),
             private_data: Arc::default(),
+            #[cfg(unix)]
+            history: None,
         }
     }
 
@@ -544,6 +551,8 @@ impl VmHost for Gate {
         match name {
             "secrets" => self.secrets_op(op, args),
             "policy" => self.policy_op(op, args),
+            #[cfg(unix)]
+            "history" => self.history_op(op, args),
             other => Err(format!("unknown host function {other}")),
         }
     }

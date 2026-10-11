@@ -16,6 +16,7 @@ mod apps;
 pub use cmux_tui_util::backoff;
 mod browser;
 pub mod browser_host;
+mod browser_host_history;
 mod browser_provider;
 /// Where the daemon finds the first-party app packages (cx-0uo1, cx-e0cs).
 pub mod first_party_dir;
@@ -32,6 +33,7 @@ mod event_bus;
 #[cfg(unix)]
 pub mod fs_ops;
 mod git_ops;
+mod history_ops;
 pub mod history_search;
 /// The image paste spool; the cmux-tui-image-paste crate, re-exported at the old path.
 #[cfg(unix)]

@@ -25,6 +25,11 @@ pub(super) enum ServerAction {
         /// Private app contract (P8 3b-2): read the app's install key from
         /// stdin and hand it to an owner this call spawns.
         install_key_stdin: bool,
+        /// Private app contract (cx-n3bs): while the owner restores, print
+        /// one `{"progress":"restoring",...}` JSON line per progress interval
+        /// on stdout before the result, so the app bounds its wait by
+        /// progress instead of a fixed timeout.
+        progress: bool,
     },
     Stop {
         force: bool,
@@ -91,7 +96,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         }
     };
     let socket_output = socket.to_string_lossy().into_owned();
-    if let ServerAction::Ensure { terminal_reap_grace, install_key_stdin } = plan.action {
+    if let ServerAction::Ensure { terminal_reap_grace, install_key_stdin, progress } = plan.action {
         // Read before anything else: stdin is the app's pipe, never argv/env.
         let install_key = match install_key_stdin.then(read_install_key_from_stdin).transpose() {
             Ok(key) => key,
@@ -105,8 +110,8 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             terminal_reap_grace,
             install_key,
             socket,
-            socket_output,
             socket_is_derived,
+            progress,
             global.output,
         );
     }
@@ -415,11 +420,12 @@ fn run_ensure(
     terminal_reap_grace: Option<Duration>,
     install_key: Option<cmux_tui_core::server::FrontendKey>,
     socket: std::path::PathBuf,
-    socket_output: String,
     socket_is_derived: bool,
+    progress: bool,
     output: OutputMode,
 ) -> i32 {
     let messages = &crate::localization::catalog().local_server;
+    let socket_output = socket.to_string_lossy().into_owned();
     let spec = crate::local_owner::OwnerSpec {
         session: expected_session.clone().unwrap_or_else(|| "main".to_string()),
         socket,
@@ -434,7 +440,16 @@ fn run_ensure(
         chief_tools_socket: crate::startup_env::chief_tools_socket(),
     };
     let deadline = Instant::now() + crate::local_owner::ENSURE_DEADLINE;
-    match crate::local_owner::ensure_owner(&spec, expected_session.as_deref(), deadline) {
+    let report = |restoring: &crate::local_owner::Restoring| {
+        print_progress(&spec.session, restoring);
+    };
+    let reporter = if progress {
+        crate::local_owner::RestoreProgress::new(&report)
+    } else {
+        crate::local_owner::RestoreProgress::silent()
+    };
+    match crate::local_owner::ensure_owner(&spec, expected_session.as_deref(), deadline, &reporter)
+    {
         Ok(ensured) => {
             let (status, message, ready) = match &ensured {
                 crate::local_owner::Ensured::Running(ready) => ("running", messages.running, ready),
@@ -477,6 +492,21 @@ fn run_ensure(
             local_error("server.unsupported_protocol", messages.unsupported_protocol, output, 3)
         }
     }
+}
+
+/// One restore progress line on stdout (`server ensure --restore-progress`). The
+/// result stays the last JSON line, so a reader that takes the last line
+/// still reads the result.
+fn print_progress(session: &str, restoring: &crate::local_owner::Restoring) {
+    use std::io::Write as _;
+    let line = json!({
+        "progress": "restoring",
+        "session": session,
+        "pid": restoring.pid,
+        "waited_ms": u64::try_from(restoring.waited.as_millis()).unwrap_or(u64::MAX),
+    });
+    let mut stdout = std::io::stdout().lock();
+    let _ = writeln!(stdout, "{line}").and_then(|()| stdout.flush());
 }
 
 fn valid_session_name(session: &str) -> bool {

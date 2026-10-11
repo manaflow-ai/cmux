@@ -197,7 +197,7 @@ impl Mux {
             };
             let Some(target) = target else { return Ok(None) };
             crate::debug_spans::mark("prelaunch.target");
-            let cwd = cwd.or_else(|| self.pane_cwd(target));
+            let cwd = self.new_terminal_cwd(cwd, Some(target), None);
             let (launch_opts, cell_pixels) = self.terminal_spawn_options(cwd, command, size, &env);
             if launch_opts.terminal_host_root.is_none() {
                 return Ok(None);
