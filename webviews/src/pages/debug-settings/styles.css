@@ -393,12 +393,8 @@
     padding-inline-start: 12px;
   }
 
-  .ds-number {
-    flex-wrap: wrap;
-  }
-
   .ds-slider {
-    width: min(160px, 100%);
+    width: 120px;
   }
 }
 

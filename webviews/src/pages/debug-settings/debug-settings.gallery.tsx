@@ -88,6 +88,8 @@ export default componentEntry<Props>({
       props: { selection: "browser" },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector('[data-testid="ds.control.browser.omnibar.glass.shadow"]'));
+        // At the narrow width the row is below the fold; a person scrolls to it first.
+        ctx.document.querySelector('[data-testid="ds.control.browser.omnibar.glass.shadow"]')?.scrollIntoView({ block: "center" });
         await ctx.click({ selector: '[data-testid="ds.control.browser.omnibar.glass.shadow"]' });
         await ctx.waitFor(() =>
           ctx.document.querySelector('[data-testid="ds.row.browser.omnibar.glass.shadow"][data-changed="true"]'),
