@@ -37,12 +37,14 @@ extension AppDelegate {
         let selection = manager.rememberedCloudWorkspaceSelection
         let revision = manager.cloudWorkspaceSelection.revision
         let windowID = context.windowId
-        return operationController.start(key: "new-cloud-workspace.resolved.\(windowID.uuidString)") { [weak self, weak manager] in
-            let fallbackToNewMachine: @MainActor () -> Void = { [weak self, weak manager] in
+        // Hold the window context weakly: it owns the TabManager strongly, and a
+        // create in flight must not keep a closed window's manager alive.
+        return operationController.start(key: "new-cloud-workspace.resolved.\(windowID.uuidString)") { [weak self, weak manager, weak context] in
+            let fallbackToNewMachine: @MainActor () -> Void = { [weak self, weak manager, weak context] in
                 guard let self, !Task.isCancelled else { return }
                 _ = self.performNewCloudMachineAction(
                     tabManager: manager,
-                    preferredWindow: self.resolvedWindow(for: context),
+                    preferredWindow: context.flatMap { self.resolvedWindow(for: $0) },
                     debugSource: "\(debugSource).fallback"
                 )
             }
