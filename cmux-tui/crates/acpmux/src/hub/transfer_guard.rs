@@ -347,7 +347,7 @@ impl Hub {
             let id = o.get("id").and_then(Value::as_str).unwrap_or("");
             let value = o.get("currentValue").and_then(Value::as_str);
             let asks = crate::web_modes::FREE_CONFIG_IDS.contains(&id)
-                || (id == "mode" && value.is_some_and(|v| listed(v)));
+                || (id == "mode" && value.is_some_and(&listed));
             if !asks {
                 return Err(guard_error(
                     "mode",
