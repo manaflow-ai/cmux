@@ -38,17 +38,21 @@ export function ArtifactPanel({
   onSave?: SaveDocument;
 }) {
   const t = useT();
-  const [index, setIndex] = useState(() =>
-    Math.max(
-      0,
-      versions.findIndex((v) => v.code === opened.code),
-    ),
-  );
-  const artifact = versions[index] ?? opened;
+  // The shown version by its text, not its place: a reply that finishes or a reload moves the list.
+  const [shown, setShown] = useState(opened.code);
+  const found = versions.findIndex((version) => version.code === shown);
+  const list = found >= 0 ? versions : [opened];
+  const index = Math.max(0, found);
+  const artifact = list[index]!;
   const previews = artifact.kind === "markdown" || canRender();
   const [tab, setTab] = useState<"preview" | "code">(previews ? "preview" : "code");
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
+  const step = (to: number) => {
+    setShown(list[to]!.code);
+    setCopied(false);
+    setSaved(false);
+  };
   const title = languageLabel(artifact.lang, t);
   return (
     // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape closes the panel from its tabs, buttons or a focused frame's edge.
@@ -64,7 +68,7 @@ export function ArtifactPanel({
     >
       <div className="acpmux-artifact-bar">
         <span className="acpmux-artifact-title">{title}</span>
-        {versions.length > 1 && (
+        {list.length > 1 && (
           <span className="acpmux-artifact-versions">
             <button
               type="button"
@@ -72,23 +76,23 @@ export function ArtifactPanel({
               aria-label={t("artifact.previousVersion")}
               title={t("artifact.previousVersion")}
               disabled={index === 0}
-              onClick={() => setIndex(index - 1)}
+              onClick={() => step(index - 1)}
             >
               <ChevronLeft size={14} />
             </button>
             <span
               className="acpmux-artifact-version"
-              title={t("artifact.versionCount", { index: index + 1, total: versions.length })}
+              title={t("artifact.versionCount", { index: index + 1, total: list.length })}
             >
-              {`${index + 1}/${versions.length}`}
+              {`${index + 1}/${list.length}`}
             </span>
             <button
               type="button"
               className="cv-iconbtn cv-iconbtn--compact"
               aria-label={t("artifact.nextVersion")}
               title={t("artifact.nextVersion")}
-              disabled={index === versions.length - 1}
-              onClick={() => setIndex(index + 1)}
+              disabled={index === list.length - 1}
+              onClick={() => step(index + 1)}
             >
               <ChevronRight size={14} />
             </button>
@@ -161,7 +165,9 @@ export function ArtifactPanel({
             <Markdown>{artifact.code}</Markdown>
           </div>
         ) : (
-          <ArtifactFrame html={previewHtml(artifact)} title={title} />
+          // Each version is its own frame: a frame draws the first document it is sent, and a
+          // version with script waits for Run again.
+          <ArtifactFrame key={artifact.code} html={previewHtml(artifact)} title={title} />
         )}
       </div>
     </aside>
