@@ -555,3 +555,7 @@ fieldset.acpmux-question{display:flex;flex-direction:column;gap:10px;margin:0;mi
   outline: var(--cmux-focus-ring-width, 1.5px) solid var(--ui-ring, color-mix(in srgb, var(--agent-text) 48%, transparent));
   outline-offset: -1px;
 }
+/* A chat's past, read-only, before it can resume here (cx-khns1, PastChat.tsx). */
+.acpmux-past-chat{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:16px;width:100%;max-width:760px;margin:0 auto;padding:16px 24px;box-sizing:border-box}
+.acpmux-past-chat-label{margin:0;text-align:center;font-size:var(--text-detail);line-height:var(--text-detail--line-height);color:var(--acpmux-composer-placeholder)}
+.acpmux-past-chat-turn{display:flex;flex-direction:column;gap:8px}

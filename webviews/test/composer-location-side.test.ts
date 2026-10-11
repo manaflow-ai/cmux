@@ -5,7 +5,6 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
-import { loadGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("composer-location-side.test.ts", async () => {
@@ -31,6 +30,19 @@ await requireBrowserLane("composer-location-side.test.ts", async () => {
     });
     await vite.listen();
     browser = await chromium.launch({ headless: true });
+    // Warm the gallery stage once before the measured page, as composer-mention.test.ts does: the
+    // first load can trigger Vite's dependency optimizer and reload its context mid-compile.
+    const warm = await browser.newPage({ viewport: { width: 620, height: 560 } });
+    await warm.goto(url());
+    for (;;) {
+      try {
+        await warm.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 0 });
+        break;
+      } catch (error) {
+        if (!/context was destroyed|navigat/i.test(String(error))) throw error;
+      }
+    }
+    await warm.close();
   });
 
   const url = () =>
@@ -43,7 +55,8 @@ await requireBrowserLane("composer-location-side.test.ts", async () => {
 
   test("the folder popover stays on the side it opened on while a filter shrinks it", async () => {
     const page = await browser!.newPage({ viewport: { width: 620, height: 560 } });
-    await loadGalleryFrame(page, url());
+    await page.goto(url());
+    await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
     await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay));
     const result = await page.evaluate(() => ({
       play: document.documentElement.dataset.galleryPlay,

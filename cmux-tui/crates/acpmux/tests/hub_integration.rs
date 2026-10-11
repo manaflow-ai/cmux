@@ -18,6 +18,8 @@ mod drafts;
 mod permission_groups;
 #[path = "hub_integration/questions.rs"]
 mod questions;
+#[path = "hub_integration/seen.rs"]
+mod seen;
 #[path = "hub_integration/status_indicator.rs"]
 mod status_indicator;
 #[path = "hub_integration/steer_only.rs"]
@@ -1487,6 +1489,8 @@ mod claude_failover;
 
 #[path = "hub_integration/fork_through.rs"]
 mod fork_through;
+#[path = "hub_integration/last_message.rs"]
+mod last_message;
 #[path = "hub_integration/transfer.rs"]
 mod transfer;
 #[path = "hub_integration/transfer_guard.rs"]

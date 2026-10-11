@@ -16,9 +16,7 @@ public nonisolated struct GhosttyThemeColors: Hashable, Sendable {
     public var palette: [RGB]
     /// Only when the config sets a plain color. Ghostty does not expose
     /// `cell-foreground`/`cell-background` selection values through its C
-    /// API; those read as nil. The pinned GhosttyNextKit has no C getter for
-    /// any `TerminalColor` key yet (`c_get.zig` returns false for the union),
-    /// so `selection-*` and `cursor-color` read as nil on the Mac until it does.
+    /// API; those read as nil.
     public var selectionBackground: RGB?
     public var selectionForeground: RGB?
     /// `cursor-color`, only when the config sets a plain color.
@@ -58,6 +56,16 @@ extension GhosttyRuntime {
             backgroundOpacity: backgroundOpacity,
             backgroundBlur: Int(blur)
         )
+    }
+
+    /// The colors of a config made of `text` (Ghostty config lines), for tests.
+    static func themeColors(configText text: String) -> GhosttyThemeColors? {
+        _ = shared // runs ghostty_init, which config_new needs
+        guard let config = ghostty_config_new() else { return nil }
+        defer { ghostty_config_free(config) }
+        text.withCString { ghostty_config_load_string(config, $0, UInt(text.utf8.count), "test") }
+        ghostty_config_finalize(config)
+        return themeColors(of: config, backgroundOpacity: 1)
     }
 
     private static func color(_ config: ghostty_config_t, _ key: String) -> GhosttyThemeColors.RGB? {
