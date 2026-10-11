@@ -35,7 +35,7 @@ enum HomeMapping {
     /// The thread roots among `items`, for `message(_:roots:)`: indexed by message id, a root's
     /// parts mapped only when a reply asks for it.
     static func roots(in items: [TranscriptItem], aliases: [IdempotencyKey: ID], summary: ConversationSummary?,
-                      media: Media = { _ in nil }, links: Links = { _ in nil }) -> Roots {
+                      media: @escaping Media = { _ in nil }, links: @escaping Links = { _ in nil }) -> Roots {
         let wanted = Set(items.compactMap(\.threadRoot))
         guard !wanted.isEmpty else { return { _ in nil } }
         var byID: [MessageID: TranscriptItem] = [:]

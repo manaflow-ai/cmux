@@ -35,7 +35,7 @@ struct HomeDiff: Equatable {
 
     static func plan(old: [TranscriptItem], new: [TranscriptItem], oldSummary: ConversationSummary?,
                      newSummary: ConversationSummary?, aliases: [IdempotencyKey: ID], me: ParticipantID,
-                     media: HomeMapping.Media = { _ in nil }, links: HomeMapping.Links = { _ in nil }) -> HomeDiff {
+                     media: @escaping HomeMapping.Media = { _ in nil }, links: @escaping HomeMapping.Links = { _ in nil }) -> HomeDiff {
         var d = HomeDiff()
         let oldIndex = Dictionary(old.enumerated().map { ($1.key, $0) }, uniquingKeysWith: { a, _ in a })
         let newKeys = Set(new.map(\.key))
