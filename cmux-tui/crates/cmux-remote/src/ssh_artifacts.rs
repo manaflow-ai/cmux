@@ -11,7 +11,6 @@
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
@@ -194,23 +193,53 @@ fn file_sha256(path: &Path) -> std::io::Result<String> {
 }
 
 type DownloadResult = Option<Result<PathBuf, String>>;
-static DOWNLOADS: OnceLock<Mutex<HashMap<PathBuf, watch::Receiver<DownloadResult>>>> =
-    OnceLock::new();
-static PARTIAL_COUNTER: AtomicU64 = AtomicU64::new(0);
-/// A download outlives the bootstrap attempt that started it, so a slow link
-/// still completes it for the next attempt; this bounds a stuck transfer.
+type Downloads = Mutex<HashMap<PathBuf, watch::Receiver<DownloadResult>>>;
+static DOWNLOADS: OnceLock<Downloads> = OnceLock::new();
+/// Bounds one curl run. A connect's bootstrap budget is shorter, so a slow
+/// link finishes the download across connects by resuming its partial file.
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(600);
+/// Cached builds of other versions are deleted once untouched this long.
+const CACHE_RETENTION: Duration = Duration::from_secs(30 * 86_400);
+
+fn downloads() -> std::sync::MutexGuard<'static, HashMap<PathBuf, watch::Receiver<DownloadResult>>>
+{
+    DOWNLOADS.get_or_init(Default::default).lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Removes a download's entry however its task ends, so a panic or a runtime
+/// shutdown cannot leave later callers waiting on a closed channel.
+struct DownloadEntry(PathBuf);
+
+impl Drop for DownloadEntry {
+    fn drop(&mut self) {
+        downloads().remove(&self.0);
+    }
+}
+
+async fn sha256_of(path: PathBuf) -> std::io::Result<String> {
+    tokio::task::spawn_blocking(move || file_sha256(&path))
+        .await
+        .map_err(|error| std::io::Error::other(error.to_string()))?
+}
+
+async fn is_cached(payload: &PublishedPayload) -> bool {
+    sha256_of(payload.cache_path.clone()).await.is_ok_and(|actual| actual == payload.sha256)
+}
 
 /// Returns the cached copy of `payload`, downloading it first when needed.
-/// Concurrent bootstraps for the same platform share one download, and the
-/// cache holds only files that matched the pin.
+/// Bootstraps in this process share one download; the cache holds only files
+/// that matched the pin.
 pub(crate) async fn fetch_published(payload: &PublishedPayload) -> Result<PathBuf, BootstrapError> {
-    if file_sha256(&payload.cache_path).is_ok_and(|actual| actual == payload.sha256) {
+    if is_cached(payload).await {
+        // Pruning keeps what is in use.
+        let _ = std::fs::File::options()
+            .write(true)
+            .open(&payload.cache_path)
+            .and_then(|file| file.set_modified(std::time::SystemTime::now()));
         return Ok(payload.cache_path.clone());
     }
     let mut receiver = {
-        let mut downloads =
-            DOWNLOADS.get_or_init(Default::default).lock().unwrap_or_else(PoisonError::into_inner);
+        let mut downloads = downloads();
         if let Some(receiver) = downloads.get(&payload.cache_path) {
             receiver.clone()
         } else {
@@ -218,13 +247,8 @@ pub(crate) async fn fetch_published(payload: &PublishedPayload) -> Result<PathBu
             downloads.insert(payload.cache_path.clone(), receiver.clone());
             let payload = payload.clone();
             tokio::spawn(async move {
-                let result = download(&payload).await;
-                DOWNLOADS
-                    .get_or_init(Default::default)
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .remove(&payload.cache_path);
-                let _ = sender.send(Some(result));
+                let _entry = DownloadEntry(payload.cache_path.clone());
+                let _ = sender.send(Some(download(&payload).await));
             });
             receiver
         }
@@ -239,57 +263,97 @@ pub(crate) async fn fetch_published(payload: &PublishedPayload) -> Result<PathBu
         .map_err(BootstrapError::PayloadDownload)
 }
 
-/// Removes an unfinished download unless it was moved into the cache.
-struct PartialFile(Option<PathBuf>);
-
-impl Drop for PartialFile {
-    fn drop(&mut self) {
-        if let Some(path) = self.0.take() {
-            let _ = std::fs::remove_file(path);
+async fn download(payload: &PublishedPayload) -> Result<PathBuf, String> {
+    let directory =
+        payload.cache_path.parent().ok_or("the download cache has no directory")?.to_path_buf();
+    let file_name = payload
+        .cache_path
+        .file_name()
+        .ok_or("the download has no file name")?
+        .to_string_lossy()
+        .into_owned();
+    let partial = directory.join(format!("{file_name}.partial"));
+    // Another cmux-tui process may be fetching the same build: hold the lock
+    // while appending to the shared partial file, then look again.
+    let lock_path = directory.join(format!("{file_name}.lock"));
+    let _lock = tokio::task::spawn_blocking(move || -> std::io::Result<std::fs::File> {
+        std::fs::create_dir_all(lock_path.parent().unwrap_or(Path::new(".")))?;
+        let lock =
+            std::fs::File::options().create(true).truncate(false).write(true).open(&lock_path)?;
+        lock.lock()?;
+        Ok(lock)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+    .map_err(|error| format!("could not lock the download cache: {error}"))?;
+    if is_cached(payload).await {
+        return Ok(payload.cache_path.clone());
+    }
+    if !sha256_of(partial.clone()).await.is_ok_and(|actual| actual == payload.sha256) {
+        let mut command = tokio::process::Command::new("curl");
+        // --continue-at - resumes what an earlier connect left. A stalled
+        // transfer fails within a minute instead of holding every bootstrap.
+        command.args(["--fail", "--silent", "--show-error", "--location", "--retry", "2"]);
+        command.args(["--connect-timeout", "20", "--speed-limit", "1024", "--speed-time", "60"]);
+        command.args(["--continue-at", "-"]);
+        if payload.url.starts_with("https://") {
+            command.args(["--proto", "=https", "--proto-redir", "=https", "--tlsv1.2"]);
+        }
+        command
+            .arg("--output")
+            .arg(&partial)
+            .arg(&payload.url)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true);
+        let output = tokio::time::timeout(DOWNLOAD_TIMEOUT, command.output())
+            .await
+            .map_err(|_| "it did not finish in ten minutes".to_string())?
+            .map_err(|error| format!("could not run curl: {error}"))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stderr = stderr.trim();
+            if stderr.contains("416") {
+                // The partial file is longer than the build: it cannot be resumed.
+                let _ = std::fs::remove_file(&partial);
+            }
+            return Err(if stderr.is_empty() {
+                format!("curl exited with {}", output.status)
+            } else {
+                stderr.chars().take(400).collect()
+            });
+        }
+        let actual = sha256_of(partial.clone()).await.map_err(|error| error.to_string())?;
+        if actual != payload.sha256 {
+            let _ = std::fs::remove_file(&partial);
+            return Err("the downloaded file does not match its SHA-256 checksum pin".into());
         }
     }
+    std::fs::rename(&partial, &payload.cache_path).map_err(|error| error.to_string())?;
+    prune_cache(&directory, &file_name);
+    Ok(payload.cache_path.clone())
 }
 
-async fn download(payload: &PublishedPayload) -> Result<PathBuf, String> {
-    let directory = payload.cache_path.parent().ok_or("the download cache has no directory")?;
-    std::fs::create_dir_all(directory).map_err(|error| error.to_string())?;
-    let file_name = payload.cache_path.file_name().ok_or("the download has no file name")?;
-    let partial = directory.join(format!(
-        ".{}.partial-{}-{}",
-        file_name.to_string_lossy(),
-        std::process::id(),
-        PARTIAL_COUNTER.fetch_add(1, Ordering::Relaxed)
-    ));
-    let mut guard = PartialFile(Some(partial.clone()));
-    let mut command = tokio::process::Command::new("curl");
-    command.args(["--fail", "--silent", "--show-error", "--location", "--retry", "2"]);
-    command.args(["--connect-timeout", "20"]);
-    if payload.url.starts_with("https://") {
-        command.args(["--proto", "=https", "--proto-redir", "=https"]);
+/// Deletes cached builds, and leftover partial and lock files, that are not
+/// `keep` and have not been touched for [`CACHE_RETENTION`].
+fn prune_cache(directory: &Path, keep: &str) {
+    let Ok(entries) = std::fs::read_dir(directory) else { return };
+    let now = std::time::SystemTime::now();
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name == keep || name.starts_with(keep) {
+            continue;
+        }
+        let stale =
+            entry.metadata().and_then(|metadata| metadata.modified()).is_ok_and(|modified| {
+                now.duration_since(modified).is_ok_and(|age| age > CACHE_RETENTION)
+            });
+        if stale && name.contains("cmux-tui-") {
+            let _ = std::fs::remove_file(entry.path());
+        }
     }
-    command
-        .arg("--output")
-        .arg(&partial)
-        .arg(&payload.url)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
-        .kill_on_drop(true);
-    let output = tokio::time::timeout(DOWNLOAD_TIMEOUT, command.output())
-        .await
-        .map_err(|_| "it did not finish in ten minutes".to_string())?
-        .map_err(|error| format!("could not run curl: {error}"))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(stderr.trim().chars().take(400).collect());
-    }
-    let actual = file_sha256(&partial).map_err(|error| error.to_string())?;
-    if actual != payload.sha256 {
-        return Err("the downloaded file does not match its SHA-256 checksum pin".into());
-    }
-    std::fs::rename(&partial, &payload.cache_path).map_err(|error| error.to_string())?;
-    guard.0 = None;
-    Ok(payload.cache_path.clone())
 }
 
 #[cfg(test)]

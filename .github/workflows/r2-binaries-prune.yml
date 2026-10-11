@@ -63,8 +63,8 @@ jobs:
             git for-each-ref refs/tags --format='%(objectname) %(*objectname)'
             gh release view cmux-next-dev --repo "$REPOSITORY" --json targetCommitish --jq .targetCommitish
           } > "$RUNNER_TEMP/pins.txt"
-          # One window per tip (what the app resolvers pick) and per nightly-next build still on its
-          # release: the build number is the run id and attempt, and the resolver searched 50 commits.
+          # One window per tip (what the app resolvers pick) and per nightly or nightly-next build
+          # still on its release: the build number is the run id and attempt, and the resolver searched 50 commits.
           {
             for tip in origin/main origin/feat-cmux-next origin/nightly-next; do
               git rev-list --max-count=5000 "$tip" | paste -sd' '
@@ -73,12 +73,19 @@ jobs:
             git for-each-ref 'refs/tags/v*' --format='%(objectname)' | while read -r tag; do
               git rev-list --max-count=500 "$tag" | paste -sd' '
             done
-            gh release view nightly-next --repo "$REPOSITORY" --json assets --jq '.assets[].name' |
-              sed -nE 's/^cmux-nightly-next-macos-[a-z0-9_]+-([0-9]{3,})\.dmg$/\1/p' | sort -u |
-              while read -r build; do
-                head_sha="$(gh api "repos/$REPOSITORY/actions/runs/$((build / 100))" --jq .head_sha)"
-                git rev-list --max-count=64 "$head_sha" | paste -sd' '
-              done
+            # Classic nightlies download their bundled build's Linux SSH payloads at runtime too.
+            # Their resolver bundles the newest published cmux-tui commit in the head's history,
+            # which can lie far behind it, so they get the release tags' depth.
+            for release in nightly-next nightly; do
+              depth=64
+              if [ "$release" = nightly ]; then depth=500; fi
+              gh release view "$release" --repo "$REPOSITORY" --json assets --jq '.assets[].name' |
+                sed -nE 's/^cmux-nightly(-next)?-macos-[a-z0-9_]+-([0-9]{3,})\.dmg$/\2/p' | sort -u |
+                while read -r build; do
+                  head_sha="$(gh api "repos/$REPOSITORY/actions/runs/$((build / 100))" --jq .head_sha)"
+                  git rev-list --max-count="$depth" "$head_sha" | paste -sd' '
+                done
+            done
           } > "$RUNNER_TEMP/windows.txt"
           wc -l < "$RUNNER_TEMP/windows.txt"
 

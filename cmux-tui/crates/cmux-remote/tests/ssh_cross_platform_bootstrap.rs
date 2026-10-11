@@ -204,8 +204,10 @@ esac
 
     fn cached_files(&self) -> Vec<String> {
         let Ok(entries) = fs::read_dir(self.cache()) else { return Vec::new() };
+        // Lock files coordinate processes and hold no build.
         let mut names: Vec<String> = entries
             .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| !name.ends_with(".lock"))
             .collect();
         names.sort();
         names
