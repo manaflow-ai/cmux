@@ -89,7 +89,10 @@ export function BrowseView({
                 type="button"
                 aria-label={`Show ${label.toLowerCase()}`}
                 aria-pressed={mode === value}
-                onClick={() => setMode(value)}
+                onClick={() => {
+                  setMode(value);
+                  if (value === "variants") setCycle(false);
+                }}
               >
                 {label}
               </button>
@@ -100,6 +103,7 @@ export function BrowseView({
               type="checkbox"
               aria-label="Cycle previews"
               checked={cycle}
+              disabled={allVariants}
               onChange={(event) => setCycle(event.target.checked)}
             />
             Cycle previews
