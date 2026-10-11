@@ -28,6 +28,8 @@ extension TerminalController {
 
     private nonisolated func v2Capabilities() -> [String: Any] {
         var methods: [String] = [
+            "extension.sidebar.status",
+            "extension.sidebar.reconnect",
             "system.ping",
             "system.capabilities",
             "system.identify",

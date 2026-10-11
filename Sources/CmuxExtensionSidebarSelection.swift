@@ -3,6 +3,7 @@ import CmuxExtensionSidebarExamples
 import CmuxFoundation
 import CmuxSettings
 import CmuxSettingsUI
+@_spi(CmuxHostTransport) import CmuxSidebar
 import CmuxSidebarProviderKit
 import Foundation
 
@@ -305,8 +306,13 @@ enum CmuxExtensionSidebarSelection {
         )
     }
 
-    static func setProviderId(_ providerId: String, defaults: UserDefaults = .standard) {
+    @MainActor
+    static func setProviderId(_ providerId: String, defaults: UserDefaults = .standard, source: String = "selection") {
+        let previous = defaults.string(forKey: defaultsKey) ?? defaultProviderId
         defaults.set(providerId, forKey: defaultsKey)
+        TerminalController.shared.sidebarRecoveryDiagnostics.providerChanged(
+            previous: previous, current: providerId, source: source
+        )
     }
 
     static func clearStaleTemplatePreviewSelection(defaults: UserDefaults = .standard) {
@@ -403,7 +409,7 @@ private final class CmuxExtensionSidebarMenuTarget: NSObject {
 
     @objc func selectProvider(_ sender: NSMenuItem) {
         guard let providerId = sender.representedObject as? String else { return }
-        CmuxExtensionSidebarSelection.setProviderId(providerId)
+        CmuxExtensionSidebarSelection.setProviderId(providerId, source: "sidebar_menu")
     }
 
     @objc func browseTemplates() {

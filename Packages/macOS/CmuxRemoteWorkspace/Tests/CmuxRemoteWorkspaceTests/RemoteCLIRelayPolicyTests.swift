@@ -7,6 +7,17 @@ struct RemoteCLIRelayPolicyTests {
     private let tokenHex = "00112233445566778899aabbccddeeff"
     private let relayID = "relay-policy"
 
+    @Test("sidebar recovery and diagnostics never reach the local Mac through a relay", arguments: [
+        "extension.sidebar.status", "extension.sidebar.reconnect"
+    ])
+    func deniesLocalSidebarRecovery(method: String) throws {
+        let request = "{\"id\":\"sidebar\",\"method\":\"\(method)\",\"params\":{}}"
+        let policy = RemoteRelayCommandPolicy()
+        let verdict = policy.evaluate(commandLine: Data(request.utf8), workspaceAliases: [:], surfaceAliases: [:])
+        #expect(verdict == .deny(reason: "method '\(method)' is not permitted through a remote relay"))
+        #expect(policy.permittedMethods(from: [method]).isEmpty)
+    }
+
     @Test("core discovery uses canonical RPC names and the authenticated relay", arguments: [
         "system.ping", "system.capabilities", "workspace.list"
     ])
