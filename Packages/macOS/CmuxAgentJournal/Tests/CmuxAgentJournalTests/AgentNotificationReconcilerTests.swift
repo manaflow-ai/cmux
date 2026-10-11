@@ -246,6 +246,28 @@ struct AgentNotificationReconcilerTests {
         )
     }
 
+    @Test func olderSessionStartCannotRetireNewerOriginProjection() {
+        var reconciler = AgentNotificationReconciler()
+        let origin = UUID().uuidString
+        let destination = UUID().uuidString
+        _ = reconciler.apply(
+            event(1, .errorReported, source: "claude", session: "timestamped", occurredAt: 100,
+                  surfaceID: origin)
+        )
+
+        let staleMove = reconciler.apply(
+            event(2, .sessionStarted, source: "claude", session: "timestamped", notify: false,
+                  occurredAt: 50, surfaceID: destination)
+        )
+        #expect(staleMove.disposition == .stale)
+        #expect(
+            reconciler.apply(
+                event(3, .errorReported, source: "claude", session: "timestamped", occurredAt: 101,
+                      surfaceID: origin)
+            ).disposition == .accepted
+        )
+    }
+
     @Test func idleObservedMoveReturnsOriginInvalidation() throws {
         var reconciler = AgentNotificationReconciler()
         let origin = UUID().uuidString
