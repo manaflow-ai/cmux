@@ -2,7 +2,9 @@ import CmuxNextAgentPane
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
+import Observation
 
 typealias TransferJSONValue = CmuxNextSettings.JSONValue
 
@@ -85,6 +87,9 @@ final class SessionTransferService {
     private weak var services: AppServices?
 
     init(services: AppServices) { self.services = services }
+
+    /// How long a moved agent waits for its conversation tab (the old poll's 20 × 250 ms).
+    static let conversationTabLimit: Duration = .seconds(5)
 
     /// Moves the selected sessions (all of them when `ids` is empty) from the one
     /// peer named by `source` (its socket path or tag). A move opens a new shell
@@ -237,17 +242,26 @@ final class SessionTransferService {
         }
     }
 
+    /// Whether the store lists a conversation tab in `workspace`. The tree
+    /// mirrors the create asynchronously, so this waits for it, up to
+    /// `conversationTabLimit`.
     private func hasConversationTab(_ workspace: String) async throws -> Bool {
-        guard let connection = services?.daemon.connection else { throw Failure.unavailable }
-        for _ in 0..<20 {
-            let listed = try await connection.listWorkspaces()
-            if let found = listed.workspaces.first(where: { $0.key?.rawValue == workspace }),
-               found.screens.flatMap(\.panes).flatMap(\.tabs).contains(where: { $0.conversation != nil }) {
-                return true
+        guard let store = services?.daemon.store else { throw Failure.unavailable }
+        let listed = Task { @MainActor () -> Bool in
+            let opened = {
+                store.workspaces.first(where: { $0.key?.rawValue == workspace })?.screens
+                    .flatMap(\.panes).flatMap(\.tabs).contains(where: { $0.kind == .conversation }) ?? false
             }
-            try await Task.sleep(for: .milliseconds(250))  // the tree mirrors the create asynchronously
+            for await found in Observations(opened) where found { return true }
+            return false
         }
-        return false
+        let bound = DemandTimer(owner: "SessionTransfer.conversationTab")
+        bound.schedule(after: Self.conversationTabLimit) { @MainActor in
+            listed.cancel()
+        }
+        let found = await listed.value
+        bound.cancel()
+        return found
     }
 
     private func firstPane(of workspace: String, connection: DaemonConnection) async throws -> CmuxNextDaemon.PaneID? {
