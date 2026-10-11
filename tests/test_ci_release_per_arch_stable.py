@@ -127,6 +127,28 @@ class ReleasePerArchStableTest(unittest.TestCase):
         self.assertEqual(keys, ["stable/appcast-$arch.xml", "stable/appcast.xml"])
         self.assertIn("for arch in arm64 x86_64", body)
 
+    def test_only_the_highest_release_becomes_latest(self):
+        # Thin installs read releases/latest/download/appcast-<arch>.xml. A backport
+        # published after a newer release must not become latest, or those installs
+        # would read an older release (one from before thin builds has no such feed).
+        decide = steps().get("Decide whether this release is latest", "")
+        self.assertIn("--exclude-drafts --exclude-pre-releases", decide)
+        self.assertIn("sort -V", decide)
+        self.assertIn("make_latest=", decide)
+        publish = steps()["Publish verified release"]
+        self.assertIn("make_latest: ${{ steps.latest_release.outputs.make_latest }}", publish)
+        self.assertLess(order("Decide whether this release is latest"), order("Publish verified release"))
+
+    def test_local_release_publishes_per_arch_feeds(self):
+        # scripts/build-sign-upload.sh builds only the universal DMG. It still has
+        # to publish both per-arch feeds, holding the universal item, so a thin
+        # install updates instead of finding no feed.
+        script = (ROOT / "scripts/build-sign-upload.sh").read_text(encoding="utf-8")
+        for arch in ARCHS:
+            self.assertIn(f"cp appcast.xml appcast-{arch}.xml", script)
+        self.assertRegex(script, r"gh release create .*appcast\.xml appcast-arm64\.xml appcast-x86_64\.xml")
+        self.assertRegex(script, r"gh release upload \"\$TAG\" cmux-macos\.dmg appcast\.xml appcast-arm64\.xml appcast-x86_64\.xml")
+
 
 if __name__ == "__main__":
     unittest.main()
