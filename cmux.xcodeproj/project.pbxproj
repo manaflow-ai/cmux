@@ -522,6 +522,7 @@
 		F21000000000000000000011 /* BrowserPanel+MobileBrowserDialogs.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11000000000000000000011 /* BrowserPanel+MobileBrowserDialogs.swift */; };
 		F21000000000000000000001 /* BrowserPanel+MobileBrowserStreaming.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11000000000000000000001 /* BrowserPanel+MobileBrowserStreaming.swift */; };
 		D7AB00000000000000000007 /* BrowserPanel+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000008 /* BrowserPanel+MoveTabToNewWorkspace.swift */; };
+		204A0253E454D3A23B55E834 /* BrowserPanel+PageLoopbackNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFCB2B9C142A00F9503008A1 /* BrowserPanel+PageLoopbackNavigation.swift */; };
 		F15069A000000000000000B1 /* BrowserPanel+PageRestoration.swift in Sources */ = {isa = PBXBuildFile; fileRef = F15069A000000000000000B2 /* BrowserPanel+PageRestoration.swift */; };
 		C67540060000000000000001 /* BrowserPanel+PDFDocumentActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C67540060000000000000002 /* BrowserPanel+PDFDocumentActions.swift */; };
 		B424PWAD000000000000PW01 /* BrowserPanel+PrewarmedWebViewAdoption.swift in Sources */ = {isa = PBXBuildFile; fileRef = B424PWAD000000000000PW02 /* BrowserPanel+PrewarmedWebViewAdoption.swift */; };
@@ -3557,6 +3558,7 @@
 		A13387000000000000000013 /* SplitPaneGeometryProjectionRenderParityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13387000000000000000014 /* SplitPaneGeometryProjectionRenderParityTests.swift */; };
 		A1338700000000000000000F /* SplitPaneGeometryProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13387000000000000000010 /* SplitPaneGeometryProjectionTests.swift */; };
 		0928F192E46E73B3D73237D5 /* SplitSpaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 751E2E409D9D8EED12988A80 /* SplitSpaceTests.swift */; };
+		2C3317659EE07C8F673E81BB /* SSHBrowserPageLoopbackNavigationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 423E18A9B4C3FEFE5D378A53 /* SSHBrowserPageLoopbackNavigationTests.swift */; };
 		BB778780CAC943B89A7D904E /* SSHConfiguredRemoteCommandHostTests+Harness.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDF9EEAA233347858BCF3320 /* SSHConfiguredRemoteCommandHostTests+Harness.swift */; };
 		F6724600A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6724601A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift */; };
 		797800040000000000000001 /* SSHDeepSleepReattachTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 797800040000000000000002 /* SSHDeepSleepReattachTests.swift */; };
@@ -5179,6 +5181,7 @@
 		F11000000000000000000011 /* BrowserPanel+MobileBrowserDialogs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+MobileBrowserDialogs.swift"; sourceTree = "<group>"; };
 		F11000000000000000000001 /* BrowserPanel+MobileBrowserStreaming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+MobileBrowserStreaming.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000000008 /* BrowserPanel+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
+		CFCB2B9C142A00F9503008A1 /* BrowserPanel+PageLoopbackNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+PageLoopbackNavigation.swift"; sourceTree = "<group>"; };
 		F15069A000000000000000B2 /* BrowserPanel+PageRestoration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+PageRestoration.swift"; sourceTree = "<group>"; };
 		C67540060000000000000002 /* BrowserPanel+PDFDocumentActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+PDFDocumentActions.swift"; sourceTree = "<group>"; };
 		B424PWAD000000000000PW02 /* BrowserPanel+PrewarmedWebViewAdoption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+PrewarmedWebViewAdoption.swift"; sourceTree = "<group>"; };
@@ -8043,6 +8046,7 @@
 		A13387000000000000000014 /* SplitPaneGeometryProjectionRenderParityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitPaneGeometryProjectionRenderParityTests.swift; sourceTree = "<group>"; };
 		A13387000000000000000010 /* SplitPaneGeometryProjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitPaneGeometryProjectionTests.swift; sourceTree = "<group>"; };
 		751E2E409D9D8EED12988A80 /* SplitSpaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SplitSpaceTests.swift"; sourceTree = "<group>"; };
+		423E18A9B4C3FEFE5D378A53 /* SSHBrowserPageLoopbackNavigationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SSHBrowserPageLoopbackNavigationTests.swift"; sourceTree = "<group>"; };
 		EDF9EEAA233347858BCF3320 /* SSHConfiguredRemoteCommandHostTests+Harness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SSHConfiguredRemoteCommandHostTests+Harness.swift"; sourceTree = "<group>"; };
 		F6724601A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHConfiguredRemoteCommandHostTests.swift; sourceTree = "<group>"; };
 		797800040000000000000002 /* SSHDeepSleepReattachTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHDeepSleepReattachTests.swift; sourceTree = "<group>"; };
@@ -12158,6 +12162,7 @@
 				43F8CFB1AFABB4807FA907E3 /* GlobalSearchCoordinator+Debug.swift */,
 				565CA2373238733C8485A911 /* SSHTuiLoopbackForwardProcess.swift */,
 				84DE5E1D5D226BE61BDD2979 /* SSHTuiLoopbackListenerLease.swift */,
+				CFCB2B9C142A00F9503008A1 /* BrowserPanel+PageLoopbackNavigation.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -13712,6 +13717,7 @@
 				90DE3B8367240280F25B9F8F /* TerminalPasteWorkerStartupDeadlineTests.swift */,
 				AE9E0374E48A69A913AF07CE /* AgentMessageHookClaimTests.swift */,
 				7BA01C93EAB38BB65F12E12D /* CloudLoopbackOriginTestServer.swift */,
+				423E18A9B4C3FEFE5D378A53 /* SSHBrowserPageLoopbackNavigationTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -14867,6 +14873,7 @@
 				F21000000000000000000011 /* BrowserPanel+MobileBrowserDialogs.swift in Sources */,
 				F21000000000000000000001 /* BrowserPanel+MobileBrowserStreaming.swift in Sources */,
 				D7AB00000000000000000007 /* BrowserPanel+MoveTabToNewWorkspace.swift in Sources */,
+				204A0253E454D3A23B55E834 /* BrowserPanel+PageLoopbackNavigation.swift in Sources */,
 				F15069A000000000000000B1 /* BrowserPanel+PageRestoration.swift in Sources */,
 				C67540060000000000000001 /* BrowserPanel+PDFDocumentActions.swift in Sources */,
 				B424PWAD000000000000PW01 /* BrowserPanel+PrewarmedWebViewAdoption.swift in Sources */,
@@ -18641,6 +18648,7 @@
 				A13387000000000000000013 /* SplitPaneGeometryProjectionRenderParityTests.swift in Sources */,
 				A1338700000000000000000F /* SplitPaneGeometryProjectionTests.swift in Sources */,
 				0928F192E46E73B3D73237D5 /* SplitSpaceTests.swift in Sources */,
+				2C3317659EE07C8F673E81BB /* SSHBrowserPageLoopbackNavigationTests.swift in Sources */,
 				BB778780CAC943B89A7D904E /* SSHConfiguredRemoteCommandHostTests+Harness.swift in Sources */,
 				F6724600A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift in Sources */,
 				797800040000000000000001 /* SSHDeepSleepReattachTests.swift in Sources */,

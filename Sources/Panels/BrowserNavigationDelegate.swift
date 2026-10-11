@@ -384,6 +384,25 @@ import WebKit
             return
         }
 
+        // A remote workspace page's redirect or script navigation to loopback
+        // targets the remote host. Replay it through the panel's remote route.
+        if let url = navigationAction.request.url,
+           let targetFrame = navigationAction.targetFrame,
+           BrowserURLAllowlistPolicy(defaults: .standard).allows(url),
+           let owner {
+            switch owner.pageLoopbackNavigationRoute(to: url, isMainFrame: targetFrame.isMainFrame) {
+            case .allow:
+                break
+            case .remote:
+                decisionHandler(.cancel)
+                requestNavigation?(navigationAction.request, .currentTab, nil)
+                return
+            case .block:
+                decisionHandler(.cancel)
+                return
+            }
+        }
+
         if let url = navigationAction.request.url,
            url.scheme == "cmux-browser-action",
            url.host == "bypass-ssl" {
