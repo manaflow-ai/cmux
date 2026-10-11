@@ -19,6 +19,7 @@ import {
 import { useNt } from "./strings";
 import { screenSections, type ScreenTemplate } from "./templates";
 import { type Translate, useT } from "../i18n";
+import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 export type NewTabScreenActions = {
@@ -392,35 +393,6 @@ function ToolsSection({
   onRunAction?: (id: string) => void;
 }) {
   const t = useT();
-  const [openTool, setOpenTool] = React.useState<string | null>(null);
-  const openMenu = React.useRef<HTMLDivElement>(null);
-  const triggers = React.useRef(new Map<string, HTMLButtonElement>());
-  const menuItems = React.useRef(new Map<string, Array<HTMLButtonElement | null>>());
-  const openAtEnd = React.useRef(false);
-
-  React.useEffect(() => {
-    if (!openTool) return;
-    const dismiss = (event: PointerEvent) => {
-      const target = event.target;
-      if (target instanceof Node && openMenu.current?.contains(target)) return;
-      setOpenTool(null);
-    };
-    document.addEventListener("pointerdown", dismiss);
-    return () => document.removeEventListener("pointerdown", dismiss);
-  }, [openTool]);
-
-  React.useLayoutEffect(() => {
-    if (openTool) {
-      const items = menuItems.current.get(openTool)?.filter(Boolean) as HTMLButtonElement[] | undefined;
-      items?.[openAtEnd.current ? items.length - 1 : 0]?.focus();
-      openAtEnd.current = false;
-    }
-  }, [openTool]);
-
-  const closeMenu = (toolId: string, restoreFocus = false) => {
-    setOpenTool(null);
-    if (restoreFocus) triggers.current.get(toolId)?.focus();
-  };
   if (!tools.length) return null;
 
   return (
@@ -429,7 +401,6 @@ function ToolsSection({
       <div className="nt-tools-grid">
         {tools.map((tool, index) => {
           const menuId = `nt-tool-menu-${index}`;
-          const menuOpen = openTool === tool.id;
           return (
             <div className="nt-tool-card" key={tool.id}>
               <button type="button" className="nt-tool-main" onClick={() => onRunAction?.(tool.id)}>
@@ -440,84 +411,32 @@ function ToolsSection({
                 {tool.shortcut && <kbd>{tool.shortcut}</kbd>}
               </button>
               {tool.menu.length > 0 && (
-                <div className="nt-tool-menu" ref={menuOpen ? openMenu : undefined} data-open={menuOpen || undefined}>
-                  <button
-                    ref={(node) => {
-                      if (node) triggers.current.set(tool.id, node);
-                      else triggers.current.delete(tool.id);
-                    }}
-                    type="button"
-                    aria-label={t("newTabPage.moreOptions")}
-                    aria-haspopup="menu"
-                    aria-expanded={menuOpen}
-                    aria-controls={menuId}
-                    onClick={() => {
-                      openAtEnd.current = false;
-                      setOpenTool((current) => (current === tool.id ? null : tool.id));
-                    }}
-                    onKeyDown={(event) => {
-                      if ((event.key === "ArrowDown" || event.key === "ArrowUp") && !menuOpen) {
-                        event.preventDefault();
-                        openAtEnd.current = event.key === "ArrowUp";
-                        setOpenTool(tool.id);
-                        return;
-                      }
-                      if (event.key === "Escape" && menuOpen) {
-                        event.preventDefault();
-                        closeMenu(tool.id, true);
-                      }
-                    }}
-                  >
-                    …
-                  </button>
-                  <div
-                    className="nt-tool-menu-popover"
-                    id={menuId}
-                    role="menu"
-                    tabIndex={-1}
-                    aria-label={`${toolTitle(t, tool)} ${t("newTabPage.moreOptions")}`}
-                    hidden={!menuOpen}
-                    onKeyDown={(event) => {
-                      if (event.key === "Escape") {
-                        event.preventDefault();
-                        closeMenu(tool.id, true);
-                      }
-                    }}
-                  >
-                    {tool.menu.map((id, itemIndex) => (
-                      <button
-                        type="button"
-                        role="menuitem"
-                        key={id}
-                        ref={(node) => {
-                          const items = menuItems.current.get(tool.id) ?? [];
-                          items[itemIndex] = node;
-                          menuItems.current.set(tool.id, items);
-                        }}
-                        onKeyDown={(event) => {
-                          const items = menuItems.current.get(tool.id)?.filter(Boolean) as
-                            | HTMLButtonElement[]
-                            | undefined;
-                          if (!items?.length) return;
-                          const currentIndex = items.indexOf(event.currentTarget);
-                          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-                            event.preventDefault();
-                            const direction = event.key === "ArrowDown" ? 1 : -1;
-                            items[(currentIndex + direction + items.length) % items.length]?.focus();
-                          } else if (event.key === "Home" || event.key === "End") {
-                            event.preventDefault();
-                            items[event.key === "Home" ? 0 : items.length - 1]?.focus();
-                          }
-                        }}
-                        onClick={() => {
-                          closeMenu(tool.id);
-                          onRunAction?.(id);
-                        }}
-                      >
-                        {toolMenuTitle(t, id)}
-                      </button>
-                    ))}
-                  </div>
+                <div className="nt-tool-menu">
+                  <Menu>
+                    <MenuButton
+                      className="nt-tool-menu-button"
+                      label={t("newTabPage.moreOptions")}
+                      aria-haspopup="menu"
+                    >
+                      …
+                    </MenuButton>
+                    <MenuPopup
+                      id={menuId}
+                      className="nt-tool-menu-popover"
+                      label={`${toolTitle(t, tool)} ${t("newTabPage.moreOptions")}`}
+                      align="end"
+                    >
+                      {tool.menu.map((id) => (
+                        <MenuItem
+                          className="nt-tool-menu-item"
+                          key={id}
+                          onSelect={() => onRunAction?.(id)}
+                        >
+                          {toolMenuTitle(t, id)}
+                        </MenuItem>
+                      ))}
+                    </MenuPopup>
+                  </Menu>
                 </div>
               )}
             </div>

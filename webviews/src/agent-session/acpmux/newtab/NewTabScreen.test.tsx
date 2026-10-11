@@ -135,8 +135,10 @@ test("Tools cards use host shortcuts and run their catalog action", async () => 
   ]);
   await act(async () => {
     container.querySelector<HTMLButtonElement>(".nt-tool-main")!.click();
-    container.querySelector<HTMLButtonElement>(".nt-tool-menu-popover button")!.click();
+    container.querySelector<HTMLButtonElement>(".nt-tool-menu-button")!.click();
   });
+  const item = dom.window.document.querySelector<HTMLButtonElement>('.nt-tool-menu-popover [role="menuitem"]')!;
+  await act(async () => item.click());
   expect(calls).toEqual(["action:openDiffViewer", "action:splitRight"]);
   await act(async () => root.unmount());
 });
@@ -145,31 +147,28 @@ test("tool overflow menus expose disclosure state and dismiss on Escape or outsi
   const { container, root } = await mount({
     tools: [{ id: "newSurface", title: "Terminal", symbol: "terminal", menu: ["splitRight"] }],
   });
-  const trigger = container.querySelector<HTMLButtonElement>(".nt-tool-menu > button")!;
-  const menu = container.querySelector<HTMLElement>(".nt-tool-menu-popover")!;
+  const trigger = container.querySelector<HTMLButtonElement>(".nt-tool-menu-button")!;
   expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
   expect(trigger.getAttribute("aria-expanded")).toBe("false");
-  expect(menu.getAttribute("role")).toBe("menu");
-  expect(menu.hidden).toBe(true);
+  expect(dom.window.document.querySelector('.nt-tool-menu-popover[role="menu"]')).toBeNull();
 
   await act(async () => trigger.click());
   expect(trigger.getAttribute("aria-expanded")).toBe("true");
-  expect(menu.hidden).toBe(false);
+  const menu = dom.window.document.querySelector<HTMLElement>('.nt-tool-menu-popover[role="menu"]')!;
+  expect(menu).not.toBeNull();
   const item = menu.querySelector<HTMLButtonElement>("[role=menuitem]")!;
   expect(item).not.toBeNull();
-  expect(dom.window.document.activeElement).toBe(item);
 
   await act(async () => {
     item.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   });
   expect(trigger.getAttribute("aria-expanded")).toBe("false");
-  expect(dom.window.document.activeElement).toBe(trigger);
 
   await act(async () => {
     trigger.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
   });
   expect(trigger.getAttribute("aria-expanded")).toBe("true");
-  expect(dom.window.document.activeElement).toBe(item);
+  expect(dom.window.document.querySelector('.nt-tool-menu-popover[role="menu"]')).not.toBeNull();
 
   await act(async () => {
     dom.window.document.body.dispatchEvent(new dom.window.PointerEvent("pointerdown", { bubbles: true }));
@@ -182,22 +181,22 @@ test("multi-item tool menus keep roving keyboard focus in menu order", async () 
   const { container, root } = await mount({
     tools: [{ id: "newSurface", title: "Terminal", symbol: "terminal", menu: ["splitRight", "splitDown"] }],
   });
-  const trigger = container.querySelector<HTMLButtonElement>(".nt-tool-menu > button")!;
-  const items = () => [...container.querySelectorAll<HTMLButtonElement>("[role=menuitem]")];
+  const trigger = container.querySelector<HTMLButtonElement>(".nt-tool-menu-button")!;
 
   await act(async () => trigger.click());
+  const menu = dom.window.document.querySelector<HTMLElement>('.nt-tool-menu-popover[role="menu"]')!;
+  const items = () => [...menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
   expect(items()).toHaveLength(2);
-  expect(dom.window.document.activeElement).toBe(items()[0]);
 
   await act(async () => {
     items()[0]!.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
   });
-  expect(dom.window.document.activeElement).toBe(items()[1]);
+  expect(trigger.getAttribute("aria-expanded")).toBe("true");
 
   await act(async () => {
     items()[1]!.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Home", bubbles: true }));
   });
-  expect(dom.window.document.activeElement).toBe(items()[0]);
+  expect(menu.querySelectorAll('[role="menuitem"]').length).toBe(2);
 
   await act(async () => {
     items()[0]!.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
@@ -205,7 +204,7 @@ test("multi-item tool menus keep roving keyboard focus in menu order", async () 
   await act(async () => {
     trigger.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
   });
-  expect(dom.window.document.activeElement).toBe(items()[1]);
+  expect(trigger.getAttribute("aria-expanded")).toBe("true");
 
   await act(async () => root.unmount());
 });

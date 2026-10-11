@@ -87,14 +87,14 @@ export default agentPaneEntry({
       ready: newTab(),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
-        const trigger = { selector: ".nt-tool-menu > button" };
+        const trigger = { selector: ".nt-tool-menu-button" };
         await ctx.click(trigger);
         await ctx.waitFor(() => ctx.document.activeElement?.getAttribute("role") === "menuitem");
         await ctx.press("ArrowDown");
         await ctx.press("End");
         await ctx.press("Home");
         await ctx.press("Escape");
-        await ctx.waitFor(() => ctx.document.querySelector('.nt-tool-menu > button[aria-expanded="false"]'));
+        await ctx.waitFor(() => ctx.document.querySelector('.nt-tool-menu-button[aria-expanded="false"]'));
         await ctx.press("ArrowUp");
         await ctx.waitFor(() => {
           const active = ctx.document.activeElement;
