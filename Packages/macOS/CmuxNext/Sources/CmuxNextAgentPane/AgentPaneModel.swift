@@ -363,10 +363,9 @@ public final class AgentPaneModel {
             }
         case .invalidGit: return Self.gitFailure(.invalidRequest)
         case .githubRepository(let cwd): return AgentPaneReply.success(["repository": (await AgentPaneGitHubRepository.read(at: cwd)).map { $0 as Any } ?? NSNull()])
-        case .turnUndo(let undo): return await respondToTurnUndo(undo)
-        case .invalidTurnUndo: return AgentPaneReply.failure(code: "native.invalid_request", message: Self.turnUndoInvalidMessage)
-        case .gitStage(let request): return await respondToGitStage(request)
-        case .invalidGitStage: return AgentPaneReply.failure(code: "native.invalid_request", message: Self.gitStageInvalidMessage)
+        case .turnUndo(let undo): return await AgentPaneTurnUndo.reply(to: undo, in: self)
+        case .invalidTurnUndo: return await AgentPaneTurnUndo.reply(to: nil, in: self)
+        case .gitStage(let request): return await AgentPaneGitStage.reply(to: request, in: self)
         case .transportOpen:
             guard let connection = pendingConnection else { return Self.transportFailure(.noConnection) }
             pendingConnection = nil

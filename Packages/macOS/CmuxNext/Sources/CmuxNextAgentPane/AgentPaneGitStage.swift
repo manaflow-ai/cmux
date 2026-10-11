@@ -59,7 +59,7 @@ public nonisolated struct AgentPaneGitStage: Equatable, Sendable {
         let canonicalRoots = roots.compactMap(AcpmuxPathPolicy.canonical).filter { $0 != "/" }
         guard let folder = AcpmuxPathPolicy.canonical(request.cwd),
               canonicalRoots.contains(where: { AcpmuxPathPolicy.contains(root: $0, path: folder) }) else {
-            return AgentPaneModel.gitStageOutsideMessage
+            return outsideMessage
         }
         return await AgentPaneGitProcess.run(request.arguments, timeout: timeout)
     }
@@ -116,31 +116,33 @@ nonisolated enum AgentPaneGitProcess {
     }
 }
 
-extension AgentPaneModel {
+extension AgentPaneGitStage {
     /// `git.stage` or `git.unstage` arrived without a real click or key press in the pane.
-    static var gitStageNeedsGestureMessage: String {
+    static var needsGestureMessage: String {
         String(localized: "agentPane.error.gitStageGesture", defaultValue: "Staging needs a click or key press in the pane.",
                bundle: .module)
     }
 
     /// `git.stage` or `git.unstage` whose params break its contract.
-    static var gitStageInvalidMessage: String {
+    static var invalidMessage: String {
         String(localized: "agentPane.error.gitStageInvalid", defaultValue: "The app refused the staging request.", bundle: .module)
     }
 
     /// The repository is outside the pane's folders.
-    nonisolated static var gitStageOutsideMessage: String {
+    static var outsideMessage: String {
         String(localized: "agentPane.error.gitStageOutside", defaultValue: "That folder is outside this chat's folders.",
                bundle: .module)
     }
 
-    /// `git.stage` / `git.unstage`: spends the GRANT credit, then runs git in the chat's folder.
-    func respondToGitStage(_ request: AgentPaneGitStage) async -> [String: Any] {
-        guard transport.gestures.consume() else {
+    /// `git.stage` / `git.unstage` (nil: params that break the contract): spends `model`'s GRANT
+    /// credit, then runs git in the chat's folder.
+    @MainActor static func reply(to request: AgentPaneGitStage?, in model: AgentPaneModel) async -> [String: Any] {
+        guard let request else { return AgentPaneReply.failure(code: "native.invalid_request", message: invalidMessage) }
+        guard model.transport.gestures.consume() else {
             return AgentPaneReply.failure(code: AgentPaneTransportError.gestureRequired.rawValue,
-                                          message: Self.gitStageNeedsGestureMessage, details: nil, retryable: nil, origin: "native")
+                                          message: needsGestureMessage, details: nil, retryable: nil, origin: "native")
         }
-        if let message = await AgentPaneGitStage.run(request, roots: roots() + transport.addedRoots) {
+        if let message = await run(request, roots: model.roots() + model.transport.addedRoots) {
             return AgentPaneReply.failure(code: "git.failed", message: message)
         }
         return AgentPaneReply.success()
