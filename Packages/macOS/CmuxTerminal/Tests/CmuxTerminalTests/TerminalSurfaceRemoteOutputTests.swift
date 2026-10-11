@@ -189,6 +189,14 @@ struct TerminalSurfaceRemoteOutputTests {
         )
         defer { remote.surface!.deallocate() }
         #expect(!remote.allowsAutomaticClipboardWrite)
+        if let callbackContext = remote.surfaceCallbackContext?.takeUnretainedValue() {
+            let sawUserCopyIntent = remote.withUserInitiatedClipboardWriteIntent {
+                callbackContext.hasUserInitiatedClipboardWriteIntent
+            }
+            #expect(sawUserCopyIntent)
+        } else {
+            Issue.record("Remote test surface did not install a callback context")
+        }
 
         let cloud = makeSurface(
             runtimeSurfaceBits: UInt(bitPattern: UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)),
