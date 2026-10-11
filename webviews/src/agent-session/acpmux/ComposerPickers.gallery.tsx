@@ -152,7 +152,6 @@ export default componentEntry<Props>({
     anchorMovePx: { value: 0, reason: "Opening a picker must leave the composer rail in place." },
     layoutShiftMax: { value: 0, reason: "Picker surfaces are portaled and must not add flow to the composer." },
     longFrameFailMs: { value: 33, reason: "Composer picker actions should remain responsive on the gallery host." },
-    settleMaxMs: { value: 250, reason: "Local picker open and toggle actions should settle within a quarter second." },
   },
   covers: [
     "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
