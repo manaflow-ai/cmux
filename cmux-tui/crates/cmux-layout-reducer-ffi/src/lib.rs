@@ -53,6 +53,13 @@ pub extern "C" fn cmux_layout_reducer_ffi_abi_version() -> u32 {
 }
 
 /// Resolves one JSON request. See the checked-in header for the pointer rules.
+///
+/// # Safety
+///
+/// `request` points to `request_len` readable bytes (or is null with length
+/// 0), `operation` is a NUL-terminated C string, `output` points to
+/// `output_capacity` writable bytes (or is null with capacity 0) and
+/// `output_len` is writable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_layout_reducer_json(
     request: *const u8,
