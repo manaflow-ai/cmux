@@ -20,14 +20,20 @@ public nonisolated struct AcpmuxChatsStore: Sendable, Equatable {
     /// The newest `limit` chats, O(limit).
     public func newest(_ limit: Int) -> [AcpmuxChat] { orderedKeys.prefix(max(0, limit)).compactMap { values[$0] } }
 
-    /// Replaces the mirror from a page response. Only the initial page is sorted.
+    /// Replaces the mirror from a page response. acpmux sends the page sorted, newest first:
+    /// its order is kept after one O(n) check (an older daemon's page is sorted here).
     public mutating func reset(_ result: [String: Any]) {
         values.removeAll(keepingCapacity: true)
         orderedKeys.removeAll(keepingCapacity: true)
         for value in result["chats"] as? [[String: Any]] ?? [] {
-            if let chat = AcpmuxChat(json: value) { values[chat.id] = chat }
+            guard let chat = AcpmuxChat(json: value), values.updateValue(chat, forKey: chat.id) == nil else { continue }
+            orderedKeys.append(chat.id)
         }
-        orderedKeys = values.values.sorted(by: Self.isNewer).map(\.id)
+        let sorted = zip(orderedKeys, orderedKeys.dropFirst()).allSatisfy { pair in
+            guard let newer = values[pair.0], let older = values[pair.1] else { return false }
+            return Self.isNewer(newer, older)
+        }
+        if !sorted { orderedKeys = values.values.sorted(by: Self.isNewer).map(\.id) }
     }
 
     /// One decoded `chat_changed` notification (decoded off the main actor).
