@@ -56,7 +56,8 @@ export class UserDO extends OwnerDO<UserState> {
       // The list order index is derived owner data: its writes never reach subscribers.
       engine: { rowMode: { snapshotTable: homeInbox.TABLE_ENTRY, snapshotTail: 0 }, redact: { privateTables: homeInbox.INBOX_PRIVATE_TABLES } },
       owns: (op) => op.startsWith("inbox."),
-      maySubscribe: (_head, principal, entity) => principal.user === entity && !isMachineInstallKind(principal.install_kind) && !(principal.install !== undefined && isMachineInstallKind(this.existing()?.currentState.installs[principal.install]?.kind))
+      // A chief token (principal.agent) never reads the owner's inbox: it holds the owner's DM previews (cx-59n8.11).
+      maySubscribe: (_head, principal, entity) => principal.user === entity && principal.agent === undefined && !isMachineInstallKind(principal.install_kind) && !(principal.install !== undefined && isMachineInstallKind(this.existing()?.currentState.installs[principal.install]?.kind))
     }, (ws, a) => this.socketLive(ws, a))
   }
 
@@ -224,6 +225,8 @@ export class UserDO extends OwnerDO<UserState> {
 
   /** RPC: inbox reads. `inbox.list` pages the entries; `inbox.dm_peer` finds an existing DM with a peer (design Q2). */
   async readInbox(entity: string, principal: Principal, op: string, params: Record<string, unknown>): Promise<ReadResult> {
+    // A chief token never reads the owner's inbox (DM previews); a future chief that needs it gets an explicit grant (cx-59n8.11).
+    if (principal.agent !== undefined) return { ok: false, code: "auth.forbidden", message: "a chief token cannot read the owner's inbox" }
     const refused = this.inboxRefusal(entity, principal, op)
     if (refused) return { ok: false, code: refused.code, message: refused.message }
     return readInboxOp(this.inbox, entity, op, params, () => this.scheduleAlarm())

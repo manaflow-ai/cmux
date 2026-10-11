@@ -49,6 +49,15 @@ final class BrowserDownloadList {
         BrowserToolbarDownloads(count: items.count, inProgress: items.contains { $0.status == .inProgress })
     }
 
+    /// Retry in the Downloads menu: starts `item` again; the new download
+    /// takes its row, as in Chrome. False when it could not start.
+    @discardableResult
+    func retry(_ item: BrowserDownload) -> Bool {
+        guard item.retry() else { return false }
+        items.removeAll { $0 === item }
+        return true
+    }
+
     /// Drops every download that ended (Clear in the Downloads menu); the
     /// files stay where they are.
     func clearEnded() {

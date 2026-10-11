@@ -579,8 +579,8 @@ impl Hub {
             }
         }
         self.reset_stream(session);
-        // Nobody watching: the sidebar dot and `wait --until done` see it.
-        if session.attached.load(Ordering::SeqCst) == 0 {
+        // Nobody showing it: the sidebar dot and `wait --until done` see it.
+        if !self.shown(session) {
             session.meta.lock().unwrap().unread = true;
         }
         if session.status() != SessionStatus::Closed {

@@ -114,7 +114,9 @@
         "CmuxNextSettings"
       ],
       "packages": [],
-      "reads": []
+      "reads": [
+        "scripts/cmux-next/pin-cmux-tui.sh"
+      ]
     },
     "CmuxNextAgentQuestion": {
       "kind": "regular",
@@ -225,7 +227,7 @@
       "reads": [
         "plans/cmux-next/",
         "scripts/cmux-next/pin-cmux-tui.sh",
-        "tests/fixtures/classic-to-next/session-com.cmuxterm.app.json"
+        "tests/fixtures/classic-to-next/"
       ]
     },
     "CmuxNextApps": {

@@ -62,6 +62,8 @@ final class SidebarBridge {
         SidebarWorkspacePins.wire(self)
         container.sidebarView.resourceSource = services.resources
         container.sidebarView.hoverCards = services.hoverCards
+        // The React update surfaces: the staged card's highlights popover and the Updated card (cx-urd.61.2).
+        container.sidebarView.updateSurfaces = UpdateSurfaceIslands(services: services)
         appSections?.releaseAll()
         let sections = SidebarAppSections(apps: services.apps)
         appSections = sections
@@ -88,6 +90,8 @@ final class SidebarBridge {
         sectionsObservation?.cancel()
         appSections?.releaseAll()
         cardsObservation?.cancel()
+        // The update surface pages cancel their subscriptions (cx-urd.61.2).
+        container.sidebarView.updateSurfaces = nil
     }
 
     private func observe() {

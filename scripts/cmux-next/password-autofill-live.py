@@ -1,0 +1,237 @@
+#!/usr/bin/env python3
+"""Live check: Chromium fills a saved sign-in into a login form (cx-d0d.13 groundwork).
+
+  scripts/cmux-next/password-autofill-live.py --tag <tag> [--out DIR] [--app PATH]
+
+A daily Chrome user's first expectation of saved passwords. A throwaway sign-in
+for a local login page is imported as a person does (Import from Another
+Browser…, a passwords CSV). Then:
+  1. a Chromium tab a person opens on that page gets the sign-in filled;
+  2. a Chromium tab an agent opens (the socket's action.run) never does
+     (plans/cmux-next/passwords.md, slice 1).
+Nothing reads the page through the socket, since any automated read marks
+the tab agent-driven and turns filling off: the page reports its own form
+(:autofill on both fields) to the test's local server.
+
+Quits the app through the socket (by PID if it hangs) and stops the tag's daemons at the end.
+"""
+import argparse, glob, http.server, json, os, plistlib, subprocess, sys, tempfile, threading, time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from tag_teardown import TagTeardown  # noqa: E402
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--tag", required=True)
+parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="password-autofill-live-"))
+parser.add_argument("--app", help="tagged .app (default: found in DerivedData)")
+opts = parser.parse_args()
+os.makedirs(opts.out, exist_ok=True)
+
+APP = opts.app or next(iter(sorted(glob.glob(os.path.expanduser(
+    f"~/Library/Developer/Xcode/DerivedData/*/Build/Products/Debug/cmux DEV {opts.tag}.app")))), None)
+if not APP:
+    sys.exit(f"no tagged app for {opts.tag}")
+with open(os.path.join(APP, "Contents/Info.plist"), "rb") as f:
+    BINARY = os.path.join(APP, "Contents/MacOS", plistlib.load(f)["CFBundleExecutable"])
+CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
+SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
+SCRATCH = tempfile.mkdtemp(prefix=f"password-autofill-{opts.tag}-")
+EXPORTS = os.path.join(SCRATCH, "exports")
+CONFIG = os.path.join(SCRATCH, "cmux.json")
+BASE_ENV = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"}
+CLI_ENV = {**BASE_ENV, "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1"}
+failures = []
+# New each run: the test machine keeps the Chromium profile, which would count a repeat as already saved.
+RUN = os.urandom(4).hex()
+USERNAME = f"cmux-fill-{RUN}"
+
+# The login page reports its own form every 200 ms; reports[tab] is the latest.
+reports = {}
+LOGIN_PAGE = """<!doctype html><title>Sign in</title>
+<form method=post action=/done><input id=u name=username autocomplete=username>
+<input id=p name=password type=password autocomplete=current-password><button>Sign in</button></form>
+<script>
+const tab = new URLSearchParams(location.search).get("tab");
+const filled = el => { try { return el.matches(":autofill"); } catch { return el.matches(":-webkit-autofill"); } };
+setInterval(() => {
+  const u = document.getElementById("u"), p = document.getElementById("p");
+  navigator.sendBeacon("/report", JSON.stringify({tab, username: u.value, usernameFilled: filled(u), passwordFilled: filled(p)}));
+}, 200);
+</script>"""
+
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = LOGIN_PAGE.encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_POST(self):
+        data = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        try:
+            report = json.loads(data)
+            reports[report.get("tab")] = report
+        except ValueError:
+            pass
+        self.send_response(204)
+        self.end_headers()
+
+    def log_message(self, *args):
+        pass
+
+
+server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+threading.Thread(target=server.serve_forever, daemon=True).start()
+ORIGIN = f"http://127.0.0.1:{server.server_port}"
+PASSWORDS_CSV = "name,url,username,password,note\n" \
+                f"127.0.0.1,{ORIGIN}/login,{USERNAME},not-a-real-password-{RUN},\n"
+
+
+def check(ok, what):
+    print(("ok   " if ok else "FAIL ") + what, flush=True)
+    if not ok:
+        failures.append(what)
+
+
+def write(path, text):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        f.write(text)
+
+
+def cli(*args, timeout=30):
+    return subprocess.run([CLI, "--app-socket", SOCKET, *args], capture_output=True, text=True, timeout=timeout, env=CLI_ENV)
+
+
+def rpc(method, params=None):
+    try:
+        r = cli("--json", "app", "call", method, json.dumps(params or {}))
+    except subprocess.TimeoutExpired:
+        return {"error": f"{method} timed out"}  # a hung app is a FAIL line, and cleanup still runs
+    try:
+        return json.loads(r.stdout)
+    except ValueError:
+        return {"error": (r.stdout + r.stderr).strip()}
+
+
+def wait_for(predicate, what, seconds=20):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:  # bounded wait for the app's own state
+        value = predicate()
+        if value:
+            return value
+        time.sleep(0.2)
+    check(False, f"timed out: {what}")
+    return None
+
+
+def dialog(identifier):
+    found = [d for d in rpc("debug.dialog").get("dialogs", []) if d.get("identifier") == identifier and d.get("visible", True)]
+    return found[-1] if found else None
+
+
+def key(name, modifiers=None):
+    reply = rpc("debug.key", {"key": name, "modifiers": modifiers or [], "target": "palette"})
+    time.sleep(0.15)  # the palette's search and listing land
+    return reply
+
+
+def type_text(text):
+    for char in text:
+        key(char)
+
+
+def toasts():
+    return [t.get("message", "") for w in rpc("debug.toast").get("windows", []) for t in w.get("toasts", [])]
+
+
+def import_through(browser, filename):
+    """Runs the action, picks `browser`, checks its steps, and picks `filename` in the picker; the steps dialog."""
+    reply = rpc("debug.toast", {"perform": "browser.importFromFiles"})
+    check(reply.get("performed") is True, f"the action runs as a person's palette run ({reply})")
+    shown = wait_for(lambda: dialog("cmux.dialog.importFiles.browser"), f"the browser dialog ({browser})")
+    if not shown:
+        return None
+    rpc("debug.dialog", {"set": {"browser": browser}})
+    rpc("debug.dialog", {"press": "continue"})
+    steps = wait_for(lambda: dialog("cmux.dialog.importFiles.steps"), f"{browser}'s export steps")
+    if not steps:
+        return shown
+    rpc("debug.dialog", {"press": "choose"})
+    time.sleep(0.8)  # the picker's first listing
+    type_text(EXPORTS + "/")
+    report = key("return")
+    print("note: picker folder", {k: report.get(k) for k in ("palette_page", "palette_selected")}, flush=True)
+    type_text(filename.split(".")[0])
+    report = key("forwarddelete")
+    print("note: picker filtered", {k: report.get(k) for k in ("palette_page", "palette_selected")}, flush=True)
+    report = key("return")
+    print("note: picker chose", {k: report.get(k) for k in ("palette_page", "palette_selected", "palette_open")}, flush=True)
+    return shown, steps
+
+
+
+
+def to_workspace():
+    """Leaves a top page (Home shows at first launch; a page has no tabs) for a workspace with a pane."""
+    rpc("action.run", {"action": "workspace.selectFirst"})
+    rpc("action.run", {"action": "newTab", "origin": "script", "focus": True})
+    time.sleep(1)  # the workspace's pane comes up
+
+
+def filled(tab):
+    report = reports.get(tab) or {}
+    # Chromium keeps a filled value from page script until the person
+    # interacts (its password gatekeeper), so the page sees :autofill only.
+    return report if report.get("usernameFilled") and report.get("passwordFilled") else None
+
+
+write(CONFIG, "{}\n")
+write(os.path.join(EXPORTS, "passwords.csv"), PASSWORDS_CSV)
+EMPTY_GHOSTTY = os.path.join(SCRATCH, "ghostty-config")
+write(EMPTY_GHOSTTY, "")
+teardown = TagTeardown(APP)
+teardown.install()
+app = subprocess.Popen([BINARY], env={**BASE_ENV, "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_SCREEN": "last",
+                                      "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": EMPTY_GHOSTTY,
+                                      # A DEV bundle stores passwords under Chromium's mock Keychain key, so the
+                                      # import is off unless the data is throwaway (DEBUG builds only): it is.
+                                      "CMUX_NEXT_PASSWORD_IMPORT_MOCK_KEY": "throwaway"},
+                       stdout=open(os.path.join(opts.out, "app.log"), "w"), stderr=subprocess.STDOUT)
+print(f"app pid {app.pid}, scratch {SCRATCH}, origin {ORIGIN}, out {opts.out}", flush=True)
+try:
+    wait_for(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), "app socket", 120)
+    import_through("chrome", "passwords.csv")
+    summary = wait_for(lambda: next((t for t in toasts() if "Imported:" in t), None), "the passwords toast", 60)
+    check(summary is not None and "Imported: 1." in summary, f"the throwaway sign-in is saved ({summary})")
+
+    to_workspace()
+    reply = rpc("debug.toast", {"perform": "openBrowser.chromium", "arguments": {"url": f"{ORIGIN}/login?tab=person"}})
+    check(reply.get("performed") is True, f"a person opens the login page in a Chromium tab ({reply})")
+    opened = time.monotonic()
+    report = wait_for(lambda: filled("person"), "the person's tab is filled", 30)
+    fill_time = time.monotonic() - opened
+    check(report is not None, f"Chromium fills the saved sign-in in a person's tab ({reports.get('person')})")
+
+    reply = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": f"{ORIGIN}/login?tab=agent"}, "focus": True})
+    print("note: agent open", reply, flush=True)
+    wait_for(lambda: "agent" in reports, "the agent's tab reports", 30)
+    time.sleep(max(3, 2 * fill_time))  # twice as long as the person's tab took to fill
+    agent = reports.get("agent") or {}
+    check("agent" in reports and not agent.get("passwordFilled") and not agent.get("usernameFilled"),
+          f"an agent's Chromium tab is never filled ({agent})")
+finally:
+    rpc("action.run", {"action": "quitEndSessions"})
+    try:
+        app.wait(timeout=20)
+    except subprocess.TimeoutExpired:
+        app.kill()  # the PID launched above, never a pattern
+    teardown.end()
+    server.shutdown()
+
+print(f"{len(failures)} failure(s); artifacts in {opts.out}")
+sys.exit(1 if failures else 0)

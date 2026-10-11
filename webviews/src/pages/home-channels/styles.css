@@ -1022,7 +1022,7 @@ body,
 }
 .hc-thread-more:hover:not(:disabled),
 .hc-thread-more:focus-visible {
-  background: var(--cmux-surface-background, Canvas);
+  background: var(--cmux-surface-token, Canvas);
   color: var(--page-text);
 }
 .hc-thread-heading {

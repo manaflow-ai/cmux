@@ -95,6 +95,28 @@ struct Client {
 }
 
 impl Client {
+    /// Starts this connection's daemon event stream (`subscribe`).
+    fn stream(&mut self) {
+        let reply = self.rpc(json!({"cmd":"subscribe"}));
+        assert_eq!(reply["ok"], true, "{reply}");
+    }
+
+    /// The `cloud-*` events this connection's stream carried before the
+    /// first `tree-changed` (the marker every stream gets, in mux order).
+    fn cloud_events_before_marker(&mut self) -> Vec<Value> {
+        let mut cloud = Vec::new();
+        loop {
+            let mut line = String::new();
+            assert_ne!(self.reader.read_line(&mut line).unwrap(), 0, "the daemon closed");
+            let value: Value = serde_json::from_str(&line).unwrap();
+            match value["event"].as_str() {
+                Some("tree-changed") => return cloud,
+                Some(name) if name.starts_with("cloud-") => cloud.push(value),
+                _ => {}
+            }
+        }
+    }
+
     /// One request with a fresh id; event lines and other ids are skipped.
     fn rpc(&mut self, request: Value) -> Value {
         let id = self.next;
@@ -223,4 +245,125 @@ fn cloud_lease_only_the_verified_app_sets_clears_and_speaks_as_the_user() {
     // The app clears its own lease.
     let cleared = app.rpc(json!({"cmd":"cloud-session-clear"}));
     assert_eq!(cleared["data"], json!({"state":"signed_out"}), "{cleared}");
+}
+
+#[test]
+fn cloud_lease_other_connections_cannot_use_the_apps_lease() {
+    let daemon = Daemon::start("use");
+    let cloud = FakeCloud::start();
+    let mut app = daemon.app();
+    let mut plain = daemon.plain();
+    let conv = "conv_0123456789ABCDEFGHJKMNPQRS";
+
+    assert_eq!(app.rpc(set(&cloud.base, "app.jwt"))["ok"], true);
+    for request in [
+        json!({"cmd":"cloud-inbox-list"}),
+        json!({"cmd":"cloud-conversation-snapshot","conversation":conv,"tail":5}),
+        json!({"cmd":"cloud-conversation-history","conversation":conv,"before_seq":9,"limit":5}),
+        json!({"cmd":"cloud-conversation-thread","conversation":conv,"root":"msg_00000000000000000000000001"}),
+        json!({"cmd":"cloud-conversation-op","conversation":conv,"idempotency_key":"k","origin":"cli",
+               "op":{"kind":"title.set","title":"t"}}),
+        json!({"cmd":"cloud-inbox-subscribe"}),
+        json!({"cmd":"cloud-conversation-subscribe","conversation":conv}),
+        json!({"cmd":"cloud-mux-subscribe"}),
+        json!({"cmd":"cloud-mux-ack","conversation":conv,"seq":1}),
+    ] {
+        assert_forbidden(&plain.rpc(request.clone()), &request.to_string());
+    }
+    assert!(cloud.bodies().is_empty(), "a refused command reaches no cloud: {:?}", cloud.bodies());
+
+    // Status and the unsubscribes stay open: they use no lease.
+    let status = plain.rpc(json!({"cmd":"cloud-session-status"}));
+    assert_eq!(status["data"]["state"], "active", "{status}");
+    for request in [
+        json!({"cmd":"cloud-inbox-unsubscribe"}),
+        json!({"cmd":"cloud-conversation-unsubscribe","conversation":conv}),
+        json!({"cmd":"cloud-mux-unsubscribe"}),
+    ] {
+        let reply = plain.rpc(request.clone());
+        assert_eq!(reply["ok"], true, "{request}: {reply}");
+    }
+
+    // Once the app signs out, the lease is no longer the app's.
+    assert_eq!(app.rpc(json!({"cmd":"cloud-session-clear"}))["ok"], true);
+    let signed_out = plain.rpc(json!({"cmd":"cloud-inbox-list"}));
+    assert_eq!(signed_out["error_code"], "cloud_signed_out", "{signed_out}");
+}
+
+/// One `tree-changed` on every stream, after everything emitted before it.
+fn marker(daemon: &Daemon) {
+    let reply = daemon.plain().rpc(json!({"cmd":"new-workspace"}));
+    assert_eq!(reply["ok"], true, "{reply}");
+}
+
+#[test]
+fn cloud_events_of_the_apps_lease_reach_only_the_app() {
+    // With the app's lease, a cloud event never reaches another connection's
+    // event stream (an agent in a pane cannot read the human's DMs live).
+    let daemon = Daemon::start("fanout");
+    let cloud = FakeCloud::start();
+    let mut app = daemon.app();
+    let mut plain = daemon.plain();
+    app.stream();
+    plain.stream();
+    assert_eq!(app.rpc(set(&cloud.base, "app.jwt"))["ok"], true);
+    assert_eq!(app.rpc(json!({"cmd":"cloud-inbox-subscribe"}))["ok"], true);
+    marker(&daemon);
+    assert!(!app.cloud_events_before_marker().is_empty(), "the app gets its events");
+    let leaked = plain.cloud_events_before_marker();
+    assert!(leaked.is_empty(), "a plain connection got the app's cloud events: {leaked:?}");
+}
+
+#[test]
+fn cloud_lease_another_clients_lease_is_never_the_apps_and_names_a_known_origin() {
+    let daemon = Daemon::start("origin");
+    let cloud = FakeCloud::start();
+    let mut plain = daemon.plain();
+
+    // Without the app, a lease must name a known cmux Cloud origin (or loopback).
+    let unknown = plain.rpc(set("https://attacker.example", "other.jwt"));
+    assert_eq!(unknown["ok"], false, "{unknown}");
+    assert_eq!(unknown["reason"], "unknown_api_origin", "{unknown}");
+    assert_eq!(plain.rpc(set("https://cloud-api-staging.cmux.dev", "other.jwt"))["ok"], true);
+    assert_eq!(plain.rpc(set(&cloud.base, "other.jwt"))["ok"], true);
+
+    // The app never uses a lease that another client set: it is signed out
+    // until it leases its own session.
+    let mut app = daemon.app();
+    let status = app.rpc(json!({"cmd":"cloud-session-status"}));
+    assert_eq!(status["data"]["state"], "signed_out", "{status}");
+    let refused = app.rpc(json!({"cmd":"cloud-inbox-list"}));
+    assert_eq!(refused["error_code"], "cloud_signed_out", "{refused}");
+    assert!(
+        cloud.bodies().is_empty(),
+        "the app's request used the other lease: {:?}",
+        cloud.bodies()
+    );
+
+    assert_eq!(app.rpc(set(&cloud.base, "app.jwt"))["ok"], true);
+    let status = app.rpc(json!({"cmd":"cloud-session-status"}));
+    assert_eq!(status["data"]["state"], "active", "{status}");
+}
+
+/// cx-59n8.17: the brain's `cloud-mux-ack` (optchat-chief brain/mux_ack.rs)
+/// must reach the Worker as a valid op. The Worker's `origin` schema takes
+/// only user, cli, mcp, script and remote (backend protocol schemas.ts), so
+/// an ack sent with `origin: "agent"` was refused before the op ran.
+#[test]
+fn cloud_mux_ack_reaches_the_cloud_with_a_valid_origin() {
+    const VALID: [&str; 5] = ["user", "cli", "mcp", "script", "remote"];
+    let daemon = Daemon::start("muxack");
+    let cloud = FakeCloud::start();
+    // A headless brain's daemon: no app lease, the chief token (JWT `agt`) leased by the brain's connection.
+    let mut brain = daemon.plain();
+    let chief_token = "e30.eyJzdWIiOiJ1c2VyXzEiLCJhZ3QiOiJhZ2VudF9sZWFzZTEifQ.sig";
+    assert_eq!(brain.rpc(set(&cloud.base, chief_token))["ok"], true);
+    let conv = "conv_0123456789ABCDEFGHJKMNPQRS";
+    brain.rpc(json!({"cmd":"cloud-mux-ack","conversation":conv,"seq":3}));
+    let bodies = cloud.bodies();
+    assert_eq!(bodies.len(), 1, "{bodies:?}");
+    assert_eq!(bodies[0]["op"], "mux.ack", "{bodies:?}");
+    assert_eq!(bodies[0]["params"], json!({"agent":"agent_lease1","conversation":conv,"seq":3}));
+    let origin = bodies[0].get("origin").and_then(Value::as_str);
+    assert!(origin.is_none_or(|o| VALID.contains(&o)), "invalid origin {origin:?} for mux.ack");
 }
