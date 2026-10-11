@@ -20,12 +20,17 @@ nonisolated enum AcpmuxPathPolicy {
         public var method: String?
         /// The canonical path that is outside every root (the host may offer to add it).
         public var outsidePath: String? = nil
+        /// Whether ``outsidePath`` is the user's home folder or above it: never a root by a plain
+        /// click (cx-nn3e); the pane asks about it first (`workspace.useFolder`).
+        public var outsideIsHomeOrAbove = false
 
-        public init(error: AgentPaneTransportError, requestID: String?, method: String?, outsidePath: String? = nil) {
+        public init(error: AgentPaneTransportError, requestID: String?, method: String?, outsidePath: String? = nil,
+                    outsideIsHomeOrAbove: Bool = false) {
             self.error = error
             self.requestID = requestID
             self.method = method
             self.outsidePath = outsidePath
+            self.outsideIsHomeOrAbove = outsideIsHomeOrAbove
         }
 
         public static func == (lhs: Refusal, rhs: Refusal) -> Bool {
@@ -90,11 +95,15 @@ nonisolated enum AcpmuxPathPolicy {
         let id = object["id"].flatMap(AcpmuxPaneMethods.rawID)
         let userHome = scope.home.flatMap(canonical)
         let homeOrAbove = { (path: String) in path == "/" || userHome.map { contains(root: path, path: $0) } == true }
+        // The home folder is a root only when the user granted it (`workspace.useFolder`), and
+        // nothing above it ever is: not from the host's roots, not from the New Tab page's open
+        // folders (a terminal at `~` lists `~` there), not from a grant (cx-nn3e).
         var context = Context(roots: scope.roots.compactMap(canonical).filter { !homeOrAbove($0) }
-                                  + scope.granted.compactMap(canonical).filter { $0 != "/" },
-                              gestureRoots: scope.gestureRoots.compactMap(canonical).filter { $0 != "/" })
+                                  + scope.granted.compactMap(canonical).filter { $0 == userHome || !homeOrAbove($0) },
+                              gestureRoots: scope.gestureRoots.compactMap(canonical).filter { !homeOrAbove($0) },
+                              home: userHome)
         // The agent-home folder is a root once it exists (a running chat may still name it).
-        if let fill = scope.agentHome, let path = fill.home.path(for: fill.workspace), canonical(path) == path {
+        if let fill = scope.agentHome, let path = fill.home.path(for: fill.workspace), canonical(path) == path, !homeOrAbove(path) {
             context.roots.append(path)
         }
         var params = object["params"]
@@ -131,7 +140,8 @@ nonisolated enum AcpmuxPathPolicy {
         do {
             checked = try rewrite(params, context: &context)
         } catch let refusal as Refusal {
-            return .failure(Refusal(error: refusal.error, requestID: id, method: method, outsidePath: refusal.outsidePath))
+            return .failure(Refusal(error: refusal.error, requestID: id, method: method, outsidePath: refusal.outsidePath,
+                                    outsideIsHomeOrAbove: refusal.outsideIsHomeOrAbove))
         } catch {
             return .failure(Refusal(error: .invalidFrame, requestID: id, method: method))
         }
@@ -147,6 +157,8 @@ nonisolated enum AcpmuxPathPolicy {
     struct Context {
         var roots: [String]
         var gestureRoots: [String]
+        /// The user's canonical home folder, if any.
+        var home: String? = nil
         var changed = false
         var used: Set<String> = []
     }
@@ -179,7 +191,8 @@ nonisolated enum AcpmuxPathPolicy {
             context.used.insert(root)
             return resolved
         }
-        throw Refusal(error: .pathOutsideRoots, requestID: nil, method: nil, outsidePath: resolved)
+        let homeOrAbove = resolved == "/" || context.home.map { contains(root: resolved, path: $0) } == true
+        throw Refusal(error: .pathOutsideRoots, requestID: nil, method: nil, outsidePath: resolved, outsideIsHomeOrAbove: homeOrAbove)
     }
 
     /// Whether a page frame needs the disk check: it names a folder field at any depth, or it is a
