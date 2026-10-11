@@ -389,6 +389,23 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-quick-keys{flex:none;display:flex;align-items:center;gap:6px;padding:4px 10px 6px;color:var(--agent-muted);font-size:11px;line-height:16px;white-space:nowrap;overflow:hidden}
 .acpmux-quick-key{display:inline-flex;align-items:center}
 .acpmux-quick-key .acpmux-keycap{margin-right:4px}
+/* Start Agent's floating chat (cx-b9qi): a header with the chat's title and controls, or, folded, one compact bar.
+   The panel's top 12px is its drag grip, so the header leaves that much above its row. */
+.acpmux-floating-header{flex:none;display:flex;align-items:center;gap:2px;min-height:28px;padding:12px 8px 2px 12px;border-bottom:0.5px solid var(--agent-border)}
+.acpmux-floating-title{flex:0 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:var(--text-control);font-weight:600;color:var(--agent-text)}
+.acpmux-floating-header .acpmux-floating-title{flex:1 1 auto}
+.acpmux-floating-status{flex:none;width:6px;height:6px;margin-inline-end:6px;border-radius:50%;background:var(--agent-muted)}
+.acpmux-floating-status[data-status=streaming]{background:var(--agent-accent);animation:acpmux-floating-breathe 1.4s var(--agent-ease-out,ease-out) infinite alternate}
+.acpmux-floating-status[data-status=attention]{background:var(--agent-warning)}
+@keyframes acpmux-floating-breathe{from{opacity:1}to{opacity:.35}}
+@media (prefers-reduced-motion:reduce){.acpmux-floating-status[data-status=streaming]{animation:none}}
+.acpmux-quick[data-floating=compact]{justify-content:center}
+.acpmux-floating-bar{display:flex;align-items:center;gap:4px;height:100%;box-sizing:border-box;padding:12px 8px 0 4px}
+.acpmux-floating-bar-open{flex:1;min-width:0;display:flex;align-items:center;gap:8px;height:32px;padding:0 8px;border:0;border-radius:6px;background:none;color:inherit;font:inherit;text-align:start;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+.acpmux-floating-bar-open:hover{background:color-mix(in srgb,currentColor 8%,transparent)}
+.acpmux-floating-bar-open:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1px}
+.acpmux-floating-bar-open .acpmux-floating-status{margin-inline-end:0}
+.acpmux-floating-line{flex:1 1 0;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--agent-muted);font-size:var(--text-detail)}
 .acpmux-link-missing{margin:8px 24px;color:var(--agent-text);font-size:12px}
 .acpmux-live-chat p{margin:0}
 .acpmux-live-chat-command{display:block;margin:4px 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:11px var(--font-mono);color:var(--agent-muted)}

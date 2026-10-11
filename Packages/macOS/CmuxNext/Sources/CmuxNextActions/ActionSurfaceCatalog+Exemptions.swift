@@ -47,7 +47,7 @@ nonisolated extension ActionSurfaceCatalog {
         "pane.toggleTabBar",
         "newTab.default", "newTab.page", "newTab.submit", "newSurface", "openBrowser", "openBrowser.webkit",
         "openBrowser.chromium", "closeOtherTabsInPane", "closeTabsToLeft", "closeTabsToRight",
-        "renameTab", "palette.clearTabName",
+        "renameTab", "palette.clearTabName", "tab.restart",
         "moveSurfaceLeft", "moveSurfaceRight", "moveSurfaceToPreviousPane", "moveSurfaceToNextPane",
         "moveSurfaceToPaneLeft", "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "moveSurfaceToPaneDown",
         "palette.moveTabToNewWorkspace", "palette.toggleTabPin", "palette.toggleTabUnread", "duplicateTab",

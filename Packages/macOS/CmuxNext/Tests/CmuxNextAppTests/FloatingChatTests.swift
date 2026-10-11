@@ -17,6 +17,8 @@ struct FloatingChatTests {
         var onResignKey: (() -> Void)?
         var onCancel: (() -> Void)?
         var held: [Bool] = []
+        var onTop = true
+        var collapsed = false
 
         func present(_ content: NSView, focus: NSView?) {
             isVisible = true
@@ -29,6 +31,8 @@ struct FloatingChatTests {
         }
 
         func holdChat(_ holds: Bool) { held.append(holds) }
+        func setOnTop(_ onTop: Bool) { self.onTop = onTop }
+        func setCollapsed(_ collapsed: Bool) { self.collapsed = collapsed }
 
         /// A click in another window or app.
         func loseKeys() {
@@ -45,6 +49,8 @@ struct FloatingChatTests {
         let window = FakeWindow()
         var handedOff: [String] = []
         var opened: [String?] = []
+        /// The floating states pushed to the page, in order.
+        var pushed: [AgentPaneFloatingState] = []
         var controller: QuickComposerController?
     }
 
@@ -64,7 +70,8 @@ struct FloatingChatTests {
                 rig.handedOff.append(start.sessionId)
                 return true
             },
-            floating: { floating })
+            floating: { floating },
+            pushState: { state, _ in rig.pushed.append(state) })
         rig.controller = controller
         return (rig, controller)
     }
@@ -163,5 +170,58 @@ struct FloatingChatTests {
         let small = CGRect(x: 0, y: 0, width: 1280, height: 720)
         #expect(FloatingChatFrames.placement(saved: again.frame(onDisplay: "1"), near: composer, in: small)
             == CGRect(x: 900, y: 0, width: 380, height: 720))
+    }
+
+    static func request(_ method: String, _ params: [String: Any]) -> AgentPaneRequest {
+        AgentPaneRequest(body: ["method": method, "params": params])
+    }
+
+    @Test func theFloatingChatsKeepOnTopAndCompactBarFollowThePageAndComeBackToIt() async throws {
+        let (rig, controller) = try Self.rig(floating: true)
+        controller.show()
+        let chat = try #require(controller.chat)
+        _ = await chat.model.respond(to: Self.started("session-5"))
+        #expect(rig.pushed.last == AgentPaneFloatingState(holding: true, onTop: true, collapsed: false),
+                "the page was not told it holds a running chat")
+
+        let onTop = await chat.model.respond(to: Self.request("quick.setOnTop", ["onTop": false]))
+        #expect(onTop["ok"] as? Bool == true)
+        #expect(!rig.window.onTop, "the panel still floats over other windows")
+        #expect(rig.pushed.last == AgentPaneFloatingState(holding: true, onTop: false, collapsed: false))
+
+        _ = await chat.model.respond(to: Self.request("quick.setCollapsed", ["collapsed": true]))
+        #expect(rig.window.collapsed, "the panel did not fold to its compact bar")
+        #expect(rig.pushed.last == AgentPaneFloatingState(holding: true, onTop: false, collapsed: true))
+        // A click elsewhere leaves the compact bar up, like the open chat.
+        rig.window.loseKeys()
+        #expect(rig.window.isVisible)
+
+        _ = await chat.model.respond(to: Self.request("quick.setCollapsed", ["collapsed": false]))
+        #expect(!rig.window.collapsed)
+        #expect(rig.pushed.last == AgentPaneFloatingState(holding: true, onTop: false, collapsed: false))
+    }
+
+    @Test func aDraftIgnoresTheCompactBarAndMovingToATabOpensThePanelAgain() async throws {
+        let (rig, controller) = try Self.rig(floating: true)
+        controller.show()
+        let draft = try #require(controller.chat)
+        // Before the chat starts there is nothing to fold or keep up.
+        _ = await draft.model.respond(to: Self.request("quick.setCollapsed", ["collapsed": true]))
+        #expect(!rig.window.collapsed)
+        #expect(rig.pushed.isEmpty)
+
+        _ = await draft.model.respond(to: Self.started("session-6"))
+        _ = await draft.model.respond(to: Self.request("quick.setOnTop", ["onTop": false]))
+        _ = await draft.model.respond(to: Self.request("quick.setCollapsed", ["collapsed": true]))
+        _ = await draft.model.respond(to: Self.request("quick.openInWindow", ["sessionId": "session-6"]))
+        #expect(rig.opened == ["session-6"])
+        #expect(!rig.window.collapsed, "the next composer would open folded")
+
+        // The next floating chat opens unfolded and keeps the keep-on-top choice.
+        controller.show()
+        let next = try #require(controller.chat)
+        _ = await next.model.respond(to: Self.started("session-7"))
+        #expect(rig.pushed.last == AgentPaneFloatingState(holding: true, onTop: false, collapsed: false))
+        #expect(!rig.window.onTop)
     }
 }

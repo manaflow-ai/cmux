@@ -30,6 +30,11 @@ final class QuickComposerController {
     /// The floating chat holds a started chat: it stays in the panel, which
     /// no longer hides on a click elsewhere.
     private(set) var holdsChat = false
+    /// What the floating chat's page draws around its chat. Keep-on-top
+    /// stays as chosen for the next floating chat.
+    private(set) var floatingState = AgentPaneFloatingState()
+    /// Sends the floating chat's state to its page (`AgentPaneFloatingState.push`).
+    private let pushState: (AgentPaneFloatingState, AgentPaneView) -> Void
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.quickComposer")
 
     init(
@@ -37,13 +42,15 @@ final class QuickComposerController {
         makeWindow: @escaping () -> any QuickComposerWindow,
         openInWindow: @escaping (String?) -> Bool,
         startInBackground: @escaping @MainActor (AgentPaneQuickStart) async -> Bool,
-        floating: @escaping () -> Bool = { QuickComposerTunables.floatingChat.value }
+        floating: @escaping () -> Bool = { QuickComposerTunables.floatingChat.value },
+        pushState: @escaping (AgentPaneFloatingState, AgentPaneView) -> Void = { AgentPaneFloatingState.push($0, to: $1) }
     ) {
         self.makeChat = makeChat
         self.makeWindow = makeWindow
         self.openInWindow = openInWindow
         self.startInBackground = startInBackground
         self.floating = floating
+        self.pushState = pushState
     }
 
     var isShown: Bool { window?.isVisible == true }
@@ -103,13 +110,38 @@ final class QuickComposerController {
     private func holdChat() {
         guard !holdsChat else { return }
         holdsChat = true
+        floatingState.holding = true
         window?.holdChat(true)
+        window?.setOnTop(floatingState.onTop)
+        pushFloatingState()
+    }
+
+    /// The page's keep-on-top button or key: only a held chat floats or not.
+    func setOnTop(_ onTop: Bool) {
+        guard holdsChat else { return }
+        floatingState.onTop = onTop
+        window?.setOnTop(onTop)
+        pushFloatingState()
+    }
+
+    /// The page's compact bar button or key: only a held chat folds.
+    func setCollapsed(_ collapsed: Bool) {
+        guard holdsChat else { return }
+        floatingState.collapsed = collapsed
+        window?.setCollapsed(collapsed)
+        pushFloatingState()
+    }
+
+    private func pushFloatingState() {
+        if let chat { pushState(floatingState, chat) }
     }
 
     /// Lets go of the handed-off chat; the next show makes a new one.
     private func releaseChat() {
         if holdsChat {
             holdsChat = false
+            if floatingState.collapsed { window?.setCollapsed(false) }
+            floatingState = AgentPaneFloatingState(onTop: floatingState.onTop)
             window?.holdChat(false)
         }
         guard let used = chat else { return }
@@ -121,9 +153,12 @@ final class QuickComposerController {
 
     private func adoptNewChat() -> AgentPaneView? {
         guard let chat = makeChat() else { return nil }
-        chat.model.onQuickDismiss = { [weak self] in self?.hide() }
-        chat.model.onQuickOpenInWindow = { [weak self] session in self?.openChatInWindow(session: session) }
-        chat.model.onQuickStartInBackground = { [weak self] start in await self?.startChatInBackground(start) }
+        chat.model.quick = AgentPaneQuickHooks(
+            dismiss: { [weak self] in self?.hide() },
+            openInWindow: { [weak self] session in self?.openChatInWindow(session: session) },
+            startInBackground: { [weak self] start in await self?.startChatInBackground(start) },
+            setOnTop: { [weak self] onTop in self?.setOnTop(onTop) },
+            setCollapsed: { [weak self] collapsed in self?.setCollapsed(collapsed) })
         self.chat = chat
         return chat
     }
