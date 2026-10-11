@@ -62,6 +62,17 @@ const keyboard: Play = async (ctx) => {
     () => ctx.document.querySelector('[data-testid="context-menu-gallery-receipt"]')?.textContent === "Renamed",
   );
   await ctx.waitFor(() => !ctx.document.querySelector('[role="menu"]'));
+  await ctx.waitFor(() => ctx.document.activeElement === ctx.find({ testId: "context-target" }));
+};
+
+const pointerFocus: Play = async (ctx) => {
+  await open(ctx);
+  await ctx.click({ role: "menuitem", name: "Open" });
+  await ctx.waitFor(
+    () => ctx.document.querySelector('[data-testid="context-menu-gallery-receipt"]')?.textContent === "Opened",
+  );
+  await ctx.waitFor(() => !ctx.document.querySelector('[role="menu"]'));
+  await ctx.waitFor(() => ctx.document.activeElement === ctx.find({ testId: "context-target" }));
 };
 
 const escapeFocus: Play = async (ctx) => {
@@ -134,6 +145,7 @@ export default componentEntry<Props>({
     closed: { props: {} },
     open: { props: {}, play: open },
     keyboard: { props: {}, play: keyboard },
+    "pointer-focus": { props: {}, play: pointerFocus },
     "escape-focus": { props: {}, play: escapeFocus },
     "selection-menu": { props: { selection: "menu" }, play: selectionMenu },
     "selection-native": {

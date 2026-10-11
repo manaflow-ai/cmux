@@ -193,9 +193,9 @@ extension AgentTabStore {
                     guard let services, let link else { return .failed("") }
                     return await services.ssh.restartWithApprovals(link)
                 }
-            } else if let cloud = services.machines.session(daemon.machineID), cloud.link != nil {
-                // cx-psxg: a Cloud machine on the /api/vm link; the Cloud service's keyed start.
-                // A machine on the Cloud app server link gets it later (cx-kvmz).
+            } else if let cloud = services.machines.session(daemon.machineID), cloud.link != nil || cloud.appLink != nil {
+                // cx-psxg: a Cloud machine on the /api/vm link, through the web Cloud service; cx-kvmz:
+                // one on the Cloud app server link, through the API Worker with the person's session.
                 host.approvals = AgentPaneRemoteApprovals(machineID: cloud.machineID, label: cloud.machine.title) { [weak services, weak cloud] in
                     guard let services, let cloud else { return .failed("") }
                     return await services.cloud.restartWithApprovals(cloud)

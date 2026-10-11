@@ -741,8 +741,8 @@ pub struct WorkspaceRegistry {
     resource_projection_stats: std::sync::Arc<crate::diagnostics::ResourceProjectionStats>,
     #[cfg(test)]
     resource_patch_failures_remaining: Cell<u64>,
-    _lease: Option<SessionLease>,
-    _session_guard: Option<SessionLease>,
+    pub(crate) lease: Option<SessionLease>,
+    pub(crate) session_guard: Option<SessionLease>,
 }
 
 fn persistent_session_state_dir(root: &Path, session_name: &str) -> PathBuf {
@@ -2826,8 +2826,8 @@ impl WorkspaceRegistry {
             resource_projection_stats: std::sync::Arc::default(),
             #[cfg(test)]
             resource_patch_failures_remaining: Cell::new(0),
-            _session_guard: session_guard,
-            _lease: lease,
+            session_guard,
+            lease,
         })
     }
 
@@ -5232,7 +5232,7 @@ pub(crate) fn is_canonical_workspace_key(value: &str) -> bool {
         })
 }
 
-struct SessionLease {
+pub(crate) struct SessionLease {
     file: File,
     path: PathBuf,
     coordinator_waiter_dir: Option<PathBuf>,

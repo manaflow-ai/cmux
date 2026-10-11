@@ -15,12 +15,15 @@ import Testing
     static let me = ParticipantID("user_me")
     static let them = ParticipantID("agent_chief")
     static let id = ConversationID("conv_harness")
-    static let end = 8.4
+    static let end = 9.2
     static let transitions: [(t: Double, name: String)] = [
         (0.50, "send (2 lines, morph)"), (1.60, "delivered"), (2.60, "delivered -> read"), (3.20, "typing indicator"),
         (4.40, "received message"), (5.60, "external insert (mine, from the CLI)"), (6.80, "tapback"), (7.20, "received message 2"),
+        (8.20, "send (1 line, morph)"),
     ]
     static let draft = "How are you doing?\nSome multiline text..."
+    /// A 1-line draft: its send morph uses bubble.width.oneLine and bubble.right.oneLine (MessagesLab dbc3106).
+    static let oneLine = "Sounds good."
 
     static func date(_ t: Double) -> Date { Replay.base.addingTimeInterval(t) }
 
@@ -118,6 +121,8 @@ import Testing
             (5.60, { $0.dispatch(.receive(lab("ext", me, "Sent from the cmux CLI", at: 5.6, status: .delivered(at: Instant.format(date(5.6)))))) }),
             (6.80, { $0.dispatch(.react(PartRef(messageId: sent, partIndex: 0), .tapback("love"), by: them.rawValue)) }),
             (7.20, { $0.dispatch(.receive(lab("h34", them, "Got both.", at: 7.2))) }),
+            (7.80, { $0.dispatch(.setDraft(oneLine)) }),
+            (8.20, { $0.dispatch(.send) }),
         ])
     }
 
@@ -131,6 +136,7 @@ import Testing
         var sum = summary(lastSeq: 30)
         var typing: Set<ParticipantID> = []
         let key = IdempotencyKey("cmk_harness_send")
+        let key2 = IdempotencyKey("cmk_harness_send_one_line")
         func push(_ s: Store) {
             let d = core.step(items: items, summary: sum)
             precondition(!d.rebuild, "the script never rebuilds")
@@ -152,6 +158,11 @@ import Testing
             (6.80, { s in mine.reactions = [CmuxHomeCore.Reaction(author: them, partIndex: 0, kind: .tapback(.love))]
                 items[30] = mine; push(s) }),
             (7.20, { s in items.append(item(34, them, "Got both.", at: 7.2)); push(s) }),
+            (7.80, { $0.dispatch(.setDraft(oneLine)) }),
+            // HomeProjection.send again: `.send` at the press, the alias, then HomeStore's pending item.
+            (8.20, { s in s.dispatch(.send); _ = core.recordSend(key2, in: s.state) }),
+            (8.201, { s in items.append(TranscriptItem(key: key2, seq: nil, author: me, parts: [.text(oneLine)], createdAt: date(8.2),
+                                                         delivery: .sending)); push(s) }),
         ])
     }
 
@@ -194,6 +205,39 @@ import Testing
         // pooled cell's leftover geometry follows the recycler's pool order).
         let differing = zip(a.frames, b.frames).enumerated().filter { !Self.sameVisible($0.element.0, $0.element.1) }.map(\.offset)
         #expect(differing.isEmpty, "presented layer trees differ at ticks \(differing.prefix(10))")
+    }
+
+    /// The Home path's typing bubble and Delivered -> Read motion against a recorded golden
+    /// (Golden/home-motion.ndjson: the committed animations of the delivered, read and typing
+    /// transitions, MessagesLab's motion-gate rows row[receipt:...] from 1.6 s and row[typing]
+    /// from 3.2 s; and the 1-line send's morph from 8.2 s, MessagesLab's local-2/local-3 rows with
+    /// bubble.width.oneLine and bubble.right.oneLine). The test above compares Home with MessagesLab on the same vendored code, so
+    /// a new pin that changes this motion keeps it green; this one fails until the golden is
+    /// recorded again on purpose (HOME_HARNESS_WRITE_GOLDEN=1, named in the pin's commit).
+    /// Recorded with the harness host's OS (scripts/cmux-next/home-messageslab-harness.sh).
+    static let motionTransitions = ["delivered", "delivered -> read", "typing indicator", "send (1 line, morph)"]
+
+    @Test func theHomePathKeepsItsTypingAndReceiptMotion() throws {
+        let b = Self.home()
+        let lines = Self.motionTransitions.compactMap { name in
+            Self.transitions.firstIndex { $0.name == name }.flatMap { b.animations[checked: $0] }
+        }
+        #expect(lines.count == Self.motionTransitions.count)
+        let golden = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Golden/home-motion.ndjson")
+        let now = lines.joined(separator: "\n") + "\n"
+        if ProcessInfo.processInfo.environment["HOME_HARNESS_WRITE_GOLDEN"] == "1" {
+            try FileManager.default.createDirectory(at: golden.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try now.write(to: golden, atomically: true, encoding: .utf8)
+            return
+        }
+        let recorded = try String(contentsOf: golden, encoding: .utf8)
+        if let dir = ProcessInfo.processInfo.environment["HOME_HARNESS_OUT"] {
+            try now.write(toFile: dir + "/home-motion.ndjson", atomically: true, encoding: .utf8)
+        }
+        for (i, name) in Self.motionTransitions.enumerated() {
+            let want = recorded.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)[checked: i]
+            #expect(lines[checked: i] == want, "the Home motion of \(name) differs from Golden/home-motion.ndjson")
+        }
     }
 }
 

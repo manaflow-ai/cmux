@@ -52,14 +52,10 @@ public struct StatusMapping {
         return records.contains { ($0.updatedAtMs ?? .max) >= agent.updatedAtMs }
     }
 
-    /// The turn state still to show: a completed turn the user has seen is
-    /// nothing (client seen state, like an OSC 7501 done).
+    /// The turn state still to show. acpmux owns what the person has seen of
+    /// a chat (cx-n8ou): a completed turn is `done` only while it is unread.
     public func visibleTurn(_ tab: TabModel) -> AgentTurnState? {
-        guard let turn = turn(tab) else { return nil }
-        if case .done(let id) = turn, let session = tab.agentSession?.session, seen.isTurnSeen(session: session, turn: id) {
-            return nil
-        }
-        return turn
+        turn(tab)
     }
 
     /// The acpmux turn state of an agent chat tab, nil for every other tab.

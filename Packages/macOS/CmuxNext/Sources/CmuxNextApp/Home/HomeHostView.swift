@@ -163,6 +163,10 @@ final class HomeHostView: NSView {
         // over the pane next to Home.
         clipsToBounds = true
         message.alignment = .center
+        // A long reason (a migration notice) wraps in a narrow pane instead of clipping.
+        message.maximumNumberOfLines = 0
+        message.lineBreakMode = .byWordWrapping
+        message.cell?.wraps = true
         message.stringValue = HomeStrings.unavailable
         addSubview(transcript)
         addSubview(message)
@@ -225,8 +229,12 @@ final class HomeHostView: NSView {
         // A layout pass mid-slide (a resize, a notice) keeps the presented
         // place: it never snaps the slide to its end.
         placeSidebar()
-        let size = message.intrinsicContentSize
-        message.frame = NSRect(x: 0, y: (bounds.height - size.height) / 2, width: bounds.width, height: size.height)
+        let inset: CGFloat = 24
+        let width = max(0, bounds.width - 2 * inset)
+        message.preferredMaxLayoutWidth = width
+        let height = ceil(message.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: width, height: .greatestFiniteMagnitude)).height
+            ?? message.intrinsicContentSize.height)
+        message.frame = NSRect(x: inset, y: (bounds.height - height) / 2, width: width, height: height)
     }
 
     /// The header avatar's click: the sidebar slides in from the right

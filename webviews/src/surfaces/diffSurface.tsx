@@ -1,7 +1,12 @@
 import { RouterProvider } from "@tanstack/react-router";
 import { createRoot } from "react-dom/client";
 import { App } from "../App";
-import { applyDiffViewerAppearance, followHostTerminalTheme, resolveDiffViewerAppearance } from "../appearance";
+import {
+  applyDiffViewerAppearance,
+  followHostTerminalTheme,
+  resolveDiffViewerAppearance,
+  setDiffChangeColors,
+} from "../appearance";
 import { installSolidBackdrop } from "../backdrop";
 import { createDiffViewerLabelResolver, loadDiffViewerLabels, shouldAssertMissingLabels } from "../labels";
 import { installDiffLanguageHostAPI } from "../diff-languages/host";
@@ -11,6 +16,7 @@ import { createWebviewsRouter } from "../router";
 import { applyDiffViewerStatusToDocument, initialDiffViewerStatus } from "../status";
 import diffViewerStyles from "../styles.css?inline";
 import type { DiffViewerConfig } from "../types";
+import { sanitizeViewerPrefs } from "../viewer-prefs";
 import { installWebviewStyles } from "./installWebviewStyles";
 
 /** The empty state's theme listener, stopped when the viewer renders. */
@@ -78,6 +84,8 @@ export async function renderDiffSurface(
   // listener stops first.
   stopFollowingEmpty?.();
   stopFollowingEmpty = undefined;
+  // Diff Colors seeds with the other display prefs; the stored prefs re-sync it after boot.
+  setDiffChangeColors(sanitizeViewerPrefs(config.payload?.viewerOptions).colors);
   followHostTerminalTheme(() => applyDiffViewerAppearance(resolveDiffViewerAppearance(config.payload?.appearance)));
   installSolidBackdrop();
   if (typeof config.payload?.title === "string" && config.payload.title.trim() !== "") {
