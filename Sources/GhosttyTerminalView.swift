@@ -7,6 +7,7 @@ import CmuxTerminalSharing
 import CmuxFoundation
 import CmuxPanes
 import CmuxTerminalCore
+import CmuxSidebar
 import CmuxSettings
 import CmuxWorkspaces
 import CmuxTestSupport
@@ -314,6 +315,9 @@ class GhosttyApp {
                     result.cleanupTransferredTemporaryFiles(
                         using: pasteboardService
                     )
+                },
+                fastOperation: { request in
+                    try await client.prepareFastPath(request)
                 }
             )
             return TerminalSurfaceViewFactory(
@@ -3319,6 +3323,50 @@ class GhosttyApp {
         case GHOSTTY_ACTION_SELECTION_CHANGED:
             surfaceView.selectionAccessibilitySignal.request()
             return true
+        case GHOSTTY_ACTION_PROGRAM_STATUS:
+            let status = action.action.program_status
+            let copyCString: (UnsafePointer<CChar>?) -> String? = { pointer in
+                guard let pointer else { return nil }
+                return String(cString: pointer)
+            }
+            let state: ProgramStatusState
+            switch status.state {
+            case GHOSTTY_PROGRAM_STATUS_WORKING: state = .working
+            case GHOSTTY_PROGRAM_STATUS_DONE: state = .done
+            case GHOSTTY_PROGRAM_STATUS_BLOCKED: state = .blocked
+            case GHOSTTY_PROGRAM_STATUS_ERROR: state = .error
+            case GHOSTTY_PROGRAM_STATUS_CLEAR: state = .clear
+            default: state = .idle
+            }
+            let kind: ProgramStatusKind
+            switch status.kind {
+            case GHOSTTY_PROGRAM_STATUS_KIND_PERMISSION: kind = .permission
+            case GHOSTTY_PROGRAM_STATUS_KIND_QUESTION: kind = .question
+            case GHOSTTY_PROGRAM_STATUS_KIND_AUTH: kind = .auth
+            default: kind = .none
+            }
+            let report = ProgramStatusReport(
+                event: status.event == GHOSTTY_PROGRAM_STATUS_EVENT_PROMPT_START ? ProgramStatusEvent.promptStart : .report,
+                state: state,
+                kind: kind,
+                progress: status.progress >= 0 ? Int(status.progress) : nil,
+                id: copyCString(status.id),
+                app: copyCString(status.app),
+                title: copyCString(status.title),
+                message: copyCString(status.msg)
+            )
+            let terminalSurface = surfaceView.terminalSurface
+            DispatchQueue.main.async { [weak callbackContext] in
+                guard surfaceView.terminalSurface === terminalSurface,
+                      let callbackContext,
+                      let terminalSurface,
+                      terminalSurface.isActiveRuntimeCallbackContext(callbackContext),
+                      let tabId = callbackContext.tabId,
+                      let tabManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? AppDelegate.shared?.tabManager,
+                      let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else { return }
+                workspace.applyProgramStatus(report, panelId: callbackContext.surfaceId)
+            }
+            return true
         case GHOSTTY_ACTION_GOTO_SPLIT:
             let gotoDirection = action.action.goto_split
             // Previous/next use cycle-based navigation through all panes in tree order
@@ -3775,6 +3823,28 @@ extension TerminalSurface {
 // MARK: - Ghostty Surface View
 
 class GhosttyNSView: NSView, NSUserInterfaceValidations {
+    /// Returns whether a screen transition left the terminal runtime at a
+    /// different backing scale than the window now uses. AppKit can update a
+    /// view's layer during a display move without delivering
+    /// `viewDidChangeBackingProperties`; comparing the committed terminal
+    /// geometry lets the screen notification repair that missed callback while
+    /// avoiding a redundant geometry commit when the normal callback already
+    /// ran.
+    static func shouldReconcileBackingScale(
+        currentScale: CGFloat?,
+        targetScale: CGFloat,
+        epsilon: CGFloat = 0.0001
+    ) -> Bool {
+        guard let currentScale,
+              currentScale.isFinite,
+              currentScale > 0,
+              targetScale.isFinite,
+              targetScale > 0 else {
+            return false
+        }
+        return abs(currentScale - targetScale) > epsilon
+    }
+
     private static let focusDebugEnabled: Bool = {
         if ProcessInfo.processInfo.environment["CMUX_FOCUS_DEBUG"] == "1" {
             return true
@@ -5571,6 +5641,27 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
+    /// Reconciles a display move after AppKit has had a chance to update the
+    /// window's backing scale. The normal backing-properties callback remains
+    /// the fast path; this only commits when the terminal's last published
+    /// geometry still carries the previous display scale.
+    private func scheduleBackingScaleReconciliation() {
+        DispatchQueue.main.async { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, let window = self.window else { return }
+                let targetScale = max(1.0, window.backingScaleFactor)
+                let currentScale = self.terminalSurface?.committedPaneGeometry?.backingScale
+                    ?? self.layer?.contentsScale
+                guard Self.shouldReconcileBackingScale(
+                    currentScale: currentScale,
+                    targetScale: targetScale
+                ) else { return }
+                self.recommitPaneGeometryForBackingChange()
+                self.invalidateTextInputCoordinates()
+            }
+        }
+    }
+
     /// Sizes the Metal drawable for the committed geometry.
     ///
     /// The pixel size derives from the window backing scale, not from
@@ -6659,6 +6750,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     // MARK: - Input Handling
 
+    /// The AppKit Copy action runs before a fullscreen TUI can receive Cmd+C.
+    /// If cmux could not copy a native terminal selection, forward the same
+    /// semantic key only while an alternate-screen application owns the view.
+    /// A primary-screen shell with no selection remains a harmless no-op.
+    static func shouldForwardMenuCopyToAlternateScreen(
+        copiedNativeSelection: Bool,
+        isAlternateScreenActive: Bool
+    ) -> Bool {
+        !copiedNativeSelection && isAlternateScreenActive
+    }
+
     @IBAction func copy(_ sender: Any?) {
         guard let surface else {
             _ = performBindingActionImmediately(
@@ -6666,11 +6768,24 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             )
             return
         }
+        let copied: Bool
         if keyboardCopyModeActive {
-            _ = copyKeyboardCopyModeSelectionToClipboard(surface: surface)
+            copied = copyKeyboardCopyModeSelectionToClipboard(surface: surface)
         } else {
-            _ = copyCurrentGhosttySelectionToClipboard(surface: surface)
+            copied = copyCurrentGhosttySelectionToClipboard(surface: surface)
         }
+
+        guard Self.shouldForwardMenuCopyToAlternateScreen(
+            copiedNativeSelection: copied,
+            isAlternateScreenActive: terminalSurface?.isAlternateScreenActive() == true
+        ) else {
+            return
+        }
+
+        // AppKit has already consumed the menu key equivalent. Re-inject the
+        // semantic Cmd+C through Ghostty so Kitty-aware TUIs such as Codex can
+        // copy their own selection without changing the shell's Ctrl+C path.
+        _ = terminalSurface?.sendNamedKey("super+c")
     }
 
     @IBAction func copyWorkspaceAndSurfaceIdentifiers(_ sender: Any?) {
@@ -9947,10 +10062,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             ghostty_surface_set_display_id(surface, displayID)
         }
 
-        // Let AppKit's backing-properties callback own scale changes. A screen
-        // notification alone does not establish that backing geometry changed;
-        // replaying that callback schedules an extra settled geometry commit
-        // while display topology is still changing.
+        // AppKit normally sends viewDidChangeBackingProperties for a display
+        // move, but some extended-display transitions update the window and
+        // layer without that callback. Defer the check until AppKit finishes
+        // the screen transition, then repair only a stale terminal scale.
+        scheduleBackingScaleReconciliation()
     }
 
     fileprivate static func escapeDropForShell(_ value: String) -> String {
@@ -12299,7 +12415,7 @@ final class GhosttySurfaceScrollView: NSView {
             // from inside SwiftUI update/layout (updateNSView, viewDidMoveToWindow, the
             // geometry-callback rebind), where a synchronous display can wedge the main
             // thread in Metal against the still-open window transaction.
-            if GhosttySurfaceScrollView.shouldScheduleVisibilityRevealRefresh(hasPresentedFrame: surfaceView.terminalSurface?.hasPresentedFrame == true) { scheduleVisibilityRevealRefresh(transition: terminalWorkTransition == .unknown ? .reveal : terminalWorkTransition) }
+            if GhosttySurfaceScrollView.shouldScheduleVisibilityRevealRefresh(rendererPresented: surfaceView.terminalSurface?.isRendererPresented == true) { scheduleVisibilityRevealRefresh(transition: terminalWorkTransition == .unknown ? .reveal : terminalWorkTransition) }
             scheduleAutomaticFirstResponderApply(reason: "setVisibleInUI")
         }
     }

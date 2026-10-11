@@ -44,6 +44,7 @@ public struct CMUXMobileRootScene: View {
     private let reachability: any ReachabilityProviding
     private let analytics: any AnalyticsEmitting
     private let analyticsClientID: String?
+    private let feedPerformanceObserver: (any MobileFeedPerformanceObserving)?
     private let terminalLatencyObserver: any MobileTerminalLatencyObserving
     package let signOutHook: MobileSignOutHook
     private let personalIrohRouteCatalog: MobileIrohRouteCatalog?
@@ -168,6 +169,7 @@ public struct CMUXMobileRootScene: View {
         analytics: any AnalyticsEmitting,
         analyticsClientID: String? = nil,
         terminalLatencyObserver: any MobileTerminalLatencyObserving = NoopMobileTerminalLatencyObserver(),
+        feedPerformanceObserver: (any MobileFeedPerformanceObserving)? = nil,
         pushCoordinator: MobilePushCoordinator,
         displaySettings: MobileDisplaySettings,
         featureFlags: MobileFeatureFlags,
@@ -193,6 +195,7 @@ public struct CMUXMobileRootScene: View {
         self.reachability = reachability
         self.analytics = analytics
         self.analyticsClientID = analyticsClientID
+        self.feedPerformanceObserver = feedPerformanceObserver
         self.terminalLatencyObserver = terminalLatencyObserver
         self.pushCoordinator = pushCoordinator
         self.displaySettings = displaySettings
@@ -248,6 +251,7 @@ public struct CMUXMobileRootScene: View {
         self.reachability = reachability
         self.analytics = analytics
         self.analyticsClientID = analyticsClientID
+        self.feedPerformanceObserver = nil
         self.terminalLatencyObserver = NoopMobileTerminalLatencyObserver()
         self.signOutHook = signOutHook
         self.personalIrohRouteCatalog = nil
@@ -740,6 +744,7 @@ public struct CMUXMobileRootScene: View {
             hiddenMacStore: hiddenMacStore,
             analytics: analytics,
             terminalLatencyObserver: terminalLatencyObserver,
+            feedPerformanceObserver: feedPerformanceObserver,
             diagnosticLog: diagnosticLog,
             feedbackEmailSubmitter: feedbackEmailSubmitter,
             feedbackStampProvider: feedbackStampProvider,

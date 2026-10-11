@@ -70,7 +70,7 @@ jobs:
             MACOS_RUNNER_15=${{ vars.MACOS_RUNNER_15 }}
             MACOS_RUNNER_26=${{ vars.MACOS_RUNNER_26 }}
             MACOS_RUNNER_26_LARGE=${{ vars.MACOS_RUNNER_26_LARGE }}
-            MACOS_RUNNER_BACKGROUND=${{ vars.MACOS_RUNNER_BACKGROUND || 'macos-15' }}
+            MACOS_RUNNER_BACKGROUND=${{ vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}
             MACOS_RUNNER_DISPLAY=${{ vars.MACOS_RUNNER_DISPLAY }}
             MACOS_RUNNER_DUAL_XCODE=${{ vars.MACOS_RUNNER_DUAL_XCODE }}
             MACOS_RUNNER_IOS=${{ vars.MACOS_RUNNER_IOS }}

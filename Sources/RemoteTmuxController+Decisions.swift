@@ -64,12 +64,12 @@ extension RemoteTmuxController {
             sourcePanelId: workingDirectorySourcePanelId,
             windowIdForPanel: mirror.windowId(forPanel:)
         )
-        let command = Self.newWindowCommand(
+        return routeMirrorNewWindow(
+            through: mirror,
             afterWindowId: afterWindowId,
             workingDirectory: commandWorkingDirectory,
             focus: focus
         )
-        return sendMirrorNewWindow(command, through: mirror, focus: focus)
     }
 
     /// Routes a projected control-pane target to a new tmux window immediately
@@ -85,9 +85,45 @@ extension RemoteTmuxController {
               let afterWindowId = mirror.windowIdByPane[targetPaneId] else {
             return false
         }
-        let command = Self.newWindowCommand(
+        return routeMirrorNewWindow(
+            through: mirror,
             afterWindowId: afterWindowId,
             workingDirectory: mirror.cwdByPane[targetPaneId],
+            focus: focus
+        )
+    }
+
+    /// Single new-window action path for a mirror, routed by transport so both the
+    /// placement and pane-targeted entry points behave identically. In multiplexer
+    /// mode the window MUST be created through the session-scoped builder: a bare
+    /// `{end}` (or a window-id) target resolves against the ATTACHED view session —
+    /// the window is linked into both the home and hidden-view sessions — so it would
+    /// otherwise land in the hidden view. The new window isn't linked into the view
+    /// yet (no `%window-add` on the view stream), so nudge a reconcile to link +
+    /// surface it. Placement is session-end in this mode: precise after-window
+    /// ordering is ambiguous while the window is linked into both sessions, and the
+    /// reconcile reflects tmux's resulting order. The GA transport honors
+    /// `afterWindowId` directly.
+    private func routeMirrorNewWindow(
+        through mirror: RemoteTmuxSessionMirror,
+        afterWindowId: Int?,
+        workingDirectory: String?,
+        focus: Bool
+    ) -> Bool {
+        if isMultiplexed(mirror) {
+            let command = Self.newWindowCommandInSession(
+                mirror.sessionName,
+                sessionId: mirror.connection.sessionId ?? mirror.seededSessionId,
+                workingDirectory: workingDirectory,
+                focus: focus
+            )
+            let sent = sendMirrorNewWindow(command, through: mirror, focus: focus)
+            if sent { multiplexedViewsByHost[mirror.host.connectionHash]?.requestReconcile() }
+            return sent
+        }
+        let command = Self.newWindowCommand(
+            afterWindowId: afterWindowId,
+            workingDirectory: workingDirectory,
             focus: focus
         )
         return sendMirrorNewWindow(command, through: mirror, focus: focus)
@@ -103,6 +139,28 @@ extension RemoteTmuxController {
             guard let windowId else { return }
             mirror?.focusWindowWhenAvailable(windowId)
         }
+    }
+
+    /// `new-window` targeting a specific session by stable id (falling back to name),
+    /// anchored at its end. Used by the multiplexer, where the attached view session
+    /// would otherwise capture a bare `{end}` target.
+    nonisolated static func newWindowCommandInSession(
+        _ sessionName: String,
+        sessionId: Int? = nil,
+        workingDirectory: String?,
+        focus: Bool = false
+    ) -> String {
+        var command = focus
+            ? "new-window -P -F '#{window_id}'"
+            : "new-window -d"
+        let sessionTarget = sessionId.map { "$\($0)" } ?? sessionName
+        command += " -a -t \(RemoteTmuxHost.shellSingleQuoted("\(sessionTarget):{end}"))"
+        if let directory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !directory.isEmpty,
+           RemoteTmuxHost.controlModeLineSafeName(directory) != nil {
+            command += " -c \(RemoteTmuxHost.shellSingleQuoted(directory))"
+        }
+        return command
     }
 
     /// Returns the interactive SSH argv when an attach preflight failed because
@@ -199,8 +257,16 @@ extension RemoteTmuxController {
     /// stable tmux window ids and detached swaps.
     nonisolated static func mirrorWindowReorderCommands(
         current: [Int],
-        desired: [Int]
+        desired: [Int],
+        sessionName: String? = nil
     ) -> [String] {
+        // A multiplexed reorder runs on the shared view whose current session holds
+        // windows linked in from many sessions, so a bare `@id` target is ambiguous;
+        // scope it to the session by name. The dedicated transport (nil) keeps `@id`.
+        let target: (Int) -> String = { windowId in
+            guard let sessionName else { return "@\(windowId)" }
+            return RemoteTmuxHost.shellSingleQuoted("\(sessionName):@\(windowId)")
+        }
         var working = current
         var indexByWindow = Dictionary(uniqueKeysWithValues: current.enumerated().map { ($1, $0) })
         var commands: [String] = []
@@ -209,7 +275,7 @@ extension RemoteTmuxController {
             guard let swapFrom = indexByWindow[targetWindow] else { continue }
             let displacedWindow = working[index]
             commands.append(
-                "swap-window -d -s @\(working[index]) -t @\(working[swapFrom])"
+                "swap-window -d -s \(target(working[index])) -t \(target(working[swapFrom]))"
             )
             working.swapAt(index, swapFrom)
             indexByWindow[targetWindow] = index
@@ -247,12 +313,20 @@ extension RemoteTmuxController {
             verification?(true)
             return true
         }
-        let commands = Self.mirrorWindowReorderCommands(current: current, desired: desired)
+        let commands = Self.mirrorWindowReorderCommands(
+            current: current,
+            desired: desired,
+            sessionName: isMultiplexed(mirror) ? mirror.sessionName : nil)
         guard mirror.connection.sendWindowReorder(commands, verification: verification) else {
             mirror.rebuild()
             return false
         }
         mirror.connection.applyWindowReorder(desired)
+        // The shared stream's %window events describe the hidden view session, not
+        // this one, so a multiplexed reorder needs an explicit reconcile nudge.
+        if isMultiplexed(mirror) {
+            multiplexedViewsByHost[mirror.host.connectionHash]?.requestReconcile()
+        }
         return true
     }
 
@@ -327,5 +401,54 @@ extension RemoteTmuxController {
     ) -> String? {
         guard !connectionExited else { return nil }
         return sessionId.map { "$\($0)" } ?? sessionName
+    }
+
+    /// What to tell an attach that names a different route than the live connection to the same
+    /// endpoint uses, or nil when the routes agree.
+    ///
+    /// A broker is how an endpoint is reached, not which endpoint it is, so two attaches that
+    /// differ only by broker share one connection, and one connection has one route. Serving the
+    /// second attach over the first one's route would use a path its caller did not ask for.
+    nonisolated static func routeConflictMessage(
+        destination _: String,
+        requested: RemoteTmuxTransportBroker?,
+        live: RemoteTmuxTransportBroker?
+    ) -> String? {
+        guard requested != live else { return nil }
+        // Broker commands are user configuration and may contain secrets or paths that should
+        // not be echoed into an error. The caller already knows which host it requested; the
+        // actionable fact is that one endpoint has one live route, regardless of its spelling.
+        return String(
+            localized: "socket.remoteTmux.routeConflict",
+            defaultValue: "This host is already connected through a different route; detach it before changing the route."
+        )
+    }
+}
+
+@MainActor
+extension RemoteTmuxController {
+    /// The host a live connection to `host`'s endpoint was opened with, if there is one.
+    func liveHost(sharingEndpointWith host: RemoteTmuxHost) -> RemoteTmuxHost? {
+        if let view = multiplexedViewsByHost[host.connectionHash] { return view.host }
+        return sessionMirrors.values.first { $0.host.connectionHash == host.connectionHash }?.host
+            ?? cachedControlHost(sharingEndpointWith: host)
+    }
+
+    /// Refuses an attach whose route differs from the live connection's; see
+    /// ``routeConflictMessage(destination:requested:live:)``.
+    func refuseARouteTheLiveConnectionDoesNotUse(_ host: RemoteTmuxHost) throws {
+        guard let live = liveHost(sharingEndpointWith: host) else { return }
+        if host.transportHelperPath != live.transportHelperPath {
+            throw RemoteTmuxError.unreachable(String(
+                localized: "socket.remoteTmux.transportHelperPathConflict",
+                defaultValue: "This host is already connected with a different helper path; detach it before changing the helper path."
+            ))
+        }
+        guard let message = Self.routeConflictMessage(
+                  destination: host.destination,
+                  requested: host.transportBroker,
+                  live: live.transportBroker
+              ) else { return }
+        throw RemoteTmuxError.unreachable(message)
     }
 }

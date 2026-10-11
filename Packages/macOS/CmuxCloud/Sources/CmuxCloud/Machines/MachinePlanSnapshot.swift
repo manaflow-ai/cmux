@@ -1,3 +1,4 @@
+import CmuxCloudResizeCore
 import Foundation
 
 /// The active plan: its machine ceiling, tier and free-access window.

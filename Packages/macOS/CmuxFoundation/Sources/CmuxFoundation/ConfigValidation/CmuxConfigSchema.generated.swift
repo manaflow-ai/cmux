@@ -214,7 +214,7 @@ enum CmuxEmbeddedConfigSchema {
     "remoteTmux": {
       "x-cmux-scopes": ["global"],
       "title": "remoteTmux",
-      "description": "Remote tmux mirroring settings.",
+      "description": "Remote tmux mirroring settings, and the brokers its transports can connect through.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -224,6 +224,52 @@ enum CmuxEmbeddedConfigSchema {
           "properties": {
             "enabled": { "type": "boolean", "default": false, "description": "Enable remote tmux mirroring." }
           }
+        },
+        "multiplexer": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "beta": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean", "default": false, "description": "Share one connection per remote tmux host across all of its sessions." }
+              }
+            }
+          }
+        },
+        "brokers": {
+          "type": "object",
+          "description": "Wrapper commands that reach a host on cmux's behalf, each under the name you refer to it by. A broker is named here rather than passed to cmux at connect time, so only commands you have written down can be launched. Use one when a host is reachable through a corporate SSH broker or similar wrapper instead of directly.",
+          "additionalProperties": false,
+          "propertyNames": {
+            "pattern": "^[A-Za-z0-9_.-]+$"
+          },
+          "patternProperties": {
+            "^[A-Za-z0-9_.-]+$": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "executable"
+              ],
+              "properties": {
+                "executable": {
+                  "type": "string",
+                  "description": "Absolute path to the wrapper. It must be absolute: cmux resolves it without a login shell's PATH, so a bare name fails in a way that looks like the host being unreachable.",
+                  "pattern": "^/"
+                },
+                "arguments": {
+                  "type": "array",
+                  "description": "Flags the wrapper needs before the destination, in order. Most wrappers parse their own flags up to the destination and forward everything after it, so order matters.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "default": []
+                }
+              }
+            }
+          },
+          "default": {}
         }
       }
     },
@@ -693,6 +739,12 @@ enum CmuxEmbeddedConfigSchema {
           "enum": ["top", "afterCurrent", "end"],
           "default": "afterCurrent",
           "description": "Where new workspaces are inserted in the sidebar."
+        },
+        "goToWorkspaceOrder": {
+          "type": "string",
+          "enum": ["sidebar", "recent"],
+          "default": "sidebar",
+          "description": "Order used by Go to Workspace (Cmd-P): sidebar order, or most recently focused workspaces."
         },
         "forkConversationDefaultDestination": {
           "type": "string",
@@ -1285,7 +1337,7 @@ enum CmuxEmbeddedConfigSchema {
                 "type": "string",
                 "minLength": 1,
                 "pattern": "\\S",
-                "description": "Shell command run via /bin/sh -c, once per file. It receives the file and endpoint on its environment (CMUX_UPLOAD_LOCAL_PATH, CMUX_UPLOAD_REMOTE_PATH, CMUX_UPLOAD_DESTINATION, CMUX_UPLOAD_PORT, CMUX_UPLOAD_IDENTITY_FILE, CMUX_UPLOAD_SSH_OPTIONS). Its stdout is what cmux inserts at the cursor."
+                "description": "Shell command run via /bin/sh -c, once per file. It receives the file and endpoint on its environment (CMUX_UPLOAD_LOCAL_PATH, CMUX_UPLOAD_REMOTE_PATH, CMUX_UPLOAD_DESTINATION, CMUX_UPLOAD_PORT, CMUX_UPLOAD_IDENTITY_FILE, CMUX_UPLOAD_SSH_OPTIONS). CMUX_UPLOAD_REMOTE_PATH is a file under ~/.cache/cmux/paste/<session>/, a directory the command has to create before writing to it. Its stdout is what cmux inserts at the cursor."
               },
               "enabled": {
                 "type": "boolean",
@@ -1618,6 +1670,12 @@ enum CmuxEmbeddedConfigSchema {
           "type": "boolean",
           "default": true,
           "description": "Show the workspace working directory."
+        },
+        "showCloudDeviceIcons": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show Cloud machine and device icons beside remote workspace titles independently of Git branch and directory details.",
+          "descriptionKey": "schemaDescriptions.sidebar.showCloudDeviceIcons"
         },
         "showPullRequests": {
           "type": "boolean",
@@ -2447,6 +2505,7 @@ enum CmuxEmbeddedConfigSchema {
               "sendFeedback",
               "showNotifications",
               "jumpToUnread",
+              "jumpToLastPrompt",
               "toggleUnread",
               "markOldestUnreadAndJumpNext",
               "markAllNotificationsRead",

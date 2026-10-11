@@ -53,7 +53,7 @@ jobs:
   plan:
     name: Pick tours
     if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.head_repository.full_name == github.repository) }}
-    runs-on: ubuntu-24.04 # github-hosted-required: reads the pull request and mostly waits; keeps CI's Linux pool free
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: reads the pull request and mostly waits; keeps CI's Linux pool free; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     # CI has completed, so its reads return at once.
     timeout-minutes: 10
     permissions:
@@ -113,7 +113,7 @@ jobs:
     name: Tour ${{ matrix.tour }}
     needs: plan
     if: ${{ needs.plan.outputs.run != '' && needs.plan.outputs.run != '[]' }}
-    runs-on: ubuntu-24.04 # github-hosted-required: holds actions write and mostly waits for the tour run
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds actions write and mostly waits for the tour run; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     # CI's build is done, so a tour waits only for its run
     # (pr_media.RUN_WAIT_SECONDS, 90 minutes, most of it queueing).
     timeout-minutes: 120
@@ -225,7 +225,7 @@ jobs:
     name: Post media
     needs: [plan, tour]
     if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.tours != '' && needs.plan.outputs.tours != '[]' }}
-    runs-on: ubuntu-24.04 # github-hosted-required: trusted contents and pull-request write token
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted contents and pull-request write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     timeout-minutes: 10
     concurrency:
       group: pr-media-publish-${{ needs.plan.outputs.pr }}

@@ -908,14 +908,10 @@ struct CommandPaletteCloudAvailabilityTests {
         let key = BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey
         let defaults = UserDefaults.standard
         let original = defaults.object(forKey: key)
-        let flag = CmuxFeatureFlags.cloudMachinesFlag
-        let originalOverride = CmuxFeatureFlags.shared.overrideValue(for: flag)
         defaults.set(true, forKey: key)
-        CmuxFeatureFlags.shared.setOverride(true, for: flag)
         defer {
             if let original { defaults.set(original, forKey: key) }
             else { defaults.removeObject(forKey: key) }
-            CmuxFeatureFlags.shared.setOverride(originalOverride, for: flag)
         }
         let contributions = ContentView.commandPaletteCloudCommandContributions(isAuthenticated: true)
         var context = CommandPaletteContextSnapshot()
@@ -958,14 +954,10 @@ struct CommandPaletteCloudAvailabilityTests {
         let key = BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey
         let defaults = UserDefaults.standard
         let original = defaults.object(forKey: key)
-        let flag = CmuxFeatureFlags.cloudMachinesFlag
-        let originalOverride = CmuxFeatureFlags.shared.overrideValue(for: flag)
         defaults.set(true, forKey: key)
-        CmuxFeatureFlags.shared.setOverride(true, for: flag)
         defer {
             if let original { defaults.set(original, forKey: key) }
             else { defaults.removeObject(forKey: key) }
-            CmuxFeatureFlags.shared.setOverride(originalOverride, for: flag)
         }
 
         let commandIds = Set(ContentView.commandPaletteCloudCommandContributions(isAuthenticated: true).map(\.commandId))
@@ -975,7 +967,7 @@ struct CommandPaletteCloudAvailabilityTests {
         #expect(commandIds.contains(ContentView.commandPaletteCloudToolsCommandId))
         #expect(ContentView.commandPaletteCloudCommandContributions(isAuthenticated: false).isEmpty)
 
-        CmuxFeatureFlags.shared.setOverride(false, for: flag)
+        defaults.set(false, forKey: key)
         #expect(ContentView.commandPaletteCloudCommandContributions(isAuthenticated: true).isEmpty)
     }
 
@@ -1398,7 +1390,6 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
     }
 
     func testModeShortcutsUsePrivateControlDigitDefaults() {
-        CmuxFeatureFlags.shared.setOverride(true, for: CmuxFeatureFlags.cloudMachinesFlag)
         XCTAssertEqual(
             RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "1", modifiers: [.control], keyCode: 18)),
             .files
@@ -1428,7 +1419,6 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
     /// Hiding Feed and the standard Dock tab leaves Cloud as the 4th visible
     /// tab, so ctrl+4 must select it.
     func testModeShortcutDigitsFollowVisibleTabPositions() {
-        CmuxFeatureFlags.shared.setOverride(true, for: CmuxFeatureFlags.cloudMachinesFlag)
         UserDefaults.standard.set(false, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
         XCTAssertTrue(RightSidebarTabPreferences.setHidden(true, mode: .dock))
 

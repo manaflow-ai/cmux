@@ -253,7 +253,7 @@ struct ProBadgeLabel: View {
 
 /// The Pro badge: renders the active ``ProBadgeStyle`` and opens the shared
 /// pricing destination. On hover the capsule widens to reveal a dismiss X
-/// inside it. Gated on the pro-upgrade-ui feature flag.
+/// inside it. The local dismissal preference controls visibility.
 struct ProBadgeView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.sidebarReadabilityBackdrop) private var readabilityBackdrop
@@ -268,8 +268,7 @@ struct ProBadgeView: View {
     }
 
     var body: some View {
-        if CmuxFeatureFlags.shared.isProUpgradeUIEnabled,
-           !ProBadgeStyleStore.shared.isDismissed {
+        if !ProBadgeStyleStore.shared.isDismissed {
             let style = ProBadgeStyleStore.shared.current
             let foreground = ProBadgePalette.foreground(
                 for: style,
