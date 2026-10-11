@@ -118,6 +118,8 @@ def open_in_home(conversation):
     # The first run after launch can come before the window's Home page takes it: ask again until it shows.
     def opened():
         if shown() != conversation:
+            # Home first (a window still starting can take the conversation and stay on its new tab), then the conversation.
+            rpc("action.run", {"id": "home.show", "focus": True})
             last_open["reply"] = rpc("action.run", {"id": "home.openConversation", "arguments": {"conversation": conversation},
                                                     "focus": True})
             time.sleep(1)  # test harness: one request per second while Home starts, not app code
