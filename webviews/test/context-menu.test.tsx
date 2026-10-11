@@ -111,10 +111,49 @@ test("opens at the pointer, skips disabled rows, selects by keyboard, and restor
   await act(async () => menu.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
   expect(fixtureState.actions).toEqual(["rename"]);
   expect(document.querySelector('[role="menu"]')).toBeNull();
+  expect(document.activeElement).toBe(target);
 
   await act(async () => openContextMenu(target));
   const reopened = document.querySelector<HTMLElement>('[role="menu"]')!;
   await act(async () => reopened.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+  expect(document.querySelector('[role="menu"]')).toBeNull();
+  expect(document.activeElement).toBe(target);
+});
+
+test("restores focus after a pointer action", async () => {
+  const container = installDom();
+  const fixtureState = fixture();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(fixtureState.element);
+  });
+  const target = container.querySelector<HTMLButtonElement>("[data-target]")!;
+
+  await act(async () => openContextMenu(target));
+  const menu = document.querySelector<HTMLElement>('[role="menu"]')!;
+  const open = [...menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
+    (item) => item.textContent === "Open",
+  )!;
+  await act(async () => open.click());
+
+  expect(fixtureState.actions).toEqual(["open"]);
+  expect(document.querySelector('[role="menu"]')).toBeNull();
+  expect(document.activeElement).toBe(target);
+});
+
+test("restores focus when clicking outside the menu", async () => {
+  const container = installDom();
+  const fixtureState = fixture();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(fixtureState.element);
+  });
+  const target = container.querySelector<HTMLButtonElement>("[data-target]")!;
+
+  await act(async () => openContextMenu(target));
+  const backdrop = document.querySelector<HTMLElement>(".ui-context-menu-backdrop")!;
+  await act(async () => backdrop.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true })));
+
   expect(document.querySelector('[role="menu"]')).toBeNull();
   expect(document.activeElement).toBe(target);
 });
