@@ -71,8 +71,8 @@ export function webThemePayload(
 }
 
 /** The pane's fade durations in seconds (MotionTunables.swift); under Reduce Motion each is at
- * most one crossfade (MotionPolicy.duration). */
-const MOTION = { hover: 0.08, focus: 0.1, fadeIn: 0.12, fadeOut: 0.08 } as const;
+ * most one crossfade and hover is instant (MotionPolicy.duration). */
+const MOTION = { hover: 0.08, hoverOut: 0, focus: 0.1, fadeIn: 0.12, fadeOut: 0.08 } as const;
 const CROSSFADE = 0.1;
 
 /** AgentPaneTheme.values(tokens). */
@@ -80,7 +80,10 @@ export function agentPaneTheme(tokens: ThemeTokens, reducedMotion: boolean): Rec
   const page = withAlpha(tokens.surfaceBackground, 1);
   const opaquePage = withAlpha(tokens.contentBackground, 1);
   const motion = Object.fromEntries(
-    Object.entries(MOTION).map(([key, seconds]) => [key, reducedMotion ? Math.min(seconds, CROSSFADE) : seconds]),
+    Object.entries(MOTION).map(([key, seconds]) => [
+      key,
+      !reducedMotion ? seconds : key.startsWith("hover") ? 0 : Math.min(seconds, CROSSFADE),
+    ]),
   );
   return {
     isDark: tokens.isDark,

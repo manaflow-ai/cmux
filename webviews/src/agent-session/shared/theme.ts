@@ -27,6 +27,7 @@ const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
 
 const motionVariables = {
   hover: "--agent-motion-hover",
+  hoverOut: "--agent-motion-hover-out",
   focus: "--agent-motion-focus",
   fadeIn: "--agent-motion-in",
   fadeOut: "--agent-motion-out",

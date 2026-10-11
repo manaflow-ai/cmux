@@ -87,7 +87,7 @@ final class SidebarGroupEditorRow: NSView {
     private let icon = NSImageView()
     private let label = NSTextField(labelWithString: "")
     private let shortcut = NSTextField(labelWithString: "")
-    private var isHovered = false { didSet { if oldValue != isHovered { updateColors() } } }
+    private var isHovered = false { didSet { if oldValue != isHovered { updateColors(animated: window != nil) } } }
 
     init(_ item: SidebarGroupEditorItem) {
         self.item = item
@@ -133,9 +133,9 @@ final class SidebarGroupEditorRow: NSView {
         updateColors()
     }
 
-    private func updateColors() {
+    private func updateColors(animated: Bool = false) {
         performWithTheme {
-            layer?.backgroundColor = isHovered ? Palette.hoverFill.cgColor : nil
+            if let layer { ChromeHover.paint(layer, isHovered ? Palette.hoverFill : nil, animated: animated) }
             label.textColor = Palette.textPrimary
             icon.contentTintColor = Palette.textSecondary
             shortcut.textColor = Palette.textTertiary
