@@ -80,7 +80,7 @@ struct RowMotion {
     /// A moved selected row (with its workspace's tab rows) passes over the
     /// rows it trades places with: it draws above them, and each row it
     /// crosses hides at once and fades back in once the move has nearly
-    /// settled, so its translucent selection fill never shows a title through
+    /// settled, so a translucent selection fill never shows a title through
     /// it (cx-bqm6, cx-ai79).
     private func passOver(in list: SidebarListView, from old: SidebarLayout, to layout: SidebarLayout) {
         // A dragged row is hidden under its lifted card, which already draws
