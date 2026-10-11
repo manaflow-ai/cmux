@@ -973,11 +973,11 @@ export class AcpmuxDirectClient {
     return this.git(unstage ? "git.unstage" : "git.stage", { paths });
   }
 
-  /// Stages (or unstages) one hunk of a file, named as for `gitStage`: `hunk` is its lines as
+  /// Stages (or unstages) one hunk of a file (and a rename's previous path), named as for `gitStage`: `hunk` is its lines as
   /// `git.diff` showed them, and the native host applies only the hunk it finds with those lines.
-  gitStageHunk(path: string, hunk: string[], unstage: boolean): Promise<unknown> {
+  gitStageHunk(paths: string[], hunk: string[], unstage: boolean): Promise<unknown> {
     if (this.gitRoute === "daemon") return Promise.reject(new Error(translate("error.noFolderChanges")));
-    return this.git(unstage ? "git.unstageHunk" : "git.stageHunk", { paths: [path], hunk });
+    return this.git(unstage ? "git.unstageHunk" : "git.stageHunk", { paths, hunk });
   }
 
   /// Opens the pull request of the selected session's pushed branch (`{url, number}`). Only the

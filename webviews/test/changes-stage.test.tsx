@@ -158,7 +158,7 @@ const hunked = {
 
 async function openHunks(
   scopeLabel: string,
-  stageHunk: (path: string, hunk: string[], unstage: boolean) => Promise<unknown>,
+  stageHunk: (paths: string[], hunk: string[], unstage: boolean) => Promise<unknown>,
 ) {
   const reads: string[] = [];
   const container = dom.window.document.getElementById("root")!;
@@ -181,13 +181,13 @@ async function openHunks(
 }
 
 test("Unstaged stages one hunk from its button, then reloads", async () => {
-  const asked: [string, string[], boolean][] = [];
-  const view = await openHunks("Unstaged", async (path, hunk, unstage) => void asked.push([path, hunk, unstage]));
+  const asked: [string[], string[], boolean][] = [];
+  const view = await openHunks("Unstaged", async (paths, hunk, unstage) => void asked.push([paths, hunk, unstage]));
   try {
     expect(view.container.querySelectorAll(".acpmux-hunk-stage").length).toBe(2);
     await act(async () => view.button("Stage hunk at a.txt line 21")!.click());
     await settle();
-    expect(asked).toEqual([["a.txt", [" twenty", "-old", "+new", "+more"], false]]);
+    expect(asked).toEqual([[["a.txt"], [" twenty", "-old", "+new", "+more"], false]]);
     expect(view.reads).toEqual(["unstaged", "unstaged"]);
   } finally {
     await act(async () => view.root.unmount());
@@ -195,16 +195,16 @@ test("Unstaged stages one hunk from its button, then reloads", async () => {
 });
 
 test("Staged unstages one hunk, and a refusal shows inline", async () => {
-  const asked: [string, string[], boolean][] = [];
-  const view = await openHunks("Staged", async (path, hunk, unstage) => {
-    asked.push([path, hunk, unstage]);
+  const asked: [string[], string[], boolean][] = [];
+  const view = await openHunks("Staged", async (paths, hunk, unstage) => {
+    asked.push([paths, hunk, unstage]);
     throw new Error("That change is no longer in the file. Refresh and try again.");
   });
   try {
     expect(view.button("Stage hunk at a.txt line 1")).toBeNull();
     await act(async () => view.button("Unstage hunk at a.txt line 1")!.click());
     await settle();
-    expect(asked).toEqual([["a.txt", ["-one", "+two", " keep"], true]]);
+    expect(asked).toEqual([[["a.txt"], ["-one", "+two", " keep"], true]]);
     const notice = view.container.querySelector('.acpmux-diff-notice[role="alert"]');
     expect(notice?.textContent).toBe("That change is no longer in the file. Refresh and try again.");
   } finally {

@@ -202,9 +202,14 @@ export function DiffPanel({
   // Stage hunk and Unstage hunk (cx-ncc.74): Unstaged stages a hunk, Staged unstages it. Uncommitted
   // has none: its hunks are HEAD against the worktree, part of which may be staged already.
   const hunkUnstages = scope === "staged" ? true : scope === "unstaged" ? false : undefined;
-  const inRepository = (path: string, root: string | undefined) => {
-    const top = root?.replace(/\/+$/, "");
-    return top && path.startsWith(`${top}/`) ? path.slice(top.length + 1) : path;
+  const withPrevious = (
+    path: string,
+    changeSet: { root?: string; files: { path: string; previousPath?: string }[] },
+  ) => {
+    const top = changeSet.root?.replace(/\/+$/, "");
+    const named = top && path.startsWith(`${top}/`) ? path.slice(top.length + 1) : path;
+    const previous = changeSet.files.find((file) => file.path === named)?.previousPath;
+    return previous ? [named, previous] : [named];
   };
   const changeIndex = (asked: Promise<unknown>) => {
     latestOpen.current += 1;
@@ -215,14 +220,12 @@ export function DiffPanel({
   };
   const stageFile = useStableCallback((path: string) => {
     if (!source?.stage || unstages === undefined || load.state !== "loaded") return;
-    const named = inRepository(path, load.changeSet.root);
-    const previous = load.changeSet.files.find((file) => file.path === named)?.previousPath;
-    changeIndex(source.stage(previous ? [named, previous] : [named], unstages));
+    changeIndex(source.stage(withPrevious(path, load.changeSet), unstages));
   });
   const stageHunk = useStableCallback((path: string, hunk: DiffHunk) => {
     if (!source?.stageHunk || hunkUnstages === undefined || load.state !== "loaded") return;
     const lines = hunk.lines.map((line) => (line.type === "add" ? "+" : line.type === "del" ? "-" : " ") + line.text);
-    changeIndex(source.stageHunk(inRepository(path, load.changeSet.root), lines, hunkUnstages));
+    changeIndex(source.stageHunk(withPrevious(path, load.changeSet), lines, hunkUnstages));
   });
   const canStage = source?.stage !== undefined && unstages !== undefined;
   const canStageHunk = source?.stageHunk !== undefined && hunkUnstages !== undefined;

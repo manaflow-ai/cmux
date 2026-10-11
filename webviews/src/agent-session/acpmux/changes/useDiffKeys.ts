@@ -33,20 +33,22 @@ export function useDiffKeys(
       // A field in a shadow root (Pierre's) targets its host here; the composed path has the field.
       if (event.isComposing || typing(event.composedPath()[0] ?? event.target)) return;
       if (event.key === hunkKey) {
-        // The hunk n/p marked while it shows, else the first change in view: its button is the
-        // first hunk action below that change's first row (HunkStage sits under its last one).
+        // The change n/p marked while it shows, else the first change in view: its hunk's button
+        // is the first one below the change's first row in the same file (HunkStage sits under
+        // the hunk's last row). A file without them (new, deleted) stages nothing.
         const box = scroller.getBoundingClientRect();
-        const shows = (top: number) => top >= box.top - 1 && top <= box.top + scroller.clientHeight;
-        const marked = current?.isConnected ? current.getBoundingClientRect().top : undefined;
-        const from =
-          marked !== undefined && shows(marked)
-            ? marked
-            : changeStarts(scroller)
-                .map((row) => row.getBoundingClientRect().top)
-                .find(shows);
+        const shows = (row: HTMLElement) => {
+          const top = row.getBoundingClientRect().top;
+          return top >= box.top - 1 && top <= box.top + scroller.clientHeight;
+        };
+        const row = current?.isConnected && shows(current) ? current : changeStarts(scroller).find(shows);
         event.preventDefault();
-        if (from === undefined) return;
-        [...scroller.querySelectorAll<HTMLButtonElement>(".acpmux-hunk-stage")]
+        const root = row?.getRootNode();
+        const file =
+          root instanceof ShadowRoot ? root.host.closest(".acpmux-diff-file") : row?.closest(".acpmux-diff-file");
+        if (!row || !file) return;
+        const from = row.getBoundingClientRect().top;
+        [...file.querySelectorAll<HTMLButtonElement>(".acpmux-hunk-stage")]
           .find((button) => button.getBoundingClientRect().top > from)
           ?.click();
         return;

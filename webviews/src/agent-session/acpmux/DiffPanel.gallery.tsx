@@ -124,8 +124,8 @@ const hunkSource: ChangesSource = {
     files: [{ path: "docs/review.md", status: "modified", additions: 2, deletions: 1, patch: hunksPatch }],
   }),
   stage: async () => undefined,
-  stageHunk: async (path, hunk, unstage) => {
-    document.documentElement.dataset.diffGalleryHunk = JSON.stringify({ path, hunk, unstage });
+  stageHunk: async (paths, hunk, unstage) => {
+    document.documentElement.dataset.diffGalleryHunk = JSON.stringify({ paths, hunk, unstage });
   },
 };
 const emptySource: ChangesSource = { diff: async () => ({ files: [] }) };
@@ -190,7 +190,7 @@ const stageSecondHunk: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.documentElement.dataset.diffGalleryHunk !== undefined);
   const asked = ctx.document.documentElement.dataset.diffGalleryHunk;
   const expected = JSON.stringify({
-    path: "docs/review.md",
+    paths: ["docs/review.md"],
     hunk: [" ## Follow-ups", " ", " - Check the tree.", "+- Verify the changed files tree."],
     unstage: false,
   });

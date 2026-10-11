@@ -58,8 +58,9 @@ export function EditBlock({
   const lineDiffType = useMemo(() => intralineMode(edit), [edit]);
   const workerPool = paneHighlightPool(lineDiffType, language);
   const reviewing = review !== undefined;
-  // A git scope's hunks stage one by one; a new or deleted file stages whole, from its header.
-  const staging = !reviewing && on.stageHunk !== undefined && !file.created && !file.deleted;
+  // A git scope's hunks stage one by one; a new or deleted file stages whole, from its header, and
+  // a patch the host cut short has a last hunk the App's own read would not match.
+  const staging = !reviewing && on.stageHunk !== undefined && !file.created && !file.deleted && !file.patchTruncated;
   const annotations = useMemo(
     () =>
       reviewing || staging

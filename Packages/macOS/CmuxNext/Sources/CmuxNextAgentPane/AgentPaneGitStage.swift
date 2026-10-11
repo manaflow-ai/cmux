@@ -3,7 +3,7 @@ import Foundation
 /// The Changes view's Stage and Unstage (cx-tcwj, Codex desktop's staging): `git.stage` and
 /// `git.unstage` with `{cwd, paths}`. The App runs `git add` or `git restore --staged` in `cwd` on
 /// those files, as the user's own git does. Stage hunk and Unstage hunk (cx-ncc.74) are
-/// `git.stageHunk` and `git.unstageHunk` with `{cwd, paths: [path], hunk}`: `hunk` is one hunk's
+/// `git.stageHunk` and `git.unstageHunk` with `{cwd, paths: [path, previous path of a rename], hunk}`: `hunk` is one hunk's
 /// lines as `git.diff` showed them; the App finds that hunk in its own read of the file's diff and
 /// applies only it to the index, so the page never writes content into it. Each needs a real click
 /// or key in the pane, `cwd` inside the pane's folders, and paths that never leave the repository.
@@ -17,7 +17,8 @@ public nonisolated struct AgentPaneGitStage: Equatable, Sendable {
     public let cwd: String
     /// Files relative to the top of `cwd`'s repository, as `git.diff` names them.
     public let paths: [String]
-    /// One hunk of `paths[0]`: its lines, each ` `, `-` or `+` then the text; nil for whole files.
+    /// One hunk of `paths[0]` (whose rename source is `paths[1]`): its lines, each ` `, `-` or `+`
+    /// then the text; nil for whole files.
     public let hunk: [String]?
 
     /// The most files one request names.
@@ -29,7 +30,7 @@ public nonisolated struct AgentPaneGitStage: Equatable, Sendable {
 
     /// Nil unless `method` is `git.stage`, `git.unstage`, `git.stageHunk` or `git.unstageHunk`, `cwd`
     /// is absolute, and `paths` holds 1 to ``maximumPaths`` relative paths without NUL or `.`, `..`
-    /// or empty segments; a hunk request names one path and a ``isHunk(_:)`` hunk.
+    /// or empty segments; a hunk request names one path (two for a rename) and a ``isHunk(_:)`` hunk.
     public init?(method: String, params: [String: Any]?) {
         let action: Action
         let hunk: [String]?
@@ -43,7 +44,7 @@ public nonisolated struct AgentPaneGitStage: Equatable, Sendable {
         }
         guard let cwd = params?["cwd"] as? String, cwd.hasPrefix("/"), !cwd.contains("\0"),
               let paths = params?["paths"] as? [String], (1...Self.maximumPaths).contains(paths.count),
-              hunk == nil || paths.count == 1, paths.allSatisfy(Self.isInside) else { return nil }
+              hunk == nil || paths.count <= 2, paths.allSatisfy(Self.isInside) else { return nil }
         self.action = action
         self.cwd = cwd
         self.paths = paths
@@ -53,11 +54,10 @@ public nonisolated struct AgentPaneGitStage: Equatable, Sendable {
     /// Hunk lines: each ` `, `-` or `+` then text without a line break or NUL, at least one of them
     /// a change, at most ``maximumHunkBytes`` in all.
     static func isHunk(_ lines: [String]) -> Bool {
-        lines.contains { $0.hasPrefix("-") || $0.hasPrefix("+") }
+        lines.contains { $0.utf8.first == UInt8(ascii: "-") || $0.utf8.first == UInt8(ascii: "+") }
             && lines.reduce(0) { $0 + $1.utf8.count + 1 } <= maximumHunkBytes
             && lines.allSatisfy { line in
-                [" ", "-", "+"].contains(line.first.map(String.init) ?? "")
-                    && !line.contains { $0 == "\n" || $0 == "\r" || $0 == "\0" }
+                AgentPaneGitHunk.isHunkRow(line) && !line.utf8.contains { $0 == 0x0A || $0 == 0x0D || $0 == 0 }
             }
     }
 
@@ -86,16 +86,18 @@ public nonisolated struct AgentPaneGitStage: Equatable, Sendable {
         case .refused(let message): return message
         case .folder(let folder):
             guard let hunk = request.hunk else { return await AgentPaneGitProcess.run(request.arguments(in: folder), timeout: timeout) }
-            return await runHunk(hunk, of: request.paths[0], unstage: request.action == .unstage, in: folder)
+            return await runHunk(hunk, of: request.paths, unstage: request.action == .unstage, in: folder)
         }
     }
 
     /// Reads the file's diff as `git.diff` does (the index against the worktree to stage, HEAD
-    /// against the index to unstage), and applies its hunk whose lines are `hunk` to the index.
-    private static func runHunk(_ hunk: [String], of path: String, unstage: Bool, in folder: String) async -> String? {
-        let read = ["-C", folder, "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--no-relative",
+    /// against the index to unstage), and applies its hunk whose lines are `hunk` to the index. A
+    /// rename reads both of its paths, so its hunks pair as the view's do. Blank context lines read
+    /// as " " whatever the user's `diff.suppressBlankEmpty`, as the view shows them.
+    private static func runHunk(_ hunk: [String], of paths: [String], unstage: Bool, in folder: String) async -> String? {
+        let read = ["-C", folder, "-c", "diff.suppressBlankEmpty=false", "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--no-relative",
                     "--ignore-submodules=dirty", "-M", "--src-prefix=a/", "--dst-prefix=b/"]
-            + (unstage ? ["--cached"] : []) + ["--", ":(top,literal)" + path]
+            + (unstage ? ["--cached"] : []) + ["--"] + paths.map { ":(top,literal)" + $0 }
         let diff = await AgentPaneGitProcess.output(read, timeout: timeout)
         guard diff.status == 0 else { return diff.message }
         guard let patch = AgentPaneGitHunk.patch(of: hunk, in: diff.text) else { return hunkMovedMessage }

@@ -356,7 +356,7 @@ const changesSource: ChangesSource = {
   diff: (scope) => callNative("git.diff", { scope, include_patch: true }),
   status: () => callNative("git.status", {}),
   stage: (paths, unstage) => callNative("git.stage", { paths, unstage }),
-  stageHunk: (path, hunk, unstage) => callNative("git.stageHunk", { paths: [path], hunk, unstage }),
+  stageHunk: (paths, hunk, unstage) => callNative("git.stageHunk", { paths, hunk, unstage }),
   pullRequest: () => callNative("git.pullRequest", {}),
 };
 /// A turn's checkpoint pair, diffed on the session host (`git.checkpoint.diff`).
@@ -2940,7 +2940,7 @@ function AcpmuxPane() {
             client.gitStage(Array.isArray(paths) ? paths.map(String) : [], unstage === true),
           "git.stageHunk": ({ paths, hunk, unstage }) =>
             client.gitStageHunk(
-              Array.isArray(paths) ? String(paths[0] ?? "") : "",
+              Array.isArray(paths) ? paths.map(String) : [],
               Array.isArray(hunk) ? hunk.map(String) : [],
               unstage === true,
             ),
