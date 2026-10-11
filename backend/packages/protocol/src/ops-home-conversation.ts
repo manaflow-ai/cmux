@@ -80,10 +80,10 @@ export const MessageSend = def({
   risk: "mutate-shared",
   target: "message",
   principals: ["session", "install"],
-  params: Schema.Struct({ ...conv, client_msg_id: ClientToken, parts: Parts, reply_to: Schema.optionalKey(PartRef) }),
+  params: Schema.Struct({ ...conv, client_msg_id: ClientToken, parts: Parts, reply_to: Schema.optionalKey(PartRef), thread_root: Schema.optionalKey(MessageId) }),
   result: commit,
-  errors: [...conversationErrors, "invalid_parts", "invalid_client_msg_id", "idempotency_conflict", "agent_budget", "agent_rate", "address_cannot_act"],
-  docs: "Send a message. client_msg_id must equal the idempotency key; a retry with the same key returns the original message.",
+  errors: [...conversationErrors, "invalid_parts", "invalid_client_msg_id", "idempotency_conflict", "agent_budget", "agent_rate", "address_cannot_act", "invalid_thread_root"],
+  docs: "Send a message. client_msg_id must equal the idempotency key; a retry with the same key returns the original message. thread_root replies in the thread of a top-level message (one level). A send moves the sender's read cursor to the new message when the sender had read everything before it.",
   cli: cli("send"),
   mcp: { expose: "default", group: "home" }
 })
