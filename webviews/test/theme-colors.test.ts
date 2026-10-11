@@ -63,10 +63,29 @@ function lines(file: string): Array<{ where: string; text: string }> {
     .filter((_, index) => !marked[index]);
 }
 
+/** `text` without each `var(--x, fallback)`, up to its own closing parenthesis. */
+function withoutFallbacks(text: string): string {
+  let out = "";
+  let index = 0;
+  for (const match of text.matchAll(/var\(--[\w-]+\s*,/g)) {
+    if (match.index! < index) continue;
+    out += text.slice(index, match.index);
+    let depth = 1;
+    let end = match.index! + match[0].length;
+    while (end < text.length && depth > 0) {
+      if (text[end] === "(") depth++;
+      else if (text[end] === ")") depth--;
+      end++;
+    }
+    index = end;
+  }
+  return out + text.slice(index);
+}
+
 /** A literal color that is not a black shade (shadows and scrims darken in every theme), outside
  *  a `var()` fallback (the first rule checks those). */
 function literalColor(text: string): boolean {
-  const outsideFallbacks = text.replace(/var\(--[\w-]+\s*,[^;]*/g, "");
+  const outsideFallbacks = withoutFallbacks(text);
   return /#(?!(?:000|000000)\b)[0-9a-f]{3,8}\b|\brgba?\((?!\s*0[\s,]+0[\s,]+0\b)|\bhsla?\(|(?<![\w-])white(?![\w-])/i.test(
     outsideFallbacks,
   );
