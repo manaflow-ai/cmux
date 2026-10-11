@@ -230,7 +230,8 @@ public final class ThemeScope {
     }
 
     private func update(animated: Bool, repaint: Bool) {
-        let next = level == .config ? ThemeStore.shared.input : overrideInput ?? parent?.input ?? ThemeStore.shared.input
+        var next = level == .config ? ThemeStore.shared.input : overrideInput ?? parent?.input ?? ThemeStore.shared.input
+        next.accent = ThemeStore.shared.accent
         // The parent's light/dark may have flipped even when these colors
         // did not (an overridden workspace in a room that changed).
         defer { for view in roots.allObjects { applyAppearance(to: view) } }

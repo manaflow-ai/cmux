@@ -85,6 +85,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// beside the chat on `url`, the local page its last turn started or mentioned. A loopback
     /// address only; a click that closes the open preview may name none.
     case preview(url: String?, toggle: Bool)
+    /// The header's right-click menu saved the quick actions (`pane.setQuickActions
+    /// {quickActions}`): the App writes them into `agent-pane/layout.json`.
+    case setQuickActions([AgentPaneQuickAction])
     /// The chat tab's state the header's menu labels read: `{pinned}`.
     case tabState
     /// The "..." menu's Archive (`true`) or Unarchive (`false`) of the pane's chat.
