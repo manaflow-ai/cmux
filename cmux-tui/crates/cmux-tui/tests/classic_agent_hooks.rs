@@ -49,12 +49,13 @@ fn read_request(stream: &UnixStream) -> serde_json::Value {
     serde_json::from_str(&line).unwrap()
 }
 
+/// Answers the journal request; a hook that already gave up is not an error here.
 fn reply(mut stream: &UnixStream, request: &serde_json::Value) {
     let response = serde_json::json!({
         "protocol":"cmux.protocol/2","type":"response","id":request["id"],"ok":true,
         "result":{"value":{"sequence":"1"}}
     });
-    stream.write_all(format!("{response}\n").as_bytes()).unwrap();
+    let _ = stream.write_all(format!("{response}\n").as_bytes());
 }
 
 /// The journal request a classic hook sends, with the hook's output.
