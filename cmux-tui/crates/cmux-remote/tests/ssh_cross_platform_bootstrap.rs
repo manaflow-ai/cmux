@@ -97,6 +97,183 @@ async fn ssh_cross_platform_bootstrap_rejects_tampering_before_remote_upload() {
     assert!(!fixture.installed.exists());
 }
 
+/// The app bundles only the checksum of each Linux build, not the executable.
+/// The first host of a platform downloads the published build once into the
+/// local cache, checks it against the pin and uploads it; later hosts reuse the
+/// cached copy, and a host that already runs the matching build downloads and
+/// uploads nothing.
+struct OnDemandFixture {
+    directory: tempfile::TempDir,
+    payload: &'static [u8],
+    digest: String,
+    target: &'static str,
+    uname_os: &'static str,
+    os: &'static str,
+}
+
+impl OnDemandFixture {
+    fn new() -> Self {
+        let directory = tempfile::tempdir().unwrap();
+        let (os, uname_os, target) = if std::env::consts::OS == "macos" {
+            ("linux", "Linux", "cmux-tui-aarch64-unknown-linux-musl")
+        } else {
+            ("macos", "Darwin", "cmux-tui-aarch64-apple-darwin")
+        };
+        let payload: &'static [u8] = b"published remote platform executable";
+        let digest = format!("{:x}", Sha256::digest(payload));
+        let artifacts = directory.path().join("app/cmux-tui-ssh");
+        fs::create_dir_all(&artifacts).unwrap();
+        fs::write(directory.path().join("app/cmux-tui"), b"local executable must not be uploaded")
+            .unwrap();
+        fs::write(
+            artifacts.join("manifest.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "commit": BUILD_IDENTITY,
+                "binaries": {target: digest},
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        Self { directory, payload, digest, target, uname_os, os }
+    }
+
+    fn published(&self) -> std::path::PathBuf {
+        self.directory.path().join("published").join(BUILD_IDENTITY).join(self.target)
+    }
+
+    fn publish(&self, bytes: &[u8]) {
+        fs::create_dir_all(self.published().parent().unwrap()).unwrap();
+        fs::write(self.published(), bytes).unwrap();
+    }
+
+    fn cache(&self) -> std::path::PathBuf {
+        self.directory.path().join("cache")
+    }
+
+    /// A fake SSH host named `host`, with its own install and staging paths.
+    fn host(&self, host: &str) -> (SshBootstrapConfig, std::path::PathBuf, std::path::PathBuf) {
+        let root = self.directory.path().join(host);
+        fs::create_dir_all(&root).unwrap();
+        let installed = root.join("installed");
+        let staged = root.join("staged");
+        let probe = serde_json::json!({
+            "app": "cmux-tui", "version": DISTRIBUTION_VERSION,
+            "distribution_version": DISTRIBUTION_VERSION, "build_identity": BUILD_IDENTITY,
+            "remote_protocol": REMOTE_PROTOCOL_VERSION, "os": self.os, "arch": "aarch64",
+        });
+        // An install from an older cmux release reports another build.
+        let older = serde_json::json!({
+            "app": "cmux-tui", "version": DISTRIBUTION_VERSION,
+            "distribution_version": DISTRIBUTION_VERSION, "build_identity": "older-cmux-release",
+            "remote_protocol": REMOTE_PROTOCOL_VERSION, "os": self.os, "arch": "aarch64",
+        });
+        let script = root.join("ssh");
+        fs::write(
+            &script,
+            format!(
+                r#"#!/bin/sh
+case "$*" in
+  *"uname -s -m"*) printf '%s\n' '{uname_os} aarch64' ;;
+  *"mkdir -p "*|*"mkdir -m 700 "*) exit 0 ;;
+  *".cmux-upload-"*" remote-probe --json"*) [ -f '{staged}' ] || exit 127; printf '%s' '{probe}' ;;
+  *"remote-probe --json"*) [ -f '{installed}' ] || exit 127
+    if [ "$(cat '{installed}')" = older ]; then printf '%s' '{older}'; else printf '%s' '{probe}'; fi ;;
+  *"exec 3> "*".cmux-upload-"*) cat >'{staged}' ;;
+  *"mv -f "*".cmux-upload-"*) mv '{staged}' '{installed}' ;;
+  *"rm -f "*".cmux-upload-"*) rm -f '{staged}' ;;
+  *"rmdir "*) exit 0 ;;
+  *) exit 2 ;;
+esac
+"#,
+                uname_os = self.uname_os,
+                staged = staged.display(),
+                installed = installed.display()
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        let mut config = SshBootstrapConfig::defaults(host);
+        config.ssh_binary = script.to_string_lossy().into_owned();
+        config.package_installable = false;
+        config.local_binary = Some(self.directory.path().join("app/cmux-tui"));
+        config.payload_base_url =
+            format!("file://{}", self.directory.path().join("published").display());
+        config.payload_cache = Some(self.cache());
+        (config, installed, staged)
+    }
+
+    fn cached_files(&self) -> Vec<String> {
+        let Ok(entries) = fs::read_dir(self.cache()) else { return Vec::new() };
+        let mut names: Vec<String> = entries
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+}
+
+#[tokio::test]
+async fn ssh_on_demand_payload_downloads_once_and_every_host_reuses_the_cache() {
+    let fixture = OnDemandFixture::new();
+    fixture.publish(fixture.payload);
+
+    let (first, first_installed, _) = fixture.host("first");
+    assert_eq!(
+        SshBootstrapper::new(first).unwrap().ensure_installed().await.unwrap(),
+        BootstrapOutcome::Installed
+    );
+    assert_eq!(fs::read(&first_installed).unwrap(), fixture.payload);
+    assert_eq!(fixture.cached_files(), vec![format!("{}-{}", fixture.digest, fixture.target)]);
+
+    // The published copy is gone: a second host can only be served from cache.
+    fs::remove_file(fixture.published()).unwrap();
+    let (second, second_installed, _) = fixture.host("second");
+    assert_eq!(
+        SshBootstrapper::new(second).unwrap().ensure_installed().await.unwrap(),
+        BootstrapOutcome::Installed
+    );
+    assert_eq!(fs::read(&second_installed).unwrap(), fixture.payload);
+}
+
+#[tokio::test]
+async fn ssh_on_demand_payload_reuses_a_matching_remote_install_without_downloading() {
+    let fixture = OnDemandFixture::new();
+    let (config, installed, _) = fixture.host("current");
+    fs::write(&installed, b"already installed matching build").unwrap();
+    // Nothing is published and nothing is cached, so any download would fail.
+    assert_eq!(
+        SshBootstrapper::new(config).unwrap().ensure_installed().await.unwrap(),
+        BootstrapOutcome::AlreadyInstalled
+    );
+    assert_eq!(fs::read(&installed).unwrap(), b"already installed matching build");
+    assert!(fixture.cached_files().is_empty());
+}
+
+#[tokio::test]
+async fn ssh_on_demand_payload_replaces_an_older_remote_install() {
+    let fixture = OnDemandFixture::new();
+    fixture.publish(fixture.payload);
+    let (config, installed, _) = fixture.host("older");
+    fs::write(&installed, b"older").unwrap();
+    assert_eq!(
+        SshBootstrapper::new(config).unwrap().ensure_installed().await.unwrap(),
+        BootstrapOutcome::Installed
+    );
+    assert_eq!(fs::read(&installed).unwrap(), fixture.payload);
+}
+
+#[tokio::test]
+async fn ssh_on_demand_payload_rejects_a_tampered_download_before_upload() {
+    let fixture = OnDemandFixture::new();
+    fixture.publish(b"tampered");
+    let (config, installed, staged) = fixture.host("target");
+    let error = SshBootstrapper::new(config).unwrap().ensure_installed().await.unwrap_err();
+    assert!(error.to_string().contains("checksum"), "{error}");
+    assert!(!staged.exists());
+    assert!(!installed.exists());
+    assert!(fixture.cached_files().is_empty(), "{:?}", fixture.cached_files());
+}
+
 /// A published build installs from npm. Whatever npm serves must match the
 /// SHA-256 that the local npm package pinned for the remote platform before
 /// the binary runs or moves into place.

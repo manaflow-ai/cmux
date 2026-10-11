@@ -54,6 +54,13 @@ pub struct SshBootstrapConfig {
     /// Exact local executable used to bootstrap unpublished same-platform
     /// builds. Published distributions continue to install through npm.
     pub local_binary: Option<PathBuf>,
+    /// Where the immutable per-commit cmux-tui builds are published. A native
+    /// client that ships a remote platform's checksum but not its executable
+    /// downloads `<base>/<commit>/cmux-tui-<target>` from here.
+    pub payload_base_url: String,
+    /// Local cache for those downloads, keyed by checksum, so every host of a
+    /// platform reuses one download. `None` when no cache directory is known.
+    pub payload_cache: Option<PathBuf>,
     pub auto_install: bool,
     pub timeout: Duration,
 }
@@ -71,6 +78,8 @@ impl SshBootstrapConfig {
             package_installable: NPM_BOOTSTRAP_VERSION.is_some(),
             build_identity: BUILD_IDENTITY.into(),
             local_binary: std::env::current_exe().ok(),
+            payload_base_url: "https://files.cmux.com/cmux-tui".into(),
+            payload_cache: crate::ssh_artifacts::default_payload_cache(),
             auto_install: true,
             timeout: Duration::from_secs(60),
         }

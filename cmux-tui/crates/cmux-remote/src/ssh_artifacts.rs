@@ -20,6 +20,20 @@ struct ArtifactManifest {
     binaries: HashMap<String, String>,
 }
 
+/// The per-user cache for downloaded SSH payloads: `~/Library/Caches` on
+/// macOS, `$XDG_CACHE_HOME` or `~/.cache` elsewhere.
+pub(crate) fn default_payload_cache() -> Option<PathBuf> {
+    let base = if std::env::consts::OS == "macos" {
+        PathBuf::from(std::env::var_os("HOME")?).join("Library/Caches")
+    } else if let Some(cache) = std::env::var_os("XDG_CACHE_HOME").filter(|value| !value.is_empty())
+    {
+        PathBuf::from(cache)
+    } else {
+        PathBuf::from(std::env::var_os("HOME")?).join(".cache")
+    };
+    Some(base.join("cmux/cmux-tui-ssh"))
+}
+
 /// The SHA-256 digests this client build pins for every remote platform, read
 /// from `cmux-tui-ssh/manifest.json` next to the local executable. The native
 /// app ships the payloads beside it; an npm platform package ships only the
