@@ -160,18 +160,30 @@ final class AgentSessionProcessStore {
     private func makeReadTask(_ fileHandle: FileHandle, sessionId: String, stream: String) -> Task<Void, Never> {
         Task.detached(priority: .utility) { [weak self] in
             while !Task.isCancelled {
-                let data: Data
-                do {
-                    data = try fileHandle.read(upToCount: 64 * 1024) ?? Data()
-                } catch {
-                    data = Data()
-                }
-
+                let data = Self.readAvailableOutput(from: fileHandle.fileDescriptor)
                 await self?.consumeOutputData(data, sessionId: sessionId, stream: stream)
                 if data.isEmpty {
                     return
                 }
             }
+        }
+    }
+
+    /// Whatever the provider has written so far, up to 64 KB; empty at end
+    /// of file or on a read error. `FileHandle.read(upToCount:)` waits for
+    /// the full count on a pipe, which held a running agent's replies back
+    /// until it exited.
+    nonisolated private static func readAvailableOutput(from fileDescriptor: Int32) -> Data {
+        var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+        while true {
+            let count = buffer.withUnsafeMutableBytes { Darwin.read(fileDescriptor, $0.baseAddress, $0.count) }
+            if count > 0 {
+                return Data(buffer[..<count])
+            }
+            if count < 0, errno == EINTR {
+                continue
+            }
+            return Data()
         }
     }
 
