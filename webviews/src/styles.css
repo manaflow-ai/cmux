@@ -1708,18 +1708,17 @@ svg[data-icon-fill] {
 .source-menu .toolbar-menu-item {
   grid-template-columns: minmax(0, 1fr) 18px;
 }
-.toolbar-menu-item:focus,
+.toolbar-menu-item:focus:not(:focus-visible),
 .toolbar-menu-item:hover {
   background: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
   color: var(--cmux-diff-fg);
   outline: none;
 }
-/* Keyboard focus on a menu row is the row tint (desktop.css), with the optional accent bar. */
+/* Keyboard focus on a menu row is the row tint and optional accent bar (desktop.css). */
 .menu-item:focus-visible,
 .toolbar-menu-item:focus-visible {
   outline: none;
-  background: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
-  box-shadow: inset var(--cmux-row-focus-bar, 0px) 0 0 var(--cmux-diff-accent);
+  color: var(--cmux-diff-fg);
 }
 .toolbar-menu-item[aria-disabled="true"] {
   color: color-mix(in lab, var(--cmux-diff-fg) 38%, var(--cmux-diff-bg));

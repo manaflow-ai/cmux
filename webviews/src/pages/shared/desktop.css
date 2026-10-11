@@ -116,22 +116,26 @@ input[type="submit"] {
    field) is left out: a text field is :focus-visible on every focus, so the ring drew a rectangle
    inside the box. Rows of menus, lists and palettes, and the containers that hold their active
    row, show focus as the row tint below instead. */
-:focus-visible:not([data-focus-ring="none"], [data-focus-ring="row"], [role="menu"], [role="listbox"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"]) {
+:focus-visible:not([data-focus-ring="none"], [data-focus-ring="row"], [data-focus-ring="rows"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"]) {
   outline-width: var(--cmux-focus-ring-width) !important;
   outline-style: solid !important;
   outline-color: var(--cmux-focus-ring-color) !important;
   box-shadow: none !important;
 }
 
-/* A keyboard-focused row: the row tint, and the accent bar when it is on. Zero specificity, so a
-   surface's own highlight rule still decides its color. */
-:where([data-focus-ring="row"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"]):focus-visible {
+/* A keyboard-focused row: the row tint, laid over the row's own fill as a background image so a
+   selected or checked row still changes when it takes focus, and the accent bar when it is on. A
+   row that marks its highlight itself (`data-highlighted`, the menus' and pickers' keyboard row)
+   draws that instead. */
+:is([data-focus-ring="row"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"]):focus-visible:not([data-highlighted]) {
   outline: none;
-  background-color: var(--cmux-row-focus);
+  background-image: linear-gradient(var(--cmux-row-focus), var(--cmux-row-focus));
   box-shadow: inset var(--cmux-row-focus-bar) 0 0 var(--cmux-accent, currentColor);
 }
 
-:where([role="menu"], [role="listbox"]):focus-visible {
+/* A menu or list that always shows its active row highlighted (`data-focus-ring="rows"`) needs no
+   ring of its own around the rows. */
+[data-focus-ring="rows"]:focus-visible {
   outline: none;
 }
 

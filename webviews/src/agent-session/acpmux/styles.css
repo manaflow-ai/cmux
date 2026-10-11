@@ -419,7 +419,7 @@ fieldset.acpmux-question{display:flex;flex-direction:column;gap:10px;margin:0;mi
 .acpmux-question-row{display:flex;align-items:flex-start;gap:8px;width:100%;box-sizing:border-box;padding:7px 8px;border:0;border-radius:9px;background:transparent;color:var(--agent-text);font:inherit;text-align:left;cursor:default;}
 .acpmux-question-row:hover{background:var(--acpmux-question-hover)}
 .acpmux-question-row[data-highlighted]{background:var(--acpmux-question-highlight)}
-.acpmux-question-row[aria-checked=true]{background:var(--acpmux-question-chosen)}
+.acpmux-question-row[aria-checked=true]{background:var(--acpmux-question-chosen)}.acpmux-question-row[aria-checked=true][data-highlighted]{background-image:linear-gradient(var(--acpmux-question-highlight),var(--acpmux-question-highlight))}
 .acpmux-question-tab:focus-visible,.acpmux-question-actions button:focus-visible{outline:2px solid color-mix(in srgb,var(--agent-text) 40%,transparent);outline-offset:-2px}
 .acpmux-question-row[aria-disabled=true]{pointer-events:none}
 .acpmux-question-row .acpmux-keycap{flex:none;margin:2px 0 0;color:var(--agent-muted)}
