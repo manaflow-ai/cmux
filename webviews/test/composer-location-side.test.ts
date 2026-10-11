@@ -3,6 +3,7 @@
 // above the chip, filters it until it would, and fails if the popup changes side; this runs the
 // play in Chromium and checks it passed.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import os from "node:os";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
@@ -25,6 +26,9 @@ await requireBrowserLane("composer-location-side.test.ts", async () => {
   beforeAll(async () => {
     vite = await createServer({
       configFile: path.join(webviews, "vite.config.gallery-dev.ts"),
+      // Its own dep cache: composer-mention.test.ts runs a gallery server in parallel, and two
+      // optimizers writing one node_modules/.vite delete each other's chunks mid-load.
+      cacheDir: path.join(os.tmpdir(), `vite-composer-location-side-${process.pid}`),
       server: { port: 0, host: "127.0.0.1", strictPort: false },
       logLevel: "error",
     });
