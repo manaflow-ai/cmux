@@ -96,7 +96,7 @@ final class FlightRecorder: NSObject {
         // Paging and streaming carry whole messages: describing them formatted 200 messages per page (about 4 ms).
         case let .prependPage(p): name = "prependPage \(p.count)"
         case let .appendPage(p): name = "appendPage \(p.count)"
-        case let .replaceWindow(p, start): name = "replaceWindow \(p.count) at \(start)"
+        case let .replaceWindow(p, start, _): name = "replaceWindow \(p.count) at \(start)"
         case let .appendText(id, t): name = "appendText \(id) +\(t.utf8.count)"
         default: name = String(String(describing: a).prefix(60))
         }

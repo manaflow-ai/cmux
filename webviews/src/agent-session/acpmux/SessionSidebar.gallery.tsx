@@ -16,12 +16,14 @@ const sessions: Props["sessions"] = [
     title: "Fix the checkout page",
     updatedAt: minutesAgo(1),
     status: "running",
+    indicator: "working",
   }),
   session({
     sessionId: "sidebar-second",
     title: "Port the sidebar",
     updatedAt: minutesAgo(2),
     unread: true,
+    indicator: "done",
     cwd: "/Users/you/src/cmux",
     branch: "feat/sidebar-polish",
   }),
@@ -49,6 +51,7 @@ const active = session({
   title: "Fix the active bug",
   updatedAt: minutesAgo(1),
   status: "running",
+  indicator: "working",
 });
 const settled = session({
   sessionId: "sidebar-settled",
