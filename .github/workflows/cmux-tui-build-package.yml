@@ -105,6 +105,11 @@ env:
   # value overrides any runner-level CMUX_GHOSTTY_SRC (build.rs treats it
   # as unset).
   CMUX_GHOSTTY_SRC: ""
+  # A crates.io or index DNS blip must not fail a publish build (run
+  # 37211512775 failed on index.crates.io); the same budget as the daemon
+  # tests in cmux-tui-artifacts.yml (cmuxterm-hq#1279 item 1).
+  CARGO_NET_RETRY: "10"
+  CARGO_HTTP_TIMEOUT: "120"
 
 jobs:
   plan-build:

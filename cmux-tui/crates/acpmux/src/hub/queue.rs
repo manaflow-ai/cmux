@@ -18,18 +18,22 @@ pub struct QueuedPrompt {
     pub queued_at: u64,
     /// Fired by `remove_queued`: the waiting `session/prompt` answers withdrawn at once.
     pub(super) withdraw: Arc<Notify>,
+    /// What it runs when its turn comes: an edit (`queue_edit.rs`) replaces it.
+    pub(super) run: Arc<PromptRun>,
     /// Rebuilt from the log at daemon start (`restore_queues`).
     pub(super) restored: bool,
-    /// What a rebuilt prompt runs, until `resume_queues` starts it.
-    pub(super) restore: Option<Restore>,
+    /// Rebuilt, and no task runs it yet (`resume_queues`).
+    pub(super) resume: bool,
+    /// Send now into the running turn (`queue_edit.rs`): its waiting task steers it.
+    pub(super) steer: bool,
 }
 
-/// What a prompt rebuilt from the log needs to run.
-#[derive(Debug, Clone)]
-pub(super) struct Restore {
-    blocks: Vec<Value>,
-    control: Control,
-    trust_gate: bool,
+/// A queued prompt and the rules it runs under.
+#[derive(Debug)]
+pub(super) struct PromptRun {
+    pub(super) blocks: Vec<Value>,
+    pub(super) control: Control,
+    pub(super) trust_gate: bool,
 }
 
 /// A prompt asking for its turn (`queue_slot`).
@@ -40,6 +44,19 @@ pub(super) struct Slot<'a> {
     pub(super) prompt_id: &'a str,
     pub(super) control: Control,
     pub(super) trust_gate: bool,
+    /// A steer the agent cannot take: it goes to the head of the queue and the running turn
+    /// stops (`queue_edit.rs` `send_queued_now`).
+    pub(super) interrupt: bool,
+}
+
+/// What a prompt's `session/prompt` answers.
+pub(super) type Answer = Result<Value, RpcError>;
+
+/// How a queued prompt's wait ends (`queue_turn`).
+pub(super) enum Wait<'a> {
+    Turn(tokio::sync::MutexGuard<'a, ()>),
+    Withdrawn,
+    Steer,
 }
 
 /// What a withdrawn prompt's `session/prompt` answers: no turn ran.
@@ -53,14 +70,14 @@ pub(super) fn withdrawn_reply(prompt_id: &str, turn_id: &str) -> Value {
 impl Hub {
     /// Gets a prompt its turn: at once when nothing runs or waits, else after it joins the queue
     /// (and `accept` hears `queued`) and reaches its head. Returns the turn id, whether it waited,
-    /// and the turn lock; `Err` is the reply of a prompt `remove_queued` withdrew. A prompt
-    /// `restore_queues` rebuilt is in the queue already, with its turn id.
+    /// the turn lock, and what it runs (an edit may have changed a prompt that waited); `Err` when
+    /// it left the queue another way. A prompt `restore_queues` rebuilt is in the queue already.
     pub(super) async fn queue_slot<'a>(
-        &self,
+        self: &Arc<Self>,
         session: &'a Arc<Session>,
         p: Slot<'_>,
         accept: &mut impl FnMut(Value),
-    ) -> Result<(String, bool, tokio::sync::MutexGuard<'a, ()>), Value> {
+    ) -> Result<(String, bool, tokio::sync::MutexGuard<'a, ()>, Arc<PromptRun>), Answer> {
         let restored = {
             let mut ids =
                 session.restored.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -73,7 +90,7 @@ impl Hub {
                 let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 match queue.iter().find(|q| q.turn_id == turn_id) {
                     Some(q) => (turn_id, Some(q.withdraw.clone())),
-                    None => return Err(withdrawn_reply(p.prompt_id, &turn_id)),
+                    None => return Err(Ok(withdrawn_reply(p.prompt_id, &turn_id))),
                 }
             }
             None => {
@@ -93,15 +110,58 @@ impl Hub {
         let Some(withdraw) = withdraw else {
             let guard = session.turn_lock.lock().await;
             session.queued.fetch_sub(1, Ordering::SeqCst);
-            return Ok((turn_id, false, guard));
+            let run = PromptRun {
+                blocks: p.blocks.to_vec(),
+                control: p.control,
+                trust_gate: p.trust_gate,
+            };
+            return Ok((turn_id, false, guard, Arc::new(run)));
         };
+        // A steer the agent cannot take goes next, and stops the turn that runs now.
+        if p.interrupt {
+            let running = session.turn().map(|t| t.turn_id);
+            if self.move_queued(session, p.prompt_id, 0)
+                && let Some(running) = running
+            {
+                self.cancel_turn(session, &running).await;
+            }
+        }
         // A queued prompt `remove_queued` withdraws answers at once, not when the turn ends.
-        let Some(guard) = self.queue_turn(session, &turn_id, &withdraw).await else {
-            return Err(withdrawn_reply(p.prompt_id, &turn_id));
+        let guard = match self.queue_turn(session, &turn_id, &withdraw).await {
+            Wait::Turn(guard) => guard,
+            Wait::Withdrawn => return Err(Ok(withdrawn_reply(p.prompt_id, &turn_id))),
+            Wait::Steer => {
+                let run = self.take_queued(session, p.prompt_id, &turn_id).map_err(Ok)?;
+                return Err(self.steer_queued(session, run, p.client, p.prompt_id).await);
+            }
         };
-        match self.take_queued(session, p.prompt_id, &turn_id) {
-            Some(withdrawn) => Err(withdrawn),
-            None => Ok((turn_id, true, guard)),
+        let run = self.take_queued(session, p.prompt_id, &turn_id).map_err(Ok)?;
+        Ok((turn_id, true, guard, run))
+    }
+
+    /// Runs a queued prompt sent now (`queue_edit.rs` `send_now`) as a steer under its own prompt
+    /// id, so its `session/prompt` answers how it ran. A turn that ended meanwhile leaves it next.
+    pub(super) async fn steer_queued(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        run: Arc<PromptRun>,
+        client: &str,
+        prompt_id: &str,
+    ) -> Answer {
+        let (control, trust_gate) = (run.control, run.trust_gate);
+        let prompt_id = Some(prompt_id.to_owned());
+        let opts =
+            PromptOptions { prompt_id, control, trust_gate, interrupt: true, ..Default::default() };
+        Box::pin(self.run_prompt(session, run.blocks.clone(), client, true, opts)).await
+    }
+
+    /// Stops the turn `turn_id` if it still runs: a bare cancel stops whatever turn runs now,
+    /// which may already be the next one.
+    pub(super) async fn cancel_turn(&self, session: &Arc<Session>, turn_id: &str) {
+        if session.turn().is_some_and(|t| t.turn_id == turn_id)
+            && let Err(e) = self.cancel(session).await
+        {
+            tracing::warn!(session = %session.id, "interrupt for a steer: {}", e.message);
         }
     }
 
@@ -123,8 +183,14 @@ impl Hub {
                 preview: short_text(p.text, 200),
                 queued_at: now_ms(),
                 withdraw: withdraw.clone(),
+                run: Arc::new(PromptRun {
+                    blocks: p.blocks.to_vec(),
+                    control: p.control,
+                    trust_gate: p.trust_gate,
+                }),
                 restored: false,
-                restore: None,
+                resume: false,
+                steer: false,
             },
         );
         // `prompt`, `control` and `trustGate` let a new daemon run it (`restore_queues`).
@@ -138,21 +204,32 @@ impl Hub {
     }
 
     /// Waits until the queued prompt `turn_id` is at the head of the queue and no other turn
-    /// runs, and returns the turn lock; `None` once `remove_queued` withdrew it. A turn
-    /// recovered from an agent host runs first, though its task may take the lock later.
+    /// runs, and returns the turn lock; or until `remove_queued` withdraws it, or `send_now`
+    /// sends it into the running turn. A turn recovered from an agent host runs first, though its
+    /// task may take the lock later.
     pub(super) async fn queue_turn<'a>(
         &self,
         session: &'a Session,
         turn_id: &str,
         withdraw: &Notify,
-    ) -> Option<tokio::sync::MutexGuard<'a, ()>> {
+    ) -> Wait<'a> {
         loop {
             let moved = session.queue_moved.notified();
             tokio::pin!(moved);
             moved.as_mut().enable();
+            let steer = session
+                .queue
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .iter()
+                .any(|q| q.turn_id == turn_id && q.steer);
+            if steer {
+                return Wait::Steer;
+            }
             let guard = tokio::select! {
                 guard = session.turn_lock.lock() => guard,
-                () = withdraw.notified() => return None,
+                () = withdraw.notified() => return Wait::Withdrawn,
+                () = moved.as_mut() => continue,
             };
             let head = session
                 .queue
@@ -162,39 +239,39 @@ impl Hub {
                 .is_none_or(|q| q.turn_id == turn_id);
             if head && session.turn().is_none() {
                 if !self.shutting_down() {
-                    return Some(guard);
+                    return Wait::Turn(guard);
                 }
                 // A stopping daemon starts no turn: the prompt stays queued in the log, and the
                 // next daemon runs it (`restore_queues`).
                 drop(guard);
                 withdraw.notified().await;
-                return None;
+                return Wait::Withdrawn;
             }
             drop(guard);
             tokio::select! {
                 () = moved => {}
-                () = withdraw.notified() => return None,
+                () = withdraw.notified() => return Wait::Withdrawn,
             }
         }
     }
 
-    /// With the turn lock held, takes a queued prompt out of the queue for its turn. A prompt
-    /// `remove_queued` withdrew just as the lock freed (and counted off) gets no turn: the reply
-    /// its `session/prompt` answers instead.
+    /// With the turn lock held, takes a queued prompt out of the queue for its turn, with what it
+    /// runs. A prompt `remove_queued` withdrew just as the lock freed (and counted off) gets no
+    /// turn: the reply its `session/prompt` answers instead.
     pub(super) fn take_queued(
         &self,
         session: &Arc<Session>,
         prompt_id: &str,
         turn_id: &str,
-    ) -> Option<Value> {
-        {
+    ) -> Result<Arc<PromptRun>, Value> {
+        let run = {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let Some(i) = queue.iter().position(|q| q.turn_id == turn_id) else {
-                return Some(withdrawn_reply(prompt_id, turn_id));
+                return Err(withdrawn_reply(prompt_id, turn_id));
             };
-            queue.remove(i);
             session.queued.fetch_sub(1, Ordering::SeqCst);
-        }
+            queue.remove(i).run
+        };
         session.queue_moved.notify_waiters();
         self.append(
             session,
@@ -202,7 +279,7 @@ impl Hub {
             "dequeued",
             json!({"promptId": prompt_id, "turnId": turn_id, "queued": session.queued()}),
         );
-        None
+        Ok(run)
     }
 
     /// Takes a waiting prompt out of the queue before its turn starts; its `session/prompt` then
@@ -245,12 +322,30 @@ impl Hub {
                 continue;
             }
             let mut waiting: Vec<EventRecord> = Vec::new();
+            let mut order: Vec<Value> = Vec::new();
             let scanned = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+                let turn_id = e.msg.get("turnId");
                 match e.kind.as_str() {
                     "queued" => waiting.push(e),
                     "dequeued" | "queue_removed" | "user_message" | "turn_started" => {
-                        let turn_id = e.msg.get("turnId");
                         waiting.retain(|q| q.msg.get("turnId") != turn_id);
+                    }
+                    // An edit (`queue_edit.rs`): the prompt and its rules replace the queued ones.
+                    "queue_updated" => {
+                        if let Some(q) = waiting.iter_mut().find(|q| q.msg.get("turnId") == turn_id)
+                        {
+                            for k in ["text", "prompt", "control", "trustGate"] {
+                                q.msg[k] = e.msg.get(k).cloned().unwrap_or(Value::Null);
+                            }
+                        }
+                    }
+                    "queue_order" => {
+                        order = e
+                            .msg
+                            .get("order")
+                            .and_then(Value::as_array)
+                            .cloned()
+                            .unwrap_or_default()
                     }
                     _ => {}
                 }
@@ -259,6 +354,10 @@ impl Hub {
             if scanned.is_err() || waiting.is_empty() {
                 continue;
             }
+            // The last reorder holds; a prompt queued after it keeps its place at the end.
+            waiting.sort_by_key(|q| {
+                order.iter().position(|id| Some(id) == q.msg.get("promptId")).unwrap_or(order.len())
+            });
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let mut ledger = session.prompts.lock().unwrap();
             let mut restored = session.restored.lock().unwrap();
@@ -284,8 +383,10 @@ impl Hub {
                     preview: short_text(&text, 200),
                     queued_at: e.at,
                     withdraw: Arc::new(Notify::new()),
+                    run: Arc::new(PromptRun { blocks, control, trust_gate }),
                     restored: true,
-                    restore: Some(Restore { blocks, control, trust_gate }),
+                    resume: true,
+                    steer: false,
                 });
                 session.queued.fetch_add(1, Ordering::SeqCst);
                 ledger.push_back((prompt_id, Arc::new(tokio::sync::watch::channel(None).0)));
@@ -301,14 +402,14 @@ impl Hub {
     /// turn recovered from an agent host). Called once at daemon start, after adoption.
     pub fn resume_queues(self: &Arc<Self>) {
         for session in self.sessions() {
-            let restored: Vec<(QueuedPrompt, Restore)> = session
+            let restored: Vec<QueuedPrompt> = session
                 .queue
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .iter_mut()
-                .filter_map(|q| q.restore.take().map(|r| (q.clone(), r)))
+                .filter_map(|q| std::mem::take(&mut q.resume).then(|| q.clone()))
                 .collect();
-            for (q, r) in restored {
+            for q in restored {
                 let hub = self.clone();
                 let session = session.clone();
                 tokio::spawn(async move {
@@ -316,11 +417,12 @@ impl Hub {
                     hub.wait_startup().await;
                     let opts = PromptOptions {
                         prompt_id: Some(q.prompt_id.clone()),
-                        control: r.control,
-                        trust_gate: r.trust_gate,
+                        control: q.run.control,
+                        trust_gate: q.run.trust_gate,
                         ..PromptOptions::default()
                     };
-                    let result = hub.run_prompt(&session, r.blocks, &q.client, false, opts).await;
+                    let blocks = q.run.blocks.clone();
+                    let result = hub.run_prompt(&session, blocks, &q.client, false, opts).await;
                     // A client that resent this prompt id waits on the entry `restore_queues` made.
                     let ledger = session.prompts.lock().unwrap();
                     if let Some((_, outcome)) = ledger.iter().find(|(id, _)| *id == q.prompt_id) {
