@@ -877,6 +877,10 @@ path = "tests/test_install_git_hooks.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_fresh_merge.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_git_seed.py"
 lane = "linux-guard"
 

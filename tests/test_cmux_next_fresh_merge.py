@@ -65,7 +65,8 @@ class FreshMergeTests(unittest.TestCase):
         gh.write_text(FAKE_GH % {"state": str(self.state), "log": str(self.log), "origin": str(self.origin)})
         gh.chmod(0o755)
         self.env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
-        self.env.update(PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}", FRESH_MERGE_POLL_SECONDS="0")
+        self.env.update(PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}", FRESH_MERGE_POLL_SECONDS="0",
+                        FRESH_MERGE_GRACE_SECONDS="0")
 
     def tearDown(self):
         self.temporary.cleanup()
