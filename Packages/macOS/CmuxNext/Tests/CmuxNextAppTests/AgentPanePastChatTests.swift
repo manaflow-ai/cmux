@@ -41,11 +41,11 @@ struct AgentPanePastChatTests {
     /// chat has no session; a chat with a session reads none.
     @Test func theHandshakeCarriesThePastUntilTheChatHasASession() async throws {
         let asked = Asked()
-        AgentPaneModel.chatTranscriptReader = { chat in
+        AgentPanePastChat.reader = { chat in
             asked.keys.append(chat)
             return [AgentPanePastTurn(prompt: "Fix the build", answer: "Fixed: a missing import.", promptAt: 1, answerAt: 2)]
         }
-        defer { AgentPaneModel.chatTranscriptReader = nil }
+        defer { AgentPanePastChat.reader = nil }
         let model = AgentPaneModel(host: Host(), seed: AgentPaneSeedSource(AgentPaneSeed(cwd: "/tmp", pastChat: Self.key)))
         for _ in 0..<2 {
             let reply = await model.respond(to: AgentPaneRequest(body: ["method": "ready"]))
