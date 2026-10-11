@@ -30,6 +30,11 @@
       "message": "这台机器创建于 Cloud 更新之前，无法连接。",
       "action": "请创建一台新机器，用 cmux vm pull 和 cmux vm push 复制文件，然后删除这台机器。"
     },
+    "guestUnresponsive": {
+      "title": "机器无响应",
+      "message": "这台机器未能及时响应，因此请求无法完成。",
+      "action": "先暂停机器，再继续运行，然后重试。在 Mac 应用中，先选择“暂停机器”，再选择“继续运行机器”。在终端中，先运行 cmux vm pause '<machine>'，再运行 cmux vm resume '<machine>'。"
+    },
     "networkRuleCapacity": {
       "title": "网络规则已达上限",
       "message": "网络策略已保存，但未应用：cmux Cloud 的网络规则已达上限。",

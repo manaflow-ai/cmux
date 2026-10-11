@@ -30,6 +30,11 @@
       "message": "Denne maskinen ble opprettet før en Cloud-oppdatering og kan ikke kobles til.",
       "action": "Opprett en ny maskin, kopier filene dine med cmux vm pull og cmux vm push, og slett så denne."
     },
+    "guestUnresponsive": {
+      "title": "Maskinen svarer ikke",
+      "message": "Denne maskinen svarte ikke i tide, så forespørselen kunne ikke fullføres.",
+      "action": "Sett maskinen på pause, gjenoppta den, og prøv igjen. I Mac-appen velger du Sett maskin på pause og deretter Gjenoppta maskin. I en terminal kjører du cmux vm pause '<machine>' og deretter cmux vm resume '<machine>'."
+    },
     "networkRuleCapacity": {
       "title": "Nettverksregler har nådd kapasiteten",
       "message": "Nettverkspolicyen din er lagret, men ble ikke brukt: cmux Cloud har nådd kapasiteten for nettverksregler.",
