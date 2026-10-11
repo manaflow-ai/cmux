@@ -16,7 +16,24 @@ From a checkout, update in one line:
 bash scripts/cmux-next/update-dev-daily.sh
 ```
 
-The updater verifies the rolling SHA-256 asset and the bundle identifier,
-asks the running app to quit through its normal app quit path, then atomically
-replaces the app. Sparkle is disabled for this channel; an automatic updater
-can be added later without changing the publication contract.
+Run it as often as you like:
+
+- **Nothing new:** when the asset's `updated_at` is the one it installed last
+  (kept in `~/Applications/.cmux NEXT DEV.app.installed`), it says the app is
+  up to date and doesn't touch it. If GitHub's API doesn't answer, an
+  unchanged SHA-256 asset means the same. `--force` reinstalls anyway.
+- **An update:** it verifies the SHA-256 asset and the bundle identifier, quits
+  a running app with **Quit and Keep Sessions** (through the app's bundled
+  `cmux app quit-keep-sessions`; a plain Quit may ask), atomically replaces the
+  app and opens it again. Terminals keep running in their session daemons, and
+  agents under acpmux, so the new build reattaches to them: workspaces, panes,
+  tabs, browser pages, agents and their chats, including a turn that was
+  running. Nothing needs relaunching or re-pointing. An app that wasn't
+  running stays closed.
+
+The new build takes over the previous build's daemons on its own: a
+`cmux-tui` session daemon or acpmux from another build, or from the bundle the
+update replaced, is handed off to the bundled one, and the agents keep running.
+
+Sparkle is disabled for this channel (`UpdateBuildIdentity.track` is
+`.development`), so there is no in-app update; this script is the update path.
