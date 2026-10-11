@@ -246,6 +246,8 @@ export type HarnessesState = {
 export type HarnessesRun = {
   action: "refresh" | "signIn" | "check" | "registry" | "update" | "updateAll";
   id?: string;
+  /** With `refresh`: the daemon checks every harness again (after an update). */
+  recheck?: boolean;
 };
 
 /** The v2 mutation result: `revision` is a decimal string. */

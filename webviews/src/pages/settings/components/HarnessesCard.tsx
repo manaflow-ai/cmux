@@ -3,17 +3,30 @@
 // cmux.settings.harnesses.changed. Sign In and Check open a terminal tab of the focused pane
 // running `acpmux harness login <id>` (`--status` for Check), so the agent's own sign-in runs
 // where the person sees it; Browse ACP Registry runs `acpmux harness registry` the same way.
+// Health (cx-ny85, `_acpmux/harness/health`): the installed and newest versions, a sign-out the
+// daemon has evidence for, and Update / Update all, which type the harness's own update command
+// into a terminal tab. An update that needs sudo shows its exact command instead of a button.
 import { useCallback, useId } from "react";
 import { agentDisplayName } from "../../../agent-session/acpmux/agents";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
 import { useSettingsState, useStore } from "../context";
-import type { HarnessRow } from "../ops";
+import type { HarnessRow, HarnessesState } from "../ops";
 import { t } from "../strings";
 
 const SOURCES = new Set(["managed", "user-file", "cmux-json", "registry", "path", "config"]);
 
 function sourceText(row: HarnessRow): string {
   return t(`settingsWindow.harnesses.source.${SOURCES.has(row.source) ? row.source : "config"}`);
+}
+
+/** Rows the page can update with one click (outdated, and no sudo needed). */
+export function updatable(state: HarnessesState | null | undefined): HarnessRow[] {
+  return (state?.harnesses ?? []).filter((row) => row.outdated && row.update && !row.update.elevated);
+}
+
+/** Whether Settings > Agents wants a look: a harness is outdated or signed out. */
+export function harnessesNeedAttention(state: HarnessesState | null | undefined): boolean {
+  return (state?.harnesses ?? []).some((row) => row.outdated || row.auth === "signedOut");
 }
 
 function Row({ row }: { row: HarnessRow }) {
@@ -35,6 +48,26 @@ function Row({ row }: { row: HarnessRow }) {
           <div className="row-help">
             {row.id === name.toLowerCase() ? sourceText(row) : `${row.id} · ${sourceText(row)}`}
           </div>
+          {row.version && (
+            <div className="row-help" data-harness-version="">
+              {row.outdated && row.latest
+                ? t("settingsWindow.harnesses.versionOutdated", row.version, row.latest)
+                : t("settingsWindow.harnesses.version", row.version)}
+            </div>
+          )}
+          {row.outdated && row.update?.elevated && (
+            <div className="row-help">
+              {t("settingsWindow.harnesses.updateElevated")}{" "}
+              <code className="font-mono" data-harness-command="">
+                {row.update.command}
+              </code>
+            </div>
+          )}
+          {row.auth === "signedOut" && (
+            <div className="row-error" data-harness-auth="signedOut">
+              {t("settingsWindow.harnesses.signedOut")}
+            </div>
+          )}
           {row.problem && <div className="row-error">{row.problem}</div>}
         </div>
         <div className="row-control">
@@ -42,6 +75,17 @@ function Row({ row }: { row: HarnessRow }) {
             <span className="badge">{t("settingsWindow.harnesses.terminalOnly")}</span>
           ) : (
             <>
+              {row.outdated && row.update && !row.update.elevated && (
+                <button
+                  type="button"
+                  className="button"
+                  data-harness-action="update"
+                  aria-describedby={titleId}
+                  onClick={() => void store.runHarnesses({ action: "update", id: row.id })}
+                >
+                  {t("settingsWindow.harnesses.update")}
+                </button>
+              )}
               <button
                 type="button"
                 className="button"
@@ -71,6 +115,7 @@ function Row({ row }: { row: HarnessRow }) {
 export function HarnessesCard() {
   const store = useStore();
   const { harnesses } = useSettingsState();
+  const outdated = updatable(harnesses);
   // Read again when the card mounts (a stable callback ref runs once per mount), like Accounts:
   // a harness installed since the last visit shows.
   const mounted = useCallback(
@@ -89,7 +134,7 @@ export function HarnessesCard() {
           className="button"
           data-harness-action="refresh"
           disabled={harnesses?.loading ?? false}
-          onClick={() => void store.runHarnesses({ action: "refresh" })}
+          onClick={() => void store.runHarnesses({ action: "refresh", recheck: true })}
         >
           {t("settingsWindow.harnesses.refresh")}
         </button>
@@ -102,6 +147,16 @@ export function HarnessesCard() {
         >
           {t("settingsWindow.harnesses.registry")}
         </button>
+        {outdated.length > 0 && (
+          <button
+            type="button"
+            className="button"
+            data-harness-action="updateAll"
+            onClick={() => void store.runHarnesses({ action: "updateAll" })}
+          >
+            {t("settingsWindow.harnesses.updateAll")}
+          </button>
+        )}
       </div>
       {harnesses?.problem && (
         <div className="row-error" data-harnesses-problem={harnesses.problem}>
