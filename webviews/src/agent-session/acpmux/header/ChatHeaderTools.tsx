@@ -4,7 +4,7 @@
 // opens the last turn's changes; and the "..." chat menu. Every control renders from the first frame
 // at its final size; data fills in place.
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { useT } from "../i18n";
+import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { useShortcut, withShortcut } from "../shortcuts";
 import { registerPicker } from "../pickerOpeners";
@@ -172,9 +172,7 @@ export function ChatHeaderTools({
                 aria-label={t("header.preview")}
                 aria-pressed={on(HEADER_ACTIONS.preview, mode)}
                 title={
-                  previewUrl
-                    ? t("header.previewAddress", { address: previewAddress(previewUrl) })
-                    : t("header.preview")
+                  previewUrl ? t("header.previewAddress", { address: previewAddress(previewUrl) }) : t("header.preview")
                 }
                 onClick={() => onPreview(previewUrl, mode)}
               >
@@ -244,7 +242,7 @@ export function ChatHeaderTools({
   );
 }
 
-const QUICK_ACTION_NAMES: Record<QuickActionId, string> = {
+const QUICK_ACTION_NAMES: Record<QuickActionId, StringKey> = {
   terminal: "header.terminal",
   browser: "header.browser",
   changes: "header.changes",
@@ -274,7 +272,12 @@ function customizeItems(
   if (target && index >= 0) {
     const mode = list[index].mode;
     items.push(
-      { id: "moveLeft", label: t("header.quickActions.moveLeft"), disabled: index === 0, onSelect: () => save(withMoved(list, target, -1)) },
+      {
+        id: "moveLeft",
+        label: t("header.quickActions.moveLeft"),
+        disabled: index === 0,
+        onSelect: () => save(withMoved(list, target, -1)),
+      },
       {
         id: "moveRight",
         label: t("header.quickActions.moveRight"),
@@ -283,10 +286,11 @@ function customizeItems(
       },
     );
     if (target !== "newTab") {
-      for (const [value, key] of [
+      const modes = [
         ["toggle", "header.quickActions.toggles"],
         ["open", "header.quickActions.opens"],
-      ] as const) {
+      ] as const;
+      for (const [value, key] of modes) {
         items.push({
           id: value,
           label: check(mode === value, t(key)),

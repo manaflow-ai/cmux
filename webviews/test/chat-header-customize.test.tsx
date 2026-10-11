@@ -61,7 +61,8 @@ test("the right-click menu moves, switches, hides and shows the quick actions", 
   const rightClick = (label: string) => {
     const button = host.querySelector(`.acpmux-header-tools button[aria-label="${label}"]`)!;
     const MouseEvent = doc.defaultView!.MouseEvent;
-    act(() => void button.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 10, clientY: 10 })));
+    const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 10, clientY: 10 });
+    act(() => void button.dispatchEvent(event));
   };
   const pick = (label: string) => {
     const item = doc.querySelector<HTMLButtonElement>(`.ui-context-menu [role="menuitem"][aria-label="${label}"]`);

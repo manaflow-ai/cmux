@@ -98,6 +98,10 @@ export function withMoved(list: readonly QuickAction[], id: QuickActionId, by: -
 }
 
 /// `list` with `id` toggling its panel or opening another on each click.
-export function withMode(list: readonly QuickAction[], id: QuickActionId, mode: QuickActionMode): readonly QuickAction[] {
+export function withMode(
+  list: readonly QuickAction[],
+  id: QuickActionId,
+  mode: QuickActionMode,
+): readonly QuickAction[] {
   return list.map((action) => (action.id === id ? { id, mode } : action));
 }
