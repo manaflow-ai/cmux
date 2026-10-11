@@ -131,6 +131,37 @@ threat is a stolen paired device. Accepted residuals:
 - Secret denies match file paths; a secret file that is a symlink to another
   folder may stay readable.
 
+## Remote approvals (acpmux person key)
+
+Only the person-facing cmux app may allow an agent's permission prompt
+([person.rs](../../cmux-tui/crates/acpmux/src/hub/person.rs), #13742 D16). For
+an agent daemon on another machine, the app makes a key for that one daemon
+run, starts the daemon with it, and checks that the daemon holds it before it
+signs an allow. The threat is an agent on that machine that tries to allow its
+own prompts. Delivery paths:
+
+- An SSH machine: the key goes only on the stdin of the app's own SSH exec.
+- A Cloud machine (cx-0q7o slice 2d): the key goes to the cmux backend
+  (`POST /api/vm/{id}/acpmux/keyed-start`), then only as the stdin of the
+  provider exec that starts the daemon. The backend and the VM provider are
+  trusted for this delivery, because they can already run any command as root
+  on the machine. The route never logs, traces, stores or retries the key, and
+  the provider call is not one the provider stores. Only the machine's single
+  owner may start or check a keyed daemon there; a team machine refuses.
+
+Accepted residuals:
+
+- An agent that runs as the same user and can write that user's shell
+  startup files or cmux-tui binary can capture the key at the next restart.
+- On a Cloud machine, agents have passwordless sudo. An agent that gets one
+  allowed shell command can read the key from the daemon's memory at any
+  time. The key then counts only for that one daemon run on that one machine.
+  This is accepted because without it a Cloud machine's chat cannot allow
+  from the Mac at all.
+- The single-owner rule is checked when the key is bound only. If the owner
+  later adds a member to the machine's one-member team, the binding stays
+  until the next restart of that daemon.
+
 ## Maintenance and disclosure
 
 Update this outline when adding an entry point, permission, credential,
