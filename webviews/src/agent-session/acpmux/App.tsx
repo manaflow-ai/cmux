@@ -368,6 +368,7 @@ const changesSource: ChangesSource = {
   commit: (params) => callNative("git.commit", params),
   push: (params) => callNative("git.push", params),
   stage: (paths, unstage) => callNative("git.stage", { paths, unstage }),
+  stageHunk: (paths, hunk, unstage) => callNative("git.stageHunk", { paths, hunk, unstage }),
   pullRequest: () => callNative("git.pullRequest", {}),
 };
 /// A turn's checkpoint pair, diffed on the session host (`git.checkpoint.diff`).
@@ -2991,6 +2992,12 @@ function AcpmuxPane() {
           "git.push": (params) => client.gitPush(params),
           "git.stage": ({ paths, unstage }) =>
             client.gitStage(Array.isArray(paths) ? paths.map(String) : [], unstage === true),
+          "git.stageHunk": ({ paths, hunk, unstage }) =>
+            client.gitStageHunk(
+              Array.isArray(paths) ? paths.map(String) : [],
+              Array.isArray(hunk) ? hunk.map(String) : [],
+              unstage === true,
+            ),
           "git.pullRequest": () => client.gitPullRequest(),
           // What the agent works on, for a terminal or browser opened from this chat (#16620).
           "pane.context": async () => (snapshotRef.current ? paneContext(snapshotRef.current) : { urls: [] }),
