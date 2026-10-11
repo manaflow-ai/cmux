@@ -3153,22 +3153,25 @@ struct WindowZombieRegressionTests {
             releasedWindow = closingWindow
             releasedController = closingWindow?.windowController
             releasedContentView = closingWindow?.contentView
+            #expect(releasedController != nil)
+            #expect(releasedContentView != nil)
             closingWindow?.close()
             closingWindow = nil
         }
         let didRetireWindow = await settleWindowLifecycle {
-            let ownedGraphReleased = releasedController == nil && releasedContentView == nil
+            let ownedGraphReleased = releasedController == nil
+                && releasedContentView == nil
+                && (closingWindowNumber.map { !isWindowServerWindowAlive($0) } ?? true)
             if Self.appKitAutoreleasesClosedWindowsIntoTestHostPool {
                 return ownedGraphReleased
             }
-            return ownedGraphReleased
-                && releasedWindow == nil
-                && (closingWindowNumber.map { !isWindowServerWindowAlive($0) } ?? true)
+            return ownedGraphReleased && releasedWindow == nil
         }
 
         #expect(didRetireWindow)
         #expect(releasedController == nil)
         #expect(releasedContentView == nil)
+        #expect(releasedWindow?.contentViewController == nil)
         #expect(releasedWindow?.contentView == nil)
         #expect(releasedWindow?.delegate == nil)
         #expect(releasedWindow?.isVisible != true)
@@ -3230,13 +3233,13 @@ struct WindowZombieRegressionTests {
             closingWindow = nil
         }
         let didRetireWindow = await settleWindowLifecycle {
-            let ownedGraphReleased = releasedController == nil && releasedContentView == nil
+            let ownedGraphReleased = releasedController == nil
+                && releasedContentView == nil
+                && (closingWindowNumber.map { !isWindowServerWindowAlive($0) } ?? true)
             if Self.appKitAutoreleasesClosedWindowsIntoTestHostPool {
                 return ownedGraphReleased
             }
-            return ownedGraphReleased
-                && releasedWindow == nil
-                && (closingWindowNumber.map { !isWindowServerWindowAlive($0) } ?? true)
+            return ownedGraphReleased && releasedWindow == nil
         }
 
         #expect(didRetireWindow)
