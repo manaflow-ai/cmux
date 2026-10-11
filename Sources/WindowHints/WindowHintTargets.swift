@@ -3,7 +3,8 @@ import WebKit
 
 /// The clickable controls hint mode labels (``WindowHintController``): the
 /// window's accessibility tree, walked in process, keeps each shown element
-/// whose role a person clicks (buttons, rows, tabs, links, fields, menus).
+/// whose role a person clicks (buttons, rows, tabs, links, fields, menus),
+/// reached through subviews and accessibility children alike.
 /// Web views and terminals are skipped: their contents are not controls of
 /// the window.
 @MainActor
@@ -24,6 +25,9 @@ enum WindowHintTargets {
     /// Two letters label 14 * 14 controls; more would need three.
     static let limit = WindowHintKeys.alphabet.count * WindowHintKeys.alphabet.count
 
+    /// How many views and elements the last walk visited (`debug.window_hints`).
+    private(set) static var lastVisitedCount = 0
+
     /// The window's controls in reading order, clipped to its content.
     static func collect(in content: NSView) -> [Target] {
         guard let window = content.window else { return [] }
@@ -31,16 +35,17 @@ enum WindowHintTargets {
         var found: [Target] = []
         var seen = Set<[Int]>()
         var stack: [Any] = [content]
-        var visited = 0
-        while let next = stack.popLast(), visited < 5000, found.count < limit {
-            visited += 1
+        var visited = Set<ObjectIdentifier>()
+        while let next = stack.popLast(), visited.count < 5000, found.count < limit {
+            guard visited.insert(ObjectIdentifier(next as AnyObject)).inserted else { continue }
             if let view = next as? NSView {
                 guard !view.isHiddenOrHasHiddenAncestor, view.alphaValue > 0.01 else { continue }
                 guard !(view is WKWebView), !(view is GhosttyNSView) else { continue }
             }
-            guard let element = next as? NSAccessibilityProtocol, !element.isAccessibilityHidden() else { continue }
+            let element = next as? NSAccessibilityProtocol
+            if element?.isAccessibilityHidden() == true { continue }
             // Only controls report enabled; custom rows and tabs leave it unset.
-            if element.isAccessibilityElement(), let role = element.accessibilityRole(), clickable.contains(role),
+            if let element, element.isAccessibilityElement(), let role = element.accessibilityRole(), clickable.contains(role),
                (element as? NSControl)?.isEnabled ?? true {
                 let rect = window.convertFromScreen(element.accessibilityFrame()).intersection(bounds)
                 let key = [rect.minX, rect.minY, rect.width, rect.height].map { Int($0.rounded()) }
@@ -48,9 +53,14 @@ enum WindowHintTargets {
                     found.append(Target(rect: rect, role: role.rawValue, title: describe(element)))
                 }
             }
-            // Children in reverse so the walk pops them in reading order.
-            stack.append(contentsOf: (element.accessibilityChildren() ?? []).reversed())
+            // A view's subviews plus its accessibility-only children (SwiftUI
+            // elements): a SwiftUI host does not list the AppKit views it
+            // embeds. Reversed so the walk pops them in reading order.
+            var children: [Any] = (next as? NSView)?.subviews ?? []
+            children += (element?.accessibilityChildren() ?? []).filter { !($0 is NSView) }
+            stack.append(contentsOf: children.reversed())
         }
+        lastVisitedCount = visited.count
         return found
     }
 

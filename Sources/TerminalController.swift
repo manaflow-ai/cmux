@@ -1993,6 +1993,7 @@ class TerminalController {
                         "active": false,
                         "enabled": CmuxFeatureFlags.shared.isWindowHintsEnabled,
                         "candidates": candidates ?? -1,
+                        "visited": WindowHintTargets.lastVisitedCount,
                     ]
                 }
                 return [
