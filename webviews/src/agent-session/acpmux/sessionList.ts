@@ -35,6 +35,11 @@ export type AcpmuxSessionEntry = {
   pullRequest?: SessionPullRequest;
   /** A line of the session's latest reply, for previews. */
   preview?: string;
+  /** A fork: the chat it was forked from and that chat's event it branched after (cx-ncc.61). */
+  parentId?: string;
+  forkSeq?: number;
+  /** Completed turns, the copied ones of a fork included. */
+  turnCount?: number;
 };
 
 export type SessionPullRequest = {
@@ -116,6 +121,9 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     side: session.side === true || tagged(session.tags, SIDE_TAG) || tagged(session.tags, ASIDE_TAG),
     pullRequest: pullRequest(session.pullRequest),
     preview: text(session.preview),
+    parentId: text(session.parentId),
+    forkSeq: typeof session.forkSeq === "number" ? session.forkSeq : undefined,
+    turnCount: typeof session.turnCount === "number" ? session.turnCount : undefined,
   };
 }
 
