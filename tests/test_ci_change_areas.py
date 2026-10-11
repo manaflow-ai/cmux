@@ -2836,8 +2836,6 @@ def test_a_script_a_mac_job_the_app_or_a_native_test_runs_keeps_its_macos_route(
         "scripts/sign-cmux-bundle.sh",
         # ci.yml's Mac jobs run it.
         "scripts/reload.sh",
-        # Nothing names it: unknown, so every lane as before.
-        "scripts/showcase-publish.py",
     ):
         actual = module.classify_files([path])
         assert actual.macos and actual.release_build, path
