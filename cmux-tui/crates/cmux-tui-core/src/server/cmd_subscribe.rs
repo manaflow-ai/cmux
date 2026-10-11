@@ -291,6 +291,11 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             "browser_profile_id": change.browser_profile_id,
             "bookmarks_revision": change.bookmarks_revision,
         }),
+        MuxEvent::HistoryChanged { revision, kinds } => json!({
+            "event": "history-changed",
+            "revision": revision,
+            "kinds": kinds,
+        }),
         MuxEvent::SettingsChanged(change) => json!({
             "event": "settings-changed",
             "revision": change.revision,

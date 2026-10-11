@@ -98,6 +98,13 @@ pub enum MuxEvent {
         personal_revision: u64,
     },
     BookmarksChanged(personal::BookmarksChange),
+    /// The history module committed a change (`history-v1`): the history
+    /// revision and the entry kinds that changed. Consumers re-read
+    /// `history.entries.list`.
+    HistoryChanged {
+        revision: u64,
+        kinds: Vec<String>,
+    },
     /// The settings file or a managed layer changed (`settings-v1`;
     /// mux/settings.rs).
     SettingsChanged(cmux_config::Change),
