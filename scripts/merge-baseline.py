@@ -15,7 +15,8 @@ a conflict, written as ordinary conflict markers around that entry.
                are its value); any other line is its own key.
   .json        nested objects of counts (indent=1, sorted keys, the
                generators' format), merged leaf by leaf; an object left empty
-               is dropped. A file in any other shape is a conflict.
+               is dropped. A file in any other shape, or an entry both
+               sides changed, is a conflict: both whole files between markers.
 
 Usage (git): merge-baseline.py %O %A %B %P; writes the result to %A and exits
 1 on a conflict.
@@ -89,29 +90,36 @@ def flatten(value, prefix=()):
     return {prefix: value}
 
 
+def whole_file_conflict(ours: str, theirs: str) -> tuple[str, bool]:
+    """Both sides whole between markers, so the file never looks resolved."""
+    def ended(text: str) -> str:
+        return text if text.endswith("\n") or not text else text + "\n"
+    return f"<<<<<<< ours\n{ended(ours)}=======\n{ended(theirs)}>>>>>>> theirs\n", True
+
+
 def merge_json(base: str, ours: str, theirs: str) -> tuple[str, bool]:
     try:
         documents = [json.loads(text) if text.strip() else {} for text in (base, ours, theirs)]
     except ValueError:
-        return ours, True
+        return whole_file_conflict(ours, theirs)
     if not all(isinstance(document, dict) for document in documents):
-        return ours, True
+        return whole_file_conflict(ours, theirs)
     if json.dumps(documents[1], indent=1, sort_keys=True) + "\n" != ours:
-        return ours, True  # not the generators' format: leave it to a person
+        return whole_file_conflict(ours, theirs)  # not the generators' format: leave it to a person
     base_leaves, our_leaves, their_leaves = (flatten(document) for document in documents)
     merged: dict = {}
     for path in sorted(set(base_leaves) | set(our_leaves) | set(their_leaves)):
         result, clash = merge_value(base_leaves.get(path, MISSING), our_leaves.get(path, MISSING),
                                     their_leaves.get(path, MISSING))
         if clash:
-            return ours, True
+            return whole_file_conflict(ours, theirs)
         if result is MISSING:
             continue
         node = merged
         for key in path[:-1]:
             node = node.setdefault(key, {})
             if not isinstance(node, dict):
-                return ours, True
+                return whole_file_conflict(ours, theirs)
         node[path[-1]] = result
     return json.dumps(merged, indent=1, sort_keys=True) + "\n", False
 
