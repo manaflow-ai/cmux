@@ -7206,6 +7206,14 @@
      "presence": "optional",
      "nullable": false
     },
+    "thread_root": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
     "created_at": {
      "type": {
       "kind": "scalar",

@@ -1032,6 +1032,7 @@ fn answer_entry(
             reply_to: None,
             answers,
             answers_pending,
+            thread_root: None,
         },
         rate_retried: false,
         not_before: None,

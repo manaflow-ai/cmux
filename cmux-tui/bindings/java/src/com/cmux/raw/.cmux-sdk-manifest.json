@@ -672,8 +672,8 @@
     },
     {
       "path": "ConversationMessage.java",
-      "sha256": "b8d2cf169126844803376ee2c005da81d871b31df25e34ad9298df1bf4160e18",
-      "size": 10749
+      "sha256": "4fb0efda86e9c54fb286d0ed02ccd93b6c75c05229223236809e9adbe1290af9",
+      "size": 11424
     },
     {
       "path": "ConversationOpRequest.java",
@@ -1697,7 +1697,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "4a83699bf4a2631fedfc1bfe07ee1865eaac3e81aa1d3a3a0cb5629ea36b2590",
+      "sha256": "6eb0b1b75c36e6cf8d5eeeffc472e85ec4050a9a46518633332bc8b793a0c0fa",
       "size": 6066
     },
     {
@@ -2907,7 +2907,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "7cda926ffafebba7a9c62e5204c4b650cfde03f270bcda615aae3328ba10a406",
+  "ir_sha256": "c9abf8acd2064cb24a9f0a1f4ad724e12d0d7132afba6aaf07780d4f7fe741fa",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

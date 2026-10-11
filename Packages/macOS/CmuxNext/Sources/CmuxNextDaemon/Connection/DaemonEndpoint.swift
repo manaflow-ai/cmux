@@ -173,6 +173,9 @@ public struct DaemonCapabilities: Sendable {
     /// `workspace.agent_folder.set` and `extra.agent_folder` (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
     /// An older daemon kept running across an app update lacks it: Choose Folder… asks for a restart.
     public let workspaceAgentFolder = "workspace-agent-folder-v1"
+    /// `workspace.agent_start.get`: the store's one answer for where a new agent chat starts
+    /// (cx-9aps). An older daemon lacks it; the pane then decides as before (compatibility only).
+    public let workspaceAgentStart = "workspace-agent-start-v1"
     /// Conversation tabs: `new-conversation-tab` and the `conversation` tab kind.
     /// Echoed so the daemon sends the canonical kind instead of `browser`.
     public let conversationTabs = "conversation-tabs-v1"
@@ -190,6 +193,9 @@ public struct DaemonCapabilities: Sendable {
     public let appScreens = "app-screens-v1"
     /// `conversation-search` on the local conversation owner.
     public let conversationSearch = "conversation-search-v1"
+    /// `thread_root` on conversation messages, and a send that moves the
+    /// sender's own read cursor (cmux-tui/spec/commands.md `conversation-op`).
+    public let conversationThreads = "conversation-threads-v1"
     /// Cloud conversations through the daemon (plans/cmux-next/home-cloud-proxy.md):
     /// the `cloud-session-*`, `cloud-inbox-*` and `cloud-conversation-*`
     /// commands and their `cloud-*` events. Advertised only when the daemon
@@ -269,7 +275,7 @@ public struct DaemonCapabilities: Sendable {
                                             terminalCommandJournal, dockColumns, edgeDocks, dockColumnRole, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, tabSplitRespawn, frontendBrowserHistory,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
-                                            workspaceKind, workspaceAgentFolder, conversationTabs, agentSessionTabs, agentSessionAttach, pageTabs, appScreens, conversationSearch, cloudConversations, localAttachments,
+                                            workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, pageTabs, appScreens, conversationSearch, conversationThreads, cloudConversations, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
                                             terminalClipboardRead, personalMixedOrder, sidebarLayout, paletteUsage, projectList, splitClientKeys,
                                             workspaceGroupIcon, workspaceGroupPin, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals] }

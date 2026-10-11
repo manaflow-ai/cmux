@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "7cda926ffafebba7a9c62e5204c4b650cfde03f270bcda615aae3328ba10a406";
+pub const ir_sha256 = "c9abf8acd2064cb24a9f0a1f4ad724e12d0d7132afba6aaf07780d4f7fe741fa";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -410,6 +410,7 @@ pub const ConversationMessage = struct {
     reply_to: ?ConversationPartRef = null,
     retracted_at: ?[]const u8 = null,
     seq: u64,
+    thread_root: ?[]const u8 = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "answers",
@@ -417,6 +418,7 @@ pub const ConversationMessage = struct {
         "edited_at",
         "reply_to",
         "retracted_at",
+        "thread_root",
     };
 };
 

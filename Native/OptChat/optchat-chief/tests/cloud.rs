@@ -122,6 +122,7 @@ fn the_port_reads_and_writes_through_the_cloud_commands() {
             reply_to: None,
             answers: Vec::new(),
             answers_pending: Vec::new(),
+            thread_root: None,
         },
     )
     .unwrap();
@@ -449,6 +450,7 @@ fn the_cloud_link_leases_the_chief_token_subscribes_and_answers() {
             reply_to: None,
             answers: Vec::new(),
             answers_pending: Vec::new(),
+            thread_root: None,
         },
     )
     .unwrap();

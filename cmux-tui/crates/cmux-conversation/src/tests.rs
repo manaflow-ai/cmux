@@ -33,6 +33,7 @@ impl Host {
             new_message_id: &new_message_id,
             target,
             reply_target,
+            thread_target: op.thread_root().and_then(|root| self.find(root)),
             last_message: self.messages.last(),
         };
         let commit = apply(&self.head, &request)?;
@@ -56,6 +57,7 @@ impl Host {
             reply_to: None,
             answers: Vec::new(),
             answers_pending: Vec::new(),
+            thread_root: None,
         };
         self.run(actor, key, op).unwrap().message.unwrap()
     }
