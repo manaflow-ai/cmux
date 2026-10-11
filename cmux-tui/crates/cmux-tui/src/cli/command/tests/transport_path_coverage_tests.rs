@@ -139,6 +139,9 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         // Only the user sets where a workspace's agents run,
                         // through the verified app (gate A2).
                         | "workspace.agent_folder.set"
+                        // The app's agent pane asks where a new chat starts;
+                        // an agent already runs in its folder (cx-9aps).
+                        | "workspace.agent_start.get"
                         // Typing and live reply drafts are published by the
                         // participant's own client (the Chief's brain); the
                         // CLI's `cmux chief` only reads them.

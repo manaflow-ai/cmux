@@ -59,6 +59,7 @@ pub fn message(seq: u64, author: &str, text: &str) -> Message {
             runs: None,
         }],
         reply_to: None,
+        thread_root: None,
         created_at: String::new(),
         edited_at: None,
         retracted_at: None,
