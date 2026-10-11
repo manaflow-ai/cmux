@@ -311,11 +311,11 @@ struct RightSidebarPanelView: View {
         }
     }
 
-    /// Keeps its slot in modes that can't open as a pane (Dock, Feed) and
-    /// fades out instead, so the tabs get the same width in every mode and
-    /// switching doesn't jump their layout mid-animation.
+    /// Stays in place in modes that can't open as a pane (Dock, Feed),
+    /// disabled with a tooltip saying why, so the tabs keep the same width
+    /// in every mode and switching doesn't jump their layout.
     private func openAsPaneButton(mode: RightSidebarMode) -> some View {
-        let isShown = mode.canOpenAsPane && mode.isAvailable()
+        let canOpen = mode.canOpenAsPane && mode.isAvailable()
         return Button {
             onOpenAsPane(mode)
         } label: {
@@ -326,12 +326,21 @@ struct RightSidebarPanelView: View {
             width: RightSidebarChromeMetrics.headerControlSize,
             height: RightSidebarChromeMetrics.headerControlSize
         )
+        .disabled(!canOpen)
         .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
             keyPrefix: "rightSidebarHeaderOpenAsPane",
-            isVisible: isShown
+            isVisible: true
         )
         .rightSidebarHeaderControlAlignment()
-        .safeHelp(String(localized: "rightSidebar.openAsPane.tooltip", defaultValue: "Open as pane"))
+        // Outside `.disabled` so the tooltip still shows on Dock and Feed.
+        .safeHelp(
+            canOpen
+                ? String(localized: "rightSidebar.openAsPane.tooltip", defaultValue: "Open as pane")
+                : String.localizedStringWithFormat(
+                    String(localized: "rightSidebar.openAsPane.unavailableTooltip", defaultValue: "%@ can’t open as a pane"),
+                    mode.label
+                )
+        )
         .accessibilityLabel(
             String.localizedStringWithFormat(
                 String(localized: "rightSidebar.openAsPane.accessibilityLabel", defaultValue: "Open %@ as Pane"),
@@ -339,13 +348,7 @@ struct RightSidebarPanelView: View {
             )
         )
         .accessibilityIdentifier("RightSidebar.openAsPaneButton")
-        .accessibilityHidden(!isShown)
-        .disabled(!isShown)
-        .allowsHitTesting(isShown)
-        .opacity(isShown ? 1 : 0)
-        .animation(reduceMotion ? nil : ModeBarButton.switchAnimation, value: isShown)
-        // Only a shown button keeps the titlebar from dragging the window.
-        .background { if isShown { TitlebarInteractiveControlRegion() } }
+        .titlebarInteractiveControl()
     }
 
     private var closeButton: some View {
