@@ -2257,5 +2257,22 @@ def test_cmux_tui_artifacts_never_drops_a_feat_cmux_next_push() -> None:
     assert dispatched != evaluate("push", feat, "c" * 40)
     assert "c" * 40 in dispatched
 
+def test_cmux_next_daemon_tests_take_the_owned_side_lane_like_the_build_legs() -> None:
+    # 2026-10-11: the daemon tests named MACOS_RUNNER_PR directly while the
+    # build legs beside them take the owned side lane on attempt 1. Once every
+    # same-repo branch push ran this workflow (#19169), 16 daemon-test jobs sat
+    # queued on Blacksmith macOS at its cap while the minis had room. The first
+    # attempt uses the same route as the build legs; a rerun goes to the PR pool.
+    document = yaml.load(workflow("cmux-tui-artifacts.yml"), Loader=yaml.BaseLoader)
+    jobs = document["jobs"]
+    build_route = jobs["build"]["with"]["macos_runner"]
+    retry_route = jobs["build"]["with"]["macos_retry_runner"]
+    daemon = jobs["cmux-next-daemon-tests"]["runs-on"]
+    assert "vars.CI_SIDE_LANE_RUNNER" in build_route
+    assert daemon == build_route, daemon
+    assert "github.run_attempt == 1" in daemon
+    assert retry_route.split("|| ", 1)[1] in daemon  # a rerun falls back to the PR pool
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -230,12 +230,6 @@ final class AgentTabStore {
         if let view = views[key] { view.revealTurn(turn) } else { pendingTurns[key] = turn }
     }
 
-    /// The link turn tab `key`'s page has not been handed yet.
-    func pendingTurn(in key: String) -> String? {
-        let key = resolve(key)
-        return views[key]?.model.pendingRevealTurn ?? pendingTurns[key]
-    }
-
     /// The tab's pane view, made on first show. A tab whose session runs on another machine is
     /// carried by that tab's own session daemon (``remoteHost``); nil when it cannot be (the
     /// pane then shows the "runs on" notice).

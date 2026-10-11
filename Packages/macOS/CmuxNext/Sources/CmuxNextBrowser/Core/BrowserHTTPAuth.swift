@@ -12,8 +12,6 @@ enum BrowserHTTPAuth {
     static let methods: Set<String> = [NSURLAuthenticationMethodHTTPBasic, NSURLAuthenticationMethodHTTPDigest,
                                        NSURLAuthenticationMethodNTLM, NSURLAuthenticationMethodDefault]
 
-    static func asksUser(_ method: String) -> Bool { methods.contains(method) }
-
     static func spec(host: String, realm: String?, isSecure: Bool, failedBefore: Bool, user: String?) -> CmuxDialogSpec {
         var lines = [String(localized: "browser.auth.message", defaultValue: "The server asks for a user name and password.", bundle: .module)]
         if let realm, !realm.isEmpty {

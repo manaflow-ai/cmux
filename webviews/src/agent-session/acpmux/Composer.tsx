@@ -39,6 +39,7 @@ import {
 import { FileSearch } from "./FileSearch";
 import { Close, FileDoc } from "./conversation/icons";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
+import { openChipMenu } from "./composerChipMenu";
 import { Dialog } from "../../ui/Dialog";
 import type { Choice } from "./ComposerPickers";
 import type { FileSearchSource } from "./fileSearchModel";
@@ -794,6 +795,7 @@ export function Composer({
         runShell();
       }}
       onBlur={blur}
+      onContextMenuCapture={openChipMenu}
     >
       {remote.note && (
         <p className="acpmux-composer-remote-note" role="note">
@@ -1077,9 +1079,27 @@ function AttachmentChip({
       </svg>
     </button>
   );
+  // Its right-click menu: Open where a click opens it, and Remove (cx-2lm4).
+  const menu = (open: (() => void) | undefined, chip: React.ReactNode) => (
+    <ContextMenu
+      className="acpmux-attachment-menu"
+      items={[
+        ...(open ? [{ id: "open", label: t("image.open"), onSelect: open }] : []),
+        {
+          id: "remove",
+          label: t(COMPOSER_LABELS.removeAttachment, { name: attachment.name }),
+          separatorBefore: Boolean(open),
+          onSelect: () => onRemove(attachment.id),
+        },
+      ]}
+    >
+      {chip}
+    </ContextMenu>
+  );
   if (image && source) {
     const img = <img alt={attachment.name} src={thumb ?? source} onError={() => setBroken(true)} />;
-    return (
+    return menu(
+      openImage ? () => openImage(source, attachment.name) : undefined,
       <div className="acpmux-attachment acpmux-attachment-image" title={attachment.name}>
         {openImage ? (
           <button
@@ -1094,23 +1114,25 @@ function AttachmentChip({
           img
         )}
         {remove}
-      </div>
+      </div>,
     );
   }
   if (attachment.kind === "document" && attachment.data) {
-    return (
+    return menu(
+      undefined,
       <PdfAttachmentChip
         attachment={{ ...attachment, kind: "document", data: attachment.data }}
         remove={remove}
         codex={codex}
-      />
+      />,
     );
   }
-  return (
+  return menu(
+    undefined,
     <div className="acpmux-attachment acpmux-attachment-file" title={attachment.name}>
       <span>{attachment.name}</span>
       {remove}
-    </div>
+    </div>,
   );
 }
 

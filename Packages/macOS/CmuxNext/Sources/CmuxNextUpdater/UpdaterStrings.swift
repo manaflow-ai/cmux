@@ -66,9 +66,6 @@ nonisolated enum UpdaterStrings {
         text("updater.pill.restartKeepsSessions", "Restart to update. Your terminals and agents keep running.")
     }
 
-    // The update card (UPDATE-CARD)
-    static func cardReady(_ version: String) -> String { format("updater.card.ready", "cmux %@ is ready", version) }
-    static var cardReadyNoVersion: String { text("updater.card.readyNoVersion", "An update is ready") }
     static var restartToUpdate: String { text("updater.card.restartToUpdate", "Restart to Update") }
     static var automaticUpdates: String { text("updater.card.automaticUpdates", "Automatic Updates") }
     static func downloadedHeadline(_ version: String) -> String {

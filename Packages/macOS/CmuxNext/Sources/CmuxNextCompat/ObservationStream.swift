@@ -60,10 +60,6 @@ internal import os
 /// - One iterator serves one consumer. Calling `next()` from two tasks at
 ///   once on copies of one iterator is a programming error (the system type
 ///   traps); here the second waiter replaces the first.
-///
-/// DEBUG builds read `CMUX_NEXT_DEBUG_LEGACY_OBSERVATIONS=1` at launch to use
-/// the macOS 14 path on macOS 26 too, so the fallback can be compared with
-/// the system type on one machine.
 public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
     public typealias Failure = Never
 
@@ -226,23 +222,6 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
             }
         }
     }
-}
-
-/// The DEBUG switch that forces the macOS 14 path of ``ObservationStream``
-/// (read once, at the first iterator).
-struct ObservationStreamLegacyOverride {
-    static let enabled: Bool = {
-        #if DEBUG
-        guard let raw = getenv("CMUX_NEXT_DEBUG_LEGACY_OBSERVATIONS"), String(cString: raw) == "1" else {
-            return false
-        }
-        Logger(subsystem: "com.cmuxterm.app.next", category: "observation-stream")
-            .notice("CMUX_NEXT_DEBUG_LEGACY_OBSERVATIONS=1: every ObservationStream uses the withObservationTracking path")
-        return true
-        #else
-        return false
-        #endif
-    }()
 }
 
 /// DEBUG opt-in to the system-iterator path (`CMUX_NEXT_DEBUG_NATIVE_OBSERVATIONS=1`), for its fix.

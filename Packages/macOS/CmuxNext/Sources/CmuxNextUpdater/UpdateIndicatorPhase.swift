@@ -26,23 +26,6 @@ nonisolated public enum UpdateIndicatorPhase: Equatable, Sendable {
     /// the notice card shows it after the user asked.
     case note(UpdateNote)
 
-    /// An update was found: downloading, downloaded and waiting, or
-    /// installing (the Settings item's badge).
-    public var isUpdateAvailable: Bool {
-        switch self {
-        case .available, .downloading, .ready, .installing: true
-        case .hidden, .checking, .note: false
-        }
-    }
-
-    /// Whether the circle shows.
-    public var showsCircle: Bool {
-        switch self {
-        case .hidden, .note: false
-        case .checking, .available, .downloading, .ready, .installing: true
-        }
-    }
-
     /// The Sparkle flow's phase. `version` names the update a background
     /// check accepted.
     @MainActor
@@ -104,15 +87,6 @@ extension UpdateIndicatorPhase {
         case .available(let version?): UpdaterStrings.available(version) + "\n" + UpdaterStrings.install
         case .installing: UpdaterStrings.installing
         case .note(let note): note.text
-        }
-    }
-
-    /// The pill beside the circle, or nil when none shows.
-    public var pillText: String? {
-        switch self {
-        case .installing: UpdaterStrings.installing
-        case .note(let note): note.text
-        case .hidden, .checking, .available, .downloading, .ready: nil
         }
     }
 
