@@ -153,7 +153,9 @@ extension AgentPaneHostError {
     /// What the page shows for `error`; anything but a host error reads as a
     /// timeout.
     static func userMessage(for error: any Error) -> String {
-        switch error as? AgentPaneHostError {
+        // A host's own localized refusal (a remote machine's start refusal) is said as it is.
+        if let refusal = error as? any AgentPaneHostRefusal { return refusal.userMessage }
+        return switch error as? AgentPaneHostError {
         case .acpmuxNotFound:
             String(
                 format: String(localized: "agentPane.error.notInstalled", defaultValue: "acpmux was not found. Install it on your PATH or in one of these folders: %@.", bundle: .module),
