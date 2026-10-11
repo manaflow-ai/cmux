@@ -3,9 +3,10 @@
 
 Group headers and workspace rows use the same chevron: open points down (`disclosure.expanded`),
 collapsed points right (`disclosure.collapsed`), at the same size and in the same place. A
-workspace row shows its chevron only on hover or when selected. A group header is its dot and
-label: no fill on hover or when its collapsed group holds the selection; only the selected
-workspace row paints the selection fill.
+workspace row shows its chevron only on hover or when selected. A group header is a solid
+colored chip (cx-qno.22): `fill` reports only a state step on it, which shows on hover and not
+when its collapsed group holds the selection; only the selected workspace row paints the
+selection fill.
 
 The script attaches to an app already running (a capture slot's `capture-host launch`, or a
 tagged build) through its debug socket. It turns on `sidebar.showWorkspaceTabs` (so workspace
@@ -198,8 +199,8 @@ def main():
         disclosure(row_of(first)).get("shown") is True and (row_of(first) or {}).get("fill") is True)
 
     hover(header_of(group), lambda: header_of(group))
-    row("A hovered group header paints no fill", "fill false", f"fill {(header_of(group) or {}).get('fill')}",
-        (header_of(group) or {}).get("fill") is False)
+    row("A hovered group header takes the hover step on its chip", "fill true", f"fill {(header_of(group) or {}).get('fill')}",
+        (header_of(group) or {}).get("fill") is True)
     leave()
 
     print("workspaceGroup.collapse:", action("workspaceGroup.collapse", target="workspace-group:" + group), flush=True)
