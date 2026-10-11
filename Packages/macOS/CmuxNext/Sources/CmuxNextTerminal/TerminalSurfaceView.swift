@@ -359,7 +359,7 @@ public final class TerminalSurfaceView: NSView {
         }
     }
 
-    var hasSelection: Bool {
+    public var hasSelection: Bool {
         guard let surface else { return false }
         return ghostty_surface_has_selection(surface)
     }

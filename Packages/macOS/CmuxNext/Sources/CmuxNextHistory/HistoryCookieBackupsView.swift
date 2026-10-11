@@ -48,6 +48,8 @@ struct HistoryCookieBackupsView: View {
         .padding(Metrics.panelInset * 3)
         .frame(minWidth: 420, idealWidth: 480, minHeight: 320)
         .background(colors.background)
+        // The default button in the theme's selection fill, never the system blue (cx-wqn5).
+        .tint(colors.selection)
         .confirmationDialog(HistoryStrings.cookieBackupsConfirmTitle, isPresented: $confirming) {
             Button(HistoryStrings.cookieBackupsConfirmDelete, role: .destructive) { model.deleteCookieBackups(pendingDelete) }
         } message: {
