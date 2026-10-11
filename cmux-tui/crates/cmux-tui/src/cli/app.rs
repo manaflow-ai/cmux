@@ -904,9 +904,6 @@ pub(super) fn parse_response(line: &str) -> Result<Result<Value, Value>, String>
     }
 }
 
-/// `events.stream`: one JSON event per line until the app closes the
-/// stream or this process is interrupted. Blocking reads, no polling.
-
 /// `accounts.list` with `handles_stable: false`: the Keychain salt failed,
 /// so the `acct_…` handles last only for this app launch.
 fn warn_unstable_handles(method: &str, value: &Value, output: OutputMode) {

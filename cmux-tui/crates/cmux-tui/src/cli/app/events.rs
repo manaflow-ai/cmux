@@ -10,6 +10,8 @@ use serde_json::{Value, json};
 use super::super::OutputMode;
 use super::{failure, send_line};
 
+/// `events.stream`: one JSON event per line until the app closes the
+/// stream or this process is interrupted. Blocking reads, no polling.
 pub(super) fn stream_events(stream: &mut UnixStream, params: Value, output: OutputMode) -> i32 {
     if let Err(error) =
         send_line(stream, &json!({ "id": 1, "method": "events.stream", "params": params }))

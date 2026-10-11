@@ -90,8 +90,10 @@ struct WebKitPageAutomation {
     private static let metricsScript = """
         const doc = document.documentElement, body = document.body;
         return {
-          width: Math.max(doc ? doc.scrollWidth : 0, body ? body.scrollWidth : 0, window.innerWidth || 0),
-          height: Math.max(doc ? doc.scrollHeight : 0, body ? body.scrollHeight : 0, window.innerHeight || 0),
+          // Against the client size, not innerWidth/innerHeight: a classic
+          // scrollbar is in the inner size but can never be scrolled past.
+          width: Math.max(doc ? doc.scrollWidth : 0, body ? body.scrollWidth : 0, (doc && doc.clientWidth) || window.innerWidth || 0),
+          height: Math.max(doc ? doc.scrollHeight : 0, body ? body.scrollHeight : 0, (doc && doc.clientHeight) || window.innerHeight || 0),
           viewport_width: window.innerWidth || 0, viewport_height: window.innerHeight || 0,
           client_width: (doc && doc.clientWidth) || window.innerWidth || 0,
           client_height: (doc && doc.clientHeight) || window.innerHeight || 0,
