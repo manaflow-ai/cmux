@@ -39,6 +39,9 @@ struct WorkspaceSpawn: Sendable {
     /// seeded with this (the cwd and draft of the tab it came from), with
     /// no terminal. Wins over `opensNewTabPage`.
     var firstChat: AgentPaneSeed?
+    /// The workspace's only tab shows this acpmux session of this Mac (a chat moved here by
+    /// session.transfer.pull), with no terminal. Wins over `firstChat`.
+    var firstSession: String?
 
     init(cwd: String? = nil, name: String? = nil, command: String? = nil, env: [String: String] = [:], keep: Bool = false,
          profile: ProfileID? = nil, newTabPage: Bool = false) {

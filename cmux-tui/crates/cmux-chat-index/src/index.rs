@@ -160,7 +160,12 @@ impl ChatIndex {
             b.entry
                 .updated_ms
                 .cmp(&a.entry.updated_ms)
-                .then_with(|| a.entry.key().cmp(&b.entry.key()))
+                // Ties: the key text (`<harness id>:<session id>`) ascending, the order
+                // clients keep (AcpmuxChatsStore), not the enum's declaration order.
+                .then_with(|| {
+                    let text = |e: &ChatEntry| format!("{}:{}", e.harness.id(), e.session_id);
+                    text(&a.entry).cmp(&text(&b.entry))
+                })
         });
         chats
     }

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextDesign
 import CmuxNextIcons
 import Foundation
 import Observation
@@ -114,7 +115,7 @@ final class MachineBrowserPageTab: BrowserTab {
 final class MachineBrowserStateView: NSView {
     private let message = NSTextField(wrappingLabelWithString: "")
     private let queued = NSTextField(wrappingLabelWithString: "")
-    let openLocallyButton = NSButton(title: MachineBrowserStrings.openLocally, target: nil, action: nil)
+    let openLocallyButton = ThemedDefaultButton(title: MachineBrowserStrings.openLocally, target: nil, action: nil)
     private let retryButton = NSButton(title: MachineBrowserStrings.retry, target: nil, action: nil)
     var onOpenLocally: (() -> Void)?
     var onRetry: (() -> Void)?
