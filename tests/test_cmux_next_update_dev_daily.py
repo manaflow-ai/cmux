@@ -11,6 +11,10 @@ CLI's `app quit-keep-sessions` and osascript's quit stop it, `open` starts it.
 - An update quits through the app's own Quit and Keep Sessions (terminals and
   agents keep running), swaps the bundle, and opens the app again.
 - An app that was not running is installed and stays closed.
+- Run from another cmux's terminal (its CMUX_SOCKET_PATH, CMUX_BUNDLE_ID and
+  CMUX_TAG set), the quit still goes to cmux NEXT DEV, not that app.
+- A build caught half-published (the archive new, its checksum not yet) is
+  not recorded as installed: the next run installs it.
 """
 
 from __future__ import annotations
@@ -81,7 +85,10 @@ elif name == "osascript":
 elif name == "open":
     running(True)
 elif name == "cmux":
-    if args[:2] == ["app", "quit-keep-sessions"]: running(False)
+    # The bundled CLI addresses the app these name before its own bundle.
+    if any(os.environ.get(k) for k in ("CMUX_SOCKET_PATH", "CMUX_BUNDLE_ID", "CMUX_TAG")):
+        (state / "other-app-quit").write_text(" ".join(args))
+    elif args[:2] == ["app", "quit-keep-sessions"]: running(False)
     elif args[:2] == ["app", "ping"]: sys.exit(0 if running() else 1)
 '''
 
@@ -119,9 +126,9 @@ class Mac:
         (self.state / "release.json").write_text(release(updated_at))
         (self.state / "sha256").write_text(sha256)
 
-    def update(self, *args: str) -> subprocess.CompletedProcess[str]:
+    def update(self, *args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
         env = {"PATH": f"{self.bin}:/usr/bin:/bin", "HOME": str(self.home), "FAKE_STATE": str(self.state),
-               "TMPDIR": str(self.root)}
+               "TMPDIR": str(self.root), **(env or {})}
         return subprocess.run(["bash", str(SCRIPT), *args], env=env, capture_output=True, text=True, timeout=60)
 
     def calls(self) -> list[list[str]]:
@@ -183,6 +190,32 @@ def test_a_republished_identical_archive_is_nothing_new() -> None:
         assert result.returncode == 0, result.stderr
         assert "up to date" in result.stdout, result.stdout
         assert not [c for c in mac.calls() if c[0] in ("ditto", "osascript", "open")], mac.calls()
+
+
+def test_an_update_from_another_cmux_terminal_quits_cmux_next_dev() -> None:
+    with tempfile.TemporaryDirectory(prefix="dev-daily-") as scratch:
+        mac = Mac(scratch, running=True)
+        mac.publish("2026-10-11T19:02:10Z", "bbbb  cmux-NEXT-DEV.zip\n")
+        result = mac.update(env={"CMUX_SOCKET_PATH": "/tmp/cmux.sock", "CMUX_BUNDLE_ID": "com.cmuxterm.app",
+                                 "CMUX_TAG": "nightly"})
+        assert result.returncode == 0, result.stderr
+        assert not (mac.state / "other-app-quit").exists(), "the quit went to the terminal's own cmux"
+        assert not [c for c in mac.calls() if c[0] == "osascript" and "to quit" in " ".join(c)], mac.calls()
+        assert mac.installed() == "bbbb  cmux-NEXT-DEV.zip\n"
+        assert mac.running()
+
+
+def test_a_half_published_build_is_installed_once_published() -> None:
+    with tempfile.TemporaryDirectory(prefix="dev-daily-") as scratch:
+        mac = Mac(scratch, running=True)
+        # The archive is uploaded first: its updated_at is new, its checksum still the old one.
+        mac.publish("2026-10-11T19:02:10Z", "aaaa  cmux-NEXT-DEV.zip\n")
+        assert "up to date" in mac.update().stdout
+        # Then its checksum.
+        mac.publish("2026-10-11T19:02:10Z", "bbbb  cmux-NEXT-DEV.zip\n")
+        result = mac.update()
+        assert result.returncode == 0, result.stderr
+        assert mac.installed() == "bbbb  cmux-NEXT-DEV.zip\n", result.stdout
 
 
 def main() -> int:
