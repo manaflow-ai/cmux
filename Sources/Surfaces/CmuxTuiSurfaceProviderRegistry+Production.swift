@@ -29,9 +29,7 @@ extension CmuxTuiSurfaceProviderRegistry {
             wireGuardHub: hub,
             isCloudEnabled: { CloudMachinesFeature.isEnabled },
             allowsBackgroundWork: {
-                CloudActivationPolicy.live(
-                    remoteEnabled: { CmuxFeatureFlags.offMainEffectiveValue(for: CmuxFeatureFlags.cloudMachinesFlag) }
-                ).allowsBackgroundCloudWork
+                CloudActivationPolicy.live().allowsBackgroundCloudWork
             },
             listPage: {
                 guard let client = VMClient.shared else { return nil }

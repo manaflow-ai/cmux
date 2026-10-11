@@ -527,7 +527,10 @@ void ghostty_surface_free(void *surface) {
     }
     cmux_test_render_callbacks_clear(surface);
 }
-void ghostty_surface_free_text(void) {}
+void ghostty_surface_free_text(void* surface, ghostty_text_s* text) {
+    (void)surface;
+    (void)text;
+}
 float ghostty_surface_font_size(void *surface) {
     return surface == cmux_test_font_surface
         ? cmux_test_font_runtime_points
@@ -601,7 +604,21 @@ void ghostty_surface_process_output(void *surface, const char *data, uintptr_t l
     pthread_mutex_unlock(&cmux_test_process_output_mutex);
 }
 void ghostty_surface_quicklook_font(void) {}
-void ghostty_surface_read_screen_tail_vt(void) {}
+bool ghostty_surface_read_screen_tail_vt(
+    void* surface,
+    uintptr_t max_rows,
+    uintptr_t max_bytes,
+    ghostty_text_s* text
+) {
+    (void)surface;
+    (void)max_rows;
+    (void)max_bytes;
+    static const char value[] = "bounded-tail\r\n";
+    if (text == NULL) return false;
+    text->text = value;
+    text->text_len = sizeof(value) - 1;
+    return true;
+}
 void ghostty_surface_read_text(void) {}
 void ghostty_surface_refresh(void) {}
 bool ghostty_surface_set_render_presented_callback(

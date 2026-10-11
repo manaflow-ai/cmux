@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import CmuxFoundation
 import Bonsplit
 import CmuxWorkspaces
@@ -23,6 +24,7 @@ extension DockSplitStore {
         let notificationStore = resolvedNotificationStore()
         let layoutCodec = SessionSplitContainerLayoutCodec(controller: bonsplitController)
         let rawLayout = layoutCodec.snapshot(panelIdForTabId: { [self] in surfaceIdToPanelId[$0] })
+        pruneClaudeBackgroundViewerObservations()
         let orderedPanelIds = orderedSessionPanelIds()
         let terminalPanelIds = Set(
             orderedPanelIds.filter {
@@ -363,7 +365,14 @@ extension DockSplitStore {
                 isRemoteTerminal: transfer?.isRemoteTerminal ?? false,
                 remotePTYSessionID: transfer?.remotePTYSessionID,
                 wasAgentRunning: localTmuxStartCommand == nil ? agentWasRunning : nil,
-                hasReceivedExplicitInput: terminal.hasReceivedExplicitInput
+                hasReceivedExplicitInput: terminal.hasReceivedExplicitInput,
+                claudeBackgroundViewer: localTmuxStartCommand == nil
+                    ? claudeBackgroundViewerForSnapshot(
+                        panelId: panelId,
+                        terminal: terminal,
+                        isRemoteTerminal: transfer?.isRemoteTerminal == true
+                    )
+                    : nil
             )
             browserSnapshot = nil
             filePreviewSnapshot = nil
@@ -428,6 +437,39 @@ extension DockSplitStore {
             filePreview: filePreviewSnapshot,
             rightSidebarTool: nil
         )
+    }
+
+    /// Records the `claude attach <id|name>` viewer running in a Dock pane, if
+    /// any, so the pane reattaches the background session after relaunch.
+    ///
+    /// Same rule as `Workspace.claudeBackgroundViewerForSnapshot`: one argv
+    /// read per foreground process, nothing for remote or prompt-idle panes.
+    func claudeBackgroundViewerForSnapshot(
+        panelId: UUID,
+        terminal: TerminalPanel,
+        isRemoteTerminal: Bool
+    ) -> ClaudeBackgroundSessionViewer? {
+        guard !isRemoteTerminal,
+              !terminal.surface.isRemoteTerminal,
+              terminal.shellActivity.state != .promptIdle,
+              let processID = foregroundProcessIDProvider(terminal) else {
+            claudeBackgroundViewerObservationsByPanelId.removeValue(forKey: panelId)
+            return nil
+        }
+        let observation = ClaudeBackgroundViewerObservation.observe(
+            processID: processID,
+            previous: claudeBackgroundViewerObservationsByPanelId[panelId],
+            processArguments: processArgumentsProvider
+        )
+        claudeBackgroundViewerObservationsByPanelId[panelId] = observation
+        return observation.viewer
+    }
+
+    /// Drops viewer observations for panels that left this Dock.
+    private func pruneClaudeBackgroundViewerObservations() {
+        guard !claudeBackgroundViewerObservationsByPanelId.isEmpty else { return }
+        claudeBackgroundViewerObservationsByPanelId = claudeBackgroundViewerObservationsByPanelId
+            .filter { panels[$0.key] != nil }
     }
 
     private func sessionWorkingDirectory(

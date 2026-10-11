@@ -16,6 +16,7 @@ extension CmuxSettingsFileStore {
         "app.windowTitleTemplate",
         "app.menuBarOnly",
         "app.newWorkspacePlacement",
+        "app.goToWorkspaceOrder",
         "app.workspaceInheritWorkingDirectory",
         "app.minimalMode",
         "app.keepWorkspaceOpenWhenClosingLastSurface",
@@ -129,6 +130,7 @@ extension CmuxSettingsFileStore {
         "sidebar.showNotificationMessage",
         "sidebar.notificationMessageLineLimit",
         "sidebar.showBranchDirectory",
+        "sidebar.showCloudDeviceIcons",
         "sidebar.showPullRequests",
         "sidebar.watchGitStatus",
         "sidebar.makePullRequestsClickable",
@@ -236,5 +238,6 @@ extension CmuxSettingsFileStore {
         "customSidebars.beta.enabled",
         "cloud.beta.machines.enabled",
         "remoteTmux.beta.enabled",
+        "remoteTmux.multiplexer.beta.enabled",
     ]
 }

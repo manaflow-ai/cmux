@@ -1678,7 +1678,7 @@ struct ContentView: View {
             onSendFeedback: presentFeedbackComposer,
             onToggleSidebar: { sidebarState.toggle() },
             onNewTab: {
-                AppDelegate.shared?.performNewWorkspaceAction(
+                AppDelegate.shared?.performNewLocalWorkspaceAction(
                     tabManager: tabManager,
                     debugSource: "titlebar.hiddenNewWorkspace"
                 )
@@ -2030,7 +2030,7 @@ struct ContentView: View {
                 )
             },
             onNewTab: {
-                AppDelegate.shared?.performNewWorkspaceAction(
+                AppDelegate.shared?.performNewLocalWorkspaceAction(
                     tabManager: tabManager,
                     debugSource: "titlebar.fullscreenNewWorkspace"
                 )
@@ -5649,6 +5649,7 @@ struct ContentView: View {
             hasher.combine(commandPaletteCurrentWorkRevision)
             return hasher.finalize()
         }
+        let workspaceOrder = commandPaletteWorkspaceOrder
         let windowContexts = commandPaletteSwitcherWindowContexts()
         let fingerprintContexts = windowContexts.map { context in
             CommandPaletteSwitcherFingerprintContext(
@@ -5683,6 +5684,12 @@ struct ContentView: View {
             )
         }
         var fingerprint = CommandPaletteSwitcherFingerprintContext.fingerprint(windowContexts: fingerprintContexts)
+        fingerprint = fingerprint &* 31 &+ workspaceOrder.rawValue.hashValue
+        if workspaceOrder == .recent {
+            for context in windowContexts {
+                fingerprint = fingerprint &* 31 &+ Int(truncatingIfNeeded: context.tabManager.focusHistoryRevision)
+            }
+        }
         fingerprint = fingerprint &* 31 &+ (commandPaletteCloudWorkspaceTargetsFingerprint ?? 0)
         return fingerprint
     }
@@ -5821,7 +5828,8 @@ struct ContentView: View {
             onDidMutate: {},
             onFailure: { _ in NSSound.beep() },
             refresh: {},
-            workspaceCreationHost: { CloudWorkspaceCreationHost(manager: self.tabManager) }
+            workspaceCreationHost: { CloudWorkspaceCreationHost(manager: self.tabManager) },
+            recordCloudWorkspaceSelection: { self.tabManager.recordCloudWorkspaceSelection(machineID: $0) }
         )
         actions.openWorkspace(target.machine, target.workspace, target.group)
     }
@@ -6051,17 +6059,25 @@ struct ContentView: View {
     private func commandPaletteOrderedSwitcherWorkspaces(
         for context: CommandPaletteSwitcherWindowContext
     ) -> [Workspace] {
-        var workspaces = context.tabManager.tabs
-        guard !workspaces.isEmpty else { return [] }
-
         let selectedWorkspaceId = context.selectedWorkspaceId ?? context.tabManager.selectedTabId
-        if let selectedWorkspaceId,
-           let selectedIndex = workspaces.firstIndex(where: { $0.id == selectedWorkspaceId }) {
-            let selectedWorkspace = workspaces.remove(at: selectedIndex)
-            workspaces.insert(selectedWorkspace, at: 0)
-        }
+        let recentWorkspaceIDs = commandPaletteWorkspaceOrder == .recent
+            ? context.tabManager.recentlyFocusedFocusHistoryMenuItems(maxItemCount: max(50, context.tabManager.tabs.count)).map { $0.entry.workspaceId }
+            : []
+        let orderedIDs = CommandPaletteWorkspaceOrdering().orderedWorkspaceIDs(
+            sidebarIDs: context.tabManager.tabs.map(\.id),
+            selectedID: selectedWorkspaceId,
+            recentIDs: recentWorkspaceIDs,
+            mode: commandPaletteWorkspaceOrder == .recent ? .recent : .sidebar
+        )
+        let workspacesByID = Dictionary(
+            context.tabManager.tabs.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return orderedIDs.compactMap { workspacesByID[$0] }
+    }
 
-        return workspaces
+    private var commandPaletteWorkspaceOrder: WorkspaceSwitcherOrder {
+        UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.goToWorkspaceOrder)
     }
 
     private func commandPaletteOrderedSwitcherPanels(for workspace: Workspace) -> [UUID] {
@@ -7264,7 +7280,6 @@ struct ContentView: View {
         snapshot.setBool(CommandPaletteContextKeys.computerUseUXEnabled, featureFlags.isComputerUseUXEnabled)
         if let auth = AppDelegate.shared?.auth {
             snapshot.setBool(CommandPaletteContextKeys.authSignedIn, auth.accountFlow.isAuthenticated)
-            snapshot.setBool(CommandPaletteContextKeys.proUpgradeEnabled, CmuxFeatureFlags.shared.isProUpgradeUIEnabled)
             snapshot.setBool(CommandPaletteContextKeys.authWorking, auth.accountFlow.isWorkingOnAuth)
         }
 
@@ -8890,7 +8905,7 @@ struct ContentView: View {
         }
 
         registry.register(commandId: "palette.newWorkspace") {
-            AppDelegate.shared?.performNewWorkspaceAction(
+            AppDelegate.shared?.performNewLocalWorkspaceAction(
                 tabManager: tabManager,
                 debugSource: "palette.newWorkspace"
             )
@@ -15456,6 +15471,7 @@ private struct SidebarFooter: View {
 
 struct SidebarFooterButtons: View {
     @Environment(\.cmuxAccentColor) private var cmuxAccent
+    private var accountFlow: HostAccountFlow? { AppDelegate.shared?.auth?.accountFlow }
     var updateViewModel: UpdateStateModel
     @ObservedObject var fileExplorerState: FileExplorerState
     let modifierKeyMonitor: WindowScopedShortcutHintModifierMonitor
@@ -15475,6 +15491,16 @@ struct SidebarFooterButtons: View {
 
     private var presentationMode: WorkspacePresentationModeSettings.Mode {
         WorkspacePresentationModeSettings.mode(for: workspacePresentationMode)
+    }
+
+    private var billingPlanRefreshID: String? {
+        guard let flow = accountFlow, let accountID = flow.currentIdentity?.id else { return nil }
+        return "\(accountID):\(flow.confirmedTeamID ?? "personal"):\(flow.isProUpgradeAvailable):\(flow.isAuthenticated)"
+    }
+
+    private var isProStatusKnownForUpgrade: Bool {
+        guard let flow = accountFlow else { return true }
+        return !flow.isWorkingOnAuth && (flow.currentIdentity == nil || flow.hasLoadedBillingPlan)
     }
 
     private func shows(_ control: SidebarFooterControl) -> Bool {
@@ -15502,7 +15528,11 @@ struct SidebarFooterButtons: View {
                (showModifierHoldHints && modifierKeyMonitor.isModifierPressed) || isShortcutPopoverPresented {
                 ShortcutDiscoveryButton(isPopoverPresented: $isShortcutPopoverPresented)
             }
-            if shows(.upgrade) {
+            if shows(.upgrade),
+               SidebarFooterPresentationPolicy.isUpgradeVisible(
+                   isProActive: accountFlow?.isProActive == true,
+                   isProStatusKnown: isProStatusKnownForUpgrade
+               ) {
                 SidebarProBadge()
             }
             // The puzzle button opens the extensions browser; it only shows
@@ -15529,6 +15559,10 @@ struct SidebarFooterButtons: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .task(id: billingPlanRefreshID) {
+            guard let flow = accountFlow, flow.isAuthenticated else { return }
+            await flow.refreshBillingPlan()
+        }
     }
 }
 
@@ -15625,15 +15659,13 @@ private struct SidebarHelpMenuButton: View {
                 accessibilityIdentifier: "SidebarHelpMenuOptionWelcome",
                 isExternalLink: false
             )
-            if CmuxFeatureFlags.shared.isProUpgradeUIEnabled {
-                helpOptionButton(
-                    title: String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…"),
-                    action: .upgrade,
-                    accessibilityIdentifier: "SidebarHelpMenuOptionUpgrade",
-                    isExternalLink: false,
-                    trailingSystemImage: "sparkles"
-                )
-            }
+            helpOptionButton(
+                title: String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…"),
+                action: .upgrade,
+                accessibilityIdentifier: "SidebarHelpMenuOptionUpgrade",
+                isExternalLink: false,
+                trailingSystemImage: "sparkles"
+            )
             helpOptionButton(
                 title: String(localized: "menu.app.settings", defaultValue: "Settings…"),
                 action: .settings,
@@ -16269,7 +16301,7 @@ struct TabItemView: View, Equatable {
                         .padding(.trailing, SidebarCompactStatusGlyph.titleSpacing - titleRowSpacing)
                 }
 
-                SidebarCloudWorkspaceBadgeView(label: detailVisibility.showsBranchDirectory ? workspaceSnapshot.remoteWorkspaceBadgeLabel : nil, pointSize: scaledFontSize(10), tint: activeSecondaryColor(0.7), symbol: workspaceSnapshot.remoteWorkspaceBadgeSymbol)
+                SidebarCloudWorkspaceBadgeView(label: settings.showsCloudDeviceIcons && !settings.hidesAllDetails ? workspaceSnapshot.remoteWorkspaceBadgeLabel : nil, pointSize: scaledFontSize(10), tint: activeSecondaryColor(0.7), symbol: workspaceSnapshot.remoteWorkspaceBadgeSymbol)
 
                 if isEditing {
                     SidebarInlineRenameField(
@@ -17360,7 +17392,10 @@ enum BonsplitTabDragPayload {
         from pasteboard: NSPasteboard,
         registry: TabDragTransferRegistry? = nil
     ) -> Transfer? {
-        guard !DragOverlayRoutingPolicy.hasFilePreviewTransfer(pasteboard.types) else {
+        // A workspace row exports both its reorder payload and a pane merge
+        // capability; sidebar destinations must keep reading it as a reorder.
+        guard !DragOverlayRoutingPolicy.hasFilePreviewTransfer(pasteboard.types),
+              !DragOverlayRoutingPolicy.hasSidebarTabReorder(pasteboard.types) else {
             return nil
         }
         return liveTransfer(from: pasteboard, registry: registry).map(Transfer.init)

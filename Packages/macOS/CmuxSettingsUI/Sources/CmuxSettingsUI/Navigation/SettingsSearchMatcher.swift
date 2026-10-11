@@ -2,6 +2,15 @@ import Foundation
 
 /// Normalizes settings search text and scores fuzzy query matches.
 struct SettingsSearchMatcher: Sendable {
+    /// Cached normalized text used by query matching. Building this once when
+    /// the searchable settings snapshot changes avoids folding and tokenizing
+    /// every shortcut row on every keystroke.
+    struct PreparedText: Sendable {
+        let normalized: String
+        let words: [String]
+        let wordSet: Set<String>
+    }
+
     #if DEBUG
     /// Debug-only sentinel that makes settings search return every indexed entry.
     let debugShowAllQuery = ":all"
@@ -10,6 +19,12 @@ struct SettingsSearchMatcher: Sendable {
     /// Returns a case- and diacritic-folded representation of `text`.
     func normalize(_ text: String) -> String {
         text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+    }
+
+    func prepare(_ text: String) -> PreparedText {
+        let normalized = normalize(text)
+        let words = tokens(in: normalized)
+        return PreparedText(normalized: normalized, words: words, wordSet: Set(words))
     }
 
     /// Splits text into normalized words using whitespace and punctuation boundaries.
@@ -64,25 +79,26 @@ struct SettingsSearchMatcher: Sendable {
     /// literal matches; typo and subsequence fallbacks apply to the title alone,
     /// which keeps short queries from matching long captions by accident.
     func matchScore(query: String, title: String, secondaryText: String) -> Int? {
+        matchScore(query: query, title: prepare(title), secondary: prepare(secondaryText))
+    }
+
+    /// Scores a query against prepared title and secondary text. The prepared
+    /// values are immutable and `Sendable`, so this method can run away from
+    /// the main actor while a text field remains responsive.
+    func matchScore(query: String, title: PreparedText, secondary: PreparedText) -> Int? {
         let queryWords = tokens(in: query)
         guard !queryWords.isEmpty else { return 0 }
-        let normalizedTitle = normalize(title)
-        let titleWords = tokens(in: normalizedTitle)
-        let titleWordSet = Set(titleWords)
-        let normalizedSecondary = normalize(secondaryText)
-        let secondaryWords = tokens(in: normalizedSecondary)
-        let secondaryWordSet = Set(secondaryWords)
 
         var score = 0
         var captionOnlyWordCount = 0
         for word in queryWords {
-            if let titleScore = matchScore(token: word, text: normalizedTitle, words: titleWords, wordSet: titleWordSet) {
+            if let titleScore = matchScore(token: word, text: title.normalized, words: title.words, wordSet: title.wordSet) {
                 score += titleScore
             } else if let secondaryScore = matchScore(
                 token: word,
-                text: normalizedSecondary,
-                words: secondaryWords,
-                wordSet: secondaryWordSet
+                text: secondary.normalized,
+                words: secondary.words,
+                wordSet: secondary.wordSet
             ), secondaryScore <= 30 {
                 score += secondaryScore + 100
                 captionOnlyWordCount += 1
@@ -92,7 +108,7 @@ struct SettingsSearchMatcher: Sendable {
         }
 
         let normalizedQuery = queryWords.joined(separator: " ")
-        let titleText = titleWords.joined(separator: " ")
+        let titleText = title.words.joined(separator: " ")
         if titleText == normalizedQuery { score -= 1_000 }
         if titleText.hasPrefix(normalizedQuery) { score -= 800 }
         if containsAtWordBoundary(normalizedQuery, in: titleText) { score -= 700 }

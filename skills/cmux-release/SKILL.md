@@ -37,7 +37,8 @@ This updates `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION`. The build number
 ./scripts/release-pretag-guard.sh
 git tag vX.Y.Z
 git push origin vX.Y.Z
-gh run watch --repo manaflow-ai/cmux
+# Use the run ID created by the tag push; the shared waiter observes it without polling GitHub.
+glaeda-gh wait run manaflow-ai/cmux/<run-id>
 ```
 
 If the pretag guard fails, run `./scripts/bump-version.sh`, commit the build-number bump, then retry.

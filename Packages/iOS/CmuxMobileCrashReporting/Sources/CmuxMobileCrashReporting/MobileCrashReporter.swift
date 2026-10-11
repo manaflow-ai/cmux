@@ -10,9 +10,8 @@ public import Sentry
 /// analytics obey one opt-out source. `sendDefaultPii` is disabled and every
 /// outgoing event, breadcrumb, and structured log is redacted by the shared
 /// `SentryEventScrubber` (CmuxSentryReporting) before it leaves the device.
-/// Structured logs are enabled so the transport diagnostics bridge can emit
-/// searchable connection telemetry; swizzling and automatic network capture
-/// stay off because URLSession traffic in this app carries auth.
+/// Structured logs, swizzling, and automatic network capture remain disabled;
+/// URLSession traffic in this app carries authentication credentials.
 public struct MobileCrashReporter {
     private let transportSessionController: any MobileCrashTransportSessionControlling
     private let cachePurger: SentryCachePurger
@@ -191,9 +190,7 @@ public struct MobileCrashReporter {
         options.enableWatchdogTerminationTracking = true
         options.enableAppHangTracking = true
         options.appHangTimeoutInterval = 8.0
-        // Structured logs power the transport diagnostics bridge
-        // (TransportSentryReporter); each log line passes the consent gate and
-        // scrubber installed in `beforeSendLog`.
+        // Operational measurements use the authenticated Axiom bridge.
         options.enableLogs = false
         // Manual breadcrumbs (the transport bridge's) are scrubbed last-mile.
         // Swizzling and automatic network capture stay OFF even with the
@@ -234,6 +231,7 @@ public struct MobileCrashReporter {
             let names = Set(classes.map { NSStringFromClass($0) })
             let requiredNames: Set<String> = [
                 "CmuxMobileTerminal.GhosttySurfaceView",
+                "CmuxMobileSupport.MobileReplayPrivacyMaskView",
                 "CmuxMobileBrowserStream.BrowserStreamContentView",
                 "CmuxMobileSimulatorStream.SimStreamDisplayView",
                 "CmuxMobileCamera.CameraPreviewHostView",

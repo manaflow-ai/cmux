@@ -127,6 +127,7 @@ Values for `shortcuts.bindings.<action>`:
 ## Notifications
 
 - `shortcuts.bindings.clearAllNotifications`
+- `shortcuts.bindings.jumpToLastPrompt`
 - `shortcuts.bindings.jumpToUnread`
 - `shortcuts.bindings.markAllNotificationsRead`
 - `shortcuts.bindings.markOldestUnreadAndJumpNext`

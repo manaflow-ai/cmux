@@ -49,7 +49,7 @@ export async function exportCloudDiagnostics(
   if (rows.length === 0) return;
   const resourceSpans = rows.filter((row) => row.payload.source !== "server").map((row) => ({
     resource: { attributes: otlpAttributes(resourceAttributes(row, configuration)) },
-    scopeSpans: [{ scope: { name: "cmux-cloud-native", version: "1" }, spans: [cloudSpanToOtlp(row.payload.span)] }],
+    scopeSpans: [{ scope: { name: "cmux-cloud-native", version: "1" }, spans: [cloudSpanToOtlp(row.payload.span, row.payload.sampleWeight)] }],
   }));
   const errors = rows.filter((row) => ["failure", "timeout"].includes(row.payload.span.outcome)).map((row) => ({
     _time: new Date(row.payload.span.endedAtMs).toISOString(),
@@ -120,8 +120,12 @@ function resourceAttributes(row: StoredCloudDiagnostic, configuration: CloudAxio
   };
 }
 
-/** Preserve the originating span, including time and parent, through the HTTP gateway. */
-export function cloudSpanToOtlp(span: CloudTelemetrySpan) {
+/**
+ * Preserve the originating span, including time and parent, through the HTTP gateway.
+ * `cmux.telemetry.sample_weight` is how many submitted spans this one stands for after
+ * ingest sampling; estimate counts with `sum(sample_weight)`, not `count()`.
+ */
+export function cloudSpanToOtlp(span: CloudTelemetrySpan, sampleWeight = 1) {
   const attributes = {
     "cmux.subsystem": "vm-cloud", "cmux.observation.source": "client",
     "cmux.event_id": span.eventId, "cmux.operation_id": span.operationId,
@@ -130,6 +134,7 @@ export function cloudSpanToOtlp(span: CloudTelemetrySpan) {
     "error.type": span.failure, "http.response.status_code": span.httpStatus,
     "cmux.error_number": span.errorNumber, "cmux.telemetry.dropped_count": span.droppedCount,
     "code.file.name": span.sourceFile, "code.line.number": span.sourceLine,
+    "cmux.telemetry.sample_weight": sampleWeight,
   };
   return {
     traceId: span.traceId, spanId: span.spanId,

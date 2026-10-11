@@ -314,6 +314,7 @@ extension RemoteTmuxControlConnection {
     /// call recurses until the stack overflows — measured, not theorised.
     private func recoverPaneSeedBudget(paneId: Int, event: String) {
         record("\(event) %\(paneId)")
+        // Freeing this pane's retained bytes is the urgent half and is safe to do here.
         discardPendingPaneSeeds(paneId: paneId)
         deferredPaneSeedBudgetRecoveryPaneIDs.insert(paneId)
         schedulePaneSeedBudgetRecoveryIfNeeded()
