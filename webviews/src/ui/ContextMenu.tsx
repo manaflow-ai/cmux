@@ -87,8 +87,9 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
         setActive(0);
         const target = event.target instanceof Element ? event.target : null;
         returnFocus.current =
-          target?.closest<HTMLElement>("button, a[href], input, select, textarea, [tabindex]:not([tabindex='-1'])") ??
-          null;
+          target?.closest<HTMLElement>(
+            "button, a[href], input, select, textarea, [contenteditable]:not([contenteditable='false']), [role='textbox'], [tabindex]:not([tabindex='-1'])",
+          ) ?? null;
         setPoint({ x: event.clientX, y: event.clientY });
       }}
     >
