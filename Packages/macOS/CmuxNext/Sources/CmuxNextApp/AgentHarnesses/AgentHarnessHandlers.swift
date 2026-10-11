@@ -62,11 +62,17 @@ enum AgentHarnessHandlers {
         })
     }
 
-    /// Update Agent CLIs: the daemon's health rows, every outdated one's update typed into a new
-    /// terminal tab of the focused pane (`AgentCLIUpdates`, shared with Settings > Agents).
+    /// Update Agent CLIs: the listed harnesses' health rows by id (as Settings > Agents lists
+    /// them), every outdated one's update typed into a new terminal tab of the focused pane
+    /// (`AgentCLIUpdates`, shared with Settings > Agents > Update All). Nothing to update, no
+    /// window, or no answer (no daemon, an acpmux without health) opens Settings > Agents, which
+    /// says which.
     private static func updateAll(_ context: AppActionContext, _ center: AgentHarnessCenter) async throws -> JSONValue {
-        guard let line = AgentCLIUpdates.allLine(try await center.health()),
-              let pane = context.services.windows.active?.focusedPane else {
+        let listed = Set((try? await center.listed()) ?? [])
+        let rows = ((try? await center.health()) ?? [])
+            .filter { listed.contains($0["id"]?.stringValue ?? "") }
+            .sorted { ($0["id"]?.stringValue ?? "") < ($1["id"]?.stringValue ?? "") }
+        guard let line = AgentCLIUpdates.allLine(rows), let pane = context.services.windows.active?.focusedPane else {
             try openSettings(context, panel: nil)
             return .null
         }
