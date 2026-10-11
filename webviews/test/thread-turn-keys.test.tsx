@@ -94,7 +94,7 @@ test("Previous Turn and Next Turn step the transcript through its prompts", asyn
     );
     const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
     const scrolled = async () => void scroller.dispatchEvent(new dom.window.Event("scroll"));
-    // The app's Previous Turn and Next Turn (Ctrl-Cmd-Up, Ctrl-Cmd-Down) reach the page as bridge
+    // The app's Previous Turn and Next Turn (Ctrl-Opt-Up, Ctrl-Opt-Down) reach the page as bridge
     // commands, which raise these events, as the permission shortcuts' do.
     const step = (name: "previousTurn" | "nextTurn") =>
       act(async () => {
@@ -124,6 +124,20 @@ test("Previous Turn and Next Turn step the transcript through its prompts", asyn
     await step("previousTurn");
     expect(jumps).toEqual([]);
     expect(reading()).toBe(0);
+
+    // A step counts from where the reader is, not from an earlier step's target: Next twice, then
+    // the reader scrolls back to the top themselves, and Next goes to the second prompt.
+    await step("nextTurn");
+    await step("nextTurn");
+    expect(reading()).toBe(2);
+    await act(async () => {
+      scroller.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: -400 }));
+      scroller.scrollTop = 0;
+      await scrolled();
+    });
+    expect(reading()).toBe(0);
+    await step("nextTurn");
+    expect(reading()).toBe(1);
   } finally {
     await act(async () => root.unmount());
   }

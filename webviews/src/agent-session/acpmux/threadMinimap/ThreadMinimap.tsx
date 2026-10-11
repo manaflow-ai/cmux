@@ -26,6 +26,8 @@ import {
 
 /// The narrowest gutter (the space left of the rows) the column draws in; narrower panes hide it.
 const MIN_GUTTER = 28;
+/// How long a Previous or Next Turn step's smooth scroll counts as under way for the next step.
+const STEP_PENDING_MS = 800;
 /// Matches `.acpmux-row`'s left: max(18px, (100% - 760px) / 2).
 const gutter = (width: number) => Math.max(18, (width - 760) / 2);
 
@@ -91,37 +93,57 @@ export function ThreadMinimap({
     if (shown && node) setPopoverHeight(node.offsetHeight);
   }, [shown, turn?.key, turn?.reply]);
   useLayoutEffect(() => () => clearTimeout(timer.current), []);
-  // Previous Turn and Next Turn (the app's Ctrl-Cmd-Up and Ctrl-Cmd-Down, bridge commands that raise
+  // Previous Turn and Next Turn (the app's Ctrl-Opt-Up and Ctrl-Opt-Down, bridge commands that raise
   // these events) step the transcript from prompt to prompt, as a tick's click does. They work while the column is hidden too (a narrow pane, one turn).
-  const stepping = useRef({ turns, tops: layout.tops, target: undefined as number | undefined });
+  const stepping = useRef({
+    turns,
+    tops: layout.tops,
+    total: layout.totalHeight,
+    /// Where the last step's smooth scroll goes, and until when that counts (STEP_PENDING_MS).
+    target: undefined as number | undefined,
+    until: 0,
+  });
   useEffect(() => {
     stepping.current.turns = turns;
     stepping.current.tops = layout.tops;
-  }, [turns, layout.tops]);
+    stepping.current.total = layout.totalHeight;
+  }, [turns, layout.tops, layout.totalHeight]);
   useEffect(() => {
     const step = (by: -1 | 1) => {
       const node = scroller.current;
-      const { turns: all, tops, target } = stepping.current;
+      const { turns: all, tops, total, target, until } = stepping.current;
       if (!node || !all.length) return;
-      // A step during a smooth scroll counts from where that scroll goes, so repeats keep stepping.
-      const from = target !== undefined && Math.abs(node.scrollTop - target) > 1 ? target : node.scrollTop;
+      // A step during its smooth scroll counts from where that scroll goes, so repeats keep stepping.
+      // Only then: once it has passed or the reader scrolled, the view is where they are.
+      const pending = target !== undefined && performance.now() < until && Math.abs(node.scrollTop - target) > 1;
+      const from = pending ? target : node.scrollTop;
       // From the turn being read: Next goes to the turn after it; Previous to its own prompt when
       // that is above the viewport, else to the turn before it.
       const reading = currentTurn(all, tops, from, node.clientHeight);
       const index = by > 0 || turnScrollTop(all[reading], tops) >= from - 1 ? reading + by : reading;
       if (index < 0 || index >= all.length) return;
-      const next = turnScrollTop(all[index], tops);
+      // The last turns' prompts can sit below the furthest the transcript scrolls.
+      const next = Math.min(turnScrollTop(all[index], tops), Math.max(0, total - node.clientHeight));
       stepping.current.target = next;
+      stepping.current.until = performance.now() + STEP_PENDING_MS;
       const reduce = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
       node.scrollTo({ top: next, behavior: reduce ? "auto" : "smooth" });
     };
     const previous = () => step(-1);
     const following = () => step(1);
+    // The reader's own scroll ends a pending step.
+    const reader = () => {
+      stepping.current.target = undefined;
+    };
+    const node = scroller.current;
+    const inputs = ["wheel", "pointerdown", "touchstart", "keydown"] as const;
+    for (const name of inputs) node?.addEventListener(name, reader, { passive: true });
     window.addEventListener("cmux-acpmux-previousTurn", previous);
     window.addEventListener("cmux-acpmux-nextTurn", following);
     return () => {
       window.removeEventListener("cmux-acpmux-previousTurn", previous);
       window.removeEventListener("cmux-acpmux-nextTurn", following);
+      for (const name of inputs) node?.removeEventListener(name, reader);
     };
   }, [scroller]);
 

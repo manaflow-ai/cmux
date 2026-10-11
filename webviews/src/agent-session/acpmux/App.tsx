@@ -1997,7 +1997,7 @@ function AcpmuxPane() {
             "permissionRetry",
             "permissionRevoke",
             "permissionRefresh",
-            // Previous Turn and Next Turn (Ctrl-Cmd-Up, Ctrl-Cmd-Down): the thread minimap steps the transcript.
+            // Previous Turn and Next Turn (Ctrl-Opt-Up, Ctrl-Opt-Down): the thread minimap steps the transcript.
             "previousTurn",
             "nextTurn",
           ].includes(name)

@@ -20,7 +20,7 @@ extension AgentPaneView {
         deliver([.command("createCheckpoint")], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"createCheckpoint\");"])
     }
 
-    /// Previous Turn and Next Turn (Ctrl-Cmd-Up, Ctrl-Cmd-Down): the page steps its transcript to the
+    /// Previous Turn and Next Turn (Ctrl-Opt-Up, Ctrl-Opt-Down): the page steps its transcript to the
     /// prompt before or after the one being read, as the thread minimap's ticks do (cx-f7c).
     public func stepTurn(forward: Bool) {
         let command = forward ? "nextTurn" : "previousTurn"
