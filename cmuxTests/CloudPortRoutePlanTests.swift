@@ -202,6 +202,7 @@ struct CloudPortRoutePlanTests {
         let model = makeModel(forward: { _ in 46_903 }, route: .loopback)
         let state = CloudBrowserAccessState()
         state.configure(model: model, url: URL(string: "http://127.0.0.1:3000")!)
+        #expect(state.remoteURL?.absoluteString == "http://localhost:3000")
         model.connect()
         #expect(await wait { model.isReady })
         _ = try #require(state.nextURL())

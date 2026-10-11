@@ -89,6 +89,7 @@ final class CloudBrowserAccessState {
     /// Rebinds ownership to a committed same-VM service without restarting the
     /// current WebKit navigation (for example, a POST redirect to another port).
     func adoptCommittedRoute(model: CloudPortAccessModel, url: URL, resourceID: SurfaceResourceID) {
+        let logicalURL = Self.canonicalLoopbackURL(url, for: model)
         observationGeneration &+= 1
         cancelUnavailableRetry()
         unavailable = nil
@@ -97,11 +98,11 @@ final class CloudBrowserAccessState {
         self.resourceID = resourceID
         self.model = model
         starting = nil
-        remoteURL = url
+        remoteURL = logicalURL
         // WebKit has already committed this URL. Retain that identity so the
         // delegate's finish/desktop callbacks are accepted without issuing a
         // second request after a same-VM redirect.
-        navigationURL = url
+        navigationURL = logicalURL
         hasCommittedNavigation = true
         preservingCommittedRoute = true
         loaded = false
@@ -370,7 +371,8 @@ final class CloudBrowserAccessState {
 
     func configure(model: CloudPortAccessModel, url: URL, resourceID: SurfaceResourceID? = nil,
                    request: URLRequest? = nil) {
-        let replacesService = remoteURL.map { !Self.sameService($0, url) } ?? true
+        let logicalURL = Self.canonicalLoopbackURL(url, for: model)
+        let replacesService = remoteURL.map { !Self.sameService($0, logicalURL) } ?? true
         observationGeneration &+= 1
         cancelUnavailableRetry()
         unavailable = nil
@@ -385,8 +387,8 @@ final class CloudBrowserAccessState {
         }
         self.model = model
         starting = nil
-        remoteURL = url
-        pendingNavigationRequest = request ?? URLRequest(url: url)
+        remoteURL = logicalURL
+        pendingNavigationRequest = request ?? URLRequest(url: logicalURL)
         if replacesService { retiredListenerURLs.removeAll(keepingCapacity: true) }
         navigationURL = nil
         preservingCommittedRoute = false
@@ -613,6 +615,21 @@ final class CloudBrowserAccessState {
     private static func sameService(_ a: URL, _ b: URL) -> Bool {
         a.scheme?.lowercased() == b.scheme?.lowercased() && serviceHost(a) == serviceHost(b)
             && (a.port ?? (a.scheme == "https" ? 443 : 80)) == (b.port ?? (b.scheme == "https" ? 443 : 80))
+    }
+
+    /// SSH forwards are local transport, but their stable browser identity is
+    /// the conventional loopback origin users type and dev servers print.
+    /// Normalize all loopback spellings so detected ports opened from the
+    /// sidebar display the same `localhost:<port>` URL as typed navigation.
+    private static func canonicalLoopbackURL(_ url: URL, for model: CloudPortAccessModel) -> URL {
+        guard model.route == .loopback,
+              url.scheme?.lowercased() == "http",
+              PrivateNetworkHostPolicy().isLoopback(host: url.host ?? ""),
+              var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return url
+        }
+        parts.host = "localhost"
+        return parts.url ?? url
     }
 
     /// Treat the loopback spellings accepted by SSH routing as one service
