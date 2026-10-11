@@ -2,7 +2,7 @@
 // whether each toggles or opens; by default Terminal and Browser, which split the pane in the chat's
 // folder and toggle, as in T3 Chat and ChatGPT, and [+] New tab, which becomes Hide tabs in place); the summary (Sources) button, whose popover also
 // opens the last turn's changes; and the "..." chat menu. Before them, the chat branch's pull request
-// with its checks (cx-tcwj, Codex desktop's PR chip), when the App found one. Every control renders from the first frame
+// with its checks (cx-tcwj, Codex desktop's PR chip; PullRequestChip.tsx), when the App found one. Every control renders from the first frame
 // at its final size; data fills in place.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useT, type StringKey } from "../i18n";
@@ -12,6 +12,7 @@ import { registerPicker } from "../pickerOpeners";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator, Submenu } from "../../../ui/Menu";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { useHeaderState } from "./headerState";
+import { PullRequestChip } from "./PullRequestChip";
 import {
   QUICK_ACTION_DEFAULTS,
   QUICK_ACTION_IDS,
@@ -233,25 +234,7 @@ export function ChatHeaderTools({
   );
   return (
     <div className="acpmux-header-tools" onPointerEnter={onPointerEnter}>
-      {pullRequest && (
-        <a
-          className="acpmux-header-tool acpmux-header-pr"
-          href={pullRequest.url}
-          data-state={pullRequest.state}
-          data-checks={pullRequest.checks.state}
-          title={
-            pullRequest.checks.total > 0
-              ? t("header.pullRequestChecks", {
-                  number: pullRequest.number,
-                  passed: pullRequest.checks.passed,
-                  total: pullRequest.checks.total,
-                })
-              : t("header.pullRequest", { number: pullRequest.number })
-          }
-        >
-          <Icon name="git.pullrequest" size={13} />#{pullRequest.number}
-        </a>
-      )}
+      {pullRequest && <PullRequestChip pullRequest={pullRequest} />}
       {onCustomize && buttons ? (
         // Only the buttons: the summary's and the menu's popups are portaled, and a right-click
         // inside them reaches this host through React.
