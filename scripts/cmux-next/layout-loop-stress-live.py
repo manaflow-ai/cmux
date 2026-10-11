@@ -111,8 +111,9 @@ def loop_breaker_check(app):
         return ["layout loop fixture did not open: %s" % json.dumps(opened)[:200]]
     loops = (layers.get("layout_passes") or {}).get("loops") or []
     if not any(loop.get("view_class") == "LayoutLoopFixtureView" and loop.get("broken") for loop in loops):
-        return ["layout loop fixture: no broken loop reported for LayoutLoopFixtureView: %s" % json.dumps(loops)[:300]]
-    print("layout loop fixture: broken and reported, app answering", flush=True)
+        return ["layout loop fixture: no broken loop reported for LayoutLoopFixtureView (%s): %s" % (
+            json.dumps(layers.get("layout_loop_fixture")), json.dumps(loops)[:300])]
+    print("layout loop fixture: broken and reported, app answering (%s)" % json.dumps(layers.get("layout_loop_fixture")), flush=True)
     return []
 
 
