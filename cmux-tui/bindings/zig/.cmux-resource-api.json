@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "37c073981f8cff3074805fe26c213b98655623910aeeb89e705a1f89d975e235",
+  "catalog_sha256": "7632f832836cabf2264cd8b026d8deddf3c01dc3bb2b1d7369c38f0c6b98ca90",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -161,6 +161,9 @@
       "class": "mutation"
     },
     "git.diff": {
+      "class": "read"
+    },
+    "git.files.list": {
       "class": "read"
     },
     "git.files.search": {

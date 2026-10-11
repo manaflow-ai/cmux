@@ -7930,6 +7930,32 @@
       },
       "extra": false
     },
+    "GitFileEntry": {
+      "kind": "object",
+      "fields": {
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The child's name: one path component, never a path."
+        },
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "file",
+              "directory"
+            ]
+          },
+          "description": "directory when git lists files under it or it is a submodule; file otherwise."
+        }
+      },
+      "extra": false
+    },
     "GitFileMatch": {
       "kind": "object",
       "fields": {
@@ -8004,6 +8030,50 @@
             "name": "uint32"
           },
           "description": "How many candidates matched, before limit."
+        }
+      },
+      "extra": false
+    },
+    "GitFilesListResult": {
+      "kind": "object",
+      "fields": {
+        "root": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The repository's top level, as in every git operation."
+        },
+        "folder": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The folder listed, in git's spelling: root or a folder under it. Every entry is a child of folder."
+        },
+        "entries": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "GitFileEntry"
+            },
+            "max_items": 5000
+          },
+          "description": "Directories first, then by name case-insensitively, then by exact name; at most limit."
+        },
+        "truncated": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "The folder has more children than limit, or the candidate listing was cut at its size bound."
         }
       },
       "extra": false
@@ -14568,6 +14638,66 @@
         "selector.not_found",
         "selector.wrong_parent",
         "validation.invalid"
+      ]
+    },
+    "git.files.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a folder inside a repository; its immediate children are listed. A file path lists the folder it is in. Use it, or a workspace, pane, tab or terminal selector whose working directory names the folder."
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 5000
+            },
+            "default": 2000
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "GitFilesListResult"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Candidates are tracked files still in the working tree and untracked files no ignore rule hides, under the listed folder; a folder that holds only ignored files is never an entry.",
+        "Each candidate folds into its first path component: a component with paths below it is a directory; a lone component is a file, unless it is a folder on disk (a submodule), which is a directory.",
+        "Entries are directories first, then by name case-insensitively, then by exact name. A candidate listing cut at its size bound sets truncated.",
+        "operation.failed details.extra.code is the machine reason: not_a_repository, no_working_directory, target_not_found or git_failed."
       ]
     },
     "git.files.search": {
