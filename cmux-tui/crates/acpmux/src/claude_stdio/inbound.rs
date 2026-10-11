@@ -58,6 +58,11 @@ impl Translator {
             "stream_event" => {
                 let ev = line.get("event").cloned().unwrap_or(Value::Null);
                 match ev.get("type").and_then(Value::as_str) {
+                    Some("message_start") if parent.is_none() => {
+                        if let Some(m) = ev.pointer("/message/model").and_then(Value::as_str) {
+                            *self.loop_model.lock().await = m.to_owned();
+                        }
+                    }
                     Some("content_block_delta") => {
                         let d = ev.get("delta").cloned().unwrap_or(Value::Null);
                         match d.get("type").and_then(Value::as_str) {
@@ -404,6 +409,12 @@ impl Translator {
                     }
                 }
             }
+            // A compaction left the context smaller than the last message held:
+            // the ring waits for the next message rather than refill (cx-ncc.79).
+            "system" if sub == "compact_boundary" && parent.is_none() => {
+                let after = line.pointer("/compact_metadata/post_tokens").and_then(Value::as_u64);
+                self.context_used.store(after.unwrap_or(0), Ordering::SeqCst);
+            }
             "system" if sub.starts_with("task_") => {
                 if let Some(ended) = self.subagent_task(sub, line).await {
                     out.push(upd(ended));
@@ -414,21 +425,23 @@ impl Translator {
         out
     }
 
-    /// Claude's task events for a subagent: `task_started` or `task_updated`
-    /// moves it to the background, and `task_notification` ends a background
-    /// one (its Agent tool call returned at launch). Returns the subagent's
-    /// `subagent_state_update` when it ended.
     /// A result's context window for the chat's model (`modelUsage`, keyed by
-    /// model id): the chat model's entry, else the largest one reported (a
-    /// subagent's smaller model never shrinks the chat's).
+    /// model id and cumulative over the session): the entry of the model the
+    /// main loop last ran, else of the configured one. None keeps the last
+    /// window: another entry may be a subagent's or an earlier model's.
     async fn result_context_window(&self, line: &Value) -> Option<u64> {
         let usage = line.get("modelUsage")?.as_object()?;
         let window =
             |entry: &Value| entry.get("contextWindow").and_then(Value::as_u64).filter(|w| *w > 0);
-        let model = self.model.lock().await.clone();
-        usage.get(&model).and_then(window).or_else(|| usage.values().filter_map(window).max())
+        let looped = self.loop_model.lock().await.clone();
+        let configured = self.model.lock().await.clone();
+        usage.get(&looped).and_then(window).or_else(|| usage.get(&configured).and_then(window))
     }
 
+    /// Claude's task events for a subagent: `task_started` or `task_updated`
+    /// moves it to the background, and `task_notification` ends a background
+    /// one (its Agent tool call returned at launch). Returns the subagent's
+    /// `subagent_state_update` when it ended.
     async fn subagent_task(&self, sub: &str, line: &Value) -> Option<Value> {
         let task = line.get("task_id").and_then(Value::as_str).unwrap_or("");
         let tool = match line.get("tool_use_id").and_then(Value::as_str) {

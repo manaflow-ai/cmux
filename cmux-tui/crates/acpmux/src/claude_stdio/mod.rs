@@ -236,8 +236,12 @@ pub struct Translator {
     /// The chat model's context window as Claude Code last reported it (a
     /// result's `modelUsage`), 0 until then: `usage_update`'s `size`.
     context_window: AtomicU64,
-    /// The tokens the chat's context last held (its last `message_delta`).
+    /// The tokens the chat's context last held (its last `message_delta`; a
+    /// compaction resets it).
     context_used: AtomicU64,
+    /// The model id the chat's main loop last ran (its `message_start`): the
+    /// `modelUsage` key for its window, which a picker alias is not.
+    loop_model: Mutex<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -280,6 +284,7 @@ impl Translator {
             subagent_tasks: Mutex::new(HashMap::new()),
             context_window: AtomicU64::new(0),
             context_used: AtomicU64::new(0),
+            loop_model: Mutex::new(String::new()),
         })
     }
 
