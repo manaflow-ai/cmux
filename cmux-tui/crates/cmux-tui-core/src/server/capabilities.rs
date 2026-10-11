@@ -124,6 +124,7 @@ pub(super) fn advertised_capabilities(
         crate::state::home_store::WORKSPACE_KIND_CAPABILITY,
         crate::state::app_workspaces::APP_SCREENS_CAPABILITY,
         crate::state::agent_folder::CAPABILITY,
+        crate::state::agent_start::CAPABILITY,
         crate::state::personal_order::PERSONAL_MIXED_ORDER_CAPABILITY,
         crate::state::personal::WORKSPACE_GROUP_ICON_CAPABILITY,
         crate::state::personal::WORKSPACE_GROUP_PIN_CAPABILITY,
