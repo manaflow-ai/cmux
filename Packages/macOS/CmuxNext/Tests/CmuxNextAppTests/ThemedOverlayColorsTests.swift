@@ -24,7 +24,7 @@ import Testing
         scope.root(sidebar)
 
         let fill = try #require(sidebar.layer?.backgroundColor.flatMap(NSColor.init(cgColor:)))
-        #expect(Self.same(fill, scope.perform { Palette.sidebarBackground }))
+        #expect(Self.same(fill, scope.perform { Palette.fill(for: .sidebar, default: Palette.sidebarStep) }))
         let labels = Self.labels(in: sidebar)
         #expect(labels.count > 4)
         for label in labels {

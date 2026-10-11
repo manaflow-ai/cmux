@@ -136,7 +136,8 @@ final class HomeChiefSidebar: NSView {
 
     override var isFlipped: Bool { true }
 
-    /// The theme's sidebar surface, like the window's left sidebar; re-resolved on a theme change.
+    /// The theme's sidebar step (a panel apart from the Home content), or the user's sidebar
+    /// background (`appearance.surfaces`), like the window's left sidebar; re-resolved on a theme change.
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyThemeFill()
@@ -148,7 +149,7 @@ final class HomeChiefSidebar: NSView {
     }
 
     private func applyThemeFill() {
-        layer?.backgroundColor = performWithTheme { Palette.sidebarBackground.cgColor }
+        layer?.backgroundColor = performWithTheme { Palette.fill(for: .sidebar, default: Palette.sidebarStep).cgColor }
     }
 
     override func layout() {
