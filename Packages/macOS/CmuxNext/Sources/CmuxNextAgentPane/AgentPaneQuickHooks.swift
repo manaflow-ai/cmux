@@ -40,6 +40,20 @@ public struct AgentPaneQuickHooks {
 }
 
 extension AgentPaneQuickHooks {
+    /// The panel requests that move the chat: its session becomes `model`'s first.
+    @MainActor func respond(to request: AgentPaneRequest, in model: AgentPaneModel) async -> [String: Any] {
+        switch request {
+        case .quickOpenInWindow(let session):
+            if let session { model.adoptSession(session) }
+            openInWindow(model.sessionId)
+        case .quickStartInBackground(let start):
+            model.adoptSession(start.sessionId)
+            await startInBackground(start)
+        default: return await respond(to: request)
+        }
+        return AgentPaneReply.success()
+    }
+
     /// The panel requests that leave the chat's session alone.
     func respond(to request: AgentPaneRequest) async -> [String: Any] {
         switch request {

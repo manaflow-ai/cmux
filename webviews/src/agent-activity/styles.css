@@ -13,7 +13,7 @@
 
 :root {
   color-scheme: light dark;
-  font: -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: var(--text-body);
   color: var(--cmux-text, CanvasText);
 }
 
