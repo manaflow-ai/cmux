@@ -2778,6 +2778,9 @@ fn start_detached_owner_session(
             local_owner::EnsureError::DifferentSession => {
                 anyhow::bail!("{}", messages.different_session)
             }
+            local_owner::EnsureError::DifferentState => {
+                anyhow::bail!("{}", messages.different_state)
+            }
             local_owner::EnsureError::InvalidIdentity => {
                 anyhow::bail!("{}", messages.invalid_identity)
             }

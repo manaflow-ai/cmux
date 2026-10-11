@@ -456,6 +456,27 @@ def flow(fn):
 
 
 @flow
+def subagent_task_only_on_empty_chat():
+    """cx-qqs1: a subagent spawned while the Chief's chat is empty gets only its task (no view to
+    give), and its pane shows exactly the task, with no "Your task:" label. Run it first, on a new
+    Chief home (`--only`), so the chat is empty."""
+    task = "Reply with only the word empty-probe."
+    empty = not log_items()
+    answer = spawn([task])
+    ids = ids_in(answer)
+    wait_done(ids, 300)
+    ws = wait(lambda: next((w for w in workspaces() if ws_name(w).lstrip("✓ ").startswith(ids[0] + " ")), None) if ids else None, 60)
+    if ws:
+        focus_workspace(ws.get("id"), f"empty-{ids[0]}")
+    state = wait(lambda: (lambda st: st if st.get("transcript") else None)(
+        rpc("debug.agent_pane", {"action": "chat_state"}) or {}), 30) or {}
+    first = next((r.get("text") for r in state.get("transcript") or [] if r.get("kind") == "user"), None)
+    row("empty-chat subagent gets only its task", "the chat was empty; the pane's first message is exactly the task",
+        f"empty chat={empty}; first message {first!r}", empty and first == task)
+    show_home()
+
+
+@flow
 def parallel_three():
     """3 parallel subagents on a real task; the Chief combines their reports."""
     for name, n in (("alpha", 3), ("beta", 5), ("gamma", 7)):
@@ -792,6 +813,30 @@ def cli_osc8_link_opens_the_subagent():
     row("terminal OSC 8 link opens the subagent", "a Cmd-click on the subagent's name in the terminal shows its workspace and chat",
         f"sub {sub} at r{r} c{c}; window shows {opened}; pane session {state.get('sessionId')} (want {session})",
         state.get("sessionId") == session and any(n.lstrip("✓ ").startswith(f"{sub} ") for n in opened))
+    show_home()
+
+
+@flow
+def subagent_context_is_collapsed():
+    """hq-6d item 23 (cx-ebm.56): a subagent's first message (the Chief's view, then its task)
+    shows as one collapsed line, "Context from the Chief (N lines)", and the task as the message;
+    the disclosure opens the view. The session keeps the full text."""
+    answer = spawn(["Reply with only the word context-probe."])
+    ids = ids_in(answer)
+    wait_done(ids, 300)
+    ws = wait(lambda: next((w for w in workspaces() if ws_name(w).lstrip("✓ ").startswith(ids[0] + " ")), None) if ids else None, 60)
+    if not ws:
+        row("subagent context collapsed", "a subagent workspace", f"answer {json.dumps(answer)[:160]}", False)
+        return
+    focus_workspace(ws.get("id"), f"context-{ids[0]}-collapsed")
+    zoomed = tools({"tool": "zoom", "id": ids[0]}).get("text", "")
+    # The disclosure's summary ("Context from the Chief (N lines)"), clicked as a user does.
+    opened = rpc("debug.agent_pane", {"action": "click", "selector": ".cv-user__context > summary"}) or {}
+    time.sleep(2)  # test harness: let the disclosure open
+    snapshot(f"context-{ids[0]}-expanded")
+    row("subagent context collapsed", "one collapsed \"Context from the Chief\" line opens the view; the task is the message",
+        f"disclosure {json.dumps(opened)[:160]}; zoom keeps the task={'Your task' in zoomed}",
+        bool(opened.get("clicked")) and "Your task" in zoomed)
     show_home()
 
 

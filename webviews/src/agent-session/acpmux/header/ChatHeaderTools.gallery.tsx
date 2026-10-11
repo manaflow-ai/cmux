@@ -9,6 +9,11 @@ type HeaderToolsProps = {
   onTerminal: (mode: "toggle" | "open") => void;
   onBrowser: (mode: "toggle" | "open") => void;
   tabTools?: boolean;
+  sideTabs?: boolean;
+  hasChanges?: boolean;
+  onChanges?: (mode: "toggle" | "open") => void;
+  previewUrl?: string;
+  onPreview?: (url: string | undefined, mode: "toggle" | "open") => void;
   summary: ReactNode;
   menu: () => ChatMenuItem[];
   onMenuOpen?: () => Promise<unknown>;
@@ -68,6 +73,14 @@ const openMenu: Play = async (ctx) => {
   await ctx.focus({ role: "button", name: "Chat actions" });
   await ctx.press("Enter");
   await ctx.waitFor(() => ctx.document.querySelector('[role="menu"]'));
+};
+
+// The App reports Terminal's, Browser's, Changes' and Preview's panels open and panes beside the chat
+// (its headerState push).
+const panelsOpen: Play = async (ctx) => {
+  const { setHeaderState } = await import("./headerState");
+  setHeaderState({ lit: ["splitRight", "splitBrowserRight", "openDiffViewer", "preview"], sideTabs: true });
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-header-tool[aria-pressed="true"]'));
 };
 
 const keyboardMenu: Play = async (ctx) => {
@@ -138,6 +151,18 @@ export default componentEntry<HeaderToolsProps>({
     idle: {
       note: "The complete tab header: Terminal, Browser, summary, and chat actions.",
       props: base,
+    },
+    "panels-open": {
+      note: "Terminal, Browser, Changes, Preview and Hide tabs are lit while their panels are open beside the chat (cx-00n1).",
+      props: {
+        ...base,
+        sideTabs: true,
+        hasChanges: true,
+        onChanges: () => undefined,
+        previewUrl: "http://localhost:5173/",
+        onPreview: () => undefined,
+      },
+      play: panelsOpen,
     },
     "menu-open": {
       note: "The real tab menu includes navigation actions and keeps Close as the final tab-owned row.",

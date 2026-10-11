@@ -1,3 +1,5 @@
+import Foundation
+
 /// Keeps one overlay sync observer registered; removing it (or releasing
 /// the observation) unregisters only that observer.
 @MainActor
@@ -16,8 +18,12 @@ public final class LayoutOverlaySyncObservation {
         root = nil
     }
 
-    isolated deinit {
-        cancel()
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            cancel()
+        }
     }
 }
 

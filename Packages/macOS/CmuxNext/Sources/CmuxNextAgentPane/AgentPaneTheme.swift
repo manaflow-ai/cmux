@@ -4,9 +4,10 @@ import Foundation
 /// The page's theme (`window.cmuxAcpmuxBridge.applyTheme`, the TypeScript
 /// `AgentSessionTheme`) derived from the Ghostty-based `ThemeTokens`, so the
 /// pane matches the terminal and chrome. No blue accent (REWRITE.md visual
-/// rules): the accent is the foreground and its soft form the selection fill;
-/// labels on it take the background, opaque so a translucent window's
-/// backdrop doesn't thin them. The one hue is `highlight`, the theme's own
+/// rules): the accent is `ThemeTokens.accent` (the foreground, or the theme's
+/// own hue with `appearance.accent`) and its soft form the selection fill;
+/// `accentText` is the opaque background (the page's base) and `onAccent`
+/// the glyphs on a filled accent. The one hue is `highlight`, the theme's own
 /// ANSI blue, for the primary action. `palette` is the terminal's 16 ANSI
 /// colors, which the page's syntax colors use (`--agent-ansi-N`), each lifted
 /// to text contrast over the code card (the elevated surface): terminals
@@ -35,7 +36,8 @@ enum AgentPaneTheme {
             "text": css(tokens.textPrimary),
             "mutedText": css(tokens.textSecondary),
             "softText": css(tokens.textTertiary),
-            "accent": css(tokens.textPrimary),
+            "accent": css(tokens.accent),
+            "onAccent": css(tokens.onAccent),
             "accentSoft": css(tokens.selectionFill),
             "accentText": css(opaquePage),
             "danger": css(tokens.danger),
@@ -50,6 +52,7 @@ enum AgentPaneTheme {
             // seconds after ui.animationSpeed and Reduce Motion, so they pace with the chrome.
             "motion": [
                 "hover": motion.duration(MotionFade.hover),
+                "hoverOut": motion.duration(MotionFade.hoverOut),
                 "focus": motion.duration(MotionFade.focus),
                 "fadeIn": motion.duration(MotionFade.fadeIn),
                 "fadeOut": motion.duration(MotionFade.fadeOut),

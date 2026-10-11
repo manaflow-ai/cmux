@@ -3521,6 +3521,33 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "workspace-group add-to-section",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceGroup"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspaceGroup.addToSection",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Add Group to Section…",
+      "title_key" : "action.workspaceGroup.addToSection",
+      "title_table" : "Localizable"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "workspace-group collapse",
       "context_menu" : "familyMember",
       "context_menus" : [
@@ -5611,6 +5638,40 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "focusMove",
+      "cli_name" : "pane focus-1-9",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "family" : "digits",
+        "key" : "1",
+        "modifiers" : [
+          "ctrl",
+          "cmd"
+        ]
+      },
+      "id" : "focusPaneByNumber",
+      "mcp" : "focusMove",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.pane",
+        "order" : 102,
+        "title" : "Panes",
+        "title_key" : "category.pane",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Focus Pane 1…9",
+      "title_key" : "action.focusPaneByNumber",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "pane flash-focused",
       "context_menu" : "offered",
@@ -7271,6 +7332,46 @@
       "palette_suggested" : null,
       "title" : "Previous Tab or Workspace",
       "title_key" : "action.navigate.previous",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action hints-show",
+      "context_menu" : "liveInput",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : [
+        {
+          "key" : "j",
+          "modifiers" : [
+            "cmd"
+          ]
+        },
+        {
+          "key" : "f",
+          "modifiers" : [
+
+          ]
+        }
+      ],
+      "default_shortcut" : null,
+      "id" : "hints.show",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Click by Hint",
+      "title_key" : "action.hints.show",
       "title_table" : "ActionCatalog"
     },
     {
@@ -15719,6 +15820,39 @@
       "palette_suggested" : null,
       "title" : "Toggle Right Sidebar",
       "title_key" : "action.toggleRightSidebar",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "focusMove",
+      "cli_name" : "sidebar focus",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "e",
+        "modifiers" : [
+          "ctrl",
+          "cmd"
+        ]
+      },
+      "id" : "focusSidebar",
+      "mcp" : "focusMove",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Focus Sidebar",
+      "title_key" : "action.focusSidebar",
       "title_table" : "ActionCatalog"
     },
     {
@@ -28850,6 +28984,18 @@
                     "value" : "config"
                   },
                   {
+                    "title" : "Rose Pine",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Rose Pine"
+                  },
+                  {
+                    "title" : "Rose Pine Moon",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Rose Pine Moon"
+                  },
+                  {
                     "title" : "Catppuccin Mocha",
                     "title_key" : null,
                     "title_table" : null,
@@ -28860,12 +29006,6 @@
                     "title_key" : null,
                     "title_table" : null,
                     "value" : "TokyoNight"
-                  },
-                  {
-                    "title" : "Rose Pine",
-                    "title_key" : null,
-                    "title_table" : null,
-                    "value" : "Rose Pine"
                   },
                   {
                     "title" : "Gruvbox Dark",
@@ -28886,16 +29026,16 @@
                     "value" : "Vesper"
                   },
                   {
-                    "title" : "Catppuccin Latte",
-                    "title_key" : null,
-                    "title_table" : null,
-                    "value" : "Catppuccin Latte"
-                  },
-                  {
                     "title" : "Rose Pine Dawn",
                     "title_key" : null,
                     "title_table" : null,
                     "value" : "Rose Pine Dawn"
+                  },
+                  {
+                    "title" : "Catppuccin Latte",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Catppuccin Latte"
                   },
                   {
                     "title" : "GitHub Light Default",
@@ -31022,6 +31162,18 @@
                     "value" : "config"
                   },
                   {
+                    "title" : "Rose Pine",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Rose Pine"
+                  },
+                  {
+                    "title" : "Rose Pine Moon",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Rose Pine Moon"
+                  },
+                  {
                     "title" : "Catppuccin Mocha",
                     "title_key" : null,
                     "title_table" : null,
@@ -31032,12 +31184,6 @@
                     "title_key" : null,
                     "title_table" : null,
                     "value" : "TokyoNight"
-                  },
-                  {
-                    "title" : "Rose Pine",
-                    "title_key" : null,
-                    "title_table" : null,
-                    "value" : "Rose Pine"
                   },
                   {
                     "title" : "Gruvbox Dark",
@@ -31058,16 +31204,16 @@
                     "value" : "Vesper"
                   },
                   {
-                    "title" : "Catppuccin Latte",
-                    "title_key" : null,
-                    "title_table" : null,
-                    "value" : "Catppuccin Latte"
-                  },
-                  {
                     "title" : "Rose Pine Dawn",
                     "title_key" : null,
                     "title_table" : null,
                     "value" : "Rose Pine Dawn"
+                  },
+                  {
+                    "title" : "Catppuccin Latte",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Catppuccin Latte"
                   },
                   {
                     "title" : "GitHub Light Default",
@@ -32684,6 +32830,19 @@
 
                 ]
               }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "workspaceGroup.addToSection",
+              "kind" : "action",
+              "order" : 5,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
             }
           ],
           "folder" : "move",
@@ -33025,6 +33184,18 @@
                     "value" : "config"
                   },
                   {
+                    "title" : "Rose Pine",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Rose Pine"
+                  },
+                  {
+                    "title" : "Rose Pine Moon",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Rose Pine Moon"
+                  },
+                  {
                     "title" : "Catppuccin Mocha",
                     "title_key" : null,
                     "title_table" : null,
@@ -33035,12 +33206,6 @@
                     "title_key" : null,
                     "title_table" : null,
                     "value" : "TokyoNight"
-                  },
-                  {
-                    "title" : "Rose Pine",
-                    "title_key" : null,
-                    "title_table" : null,
-                    "value" : "Rose Pine"
                   },
                   {
                     "title" : "Gruvbox Dark",
@@ -33061,16 +33226,16 @@
                     "value" : "Vesper"
                   },
                   {
-                    "title" : "Catppuccin Latte",
-                    "title_key" : null,
-                    "title_table" : null,
-                    "value" : "Catppuccin Latte"
-                  },
-                  {
                     "title" : "Rose Pine Dawn",
                     "title_key" : null,
                     "title_table" : null,
                     "value" : "Rose Pine Dawn"
+                  },
+                  {
+                    "title" : "Catppuccin Latte",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Catppuccin Latte"
                   },
                   {
                     "title" : "GitHub Light Default",

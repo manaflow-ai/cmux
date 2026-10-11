@@ -105,8 +105,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-d2fc4491bc2ddeaead5bfe28a6f09483abcd9334/CCmuxAppFFI.xcframework.zip",
-    checksum: "62dce8413e1a5355411ac5768c92d9e7f4bc950ca5a3bcd85195d623db2c538c"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-ee2a89ae9c286f5199ae46ed0f489b48e8372060/CCmuxAppFFI.xcframework.zip",
+    checksum: "a9eba8aa2461bb57c110db4c68c68110d131cc38f9b2934db60eac2dfa2dd51d"
 )
 
 let package = Package(
@@ -797,7 +797,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextAppTests",
-            dependencies: ["CmuxNextWakeups", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextCrashReporting", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
+            dependencies: ["CmuxNextWakeups", "CmuxNextAgentCursor", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextCrashReporting", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
                            "CmuxNextDaemon", "CmuxNextHome", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                            .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                            .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion")],

@@ -20,7 +20,7 @@ public final class AgentPaneView: NSView {
     public let webView: WKWebView
     /// Opens a link the user clicked in the transcript. Defaults to the
     /// system handler; the App can route it to a cmux browser tab.
-    public var openURL: (URL) -> Void = { NSWorkspace.shared.open($0) }
+    public var openURL: (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }
 
     public let source: AgentPaneSource
     public var customization = AgentPaneCustomization() {
@@ -245,8 +245,12 @@ public final class AgentPaneView: NSView {
         }
     }
 
-    deinit {
-        uiScaleObservation?.cancel()
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            uiScaleObservation?.cancel()
+        }
     }
 
     @available(*, unavailable)

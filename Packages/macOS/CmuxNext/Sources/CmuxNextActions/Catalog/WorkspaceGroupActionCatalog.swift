@@ -81,6 +81,15 @@ nonisolated enum WorkspaceGroupActionCatalog: ActionCatalogGroup {
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.clipboard), contextMenus: [ActionSurfaceCatalog.p(.workspaceGroup, .inspect, 401, folder: .copy)])
             ),
             ActionDescriptor(
+                id: "workspaceGroup.addToSection",
+                title: String(localized: "action.workspaceGroup.addToSection", defaultValue: "Add Group to Section…", bundle: .module),
+                keywords: ["group", "section", "sidebar", "top", "pin"], category: .workspace, symbol: "rectangle.stack",
+                surfaces: [.palette, .contextMenu],
+                arguments: [ActionArgument(name: "section", title: String(localized: "argument.workspaceGroup.section", defaultValue: "Section", bundle: .module),
+                                           kind: .target(.sidebarSection))],
+                targets: [.workspaceGroup], cliName: "workspace-group add-to-section"
+            ),
+            ActionDescriptor(
                 id: "workspaceGroup.collapse",
                 title: String(localized: "action.workspaceGroup.collapse", defaultValue: "Collapse Workspace Group", bundle: .module),
                 keywords: ["group"], category: .workspace, symbol: "chevron.right", surfaces: [.palette],

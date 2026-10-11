@@ -27,7 +27,13 @@ final class CommandHistory {
         self.hidden = hidden
     }
 
-    deinit { observation?.cancel() }
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            observation?.cancel()
+        }
+    }
 
     /// Starts keeping the daemons' switch in step with the setting.
     func start(settings: SettingsController) {
