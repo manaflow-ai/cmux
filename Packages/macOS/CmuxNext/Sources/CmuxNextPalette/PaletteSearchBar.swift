@@ -113,7 +113,7 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
             let total = labelHeight + fieldHeight
             let top = (bounds.height - total) / 2
             let width = min(PaletteText.fittingWidth(breadcrumbLabel), bounds.width - 2 * padding)
-            breadcrumb.frame = NSRect(x: padding + PaletteLayout.iconBox + Metrics.space4, y: top, width: width, height: labelHeight)
+            breadcrumb.frame = pixelAligned(NSRect(x: padding + PaletteLayout.iconBox + Metrics.space4, y: top, width: width, height: labelHeight))
             breadcrumbLabel.frame = breadcrumb.bounds
             fieldY = top + labelHeight
         }
@@ -133,9 +133,9 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
         var right = spinner.frame.minX - Metrics.space4
         if !keywordHint.isHidden {
             let width = keywordHint.fittingWidth
-            keywordHint.frame = NSRect(x: right - width, y: 0, width: width, height: bounds.height)
+            keywordHint.frame = pixelAligned(NSRect(x: right - width, y: 0, width: width, height: bounds.height))
             right = keywordHint.frame.minX - Metrics.space4
         }
-        field.frame = NSRect(x: x, y: fieldY, width: max(0, right - x), height: fieldHeight)
+        field.frame = pixelAligned(NSRect(x: x, y: fieldY, width: max(0, right - x), height: fieldHeight))
     }
 }

@@ -37,6 +37,16 @@ enum PaletteLayout {
     static var iconBox: CGFloat { Metrics.iconSize + Metrics.space2 }
 }
 
+extension NSView {
+    /// `rect` on whole backing pixels, for a text field's frame set from `layout()`. The window's
+    /// layout engine rounds a fractional frame (the scaled metrics make them); that change asks
+    /// the superview for another layout pass, which set the same fractional frame again, until
+    /// AppKit threw "more Layout Window passes than there are views in the window" (cx-wcej).
+    func pixelAligned(_ rect: NSRect) -> NSRect {
+        backingAlignedRect(rect, options: .alignAllEdgesNearest)
+    }
+}
+
 /// Label helpers so every text view uses Design typography.
 enum PaletteText {
     static func label(_ font: NSFont, tone: PaletteTone? = .primary) -> PaletteLabel {

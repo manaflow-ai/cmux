@@ -192,7 +192,7 @@ final class PaletteRowCell: NSTableCellView {
         if !keycaps.isHidden {
             let size = keycaps.intrinsicContentSize
             right -= size.width
-            keycaps.frame = NSRect(x: right, y: midY - size.height / 2, width: size.width, height: size.height)
+            keycaps.frame = pixelAligned(NSRect(x: right, y: midY - size.height / 2, width: size.width, height: size.height))
             right -= Metrics.space4
         }
         if !accessory.isHidden {
@@ -213,7 +213,7 @@ final class PaletteRowCell: NSTableCellView {
 
     private func centered(x: CGFloat, width: CGFloat, field: NSTextField) -> NSRect {
         let height = field.intrinsicContentSize.height
-        return NSRect(x: x, y: (bounds.height - height) / 2, width: width, height: height)
+        return pixelAligned(NSRect(x: x, y: (bounds.height - height) / 2, width: width, height: height))
     }
 
     /// Matched characters in full label color and the emphasized weight; the

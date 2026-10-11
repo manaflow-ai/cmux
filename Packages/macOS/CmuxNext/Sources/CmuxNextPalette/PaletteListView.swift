@@ -243,6 +243,6 @@ final class PaletteSectionHeaderCell: NSTableCellView {
         super.layout()
         let height = label.intrinsicContentSize.height
         let x = PaletteLayout.listInset + Metrics.space4
-        label.frame = NSRect(x: x, y: Metrics.space1, width: bounds.width - 2 * x, height: height)
+        label.frame = pixelAligned(NSRect(x: x, y: Metrics.space1, width: bounds.width - 2 * x, height: height))
     }
 }
