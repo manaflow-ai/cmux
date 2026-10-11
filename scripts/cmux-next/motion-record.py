@@ -419,6 +419,15 @@ def palette():
     record("palette", "close", lambda: rpc("debug.key", {"key": "escape", "target": "palette"}))
     print("palette closed:", json.dumps(rpc("debug.palette.capture", {"path": os.path.join(opts.out, "palette", "closed.png")}))[:200], flush=True)
 
+def panels():
+    # The notifications and feed panels open at the window's top-right corner
+    # and close again (each action toggles its panel). Focus is requested as
+    # for the palette: a capture slot's app never activates on its own.
+    save_layout("panels")
+    for name, toggle in (("notifications", "showNotifications"), ("feed", "feed.show")):
+        record("panels", f"{name}-open", lambda toggle=toggle: action(toggle, focus=True))
+        record("panels", f"{name}-close", lambda toggle=toggle: action(toggle, focus=True))
+
 def hovercard():
     # A tab hover card shows after the pointer rests on a tab, then moves to
     # the next tab (a retarget: one tab's thumbnail replaces the other's).
@@ -441,7 +450,7 @@ def hovercard():
 
 
 
-SURFACES = {"tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts, "popups": popups, "hover": hover, "groups": groups, "drag": drag, "dock": dock, "newtab": newtab, "sidebar": sidebar, "palette": palette, "hovercard": hovercard}
+SURFACES = {"tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts, "popups": popups, "hover": hover, "groups": groups, "drag": drag, "dock": dock, "newtab": newtab, "sidebar": sidebar, "palette": palette, "hovercard": hovercard, "panels": panels}
 
 
 def main():
