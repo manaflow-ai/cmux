@@ -16,7 +16,7 @@ extension BrowserPageService {
                 let filter = try CookieFilter(call.request.params)
                 let now = Date()
                 let cookies = try await Self.cookies(engine, tab).filter { filter.listed($0, now: now) }
-                var result = Self.base(tab)
+                var result: [String: JSONValue] = Self.base(tab)
                 result["cookies"] = .array(cookies.map(\.json))
                 return .object(result)
             },
@@ -24,7 +24,7 @@ extension BrowserPageService {
                 let tab = try Self.tab(call)
                 let cookies = try Self.cookiesToSet(call, tab: tab)
                 _ = try await Self.run(engine, .cookies(.set(cookies)), tab)
-                var result = Self.base(tab)
+                var result: [String: JSONValue] = Self.base(tab)
                 result["set"] = JSONValue(cookies.count)
                 return .object(result)
             },
@@ -44,7 +44,7 @@ extension BrowserPageService {
                 let now = Date()
                 let doomed = try await Self.cookies(engine, tab).filter { $0.isOnSite(site) && filter.cleared($0, now: now) }
                 if !doomed.isEmpty { _ = try await Self.run(engine, .cookies(.delete(doomed)), tab) }
-                var result = Self.base(tab)
+                var result: [String: JSONValue] = Self.base(tab)
                 result["cleared"] = JSONValue(doomed.count)
                 return .object(result)
             },
@@ -70,10 +70,12 @@ extension BrowserPageService {
             if let error = value["error"]?.stringValue {
                 throw ControlError(code: "invalid_state", message: error)
             }
-            var result = Self.base(tab)
+            var result: [String: JSONValue] = Self.base(tab)
             result["type"] = .string(area.rawValue)
             let payload = value["value"] ?? .null
-            for key in ["key", "value", "cleared"] where payload[key] != nil { result[key] = payload[key] }
+            for key in ["key", "value", "cleared"] {
+                if let value = payload[key] { result[key] = value }
+            }
             return .object(result)
         }
     }
@@ -93,7 +95,9 @@ extension BrowserPageService {
     static func storageValue(_ call: ControlCall) throws -> String {
         switch call.request.params["value"] {
         case .string(let text)?: return text
-        case .number(let number)?: return number.rounded() == number && abs(number) < 1e15 ? String(Int(number)) : String(number)
+        case .number(let number)?:
+            if abs(number) < 1e15, let whole = Int(exactly: number) { return String(whole) }
+            return String(number)
         case .bool(let flag)?: return flag ? "true" : "false"
         default:
             throw ControlError.invalidParams(ControlStrings.format("control.error.missingParam", "%1$@ requires params.%2$@", call.request.method, "value"))
