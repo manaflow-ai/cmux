@@ -44,5 +44,9 @@ sha2 = "0.10"
 # The four fingerprint words, the same list and derivation the app shows.
 cmux-server-core = { path = "../../../cmux-tui/crates/cmux-server-core" }
 
+# The acpmux socket peer's Team signature (acpmux_peer, cx-ggai).
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation-sys = "0.8"
+
 [dev-dependencies]
 tempfile = "3"

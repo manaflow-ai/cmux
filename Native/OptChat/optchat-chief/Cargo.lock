@@ -648,6 +648,7 @@ dependencies = [
  "cmux-conversation",
  "cmux-sdk",
  "cmux-server-core",
+ "core-foundation-sys",
  "libc",
  "optchat-core",
  "optchat-host",

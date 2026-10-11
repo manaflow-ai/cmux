@@ -68,7 +68,15 @@ impl RpcClient {
         path: &Path,
         on_notification: impl Fn(Notification) + Send + 'static,
     ) -> std::io::Result<Arc<RpcClient>> {
-        let stream = UnixStream::connect(path)?;
+        Self::over(UnixStream::connect(path)?, on_notification)
+    }
+
+    /// The client over a connected stream (acpmux: one whose server peer
+    /// passed `acpmux_peer::check`).
+    pub fn over(
+        stream: UnixStream,
+        on_notification: impl Fn(Notification) + Send + 'static,
+    ) -> std::io::Result<Arc<RpcClient>> {
         let reader = stream.try_clone()?;
         let waiters: Waiters = Arc::new(Mutex::new(Some(HashMap::new())));
         let closed = Arc::new(AtomicBool::new(false));
