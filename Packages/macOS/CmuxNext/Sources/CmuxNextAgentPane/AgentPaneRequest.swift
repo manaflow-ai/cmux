@@ -43,6 +43,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The new tab page got its first user input (`newTab.touched`); a
     /// touched page is never recycled into the prewarm pool.
     case touched
+    /// The page's New Tab context at once (`newTab.context`), before the
+    /// handshake that waits for acpmux: a cold New Tab page draws its frame
+    /// (layout, field, empty list) at first render (cx-0rpl.10).
+    case newTabContext
     /// The identified New Tab field mounted and took DOM focus.
     case newTabInputReady(String)
     /// The location bar picked an open tab or workspace: go there.

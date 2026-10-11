@@ -195,7 +195,7 @@ public final class AgentPaneModel {
     public func respond(to request: AgentPaneRequest) async -> [String: Any] {
         switch request {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
-        case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability, .painted, .newTabInputReady, .unsupported,
+        case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability, .painted, .newTabInputReady, .newTabContext, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage: break
         case .reply(let reply) where reply.isPassive: break
         default:
@@ -280,6 +280,11 @@ public final class AgentPaneModel {
         case .touched: return AgentPaneReply.success()
         case .shellRun, .shellRead, .shellStop: return await respondToShell(request)
         case .shellComplete(let line, let cwd): return await respondToShellComplete(line: line, cwd: cwd)
+        case .newTabContext:
+            // Only a page with no chat yet is a New Tab page; the handshake still sends the same context.
+            guard sessionId == nil, let newTab, let data = try? JSONEncoder().encode(newTab),
+                  let object = try? JSONSerialization.jsonObject(with: data) else { return AgentPaneReply.success() }
+            return AgentPaneReply.success(["newTab": object])
         case .newTabInputReady(let token):
             guard newTab?.inputToken == token else { return Self.unsupported("newTab.inputReady") }
             onNewTabInputReady?(token)
