@@ -7,7 +7,7 @@ public import Foundation
 public nonisolated enum TasksIntentKind: Sendable, Equatable {
     case setStatus(task: String, status: String)
     /// Place `task` between `after` (precedes) and `before` (follows).
-    case move(task: String, after: String?, before: String?, sortKey: String)
+    case move(task: String, after: String?, before: String?)
     case create(id: String, title: String, status: String?)
     case archive(task: String)
     /// The accountable person (`task.update {assignee}`); nil unassigns.
@@ -33,7 +33,7 @@ public nonisolated struct TasksIntent: Sendable, Equatable, Identifiable {
         switch kind {
         case let .setStatus(task, status):
             ("task.update", ["task": .string(task), "status": .string(status)])
-        case let .move(task, after, before, _):
+        case let .move(task, after, before):
             ("task.move", ["task": .string(task)]
                 .merging(after.map { ["after": .string($0)] } ?? [:]) { a, _ in a }
                 .merging(before.map { ["before": .string($0)] } ?? [:]) { a, _ in a })
@@ -54,42 +54,8 @@ public nonisolated struct TasksIntent: Sendable, Equatable, Identifiable {
     /// The task this intent changes.
     public var task: String {
         switch kind {
-        case let .setStatus(task, _), let .move(task, _, _, _), let .archive(task), let .assign(task, _), let .delegate(task, _, _): task
+        case let .setStatus(task, _), let .move(task, _, _), let .archive(task), let .assign(task, _), let .delegate(task, _, _): task
         case let .create(id, _, _): id
-        }
-    }
-
-    /// The visible effect of this intent on a mirror (pure).
-    /// `me` is the local person: a delegation works for them, as the owner
-    /// derives it (`agt_<harness>-<person>`).
-    func apply(to tasks: inout [String: TaskItem], statuses: [String: TaskStatusItem], prefix: String, me: String? = nil) {
-        switch kind {
-        case let .setStatus(task, status):
-            guard var item = tasks[task], let target = statuses[status] else { return }
-            item.status = status
-            item.category = target.category
-            tasks[task] = item
-        case let .move(task, _, _, sortKey):
-            tasks[task]?.sortKey = sortKey
-        case let .create(id, title, status):
-            guard tasks[id] == nil else { return }
-            let statusID = status ?? statuses.values.sorted { ($0.category, $0.position) < ($1.category, $1.position) }
-                .first { $0.category == .backlog }?.id ?? ""
-            let category = statuses[statusID]?.category ?? .backlog
-            let last = tasks.values.map(\.sortKey).max() ?? ""
-            tasks[id] = TaskItem(id: id, key: "\(prefix)-…", number: 0, title: title, status: statusID,
-                                 category: category, sortKey: last + "V")
-        case let .archive(task):
-            tasks[task]?.archived = true
-        case let .assign(task, person):
-            tasks[task]?.assignee = person.map { TaskPrincipal(user: $0) }
-        case let .delegate(task, _, harness):
-            guard var item = tasks[task] else { return }
-            let person = me ?? ""
-            let name = person.hasPrefix("usr_") ? String(person.dropFirst(4)) : person
-            item.delegate = TaskAgent(principal: "agt_\(harness)-\(name)", harness: harness, onBehalfOf: person)
-            if item.assignee == nil, !person.isEmpty { item.assignee = TaskPrincipal(user: person) }
-            tasks[task] = item
         }
     }
 }

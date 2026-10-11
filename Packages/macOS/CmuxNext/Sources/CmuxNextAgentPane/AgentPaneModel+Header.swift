@@ -25,14 +25,14 @@ public struct AgentPaneHeaderHooks {
                 openSide: @escaping @MainActor (String) -> Void = { _ in },
                 sideTabs: @escaping @MainActor () -> Bool? = { nil },
                 preview: @escaping @MainActor (String?, Bool) -> Void = { _, _ in },
-                saveQuickActions: @escaping @MainActor ([AgentPaneQuickAction]) async -> Bool = { _ in false }) {
+                saveQuickActions: (@MainActor ([AgentPaneQuickAction]) async -> Bool)? = nil) {
         self.run = run
         self.toggle = toggle ?? run
         self.tabState = tabState
         self.openSide = openSide
         self.sideTabs = sideTabs
         self.preview = preview
-        self.saveQuickActions = saveQuickActions
+        self.saveQuickActions = saveQuickActions ?? { _ in false }
     }
 }
 
