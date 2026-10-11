@@ -9,7 +9,7 @@ import SwiftUI
 /// controller every key while labels show; Escape, a chord, any other key, a
 /// click or a second Cmd-J ends it. Shown web pages are asked for their
 /// elements first (``WindowHintPages``); keys typed meanwhile wait for the
-/// labels. Behind `window-hints-release` until styled.
+/// labels. On by default; `window-hints-release` is its kill switch.
 @MainActor
 final class WindowHintController {
     static let shared = WindowHintController()

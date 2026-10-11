@@ -221,10 +221,10 @@ final class CmuxFeatureFlags {
     )
 
     // FLAG(key: window-hints-release, owner: teamleaderleo,
-    //      reviewBy: 2027-01-31, defaultWhenUnavailable: false)
+    //      reviewBy: 2027-01-31, defaultWhenUnavailable: true)
     // Hint mode (Show Hints, Cmd-J): labels every clickable control in the
-    // window so typing a label clicks it. Off until the labels are styled;
-    // a local debug override turns it on for testing.
+    // window so typing a label clicks it. On by default now that the labels
+    // are styled; a remote false value is the kill switch.
     nonisolated static let windowHintsFlag = CmuxFeatureFlagDefinition(
         key: "window-hints-release",
         title: String(localized: "featureFlags.windowHints.title", defaultValue: "Click by Hint"),
@@ -232,7 +232,7 @@ final class CmuxFeatureFlags {
             localized: "featureFlags.windowHints.description",
             defaultValue: "Labels every clickable control in the window so typing a label clicks it."
         ),
-        defaultWhenUnavailable: false
+        defaultWhenUnavailable: true
     )
 
     // FLAG(key: mobile-connect-button-enabled-release, owner: lawrencecchen,
