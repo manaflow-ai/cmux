@@ -44,7 +44,8 @@ enum DebugSidebarRows {
                         "muted": .bool(row.muted), "activity": row.activity.map(JSONValue.string) ?? .null,
                         "icon": row.icon.map(JSONValue.string) ?? .null,
                         "shown_frame": row.shownFrame.map(rect) ?? .null, "clips": .bool(row.clips),
-                        "group": row.group.map(JSONValue.string) ?? .null, "fill": .bool(row.fill),
+                        "group": row.group.map(JSONValue.string) ?? .null,
+                        "fill": .bool(row.fill), "hovered": .bool(row.hovered),
                         "disclosure": row.disclosureIcon.map { icon in
                             .object(["icon": .string(icon), "frame": row.disclosureFrame.map(rect) ?? .null, "shown": .bool(row.disclosureShown)])
                         } ?? .null,

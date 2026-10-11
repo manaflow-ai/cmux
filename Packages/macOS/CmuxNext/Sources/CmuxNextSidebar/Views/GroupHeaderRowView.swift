@@ -7,8 +7,8 @@ import QuartzCore
 /// Chrome bar of cx-rcby): the group's color is a dot on its line, which
 /// runs from the dot to the last member (Edge style); the name is in the
 /// sidebar's text color and lines up with the members' titles. A + and a more
-/// button on hover and the collapse chevron at the right edge; hover and drop fills
-/// like a row's, right of the line. Type and glyphs scale with the row height
+/// button and the collapse chevron at the right edge; no hover or selection
+/// fill, only a drop fill right of the line (cx-fo2t). Type and glyphs scale with the row height
 /// (the sidebar density setting). No member count: a collapsed group shows
 /// its members' activity and unread total. The name opens the group editor;
 /// the more button and a right-click show the group's full menu (cx-a9h6);
@@ -25,7 +25,7 @@ final class GroupHeaderRowView: SidebarRowView {
     /// The group's color as a dot on its line (cx-25az, Leo 2026-10-10: no full
     /// pastel fill): the line starts under it and runs to the last member.
     private let dot = CALayer()
-    /// The more button (the pack's three-dot action.more): the group's full menu, as a right-click (cx-a9h6). Shows on hover and while the editor is open.
+    /// The more button (the pack's three-dot action.more): the group's full menu, as a right-click (cx-a9h6).
     let moreButton = SidebarIconButton(icon: .actionMore, pointSize: { Metrics.smallIconSize - Metrics.space1 },
                                        label: GroupEditorStrings.more)
     /// The add button (+): a new workspace at the end of the group (cmuxterm-hq#1829,
@@ -137,7 +137,6 @@ final class GroupHeaderRowView: SidebarRowView {
         let start = hasIcon ? glyph.frame.minX : name.frame.minX
         return NSRect(x: start - Metrics.space2, y: 0, width: name.frame.maxX - start + 2 * Metrics.space2, height: bounds.height)
     }
-    var labelFill: CGColor? { pill.isHidden ? nil : pill.backgroundColor }
     override var titleFont: NSFont { name.font ?? SidebarStyle.headerFont }
     private var renaming = false
     override func setTitleHidden(_ hidden: Bool) {

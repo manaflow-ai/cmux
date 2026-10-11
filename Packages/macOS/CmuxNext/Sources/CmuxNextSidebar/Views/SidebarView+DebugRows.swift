@@ -12,7 +12,7 @@ public struct SidebarDebugRow: Sendable {
     public var viewAlpha: CGFloat?
     public var inList: Bool
     public var suppressed: Bool
-    /// The row's view paints the selection fill now.
+    /// The row's view stands for the selection now (`fill` says whether it paints).
     public var selected: Bool
     /// The workspace is muted (`notifications.mutedWorkspaces`): its row draws the mark.
     public var muted: Bool
@@ -29,17 +29,20 @@ public struct SidebarDebugRow: Sendable {
     public var group: String? = nil
     /// The row paints a fill now (hover, selection or a drop), its own or a part's.
     public var fill: Bool = false
+    /// The pointer is over the row's view now.
+    public var hovered: Bool = false
     /// The row's disclosure chevron: the pack icon it draws, its frame in the
     /// row and whether it shows; nil when the row has none.
     public var disclosureIcon: String? = nil
     public var disclosureFrame: CGRect? = nil
     public var disclosureShown: Bool = false
 
-    /// The row with what its view draws now: its fill and its disclosure.
+    /// The row with what its view draws now: its fill, hover and disclosure.
     func drawn(by view: SidebarRowView?) -> SidebarDebugRow {
         var row = self
         let disclosure = view?.debugDisclosure
         row.fill = view?.debugFill == true
+        row.hovered = view?.isHovered == true
         (row.disclosureIcon, row.disclosureFrame, row.disclosureShown) = (disclosure?.icon, disclosure?.frame, disclosure?.shown == true)
         return row
     }

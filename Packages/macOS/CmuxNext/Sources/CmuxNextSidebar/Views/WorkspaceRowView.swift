@@ -36,7 +36,7 @@ final class WorkspaceRowView: SidebarRowView {
     /// `sidebar.workspaceRow.pullRequest`: the PR / CI badge a hook reported.
     private let prBadge = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     private var badgeText: String?
-    private var disclosure: SidebarTabDisclosure?
+    private(set) var disclosure: SidebarTabDisclosure?
     private var count: Int?
 
     /// Progress under the row (`SidebarWorkspace.progress`): a track and a
