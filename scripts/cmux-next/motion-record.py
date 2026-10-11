@@ -107,7 +107,8 @@ def paced_drag(x, y, to_x, to_y, seconds=0.45):
 
 def first_pill(busiest=False):
     """The first pane's first tab pill in window points (`debug.pane_chrome`);
-    with `busiest`, the narrowest one, in the pane holding the most tabs."""
+    with `busiest`, the narrowest first pill of any pane (tabs narrow as a
+    pane fills)."""
     pills = [pane["pill"] for window in (rpc("debug.pane_chrome") or {}).get("windows") or []
              for pane in window.get("panes") or [] if pane.get("pill")]
     if busiest and pills:
@@ -198,27 +199,6 @@ def drag():
     x, y = left + width / 2, top + height / 2
     record("drag", "reorder", lambda: paced_drag(x, y, x + width * 2.2, y), seconds=2.0)
     record("drag", "back", lambda: paced_drag(x + width * 2, y, x, y), seconds=2.0)
-
-
-def newtab():
-    # The New Tab page's template dots switch its layout in place
-    # (tabs.newTabTemplate); the dots show with newTab.templateSwitcher.
-    rpc("debug.tunables", {"action": "set", "key": "newTab.templateSwitcher", "value": True})
-    rpc("debug.motion", {"action": "speed", "value": "fast"})  # the tunable write reloads settings
-    action("newWorkspace")
-    time.sleep(1.0)  # test harness: the workspace settles
-    action("newTabPage")
-    time.sleep(2.0)  # test harness: the page loads
-    save_layout("newtab")
-    # settings.set writes the host user's cmux-next.json, which every slot on
-    # the mini shares: end on "default", the value it had.
-    def switch(template):
-        reply = rpc("settings.set", {"path": "tabs.newTabTemplate", "value": template})
-        rpc("debug.motion", {"action": "speed", "value": "fast"})  # the write reloads settings
-        return reply
-    for template in ("threads", "composer", "console", "default"):
-        record("newtab", template, lambda: switch(template))
-    rpc("debug.tunables", {"action": "set", "key": "newTab.templateSwitcher", "value": None})
 
 
 def key(name, *modifiers):
@@ -343,7 +323,7 @@ def hover():
     rpc("debug.tunables", {"action": "set", "key": "motion.fade.hoverOut", "value": None})
 
 
-SURFACES = {"tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts, "popups": popups, "hover": hover, "groups": groups, "drag": drag, "newtab": newtab}
+SURFACES = {"tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts, "popups": popups, "hover": hover, "groups": groups, "drag": drag}
 
 
 def main():

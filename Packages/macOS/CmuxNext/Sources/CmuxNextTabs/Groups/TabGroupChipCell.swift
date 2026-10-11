@@ -110,12 +110,13 @@ final class TabGroupChipCell {
     var pillFrame: CGRect { pill.frame }
 
     private func contentChanged() {
+        // An unnamed group's chip turns into a dot on expand: no count to cover.
         let shown = countLayer.string
-        leavingCount = countText.isEmpty && !shown.isEmpty ? (shown, countLayer.textWidth) : nil
+        countLayer.font = font
+        leavingCount = countText.isEmpty && !shown.isEmpty && !group.name.isEmpty ? (shown, countLayer.textWidth) : nil
         nameLayer.string = group.name
         nameLayer.font = font
         countLayer.string = leavingCount?.text ?? countText
-        countLayer.font = font
         updateColors(animated: false)
         updateAccessibility()
         layoutLayers()
