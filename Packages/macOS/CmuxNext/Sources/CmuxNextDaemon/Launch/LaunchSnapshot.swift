@@ -20,12 +20,37 @@ public struct LaunchSnapshot: Sendable {
     public static let maximumBytes = 8 * 1024 * 1024
     static let schemaVersion = 1
 
+    /// Why a snapshot file was not used (logged: a skipped snapshot shows the connecting state).
+    public enum Skip: Error, CustomStringConvertible {
+        case unreadable(String), tooLarge(Int), undecodable(String), otherSchema(Int), otherSession(String)
+
+        public var description: String {
+            switch self {
+            case .unreadable(let reason): "unreadable: \(reason)"
+            case .tooLarge(let bytes): "too large: \(bytes) bytes"
+            case .undecodable(let reason): "undecodable: \(reason)"
+            case .otherSchema(let version): "schema \(version)"
+            case .otherSession(let session): "session \(session)"
+            }
+        }
+    }
+
     /// Decodes a snapshot file's bytes; nil for another schema or session.
     public static func decode(_ data: Data, session: String,
                               frontend: String = DaemonConnection.origin,
                               windowsSubject: String = WindowStateStore.defaultSubject) -> LaunchSnapshot? {
-        guard data.count <= maximumBytes, let file = try? JSONDecoder().decode(File.self, from: data),
-              file.schemaVersion == schemaVersion, file.session == session else { return nil }
+        try? read(data, session: session, frontend: frontend, windowsSubject: windowsSubject)
+    }
+
+    /// `decode`, throwing why the bytes were not used.
+    public static func read(_ data: Data, session: String,
+                            frontend: String = DaemonConnection.origin,
+                            windowsSubject: String = WindowStateStore.defaultSubject) throws(Skip) -> LaunchSnapshot {
+        guard data.count <= maximumBytes else { throw .tooLarge(data.count) }
+        let file: File
+        do { file = try JSONDecoder().decode(File.self, from: data) } catch { throw .undecodable(String(describing: error)) }
+        guard file.schemaVersion == schemaVersion else { throw .otherSchema(file.schemaVersion) }
+        guard file.session == session else { throw .otherSession(file.session) }
         let record = file.frontendProjections?.first { projection in
             projection.frontend == frontend && projection.scope == ProjectionScope.personal.rawValue
                 && projection.subjectKey == windowsSubject
@@ -40,11 +65,14 @@ public struct LaunchSnapshot: Sendable {
     }
 
     /// Reads the snapshot at `path` (from `LaunchSnapshotLocation`).
-    public static func load(path: String, session: String) -> LaunchSnapshot? {
+    public static func load(path: String, session: String) throws(Skip) -> LaunchSnapshot {
         let url = URL(fileURLWithPath: path)
-        guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= maximumBytes,
-              let data = try? Data(contentsOf: url) else { return nil }
-        return decode(data, session: session)
+        let size: Int
+        do { size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0 } catch { throw .unreadable(String(describing: error)) }
+        guard size <= maximumBytes else { throw .tooLarge(size) }
+        let data: Data
+        do { data = try Data(contentsOf: url) } catch { throw .unreadable(String(describing: error)) }
+        return try read(data, session: session)
     }
 
     private struct File: Decodable {

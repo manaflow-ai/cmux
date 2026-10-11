@@ -1,5 +1,6 @@
 import CmuxNextControl
 import CmuxNextDaemon
+import os
 
 // The launch snapshot (`launch-snapshot-v1`, plans/cmux-next/cmux-tui-contract.md):
 // the last layout drawn before the first connection, then replaced in place;
@@ -12,8 +13,12 @@ extension DaemonService {
     /// at 8 MiB) and local, and reading it replaces waiting for the daemon,
     /// so it is read before the first window.
     func showLaunchSnapshot(session: String) {
-        guard let path = launchSnapshotLocation.path(session: session),
-              let snapshot = LaunchSnapshot.load(path: path, session: session) else { return }
+        guard let path = launchSnapshotLocation.path(session: session) else { return }
+        let snapshot: LaunchSnapshot
+        do { snapshot = try LaunchSnapshot.load(path: path, session: session) } catch {
+            logger.error("launch snapshot skipped: \(String(describing: error), privacy: .public)")
+            return
+        }
         store.applyProvisional(snapshot: snapshot.tree)
         launchSnapshotWindows = snapshot.windows
         DebugTimings.markLaunch("launch_snapshot_applied")
