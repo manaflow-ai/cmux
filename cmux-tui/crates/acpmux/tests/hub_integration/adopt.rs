@@ -186,8 +186,10 @@ async fn adopt_refuses_a_chat_live_in_another_process() {
     let record = json!({"type": "session_meta", "payload": {"id": live, "cwd": project}});
     std::fs::write(&rollout, format!("{record}\n")).unwrap();
     backdate(&rollout);
-    let mut other = std::process::Command::new("sh")
-        .args(["-c", "sleep 60", "codex", "resume", live.as_str()])
+    // python3, not `sh -c "sleep 60"`: sh execs a lone command, and the
+    // process the adopt then reads in `ps` is a bare `sleep 60`.
+    let mut other = std::process::Command::new("python3")
+        .args(["-c", "import time; time.sleep(60)", "codex", "resume", live.as_str()])
         .spawn()
         .unwrap();
     let refused = c.request(method::SESSION_NEW, adopt("fakecodex", &live)).await.unwrap_err();
