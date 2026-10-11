@@ -24,7 +24,7 @@ struct SettingsGhosttyPreviewLiveTests {
 }
 
 /// Set from observation's change callback.
-private final class Flag: @unchecked Sendable {
+private nonisolated final class Flag: @unchecked Sendable {
     private let lock = NSLock()
     private var isSet = false
     var value: Bool { lock.withLock { isSet } }
