@@ -120,6 +120,7 @@ public struct SidebarMapping {
             folder: (front?.cwd ?? tabs.lazy.compactMap(\.cwd).first).map(shorten)
         )
         row.presence = presence(tabs)
+        row.reported = Self.reported(workspace.status)
         return row
     }
 
@@ -191,6 +192,21 @@ public struct SidebarMapping {
     static func statusLine(_ entries: [WorkspaceStatus.Entry]) -> String? {
         let texts = entries.filter { $0.key != portsKey && $0.key != pullRequestKey }.map(\.text).filter { !$0.isEmpty }
         return texts.isEmpty ? nil : texts.joined(separator: " · ")
+    }
+
+    /// The status block: every entry but the ones other elements show, the
+    /// newest log line and the progress label; nil when none is reported.
+    static func reported(_ status: WorkspaceStatus?) -> SidebarWorkspaceStatus? {
+        guard let status else { return nil }
+        let block = SidebarWorkspaceStatus(
+            entries: status.entries.filter { $0.key != portsKey && $0.key != pullRequestKey }.map {
+                SidebarWorkspaceStatus.Entry(key: $0.key, text: $0.text, icon: $0.icon, tint: SidebarWorkspaceStatus.Tint($0.color))
+            },
+            log: status.lastLog.map {
+                SidebarWorkspaceStatus.LogLine(level: SidebarWorkspaceStatus.LogLevel(rawValue: $0.level) ?? .info, text: $0.text)
+            },
+            progressLabel: status.progress?.label)
+        return block.isEmpty ? nil : block
     }
 
     static func entry(_ key: String, in entries: [WorkspaceStatus.Entry]) -> String? {
