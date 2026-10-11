@@ -123,6 +123,9 @@ class GeneratedClientMixin:
     def cloud_conversation_subscribe(self, conversation: str) -> JsonValue:
         return self._invoke_command('cloud-conversation-subscribe', CloudConversationSubscribeRequest(conversation=conversation))
 
+    def cloud_conversation_thread(self, conversation: str, root: str, *, after_seq: Union[int, None, MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('cloud-conversation-thread', CloudConversationThreadRequest(conversation=conversation, root=root, after_seq=after_seq, limit=limit))
+
     def cloud_conversation_unsubscribe(self, conversation: str) -> JsonValue:
         return self._invoke_command('cloud-conversation-unsubscribe', CloudConversationUnsubscribeRequest(conversation=conversation))
 
@@ -188,6 +191,9 @@ class GeneratedClientMixin:
 
     def conversation_snapshot(self, conversation: str, tail: int) -> ConversationSnapshotResult:
         return self._invoke_command('conversation-snapshot', ConversationSnapshotRequest(conversation=conversation, tail=tail))
+
+    def conversation_thread(self, conversation: str, root: str, *, after_seq: Union[int, MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING) -> ConversationThreadResult:
+        return self._invoke_command('conversation-thread', ConversationThreadRequest(conversation=conversation, root=root, after_seq=after_seq, limit=limit))
 
     def conversation_typing(self, conversation: str, on: bool, *, actor: Union[str, None, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('conversation-typing', ConversationTypingRequest(conversation=conversation, on=on, actor=actor))
@@ -429,8 +435,8 @@ class GeneratedClientMixin:
     def new_browser_tab(self, url: str, *, pane: Union[Id, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> SurfaceResult:
         return self._invoke_command('new-browser-tab', NewBrowserTabRequest(url=url, pane=pane, cols=cols, rows=rows))
 
-    def new_conversation_tab(self, pane: Union[Id, None, MissingType] = MISSING, *, workspace: Union[Id, None, MissingType] = MISSING, agent_session: Union[AgentSessionSource, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, conversation: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, owner: Union[str, None, MissingType] = MISSING, page: Union[str, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, transaction: Union[str, None, MissingType] = MISSING) -> NewConversationTabResult:
-        return self._invoke_command('new-conversation-tab', NewConversationTabRequest(pane=pane, workspace=workspace, agent_session=agent_session, cols=cols, conversation=conversation, mutation_id=mutation_id, origin=origin, owner=owner, page=page, rows=rows, transaction=transaction))
+    def new_conversation_tab(self, pane: Union[Id, None, MissingType] = MISSING, *, workspace: Union[Id, None, MissingType] = MISSING, agent_session: Union[AgentSessionSource, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, conversation: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, owner: Union[str, None, MissingType] = MISSING, page: Union[str, None, MissingType] = MISSING, route: Union[str, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, transaction: Union[str, None, MissingType] = MISSING) -> NewConversationTabResult:
+        return self._invoke_command('new-conversation-tab', NewConversationTabRequest(pane=pane, workspace=workspace, agent_session=agent_session, cols=cols, conversation=conversation, mutation_id=mutation_id, origin=origin, owner=owner, page=page, route=route, rows=rows, transaction=transaction))
 
     def new_frontend_browser_tab(self, engine: str, url: str, *, pane: Union[Id, None, MissingType] = MISSING, activate: Union[bool, MissingType] = MISSING, after: Union[Id, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, favicon_url: Union[str, None, MissingType] = MISSING, idempotency_key: Union[str, None, MissingType] = MISSING, owner: Union[str, None, MissingType] = MISSING, profile_id: Union[str, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, title: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('new-frontend-browser-tab', NewFrontendBrowserTabRequest(engine=engine, url=url, pane=pane, activate=activate, after=after, cols=cols, favicon_url=favicon_url, idempotency_key=idempotency_key, owner=owner, profile_id=profile_id, rows=rows, title=title))
@@ -803,6 +809,7 @@ GeneratedClientMixin.cloud_conversation_history.__cmux_command__ = COMMANDS['clo
 GeneratedClientMixin.cloud_conversation_op.__cmux_command__ = COMMANDS['cloud-conversation-op']
 GeneratedClientMixin.cloud_conversation_snapshot.__cmux_command__ = COMMANDS['cloud-conversation-snapshot']
 GeneratedClientMixin.cloud_conversation_subscribe.__cmux_command__ = COMMANDS['cloud-conversation-subscribe']
+GeneratedClientMixin.cloud_conversation_thread.__cmux_command__ = COMMANDS['cloud-conversation-thread']
 GeneratedClientMixin.cloud_conversation_unsubscribe.__cmux_command__ = COMMANDS['cloud-conversation-unsubscribe']
 GeneratedClientMixin.cloud_inbox_list.__cmux_command__ = COMMANDS['cloud-inbox-list']
 GeneratedClientMixin.cloud_inbox_subscribe.__cmux_command__ = COMMANDS['cloud-inbox-subscribe']
@@ -825,6 +832,7 @@ GeneratedClientMixin.conversation_list.__cmux_command__ = COMMANDS['conversation
 GeneratedClientMixin.conversation_op.__cmux_command__ = COMMANDS['conversation-op']
 GeneratedClientMixin.conversation_search.__cmux_command__ = COMMANDS['conversation-search']
 GeneratedClientMixin.conversation_snapshot.__cmux_command__ = COMMANDS['conversation-snapshot']
+GeneratedClientMixin.conversation_thread.__cmux_command__ = COMMANDS['conversation-thread']
 GeneratedClientMixin.conversation_typing.__cmux_command__ = COMMANDS['conversation-typing']
 GeneratedClientMixin.copy.__cmux_command__ = COMMANDS['copy']
 GeneratedClientMixin.create_bookmark.__cmux_command__ = COMMANDS['create-bookmark']

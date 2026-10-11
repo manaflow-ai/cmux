@@ -70,6 +70,19 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         ),
         (
             vec![
+                "git",
+                "commit",
+                "--path",
+                "/repo",
+                "--message",
+                "m",
+                "--all",
+                "--include-untracked",
+            ],
+            "git.commit",
+        ),
+        (
+            vec![
                 "terminal",
                 TERMINAL,
                 "mouse",
@@ -168,6 +181,20 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "settings.schema"
                         | "settings.set"
                         | "settings.snapshot"
+                        // History ops are reached through `cmux history`
+                        // (cx-gzh.15), not the noun grammar; the page and
+                        // omnibox ops are the browser host's and the app's.
+                        | "history.entries.list"
+                        | "history.entries.remove"
+                        | "history.site.remove"
+                        | "history.clear"
+                        | "history.restore"
+                        | "history.backups.purge"
+                        | "history.visit.record"
+                        | "history.visit.title"
+                        | "history.visit.import"
+                        | "history.visit.remove"
+                        | "history.visit.summaries"
             )
         })
         .map(String::as_str)

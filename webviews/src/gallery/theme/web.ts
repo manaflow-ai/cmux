@@ -54,6 +54,7 @@ export function webThemePayload(
     variables: {
       "--cmux-surface-background": css(page),
       "--cmux-surface-token": css(tokens.surfaceBackground),
+      "--cmux-surface-solid": css(page),
       "--cmux-elevated-background": css(tokens.elevatedBackground),
       "--cmux-text": css(tokens.textPrimary),
       "--cmux-text-secondary": css(tokens.textSecondary),
@@ -61,6 +62,9 @@ export function webThemePayload(
       "--cmux-separator": css(tokens.separator),
       "--cmux-hover": css(tokens.hoverFill),
       "--cmux-selection": css(tokens.selectionFill),
+      // The gallery has no Ghostty cursor or selection color: the text color and the accent tint.
+      "--cmux-text-selection": "color-mix(in srgb, var(--cmux-accent, CanvasText) 28%, transparent)",
+      "--cmux-caret": css(tokens.textPrimary),
       "--cmux-accent": css(tokens.accent),
       "--cmux-on-accent": css(tokens.onAccent),
       ...(app ? appThemeVariables(app) : {}),

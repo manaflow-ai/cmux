@@ -242,10 +242,10 @@ public final class MessagesLabHomeView: NSView {
     @discardableResult
     public func sendDraft() -> String? { projection.send() }
 
-    /// Automation (DEBUG socket): a love tapback on the newest incoming
-    /// message through the picker's path (`ChatIntents.react`).
-    public func debugTapbackNewestIncoming() -> Bool {
-        guard let hit = controller.demo?.lastTextRow(mine: false) else { return false }
+    /// Automation (DEBUG socket): a love tapback on the newest incoming (or,
+    /// with `mine`, my newest) message through the picker's path (`ChatIntents.react`).
+    public func debugTapbackNewestIncoming(mine: Bool = false) -> Bool {
+        guard let hit = controller.demo?.lastTextRow(mine: mine) else { return false }
         projection.react(hit.row.ref, .tapback("love"))
         return true
     }
@@ -319,6 +319,59 @@ public final class MessagesLabHomeView: NSView {
             }
         }
         return nil
+    }
+
+    /// Automation (DEBUG socket): a click on the newest thread's "N Replies" or
+    /// thread preview through the click's path (`ChatController.clicked`). The
+    /// open thread's root (its transcript id) after the click, nil when none opened.
+    public func debugOpenNewestThread() -> String? {
+        guard let demo = controller.demo else { return nil }
+        let cells = demo.collection.visibleCells.compactMap { $0 as? RowCell }
+            .map { $0.convert($0.bounds, to: demo) }.sorted { $0.maxY > $1.maxY }
+        for r in cells {
+            for y in stride(from: r.maxY, to: r.minY, by: -3) {
+                for x in stride(from: r.minX, to: r.maxX, by: 3) {
+                    let p = CGPoint(x: x, y: y)
+                    guard demo.repliesHit(p) != nil else { continue }
+                    controller.clicked(p)
+                    return debugOpenThread
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Automation (DEBUG socket): the open thread's root (its transcript id), nil when none is open.
+    public var debugOpenThread: String? { controller.store?.state.ui.openThread?.messageId }
+
+    /// Automation (DEBUG socket): Esc through the field's path (`ChatController.escape`).
+    public func debugEscape() { controller.escape() }
+
+    /// Automation (DEBUG socket): Reply… in the context menu at the newest text bubble (mine or
+    /// incoming), built and chosen by the right-click's path. The open thread's root after it.
+    public func debugReplyNewest(mine: Bool) -> String? {
+        guard let hit = controller.demo?.lastTextRow(mine: mine),
+              let menu = controller.menu(at: CGPoint(x: hit.body.midX, y: hit.body.midY)) else { return nil }
+        controller.menuHighlight?.discard(); controller.menuHighlight = nil // never shown
+        guard let item = menu.items.first(where: { ($0 as? MenuAction)?.label == Strings.menuReplyEllipsis }),
+              let action = item.action else { return nil }
+        NSApp.sendAction(action, to: item.target, from: item)
+        return debugOpenThread
+    }
+
+    /// Automation (DEBUG socket): a real Esc key press posted to the app's event queue (local
+    /// monitors see it), with the key focus on the window itself (`outside`, as when a terminal
+    /// or the sidebar has it) or where it is.
+    public func debugPostEscape(outside: Bool) {
+        guard let window else { return }
+        if outside { window.makeFirstResponder(nil) }
+        for type in [NSEvent.EventType.keyDown, .keyUp] {
+            if let e = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                        windowNumber: window.windowNumber, context: nil, characters: "\u{1b}",
+                                        charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53) {
+                NSApp.postEvent(e, atStart: false)
+            }
+        }
     }
 
     /// Automation (DEBUG socket): scrolls the transcript by `dy` points

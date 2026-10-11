@@ -58,6 +58,9 @@ pub(super) struct NewConversationTabParams {
     agent_session: Option<AgentSessionParams>,
     #[serde(default)]
     page: Option<String>,
+    /// What the page shows (`page-tab-route-v1`); only with `page`.
+    #[serde(default)]
+    route: Option<String>,
     #[serde(default)]
     origin: Option<String>,
     #[serde(default)]
@@ -93,7 +96,9 @@ fn record_of(
     owner: Option<String>,
     agent_session: Option<AgentSessionParams>,
     page: Option<String>,
+    route: Option<String>,
 ) -> anyhow::Result<ConversationTabRecord> {
+    anyhow::ensure!(route.is_none() || page.is_some(), "bad request: route needs page");
     match (conversation, owner, agent_session, page) {
         (Some(conversation), Some(owner), None, None) => {
             Ok(ConversationTabRecord::Conversation { conversation, owner })
@@ -101,7 +106,7 @@ fn record_of(
         (None, None, Some(AgentSessionParams { host, session, harness, host_name }), None) => {
             Ok(ConversationTabRecord::AgentSession { host, session, harness, host_name })
         }
-        (None, None, None, Some(page)) => Ok(ConversationTabRecord::Page { page }),
+        (None, None, None, Some(page)) => Ok(ConversationTabRecord::Page { page, route }),
         _ => anyhow::bail!(
             "bad request: send conversation and owner, agent_session, or page: exactly one source"
         ),
@@ -120,6 +125,7 @@ pub(super) fn create(
         owner,
         agent_session,
         page,
+        route,
         origin,
         mutation_id,
         cols,
@@ -139,7 +145,7 @@ pub(super) fn create(
         _ => anyhow::bail!("bad request: origin and mutation_id are sent together"),
     };
     let size = paired_surface_size("new-conversation-tab", cols, rows)?;
-    let record = record_of(conversation, owner, agent_session, page)?;
+    let record = record_of(conversation, owner, agent_session, page, route)?;
     let outcome =
         mux.new_conversation_tab_as(&actor, target, record.clone(), mutation.as_ref(), size)?;
     let identity = outcome.surface.resource_identity();

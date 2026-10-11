@@ -22,19 +22,35 @@ enum TabCloseGuard {
     /// Runs `close` at once, or after the person confirms the question.
     static func close(_ tabs: [TabModel], on daemon: DaemonService, services: AppServices, window: NSWindow?,
                       close: @escaping @MainActor () -> Void) {
+        guard CloseUndoToasts.isUserClose, window != nil, asks(tabs, services: services) else { return close() }
+        Task { @MainActor in
+            guard let prompt = await prompt(closing: tabs, on: daemon, services: services) else { return close() }
+            DestructiveConfirmation.present(prompt, in: window, settings: services.settings) { if $0 { close() } }
+        }
+    }
+
+    /// Whether closing `tabs` can ask at all (a live terminal and a warning
+    /// setting on), before any terminal is asked what it runs.
+    static func asks(_ tabs: [TabModel], services: AppServices) -> Bool {
+        let snapshot = services.settings?.snapshot
+        let warnTab = snapshot?.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback
+        let warnAgent = snapshot?.warnBeforeClosingAgentSession ?? CmuxConfigSnapshot.closeWarningFallback
+        return (warnTab || warnAgent) && tabs.contains { $0.kind == .pty && !$0.dead }
+    }
+
+    /// The question for closing `tabs` (a tab, a selection, a tab group), or
+    /// nil to close at once: only a working agent or a foreground program asks.
+    static func prompt(closing tabs: [TabModel], on daemon: DaemonService, services: AppServices) async -> DestructiveConfirmation.Prompt? {
         let snapshot = services.settings?.snapshot
         let warnTab = snapshot?.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback
         let warnAgent = snapshot?.warnBeforeClosingAgentSession ?? CmuxConfigSnapshot.closeWarningFallback
         let terminals = tabs.filter { $0.kind == .pty && !$0.dead }
-        guard CloseUndoToasts.isUserClose, window != nil, warnTab || warnAgent, !terminals.isEmpty else { return close() }
+        guard warnTab || warnAgent, !terminals.isEmpty else { return nil }
         let agents = terminals.compactMap(workingAgent)
         // A terminal with a working agent is that agent's question, never the program one.
         let others = terminals.filter { workingAgent($0) == nil }
-        Task { @MainActor in
-            let programs = warnTab ? await DestructiveConfirmation.runningPrograms(of: others, on: daemon) : []
-            guard let warning = warning(agents: agents, programs: programs, warnTab: warnTab, warnAgent: warnAgent) else { return close() }
-            DestructiveConfirmation.present(prompt(warning, closing: tabs), in: window, settings: services.settings) { if $0 { close() } }
-        }
+        let programs = warnTab ? await DestructiveConfirmation.runningPrograms(of: others, on: daemon) : []
+        return warning(agents: agents, programs: programs, warnTab: warnTab, warnAgent: warnAgent).map { prompt($0, closing: tabs) }
     }
 
     /// The question for these closing terminals, or nil to close at once.

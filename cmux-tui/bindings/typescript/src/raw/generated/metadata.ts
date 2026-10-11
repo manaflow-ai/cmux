@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR c9bb9ac8174c6ab34a360b1149d9fea68970448a4bf6f3a8e08eff8e89a5c30b. */
+/* cmux-tui mux protocol 12, IR 69834425700b71ed1904c4e43d9c6a1592906fd6c89e184f9029cecdd3427bb4. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "c9bb9ac8174c6ab34a360b1149d9fea68970448a4bf6f3a8e08eff8e89a5c30b" as const;
+export const SDK_IR_SHA256 = "69834425700b71ed1904c4e43d9c6a1592906fd6c89e184f9029cecdd3427bb4" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -542,6 +542,16 @@ export const COMMAND_METADATA = {
       "Trusted local connections only. Shares one upstream socket per conversation; at most 64. Replies {conversation, state, reason?, account?} with the shared socket's current state, then emits that state as cloud-subscription-state. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
     ]
   },
+  "cloud-conversation-thread": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "conversation-thread-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. Needs cloud-conversations-v1 too. limit is 1-200. Calls the cloud. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    ]
+  },
   "cloud-conversation-unsubscribe": {
     "authority": "local-admin",
     "since": 12,
@@ -760,6 +770,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Trusted local connections only. tail is 1-500. See spec/commands.md."
+    ]
+  },
+  "conversation-thread": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "conversation-thread-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. limit is 1-500 (default 50). A root that is unknown, in another conversation or a thread reply is unknown_message. See spec/commands.md."
     ]
   },
   "conversation-typing": {
@@ -1651,6 +1671,10 @@ export const COMMAND_METADATA = {
       "page": {
         "since": null,
         "capability": "page-tabs-v1"
+      },
+      "route": {
+        "since": null,
+        "capability": "page-tab-route-v1"
       },
       "transaction": {
         "since": null,
@@ -3366,6 +3390,14 @@ export const EVENT_METADATA = {
   "graphics-status": {
     "since": 10,
     "capability": null,
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "history-changed": {
+    "since": 12,
+    "capability": "history-v1",
     "streams": [
       "subscribe"
     ],
@@ -5355,6 +5387,16 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "kind": "scalar",
           "name": "string"
         }
+      },
+      "route": {
+        "capability": "page-tab-route-v1",
+        "description": "What the page shows (page-tab-route-v1): a viewer's file or folder or a page's sub-view, 1 to 4096 bytes without control characters; only with page.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
       }
     },
     "kind": "object"
@@ -5392,6 +5434,55 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint32"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ConversationThreadSummary": {
+    "additional_properties": false,
+    "fields": {
+      "authors": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "last_reply_at": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "last_reply_seq": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "reply_count": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "root": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },
@@ -10287,6 +10378,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "Id"
         }
       },
+      "terminal_host_fallback": {
+        "description": "Why a terminal will end with something other than its shell although terminal hosts are on: `breakaway_denied` (Windows: the host runs inside the daemon's kill-on-close Job Object and ends when that job closes) or `host_start_failed` (no host; the daemon runs the terminal and it ends with the daemon). Null otherwise and for browser tabs. A string, not an enum: clients read an unknown value as a notice for another reason.",
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "terminal_id": {
         "nullable": true,
         "presence": "optional",
@@ -13876,6 +13976,50 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "JsonValue"
     }
   },
+  "cloud-conversation-thread": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "after_seq": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "limit": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
+          }
+        },
+        "root": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "cloud-conversation-unsubscribe": {
     "request": {
       "additional_properties": false,
@@ -14735,6 +14879,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             },
             "kind": "array"
           }
+        },
+        "threads": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "ConversationThreadSummary"
+            },
+            "kind": "array"
+          }
         }
       },
       "kind": "object"
@@ -15003,6 +15158,98 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
               "name": "ConversationMessage"
             },
             "kind": "array"
+          }
+        },
+        "threads": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "ConversationThreadSummary"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "conversation-thread": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "after_seq": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "limit": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
+          }
+        },
+        "root": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "has_more": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "replies": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "ConversationMessage"
+            },
+            "kind": "array"
+          }
+        },
+        "root": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "ConversationMessage"
+          }
+        },
+        "thread": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "ConversationThreadSummary"
           }
         }
       },
@@ -18508,6 +18755,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "ref",
             "name": "Id"
+          }
+        },
+        "route": {
+          "capability": "page-tab-route-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         },
         "rows": {
@@ -25408,6 +25665,39 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "history-changed": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "history-changed"
+        }
+      },
+      "kinds": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "revision": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       }
     },

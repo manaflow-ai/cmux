@@ -106,6 +106,7 @@ public struct SidebarMapping {
             activity: indicator.state,
             activityStyle: indicator.style,
             agentBrand: agentBrand(tabs),
+            agentName: agentTab(tabs)?.agentName,
             progress: progress(workspace, tabs: tabs),
             tabs: tabs.map { tab in
                 let isNewTabPage = newTabPages.contains(tab.id) && !newTabTitle.isEmpty
@@ -120,6 +121,8 @@ public struct SidebarMapping {
             folder: (front?.cwd ?? tabs.lazy.compactMap(\.cwd).first).map(shorten)
         )
         row.presence = presence(tabs)
+        row.lastMessage = lastMessage(front, tabs)
+        row.reported = Self.reported(workspace.status)
         return row
     }
 
@@ -143,8 +146,19 @@ public struct SidebarMapping {
     /// The brand of the agent running in these tabs (design/agent-icons): the first that
     /// works or waits, else the first live one.
     func agentBrand(_ tabs: [TabModel]) -> String? {
-        let busy = tabs.lazy.filter { $0.agent?.state == .working || $0.agent?.state == .blocked }.compactMap(\.agentBrand).first
-        return busy ?? tabs.lazy.compactMap(\.agentBrand).first
+        agentTab(tabs)?.agentBrand
+    }
+
+    /// The last message of the row's agent chat: the front tab's, else the first chat tab's.
+    func lastMessage(_ front: TabModel?, _ tabs: [TabModel]) -> String? {
+        let chat = front?.agentSession != nil ? front : tabs.first { $0.agentSession != nil }
+        return chat?.agentSession.flatMap(AgentTurnStateStore.shared.lastMessage(for:))
+    }
+
+    /// The tab whose agent the row names: a working or waiting one first.
+    func agentTab(_ tabs: [TabModel]) -> TabModel? {
+        let branded = tabs.lazy.filter { $0.agentBrand != nil }
+        return branded.first { $0.agent?.state == .working || $0.agent?.state == .blocked } ?? branded.first
     }
 
     /// A tab's kind in the tab list: a New Tab page, an agent chat, else its record's kind.
@@ -191,6 +205,21 @@ public struct SidebarMapping {
     static func statusLine(_ entries: [WorkspaceStatus.Entry]) -> String? {
         let texts = entries.filter { $0.key != portsKey && $0.key != pullRequestKey }.map(\.text).filter { !$0.isEmpty }
         return texts.isEmpty ? nil : texts.joined(separator: " · ")
+    }
+
+    /// The status block: every entry but the ones other elements show, the
+    /// newest log line and the progress label; nil when none is reported.
+    static func reported(_ status: WorkspaceStatus?) -> SidebarWorkspaceStatus? {
+        guard let status else { return nil }
+        let block = SidebarWorkspaceStatus(
+            entries: status.entries.filter { $0.key != portsKey && $0.key != pullRequestKey }.map {
+                SidebarWorkspaceStatus.Entry(key: $0.key, text: $0.text, icon: $0.icon, tint: SidebarWorkspaceStatus.Tint($0.color))
+            },
+            log: status.lastLog.map {
+                SidebarWorkspaceStatus.LogLine(level: SidebarWorkspaceStatus.LogLevel(rawValue: $0.level) ?? .info, text: $0.text)
+            },
+            progressLabel: status.progress?.label)
+        return block.isEmpty ? nil : block
     }
 
     static func entry(_ key: String, in entries: [WorkspaceStatus.Entry]) -> String? {

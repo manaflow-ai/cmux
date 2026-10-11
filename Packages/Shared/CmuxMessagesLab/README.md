@@ -23,7 +23,8 @@ and render-server field animation, blurred header and native scrolling.
   - appkit-native: Compose, Materials, LabGlass (system glass on macOS 26
     and newer, an NSVisualEffectView stand-in on 14 and 15), NativeScroll,
     HeaderBar, HeaderBackdrop, TranscriptAccess, SwipeReply (installed only when the
-    owner can take a reply: `ChatIntents.canReply`, false until HomeOp has one),
+    owner can take a reply: `ChatIntents.canReply`; Home sends the reply as
+    `HomeOp.sendMessage(threadRoot:)`, the thread view's Esc and clicks are `Cmux/PaneHost+Thread.swift`),
     FlightRecorder (off until the app's policy, `HomeFlightRecorder`, turns it
     on: a Debug Settings opt-in in DEV and NIGHTLY until it costs at most 0.3 ms a
     frame, never Release or RC).
@@ -67,7 +68,6 @@ and render-server field animation, blurred header and native scrolling.
 | SwipeReply | the pane controller's window is optional |
 | RowDrawing | file, audio, contact and voice memo rows on my side use the theme's sent text colour (white by default; a light accent showed white text) |
 | Engine, WindowView | `cmuxSetAttachment`: an attachment part's picture or upload state changed in HomeStore (no content change, no transition; the row redraws in place) |
-| Engine | `.replaceWindow` sets the total to the window's end: Home has no pager, its window always ends at the newest message, and a rebuild that left the old total kept `atNewest` false, so received messages stayed hidden (cx-7nf0) |
 | Engine, Layout, Transcript | `cmuxNotice`: the host's notice (Home's merge notice) is MessagesLab's centered system row under the newest message, not an overlay; its accessibility label has no leading space |
 | Compose | `onPastePasteboard`: the field's paste reaches the host's attachment intake first (Home's type rule, prepared by HomeStore) |
 | Layout | `code` runs draw monospaced with one font held for the process (`HomeFonts.code`: a font made per run on the row render threads came back nil and crashed) |
@@ -77,6 +77,7 @@ and render-server field animation, blurred header and native scrolling.
 | SidebarView (sidebar) | Messages' pin drags (reorder a pinned tile, drag it onto the list to unpin, drag a row into the grid to pin it there, Escape cancels): the mouse-down hands off to `Cmux/SidebarPinDragging.swift`, a reload lets the drag follow or the drop land, and the tile layers, render context and avatar cache are readable by that file (the drag copies the drawn tile's parts, so it works on single-bitmap and layered tiles); upstream ask |
 | FlightRecorder | the app's policy and log folder (`HomeFlightRecorder`), window captures behind their own opt-in, the pane's optional window (attached from `ChatController.windowChanged`, observers replaced), FlashCheck/LiveProbes/Bench/LiveRecord helpers from `HomeFlightRecorder` |
 | Layout | `MessagesLabLocalization`'s default is the package bundle (`Bundle(for:)` of a class in a linked package is the app's); the image placeholder and code-text strings carry all 21 app languages in Localizable.xcstrings |
+| TranscriptAccess (pinned at bd65bbf) | MessagesLab 30495be's accessibility fix only: one element per visible message id, kept on `TranscriptSelection.axElements` and reused (an element made per call was freed, and VoiceOver and AX clients saw an empty Messages list); the rest of the newer file (selection menu, speech, search) is not rolled in |
 | SwipeReply, TranscriptAccess (own pins) | crash program (plans/cmux-next/crash-elimination.md): no force unwraps, `try!`, `as!` or IUOs. From eb1ed28 the rest of the crash program is upstream (586d5f0 CrashGuard/CrashSafeGraphics, ef7da0a the decided hunks), and so are the per-view widths, the 434 pt text column, the scroller's own right edge and the macOS 14 gates (60e79ec LabGlass) |
 
 ## Updating
@@ -135,7 +136,7 @@ grey loading card and its fade-in, URLSession link previews through LinkGuard,
 long text (LongText, TiledBubble, MediaCache), the scroller's knob drag and
 track click, compose hover only over the field) except SwipeReply at 0c8147b and TranscriptAccess at bd65bbf (d5d6a18's rewrite needs
 unvendored drivers: SelectionCheck, MarkdownAccess, the pager; a `cmux:` line speaks custom parts)
-(not installed while HomeOp has no reply). Earlier in this pin: cd2bc08's link
+(installed when the owner can take a reply). Earlier in this pin: cd2bc08's link
 rule, size cache keyed by part content, compose image previews; da2b8ae's text
 column, 358.4 - 0.654 x (628 - W) pt.
 

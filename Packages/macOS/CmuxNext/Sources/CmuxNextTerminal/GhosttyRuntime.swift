@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextProcessEnvironment
+public import CmuxNextDesign
 import CmuxNextWakeups
 import GhosttyNextKit
 import os
@@ -156,6 +157,25 @@ public final class GhosttyRuntime {
     /// `reloadConfig()`.
     public static var themeOverride: String?
 
+    /// `appearance.themeEdits`: per-token color edits to themes, loaded after
+    /// the theme they edit (`themeLines`). Set it, then call `reloadConfig()`.
+    public static var themeEdits = ThemeEdits.none
+
+    /// The light/dark side `themeLines` takes from a pair, as the app's
+    /// color scheme last was (`applyColorScheme`).
+    static var colorSchemeIsDark = false
+
+    /// The theme lines cmux loads after the user's config files: `theme =
+    /// <spec>`, then the edits of the theme in effect (a pair's variant for
+    /// `isDark`), so an edited token wins and the rest stay the theme's.
+    /// `theme` nil is the Ghostty config's own theme, which has no name to
+    /// key edits by.
+    public nonisolated static func themeLines(_ theme: String?, isDark: Bool, edits: ThemeEdits) -> [String] {
+        guard let line = themeOverrideLine(theme) else { return [] }
+        let name = theme.flatMap(ThemeSpec.init).map { $0.name(isDark: isDark) }
+        return [line] + (name.map(edits.configLines(for:)) ?? [])
+    }
+
     /// `theme = <value>` for a well-formed theme spec; nil for anything
     /// that could inject another config line.
     nonisolated static func themeOverrideLine(_ value: String?) -> String? {
@@ -180,8 +200,8 @@ public final class GhosttyRuntime {
             ghostty_config_load_default_files(config)
         }
         ghostty_config_load_recursive_files(config)
-        if let line = themeOverrideLine(theme ?? themeOverride) {
-            ghostty_config_load_string(config, line, UInt(line.utf8.count), "cmux.json")
+        for line in themeLines(theme ?? themeOverride, isDark: colorSchemeIsDark, edits: themeEdits) {
+            line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux.json") }
         }
         for line in fontOverrideLines(fontOverride) {
             line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux.json") }
@@ -304,6 +324,14 @@ public final class GhosttyRuntime {
     private func applyColorScheme(_ appearance: NSAppearance) {
         guard let app else { return }
         isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let switched = isDark != Self.colorSchemeIsDark
+        Self.colorSchemeIsDark = isDark
+        defer {
+            // A light/dark pair's edits are its variants': the other side's need a reload.
+            if switched, !Self.themeEdits.isEmpty, let spec = Self.themeOverride.flatMap(ThemeSpec.init), spec.light != spec.dark {
+                reloadConfig()
+            }
+        }
         ghostty_app_set_color_scheme(app, isDark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT)
         // A surface copies the app's scheme only when it is created; live
         // ones need it too (as Ghostty.app does per surface view), or open

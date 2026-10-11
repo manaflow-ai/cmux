@@ -56,6 +56,19 @@ lease, a peer-credential check of the app's pid or code signature, or restrictin
 `cloud-session-set`/`-clear` and `origin:"user"` to the app. Part 1 ships only the bound-agent
 refusal.
 
+Part 2 (`cloud-lease-app-only-v1`, cx-59n8.7, proposed in cmux#13742): a lease the verified cmux
+app connection set (the `frontend` actor of `client-hello`, the same check as the feed handoff)
+belongs to the app; another connection's `cloud-session-set`/`-clear` is refused with
+`cloud_conversation_rejected` / `forbidden` while it exists. `cloud-conversation-op` with
+`origin:"user"` is refused on every connection that is not the verified app. Part 3
+(cx-59n8.10, cmux#13742 comment 6111570920): while the app's lease exists, every lease-using
+`cloud-*` command (reads, ops with any origin, subscribes, `cloud-mux-ack`) from another
+connection is refused the same way; `cloud-session-status` and the unsubscribes stay open.
+While the app's lease exists, `cloud-*` events reach only the app's stream (cx-59n8.11). A lease
+from another connection must name a known cmux Cloud origin (or loopback, or one in the daemon's
+`CMUX_CLOUD_API_ORIGINS`), and the app never uses such a lease: it reads `signed_out` until it sets
+its own (cx-59n8.12).
+
 Types (shapes are home-core's, identical to home.md section 2 where they overlap):
 
 ```

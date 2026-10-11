@@ -35,6 +35,8 @@ SKIP = (
     "Packages/Shared/CmuxTheme/",
     "Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/TerminalTheme.swift",
     "Packages/Shared/CmuxAgentBrands/",
+    # Each agent session's cursor identity colors, ported from the cmux-cua renderer.
+    "Packages/Shared/CmuxAgentCursor/Sources/CmuxAgentCursor/AgentCursorPalette.swift",
     "Packages/Shared/CmuxMessagesLab/",
     "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/GroupColor",
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/AgentActivityMockSource.swift",

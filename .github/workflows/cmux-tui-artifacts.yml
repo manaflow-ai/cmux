@@ -1127,11 +1127,61 @@ jobs:
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
         run: |
           set -euo pipefail
+          # An earlier run may have published this commit already (a pull
+          # request branch push, then its cmux-tui-pin-* branch after that run
+          # finished). A rebuild is not byte-identical, so uploading it would
+          # stop with immutable-r2-conflict and leave the tree unpublished:
+          # keep the earlier publication instead, and make it this run's local
+          # copy so the rolling latest publish and the verify steps use the
+          # bytes the commit prefix serves. Each prefix's manifest.json sorts
+          # after its binaries (all named c*), so it exists only for a
+          # complete upload; the verify step below checks it.
+          published_before() {
+            local status=0
+            curl -fsS --proto '=https' --retry 3 --retry-delay 5 --connect-timeout 20 --max-time 60 -o /dev/null \
+              "https://files.cmux.com/$1/manifest.json?earlier=$GITHUB_RUN_ID" 2>/dev/null || status=$?
+            case "$status" in
+              0) echo "::notice title=commit already published::keeping the earlier publication at https://files.cmux.com/$1/"; return 0 ;;
+              22) return 1 ;;
+              *) echo "could not check https://files.cmux.com/$1/manifest.json (curl exit $status)" >&2; exit 1 ;;
+            esac
+          }
+          # The kept publication's file set, from its manifest: two builds of
+          # one commit can differ in optional binaries (the agent screen
+          # detector), so this run's own file list is not it.
+          adopt_published() {
+            local directory="$1" prefix="$2" name names checksums=""
+            fetch_published() {
+              curl -fsS --proto '=https' --retry 3 --retry-delay 5 --connect-timeout 20 --max-time 300 \
+                -o "$directory/$1" "https://files.cmux.com/$prefix/$1?adopt=$GITHUB_RUN_ID"
+            }
+            for name in "$directory"/*-checksums.txt; do
+              [[ -f "$name" ]] && checksums="$checksums $(basename "$name")"
+            done
+            find "$directory" -mindepth 1 -maxdepth 1 -type f -delete
+            fetch_published manifest.json
+            # Assigned first so a malformed manifest stops the step (set -e).
+            names="$(python3 -c '
+          import json, sys
+          m = json.load(open(sys.argv[1]))
+          names = set(m.get("binaries") or {})
+          for target in (m.get("artifacts") or {}).values():
+              names.update(a["name"] for a in target.values())
+          print(" ".join(sorted(names)))
+          ' "$directory/manifest.json")"
+            for name in $checksums $names; do
+              [[ "$name" == manifest.json ]] || fetch_published "$name"
+            done
+          }
           publish_prefix() {
             local directory="$1"
             local prefix="$2"
             local cache="$3"
             local write_once="$4"
+            if [[ "$write_once" == "true" ]] && published_before "$prefix"; then
+              adopt_published "$directory" "$prefix"
+              return
+            fi
             for file in "$directory"/*; do
               upload_args=()
               if [[ "$write_once" == "true" ]]; then
@@ -1205,6 +1255,10 @@ jobs:
           publish_legacy_prefix() {
             local prefix="$1"
             local cache="$2"
+            if published_before "$prefix"; then
+              adopt_published "$legacy_assets" "$prefix"
+              return
+            fi
             for file in "$legacy_assets"/*; do
               python3 scripts/ci/upload-r2-object.py --write-once \
                 --file "$file" \
@@ -1691,13 +1745,21 @@ jobs:
             done
           else
             source_commit="$GITHUB_SHA"
+            # The commit's published binaries, not this run's: an earlier run
+            # may have published this commit (the publish job keeps that
+            # publication), and a rebuild's bytes differ from its manifest.
+            for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-companions); do
+              fetch "https://files.cmux.com/cmux-tui/$GITHUB_SHA/$asset" "assets/tree/$asset"
+            done
             python3 - "$KEY" "$GITHUB_SHA" manifest.json > tree/source.json <<'PY'
-          import json, os, subprocess, sys
+          import json, os, re, subprocess, sys
           key, commit, manifest_path = sys.argv[1:]
           manifest = json.load(open(manifest_path))
           names = subprocess.check_output([sys.executable, "scripts/ci/publish-cmux-tui-tree.py", "--list-companions"], text=True).split()
           def rev(spec):
               return subprocess.check_output(["git", "rev-parse", spec], text=True).strip()
+          built = re.search(r"/actions/runs/(\d+)", manifest.get("attestationUrl") or "")
+          built_by = built.group(1) if built else os.environ["GITHUB_RUN_ID"]
           print(json.dumps({
               "key": key,
               "cmuxTuiTree": rev("HEAD:cmux-tui"),
@@ -1708,8 +1770,10 @@ jobs:
               # head) are the R2 pruner's candidates; trunk trees are kept.
               "ref": os.environ["GITHUB_REF"],
               "family": "trunk" if os.environ["GITHUB_REF"] in ("refs/heads/main", "refs/heads/feat-cmux-next") else "branch",
-              "run": os.environ["GITHUB_RUN_ID"],
-              "runUrl": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+              # The run that built the published binaries: an earlier run
+              # when the publish job kept that run's publication.
+              "run": built_by,
+              "runUrl": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{built_by}",
               "binaries": {name: manifest["binaries"][name] for name in names},
           }, indent=2))
           PY
@@ -1735,11 +1799,10 @@ jobs:
           if [[ -n "$windows_commit" ]]; then
             [[ "$windows_commit" =~ ^[0-9a-f]{40}$ ]] || { echo "malformed Windows tree source commit; see cmuxterm-hq REPAIR.md#cmux-tui-tree-publication" >&2; exit 1; }
             fetch "https://files.cmux.com/cmux-tui-windows/$windows_commit/manifest.json" tree/windows-manifest.json
-            if [[ "$windows_commit" != "$GITHUB_SHA" ]]; then
-              for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-windows-companions); do
-                fetch "https://files.cmux.com/cmux-tui-windows/$windows_commit/$asset" "assets/tree/$asset"
-              done
-            fi
+            # Published bytes even for this commit (see the companions above).
+            for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-windows-companions); do
+              fetch "https://files.cmux.com/cmux-tui-windows/$windows_commit/$asset" "assets/tree/$asset"
+            done
             windows_args=(--windows-manifest-file tree/windows-manifest.json --windows-source-commit "$windows_commit")
           else
             echo "::warning title=tree without Windows::tree $KEY is published without the Windows daemon (the optional Windows build made none); a later republication adds it"

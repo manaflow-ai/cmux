@@ -20,10 +20,15 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
     public var harness: String?
     /// A chat that opened without its folder: the page explains it and offers Choose Folder.
     public var folderNeeded: AgentPaneFolderNeeded?
+    /// The device-wide chat (its index key, `harness:id`) whose past turns a new chat shows
+    /// read-only until it has a session (cx-khns1). Kept across page reloads.
+    public var pastChat: String?
 
     public init(cwd: String? = nil, draft: String? = nil, prompt: String? = nil, adopt: AgentPaneAdopt? = nil,
-                surface: AgentPaneSurface? = nil, harness: String? = nil, folderNeeded: AgentPaneFolderNeeded? = nil) {
+                surface: AgentPaneSurface? = nil, harness: String? = nil, folderNeeded: AgentPaneFolderNeeded? = nil,
+                pastChat: String? = nil) {
         self.folderNeeded = folderNeeded
+        self.pastChat = pastChat
         self.cwd = cwd
         self.draft = draft
         self.prompt = prompt
@@ -58,13 +63,24 @@ public final class AgentPaneSeedSource {
         guard read == nil else { return false }
         guard let value else { return true }
         return value.draft == nil && value.prompt == nil && value.adopt == nil && value.surface == nil
-            && value.harness == nil && value.folderNeeded == nil
+            && value.harness == nil && value.folderNeeded == nil && value.pastChat == nil
     }
 
     public init(_ seed: AgentPaneSeed) {
         value = seed
         limit = .zero
         surface = seed.surface
+    }
+
+    /// The seed without taking its draft or prompt: where a chat on another machine starts
+    /// (its folder and harness) before the page's handshake takes the rest.
+    public func peek() async -> AgentPaneSeed? {
+        if let read {
+            self.read = nil
+            value = await agentPaneFirst(within: limit, read)
+            surface = value?.surface
+        }
+        return value
     }
 
     /// The seed, read once. The draft and prompt are handed out only once,

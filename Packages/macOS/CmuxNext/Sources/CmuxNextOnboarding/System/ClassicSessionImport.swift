@@ -78,7 +78,8 @@ public nonisolated struct ClassicSessionImporter: Sendable {
         return try Data(contentsOf: fileURL, options: [.mappedIfSafe])
     }
 
-    /// Decodes only topology, names, directories, and titles from a classic snapshot.
+    /// Decodes topology, names, directories, titles, pages, agent sessions
+    /// and where each workspace ran from a classic snapshot.
     public func decode(_ data: Data) throws -> [ClassicSessionWorkspace] {
         let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
         let workspaces = ((root["windows"] as? [[String: Any]]) ?? []).flatMap { window in
@@ -98,22 +99,74 @@ public nonisolated struct ClassicSessionImporter: Sendable {
         let panels = (value["panels"] as? [[String: Any]]) ?? []
         let panelEntries = panels.compactMap { panel -> (String, ClassicSessionTab)? in
             guard let id = panel["id"] as? String else { return nil }
-            let terminal = panel["terminal"] as? [String: Any]
-            return (id, ClassicSessionTab(workingDirectory: terminal?["workingDirectory"] as? String
-                                          ?? terminal?["working_directory"] as? String
-                                          ?? panel["directory"] as? String
-                                          ?? panel["working_directory"] as? String,
-                                          title: panel["customTitle"] as? String ?? panel["title"] as? String))
+            return Self.tab(panel).map { (id, $0) }
         }
         // A snapshot can name a panel twice; the first wins.
         let panelMap = Dictionary(panelEntries, uniquingKeysWith: { first, _ in first })
         guard let layoutValue = value["layout"] as? [String: Any] else {
             var seen = Set<String>()
             let tabs = panelEntries.filter { seen.insert($0.0).inserted }.map { $0.1 }
-            return ClassicSessionWorkspace(name: name, workingDirectory: cwd, layout: .pane(ClassicSessionPane(tabs: tabs)))
+            return ClassicSessionWorkspace(name: name, workingDirectory: cwd, layout: .pane(ClassicSessionPane(tabs: tabs)),
+                                           remote: Self.remote(value), cloudVM: Self.cloudVM(value))
         }
         let layout = Self.layout(layoutValue, panels: panelMap)
-        return ClassicSessionWorkspace(name: name, workingDirectory: cwd, layout: layout)
+        return ClassicSessionWorkspace(name: name, workingDirectory: cwd, layout: layout,
+                                       remote: Self.remote(value), cloudVM: Self.cloudVM(value))
+    }
+
+    /// A terminal or browser panel as a tab; nil for a panel nothing here can
+    /// show (markdown, file preview). Old snapshots name no type.
+    private static func tab(_ panel: [String: Any]) -> ClassicSessionTab? {
+        switch panel["type"] as? String ?? "terminal" {
+        case "terminal":
+            let terminal = panel["terminal"] as? [String: Any]
+            let directory = terminal?["workingDirectory"] as? String ?? terminal?["working_directory"] as? String
+                ?? panel["directory"] as? String ?? panel["working_directory"] as? String
+            return ClassicSessionTab(workingDirectory: directory, title: panel["customTitle"] as? String ?? panel["title"] as? String,
+                                     agent: Self.agent(terminal?["agent"] as? [String: Any], directory: directory))
+        case "browser":
+            let browser = panel["browser"] as? [String: Any]
+            guard let url = browser?["urlString"] as? String ?? browser?["url_string"] as? String, !url.isEmpty else { return nil }
+            // Only the person's own title: a page's title is the page's to set.
+            return ClassicSessionTab(workingDirectory: nil, title: panel["customTitle"] as? String, url: url)
+        default:
+            return nil
+        }
+    }
+
+    /// A Claude Code or Codex session classic recorded; other agents have no
+    /// acpmux harness to resume them.
+    private static func agent(_ value: [String: Any]?, directory: String?) -> ClassicSessionAgent? {
+        guard let value, let kind = value["kind"] as? String, ["claude", "codex"].contains(kind),
+              let session = value["sessionId"] as? String ?? value["session_id"] as? String, !session.isEmpty else { return nil }
+        return ClassicSessionAgent(harness: kind, sessionID: session,
+                                   workingDirectory: value["workingDirectory"] as? String ?? value["working_directory"] as? String ?? directory)
+    }
+
+    /// An SSH workspace's host. A websocket `remote` is an older Cloud VM
+    /// (``cloudVM(_:)``), not SSH.
+    private static func remote(_ value: [String: Any]) -> ClassicSessionRemote? {
+        guard let remote = value["remote"] as? [String: Any], legacyCloudVM(remote) == nil,
+              (remote["transport"] as? String ?? "ssh") == "ssh",
+              let destination = (remote["destination"] as? String)?.trimmingCharacters(in: .whitespaces),
+              !destination.isEmpty, !destination.hasPrefix("-") else { return nil }
+        return ClassicSessionRemote(destination: destination, port: (remote["port"] as? NSNumber)?.intValue)
+    }
+
+    /// The Cloud VM a workspace ran on: `cloudVM`, or an older one saved as
+    /// a websocket `remote` with `managedCloudVMID`.
+    private static func cloudVM(_ value: [String: Any]) -> String? {
+        if let vm = value["cloudVM"] as? [String: Any] ?? value["cloud_vm"] as? [String: Any] {
+            return vm["vmID"] as? String ?? vm["vm_id"] as? String ?? ""
+        }
+        return (value["remote"] as? [String: Any]).flatMap(legacyCloudVM)
+    }
+
+    private static func legacyCloudVM(_ remote: [String: Any]) -> String? {
+        let id = (remote["managedCloudVMID"] as? String ?? remote["managed_cloud_vm_id"] as? String)?
+            .trimmingCharacters(in: .whitespaces)
+        if let id, !id.isEmpty { return id }
+        return remote["transport"] as? String == "websocket" ? "" : nil
     }
 
     /// What can tell a classic workspace apart, most telling first.
@@ -168,6 +221,9 @@ public nonisolated struct ClassicSessionImporter: Sendable {
             let ratio = max(0.05, min(0.95, split["dividerPosition"] as? Double ?? split["ratio"] as? Double ?? 0.5))
             let first = layout(split["first"] as? [String: Any] ?? [:], panels: panels)
             let second = layout(split["second"] as? [String: Any] ?? [:], panels: panels)
+            // A side with no tab left closes up; the other takes its space.
+            if case .pane(let pane) = second, pane.tabs.isEmpty { return first }
+            if case .pane(let pane) = first, pane.tabs.isEmpty { return second }
             return .split(orientation: orientation, ratio: ratio, first: first, second: second)
         }
         let pane = value["pane"] as? [String: Any] ?? value

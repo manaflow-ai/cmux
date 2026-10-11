@@ -30,7 +30,7 @@ pub(super) fn placed_on_adoption(terminal: &RegistryTerminal) -> bool {
 /// prelaunched host that was never activated has none and runs no shell),
 /// it left no exit sidecar, and this is not a Cloud template start (whose
 /// fresh registry claims its warm host first and ends the others).
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(super) fn recoverable(
     options: &SurfaceOptions,
     record_path: &Path,
@@ -46,7 +46,7 @@ impl Mux {
     /// Import the live host `record`, which no registry row names, as a
     /// terminal of the recovery workspace (`workspace`, created on first
     /// use). The ordinary adoption handshake follows.
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) fn recover_orphan_terminal(
         &self,
         record: &crate::terminal_host_runtime::TerminalHostRecord,

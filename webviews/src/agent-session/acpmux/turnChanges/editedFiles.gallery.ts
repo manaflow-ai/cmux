@@ -93,8 +93,16 @@ const variants: Record<string, AgentPaneVariant> = {
     snapshot: turn([FILES[0]!], "Wrap fetch in withRetry"),
   },
   "three-files": {
-    note: "Three edited files (one new): the rows with their counts.",
+    note: "Three edited files (one new): the rows with their counts. The row's copy action shows only on hover.",
     snapshot: turn(FILES),
+    play: async (ctx) => {
+      await ctx.waitFor(() => ctx.document.querySelector(".acpmux-row__copy"));
+      for (const copy of ctx.document.querySelectorAll(".acpmux-row__copy")) {
+        const style = ctx.document.defaultView!.getComputedStyle(copy);
+        if (style.position !== "absolute" || style.opacity !== "0")
+          throw new Error(`a row's copy action shows at rest (position ${style.position}, opacity ${style.opacity})`);
+      }
+    },
   },
   "fourteen-files": {
     note: "Fourteen files with three rows shown: Show 11 more files. Long directories lose their middle.",

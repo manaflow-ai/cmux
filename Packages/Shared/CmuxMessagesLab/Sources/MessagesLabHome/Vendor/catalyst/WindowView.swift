@@ -1052,8 +1052,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
                 if case let .receipt(nb, _) = r.spec.kind, let oi = oldSnap.index(key), let oldSpec = oldSnap.row(oi)?.spec, // checked
                    case let .receipt(ob, orest) = oldSpec.kind, ob != nb {
                     receiptChanges.updateValue((ob, orest, oldSpec), forKey: key) // dictionary write
-                    ledger.add(key, .receiptOld, "opacity", from: 1, to: 0, Springs.receiptOldOut, begin: begin)
-                    ledger.add(key, .receiptNew, "opacity", from: 0, to: 1, Springs.receiptNewIn, begin: begin)
+                    ledger.add(key, .receiptOld, "opacity", from: 1, to: 0, Springs.receiptChangeOut, begin: begin)
+                    ledger.add(key, .receiptNew, "opacity", from: 0, to: 1, Springs.receiptChangeIn, begin: begin)
                 }
                 // A link card replacing its loading square fades in while the rows
                 // make room (Messages: the image comes up from dim, link-url-and-text t+2.0-2.3 s).
@@ -1066,11 +1066,31 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             }
             switch r.spec.kind {
             case .typing:
-                ledger.add(key, .typing, "transform.scale", from: 0, to: 1, Springs.typingPop, begin: begin)
-                ledger.add(key, .typing, "opacity", from: 0, to: 1, Springs.typingFade, begin: begin)
-                typingBegin = begin + Springs.typingPop.components[0].delay
-            case .receipt:
-                ledger.add(key, .content, "opacity", from: 0, to: 1, Springs.receiptIn, begin: begin)
+                // Messages (lossless send-typed-take1, send-typed-media-take1, typing-unfocused-take1; ANIMATIONS.md
+                // section 6): the typing bubble does not ride the rows' scroll. It grows in its final window place
+                // (the opposite of the row's own move cancels it), about a point near its upper left, and drifts
+                // a few points into place.
+                if let d = deltas[key], abs(d) > 0.01 {
+                    ledger.add(key, .typing, "position.y", from: Double(-d), to: 0, el, begin: begin)
+                }
+                ledger.add(key, .typing, "transform.scale", from: 0, to: 1, Springs.typingScale, begin: begin)
+                ledger.add(key, .typing, "opacity", from: 0, to: 1, Springs.typingOpacity, begin: begin)
+                ledger.add(key, .typing, "position.x", from: Double(Springs.typingDrift.x), to: 0, Springs.typingDriftX, begin: begin)
+                ledger.add(key, .typing, "position.y", from: Double(Springs.typingDrift.y), to: 0, Springs.typingDriftY, begin: begin)
+                typingBegin = begin + Springs.typingDotsPhase
+            case let .receipt(bold, rest):
+                // Messages (lossless send-typed-take1, Delivered): the label fades in while it grows from
+                // Springs.receiptAppearScale about its own centre (the row's content scales about the row's
+                // centre; the opposite offsets keep the label's centre in place: all follow one curve).
+                // The label's centre: drawReceipt's text (baseline 14 pt under the row's top) at half its cap height.
+                ledger.add(key, .content, "opacity", from: 0, to: 1, Springs.receiptAppearOpacity, begin: begin)
+                let s0 = Double(Springs.receiptAppearScale)
+                let dx = Double(r.spec.metrics.receiptRight - RowDraw.receiptWidth(bold, rest) / 2 - r.spec.width / 2)
+                let capHeight = HomeFonts.system(ofSize: Fixture.captionSize).capHeight
+                let dy = Double(14 - capHeight / 2 - r.spec.height / 2)
+                ledger.add(key, .content, "transform.scale", from: s0, to: 1, Springs.receiptAppearGrow, begin: begin)
+                ledger.add(key, .content, "position.x", from: (1 - s0) * dx, to: 0, Springs.receiptAppearGrow, begin: begin)
+                ledger.add(key, .content, "position.y", from: (1 - s0) * dy, to: 0, Springs.receiptAppearGrow, begin: begin)
             case let .part(p):
                 if case .receive = action {
                     // An outgoing insert's opacity follows the scroll's
@@ -1714,7 +1734,9 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             // A thread preview (its outlined root copy, stub and "N Replies") opens the thread too.
             if case let .threadPreview(pv) = spec.kind {
                 let r = cell.convert(cell.bounds, to: self)
-                if p.x <= r.minX + Fixture.leftEdge + max(pv.box.width, 90) { return pv.root }
+                if pv.outgoing {
+                    if p.x >= r.minX + spec.metrics.rightEdge - max(pv.box.width, 90) { return pv.root }
+                } else if p.x <= r.minX + Fixture.leftEdge + max(pv.box.width, 90) { return pv.root }
             }
         }
         return nil

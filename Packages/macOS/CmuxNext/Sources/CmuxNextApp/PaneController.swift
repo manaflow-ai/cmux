@@ -181,7 +181,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let saved = Set(store.savedTabGroups.compactMap(\.openGroup))
         let groups = pane.tabGroups.map { group in
             TabGroupItem(id: TabGroupID(group.id.rawValue), name: group.name,
-                         colorToken: group.color.flatMap(GroupColor.init(rawValue:)) ?? .grey,
+                         tint: group.color.flatMap(GroupTint.init(wire:)) ?? .palette(.grey),
                          isCollapsed: group.collapsed, isSaved: saved.contains(group.id))
         }
         let connected = if case .connected = store.connectionState { true } else { false }
@@ -335,10 +335,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         }
         guard let tab = pane.tabs.first(where: { $0.id == key }) else { return nil }
         switch tab.kind {
-        case .pty:
-            let entry = BenchSpans.measure("terminal.surface") { services.cache.terminal(for: tab, daemon: daemon) }
-            services.themes.terminalDidMount(entry)
-            return .terminal(entry)
+        case .pty: return TerminalTabContent.make(tab, in: self)
         case .browser where tab.appTab != nil: return appTabContent(tab)
         case .browser where tab.isFrontendOwned:
             return services.cache.browser(for: tab).map(TabContent.browser)
@@ -346,7 +343,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
             return services.remoteTerminals.content(for: tab, home: daemon)
         case .conversation where tab.agentSession != nil: return AgentTabContent(pane: self).content(key)
         case .conversation where tab.page != nil:
-            return services.pages.view(forStoreTab: tab, in: daemon.store, window: state.flatMap { services.windows.controller(for: $0.id) })
+            return services.pages.view(forStoreTab: tab, in: daemon.store, local: daemon.isLocal,
+                                       window: state.flatMap { services.windows.controller(for: $0.id) })
                 .map(TabContent.page)
         case .conversation: return services.home.tabView(for: tab).map(TabContent.conversation)
         default:

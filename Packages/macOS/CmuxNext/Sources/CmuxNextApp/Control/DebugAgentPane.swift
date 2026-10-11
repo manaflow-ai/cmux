@@ -94,9 +94,29 @@ enum DebugAgentPane {
             fields["age_seconds"] = state.ageSeconds.map { .number($0) } ?? .null
             return .object(fields)
         }
+        #if DEBUG
+        if action == "remote_approvals" {
+            // cx-kvmz T2: the "Remote approvals are off" notice as a person sees it; `press` clicks its restart.
+            let pressed = params["press"]?.boolValue == true ? view.pressRemoteApprovalsRestart() : false
+            guard let notice = view.remoteApprovalsNoticeLines else { return .object(["pane": .string(pane), "notice": .null, "pressed": .bool(pressed)]) }
+            return .object(["pane": .string(pane), "notice": .array(notice.lines.map(JSONValue.string)), "restart": .bool(notice.restart), "pressed": .bool(pressed)])
+        }
+        #endif
         if action == "full_rate" {
             if let enabled = params["enabled"]?.boolValue { view.rendersAtFullRate = enabled }
             return .object(["pane": .string(pane), "full_rate": .bool(view.rendersAtFullRate)])
+        }
+        if action == "snapshot" {
+            // The page as WebKit draws it (`WKWebView.takeSnapshot`), PNG at `path`: a window
+            // snapshot draws no web content, and a build host may have no screen recording.
+            let path = params["path"]?.stringValue ?? NSTemporaryDirectory() + "agent-pane-\(pane).png"
+            guard let image = try? await view.webView.takeSnapshot(configuration: nil),
+                  let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
+                  let png = rep.representation(using: .png, properties: [:]),
+                  (try? png.write(to: URL(fileURLWithPath: path))) != nil else {
+                return .object(["pane": .string(pane), "error": .string("snapshot failed")])
+            }
+            return .object(["pane": .string(pane), "path": .string(path), "width": .number(Double(rep.pixelsWide)), "height": .number(Double(rep.pixelsHigh))])
         }
         if action == "readiness" {
             return await readiness(pane: pane, view: view, waitForAnimations: params["wait_animations"]?.boolValue == true)

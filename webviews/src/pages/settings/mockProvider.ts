@@ -7,6 +7,7 @@
 // `createMockClient` connects a page client to it over the protocol's in-memory transport
 // pair, so the page's calls cross the real envelope (call/ok/err/sub/ev).
 import { createMockPair } from "../../protocol/adapters/mock";
+import { updatable } from "./harnesses";
 import { ProtocolError, ProtocolErrorCode } from "../../protocol/errors";
 import { Session, type EventSourceContext } from "../../protocol/session";
 import {
@@ -149,10 +150,18 @@ export class MockSettingsProvider {
       "cmux.settings.harnesses.run": (params) => {
         const run = params as HarnessesRun;
         if (
-          (run.action === "signIn" || run.action === "check") &&
+          (run.action === "signIn" || run.action === "check" || run.action === "autoUpdate") &&
           !this.harnesses.harnesses.some((h) => h.id === run.id)
         ) {
           throw new ProtocolError("cmux.settings.invalid", "id must be a listed harness");
+        }
+        // Like the host: only an outdated harness that needs no sudo updates.
+        const canUpdate = updatable(this.harnesses);
+        if (
+          (run.action === "update" && !canUpdate.some((h) => h.id === run.id)) ||
+          (run.action === "updateAll" && canUpdate.length === 0)
+        ) {
+          throw new ProtocolError("cmux.settings.invalid", "no harness can be updated here");
         }
         this.harnessRuns.push(run);
         return {};
@@ -226,8 +235,30 @@ export class MockSettingsProvider {
     loading: false,
     problem: null,
     harnesses: [
-      { id: "claude", name: null, kind: "claude-stdio", source: "path", problem: null },
-      { id: "codex", name: null, kind: "acp", source: "path", problem: null },
+      {
+        id: "claude",
+        name: null,
+        kind: "claude-stdio",
+        source: "path",
+        problem: null,
+        version: "2.0.5",
+        latest: "2.0.9",
+        outdated: true,
+        auth: "signedIn",
+        update: { command: "sudo npm install -g @anthropic-ai/claude-code@latest", elevated: true },
+      },
+      {
+        id: "codex",
+        name: null,
+        kind: "acp",
+        source: "path",
+        problem: null,
+        version: "0.3.1",
+        latest: "0.4.0",
+        outdated: true,
+        auth: "signedOut",
+        update: { command: "npm install -g @openai/codex@latest", elevated: false },
+      },
       { id: "github-copilot-cli", name: "GitHub Copilot", kind: "acp", source: "user-file", problem: null },
       { id: "aider", name: "Aider", kind: "terminal", source: "user-file", problem: null },
     ],

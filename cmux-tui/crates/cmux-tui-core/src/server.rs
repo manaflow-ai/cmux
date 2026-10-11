@@ -125,6 +125,8 @@ pub use agent_session_attach::{
     AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_START_CAPABILITY, AcpmuxStarter, AgentStartHost,
     AgentStartHostSource,
 };
+#[cfg(unix)]
+pub mod agent_transfer;
 mod app_trust;
 pub use app_trust::{FrontendKey, frontend_proof, install_frontend_key, read_frontend_key};
 mod client_hello;
@@ -1604,6 +1606,7 @@ enum Command {
     ConversationCreate(conversations::CreateParams),
     ConversationSnapshot(conversations::SnapshotParams),
     ConversationHistory(conversations::HistoryParams),
+    ConversationThread(conversations::ThreadParams),
     ConversationSearch(conversations::SearchParams),
     /// The history search index (`history-search-v1`, server/history_search.rs).
     HistorySearch(history_search::HistorySearchParams),
@@ -1620,6 +1623,7 @@ enum Command {
     CloudInboxList(cloud_conversations::InboxListParams),
     CloudConversationSnapshot(cloud_conversations::SnapshotParams),
     CloudConversationHistory(cloud_conversations::HistoryParams),
+    CloudConversationThread(cloud_conversations::ThreadParams),
     CloudConversationOp(cloud_conversations::OpParams),
     CloudInboxSubscribe,
     CloudInboxUnsubscribe,
@@ -2417,11 +2421,13 @@ mod client_registry_views;
 
 mod listen;
 pub use listen::{
-    PendingServer, SocketStartLock, connect_session_socket, prepare_socket_parent, serve,
-    serve_paused,
+    BoundSocket, PendingServer, START_LOCK_DEADLINE, SocketStartLock, bind_session_socket,
+    connect_session_socket, prepare_socket_parent, serve, serve_bound, serve_paused,
 };
+mod restoring;
 #[cfg(test)]
 use listen::{prepare_runtime_socket_directory, socket_start_lock_retry_delay};
+pub use restoring::RestoringServer;
 
 #[cfg(test)]
 use websocket_listener::handle_websocket_connection;
@@ -2540,7 +2546,9 @@ fn handle_connection_frame(
         return keep_open;
     }
     #[cfg(unix)]
-    if let Some(keep_open) = agent_session_attach::try_handle(mux, client, message, writer) {
+    if let Some(keep_open) = agent_session_attach::try_handle(mux, client, message, writer)
+        .or_else(|| agent_transfer::try_handle(mux, client, message, writer))
+    {
         return keep_open;
     }
     #[cfg(unix)]
@@ -3472,6 +3480,7 @@ fn handle_command_with_cancellation(
         Command::ConversationCreate(params) => conversations::create(mux, client, params),
         Command::ConversationSnapshot(params) => conversations::snapshot(mux, client, params),
         Command::ConversationHistory(params) => conversations::history(mux, client, params),
+        Command::ConversationThread(params) => conversations::thread(mux, client, params),
         Command::ConversationSearch(params) => conversations::search(mux, client, params),
         Command::HistorySearch(params) => history_search::search(mux, client, params),
         Command::ConversationOp(params) => conversations::op(mux, client, params),
@@ -3488,6 +3497,9 @@ fn handle_command_with_cancellation(
         }
         Command::CloudConversationHistory(params) => {
             cloud_conversations::history(mux, client, params)
+        }
+        Command::CloudConversationThread(params) => {
+            cloud_conversations::thread(mux, client, params)
         }
         Command::CloudConversationOp(params) => cloud_conversations::op(mux, client, params),
         Command::CloudInboxSubscribe => cloud_conversations::subscribe(mux, client, None),

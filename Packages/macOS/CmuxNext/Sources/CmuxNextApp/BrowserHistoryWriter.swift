@@ -5,7 +5,7 @@ import CmuxNextDaemon
 import Foundation
 import Observation
 
-/// Writes a Chromium page's back/forward entries and scroll positions to
+/// Writes a browser page's back/forward entries and scroll positions to
 /// its daemon tab (`frontend-browser-history-v1`), so a relaunch restores
 /// them (plans/cmux-next/browser.md, "Session history across relaunch").
 /// Navigations are debounced like the record write-back; scroll changes

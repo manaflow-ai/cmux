@@ -1,7 +1,8 @@
 // One theme choice of the Theme section: a button with the theme's swatch and name, and a popover
-// to search every bundled theme. The highlighted row previews in the section's hero (onPreview)
-// and live in the app (cmux.settings.preview) until the popover closes; Return or a click picks.
-import { useState } from "react";
+// to search every bundled theme. The highlighted row (the pointer or the arrow keys) previews in the
+// section's hero and live in the app (onPreview) until the popover closes; a right-click pins a row's
+// preview so it stays while the pointer moves on. Return or a click picks; Escape reverts.
+import { useEffect, useRef, useState } from "react";
 import { Combobox } from "../../../ui/Combobox";
 import { Popover } from "../../../ui/Popover";
 import { ThemeBall } from "../../../ui/ThemeBall";
@@ -21,6 +22,7 @@ export function ThemePicker({
   configColors,
   onPick,
   onPreview,
+  custom = () => false,
 }: {
   /** The picked theme name; null shows `configLabel` (the Ghostty config, or Match Terminal Theme). */
   value: string | null;
@@ -31,26 +33,54 @@ export function ThemePicker({
   configLabel: string;
   /** The colors the null choice shows (the Ghostty config's, or the terminal theme), for its chip. */
   configColors: GhosttyTheme | undefined;
-  onPick(name: string | null): void;
+  /** Writes the choice; the live preview ends once the returned promise settles. */
+  onPick(name: string | null): void | Promise<unknown>;
   /** The highlighted row while the list is open; null when it closes or nothing is highlighted. */
   onPreview(name: string | null): void;
+  /** Whether a theme has the user's color edits (appearance.themeEdits): it reads "<name> (custom)". */
+  custom?(name: string): boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
+  // The right-clicked theme: previewed whenever no row is highlighted.
+  const [pinned, setPinned] = useState<string | null>(null);
+  // A live preview is showing in the app; it must end even if the picker goes away while open.
+  const showing = useRef(false);
+  const preview = (name: string | null) => {
+    showing.current = name !== null;
+    onPreview(name);
+  };
+  const end = useRef(() => {});
+  end.current = () => {
+    if (showing.current) preview(null);
+  };
+  useEffect(() => () => end.current(), []);
   const typed = query.trim().toLowerCase();
+  const label = (name: string) => (custom(name) ? t("settingsPage.theme.custom", name) : name);
   const shown = [CONFIG, ...names.filter((name) => name.toLowerCase().includes(typed))].filter(
     (name) => name !== CONFIG || typed === "",
   );
-  const close = () => {
+  const dismiss = () => {
     setOpen(false);
     setQuery("");
-    onPreview(null);
+    setPinned(null);
   };
+  const close = () => {
+    dismiss();
+    preview(null);
+  };
+  // Disabled while open (the key became managed, the host disconnected) closes it too.
+  useEffect(() => {
+    if (disabled && open) close();
+  });
+  // Write first, then end the preview: the app goes from the preview to the same saved theme,
+  // never back to the old one in between.
   const pick = (name: string) => {
-    close();
-    if (name === CONFIG) onPick(null);
-    else if (names.includes(name)) onPick(name);
+    dismiss();
+    const chosen = name === CONFIG ? null : names.includes(name) ? name : undefined;
+    if (chosen === undefined) return preview(null);
+    void Promise.resolve(onPick(chosen)).finally(() => preview(null));
   };
   return (
     <>
@@ -66,7 +96,7 @@ export function ThemePicker({
         onClick={() => setOpen(!open)}
       >
         <ThemeBall name={value ?? undefined} colors={value ? colors?.get(value) : configColors} />
-        <span className="theme-button-name">{value ?? configLabel}</span>
+        <span className="theme-button-name">{value ? label(value) : configLabel}</span>
         <Icon name="chevron" />
       </button>
       <Popover
@@ -82,7 +112,7 @@ export function ThemePicker({
           onQuery={setQuery}
           onSubmit={pick}
           onCancel={close}
-          onHighlight={(name) => onPreview(name && name !== CONFIG ? name : null)}
+          onHighlight={(name) => preview(name && name !== CONFIG ? name : pinned)}
           label={t("settingsWindow.themeSearch")}
           placeholder={t("settingsWindow.themeSearch")}
           inputClassName="field theme-search"
@@ -96,14 +126,24 @@ export function ThemePicker({
                 {value === null && <Icon name="check" className="theme-option-check" />}
               </span>
             ) : (
-              <span className="theme-option-row" data-theme-option={name}>
+              <span
+                className="theme-option-row"
+                data-theme-option={name}
+                data-previewing={name === pinned ? "" : undefined}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  setPinned(name);
+                  preview(name);
+                }}
+              >
                 <ThemeBall name={name} colors={colors?.get(name)} />
-                <span className="theme-option-name">{name}</span>
+                <span className="theme-option-name">{label(name)}</span>
                 {name === value && <Icon name="check" className="theme-option-check" />}
               </span>
             )
           }
         />
+        {shown.length === 0 && <output className="theme-empty empty block">{t("settingsPage.theme.noMatch")}</output>}
         <div className="theme-count">{t("settingsPage.theme.count", names.length)}</div>
       </Popover>
     </>

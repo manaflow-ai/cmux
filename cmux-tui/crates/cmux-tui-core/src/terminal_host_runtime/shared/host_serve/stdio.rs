@@ -14,12 +14,20 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use super::super::super::sys::{
-    HostListener, HostLivenessLease, acquire_terminal_host_publication_lock, adopt_launch,
+    self, HostListener, HostLivenessLease, acquire_terminal_host_publication_lock, adopt_launch,
     host_signals, prepare_private_dir,
 };
 use super::super::host_accept;
 use super::super::records::*;
 use super::*;
+
+/// The host process's entry (`__terminal-host --bootstrap-stdio ...`): its
+/// bootstrap streams are stdio on Unix and two named pipes on Windows
+/// (`sys::host_bootstrap_streams`).
+pub fn serve_terminal_host_process(args: &[String]) -> anyhow::Result<()> {
+    let (mut reader, mut writer) = sys::host_bootstrap_streams(args)?;
+    serve_terminal_host_stdio(args, &mut reader, &mut writer)
+}
 
 pub fn serve_terminal_host_stdio(
     args: &[String],
@@ -85,7 +93,7 @@ pub fn serve_terminal_host_stdio(
         supports_terminal_metadata: true,
         supports_clipboard_read: true,
         supports_viewer_size_priority: true,
-        supports_pty_custody: true,
+        supports_pty_custody: sys::SUPPORTS_PTY_CUSTODY,
     };
     let record_root = Path::new(&launch.record_path)
         .parent()

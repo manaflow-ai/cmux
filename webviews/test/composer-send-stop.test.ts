@@ -21,6 +21,9 @@ await requireBrowserLane("composer-send-stop.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
 
+  const stageURL = () =>
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=agent-pane.composer&variant=working-stop`;
+
   beforeAll(async () => {
     vite = await createServer({
       configFile: path.join(webviews, "vite.config.gallery-dev.ts"),
@@ -29,6 +32,23 @@ await requireBrowserLane("composer-send-stop.test.ts", async () => {
     });
     await vite.listen();
     browser = await chromium.launch({ headless: true });
+    // One throwaway load of the same stage first. Cold, beside the parallel test batch, compiling
+    // the stage (every gallery entry file, then the dependency optimizer, which reloads the page
+    // when it finishes mid-load) took longer than the checked page's wait. This load waits it out
+    // and loads every module the stage uses, its lazy imports included; the checked page below
+    // then measures the play alone.
+    const warm = await browser.newPage({ viewport: { width: 760, height: 560 } });
+    await warm.goto(stageURL());
+    for (;;) {
+      try {
+        await warm.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 0 });
+        break;
+      } catch (error) {
+        // An optimizer reload destroys the page's context; wait for the reloaded stage.
+        if (!/context was destroyed|navigat/i.test(String(error))) throw error;
+      }
+    }
+    await warm.close();
   });
   afterAll(async () => {
     await browser?.close();
@@ -37,8 +57,7 @@ await requireBrowserLane("composer-send-stop.test.ts", async () => {
 
   test("stops a running turn and restores Send after the host snapshot", async () => {
     const page: Page = await browser!.newPage({ viewport: { width: 760, height: 560 } });
-    const port = (vite!.httpServer!.address() as { port: number }).port;
-    await page.goto(`http://127.0.0.1:${port}/gallery/frame.html?entry=agent-pane.composer&variant=working-stop`);
+    await page.goto(stageURL());
     await page.waitForFunction(() => {
       const ready = document.documentElement.dataset.galleryReady;
       return ready === "1" || ready === "error";

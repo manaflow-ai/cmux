@@ -87,6 +87,8 @@ public final class SidebarModel {
     public var hidesWorkspaces = false
     /// Minimal mode (`sidebar.minimal`): rows draw only icon, name and marks.
     public var minimal = false
+    /// Expanded rows (`sidebar.density`), unless minimal.
+    public var expanded = false
     /// Group by Folder (`sidebar.groupBy`): loose rows sit under folder headers.
     public var groupsByFolder = false
     /// `sidebar.groupByComputer`: a header per computer; off, one list.
@@ -114,6 +116,9 @@ public final class SidebarModel {
 
     /// Receives every intent. When nil, `send` applies intents locally.
     @ObservationIgnored public var onIntent: ((SidebarIntent) -> Void)?
+    /// A workspace's pin state and the Pin/Unpin Workspace action, from the
+    /// App (layout tiles or the daemon flag): an expanded row's hover pin.
+    @ObservationIgnored public var workspacePin: (isPinned: (WorkspaceID) -> Bool, toggle: (WorkspaceID) -> Void)?
     /// The sections another space shows (R99: the page beside the current
     /// one during a horizontal swipe). Read when a swipe reaches that page.
     @ObservationIgnored public var spaceSections: ((ProfileKey) -> [SidebarSection])?
@@ -306,7 +311,7 @@ public final class SidebarModel {
         // Minimal mode lists no tab rows under a workspace.
         showWorkspaceTabs = preferences.showWorkspaceTabs && !preferences.minimal
         workspaceRow = preferences.workspaceRow
-        minimal = preferences.minimal
+        (minimal, expanded) = (preferences.minimal, preferences.density == .expanded)
         hidesWorkspaces = !preferences.showProjects
         groupsByFolder = preferences.groupBy == .folder
         groupsByComputer = preferences.groupsByComputer
@@ -325,7 +330,7 @@ public final class SidebarModel {
         o.collapsedWorkspaces = collapsedWorkspaces
         o.activeWorkspaceID = activeWorkspaceID
         o.workspaceRow = workspaceRow
-        o.minimal = minimal
+        (o.minimal, o.expanded) = (minimal, expanded)
         o.flattensMachines = !groupsByComputer
         if o.flattensMachines {
             for section in sections {

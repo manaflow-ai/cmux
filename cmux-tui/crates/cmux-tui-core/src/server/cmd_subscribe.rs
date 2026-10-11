@@ -111,6 +111,11 @@ pub(super) fn subscribe_command(
                 {
                     continue;
                 }
+                MuxEvent::CloudConversation(_)
+                    if !super::cloud_conversations::delivers(&event_mux, client) =>
+                {
+                    continue;
+                }
                 MuxEvent::PairingRequested(challenge) => json!({
                     "event": "pairing-requested",
                     "request": challenge.id,
@@ -290,6 +295,11 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             "event": "bookmarks-changed",
             "browser_profile_id": change.browser_profile_id,
             "bookmarks_revision": change.bookmarks_revision,
+        }),
+        MuxEvent::HistoryChanged { revision, kinds } => json!({
+            "event": "history-changed",
+            "revision": revision,
+            "kinds": kinds,
         }),
         MuxEvent::SettingsChanged(change) => json!({
             "event": "settings-changed",

@@ -41,7 +41,6 @@ final class TabHoverCardView: NSView {
         thumbnail.layer?.cornerCurve = .continuous
         thumbnail.layer?.masksToBounds = true
         thumbnail.layer?.contentsGravity = .resizeAspectFill
-        thumbnail.layer?.actions = ["contents": Motion.crossfadeAction]
 
         for view in [titleLabel, subtitleLabel, resources, thumbnail] {
             view.translatesAutoresizingMaskIntoConstraints = false
@@ -91,8 +90,8 @@ final class TabHoverCardView: NSView {
             let subtitle = [profile, item.machineBadgeHelp, item.themeBadge.map { Strings.axTheme($0.name) }, item.subtitle]
                 .compactMap(\.self).joined(separator: " · ")
             configure(title: item.title.isEmpty ? Strings.untitled : item.title, subtitle: subtitle.isEmpty ? nil : subtitle, lines: 1)
+            // The thumbnail frame is the controller's: it shows or hides once the tab's own is known.
             setResourcesVisible(true)
-            setThumbnailVisible(true)
         case .group(let group, let titles):
             let shown = titles.prefix(Self.maxGroupLines)
             var lines = Array(shown)
@@ -129,6 +128,8 @@ final class TabHoverCardView: NSView {
         if !unavailable { resources.show(report) }
     }
 
+    var showsThumbnail: Bool { !thumbnail.isHidden }
+
     func setThumbnailVisible(_ visible: Bool) {
         thumbnail.isHidden = !visible
         thumbnailHeight?.constant = visible ? Self.thumbnailSize.height : 0
@@ -138,12 +139,16 @@ final class TabHoverCardView: NSView {
     /// The thumbnail the card shows.
     private(set) var thumbnailImage: CGImage?
 
+    /// Only a thumbnail landing in an empty frame fades in; one tab's image
+    /// replacing another's swaps at once (two tabs never blend).
     func setThumbnail(_ image: CGImage?) {
+        let landing = thumbnailImage == nil && image != nil
         thumbnailImage = image
         guard let layer = thumbnail.layer else { return }
         performWithTheme {
             layer.backgroundColor = Palette.hoverFill.cgColor
         }
-        Motion.transaction(.crossfade) { layer.contents = image }
+        layer.actions = landing ? ["contents": Motion.crossfadeAction] : nil
+        Motion.transaction(landing ? .crossfade : nil) { layer.contents = image }
     }
 }

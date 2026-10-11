@@ -8,17 +8,26 @@ import Foundation
 /// The reads use a daemon connection of their own. The daemon answers one
 /// connection's requests in order, and a read can take seconds in a large
 /// repository, so on the control connection it would hold terminal and
-/// layout commands behind it.
+/// layout commands behind it. Commits and pushes (`git.commit`,
+/// `git.push`) use a second connection, `writes`, for the same reason: a
+/// hook or a slow remote holds one for up to two minutes.
 final class AgentPaneGitLink {
     private let daemon: DaemonService
+    private let clientName: String
+    /// The commits' and pushes' own connection, opened at the first write.
+    private var writeLink: AgentPaneGitLink?
     private var opening: Task<DaemonConnection, any Error>?
     /// Reads and drops the connection's tree events: every handshake
     /// subscribes, and nothing here uses them.
     private var drain: Task<Void, Never>?
 
-    init(daemon: DaemonService) {
+    init(daemon: DaemonService, clientName: String = "cmux-next-agent-git") {
         self.daemon = daemon
+        self.clientName = clientName
     }
+
+    /// This Mac's link: the Changes view's git writes run here only for a chat it reads.
+    var isLocal: Bool { daemon.isLocal }
 
     /// The operation's result as JSON for the page. Throws an
     /// ``AgentPaneGitFailure``: the session host's resource error, or why
@@ -49,10 +58,32 @@ final class AgentPaneGitLink {
         try JSONEncoder().encode(result)
     }
 
+    /// The mutation's `MutationResult` as JSON for the page, run under the
+    /// page's idempotency key. Throws like ``read(_:)``; a commit or push
+    /// that may have run without an answer is `native.timed_out`, and the
+    /// page's retry with the same key reports what it did.
+    func write(_ request: AgentPaneGitWrite, in cwd: String) async throws(AgentPaneGitFailure) -> Data {
+        let connection: DaemonConnection
+        do {
+            let writes = writeLink ?? AgentPaneGitLink(daemon: daemon, clientName: clientName + "-write")
+            writeLink = writes
+            connection = try await writes.connection()
+        } catch {
+            throw AgentPaneGitFailure.notConnected
+        }
+        do {
+            let result = try await GitResourceClient(connection: connection)
+                .write(request.operation, params: request.sessionHostParams(cwd: cwd), idempotencyKey: request.key)
+            return try await Self.encode(result)
+        } catch {
+            throw AgentPaneGitFailure(reading: error)
+        }
+    }
+
     /// Opens the connection on the first read; afterwards it reconnects by
     /// itself, finding a restarted daemon through the control connection's
     /// endpoint. A failed open is tried again by the next read.
-    private func connection() async throws -> DaemonConnection {
+    fileprivate func connection() async throws -> DaemonConnection {
         let task = opening ?? open()
         opening = task
         do {
@@ -65,6 +96,8 @@ final class AgentPaneGitLink {
 
     /// Ends the link for good (its machine left the app): closes the connection, which ends the drain.
     func close() {
+        writeLink?.close()
+        writeLink = nil
         let opening = opening
         self.opening = nil
         // task-owner: one bounded close of a connection nothing else holds
@@ -73,10 +106,11 @@ final class AgentPaneGitLink {
 
     private func open() -> Task<DaemonConnection, any Error> {
         let daemon = daemon
+        let clientName = clientName
         return Task {
             let connection = DaemonConnection(
                 configuration: DaemonConnection.Configuration(
-                    clientName: "cmux-next-agent-git", treeEvents: .coarse, terminalEnvironment: nil),
+                    clientName: clientName, treeEvents: .coarse, terminalEnvironment: nil),
                 endpointProvider: { try await daemon.endpoint() })
             do {
                 try await connection.start()
@@ -137,6 +171,25 @@ extension AgentPaneGitRequest {
         case .checkpointDiff(let cwd, let from, let to, let includePatch):
             ["path": .string(cwd), "from": .string(from), "include_patch": .bool(includePatch)]
                 .merging(to.map { ["to": JSONValue.string($0)] } ?? [:]) { first, _ in first }
+        }
+    }
+}
+
+extension AgentPaneGitWrite {
+    /// The session host's params: `cwd` (the pane's session's folder) as
+    /// `path`; the key travels in the envelope, not in the params.
+    func sessionHostParams(cwd: String) -> [String: JSONValue] {
+        switch self {
+        case .commit(_, let message, let all, let includeUntracked, let expectedHead, _):
+            var params: [String: JSONValue] = ["path": .string(cwd), "message": .string(message)]
+            if all { params["all"] = .bool(true) }
+            if includeUntracked { params["include_untracked"] = .bool(true) }
+            if let expectedHead { params["expected_head"] = .string(expectedHead) }
+            return params
+        case .push(_, let expectedHead, _):
+            var params: [String: JSONValue] = ["path": .string(cwd)]
+            if let expectedHead { params["expected_head"] = .string(expectedHead) }
+            return params
         }
     }
 }

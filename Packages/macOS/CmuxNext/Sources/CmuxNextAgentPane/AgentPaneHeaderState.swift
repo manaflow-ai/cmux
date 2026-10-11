@@ -9,25 +9,33 @@ public struct AgentPaneHeaderState: Equatable, Sendable {
     public var sideTabs: Bool
     /// The header actions (`splitRight`, `splitBrowserRight`) whose split is open, sorted.
     public var lit: [String]
+    /// The chat folder's branch's pull request, when it has one (cx-tcwj).
+    public var pullRequest: AgentPanePullRequest?
+    /// The "..." menu offers Move to Floating Chat (Start Agent's floating chat is on, cx-b9qi).
+    public var floatingChat: Bool
     /// Rises with every change the App sees: a `pane.tabState` reply that reaches the page after a
     /// newer push (two channels) is older, and the page keeps the newer state.
     public var version = 0
 
-    public init(pinned: Bool = false, sideTabs: Bool = false, lit: [String] = []) {
+    public init(pinned: Bool = false, sideTabs: Bool = false, lit: [String] = [], floatingChat: Bool = false) {
         self.pinned = pinned
         self.sideTabs = sideTabs
         self.lit = lit
+        self.floatingChat = floatingChat
     }
 
     /// Whether the header shows the same thing, whatever the versions.
     public func shows(_ other: AgentPaneHeaderState) -> Bool {
-        pinned == other.pinned && sideTabs == other.sideTabs && lit == other.lit
+        pinned == other.pinned && sideTabs == other.sideTabs && lit == other.lit && floatingChat == other.floatingChat
+            && pullRequest == other.pullRequest
     }
 
-    var reply: [String: Any] { ["pinned": pinned, "sideTabs": sideTabs, "lit": lit, "version": version] }
+    var reply: [String: Any] { json.foundationObject as? [String: Any] ?? [:] }
 
+    /// `pullRequest` is always there, `null` when there is none, so the page drops a chip it kept.
     var json: JSONValue {
-        ["pinned": .bool(pinned), "sideTabs": .bool(sideTabs), "lit": .array(lit.map(JSONValue.string)), "version": JSONValue(version)]
+        ["pinned": .bool(pinned), "sideTabs": .bool(sideTabs), "lit": .array(lit.map(JSONValue.string)), "floatingChat": .bool(floatingChat),
+         "version": JSONValue(version), "pullRequest": pullRequest?.json ?? .null]
     }
 }
 

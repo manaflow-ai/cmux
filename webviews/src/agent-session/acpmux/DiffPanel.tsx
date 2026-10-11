@@ -16,6 +16,7 @@ import type { FileActions, OpenTarget } from "./changes/FileHeader";
 import { LoadState } from "./changes/LoadState";
 import { applyCommand } from "./changes/applyCommand";
 import { BranchPill } from "./changes/BranchPill";
+import { PullRequestButton } from "./changes/PullRequestButton";
 import { copyText } from "./conversation/clipboard";
 import { changeSetFiles, type ChangeScope, type ChangesSource } from "./changes/model";
 import { OptionsMenu, type OptionsRow } from "./changes/OptionsMenu";
@@ -25,6 +26,9 @@ import { TrackedOnlyBanner } from "./changes/TrackedOnlyBanner";
 import { useDiffKeys } from "./changes/useDiffKeys";
 import { useScopeChanges } from "./changes/useScopeChanges";
 import { useT } from "./i18n";
+import { GitToolbarButtons, GitWriteBar } from "./changes/GitActions";
+import type { GitWriteOp, WriteKeys } from "./changes/gitWrite";
+import { useGitWrite } from "./changes/useGitWrite";
 
 const LAYOUT_KEY = "cmux.acpmux.diffLayout";
 const WRAP_KEY = "cmux.acpmux.diffWrap";
@@ -78,6 +82,9 @@ export function DiffPanel({
   review,
   reviewFiles,
   turn,
+  gitIntent,
+  onGitIntentHandled,
+  writeKeys,
 }: {
   files: TurnFile[];
   initialPath?: string;
@@ -92,11 +99,41 @@ export function DiffPanel({
   reviewFiles?: TurnFile[];
   /// Where Last turn's files came from, and why a checkpoint isn't shown when one was expected.
   turn?: { source: "checkpoint" | "tools"; note?: string };
+  /// The palette's Commit or Push (`agentPane.git.*`): each new nonce opens the commit form or
+  /// pushes, as the toolbar's buttons do.
+  gitIntent?: { op: GitWriteOp; nonce: number };
+  /// The view took `gitIntent`; the page clears it so a later view never replays it.
+  onGitIntentHandled?: () => void;
+  /// The session's idempotency keys, kept by the page across a close and reopen of the view.
+  writeKeys?: WriteKeys;
 }) {
   const t = useT();
   registerAgentDiffTheme();
   const [scope, setScope] = useState<ChangeScope>("lastTurn");
   const { load, retry, branch } = useScopeChanges(source, scope);
+  const [commitOpen, setCommitOpen] = useState(false);
+  // A commit closes the form and reloads the scope; a push changes only the branch state.
+  const git = useGitWrite(
+    source,
+    (op) => {
+      if (op === "commit") setCommitOpen(false);
+      if (op !== "push") retry();
+    },
+    writeKeys,
+  );
+  const commitMessage = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (commitOpen) commitMessage.current?.focus();
+  }, [commitOpen]);
+  const handledIntent = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (!gitIntent || handledIntent.current === gitIntent.nonce) return;
+    handledIntent.current = gitIntent.nonce;
+    if (gitIntent.op === "push") void git.push();
+    else if (commitOpen) commitMessage.current?.focus();
+    else setCommitOpen(true);
+    onGitIntentHandled?.();
+  }, [gitIntent, git, commitOpen, onGitIntentHandled]);
   const scopeFiles = useMemo(() => (load.state === "loaded" ? changeSetFiles(load.changeSet) : []), [load]);
   const files = scope === "lastTurn" ? turnFiles : scopeFiles;
   /// A git scope's body before its files: loading, failed or empty.
@@ -194,9 +231,29 @@ export function DiffPanel({
       setOpenFailure(error instanceof Error && error.message ? error.message : t("changes.openFailed"));
     });
   });
+  // Stage or Unstage a file (cx-tcwj): Unstaged and Uncommitted stage it, Staged unstages it,
+  // and the scope reloads. A failure says why where a failed open does. The view names a file by
+  // its absolute path; git.stage takes it from the repository's top, as git.diff listed it. A
+  // rename is both of its paths, or half of it would stay behind.
+  const unstages = scope === "staged" ? true : scope === "unstaged" || scope === "uncommitted" ? false : undefined;
+  const stageFile = useStableCallback((path: string) => {
+    if (!source?.stage || unstages === undefined || load.state !== "loaded") return;
+    const root = load.changeSet.root?.replace(/\/+$/, "");
+    const inRepository = root && path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
+    const previous = load.changeSet.files.find((file) => file.path === inRepository)?.previousPath;
+    latestOpen.current += 1;
+    setOpenFailure(undefined);
+    source
+      .stage(previous ? [inRepository, previous] : [inRepository], unstages)
+      .then(retry, (error: unknown) =>
+        setOpenFailure(error instanceof Error && error.message ? error.message : t("changes.stageFailed")),
+      );
+  });
+  const canStage = source?.stage !== undefined && unstages !== undefined;
   const on = useMemo<FileActions>(
     () => ({
       openFile,
+      stage: canStage ? { unstage: unstages === true, run: stageFile } : undefined,
       toggleCollapsed: (path) => {
         revealing.current = undefined;
         setCollapsed((current) => {
@@ -220,7 +277,7 @@ export function DiffPanel({
         setCollapsed(flip);
       },
     }),
-    [viewed, openFile],
+    [viewed, openFile, canStage, unstages, stageFile],
   );
   const allCollapsed = files.length > 0 && files.every((file) => collapsed.has(file.path));
   const press = (tool: Tool) => {
@@ -302,6 +359,7 @@ export function DiffPanel({
           {files.length > 0 && <Counts additions={totals.additions} deletions={totals.deletions} />}
         </ScopeMenu>
         <div className="acpmux-diff-tools" role="toolbar" aria-label={t("changes.viewTools")}>
+          <GitToolbarButtons git={git} formOpen={commitOpen} onToggleForm={() => setCommitOpen((open) => !open)} />
           {checkpointAction}
           <OptionsMenu rows={options} />
           {tools.map((tool) => (
@@ -328,10 +386,23 @@ export function DiffPanel({
       {(branch || skipped > 0 || turnNote) && (
         <div className="acpmux-diff-notes">
           {turnNote && <output className="acpmux-turn-note">{turnNote}</output>}
-          {branch && <BranchPill branch={branch.branch} base={branch.base} />}
+          {branch && (
+            <div className="acpmux-branch-row">
+              <BranchPill branch={branch.branch} base={branch.base} />
+              {/* Keyed by branch: another checkout starts over, never showing the last pull request. */}
+              {source?.pullRequest && <PullRequestButton key={branch.branch} open={source.pullRequest} />}
+            </div>
+          )}
           {skipped > 0 && <TrackedOnlyBanner skipped={skipped} onRefresh={refresh} />}
         </div>
       )}
+      <GitWriteBar
+        git={git}
+        formOpen={commitOpen}
+        onCloseForm={() => setCommitOpen(false)}
+        messageRef={commitMessage}
+        reloadKey={load.state === "loaded" ? load.changeSet : load.state}
+      />
       {checkpointReview}
       <div className="acpmux-diff-main">
         <div ref={body} className="acpmux-diff-body">

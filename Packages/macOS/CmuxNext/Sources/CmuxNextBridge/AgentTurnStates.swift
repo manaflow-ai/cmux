@@ -3,37 +3,36 @@ public import Foundation
 public import Observation
 
 /// What an acpmux session is doing for the working and needs-input
-/// indicators (WORKING-AND-LOADING-INDICATORS). acpmux owns the fact
-/// (`SessionStatus` plus pending permissions); the app only mirrors it.
+/// indicators (WORKING-AND-LOADING-INDICATORS). acpmux owns the fact (the
+/// summary's `indicator`, cx-zlox); the app only mirrors it.
 public nonisolated enum AgentTurnState: Hashable, Sendable {
-    /// A prompt turn runs (`running`, no permission pending).
+    /// A prompt turn runs (`indicator` = `working`).
     case working
     /// The turn waits for the user: a permission or a question
-    /// (`waiting`, or `pendingPermissions` > 0).
+    /// (`indicator` = `input`).
     case needsInput
-    /// The last turn failed (`lastTurn.status` = `failed`). A disconnect
-    /// alone is not a failure: the next prompt respawns the agent.
+    /// The last turn failed (`indicator` = `failed`).
     case failed
+    /// The agent went away before it answered (`indicator` = `lost`). A
+    /// disconnect after an answer stays done: the next prompt respawns it.
+    case lost
     /// The last turn (`turn`, its acpmux turn id) completed: done until the
     /// user looks at the chat (client seen state, `ProgramStatusSeenStore`),
     /// like an OSC 7501 done. acpmux `unread` is not enough: an open chat tab
     /// stays attached in a background workspace.
     case done(turn: String)
 
-    /// The state of one `_acpmux/watch` / `session_changed` session summary;
-    /// nil when no turn runs and the last turn did not fail, and always for
-    /// a closed session.
+    /// The state of one `_acpmux/watch` / `session_changed` session summary,
+    /// read from its `indicator`; nil when acpmux shows no dot.
     public static func of(summary: [String: Any]) -> AgentTurnState? {
-        let status = summary["status"] as? String
-        if status == "closed" { return nil }
-        if ((summary["pendingPermissions"] as? NSNumber)?.intValue ?? 0) > 0 || status == "waiting" { return .needsInput }
-        if status == "running" { return .working }
-        let lastTurn = summary["lastTurn"] as? [String: Any]
-        switch lastTurn?["status"] as? String {
+        switch summary["indicator"] as? String {
+        case "input"?: return .needsInput
+        case "working"?: return .working
         case "failed"?: return .failed
-        case "completed"?, "ok"?:
-            let turn = lastTurn?["turnId"] as? String ?? (lastTurn?["endedAt"] as? NSNumber)?.stringValue ?? ""
-            return .done(turn: turn)
+        case "lost"?: return .lost
+        case "done"?:
+            let lastTurn = summary["lastTurn"] as? [String: Any]
+            return .done(turn: lastTurn?["turnId"] as? String ?? (lastTurn?["endedAt"] as? NSNumber)?.stringValue ?? "")
         default: return nil
         }
     }
@@ -54,12 +53,41 @@ public nonisolated struct AgentTurnStates: Hashable, Sendable {
 
     /// Applies one `_acpmux/session_changed`; a `purged` session leaves.
     public mutating func apply(changed params: [String: Any]) {
-        guard let id = params["sessionId"] as? String else { return }
-        if params["kind"] as? String == "purged" {
-            states[id] = nil
-        } else if let summary = params["session"] as? [String: Any] {
-            upsert(summary)
+        if let change = Self.change(params) { states[change.session] = change.state }
+    }
+
+    /// One decoded `_acpmux/session_changed` (decode it off the main actor): the session, its
+    /// new state (nil: no indicator, or purged) and its last message (`lastMessage`, cx-13w3.1).
+    /// Nil when the line names no session state.
+    public static func change(_ params: [String: Any]) -> (session: String, state: AgentTurnState?, lastMessage: String?)? {
+        guard let id = params["sessionId"] as? String else { return nil }
+        if params["kind"] as? String == "purged" { return (id, nil, nil) }
+        guard let summary = params["session"] as? [String: Any] else { return nil }
+        return (summary["sessionId"] as? String ?? id, AgentTurnState.of(summary: summary), lastMessage(summary))
+    }
+
+    /// A summary's `lastMessage` text: the reply's last line, else the prompt; nil before one.
+    public static func lastMessage(_ summary: [String: Any]) -> String? {
+        guard let text = (summary["lastMessage"] as? [String: Any])?["text"] as? String, !text.isEmpty else { return nil }
+        return text
+    }
+
+    /// The last message of every session of a watch result.
+    public static func lastMessages(_ result: [String: Any]) -> [String: String] {
+        var messages: [String: String] = [:]
+        for summary in (result["sessions"] as? [Any] ?? []).compactMap({ $0 as? [String: Any] }) {
+            if let id = summary["sessionId"] as? String, let text = lastMessage(summary) { messages[id] = text }
         }
+        return messages
+    }
+
+    /// Sets one session's state. False when it already had that state: the caller then
+    /// leaves the observed store untouched, so no tab or row redraws for it.
+    @discardableResult
+    public mutating func set(_ session: String, _ state: AgentTurnState?) -> Bool {
+        guard states[session] != state else { return false }
+        states[session] = state
+        return true
     }
 
     /// The completed turns of a watch result that a client watched as they
@@ -94,6 +122,9 @@ public final class AgentTurnStateStore {
 
     /// The states of the sessions on `localHost`.
     public var states = AgentTurnStates()
+    /// Each session's last message (expanded sidebar rows, cx-13w3.1), apart from
+    /// `states` so a new reply redraws only the rows that show it.
+    public var lastMessages: [String: String] = [:]
     /// `install:<id>` of this Mac; a chat tab of another host has no state
     /// here (its acpmux runs elsewhere).
     public var localHost: String?
@@ -104,5 +135,11 @@ public final class AgentTurnStateStore {
     public func state(for ref: AgentSessionRef) -> AgentTurnState? {
         guard let session = ref.session, let localHost, ref.host == localHost else { return nil }
         return states[session]
+    }
+
+    /// The last message of the session an agent chat tab shows.
+    public func lastMessage(for ref: AgentSessionRef) -> String? {
+        guard let session = ref.session, let localHost, ref.host == localHost else { return nil }
+        return lastMessages[session]
     }
 }

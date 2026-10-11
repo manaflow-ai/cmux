@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR c9bb9ac8174c6ab34a360b1149d9fea68970448a4bf6f3a8e08eff8e89a5c30b. */
+/* cmux-tui mux protocol 12, IR 69834425700b71ed1904c4e43d9c6a1592906fd6c89e184f9029cecdd3427bb4. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -319,6 +319,8 @@ export type ConversationTabRecord = {
   "owner"?: string;
   /** Page source (page-tabs-v1): the id of one of the app's own pages; exclusive with the other sources. */
   "page"?: string;
+  /** What the page shows (page-tab-route-v1): a viewer's file or folder or a page's sub-view, 1 to 4096 bytes without control characters; only with page. */
+  "route"?: string;
 };
 
 export type ConversationTextRun = {
@@ -326,6 +328,14 @@ export type ConversationTextRun = {
   "link"?: string;
   "mention"?: string;
   "start": number;
+};
+
+export type ConversationThreadSummary = {
+  "authors": Array<string>;
+  "last_reply_at": (string) | null;
+  "last_reply_seq": (bigint) | null;
+  "reply_count": bigint;
+  "root": string;
 };
 
 export type CopyResult = {
@@ -1124,6 +1134,8 @@ export type Tab = {
   "size": (Size) | null;
   "supports_clear_history_key_fallback"?: boolean;
   "surface": Id;
+  /** Why a terminal will end with something other than its shell although terminal hosts are on: `breakaway_denied` (Windows: the host runs inside the daemon's kill-on-close Job Object and ends when that job closes) or `host_start_failed` (no host; the daemon runs the terminal and it ends with the daemon). Null otherwise and for browser tabs. A string, not an enum: clients read an unknown value as a notice for another reason. */
+  "terminal_host_fallback"?: (string) | null;
   "terminal_id"?: (string) | null;
   "terminal_incarnation"?: (string) | null;
   "terminal_resource_id"?: (string) | null;

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR c9bb9ac8174c6ab34a360b1149d9fea68970448a4bf6f3a8e08eff8e89a5c30b.
+// cmux-tui mux protocol 12, IR 69834425700b71ed1904c4e43d9c6a1592906fd6c89e184f9029cecdd3427bb4.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -516,6 +516,9 @@ pub struct ConversationTabRecord {
     /// Page source (page-tabs-v1): the id of one of the app's own pages; exclusive with the other sources.
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub page: Option<String>,
+    /// What the page shows (page-tab-route-v1): a viewer's file or folder or a page's sub-view, 1 to 4096 bytes without control characters; only with page.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub route: Option<String>,
 }
 
 #[rustfmt::skip]
@@ -527,6 +530,16 @@ pub struct ConversationTextRun {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub mention: Option<String>,
     pub start: u32,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationThreadSummary {
+    pub authors: Vec<String>,
+    pub last_reply_at: Nullable<String>,
+    pub last_reply_seq: Nullable<u64>,
+    pub reply_count: u64,
+    pub root: String,
 }
 
 #[rustfmt::skip]
@@ -1854,6 +1867,9 @@ pub struct Tab {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub supports_clear_history_key_fallback: Option<bool>,
     pub surface: Id,
+    /// Why a terminal will end with something other than its shell although terminal hosts are on: \`breakaway_denied\` (Windows: the host runs inside the daemon's kill-on-close Job Object and ends when that job closes) or \`host_start_failed\` (no host; the daemon runs the terminal and it ends with the daemon). Null otherwise and for browser tabs. A string, not an enum: clients read an unknown value as a notice for another reason.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_host_fallback: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
