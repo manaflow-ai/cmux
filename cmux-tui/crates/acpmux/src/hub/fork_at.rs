@@ -10,7 +10,7 @@ use std::path::Path;
 
 /// Copies the transcript of Claude session `parent` in the store at `store`
 /// (a CLAUDE_CONFIG_DIR) up to its first prompt written at or after `cut_ms`
-/// (Unix milliseconds, the end of the turn the fork keeps), beside the
+/// (Unix milliseconds, when the chat moved past the turn the fork keeps), beside the
 /// parent's, and returns the copy's session id.
 ///
 /// The cut is a time, not a count of the chat's prompts: an adopted chat's

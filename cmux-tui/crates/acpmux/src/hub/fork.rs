@@ -40,9 +40,12 @@ impl Hub {
                 .store
                 .events(&session.id, 0, 500_000)
                 .map_err(|e| RpcError::internal(e.to_string()))?;
-            let upto = || history.iter().filter(|e| e.seq <= through);
-            let cut_ms = upto().last().map_or(0, |e| e.at);
-            turn_count = upto().filter(|e| e.kind == "turn_result").count() as u64;
+            // The chat moved past that turn at its next event, which acpmux logs
+            // before the next prompt reaches Claude.
+            let cut_ms = history.iter().find(|e| e.seq > through).map_or(u64::MAX, |e| e.at);
+            turn_count =
+                history.iter().filter(|e| e.seq <= through && e.kind == "turn_result").count()
+                    as u64;
             // Claude resumes from the project directory the copy sits in.
             if cwd != parent_meta.cwd {
                 return Err(RpcError::invalid_params(

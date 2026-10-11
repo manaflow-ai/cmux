@@ -81,6 +81,10 @@ for line in sys.stdin:
             with open(stored(SESSION), "a") as f:
                 f.write(json.dumps({"type": "user", "sessionId": SESSION, "timestamp": at, "message": {"role": "user", "content": said}}) + "\n")
                 f.write(json.dumps({"type": "assistant", "sessionId": SESSION, "timestamp": at, "message": {"role": "assistant", "content": [{"type": "text", "text": "ok"}]}}) + "\n")
+            # The model's reply takes time: a turn's prompt is never stored in
+            # the millisecond its turn ends.
+            import time
+            time.sleep(0.02)
         elif STORE:
             open(stored(SESSION), "w").close()
         text = json.dumps(sys.argv[1:])
