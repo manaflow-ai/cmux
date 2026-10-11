@@ -25,13 +25,16 @@ extension AppControl {
 
 #if DEBUG
 /// `debug.menu_item {"title": "Settings…"}`: the first enabled main-menu item with that title (any
-/// submenu), performed through its menu (`performActionForItem`, the click path). Answers the menu
-/// and item titles, or an error when no enabled item has the title.
+/// submenu), performed through its menu (`performActionForItem`, the click path). Every menu is
+/// validated first, as opening it does, so titles that follow their target (Pin Tab or Unpin Tab)
+/// match what a person sees. Answers the menu and item titles, or an error when no enabled item has
+/// the title.
 enum DebugMainMenu {
     static func perform(_ params: [String: JSONValue]) -> JSONValue {
         guard let title = params["title"]?.stringValue, let menu = NSApp.mainMenu else {
             return .object(["error": .string("title is required")])
         }
+        validate(menu)
         guard let (owner, index) = find(title, in: menu) else {
             return .object(["error": .string("no enabled main-menu item titled \(title)")])
         }
@@ -41,9 +44,14 @@ enum DebugMainMenu {
         return .object(["menu": .string(owner.title), "item": .string(title)])
     }
 
+    private static func validate(_ menu: NSMenu) {
+        menu.update()
+        for item in menu.items { item.submenu.map(validate) }
+    }
+
     private static func find(_ title: String, in menu: NSMenu) -> (NSMenu, Int)? {
         for (index, item) in menu.items.enumerated() {
-            if item.title == title { return (menu, index) }
+            if item.title == title, item.isEnabled { return (menu, index) }
             if let submenu = item.submenu, let found = find(title, in: submenu) { return found }
         }
         return nil
