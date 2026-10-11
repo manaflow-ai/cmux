@@ -457,6 +457,8 @@ jobs:
       # for pull_request_target), for a takeover through the tree-claim authority.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         if: needs.tree-preflight.outputs.owner_run_id != ''
+        # Without the script the takeover falls back to the old rule (exit 127).
+        continue-on-error: true
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
