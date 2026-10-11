@@ -216,7 +216,12 @@ final class TabCell {
         updateColors(animated: true)
     }
 
-    func updateColors(animated: Bool) { Motion.transaction(animated ? .hover : nil) { applyColors() } }
+    func updateColors(animated: Bool) {
+        let token = animated ? ChromeHover.fade(showing: isLifted || fillsSelection || isHovered) : nil
+        // An instant change also ends a fill still easing in.
+        if (token.map(Motion.duration) ?? 0) == 0 { backgroundLayer.removeAnimation(forKey: "backgroundColor") }
+        Motion.transaction(token) { applyColors() }
+    }
 
     private func applyColors() {
         themeScope.perform {

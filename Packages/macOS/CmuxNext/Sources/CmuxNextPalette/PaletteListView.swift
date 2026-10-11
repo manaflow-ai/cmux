@@ -115,7 +115,7 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
         guard let id, let row = rowIndexByID[id] else { return }
         if let rowView = table.rowView(atRow: row, makeIfNecessary: false) as? PaletteTableRowView {
             rowView.isPaletteSelected = id == selectedID
-            rowView.isHovered = id == hoveredID
+            rowView.setHovered(id == hoveredID, animated: true)
         }
         (table.view(atColumn: 0, row: row, makeIfNecessary: false) as? PaletteRowCell)?.setSelected(id == selectedID)
     }

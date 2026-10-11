@@ -50,6 +50,7 @@ enum AgentPaneTheme {
             // seconds after ui.animationSpeed and Reduce Motion, so they pace with the chrome.
             "motion": [
                 "hover": motion.duration(MotionFade.hover),
+                "hoverOut": motion.duration(MotionFade.hoverOut),
                 "focus": motion.duration(MotionFade.focus),
                 "fadeIn": motion.duration(MotionFade.fadeIn),
                 "fadeOut": motion.duration(MotionFade.fadeOut),
