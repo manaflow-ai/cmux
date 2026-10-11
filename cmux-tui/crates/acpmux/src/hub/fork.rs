@@ -148,7 +148,9 @@ impl Hub {
                         | "turn_result"
                         | "turn_end"
                 ) {
-                    self.append(&new, &e.dir, &e.kind, e.msg);
+                    // Each keeps its time: a later fork through it cuts Claude's
+                    // transcript there (`fork_at.rs`), and a replay plays it then.
+                    self.append_at(&new, &e.dir, &e.kind, e.msg, None, Some(e.at));
                 }
             }
         }

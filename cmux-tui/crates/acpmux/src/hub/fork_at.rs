@@ -27,16 +27,23 @@ pub(super) fn claude_transcript_through(
         .ok_or_else(|| anyhow::anyhow!("no Claude transcript for session {parent}"))?;
     let id = uuid::Uuid::now_v7().to_string();
     let mut lines = Vec::new();
+    let mut prompts = 0;
     for line in BufReader::new(std::fs::File::open(&file)?).lines() {
         let Ok(mut record) = serde_json::from_str::<Value>(&line?) else { continue };
-        if is_prompt(&record) && written_ms(&record).is_some_and(|at| at >= cut_ms) {
-            break;
+        if is_prompt(&record) {
+            if written_ms(&record).is_some_and(|at| at >= cut_ms) {
+                break;
+            }
+            prompts += 1;
         }
         if record.get("sessionId").is_some_and(Value::is_string) {
             record["sessionId"] = Value::String(id.clone());
         }
         lines.push(serde_json::to_string(&record)?);
     }
+    // Claude started this conversation after that turn (a failover starts
+    // one fresh): resuming the copy would hold none of the chat's turns.
+    anyhow::ensure!(prompts > 0, "Claude's conversation for this chat starts after that turn");
     let mut copy = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
