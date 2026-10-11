@@ -15,6 +15,8 @@ Behaviour per prompt text:
 FAKE_CODEX_STEER=1: steering as codex-acp 1.10.0 does it. The agent
 advertises steering; a prompt while a turn runs joins that turn, and when
 the turn ends only the last prompt gets an answer (the earlier ones never).
+
+FAKE_EXIT_AFTER_NEW=1: the agent exits once its session starts, before any prompt.
 """
 import json
 import sys
@@ -501,6 +503,10 @@ def main():
             if os.environ.get("FAKE_NO_MODES") == "1":
                 del result["modes"]
             send({"jsonrpc": "2.0", "id": rid, "result": result})
+            # FAKE_EXIT_AFTER_NEW=1: the agent exits once its session starts,
+            # before any prompt.
+            if os.environ.get("FAKE_EXIT_AFTER_NEW") == "1":
+                os._exit(0)
         elif m == "session/load":
             # FAKE_LOAD_GATE=<path>: the load answers once that file exists, on
             # its own thread, and until then the session is unknown: a prompt

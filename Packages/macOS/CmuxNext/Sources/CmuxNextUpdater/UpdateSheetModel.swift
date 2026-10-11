@@ -42,7 +42,7 @@ public final class UpdateSheetModel: UpdateSheetSource {
             service.checkForUpdates()
         case .relaunch:
             if case .installing(let installing) = state { installing.retryTerminatingApplication() }
-        case .releaseNotes(let url):
+        case .releaseNotes(let url), .downloadManually(let url):
             NSWorkspace.shared.openInBackground(url)
         }
     }
