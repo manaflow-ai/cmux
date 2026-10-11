@@ -143,6 +143,13 @@ final class CEFDownloads {
     /// ahead; a page's own asks the tab's gate first. A refused one is
     /// cancelled silently: no file, nothing in the downloads list.
     private func admitThenStart(id: Int32, browser: Int32, url: String, suggestedName: String, total: Int64?) {
+        // Chromium resuming a download it interrupted asks again under the
+        // same token: it goes on into its file, in its row, without asking.
+        if let item = items[id], let file = item.placement?.temporaryURL {
+            shim()?.answer(id, file.path(percentEncoded: false))
+            logger.notice("download \(id) resumes by Chromium")
+            return
+        }
         let pick = chosen.firstIndex { $0.browser == browser && $0.url == url }.map { chosen.remove(at: $0).destination }
         if pick != nil || takeStarted(browser: browser, url: url) {
             return start(id: id, browser: browser, url: url, suggestedName: suggestedName, total: total, pick: pick)

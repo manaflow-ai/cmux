@@ -49,6 +49,7 @@ BODY = hashlib.sha256(RUN.encode()).digest() * (SIZE // 32)
 DIGEST = hashlib.sha256(BODY).hexdigest()
 ETAG = f'"{DIGEST[:16]}"'
 served = {}  # path -> full (no Range) responses so far
+requests = []  # (seconds, path, Range header) of every request, for a failure's note
 lock = threading.Lock()
 
 
@@ -59,6 +60,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         path = self.path.split("?")[0]
         name = path.rsplit("/", 1)[-1]
         ranged = self.headers.get("Range")
+        requests.append((round(time.monotonic(), 1), path, ranged))
         with lock:
             count = served.get(path, 0)
             if not ranged:
@@ -212,6 +214,8 @@ try:
         broken = f"broken-{engine}-{RUN}.bin"
         rpc("action.run", {"action": f"openBrowser.{engine}", "args": {"url": f"{ORIGIN}/{broken}"}, "focus": True})
         failed = wait_for(lambda: (r := row(broken)) and r.get("status") not in (None, "inProgress") and r, f"{engine}: the broken download ends", 60)
+        if not failed:
+            print("note: broken row", row(broken), "prompts", rpc("debug.browser.prompts"), "requests", requests[-8:], flush=True)
         if failed:
             check(failed.get("status") == "failed", f"{engine}: the broken download fails ({failed})")
             check(failed.get("canRetry") is True, f"{engine}: a failed download offers Retry ({failed})")
