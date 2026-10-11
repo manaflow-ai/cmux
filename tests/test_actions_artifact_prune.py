@@ -162,6 +162,9 @@ class Workflow(unittest.TestCase):
         self.assertIn("--delete", run["run"])
         condition = run["env"]["PRUNE_DELETE"]
         self.assertIn("vars.ACTIONS_ARTIFACT_PRUNE_DELETE == '1'", condition)
+        # A dispatch decides by its input alone: delete=false is a dry run even when the variable is on.
+        self.assertIn("github.event_name == 'workflow_dispatch' && inputs.delete", condition)
+        self.assertIn("github.event_name == 'schedule' && vars.ACTIONS_ARTIFACT_PRUNE_DELETE == '1'", condition)
         self.assertIn("inputs.delete", condition)
 
 

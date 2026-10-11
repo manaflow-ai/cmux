@@ -42,7 +42,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          PRUNE_DELETE: ${{ (inputs.delete || vars.ACTIONS_ARTIFACT_PRUNE_DELETE == '1') && 'true' || 'false' }}
+          # A dispatch decides by its input alone; the variable governs scheduled runs.
+          PRUNE_DELETE: ${{ ((github.event_name == 'workflow_dispatch' && inputs.delete) || (github.event_name == 'schedule' && vars.ACTIONS_ARTIFACT_PRUNE_DELETE == '1')) && 'true' || 'false' }}
         run: |
           set -euo pipefail
           args=(--repo "$REPOSITORY")
