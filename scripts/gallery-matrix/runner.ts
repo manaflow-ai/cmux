@@ -206,6 +206,7 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     await page.exposeFunction("cmuxGalleryInput", async (action: { kind: string; x?: number; y?: number; text?: string }) => {
       const at = () => page.mouse.move(action.x ?? 0, action.y ?? 0);
       if (action.kind === "click") await page.mouse.click(action.x ?? 0, action.y ?? 0);
+      else if (action.kind === "contextmenu") await page.mouse.click(action.x ?? 0, action.y ?? 0, { button: "right" });
       else if (action.kind === "hover" || action.kind === "move") await at();
       else if (action.kind === "down") { await at(); await page.mouse.down(); }
       else if (action.kind === "up") { await at(); await page.mouse.up(); }
