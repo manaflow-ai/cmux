@@ -452,8 +452,9 @@ CMUX_SHIM_EXPORT int cmux_shim_download_continue(int download_id, const char* pa
 // its first update.
 CMUX_SHIM_EXPORT int cmux_shim_download_control(int download_id, int command);
 // Answers PERMISSION_PROMPT (prompt_token = its token): result 1 allows,
-// 2 denies (Chromium remembers both for the origin), any other value
-// dismisses it unanswered. Returns 0 when the prompt is not waiting.
+// 2 denies (Chromium remembers both for the origin); any other value drops
+// it unanswered (no dismissal is recorded; Chromium ends it with the page).
+// Returns 0 when the prompt is not waiting.
 CMUX_SHIM_EXPORT int cmux_shim_permission_continue(int prompt_token, int result);
 
 // Shutdown ordering (fork API v2).

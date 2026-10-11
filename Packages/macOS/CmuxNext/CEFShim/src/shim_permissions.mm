@@ -83,7 +83,10 @@ int cmux_shim_permission_continue(int prompt_token, int result) {
   switch (result) {
     case 1: callback->Continue(CEF_PERMISSION_RESULT_ACCEPT); break;
     case 2: callback->Continue(CEF_PERMISSION_RESULT_DENY); break;
-    default: callback->Continue(CEF_PERMISSION_RESULT_DISMISS); break;
+    // No answer (the tab closed): never DISMISS, which Chromium counts toward
+    // blocking the site for days (embargo). The request ends, unanswered,
+    // when the page goes away.
+    default: break;
   }
   return 1;
 }

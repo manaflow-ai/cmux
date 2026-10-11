@@ -3594,6 +3594,78 @@
             "state": "translated",
             "value": "%@에서 내 위치를 확인하려고 합니다."
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ želi znati vašu lokaciju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ vil kende din placering."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ vuole conoscere la tua posizione."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ចង់ដឹងទីតាំងរបស់អ្នក។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ vil vite hvor du er."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ chce poznać Twoją lokalizację."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ quer saber sua localização."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ запрашивает ваше местоположение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ต้องการทราบตำแหน่งของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ konumunuzu öğrenmek istiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ хоче дізнатися ваше місцезнаходження."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ muốn biết vị trí của bạn."
+          }
         }
       }
     },
@@ -3652,6 +3724,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@에서 알림을 표시하려고 합니다."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ želi prikazivati obavještenja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ vil vise notifikationer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ vuole mostrare notifiche."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ចង់បង្ហាញការជូនដំណឹង។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ vil vise varsler."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ chce wyświetlać powiadomienia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ quer mostrar notificações."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ хочет показывать уведомления."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ต้องการแสดงการแจ้งเตือน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ bildirim göstermek istiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ хоче показувати сповіщення."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ muốn hiển thị thông báo."
           }
         }
       }

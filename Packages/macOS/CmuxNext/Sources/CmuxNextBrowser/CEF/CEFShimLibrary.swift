@@ -120,7 +120,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let downloadURL: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32
     let downloadContinue: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32
     let downloadControl: @convention(c) (Int32, Int32) -> Int32
-    /// Answers PERMISSION_PROMPT: 1 allow, 2 deny, else dismiss.
+    /// Answers PERMISSION_PROMPT: 1 allow, 2 deny, else no answer.
     let permissionContinue: @convention(c) (Int32, Int32) -> Int32
 
     // Page Info site state (ABI 3).
