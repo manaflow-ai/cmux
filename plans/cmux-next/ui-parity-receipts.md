@@ -4,6 +4,23 @@ Receipts tie an interaction change to its source commit, repeatable scenario, an
 actually covers it. A missing visual or latency measurement is recorded as untested rather than
 implied by a passing unit test.
 
+## Agent CLI health notice gallery
+
+- **Source:** cmux `fix/cmux-next-harness-health-gallery` at `b40b176a95dc`; PR #19464.
+- **Scenario:** render the real `HarnessHealthNotice` for a signed-out CLI, an outdated CLI, a
+  dismissed notice, and an update that requires elevation. The scripted plays invoke Log In,
+  Update, and Not Now through the shipped buttons and verify the terminal command handoff or
+  dismissal state.
+- **Environment:** component gallery at 360 / 560 / 760 px pane widths, with the normal gallery
+  theme matrix still to run on hosted Chromium and WebKit.
+- **Evidence:** `webviews/test/gallery-coverage.test.ts` (6 passing checks),
+  `webviews/src/agent-session/acpmux/HarnessHealthNotice.test.tsx` (4 passing tests, 16
+  expectations), `bun run typecheck`, changed-file lint, and `bun run gallery:build` pass locally.
+- **Latency:** the entry declares a 250 ms settle budget for local action feedback; no hosted
+  action-to-settle measurement is available yet.
+- **Untested:** the hosted matrix, real terminal-tab launch, and native Settings handoff for
+  elevated updates remain pending.
+
 ## Composer file-drag lifecycle
 
 - **Source:** cmux `fix/cmux-next-composer-drag-lifecycle` at `1bc2eb5a0460`; PR #19220.

@@ -182,6 +182,41 @@ def processes_under(root):
     return found
 
 
+NOTES_ENTRIES = [
+    ("new", {"en": "Restart to Update is instant", "ja": "すぐに再起動して更新"},
+     {"en": "The click answers in one frame; terminals and agents keep running.", "ja": "クリックは1フレームで反応し、ターミナルとエージェントは動き続けます。"}),
+    ("fixed", {"en": "Updates install when Sparkle staged them", "ja": "自動でダウンロードした更新もインストール"},
+     {"en": "A silently downloaded update now installs on the first click.", "ja": "自動でダウンロードされた更新も最初のクリックでインストールされます。"}),
+    ("improved", {"en": "What's New after every update", "ja": "毎回の更新後に新機能を表示"},
+     {"en": "A card shows what changed, once, on every channel.", "ja": "変更点をすべてのチャンネルで一度だけ表示します。"}),
+    ("new", {"en": "Highlights before you restart", "ja": "再起動前にハイライトを表示"},
+     {"en": "The update card names the top changes.", "ja": "更新カードに主な変更点を表示します。"}),
+]
+
+
+def write_notes(feed, keys, info, log):
+    """Signed release notes for `info`'s build, laid out like the real feed: notes/<build>.json + .sig."""
+    build, short = info["CFBundleVersion"], info.get("CFBundleShortVersionString", "0")
+    notes = {
+        "version": 1, "build": build, "shortVersion": short, "date": time.strftime("%Y-%m-%d", time.gmtime()),
+        "highlights": [], "changes": ["harness change"],
+        "summary": [{"group": "new", "title": "Highlights before you restart"}],
+        "whatsNew": {"schemaVersion": 1, "version": short, "channel": "nightly", "date": time.strftime("%Y-%m-%d", time.gmtime()),
+                     "headline": {"en": "Faster updates", "ja": "より速い更新"},
+                     "entries": [{"id": f"harness-{i}", "category": category, "title": title, "summary": summary,
+                                  "platforms": ["macos"], "audience": "all"}
+                                 for i, (category, title, summary) in enumerate(NOTES_ENTRIES)]},
+    }
+    folder = os.path.join(feed, "notes")
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, f"{build}.json")
+    with open(path, "w") as f:
+        json.dump(notes, f, ensure_ascii=False)
+    with open(path + ".sig", "w") as f:
+        f.write(run(["swift", os.path.join(HERE, "keys.swift"), "sign", keys, path]) + "\n")
+    log("notes", path)
+
+
 def second_hop(a, work, feed, keys, name, public_key, harness, base, marks, sock, installed_path, old_pids, click_after_keep):
     """The relaunched build updates again: v3 on the feed, a check, the staged click, the next relaunch."""
     v2_pid = old_pids[-1]
@@ -253,6 +288,10 @@ def main():
     ap.add_argument("--break-staged", action="store_true",
                     help="delete Sparkle's staged installation after the update stages: the install must fail "
                          "visibly while the app runs (the failure sheet with Download Manually), never as a dead click")
+    ap.add_argument("--notes", action="store_true",
+                    help="publish signed release notes for v2 (a localized What's New document) next to the feed, "
+                         "signed with the throwaway key, and read the staged highlights (updates.highlights)")
+    ap.add_argument("--language", help="v1's AppleLanguages, for example ja")
     ap.add_argument("--second-hop", action="store_true",
                     help="after the relaunch, publish a v3 and update the relaunched build again")
     ap.add_argument("--click-at-stage", action="store_true",
@@ -296,8 +335,12 @@ def main():
             terminal = Terminal(v1, work, log, f"cmux-app-{slug}")
         harness = {"feed": feed_url, "marks": marks_path}
         base = int(time.time())
-        i1 = plist_set(v1, {"SUPublicEDKey": public_key, "CFBundleVersion": str(base)},
-                       {**harness, "background": True} if a.sparkle_auto else harness)
+        v1_harness = dict(harness)
+        if a.sparkle_auto:
+            v1_harness["background"] = True
+        if a.notes:
+            v1_harness["contentKey"] = public_key
+        i1 = plist_set(v1, {"SUPublicEDKey": public_key, "CFBundleVersion": str(base)}, v1_harness)
         v2_extra = {}
         if a.required_update:
             # v2 is a newer version, which v1's organization requires.
@@ -329,6 +372,8 @@ def main():
 """
         with open(os.path.join(feed, "appcast.xml"), "w") as f:
             f.write(appcast)
+        if a.notes:
+            write_notes(feed, keys, i2, log)
         server = subprocess.Popen([sys.executable, "-m", "http.server", str(a.port), "--bind", "127.0.0.1", "--directory", feed],
                                   stdout=open(os.path.join(out, "server.log"), "w"), stderr=subprocess.STDOUT,
                                   stdin=subprocess.DEVNULL)
@@ -350,6 +395,8 @@ def main():
             result["required"] = {"from": i1.get("CFBundleShortVersionString"), "minimum": i2["CFBundleShortVersionString"]}
         binary = os.path.join(v1, "Contents/MacOS", i1["CFBundleExecutable"])
         arguments = ["-SUAutomaticallyUpdate", "YES"] if a.sparkle_auto else []
+        if a.language:
+            arguments += ["-AppleLanguages", f"({a.language})"]
         app = subprocess.Popen([binary, *arguments], env=env, cwd=os.path.join(work, "cwd"), stdin=subprocess.DEVNULL,
                                stdout=open(os.path.join(out, "v1.log"), "w"), stderr=subprocess.STDOUT, start_new_session=True)
         v1_pid = app.pid
@@ -380,6 +427,16 @@ def main():
             # A person clicks seconds or hours after the card appears; the staging work is done by then.
             kept = marks.wait(lambda rows: first(rows, "keep_previous_end", pid=v1_pid), 120)
             log("staging work done" if kept else "staging work still running after 120 s; clicking anyway")
+        if a.notes:
+            # The notes load after staging (one fetch, verified); read until they count, 10 s at most.
+            deadline = time.monotonic() + 10
+            while True:
+                highlights = rpc(sock, "updates.highlights").get("result")
+                if (highlights or {}).get("source") == "whatsNew" or time.monotonic() > deadline:
+                    break
+                time.sleep(0.5)
+            result["highlights"] = highlights
+            log("highlights", json.dumps(highlights, ensure_ascii=False)[:2000])
         if terminal:
             terminal.start(v1)
             agent.start()
