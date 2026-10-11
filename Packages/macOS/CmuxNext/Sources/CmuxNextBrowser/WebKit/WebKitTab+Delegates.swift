@@ -176,7 +176,20 @@ extension WebKitTab: WKUIDelegate {
         default: .cameraAndMicrophone
         }
         // Stored per-site decisions answer without asking (PageInfo).
-        decideMediaCapture(kind, origin: Self.displayOrigin(origin), decisionHandler: decisionHandler)
+        decidePermission(kind, origin: Self.displayOrigin(origin)) { decisionHandler($0 ? .grant : .deny) }
+    }
+
+    // Location and notifications have only private WKUIDelegate methods
+    // (WKUIDelegatePrivate); without them WebKit refuses both unasked.
+    @objc(_webView:requestGeolocationPermissionForOrigin:initiatedByFrame:decisionHandler:)
+    func requestLocation(_ webView: WKWebView, origin: WKSecurityOrigin, frame: WKFrameInfo,
+                         decisionHandler: @escaping @MainActor (WKPermissionDecision) -> Void) {
+        decidePermission(.location, origin: Self.displayOrigin(origin)) { decisionHandler($0 ? .grant : .deny) }
+    }
+
+    @objc(_webView:requestNotificationPermissionForSecurityOrigin:decisionHandler:)
+    func requestNotifications(_ webView: WKWebView, origin: WKSecurityOrigin, decisionHandler: @escaping @MainActor (Bool) -> Void) {
+        decidePermission(.notifications, origin: Self.displayOrigin(origin), granted: decisionHandler)
     }
 
     public func webView(
