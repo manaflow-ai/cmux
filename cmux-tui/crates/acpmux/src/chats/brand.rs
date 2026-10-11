@@ -32,7 +32,7 @@ fn candidates(raw: &str) -> Vec<String> {
     let word = out.last().and_then(|last| last.split_whitespace().next()).map(str::to_owned);
     add(&mut out, word.as_deref());
     let part = word.as_deref().and_then(|word| {
-        word.split(|c: char| matches!(c, '-' | '_' | '.')).find(|part| !part.is_empty())
+        word.split(['-', '_', '.']).find(|part| !part.is_empty())
     });
     add(&mut out, part);
     out
