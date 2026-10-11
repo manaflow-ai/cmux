@@ -41,6 +41,7 @@ enum AppActions {
         SidebarHiddenSections.bind(into: registry, context: context)
         SidebarGroupByActions.bind(into: registry, context: context)
         SidebarWorkspaceTabsToggle.bind(into: registry, context: context)
+        SidebarMinimalToggle.bind(into: registry, context: context)
         SettingsHandlers.bind(into: registry, context: context)
         AppearanceHandlers.bind(into: registry, context: context)
         FocusRingHandlers.bind(into: registry, context: context)

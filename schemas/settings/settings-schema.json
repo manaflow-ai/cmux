@@ -307,6 +307,7 @@
               "sidebar.showChats",
               "sidebar.showProjects",
               "sidebar.groupBy",
+              "sidebar.minimal",
               "sidebar.minimalMode",
               "sidebar.cards.tips",
               "sidebar.side",
@@ -10366,6 +10367,55 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.minimal.help",
+        "text" : "Workspace rows show only their icon, name and unread mark, and section titles become thin lines."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.minimal",
+      "keywords" : [
+        "sidebar",
+        "minimal",
+        "compact",
+        "dense",
+        "rows",
+        "simple",
+        "clean"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "minimal"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.minimal",
+        "text" : "Minimal Mode"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "off",
         "bottom",
         "top",
@@ -10440,7 +10490,7 @@
       "section" : "appearance",
       "title" : {
         "key" : "settings.sidebar.minimalMode",
-        "text" : "Minimal Mode"
+        "text" : "Hide Bands Until Hover"
       },
       "validation" : "portable"
     },
@@ -18105,7 +18155,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "9789121b2fbc17393497c84df7821d1a3ef0532765f888858ca87da8ec009412",
+  "schema_hash" : "24bf0b2aaa5e31e65753e54adcadcb2598dc59360ae05df5a7ac46fb37ee0fff",
   "sections" : [
     {
       "id" : "general",

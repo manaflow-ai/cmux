@@ -1791,6 +1791,16 @@ Result<ConversationImportMessage> Codec<ConversationImportMessage>::decode(const
 Result<Json> Codec<ConversationMessage>::encode(const ConversationMessage& value) {
     (void)value;
     Json::Object object;
+    if (value.answers) {
+        auto encoded = encode_value(*value.answers);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("answers", std::move(encoded).value());
+    }
+    if (value.answers_pending) {
+        auto encoded = encode_value(*value.answers_pending);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("answers_pending", std::move(encoded).value());
+    }
     auto encoded_author = encode_value(value.author);
     if (!encoded_author) return std::move(encoded_author).error();
     object.emplace("author", std::move(encoded_author).value());
@@ -1842,6 +1852,18 @@ Result<ConversationMessage> Codec<ConversationMessage>::decode(const Json& value
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     ConversationMessage result{};
+    const Json* field_answers = value.find("answers");
+    if (field_answers) {
+        auto decoded = decode_value<std::vector<std::string>>(*field_answers);
+        if (!decoded) return std::move(decoded).error();
+        result.answers = std::move(decoded).value();
+    }
+    const Json* field_answers_pending = value.find("answers_pending");
+    if (field_answers_pending) {
+        auto decoded = decode_value<std::vector<std::string>>(*field_answers_pending);
+        if (!decoded) return std::move(decoded).error();
+        result.answers_pending = std::move(decoded).value();
+    }
     const Json* field_author = value.find("author");
     if (!field_author) {
         return make_error(ErrorCode::decode, "missing required field 'author'");
@@ -3411,10 +3433,20 @@ Result<Json> Codec<IdentifyResult>::encode(const IdentifyResult& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("build_commit", std::move(encoded).value());
     }
+    if (!value.build_id.is_absent()) {
+        auto encoded = encode_value(value.build_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("build_id", std::move(encoded).value());
+    }
     if (value.capabilities) {
         auto encoded = encode_value(*value.capabilities);
         if (!encoded) return std::move(encoded).error();
         object.emplace("capabilities", std::move(encoded).value());
+    }
+    if (!value.cli_path.is_absent()) {
+        auto encoded = encode_value(value.cli_path);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cli_path", std::move(encoded).value());
     }
     object.emplace("daemon_handoff", Json(static_cast<std::uint64_t>(1ULL)));
     auto encoded_generation = encode_value(value.generation);
@@ -3492,11 +3524,31 @@ Result<IdentifyResult> Codec<IdentifyResult>::decode(const Json& value) {
             result.build_commit = Field<std::string>(std::move(decoded).value());
         }
     }
+    const Json* field_build_id = value.find("build_id");
+    if (field_build_id) {
+        if (field_build_id->is_null()) {
+            result.build_id = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_build_id);
+            if (!decoded) return std::move(decoded).error();
+            result.build_id = Field<std::string>(std::move(decoded).value());
+        }
+    }
     const Json* field_capabilities = value.find("capabilities");
     if (field_capabilities) {
         auto decoded = decode_value<std::vector<std::string>>(*field_capabilities);
         if (!decoded) return std::move(decoded).error();
         result.capabilities = std::move(decoded).value();
+    }
+    const Json* field_cli_path = value.find("cli_path");
+    if (field_cli_path) {
+        if (field_cli_path->is_null()) {
+            result.cli_path = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_cli_path);
+            if (!decoded) return std::move(decoded).error();
+            result.cli_path = Field<std::string>(std::move(decoded).value());
+        }
     }
     const Json* field_daemon_handoff = value.find("daemon_handoff");
     if (!field_daemon_handoff) {

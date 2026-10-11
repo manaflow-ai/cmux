@@ -301,7 +301,9 @@ await requireBrowserLane("diff-virtualization.test.ts", async () => {
       });
 
       test("the header bar toggles on a click anywhere, not after a drag-select or on its controls", async () => {
-        await scrollViewer(page, await topOf(page, "src/mod00/file0001.ts"));
+        // The header 200 px below the viewer's top: a drag-select at the very top edge autoscrolls
+        // the viewer up (15 px in a run with the CPU throttled 4x), and the pointer leaves the name.
+        await scrollViewer(page, (await topOf(page, "src/mod00/file0001.ts")) - 200);
         expect((await headerOffset(page, "file0001.ts"))?.expanded).toBe("true");
 
         // Drag across the file name: the path is selected and the file stays open.
