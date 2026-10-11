@@ -34,7 +34,9 @@ const retry: Play = async (ctx) => {
 
 const enable: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Enable Claude Code" });
-  await ctx.waitFor(() => ctx.find({ role: "button", name: "Retrying…" }).getAttribute("disabled") !== null);
+  await ctx.waitFor(
+    () => ctx.find({ role: "button", name: "Enable Claude Code" }).getAttribute("disabled") !== null,
+  );
 };
 
 export default componentEntry<Props>({
