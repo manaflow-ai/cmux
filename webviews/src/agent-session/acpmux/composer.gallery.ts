@@ -13,6 +13,12 @@ const waiting = [
   { id: "q3", prompt: "Run the whole suite" },
 ];
 
+// A running turn of an agent that steers (Claude Code, Codex) or not (acpmux `steering`).
+const steering = (steers: boolean) => {
+  const running = chat(working, { isWorking: true });
+  return { ...running, summary: { ...running.summary!, steering: steers } };
+};
+
 // A chat started without a project lives in cmux's agent home, one UUID folder per chat.
 const AGENT_HOME = "/Users/you/Library/Application Support/cmux/agent-home/6b16a112-289d-4467-9675-8e6feee99481";
 
@@ -288,6 +294,16 @@ export default agentPaneEntry({
         await ctx.click({ role: "button", name: "Stop" });
         await ctx.waitFor(() => ctx.document.querySelector('button[aria-label="Send"]'));
       },
+    },
+    "working-steer": {
+      note: "A prompt typed while the turn runs: Steer beside Send puts it into the turn now (⌘Return); Send queues it for after the turn (Return); Esc on an empty prompt stops the turn.",
+      snapshot: steering(true),
+      ready: { draft: "Use the new tokenizer instead" },
+    },
+    "working-interrupt": {
+      note: "The same for an agent that cannot steer: Interrupt stops the turn and sends the prompt next (⌘Return).",
+      snapshot: steering(false),
+      ready: { draft: "Use the new tokenizer instead" },
     },
     queued: {
       note: "Two prompts waiting for the running turn: numbered rows on the composer's top edge.",

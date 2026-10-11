@@ -139,6 +139,8 @@ export type AcpmuxSnapshot = {
     confirmedModel?: string;
     effort?: string;
     promptCapabilities?: { image?: boolean };
+    /// The agent takes a prompt mid-turn (acpmux `steering`); without it a steer stops the turn.
+    steering?: boolean;
     status?: string;
     enforcement?: Enforcement;
     modes?: {
