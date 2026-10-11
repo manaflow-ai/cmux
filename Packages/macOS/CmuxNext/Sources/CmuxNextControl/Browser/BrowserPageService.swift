@@ -77,6 +77,7 @@ public struct BrowserPageService: Sendable {
             element("text", BrowserPageScripts.text, engine: engine),
             element("value", BrowserPageScripts.value, engine: engine),
         ])
+        router.register(waitAndCaptureMethods())
         router.register(tabMethods(router: router))
     }
 

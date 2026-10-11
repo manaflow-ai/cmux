@@ -16,9 +16,11 @@
 //! already-unlinked socket path that no client can ever reach. Every holder
 //! keeps that lock only for moments: an ensure across one probe and the
 //! spawn, an owner across its bind. An owner binds its socket before it
-//! restores its session (cx-n3bs) and answers `identify` with
-//! `lifecycle_ready: false` until the restore ends, so ensure waits for a
-//! restoring owner outside the lock and never mistakes it for an absent one.
+//! restores its session (cx-n3bs) and holds connections unanswered until the
+//! restore ends (then `identify` reports `lifecycle_ready: false` until
+//! startup ends), so ensure reads a live but silent socket as a starting
+//! owner, waits for it outside the lock, and never mistakes it for an absent
+//! one.
 
 use std::io;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -38,7 +40,8 @@ pub(crate) const ENSURE_DEADLINE: Duration = Duration::from_secs(10);
 
 /// Upper bound on the wait for an owner that is alive but still restoring
 /// its session (registry, terminal host adoption) before it accepts clients.
-/// Once an owner answers identify with `lifecycle_ready: false`, ensure
+/// Once an owner accepts a connection but its identify times out (restoring)
+/// or answers `lifecycle_ready: false`, ensure
 /// waits for its restore up to this bound instead of reporting the owner
 /// unavailable (cx-w760: a slow box took over 10 s to restore after a
 /// restart, and the first ensure failed).
