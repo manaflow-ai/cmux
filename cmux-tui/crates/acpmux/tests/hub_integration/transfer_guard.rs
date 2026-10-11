@@ -178,7 +178,13 @@ async fn wait_record(
 
 /// A chat in `cwd` whose last turn failed: `p-a` and `p-b` wait behind it, held.
 async fn held_chat(c: &mut TestClient, cwd: &Path) -> String {
-    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd, "mcpServers": []})).await.unwrap();
+    held_chat_with(c, cwd, json!({})).await
+}
+
+/// `held_chat`, created with `_meta.acpmux` fields `acpmux` (a harness, a policy).
+async fn held_chat_with(c: &mut TestClient, cwd: &Path, acpmux: Value) -> String {
+    let new = json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": acpmux}});
+    let s = c.request(method::SESSION_NEW, new).await.unwrap();
     let id = s["sessionId"].as_str().unwrap().to_owned();
     c.request(method::SESSION_PROMPT, ask(&id, "p-hi", "hi")).await.unwrap();
     c.send(method::SESSION_PROMPT, ask(&id, "p-slow", "slow")).await;
@@ -339,10 +345,10 @@ async fn a_guarded_finish_refuses_a_folder_outside_the_roots_and_the_source_stay
 }
 
 #[tokio::test]
-async fn a_guarded_chat_asks_and_rules_or_policies_that_approve_are_refused() {
+async fn a_web_guarded_chat_asks_and_rules_or_policies_that_approve_are_refused() {
     let root = Scratch::home("policy");
     let (_b, mut dst) = daemon(config("approve-all", json!({})), None).await;
-    let g = || guard("peer", &[root.path()]);
+    let g = || guard("web", &[root.path()]);
 
     let m = meta(root.path(), json!({}));
     let rid = receive(&mut dst, g(), &m, &[]).await.unwrap();
@@ -363,29 +369,39 @@ async fn a_guarded_chat_asks_and_rules_or_policies_that_approve_are_refused() {
         let rid = receive(&mut dst, g(), &m, &[]).await.unwrap();
         let r = finish(&mut dst, &rid, json!({})).await;
         assert!(r.as_ref().is_err_and(|e| e.contains("transfer.policy")), "{extra}: {r:?}");
+        // Toward the person's own machine (peer), the chat keeps its policy and rules.
+        let m = meta(root.path(), extra.clone());
+        let rid = receive(&mut dst, guard("peer", &[root.path()]), &m, &[]).await.unwrap();
+        let s = finish(&mut dst, &rid, json!({})).await.unwrap();
+        if let Some(policy) = extra.get("permissionPolicy") {
+            assert_eq!(&s["policy"], policy, "{s}");
+        }
+        assert_eq!(s["rules"], extra.get("permissionRules").is_some(), "{s}");
     }
 }
 
 #[tokio::test]
-async fn a_guarded_chat_takes_its_family_from_here_and_a_mode_that_does_not_ask_is_refused() {
+async fn a_guarded_chat_takes_its_family_from_here_and_a_web_one_must_ask() {
     let root = Scratch::home("mode");
     let (_b, mut dst) = daemon(config("ask", json!({})), None).await;
     let modes = |current: &str| json!({"currentModeId": current, "availableModes": []});
 
     // `default` asks for Claude, but this chat runs the fake profile: its family is fake here.
-    for (control, extra) in [
-        ("peer", json!({"family": "claude", "modes": modes("default")})),
-        ("web", json!({"modes": modes("strict")})),
-        ("peer", json!({"modes": modes("strict")})),
-        (
-            "peer",
-            json!({"modes": modes("normal"), "configOptions": [{"id": "mode", "currentValue": "strict"}]}),
-        ),
+    for extra in [
+        json!({"family": "claude", "modes": modes("default")}),
+        json!({"modes": modes("strict")}),
+        json!({"modes": modes("normal"), "configOptions": [{"id": "mode", "currentValue": "strict"}]}),
+        json!({"modes": modes("normal"), "configOptions": [{"id": "sandbox", "currentValue": "off"}]}),
     ] {
         let m = meta(root.path(), extra.clone());
-        let rid = receive(&mut dst, guard(control, &[root.path()]), &m, &[]).await.unwrap();
+        let rid = receive(&mut dst, guard("web", &[root.path()]), &m, &[]).await.unwrap();
         let r = finish(&mut dst, &rid, json!({})).await;
         assert!(r.as_ref().is_err_and(|e| e.contains("transfer.mode")), "{extra}: {r:?}");
+        // A peer guard has no mode rule: the chat moves in its mode, its family still from here.
+        let m = meta(root.path(), extra.clone());
+        let rid = receive(&mut dst, guard("peer", &[root.path()]), &m, &[]).await.unwrap();
+        let s = finish(&mut dst, &rid, json!({})).await.unwrap();
+        assert_eq!(s["family"], "fake", "{extra}: {s}");
     }
     let m = meta(root.path(), json!({"family": "claude", "modes": modes("normal")}));
     let rid = receive(&mut dst, guard("web", &[root.path()]), &m, &[]).await.unwrap();
@@ -512,6 +528,56 @@ async fn a_guarded_finish_restores_only_the_chats_own_agent_file_without_its_mod
     let files: Vec<(&str, &[u8])> = many.iter().map(|f| (f.as_str(), &b"{}\n"[..])).collect();
     let r = receive(&mut dst, g(), &m, &files).await;
     assert!(r.as_ref().is_err_and(|e| e.contains("transfer.native")), "{r:?}");
+}
+
+#[tokio::test]
+async fn a_chat_with_no_asking_mode_moves_under_peer_control_but_not_under_web() {
+    let root = Scratch::home("codex");
+    let (_a, mut src) = daemon(config("ask", json!({})), None).await;
+    let (_b, mut dst) = daemon(config("ask", json!({})), None).await;
+    // A Codex-family chat (no mode of it asks; the fake's `normal` is not listed for codex)
+    // that approves everything.
+    let acpmux = json!({"harness": "fcodex", "policy": "approve-all"});
+    let id = held_chat_with(&mut src, root.path(), acpmux.clone()).await;
+
+    // Toward the Web's control it is refused before a page is sent.
+    let begin = src.request("_acpmux/transfer_begin", json!({"sessionId": id})).await.unwrap();
+    let params = json!({"manifest": begin, "guard": guard("web", &[root.path()])});
+    let r = dst.request("_acpmux/transfer_receive", params).await;
+    assert!(r.as_ref().is_err_and(|e| e.contains("transfer.family")), "{r:?}");
+    let abort = json!({"sessionId": id, "transferId": begin["transferId"]});
+    src.request("_acpmux/transfer_abort", abort).await.unwrap();
+
+    // Toward the person's own machine (peer) it moves as it is, and its queue runs as peer.
+    let moved = move_chat(&mut src, &mut dst, &id, Some(guard("peer", &[root.path()])), json!({}))
+        .await
+        .unwrap();
+    assert_eq!(moved["policy"], "approve-all", "{moved}");
+    assert_eq!(moved["family"], "codex", "{moved}");
+    for q in records(&mut dst, &id, "queued").await {
+        assert_eq!(q["control"], "peer", "{q}");
+        assert_ne!(q["trustGate"], true, "{q}");
+    }
+    let send_now = json!({"sessionId": id, "promptId": "p-a", "op": "send_now"});
+    dst.request("_acpmux/queue_edit", send_now).await.unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    while !texts(&mut dst, &id, "user_message").await.contains(&"a".to_owned()) {
+        assert!(tokio::time::Instant::now() < deadline, "the held prompt never ran");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(records(&mut dst, &id, "prompt_refused").await.is_empty());
+
+    // The same kind of chat in a family the Web drives is refused for its mode and policy.
+    let modes = json!({"currentModeId": "strict", "availableModes": []});
+    for (extra, error) in [
+        (json!({"modes": modes}), "transfer.mode"),
+        (json!({"permissionPolicy": "approve-all"}), "transfer.policy"),
+    ] {
+        let m = meta(root.path(), extra.clone());
+        let rid = receive(&mut dst, guard("web", &[root.path()]), &m, &[]).await.unwrap();
+        let r = finish(&mut dst, &rid, json!({})).await;
+        assert!(r.as_ref().is_err_and(|e| e.contains(error)), "{extra}: {r:?}");
+    }
 }
 
 /// A client of `hub` from `origin`, without the person's handshake.
