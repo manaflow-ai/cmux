@@ -168,9 +168,9 @@ final class PromptBarView: NSView {
             passwordField.isHidden = false
             addButton(Strings.cancel, prominent: false, response: .cancel)
             addButton(Strings.authSignIn, prominent: true, response: nil)
-        case .openExternalApp(let app, let scheme):
+        case .openExternalApp(let app, _):
             messageLabel.stringValue = Strings.externalAppPrompt(origin: prompt.origin, app: app)
-            alwaysCheck.title = Strings.externalAppAlwaysAllow(origin: prompt.origin, scheme: scheme)
+            alwaysCheck.title = Strings.externalAppAlwaysAllow
             alwaysCheck.state = .off
             alwaysCheck.isHidden = false
             addButton(Strings.cancel, prominent: false, response: .cancel)

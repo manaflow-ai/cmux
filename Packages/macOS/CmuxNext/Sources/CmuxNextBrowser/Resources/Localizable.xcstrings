@@ -17941,114 +17941,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Always allow %1$@ to open %2$@: links"
+            "value": "Always allow on this site"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ が %2$@: リンクを開くことを常に許可"
+            "value": "このサイトでは常に許可"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ immer erlauben, %2$@:-Links zu öffnen"
+            "value": "Auf dieser Website immer erlauben"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toujours autoriser %1$@ à ouvrir les liens %2$@:"
+            "value": "Toujours autoriser sur ce site"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "السماح دائمًا لـ %1$@ بفتح روابط %2$@:"
+            "value": "السماح دائمًا على هذا الموقع"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Permitir siempre que %1$@ abra enlaces %2$@:"
+            "value": "Permitir siempre en este sitio"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "一律允許 %1$@ 開啟 %2$@: 連結"
+            "value": "一律在此網站允許"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "始终允许 %1$@ 打开 %2$@: 链接"
+            "value": "始终在此网站允许"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@에서 %2$@: 링크를 여는 것을 항상 허용"
-          }
-        }
-      }
-    },
-    "browser.externalApp.alwaysAllow.thisPage": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Always allow %@: links"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@: リンクを常に許可"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@:-Links immer erlauben"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Toujours autoriser les liens %@:"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "السماح دائمًا بروابط %@:"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Permitir siempre enlaces %@:"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "一律允許 %@: 連結"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "始终允许 %@: 链接"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@: 링크를 항상 허용"
+            "value": "이 사이트에서 항상 허용"
           }
         }
       }
