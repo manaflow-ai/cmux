@@ -167,7 +167,13 @@ fn service(mux: &Mux, client: u64) -> anyhow::Result<&CloudConversations> {
 /// unsubscribes use no lease and stay open.
 fn lease_user(mux: &Mux, client: u64) -> anyhow::Result<&CloudConversations> {
     let service = service(mux, client)?;
-    if service.app_holds_lease() && !is_app(mux, client) {
+    let app = is_app(mux, client);
+    // The app never uses a lease another connection set (P2-2): it is signed
+    // out until it leases its own session.
+    if app && !service.app_holds_lease() {
+        return Err(CloudError::SignedOut.into());
+    }
+    if service.app_holds_lease() && !app {
         return Err(CloudError::Rejected {
             code: "forbidden".into(),
             message: "the cloud session lease belongs to the verified cmux app connection; \
@@ -195,7 +201,11 @@ pub(super) fn session_clear(mux: &Mux, client: u64) -> anyhow::Result<Value> {
 }
 
 pub(super) fn session_status(mux: &Mux, client: u64) -> anyhow::Result<Value> {
-    Ok(service(mux, client)?.session_status())
+    let service = service(mux, client)?;
+    if is_app(mux, client) && !service.app_holds_lease() {
+        return Ok(json!({"state": "signed_out"}));
+    }
+    Ok(service.session_status())
 }
 
 pub(super) fn inbox_list(mux: &Mux, client: u64, params: InboxListParams) -> anyhow::Result<Value> {

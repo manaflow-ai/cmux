@@ -26,6 +26,7 @@ fn cloud_mux() -> (Arc<Mux>, u64, Arc<FakeBackend>) {
         backoff_max: Duration::from_millis(20),
         poll: Duration::from_millis(5),
         max_concurrent_requests: 1,
+        api_origins: vec!["https://api.cmux.test".into()],
         ..ServiceOptions::default()
     };
     assert!(

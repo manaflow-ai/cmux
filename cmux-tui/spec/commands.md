@@ -6376,6 +6376,14 @@ and `cloud-session-clear` from any other connection are refused with
 connection may set or clear the lease; the app's next `cloud-session-set`
 replaces it.
 
+A lease from a connection that is not the app must name a known cmux Cloud
+origin (`https://cloud-api.cmux.dev`, `https://cloud-api-staging.cmux.dev`,
+the development and staging Workers, a loopback host, or an origin the daemon
+operator lists in `CMUX_CLOUD_API_ORIGINS`), else `cloud_conversation_rejected`
+with `reason` `unknown_api_origin`. The app never uses a lease another
+connection set: for the app, `cloud-session-status` answers `signed_out` and
+the lease commands answer `cloud_signed_out` until the app sets its own lease.
+
 While the app's lease exists, `cloud-*` events reach only the app's
 `subscribe` stream, never another connection's. Without an app lease they
 reach every trusted local `subscribe` stream.
