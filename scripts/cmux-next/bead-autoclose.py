@@ -137,16 +137,17 @@ def format_time(moment: datetime) -> str:
     return moment.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def read_state(path: Path) -> tuple[str, dict[str, str]]:
+def read_state(path: Path) -> tuple[str, dict[str, str], str]:
+    """(last merge handled, pull requests handled, window start of a run that handled none)."""
     try:
         text = path.read_text().strip()
     except OSError:
-        return "", {}
+        return "", {}, ""
     try:
         state = json.loads(text)
     except ValueError:
-        return text, {}  # a bare merge time
-    return state.get("last", ""), dict(state.get("handled", {}))
+        return text, {}, ""  # a bare merge time
+    return state.get("last", ""), dict(state.get("handled", {})), state.get("since", "")
 
 
 def main() -> int:
@@ -159,16 +160,22 @@ def main() -> int:
         return 2
     state = Path(os.environ.get("BEAD_AUTOCLOSE_STATE",
                                 Path.home() / ".local/state/cmux-bead-autoclose/last-merged-at"))
-    last, handled = read_state(state)
+    last, handled, pending = read_state(state)
     if args.since:
         since = args.since
     elif last:
         since = format_time(parse_time(last) - OVERLAP)
     else:
-        since = format_time(datetime.now(timezone.utc) - timedelta(hours=24))
+        since = pending or format_time(datetime.now(timezone.utc) - timedelta(hours=24))
 
     def save() -> None:
-        if args.dry_run or not last:
+        if args.dry_run:
+            return
+        if not last:
+            # Nothing handled yet (the board was unreachable): keep this run's
+            # window start, so the next run does not lose its merges.
+            state.parent.mkdir(parents=True, exist_ok=True)
+            state.write_text(json.dumps({"since": since}, sort_keys=True) + "\n")
             return
         keep = parse_time(last) - OVERLAP
         kept = {number: at for number, at in handled.items() if parse_time(at) >= keep}
