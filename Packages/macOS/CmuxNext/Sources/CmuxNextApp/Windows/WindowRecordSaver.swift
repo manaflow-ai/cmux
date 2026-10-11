@@ -68,11 +68,9 @@ final class WindowRecordSaver {
         saves.scheduled = true
         // Not part of any action's scope: a projection write keeps a fresh
         // mutation id (its CAS retries must not replay an earlier write).
-        TaskContext.run {
-            DaemonCommandScope.$current.withValue(nil) {
-                // task-owner: one coalesced save per main-actor turn; drainSaves ends when no save is requested
-                saves.drain = Task { @MainActor [weak self] in await self?.drainSaves() }
-            }
+        DaemonCommandScope.$current.withValueInTask(nil) {
+            // task-owner: one coalesced save per main-actor turn; drainSaves ends when no save is requested
+            saves.drain = Task { @MainActor [weak self] in await self?.drainSaves() }
         }
     }
 

@@ -19,7 +19,9 @@ import Testing
     }
 
     /// An object whose deinit hops to the main actor, released by the handler as a view or a
-    /// palette page is when an action replaces it.
+    /// palette page is when an action replaces it. The corruption that release causes outside a
+    /// task does not trap reliably under the system allocator, so the tests check the condition
+    /// (the handler runs inside a task), not the trap.
     @MainActor
     final class IsolatedRelease {
         isolated deinit {}

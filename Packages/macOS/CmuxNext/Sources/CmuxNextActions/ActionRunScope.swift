@@ -49,10 +49,10 @@ public extension ActionRunScope {
     /// Runs `body` with `scope` bound. For a callback stored by a run and
     /// called later outside its task tree (a store waiter, a placement
     /// continuation): it keeps the permission of the run that stored it.
-    /// The binding is made inside a task (``TaskContext``).
+    /// The binding is made inside a task (`TaskLocal.withValueInTask`).
     @MainActor
     static func carrying<T>(_ scope: ActionRunScope?, _ body: () -> T) -> T {
-        TaskContext.run { ActionRunScope.$current.withValue(scope, operation: body) }
+        ActionRunScope.$current.withValueInTask(scope, operation: body)
     }
 }
 
@@ -61,16 +61,14 @@ extension ActionRegistry {
     /// the tasks the handler starts keep the run's view-change permission,
     /// inside the App's `invocationScope` (daemon routing). A gesture runs it
     /// where no task is current, so the binding is made inside a task
-    /// (``TaskContext``, cx-bpcj).
+    /// (`TaskLocal.withValueInTask`, cx-bpcj).
     func runScoped(_ action: Action, _ id: ActionID, _ invocation: ActionInvocation) {
         let run = ActionRunScope(invocation, focuses: descriptor(for: id)?.focuses ?? false).nested(in: ActionRunScope.current)
-        TaskContext.run {
-            ActionRunScope.$current.withValue(run) {
-                if let invocationScope {
-                    invocationScope(invocation) { action.run(invocation) }
-                } else {
-                    action.run(invocation)
-                }
+        ActionRunScope.$current.withValueInTask(run) {
+            if let invocationScope {
+                invocationScope(invocation) { action.run(invocation) }
+            } else {
+                action.run(invocation)
             }
         }
         runObserver?(id, invocation)
