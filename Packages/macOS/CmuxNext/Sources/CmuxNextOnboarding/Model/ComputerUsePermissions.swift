@@ -26,8 +26,6 @@ public nonisolated struct ComputerUsePermissions: Sendable, Equatable {
                                                                      helperVersionMismatch: true)
     public static let off = ComputerUsePermissions(accessibility: false, screenRecording: false, isOff: true)
 
-    public var allGranted: Bool { accessibility && screenRecording }
-
     public func granted(_ pane: ComputerUsePermissionPane) -> Bool {
         switch pane {
         case .accessibility: accessibility

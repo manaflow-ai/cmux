@@ -46,19 +46,3 @@ public final class UpdateSheetModel: UpdateSheetSource {
         }
     }
 }
-
-/// A fixed sheet for demos and screenshots.
-@MainActor
-@Observable
-public final class StaticUpdateSheetSource: UpdateSheetSource {
-    public var content: UpdateSheetContent?
-    public private(set) var pressed: [UpdateSheetButton] = []
-
-    public init(_ content: UpdateSheetContent?) {
-        self.content = content
-    }
-
-    public func perform(_ button: UpdateSheetButton) {
-        pressed.append(button)
-    }
-}
