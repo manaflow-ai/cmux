@@ -19,6 +19,10 @@ public struct AgentNotificationReconciler: Sendable {
         var sequence: Int64 = 0
         var surfaceID: String?
         var agentKey: String?
+        /// Surfaces this session has intentionally left. A late event from one
+        /// of these panes cannot move the session back without a fresh
+        /// SessionStart ownership boundary.
+        var retiredSurfaceIDs: Set<String> = []
         var superseded = false
         var turn: String = "initial"
         var nativeTurn: String?
@@ -120,6 +124,15 @@ public struct AgentNotificationReconciler: Sendable {
         if session.superseded && draft.kind != .sessionStarted {
             return .init(.stale, invalidatedCorrelationKeys: boundaryInvalidations)
         }
+        if draft.kind != .sessionStarted,
+           let currentSurfaceID = session.surfaceID,
+           currentSurfaceID != draft.surfaceId,
+           session.retiredSurfaceIDs.contains(draft.surfaceId!) {
+            // A session move is one-way until the provider emits a fresh
+            // SessionStart. Do not let a delayed hook from the old pane revive
+            // its retired error, status, or notification state.
+            return .init(.stale, invalidatedCorrelationKeys: boundaryInvalidations)
+        }
         if let previousSurfaceID = session.surfaceID, previousSurfaceID != draft.surfaceId {
             // Correlations are pane-scoped even though the semantic session
             // identity survives a move. Retire receipts on the old pane while
@@ -139,14 +152,26 @@ public struct AgentNotificationReconciler: Sendable {
             // before later hooks can reuse the old StopFailure state.
             boundaryInvalidations.append(contentsOf: session.delivered.values)
             let seenTurns = session.seenTurns
+            let retiredSurfaceIDs = session.retiredSurfaceIDs
+            let previousSurfaceID = session.surfaceID
             session = Session()
             session.surfaceID = draft.surfaceId
             session.agentKey = draft.agentKey
+            session.retiredSurfaceIDs = retiredSurfaceIDs
+            if let previousSurfaceID, previousSurfaceID != draft.surfaceId {
+                session.retiredSurfaceIDs.insert(previousSurfaceID)
+            }
+            session.retiredSurfaceIDs.remove(draft.surfaceId!)
             // Keep the old turn watermark so a late completion from the
             // superseded turn remains stale after the recovery reset.
             session.seenTurns = seenTurns
         }
         let movedFromPreviousSurface = session.surfaceID != nil && session.surfaceID != draft.surfaceId
+        if movedFromPreviousSurface,
+           let previousSurfaceID = session.surfaceID {
+            session.retiredSurfaceIDs.insert(previousSurfaceID)
+            session.retiredSurfaceIDs.remove(draft.surfaceId!)
+        }
         session.surfaceID = draft.surfaceId
         session.agentKey = draft.agentKey
 

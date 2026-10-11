@@ -29698,7 +29698,8 @@ struct CMUXCLI {
                     // previous turn's summary before any notification hook can
                     // reuse its StopFailure text for the recovered session. The
                     // accepted upsert clears these fields in the same transaction.
-                    if let priorSurface = sessionStartResult?.previousOwnedSurface {
+                    if let priorSurface = sessionStartResult?.previousOwnedSurface,
+                       !suppressVisibleMutations {
                         // A moved session leaves a physical notification/status
                         // behind on its old pane; retire that pane explicitly.
                         _ = try? sendV1Command(
