@@ -259,9 +259,10 @@ final class HomeProjection: @preconcurrency ChatIntents {
     // MARK: Projection -> HomeStore (intents)
 
     var canReact: Bool { isSendEnabled }
-    /// HomeOp has no reply (no reply_to on message.send, no thread
-    /// rendering from HomeStore): swipe-to-reply stays off.
-    var canReply: Bool { false }
+    /// A reply goes out as `HomeOp.sendMessage(threadRoot:)` (swipe-to-reply,
+    /// Reply… in the menu, "N Replies" opens the thread view). Offline it
+    /// waits in HomeStore's queue like any send.
+    var canReply: Bool { true }
 
     /// Sends the field's draft. Nil when it went to HomeStore: committed, or
     /// waiting for the owner as "sending" (HomeStore's offline queue: a
@@ -275,6 +276,10 @@ final class HomeProjection: @preconcurrency ChatIntents {
         let text = draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
         let attachments = draft.attachments.compactMap { drafts[$0.id] }
         guard !text.isEmpty || !attachments.isEmpty else { return noteSend("refused: empty_draft") }
+        // The open thread or reply view: the send is a reply in that thread (HomeStore's root id).
+        let threadRef = draft.replyTo ?? store.state.ui.openThread
+        let threadRoot = threadRef.flatMap { item($0.messageId)?.messageID }
+        if threadRef != nil, threadRoot == nil { return noteSend("refused: thread_root_unknown") }
         // Only the cache knows this conversation so far: the owner has not
         // answered since launch, and a Chief home made again at the same path
         // has other conversations (cx-ebm.55). The text stays; Home shows the
@@ -313,9 +318,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
         Task { [weak self] in
             do {
                 if attachments.isEmpty {
-                    _ = try await homeStore.perform(.sendMessage(conversation: conversation, parts: [.text(text)]), key: key)
+                    _ = try await homeStore.perform(.sendMessage(conversation: conversation, parts: [.text(text)], threadRoot: threadRoot), key: key)
                 } else {
-                    try await homeStore.send(conversation: conversation, text: text, attachments: attachments, key: key)
+                    try await homeStore.send(conversation: conversation, text: text, attachments: attachments, key: key, threadRoot: threadRoot)
                 }
             } catch let refusal as HomeAttachmentError {
                 self?.sendRefused(key, text: text, attachments: attachments, notice: refusal)

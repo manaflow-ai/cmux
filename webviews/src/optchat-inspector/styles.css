@@ -1,29 +1,22 @@
 :root {
   color-scheme: light dark;
-  --bg: #fbfbfa;
-  --fg: #1d1d1f;
-  --muted: #6e6e73;
-  --line: #e3e3e0;
-  --card: #ffffff;
-  --accent: #b5651d;
-  --ok: #2f7d4f;
-  --warn: #a8471a;
-  --sys: #8e8e93;
-  --vsys: #c9a227;
-  --view: #d98c3f;
-  --msg: #5f8f6b;
-  --shade: rgba(201, 162, 39, 0.12);
+  /* The page theme (`--cmux-*`, WebTheme.swift); the fallbacks are system colors for the
+     plain-browser dev loop. The four context segments take the theme's status colors and a mix
+     of two, so they stay apart in every theme. */
+  --bg: var(--cmux-app-content, Canvas);
+  --fg: var(--cmux-text, CanvasText);
+  --muted: var(--cmux-text-secondary, GrayText);
+  --line: var(--cmux-separator, color-mix(in srgb, var(--fg) 12%, transparent));
+  --card: var(--cmux-elevated-background, Canvas);
+  --accent: var(--cmux-app-accent-text, var(--fg));
+  --ok: var(--cmux-app-success, var(--fg));
+  --warn: var(--cmux-app-danger, var(--fg));
+  --sys: var(--cmux-text-tertiary, GrayText);
+  --vsys: var(--cmux-app-warning, GrayText);
+  --view: color-mix(in oklab, var(--vsys), var(--warn));
+  --msg: color-mix(in oklab, var(--ok) 65%, var(--sys));
+  --shade: color-mix(in srgb, var(--vsys) 14%, transparent);
   font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #1c1c1e;
-    --fg: #f2f2f7;
-    --muted: #a1a1a6;
-    --line: #3a3a3c;
-    --card: #2c2c2e;
-    --shade: rgba(201, 162, 39, 0.16);
-  }
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg); }

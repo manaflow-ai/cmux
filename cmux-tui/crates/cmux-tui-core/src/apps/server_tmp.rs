@@ -10,8 +10,10 @@
 //!
 //! - macOS: `<per-user temp dir>/cmux-apps/<12 hex>`. The per-user temp dir
 //!   comes from `confstr(_CS_DARWIN_USER_TEMP_DIR)` only (never `$TMPDIR`)
-//!   and must have the system's fixed shape `/var/folders/<2>/<28>/T/` (49
-//!   bytes), so the folder is 49 + 10 + 12 = 71 bytes. Anything else refuses.
+//!   and must have the system's shape `/var/folders/<2>/<id>/T/` (the id 20
+//!   to 40 characters; 30 on every Mac measured, a 49-byte root and a 71-byte
+//!   folder). Anything else refuses, and so does a folder over
+//!   [`MAX_SOCKET_DIR`] (with its length).
 //! - Other unix: the old path when it fits; else `$XDG_RUNTIME_DIR/cmux-apps/
 //!   <12 hex>` when that runtime dir is the user's own 0700 folder; else a
 //!   refusal.
@@ -33,18 +35,12 @@ use sha2::{Digest, Sha256};
 /// `sun_path` is 104 bytes on macOS; the link socket adds 27 after the folder.
 pub(super) const MAX_SOCKET_DIR: usize = 104 - 1 - 27;
 
-/// The fixed shape of the macOS per-user temp dir: `/var/folders/` (13), a
-/// 2-character bucket, `/`, a 28-character id, `/T/`.
+/// The per-user id of the macOS temp dir: 30 characters on every Mac measured
+/// (macOS 26, 27); a range, so a different length the system may use never
+/// refuses every Mac again (cx-wmd8x shipped an exact 28). The runtime
+/// [`MAX_SOCKET_DIR`] check bounds the result.
 #[cfg(target_os = "macos")]
-const DARWIN_TEMP_LEN: usize = 13 + 2 + 1 + 28 + 3;
-/// `cmux-apps/` and 12 hex.
-#[cfg(target_os = "macos")]
-const SHORT_LEAF_LEN: usize = "cmux-apps/".len() + 12;
-#[cfg(target_os = "macos")]
-const _: () = assert!(
-    DARWIN_TEMP_LEN + SHORT_LEAF_LEN <= MAX_SOCKET_DIR,
-    "the macOS app socket folder must fit the link socket"
-);
+const DARWIN_ID_LEN: std::ops::RangeInclusive<usize> = 20..=40;
 
 fn short_name(base: &Path, namespace: &str) -> String {
     use std::os::unix::ffi::OsStrExt;
@@ -66,7 +62,7 @@ fn fits(path: &Path) -> Result<(), String> {
 }
 
 /// The per-user temp dir from `confstr(_CS_DARWIN_USER_TEMP_DIR)`, checked
-/// against the system's fixed shape.
+/// against the system's shape.
 #[cfg(target_os = "macos")]
 fn darwin_user_temp() -> Result<PathBuf, String> {
     let mut buf = [0u8; 1024];
@@ -81,13 +77,12 @@ fn darwin_user_temp() -> Result<PathBuf, String> {
         .map_err(|_| "the per-user temp dir is not UTF-8".to_string())?;
     let parts: Vec<&str> = text.split('/').collect();
     let id_char = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '+' || c == '-';
-    let shaped = text.len() == DARWIN_TEMP_LEN
-        && parts.len() == 7
+    let shaped = parts.len() == 7
         && parts[0].is_empty()
         && parts[1] == "var"
         && parts[2] == "folders"
         && parts[3].len() == 2
-        && parts[4].len() == 28
+        && DARWIN_ID_LEN.contains(&parts[4].len())
         && parts[5] == "T"
         && parts[6].is_empty()
         && parts[3].chars().chain(parts[4].chars()).all(id_char);
@@ -199,5 +194,22 @@ pub(super) fn fresh_server_tmp(dir: &Path) -> Result<(), String> {
 pub(super) fn remove_server_tmp(dir: &Path) {
     if private_dir(dir, "the app socket folder").is_ok() {
         let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
+/// The real per-user temp dir of this Mac (confstr) has the expected shape, and
+/// its app socket folder fits the link socket (cx-wmd8x: the shape check once
+/// refused every Mac and no test ran on one).
+#[cfg(all(test, target_os = "macos"))]
+mod macos_tests {
+    #[test]
+    fn this_macs_temp_dir_gives_a_socket_folder_that_fits() {
+        let root =
+            super::darwin_user_temp().expect("this Mac's confstr temp dir has the system's shape");
+        let dir = super::server_tmp_dir(std::path::Path::new("/tmp/state"), "cmux.linked")
+            .expect("this Mac's app socket folder fits");
+        assert!(dir.starts_with(&root), "{}", dir.display());
+        assert!(dir.as_os_str().len() <= super::MAX_SOCKET_DIR, "{}", dir.display());
+        println!("socket folder {} ({} bytes)", dir.display(), dir.as_os_str().len());
     }
 }

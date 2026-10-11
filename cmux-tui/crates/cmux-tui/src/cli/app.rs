@@ -803,8 +803,16 @@ pub(super) fn caller_from(env: impl Fn(&str) -> Option<String>) -> Option<Value>
 
 /// `params` with the caller added for a [`CALLER_METHODS`] method that names
 /// none, and whether it was added. `browser.open_split` names a terminal with
-/// its own `terminal_id`, so it gets only an agent caller.
+/// its own `terminal_id`, so it gets only an agent caller. A `caller: null`
+/// means no caller (a request for another session than the caller's,
+/// frontend_browser.rs): it is removed and none is added.
 fn with_caller(method: &str, mut params: Value) -> (Value, bool) {
+    if let Some(object) = params.as_object_mut()
+        && object.get("caller").is_some_and(Value::is_null)
+    {
+        object.remove("caller");
+        return (params, false);
+    }
     if !CALLER_METHODS.contains(&method) {
         return (params, false);
     }
