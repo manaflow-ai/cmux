@@ -168,15 +168,23 @@ struct NewMachineSheetLayoutTests {
         let base = try #require(frames.frames[NewMachineSheetControlFrames.baseImage], "no Base pop-up")
         let size = try #require(frames.frames[NewMachineSheetControlFrames.size], "no Size pop-up")
         #expect(abs(base.minX - size.minX) <= 1, "Base starts at \(base.minX), Size at \(size.minX)")
-        // A pop-up that fills the column, or hugs its trailing edge, ends
-        // where the sheet's content does. These rows are short, so at their
-        // own width both end well before it.
+        // A Base pop-up that fills the column, or hugs its trailing edge,
+        // ends where the sheet's content does. Its rows are short, so at its
+        // own width it ends well before that.
         let contentTrailing = host.bounds.width - Self.sheetPadding
-        for (name, frame) in [("Base", base), ("Size", size)] {
-            #expect(frame.width > 0, "\(name) pop-up was laid out with no width: \(frame)")
+        #expect(base.width > 0, "Base pop-up was laid out with no width: \(base)")
+        #expect(base.maxX < contentTrailing - 1, "Base pop-up \(base) reaches the sheet's trailing content edge \(contentTrailing)")
+        // The Size picker hides its label, so its SwiftUI frame spans the
+        // column while the pop-up inside it does not. Where AppKit draws the
+        // pop-ups (before macOS 27), check each one's own width.
+        for popUp in Self.descendants(of: host).compactMap({ $0 as? NSPopUpButton }) where !popUp.isHiddenOrHasHiddenAncestor {
+            let width = popUp.convert(popUp.bounds, to: host).width
+            // AppKit's intrinsicContentSize excludes a few points of the
+            // menu control's border/accessory; fittingSize is its measured
+            // natural width after those decorations are included.
             #expect(
-                frame.maxX < contentTrailing - 1,
-                "\(name) pop-up \(frame) reaches the sheet's trailing content edge \(contentTrailing)"
+                width <= popUp.fittingSize.width + 1,
+                "\(popUp.titleOfSelectedItem ?? "pop-up") is \(width)pt wide; its fitting width is \(popUp.fittingSize.width)pt"
             )
         }
     }
