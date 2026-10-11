@@ -68,7 +68,8 @@ enum PaneHandlers {
         let content = controller?.workspace
         let handle = pane.handle
         // Ghostty's `split-inherit-working-directory = false`: the home folder (NewTerminalStart).
-        let named = invocation["cwd"]?.stringValue ?? NewTerminalStart.uninherited(.split)
+        let named = invocation["cwd"]?.stringValue
+            ?? NewTerminalStart.uninherited(.split, services: ctx.services, daemon: daemon, besides: controller?.selectedTab)
         let cwd = named ?? controller?.selectedTab?.cwd ?? pane.tabs.first?.cwd
         let workspace = ctx.services.workspaceKey(of: pane)
         let keep = invocation["keep"]?.boolValue == true ? true : nil

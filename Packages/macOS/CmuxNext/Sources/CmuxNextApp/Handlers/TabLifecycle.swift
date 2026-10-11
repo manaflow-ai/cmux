@@ -23,8 +23,9 @@ enum TabLifecycle {
         if invocation.origin == .user, opensWorkspace, case let windows = ctx.services.windows,
            let windowID = ctx.activeWindow?.state.id {
             let daemon = ctx.services.daemon(for: focused)
-            let start = cwd ?? NewTerminalStart.uninherited(.window)
-                ?? ctx.services.paneController(for: focused)?.selectedTab?.cwd ?? focused.tabs.first?.cwd
+            let selected = ctx.services.paneController(for: focused)?.selectedTab
+            let start = cwd ?? NewTerminalStart.uninherited(.window, services: ctx.services, daemon: daemon, besides: selected)
+                ?? selected?.cwd ?? focused.tabs.first?.cwd
             ctx.registry.track(Task {
                 _ = try? await windows.createWorkspace(WorkspaceSpawn(cwd: start, keep: keep == true), on: daemon, into: windowID)
                 return nil
@@ -39,7 +40,8 @@ enum TabLifecycle {
             return PaneHandlers.split(ctx, PanePlacementRouting.aimed(invocation, at: target, from: ctx.services.paneController(for: focused)), direction: direction)
         }
         // Ghostty's `tab-inherit-working-directory = false`: the home folder (NewTerminalStart).
-        let tabCwd = cwd ?? NewTerminalStart.uninherited(.tab)
+        let tabCwd = cwd ?? NewTerminalStart.uninherited(.tab, services: ctx.services, daemon: ctx.services.daemon(for: pane),
+                                                          besides: ctx.services.paneController(for: pane)?.selectedTab)
         if let controller = ctx.services.paneController(for: pane) {
             // From the docked agent chat, a tab in the strip (ChatColumnPlacement). Its
             // cwd is the explicit one or nil, for the daemon's resolver (NEW-TERMINAL-INHERITS-CWD).
