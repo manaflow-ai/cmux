@@ -1913,7 +1913,11 @@ public actor VMClient {
                 path: "/api/vm/\(encodedID)/fork",
                 jsonBody: body,
                 extraHeaders: ["Idempotency-Key": idempotencyKey],
-                timeoutSeconds: Self.createTimeoutSeconds * 2
+                // The fork route runs at most its 600 s maxDuration and answers
+                // "still in progress" before then (routeDeadline.ts); a retry
+                // reuses the Idempotency-Key. A longer wait can never be used,
+                // and it exceeded the socket worker's 17 min limit.
+                timeoutSeconds: Self.createTimeoutSeconds
             )
             try ensureOK(http, data: data)
             let obj = try decodeJSONObject(data)
@@ -2480,7 +2484,9 @@ public actor VMClient {
             let teamID = explicitTeamID ?? selectedTeamID
             let key = CloudReadRequestCoordinator.Key(path: path, accountID: identity.accountID,
                 generation: identity.generation, teamID: teamID)
+            let readBudgetSeconds = self.readRequests.secondsUntil(deadline)
             let value = try await self.readRequests.read(key, deadline: deadline) {
+                try await CloudRequestBudget.withBudget(seconds: readBudgetSeconds) {
                 try await CloudOperationContext.withCurrent(context) {
                     let (data, http) = try await self.requestMeasured(
                         method,
@@ -2491,6 +2497,7 @@ public actor VMClient {
                         teamBinding: teamBinding
                     )
                     return CloudReadRequestCoordinator.Response(data: data, http: http)
+                }
                 }
             }
             try Task.checkCancellation()
@@ -2737,6 +2744,17 @@ public actor VMClient {
                 requestSpan = await context.recorder.beginChild(of: context, phase: .request, attempt: attempt)
             } else { requestSpan = nil }
             if let requestSpan { req.setValue(requestSpan.traceparent, forHTTPHeaderField: "traceparent") }
+            // The request waits no longer than the earliest layer waits for it
+            // (socket worker, CLI, shared-read budget), and states that budget
+            // so the server answers inside it. Recomputed per attempt: a retry
+            // wait spends the same budget.
+            let budget = CloudRequestBudget.effectiveTimeout(
+                urlTimeout: timeoutSeconds,
+                deadline: CloudRequestBudget.deadline,
+                now: CloudRequestBudget.now()
+            )
+            req.timeoutInterval = budget
+            req.setValue(CloudRequestBudget.headerValue(seconds: budget), forHTTPHeaderField: CloudRequestBudget.headerField)
             let progressTask: Task<Void, Never>?
             if let requestSpan, method != "GET" {
                 let progressRequest = req

@@ -34,6 +34,14 @@ public actor CloudReadRequestCoordinator {
         clock.now() + min(budget, limit ?? budget) - elapsed
     }
 
+    /// Seconds from now until `deadline` on this coordinator's clock, for
+    /// ``CloudRequestBudget``; never negative.
+    public nonisolated func secondsUntil(_ deadline: Duration) -> TimeInterval {
+        let remaining = deadline - clock.now()
+        let parts = remaining.components
+        return max(0, TimeInterval(parts.seconds) + TimeInterval(parts.attoseconds) / 1e18)
+    }
+
     public func read(_ key: Key, deadline: Duration? = nil, operation: @escaping @Sendable () async throws -> Response) async throws -> Response {
         let waiter = UUID()
         let response = try await withTaskCancellationHandler {

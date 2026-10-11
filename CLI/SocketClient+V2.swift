@@ -11,12 +11,23 @@ extension SocketClient {
         deadline: Date? = nil,
         waitUntilCompletion: Bool = false
     ) throws -> [String: Any] {
+        // One total deadline includes every server-directed backoff and retry.
+        let operationDeadline = min(
+            deadline ?? .distantFuture,
+            Date.now.addingTimeInterval(responseTimeout ?? Self.responseTimeoutSeconds)
+        )
         var tracedParams = params
         if method.hasPrefix("vm.") {
             for (key, env) in [("cloud_operation_id", "CMUX_CLOUD_OPERATION_ID"),
                                ("cloud_trace_id", "CMUX_CLOUD_TRACE_ID"),
                                ("cloud_parent_span_id", "CMUX_CLOUD_PARENT_SPAN_ID")] {
                 if let value = ProcessInfo.processInfo.environment[env] { tracedParams[key] = value }
+            }
+            // How long this CLI waits, so the app's control-plane request and
+            // the server answer inside it (CloudRequestBudget).
+            let remaining = operationDeadline.timeIntervalSinceNow
+            if remaining.isFinite, remaining > 0, remaining < 86_400 {
+                tracedParams["cloud_client_timeout_ms"] = Int(remaining * 1000)
             }
         }
         let requestID = UUID().uuidString
@@ -38,11 +49,6 @@ extension SocketClient {
             throw CLIError(message: "Failed to encode v2 request")
         }
 
-        // One total deadline includes every server-directed backoff and retry.
-        let operationDeadline = min(
-            deadline ?? .distantFuture,
-            Date.now.addingTimeInterval(responseTimeout ?? Self.responseTimeoutSeconds)
-        )
         let uptimeDeadline = ProcessInfo.processInfo.systemUptime + max(0, operationDeadline.timeIntervalSinceNow)
         while true {
             let raw = try send(

@@ -25,6 +25,15 @@ extension TerminalController {
         }
     }
 
+    /// The socket client's own budget for a `vm.*` call, from the
+    /// `cloud_client_timeout_ms` param the CLI adds (SocketClient+V2.swift).
+    nonisolated static func cloudClientBudgetSeconds(_ params: [String: Any]) -> TimeInterval? {
+        let raw = params["cloud_client_timeout_ms"]
+        let milliseconds = (raw as? Int).map(Double.init) ?? (raw as? Double) ?? (raw as? NSNumber)?.doubleValue
+        guard let milliseconds, milliseconds.isFinite, milliseconds > 0 else { return nil }
+        return milliseconds / 1000
+    }
+
     nonisolated func v2CloudCall(
         id: Any?, method: String, params: [String: Any],
         timeoutSeconds: TimeInterval = 17 * 60,
@@ -34,7 +43,12 @@ extension TerminalController {
         let operationID = params["cloud_operation_id"] as? String
         let traceID = params["cloud_trace_id"] as? String
         let parentSpanID = params["cloud_parent_span_id"] as? String
-        return v2VmCall(id: id, timeoutSeconds: timeoutSeconds, transportUnsupportedMachineID: transportUnsupportedMachineID) {
+        return v2VmCall(
+            id: id,
+            timeoutSeconds: timeoutSeconds,
+            clientBudgetSeconds: Self.cloudClientBudgetSeconds(params),
+            transportUnsupportedMachineID: transportUnsupportedMachineID
+        ) {
             let recorder = await MainActor.run { AppDelegate.shared?.cloudOperations }
             guard let recorder else { return try await work() }
             if let context = await recorder.reference(operationID: operationID, traceID: traceID, spanID: parentSpanID) {

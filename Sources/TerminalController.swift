@@ -3957,14 +3957,19 @@ class TerminalController {
     nonisolated func v2VmCall(
         id: Any?,
         timeoutSeconds: TimeInterval? = 17 * 60,
+        clientBudgetSeconds: TimeInterval? = nil,
         transportUnsupportedMachineID: String? = nil,
         _ work: @escaping () async throws -> [String: Any]
     ) -> String {
         let semaphore = DispatchSemaphore(value: 0)
         nonisolated(unsafe) var result: Result<[String: Any], Error>?
+        // Control-plane requests inside `work` state the earliest of this
+        // worker's limit and the socket client's own budget, so the server
+        // answers before either gives up.
+        let budgetSeconds = [timeoutSeconds, clientBudgetSeconds].compactMap { $0 }.min()
         let task = Task {
             do {
-                result = .success(try await work())
+                result = .success(try await CloudRequestBudget.withBudget(seconds: budgetSeconds) { try await work() })
             } catch {
                 result = .failure(error)
             }
