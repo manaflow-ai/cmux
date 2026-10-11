@@ -70,7 +70,7 @@ impl Hub {
             return Err(RpcError::invalid_params(format!("transfer: bad session id {id:?}")));
         }
         // A chat that moved away from here may come back (`finish` replaces its closed copy).
-        let here = self.sessions.lock().unwrap().get(id).cloned();
+        let here = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
         if here.is_some_and(|s| !self.moved_away(&s)) {
             return Err(transfer_error("exists", format!("chat {id} is here already")));
         }
@@ -155,7 +155,7 @@ impl Hub {
         }
         // Back where it once moved from: its closed copy gives way.
         let id = manifest["sessionId"].as_str().unwrap_or("");
-        let old = self.sessions.lock().unwrap().get(id).cloned();
+        let old = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
         if let Some(old) = old.filter(|s| self.moved_away(s)) {
             // Only once the chat can live here: a failed import keeps the closed copy's log.
             let cwd = text("cwd").map(PathBuf::from).or_else(|| {

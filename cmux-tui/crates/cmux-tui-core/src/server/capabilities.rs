@@ -18,6 +18,8 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(history_search::HISTORY_SEARCH_CAPABILITY);
     }
     #[cfg(unix)]
+    capabilities.push(tab_restart::CAPABILITY);
+    #[cfg(unix)]
     if mux.serves_agent_session_attach() {
         capabilities.push(AGENT_SESSION_ATTACH_CAPABILITY);
     }
@@ -40,6 +42,7 @@ pub(super) fn advertised_capabilities(
     let mut capabilities = vec![
         ATTACH_INITIAL_SIZE_CAPABILITY,
         "attach-identity-v1",
+        crate::terminal_activity::CAPABILITY,
         split_kind::SPLIT_CLIENT_KEYS_CAPABILITY,
         WORKSPACE_REGISTRY_CAPABILITY,
         DAEMON_HANDOFF_FORCE_CAPABILITY,

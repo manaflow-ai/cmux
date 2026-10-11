@@ -1939,6 +1939,40 @@ Result:
 object{surface:Id, url:string, title:string|null, favicon_url:string|null, owner:string|null, changed:bool}
 ```
 
+### restart-tab
+
+| Field | Value |
+| --- | --- |
+| name | `restart-tab` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `tab-restart-v1` (Unix owners) |
+
+Restarts a terminal tab whose shell ended: a host loss the automatic respawn
+gave up on (`restart_exhausted`, `restart_failed`) or never covers, a process end the tab kept
+(`on_exit` keep), or a tab kept by `shutdown-daemon` `keep_layout`. It runs
+the automatic respawn's worker: the same terminal id gets a new shell and a
+new incarnation in every tab that shows it, below the previous screen and one
+dim marker line; the tab id, placement, name, pin and group stay. An explicit
+restart has no backoff and resets the respawn supervisor's attempt count for
+the terminal.
+The reply comes when the worker started; the tree shows the tab adopting,
+then running, or dead again when the launch failed. Errors (`error_code`):
+`tab-not-dead` (the terminal runs, launches or already restarts),
+`tab-not-terminal` (the tab shows no daemon terminal) and
+`tab-restart-unavailable` (the owner shuts down or cannot start hosts).
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `surface` (alias `tab`) | `TabRef` | required | A terminal tab: its numeric id or public `tab_...` id |
+
+Result:
+
+```text
+object{surface:Id, terminal:string, previous_incarnation:string, state:"respawning"}
+```
+
 ### set-frontend-browser-history
 
 | Field | Value |
@@ -7841,10 +7875,21 @@ single ACP text content block and answers once acpmux recorded it:
 
 ### agent-session-permission
 
-`{id, cmd:"agent-session-permission", surface, permission_id, option_id}`
+`{id, cmd:"agent-session-permission", surface, permission_id, option_id,
+decision_nonce?, person_decision?, answered_by?}`
 answers a permission request acpmux announced on this attachment (pending at
 attach or sent as `agent-session-permission`), once (a failed answer can be
 sent again). The daemon never answers a request by itself.
+
+`decision_nonce` and `person_decision` (64 lowercase hex characters each) are
+the person's decision proof for this answer, which the app makes with the
+person key it gave acpmux (acpmux `hub/person.rs`); `answered_by`
+(`{device, feed_item}`, each 1 to 128 characters of `[A-Za-z0-9_.:-]`) names the device the person
+answered on. The daemon checks only their shape, holds no person key, and
+passes them to acpmux unchanged as `_meta.acpmux` `decisionNonce`,
+`personDecision` and `answeredBy {device, feedItem}`; acpmux decides. A
+request announced as `agent-session-permission` carries acpmux's
+`decisionNonce` and `personInstance`.
 
 ### agent-session-detach
 

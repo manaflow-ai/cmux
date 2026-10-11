@@ -402,8 +402,12 @@ impl Hub {
         session.queue_moved.notify_waiters();
         // A resend of a rebuilt prompt waits on the ledger entry `restore_queues` made.
         if removed.restored
-            && let Some((_, outcome)) =
-                session.prompts.lock().unwrap().iter().find(|(id, _)| id == prompt_id)
+            && let Some((_, outcome)) = session
+                .prompts
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .iter()
+                .find(|(id, _)| id == prompt_id)
         {
             outcome.send_replace(Some(Ok(withdrawn_reply(prompt_id, &removed.turn_id))));
         }
@@ -472,7 +476,7 @@ impl Hub {
             }
             true
         });
-        session.moving.lock().unwrap().clone_from(&moving);
+        session.moving.lock().unwrap_or_else(|e| e.into_inner()).clone_from(&moving);
         if scanned.is_err() || waiting.is_empty() {
             return;
         }
@@ -481,8 +485,8 @@ impl Hub {
             order.iter().position(|id| Some(id) == q.msg.get("promptId")).unwrap_or(order.len())
         });
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let mut ledger = session.prompts.lock().unwrap();
-        let mut restored = session.restored.lock().unwrap();
+        let mut ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
+        let mut restored = session.restored.lock().unwrap_or_else(|e| e.into_inner());
         for e in waiting {
             let field = |k: &str| e.msg.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
             let (prompt_id, turn_id, text) = (field("promptId"), field("turnId"), field("text"));
@@ -546,7 +550,7 @@ impl Hub {
                     let blocks = q.run.blocks.clone();
                     let result = hub.run_prompt(&session, blocks, &q.client, false, opts).await;
                     // A client that resent this prompt id waits on the entry `restore_queues` made.
-                    let ledger = session.prompts.lock().unwrap();
+                    let ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
                     if let Some((_, outcome)) = ledger.iter().find(|(id, _)| *id == q.prompt_id) {
                         outcome.send_replace(Some(result.clone()));
                     }

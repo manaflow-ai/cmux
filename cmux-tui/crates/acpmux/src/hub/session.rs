@@ -86,11 +86,11 @@ impl Session {
         self.queue.lock().unwrap().clone()
     }
     pub fn moving(&self) -> Option<String> {
-        self.moving.lock().unwrap().clone()
+        self.moving.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
     /// A failed turn holds the prompts that waited behind it (`queue.rs` `pause_queue`).
     pub fn queue_paused(&self) -> bool {
-        self.queue.lock().unwrap().iter().any(|q| q.held)
+        self.queue.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|q| q.held)
     }
     pub fn pending_permissions(&self) -> Vec<(String, Value)> {
         self.permissions

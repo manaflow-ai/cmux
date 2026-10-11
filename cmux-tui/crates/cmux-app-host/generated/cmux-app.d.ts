@@ -390,8 +390,11 @@ declare namespace Cmux {
   type WorkspaceProgress = { value: number | null; label: string | null; updated_at_ms: string }
   type WorkspaceRef = { session_id: string; workspace_ref: string; workspace_id: string /* workspace_… */ | null }
   type WorkspaceSnapshot = { id: string /* workspace_… */; session_id: string /* session_… */; name: string; index: number; focused: boolean; extra?: Record<string, Cmux.JsonValue> }
-  type WorkspaceStatusEntry = { key: string; text: string; icon: string | null; color: string | null; updated_at_ms: string }
+  type WorkspaceStatusEntry = { key: string; text: string; icon: string | null; color: string | null; updated_at_ms: string; state?: Cmux.WorkspaceStatusState; progress?: number | null; style?: Cmux.WorkspaceStatusStyle | null; expires_at_ms?: string | null; owner?: Cmux.WorkspaceStatusOwner | null; target_terminal?: string /* terminal_… */ | null; exit_code?: number | null; duration_ms?: string | null }
+  type WorkspaceStatusOwner = { pid?: number; machine?: string; terminal?: string /* terminal_… */; agent_session?: string }
   type WorkspaceStatusSnapshot = { workspace_id: string /* workspace_… */; entries: Array<Cmux.WorkspaceStatusEntry>; progress: Cmux.WorkspaceProgress | null; log_count: number; last_log: Cmux.WorkspaceLogLine | null }
+  type WorkspaceStatusState = "busy" | "success" | "error" | "waiting" | "info"
+  type WorkspaceStatusStyle = "arc" | "native" | "dot" | "none"
   type MutationResult<T> = { value: T; generation: string; revision: string; replayed: boolean }
 }
 
@@ -1473,7 +1476,7 @@ interface CmuxGlobal {
     /** `workspace_status.list` (read, scope `workspace_status:read`) */
     list: CmuxOp<{ machine?: string; session?: string; workspace?: string }, Array<Cmux.WorkspaceStatusSnapshot>>
     /** `workspace_status.set` (mutation, scope `workspace_status:write`) */
-    set: CmuxOp<{ machine?: string; session?: string; workspace: string; key: string; text: string; icon?: string; color?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.WorkspaceStatusSnapshot>>
+    set: CmuxOp<{ machine?: string; session?: string; workspace: string; key: string; text: string; icon?: string; color?: string; state?: Cmux.WorkspaceStatusState; progress?: number; style?: Cmux.WorkspaceStatusStyle; ttl_ms?: number; owner?: Cmux.WorkspaceStatusOwner; target_terminal?: string /* terminal_… */; exit_code?: number; duration_ms?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.WorkspaceStatusSnapshot>>
   }
   call<T = unknown>(name: string, params?: unknown, options?: CmuxCallOptions): Promise<T>
   live<T = unknown>(op: string | { opName: string }, params?: unknown, options?: { events?: string[]; select?: (v: unknown) => T }): CmuxLive<T>

@@ -162,7 +162,7 @@ impl Hub {
         if live {
             self.restore_queue(&session);
             // Its log holds the source's move (`transfer_out`), not one of this daemon's.
-            *session.moving.lock().unwrap() = None;
+            *session.moving.lock().unwrap_or_else(|e| e.into_inner()) = None;
         }
         self.sessions.lock().unwrap().insert(meta.id.clone(), session.clone());
         self.append(

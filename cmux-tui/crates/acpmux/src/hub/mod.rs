@@ -8,6 +8,7 @@ mod adoption;
 mod catalog_reload;
 mod cursor_ext;
 mod fork;
+mod fork_at;
 mod handoff;
 mod harness_view;
 mod harness_watch;
@@ -624,10 +625,24 @@ impl Hub {
         msg: Value,
         host_seq: Option<u64>,
     ) -> (EventRecord, bool) {
+        self.append_at(session, dir, kind, msg, host_seq, None)
+    }
+
+    /// [`Hub::append_logged`] of a record that happened at `at` (Unix ms;
+    /// None: now), as a fork's copy of its parent's turns did.
+    pub(super) fn append_at(
+        &self,
+        session: &Session,
+        dir: &str,
+        kind: &str,
+        msg: Value,
+        host_seq: Option<u64>,
+        at: Option<u64>,
+    ) -> (EventRecord, bool) {
         let _order = session.append_lock.lock().unwrap();
         let seq = session.seq.fetch_add(1, Ordering::SeqCst) + 1;
-        let record =
-            EventRecord { seq, at: now_ms(), dir: dir.into(), kind: kind.into(), msg, host_seq };
+        let at = at.unwrap_or_else(now_ms);
+        let record = EventRecord { seq, at, dir: dir.into(), kind: kind.into(), msg, host_seq };
         if session.purged.load(Ordering::SeqCst) {
             return (record, true);
         }

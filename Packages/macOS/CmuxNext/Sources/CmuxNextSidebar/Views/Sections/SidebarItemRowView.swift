@@ -64,7 +64,8 @@ class SidebarItemRowView: NSView {
         super.init(frame: frame)
         wantsLayer = true
         for decoration in [pill, chip] {
-            decoration.actions = ["backgroundColor": NSNull(), "bounds": NSNull(), "position": NSNull()]
+            decoration.actions = ["backgroundColor": NSNull(), "bounds": NSNull(), "position": NSNull(),
+                                  "borderColor": NSNull(), "borderWidth": NSNull()]
             decoration.cornerCurve = .continuous
             layer?.addSublayer(decoration)
         }
@@ -74,6 +75,8 @@ class SidebarItemRowView: NSView {
         [icon, title, badge, avatarView].forEach(addSubview)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
+        // Keyboard focus is the fill's next tonal step (`fill`), never the system's blue ring.
+        focusRingType = .none
         pointerHover = PointerHover(self) { [weak self] hovering in self?.isHovered = hovering }
     }
 
@@ -133,6 +136,10 @@ class SidebarItemRowView: NSView {
         performWithTheme {
             ChromeHover.paint(pill, fill, animated: fadesNextFill)
             fadesNextFill = false
+            // Increase Contrast adds a ring to the tint, in the theme's focus color.
+            pill.borderColor = Palette.focusRing.cgColor
+            pill.borderWidth = showsKeyFocus && NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+                ? Metrics.lineWidth(1.5) : 0
             let wells = style == .list || style == .favorite
             // A tile's well is the raised surface on the tiles card (Safari's
             // favorites); a list row's well is the quieter hover step.
@@ -141,7 +148,7 @@ class SidebarItemRowView: NSView {
             title.textColor = Palette.textPrimary
             // An icon is secondary at rest and full strength under the pointer
             // or keyboard focus (the footer's avatar and gear).
-            let strong = style == .icon && (isHovered || isPressed || isKeyFocused)
+            let strong = style == .icon && (isHovered || isPressed || showsKeyFocus)
             avatarView.isStrong = strong
             icon.contentTintColor = wells && info.color != nil ? Palette.textOnPrimary
                 : style == .favorite ? Palette.textPrimary
@@ -149,12 +156,17 @@ class SidebarItemRowView: NSView {
         }
     }
 
-    /// The pill's fill: pressed, then active, then hovered, then the
-    /// tile's resting fill. A tile rests on `hoverFill`, so its hover takes
-    /// the next tonal step (`selectionFill`) and still shows a change (R97).
+    /// The pill's fill: pressed, then keyboard focus, then active, then
+    /// hovered, then the tile's resting fill. A tile rests on `hoverFill`, so
+    /// its hover takes the next tonal step (`selectionFill`) and still shows a
+    /// change (R97). Keyboard focus is one step past hover: `selectionFill`,
+    /// or `pressedFill` over a fill that is already that (cx-wqn5).
     var fill: NSColor? {
         let state = ChromeHover.State(hovering: isHovered, pressed: isPressed, selected: info.isActive)
         return performWithTheme {
+            if showsKeyFocus, !isPressed {
+                return info.isActive || style == .tile ? Palette.pressedFill : Palette.selectionFill
+            }
             guard style == .tile else { return ChromeHover.fillColor(state) }
             if state.hovering, !state.pressed, !state.selected { return Palette.selectionFill }
             return ChromeHover.fillColor(state, rest: Palette.hoverFill)
@@ -386,6 +398,14 @@ class SidebarItemRowView: NSView {
     override var canBecomeKeyView: Bool { acceptsFirstResponder && !isHiddenOrHasHiddenAncestor }
     /// The item has keyboard focus (its glyph draws at full strength).
     private(set) var isKeyFocused = false { didSet { if isKeyFocused != oldValue { needsDisplay = true } } }
+    /// Keyboard focus as drawn: only while the window is key.
+    private var showsKeyFocus: Bool { KeyWindowRepaint.showsFocus(self, focused: isKeyFocused) }
+    private lazy var keyRepaint = KeyWindowRepaint(self)
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        keyRepaint.track()
+    }
 
     override func becomeFirstResponder() -> Bool {
         isKeyFocused = true
@@ -401,11 +421,5 @@ class SidebarItemRowView: NSView {
         guard event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.function).isEmpty,
               [" ", "\r", "\u{3}"].contains(event.charactersIgnoringModifiers ?? "") else { return super.keyDown(with: event) }
         _ = accessibilityPerformPress()
-    }
-
-    override var focusRingMaskBounds: NSRect { pill.frame }
-
-    override func drawFocusRingMask() {
-        NSBezierPath(roundedRect: pill.frame, xRadius: pill.cornerRadius, yRadius: pill.cornerRadius).fill()
     }
 }

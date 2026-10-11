@@ -39,6 +39,7 @@ import { newTabChipSnapshot } from "./newtab/chipDefaults";
 import { useEarlyNewTabContext, useNewTabAdoption } from "./newtab/adoption";
 import { TemplateDots } from "./newtab/TemplateDots";
 import { pickNewTabTemplate, screenTemplate, shownTemplate } from "./newtab/templates";
+import { playTemplateSwitch, templatePlaces } from "./newtab/templateMotion";
 import { isAgentHome, projectLabel } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { composerDraft, notifyDraftActionsChanged } from "./composerDraft";
@@ -695,7 +696,16 @@ const JUMP_LATEST_SETTLE_MS = 600;
 /// Jump to latest: a glass circle centered above the composer, shown while the reader is scrolled up
 /// from the latest message (ChatGPT and Codex style). Its dots say a reply is streaming below. It stays
 /// mounted while hidden (inert) so it fades out as it fades in (conversation.css).
-function JumpToLatest({ shown, working, onJump }: { shown: boolean; working: boolean; onJump: () => void }) {
+function JumpToLatest({
+  shown,
+  working,
+  onJump,
+}: {
+  shown: boolean;
+  working: boolean;
+  /// `focused`: the button had keyboard focus, which it loses when it hides at the latest message.
+  onJump: (focused: boolean) => void;
+}) {
   const t = useT();
   const label = t(working ? "transcript.jumpLatestWorking" : "transcript.jumpLatest");
   return (
@@ -708,7 +718,8 @@ function JumpToLatest({ shown, working, onJump }: { shown: boolean; working: boo
       // Hidden, it is inert: out of the tab order and the accessibility tree while it fades out.
       inert={!shown}
       title={label}
-      onClick={onJump}
+      // A click does not focus a button in WebKit, so focus on it means Return or Space.
+      onClick={(event) => onJump(event.currentTarget === document.activeElement)}
     >
       {working ? (
         <span className="acpmux-jump-latest__dots" aria-hidden="true">
@@ -735,6 +746,7 @@ export function VirtualTranscript({
   find,
   working = false,
   jumpButton = false,
+  focusComposer,
 }: {
   rows: AcpmuxRow[];
   sessionId?: string;
@@ -742,6 +754,8 @@ export function VirtualTranscript({
   working?: boolean;
   /// Draw Jump to latest: the chat's own stage only, which positions it above the composer.
   jumpButton?: boolean;
+  /// Where a keyboard Jump to latest leaves focus, since the button hides (inert) once there.
+  focusComposer?: () => void;
   onToggleActivity: (id: string) => void;
   onOpenDiff?: OpenDiff;
   expanded: Set<string>;
@@ -1168,9 +1182,10 @@ export function VirtualTranscript({
   };
   // Jump to latest (the button, ChatGPT and Codex style): a smooth scroll to the latest message, then a
   // landing on it, so a reply that grew meanwhile is followed again.
-  const jumpToLatest = () => {
+  const jumpToLatest = (focused: boolean) => {
     const node = ref.current;
     if (!node) return;
+    if (focused) focusComposer?.();
     const reduce = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     const target = Math.max(0, layout.totalHeight - node.clientHeight);
     node.scrollTo({ top: target, behavior: reduce ? "auto" : "smooth" });
@@ -3023,6 +3038,7 @@ function AcpmuxPane() {
                 working={snapshot.isWorking}
                 // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
                 jumpButton={!quick}
+                focusComposer={() => composerHandle.current?.focus()}
                 find={quick ? undefined : find}
                 sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
                 canLoadOlder={snapshot.canLoadOlder}
@@ -3369,9 +3385,14 @@ function AcpmuxPane() {
                   callNative,
                   cwd: newTab.cwd,
                   show: (next) => {
+                    // The parts both templates show slide to their new place (newtab/templateMotion.ts).
+                    const screen = document.querySelector<HTMLElement>(".nt-screen");
+                    const before = templatePlaces(screen);
                     flushSync(() => setNewTab((current) => current && { ...current, template: next }));
-                    // The dot took focus; the field gets it back (the screen listens for this event).
+                    // The dot took focus; the field gets it back (the screen listens for this event),
+                    // before the parts slide, so focusing never scrolls toward where they were.
                     window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT));
+                    playTemplateSwitch(document.querySelector<HTMLElement>(".nt-screen"), before);
                   },
                 })
               }
@@ -3456,6 +3477,14 @@ function AcpmuxPane() {
               title={snapshot.summary?.title || snapshot.summary?.name}
               load={loadReplay}
               onClose={() => setReplaying(undefined)}
+              onContinue={
+                snapshot.canFork
+                  ? (throughSeq) => {
+                      setReplaying(undefined);
+                      void directClient.current?.fork(throughSeq);
+                    }
+                  : undefined
+              }
               transcript={(rows) => (
                 <VirtualTranscript
                   rows={rows}

@@ -142,7 +142,7 @@ impl Hub {
         let transfer_id = uuid::Uuid::now_v7().to_string();
         self.sweep();
         {
-            let mut moving = session.moving.lock().unwrap();
+            let mut moving = session.moving.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(other) = moving.as_ref() {
                 let e = transfer_error("moving", "this chat is already being moved");
                 return Err(e.with_data(json!({"transferId": other})));
@@ -150,7 +150,7 @@ impl Hub {
             *moving = Some(transfer_id.clone());
         }
         let unfreeze = |e: RpcError| {
-            *session.moving.lock().unwrap() = None;
+            *session.moving.lock().unwrap_or_else(|e| e.into_inner()) = None;
             session.queue_moved.notify_waiters();
             e
         };
@@ -290,7 +290,7 @@ impl Hub {
                 "the move committed; the chat lives on the target",
             ));
         }
-        *session.moving.lock().unwrap() = None;
+        *session.moving.lock().unwrap_or_else(|e| e.into_inner()) = None;
         self.append(session, "mux", "transfer_aborted", json!({"transferId": transfer_id}));
         session.queue_moved.notify_waiters();
         let _ = std::fs::remove_dir_all(transfers_dir().join(transfer_id));
