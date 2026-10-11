@@ -143,15 +143,30 @@ public nonisolated struct ClassicSessionImporter: Sendable {
                                    workingDirectory: value["workingDirectory"] as? String ?? value["working_directory"] as? String ?? directory)
     }
 
+    /// An SSH workspace's host. A websocket `remote` is an older Cloud VM
+    /// (``cloudVM(_:)``), not SSH.
     private static func remote(_ value: [String: Any]) -> ClassicSessionRemote? {
-        guard let remote = value["remote"] as? [String: Any], let destination = remote["destination"] as? String,
-              !destination.isEmpty else { return nil }
+        guard let remote = value["remote"] as? [String: Any], legacyCloudVM(remote) == nil,
+              (remote["transport"] as? String ?? "ssh") == "ssh",
+              let destination = (remote["destination"] as? String)?.trimmingCharacters(in: .whitespaces),
+              !destination.isEmpty, !destination.hasPrefix("-") else { return nil }
         return ClassicSessionRemote(destination: destination, port: (remote["port"] as? NSNumber)?.intValue)
     }
 
+    /// The Cloud VM a workspace ran on: `cloudVM`, or an older one saved as
+    /// a websocket `remote` with `managedCloudVMID`.
     private static func cloudVM(_ value: [String: Any]) -> String? {
-        let vm = value["cloudVM"] as? [String: Any] ?? value["cloud_vm"] as? [String: Any]
-        return vm.map { $0["vmID"] as? String ?? $0["vm_id"] as? String ?? "" }
+        if let vm = value["cloudVM"] as? [String: Any] ?? value["cloud_vm"] as? [String: Any] {
+            return vm["vmID"] as? String ?? vm["vm_id"] as? String ?? ""
+        }
+        return (value["remote"] as? [String: Any]).flatMap(legacyCloudVM)
+    }
+
+    private static func legacyCloudVM(_ remote: [String: Any]) -> String? {
+        let id = (remote["managedCloudVMID"] as? String ?? remote["managed_cloud_vm_id"] as? String)?
+            .trimmingCharacters(in: .whitespaces)
+        if let id, !id.isEmpty { return id }
+        return remote["transport"] as? String == "websocket" ? "" : nil
     }
 
     /// What can tell a classic workspace apart, most telling first.

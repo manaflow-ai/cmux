@@ -30,13 +30,14 @@ public nonisolated struct ClassicSessionRemote: Codable, Equatable, Sendable {
         self.port = port
     }
 
-    /// `[user@]host[:port]`, an IPv6 host in brackets when a port follows.
+    /// `[user@]host[:port]`, an IPv6 host in brackets. Port 22 is left out,
+    /// so it names the same machine as a saved entry without a port.
     public var sshDestination: String {
-        guard let port else { return destination }
         let at = destination.lastIndex(of: "@")
         let user = at.map { String(destination[...$0]) } ?? ""
         var host = at.map { String(destination[destination.index(after: $0)...]) } ?? destination
         if host.contains(":"), !host.hasPrefix("[") { host = "[\(host)]" }
+        guard let port, port != 22 else { return user + host }
         return "\(user)\(host):\(port)"
     }
 }
