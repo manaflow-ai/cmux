@@ -31,6 +31,8 @@ const replacements: Record<string, unknown> = {
     unobserve() {}
     disconnect() {}
   },
+  // The file menu places itself with floating-ui, which reads the page's styles.
+  getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
   requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
   cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
   IS_REACT_ACT_ENVIRONMENT: true,

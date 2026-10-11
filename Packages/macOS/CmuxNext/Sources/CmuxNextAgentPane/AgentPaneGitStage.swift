@@ -56,11 +56,7 @@ public nonisolated struct AgentPaneGitStage: Equatable, Sendable {
     /// Runs the request when `cwd` is inside one of `roots`. Nil on success, else git's message or
     /// why it did not run.
     static func run(_ request: AgentPaneGitStage, roots: [String]) async -> String? {
-        let canonicalRoots = roots.compactMap(AcpmuxPathPolicy.canonical).filter { $0 != "/" }
-        guard let folder = AcpmuxPathPolicy.canonical(request.cwd),
-              canonicalRoots.contains(where: { AcpmuxPathPolicy.contains(root: $0, path: folder) }) else {
-            return outsideMessage
-        }
+        guard AgentPaneGitProcess.isInside(request.cwd, roots: roots) else { return outsideMessage }
         return await AgentPaneGitProcess.run(request.arguments, timeout: timeout)
     }
 }
@@ -68,7 +64,15 @@ public nonisolated struct AgentPaneGitStage: Equatable, Sendable {
 /// One `git` run for the pane's writes: `/usr/bin/git` with a plain environment, no prompt for
 /// credentials, and a deadline.
 nonisolated enum AgentPaneGitProcess {
-    /// Nil when git exits 0, else its first error line (or why it did not run).
+    /// Whether `cwd` is one of `roots` or inside one, after resolving links; `/` is never a root.
+    static func isInside(_ cwd: String, roots: [String]) -> Bool {
+        let canonicalRoots = roots.compactMap(AcpmuxPathPolicy.canonical).filter { $0 != "/" }
+        guard let folder = AcpmuxPathPolicy.canonical(cwd) else { return false }
+        return canonicalRoots.contains { AcpmuxPathPolicy.contains(root: $0, path: folder) }
+    }
+
+    /// Nil when git exits 0, else the first line git printed (`git commit` says "nothing to
+    /// commit" on its output, not its errors), or why it did not run.
     static func run(_ arguments: [String], input: Data? = nil, timeout: Duration) async -> String? {
         await Task.detached(priority: .userInitiated) {
             runSync(arguments, input: input, timeout: timeout)
@@ -85,26 +89,29 @@ nonisolated enum AgentPaneGitProcess {
         process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
         process.arguments = arguments
         process.environment = environment()
-        let errors = Pipe(), stdin = Pipe()
-        process.standardError = errors
-        process.standardOutput = FileHandle.nullDevice
+        let output = Pipe(), stdin = Pipe()
+        process.standardError = output
+        process.standardOutput = output
         process.standardInput = input == nil ? FileHandle.nullDevice : stdin
         do { try process.run() } catch { return error.localizedDescription }
         if let input {
-            stdin.fileHandleForWriting.write(input)
+            // git may exit before it reads (a hook refused, nothing staged): a failed write, not SIGPIPE.
+            _ = fcntl(stdin.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
+            try? stdin.fileHandleForWriting.write(contentsOf: input)
             try? stdin.fileHandleForWriting.close()
         }
         let seconds = Double(timeout.components.seconds) + Double(timeout.components.attoseconds) / 1e18
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + seconds) {
             if held.process.isRunning { held.process.terminate() }
         }
-        // concurrency-allow: runSync runs only inside the detached task; git's error output is small.
-        let message = errors.fileHandleForReading.readDataToEndOfFile()
+        // concurrency-allow: runSync runs only inside the detached task; git's output here is small.
+        let message = output.fileHandleForReading.readDataToEndOfFile()
         // concurrency-allow: runSync runs only inside the detached task, bounded by the deadline above.
         process.waitUntilExit()
         guard process.terminationStatus != 0 else { return nil }
         let text = String(decoding: message, as: UTF8.self)
-        return text.split(separator: "\n").first.map { String($0) } ?? "git exited \(process.terminationStatus)"
+        let line = text.split(separator: "\n").lazy.map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty }
+        return line ?? "git exited \(process.terminationStatus)"
     }
 
     /// The user's own git settings (HOME) and none of the App's environment; never a terminal

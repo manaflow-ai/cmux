@@ -24,7 +24,14 @@ import {
   type AcpmuxSnapshot,
   type QueueEdit,
 } from "./model";
-import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
+import {
+  AcpmuxDirectClient,
+  type AcpmuxHostConfig,
+  harnessBlock,
+  type HarnessBlock,
+  isTrustRefusal,
+  nextFrame,
+} from "./direct";
 import { postNative } from "./native";
 import { errorMessage } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
@@ -88,6 +95,7 @@ import { DictationButton } from "./DictationButton";
 import { DictationNotice } from "./DictationNotice";
 import type { MarkdownFieldHandle } from "./MarkdownField";
 import type { ChangesSource } from "./changes/model";
+import { COMMIT_DRAFT_PROMPT, commitMessageFromReply, replyAfter } from "./changes/commitDraft";
 import { RevealedMarkdown } from "./conversation/RevealedMarkdown";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
@@ -311,6 +319,7 @@ const changesSource: ChangesSource = {
   diff: (scope) => callNative("git.diff", { scope, include_patch: true }),
   status: () => callNative("git.status", {}),
   stage: (paths, unstage) => callNative("git.stage", { paths, unstage }),
+  commit: (message) => callNative("git.commit", { message }),
 };
 /// A turn's checkpoint pair, diffed on the session host (`git.checkpoint.diff`).
 const checkpointDiff: CheckpointDiff = (from, to) =>
@@ -1962,6 +1971,22 @@ function AcpmuxPane() {
   /// The newest snapshot, for host requests that read it (pane.context).
   const snapshotRef = useRef<AcpmuxSnapshot | undefined>(undefined);
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
+  /// The changes view's source, with the commit bar's Draft (cx-tcwj): the agent's last reply to
+  /// the draft prompt once its turn ends and the snapshot shows it.
+  const diffSource = useMemo<ChangesSource>(
+    () => ({
+      ...changesSource,
+      draftCommit: async () => {
+        const from = snapshotRef.current?.rows.length ?? 0;
+        await callNative("chat.send", { text: COMMIT_DRAFT_PROMPT });
+        const frame = () => new Promise<void>((resolve) => nextFrame(resolve));
+        await frame();
+        for (let wait = 0; wait < 20 && snapshotRef.current?.isWorking; wait++) await frame();
+        return commitMessageFromReply(replyAfter(snapshotRef.current?.rows ?? [], from));
+      },
+    }),
+    [],
+  );
   /// The composer's prompt, which dictation writes into.
   const prompt = useRef<MarkdownFieldHandle>(null);
   /// The composer itself, which takes back prompts a harness switch held; prompts handed back
@@ -2586,6 +2611,7 @@ function AcpmuxPane() {
           "git.checkpoint.diff": ({ from, to }) => client.gitCheckpointDiff(String(from), String(to)),
           "git.stage": ({ paths, unstage }) =>
             client.gitStage(Array.isArray(paths) ? paths.map(String) : [], unstage === true),
+          "git.commit": ({ message }) => client.gitCommit(typeof message === "string" ? message : ""),
           // What the agent works on, for a terminal or browser opened from this chat (#16620).
           "pane.context": async () => (snapshotRef.current ? paneContext(snapshotRef.current) : { urls: [] }),
         };
@@ -3653,7 +3679,7 @@ function AcpmuxPane() {
                     turn={diffDisplay}
                     initialPath={diffView.path}
                     onClose={closeDiff}
-                    source={changesSource}
+                    source={diffSource}
                     onOpenFile={openChangedFile}
                     checkpointAction={
                       checkpoints.supported ? (

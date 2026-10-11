@@ -19,6 +19,7 @@ import { BranchPill } from "./changes/BranchPill";
 import { copyText } from "./conversation/clipboard";
 import { changeSetFiles, type ChangeScope, type ChangesSource } from "./changes/model";
 import { OptionsMenu, type OptionsRow } from "./changes/OptionsMenu";
+import { CommitBar } from "./changes/CommitBar";
 import { RevertBar } from "./changes/RevertBar";
 import { ScopeMenu } from "./changes/ScopeMenu";
 import { TrackedOnlyBanner } from "./changes/TrackedOnlyBanner";
@@ -382,6 +383,9 @@ export function DiffPanel({
       </div>
       {hunkReview && (
         <RevertBar files={reviewFiles ?? files} review={hunkReview} onSent={() => back.current?.focus()} />
+      )}
+      {scope === "staged" && source?.commit && (
+        <CommitBar commit={source.commit} draft={source.draftCommit} onCommitted={retry} />
       )}
       {files.length > 0 && !scopeState && <DiffKeyHints />}
     </section>

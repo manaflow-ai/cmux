@@ -366,6 +366,7 @@ public final class AgentPaneModel {
         case .turnUndo(let undo): return await AgentPaneTurnUndo.reply(to: undo, in: self)
         case .invalidTurnUndo: return await AgentPaneTurnUndo.reply(to: nil, in: self)
         case .gitStage(let request): return await AgentPaneGitStage.reply(to: request, in: self)
+        case .gitCommit(let request): return await AgentPaneGitCommit.reply(to: request, in: self)
         case .transportOpen:
             guard let connection = pendingConnection else { return Self.transportFailure(.noConnection) }
             pendingConnection = nil

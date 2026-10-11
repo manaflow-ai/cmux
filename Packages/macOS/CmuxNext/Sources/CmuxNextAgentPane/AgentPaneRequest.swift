@@ -147,6 +147,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `git.stage` / `git.unstage`: the Changes view's Stage and Unstage (AgentPaneGitStage.swift);
     /// nil when its params break the contract, and nothing runs.
     case gitStage(AgentPaneGitStage?)
+    /// `git.commit`: the Changes view's Commit (AgentPaneGitCommit.swift); nil when its params
+    /// break the contract, and nothing runs.
+    case gitCommit(AgentPaneGitCommit?)
     /// `transport.open`: open the host's acpmux socket named by the last handshake
     /// (``AgentPaneTransport``); answers `{connection}` once it is open.
     case transportOpen

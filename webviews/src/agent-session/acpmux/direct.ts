@@ -973,6 +973,13 @@ export class AcpmuxDirectClient {
     return this.git(unstage ? "git.unstage" : "git.stage", { paths });
   }
 
+  /// Commits what is staged in the selected session's repository with `message`. Only the native
+  /// host on this Mac writes, as for Stage.
+  gitCommit(message: string): Promise<unknown> {
+    if (this.gitRoute === "daemon") return Promise.reject(new Error(translate("error.noFolderChanges")));
+    return this.git("git.commit", { message });
+  }
+
   /// acpmux serves no git methods: the native host runs them on the session host in the selected
   /// session's folder, and mock mode's in-page daemon answers them by session.
   /// One turn's repository changes: checkpoint `from` against checkpoint `to`.
@@ -981,7 +988,7 @@ export class AcpmuxDirectClient {
   }
 
   private git(
-    method: "git.diff" | "git.status" | "git.checkpoint.diff" | "git.stage" | "git.unstage",
+    method: "git.diff" | "git.status" | "git.checkpoint.diff" | "git.stage" | "git.unstage" | "git.commit",
     params: Record<string, unknown>,
   ): Promise<unknown> {
     const sessionId = this.selectedSessionId;

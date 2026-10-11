@@ -59,6 +59,10 @@ export type ChangesSource = {
   diff: (scope: ChangeScope) => Promise<unknown>;
   /// Stages files (or unstages them), named as `diff` names them; absent where the view can't.
   stage?: (paths: string[], unstage: boolean) => Promise<unknown>;
+  /// Commits what is staged with `message`; absent where the view can't.
+  commit?: (message: string) => Promise<unknown>;
+  /// Asks the agent for a commit message for what is staged and resolves with its reply.
+  draftCommit?: () => Promise<string>;
   status?: () => Promise<unknown>;
   turn?: (turn: { rowId: string }) => Promise<unknown>;
 };
