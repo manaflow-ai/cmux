@@ -63,7 +63,7 @@ type HostThemeWindow = Window & { cmuxTheme?: { current?: { terminal?: HostTermi
 type HostTerminalTheme = { type?: string; background?: string; foreground?: string; palette?: Record<string, string> };
 
 /** The terminal theme the host sends with every theme change (WebTheme.swift `terminal`), or null. */
-function hostTerminalTheme(): DiffViewerTheme | null {
+export function hostTerminalTheme(): DiffViewerTheme | null {
   if (typeof window === "undefined") return null;
   const terminal = (window as HostThemeWindow).cmuxTheme?.current?.terminal;
   if (!terminal || typeof terminal !== "object") return null;

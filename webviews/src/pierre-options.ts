@@ -2,7 +2,7 @@ import { PIERRE_DIFFS_SCROLLER_CSS, PIERRE_TREES_SCROLLER_CSS } from "./scroller
 import type { CodeViewOptions } from "@pierre/diffs";
 import type { WorkerInitializationRenderOptions } from "@pierre/diffs/worker";
 import { appearanceBackgroundColor, readableColor, type DiffViewerAppearance } from "./appearance";
-import { pageSyntaxVariable, syntaxRoleColors, syntaxTokenRules } from "./syntax-theme";
+import { pageSyntaxVariable, syntaxRoleColors, syntaxTokenRules, type SyntaxRoleName } from "./syntax-theme";
 
 export type DiffViewerOptions = {
   collapsed: boolean;
@@ -276,9 +276,10 @@ function syntaxTokenColors(
 ) {
   const type = theme.type === "light" ? "light" : "dark";
   const colors = syntaxRoleColors(theme.palette ?? {}, type, contrastBackground, foreground);
-  return syntaxTokenRules({ foreground, background: renderedBackground }, (role) =>
-    variables ? `var(${pageSyntaxVariable(type, role)}, ${colors[role]})` : colors[role],
-  );
+  const color = (role: SyntaxRoleName) =>
+    variables ? `var(${pageSyntaxVariable(type, role)}, ${colors[role]})` : colors[role];
+  // Plain text reads the `variable` role (the foreground), so it follows a theme change too.
+  return syntaxTokenRules({ foreground: color("variable"), background: renderedBackground }, color);
 }
 
 function themeBackgroundForContrast(theme: any): string {
