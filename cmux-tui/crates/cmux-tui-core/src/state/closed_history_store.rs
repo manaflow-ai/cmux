@@ -299,6 +299,16 @@ fn tab_record(connection: &Connection, tab_id: &str) -> anyhow::Result<Option<Va
                 record["url"] = json!(url);
                 record["browser_profile_id"] = json!(profile);
                 record["engine"] = json!(engine);
+                // Back/forward entries and scroll come back on reopen
+                // (cx-d0d.11); `closed.list` never shows them.
+                record["browser_history"] = connection
+                    .query_row(
+                        "SELECT history FROM frontend_browser_history WHERE browser_id = ?1",
+                        [&content_id],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .optional()?
+                    .map_or(Value::Null, Value::String);
             }
             None => record["url"] = json!(url),
         }

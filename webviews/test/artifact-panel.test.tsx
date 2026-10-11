@@ -128,3 +128,74 @@ test("HTML on a page without the render frame shows its source only", async () =
   expect(button("Preview")).toBeUndefined();
   expect(host.querySelector("iframe")).toBeNull();
 });
+
+test("Save hands the document to the host's save panel under its title, and says Saved", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ArtifactPanel } = await import("../src/agent-session/acpmux/conversation/ArtifactPanel");
+  const asked: [string, string, string][] = [];
+  let answer: "saved" | "cancelled" = "cancelled";
+  const save = async (text: string, suggestedName: string, kind: string) => {
+    asked.push([text, suggestedName, kind]);
+    return answer;
+  };
+  const draw = (artifact: { kind: "html" | "svg" | "markdown"; lang: string; code: string }) => {
+    act(() => root?.unmount());
+    root = createRoot(host);
+    act(() => root!.render(<ArtifactPanel artifact={artifact} onClose={() => {}} onSave={save} />));
+  };
+
+  // A Markdown document is named by its first heading; a cancelled panel changes nothing.
+  draw({ kind: "markdown", lang: "md", code: "Intro\n\n## Release notes: v2\n\nRetry backs off." });
+  await act(async () => button("Save")!.click());
+  expect(asked.at(-1)).toEqual(["Intro\n\n## Release notes: v2\n\nRetry backs off.", "Release notes: v2", "markdown"]);
+  expect(button("Save")).toBeDefined();
+
+  // An HTML page by its <title>, and a saved file says so.
+  answer = "saved";
+  const page = "<html><head><title> Pro plan </title></head><body>Hi</body></html>";
+  draw({ kind: "html", lang: "html", code: page });
+  await act(async () => button("Save")!.click());
+  expect(asked.at(-1)).toEqual([page, "Pro plan", "html"]);
+  expect(button("Saved")).toBeDefined();
+
+  // A document with no title: the host names it.
+  draw({ kind: "svg", lang: "svg", code: "<svg/>" });
+  await act(async () => button("Save")!.click());
+  expect(asked.at(-1)).toEqual(["<svg/>", "", "svg"]);
+
+  // A `#` line in a code fence is not the title; a heading keeps a real trailing `#`; a title's
+  // entities read as text.
+  draw({ kind: "markdown", lang: "md", code: "```sh\n# install deps\n```\n\n## Learn C#\n" });
+  await act(async () => button("Save")!.click());
+  expect(asked.at(-1)?.[1]).toBe("Learn C#");
+  draw({ kind: "html", lang: "html", code: "<title>Tom &amp; Jerry</title>" });
+  await act(async () => button("Save")!.click());
+  expect(asked.at(-1)?.[1]).toBe("Tom & Jerry");
+
+  // A host that cannot write it: the document is copied instead.
+  const copied: string[] = [];
+  Object.defineProperty(window.navigator, "clipboard", {
+    configurable: true,
+    value: { writeText: async (text: string) => void copied.push(text) },
+  });
+  act(() => root?.unmount());
+  root = createRoot(host);
+  act(() =>
+    root!.render(
+      <ArtifactPanel
+        artifact={{ kind: "svg", lang: "svg", code: "<svg/>" }}
+        onClose={() => {}}
+        onSave={async () => "unavailable"}
+      />,
+    ),
+  );
+  await act(async () => button("Save")!.click());
+  expect(copied).toEqual(["<svg/>"]);
+  expect(button("Copied")).toBeDefined();
+
+  // Without a host save panel there is no Save.
+  act(() => root?.unmount());
+  root = createRoot(host);
+  act(() => root!.render(<ArtifactPanel artifact={{ kind: "svg", lang: "svg", code: "<svg/>" }} onClose={() => {}} />));
+  expect(button("Save")).toBeUndefined();
+});
