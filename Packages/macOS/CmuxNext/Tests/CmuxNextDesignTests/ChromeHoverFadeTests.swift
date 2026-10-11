@@ -49,8 +49,10 @@ struct ChromeHoverFadeTests {
         defer { Motion.reduceMotionOverride = nil }
         let (hover, fill) = control()
         hover.state.hovering = true
+        hover.state.hovering = false
+        hover.state.hovering = true
         #expect(fill.backgroundColor?.alpha ?? 0 > 0)
-        #expect(fade(fill) == nil)
+        #expect(fade(fill) == nil, "a second hover is instant too")
     }
 
     @Test func paintedRowFillsFollowTheSameRule() {
