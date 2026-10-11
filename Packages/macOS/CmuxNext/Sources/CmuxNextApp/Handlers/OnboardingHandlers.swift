@@ -24,8 +24,8 @@ enum OnboardingHandlers {
             let window = NSApp.keyWindow ?? NSApp.mainWindow
             registry.track(Task { @MainActor in
                 do {
-                    let opened = try await AppOnboardingServices(owner: services.onboarding).importClassicSessions()
-                    let notice = opened > 0 ? ClassicImportStrings.imported : ClassicImportStrings.nothingSaved
+                    let summary = try await AppOnboardingServices(owner: services.onboarding).importClassicSessions()
+                    let notice = ClassicImportStrings.notice(summary)
                     services.onboarding.classicImportNotice = notice
                     ClassicImportStrings.toast(notice, in: window)
                     return nil
@@ -71,6 +71,21 @@ enum ClassicImportStrings {
     }
     static var failed: String {
         String(localized: "classicImport.toast.failed", defaultValue: "Couldn’t import workspaces from classic cmux.", bundle: .module)
+    }
+    static var cloudVMsStay: String {
+        String(localized: "classicImport.toast.cloudVMsStay",
+               defaultValue: "Cloud VM workspaces stay in classic cmux; cmux-next can’t open them yet.", bundle: .module)
+    }
+    static var sshStays: String {
+        String(localized: "classicImport.toast.sshStays",
+               defaultValue: "SSH workspaces whose host didn’t connect stay in classic cmux.", bundle: .module)
+    }
+
+    /// What opened, then what stayed in classic and why.
+    static func notice(_ summary: ClassicImportSummary) -> String {
+        let stayed = (summary.leftCloudVMs ? [cloudVMsStay] : []) + (summary.leftSSH ? [sshStays] : [])
+        let opened = summary.opened > 0 ? [imported] : stayed.isEmpty ? [nothingSaved] : []
+        return (opened + stayed).joined(separator: " ")
     }
 
     @MainActor static func toast(_ message: String, in window: NSWindow?) {

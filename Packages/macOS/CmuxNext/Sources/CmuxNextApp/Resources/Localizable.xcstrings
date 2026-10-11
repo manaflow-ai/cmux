@@ -8585,6 +8585,126 @@
           }
         }
       }
+    },
+    "classicImport.toast.cloudVMsStay": {
+      "comment": "Added to the Import Workspaces from Classic cmux toast when classic cmux (the older app) had Cloud VM workspaces, which the import leaves in classic cmux. Keep “Cloud VM” and “cmux-next” as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM workspaces stay in classic cmux; cmux-next can’t open them yet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-VM-Arbeitsbereiche bleiben im klassischen cmux; cmux-next kann sie noch nicht öffnen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les espaces de travail Cloud VM restent dans cmux classique ; cmux-next ne peut pas encore les ouvrir."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبقى مساحات عمل Cloud VM في cmux الكلاسيكي؛ لا يستطيع cmux-next فتحها بعد."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los espacios de trabajo de Cloud VM se quedan en cmux clásico; cmux-next aún no puede abrirlos."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM 工作區會留在經典版 cmux；cmux-next 目前還無法開啟它們。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM 工作区会留在经典版 cmux；cmux-next 目前还无法打开它们。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM 작업 공간은 클래식 cmux에 남습니다. cmux-next에서는 아직 열 수 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM のワークスペースはクラシック版 cmux に残ります。cmux-next ではまだ開けません。"
+          }
+        }
+      }
+    },
+    "classicImport.toast.sshStays": {
+      "comment": "Added to the Import Workspaces from Classic cmux toast when some SSH workspaces of classic cmux (the older app) could not reach their host, so they stay in classic cmux.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH workspaces whose host didn’t connect stay in classic cmux."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-Arbeitsbereiche, deren Host keine Verbindung herstellen konnte, bleiben im klassischen cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les espaces de travail SSH dont l’hôte ne s’est pas connecté restent dans cmux classique."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبقى مساحات عمل SSH التي لم يتصل مضيفها في cmux الكلاسيكي."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los espacios de trabajo SSH cuyo host no se conectó se quedan en cmux clásico."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主機未能連線的 SSH 工作區會留在經典版 cmux。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主机未能连接的 SSH 工作区会留在经典版 cmux。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "호스트에 연결하지 못한 SSH 작업 공간은 클래식 cmux에 남습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホストに接続できなかった SSH ワークスペースはクラシック版 cmux に残ります。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

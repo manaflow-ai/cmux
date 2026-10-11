@@ -61,14 +61,9 @@ final class OnboardingService {
                         .error("classic session snapshot could not be read: \(String(describing: error), privacy: .public)")
                     classic = []
                 }
-                func classicDirectories(_ layout: ClassicSessionLayout) -> [String] {
-                    switch layout {
-                    case .pane(let pane): pane.tabs.compactMap(\.workingDirectory)
-                    case .split(_, _, let first, let second): classicDirectories(first) + classicDirectories(second)
-                    }
-                }
-                let classicFolders = classic.flatMap { workspace in
-                    [workspace.workingDirectory] + classicDirectories(workspace.layout)
+                // Folders on this Mac: an SSH or Cloud VM workspace's are another machine's.
+                let classicFolders = classic.filter { $0.remote == nil && $0.cloudVM == nil }.flatMap { workspace in
+                    [workspace.workingDirectory] + workspace.layout.tabs.compactMap(\.workingDirectory)
                 }
                 var seen = Set<String>()
                 return (agent + classicFolders).compactMap { path in
