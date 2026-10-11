@@ -33,7 +33,7 @@
     "guestUnresponsive": {
       "title": "La machine ne répond pas",
       "message": "Cette machine n'a pas répondu à temps, la requête n'a donc pas pu aboutir.",
-      "action": "Redémarrez la machine : exécutez cmux vm pause, puis cmux vm resume, et réessayez."
+      "action": "Mettez la machine en pause, reprenez-la, puis réessayez. Dans l'app Mac, choisissez Mettre la machine en pause, puis Reprendre la machine. Dans un terminal, exécutez cmux vm pause '<machine>', puis cmux vm resume '<machine>'."
     },
     "networkRuleCapacity": {
       "title": "Règles réseau à saturation",

@@ -33,7 +33,7 @@
     "guestUnresponsive": {
       "title": "Mašina ne odgovara",
       "message": "Ova mašina nije odgovorila na vrijeme, pa zahtjev nije mogao biti završen.",
-      "action": "Ponovo pokrenite mašinu: pokrenite cmux vm pause, zatim cmux vm resume, i pokušajte ponovo."
+      "action": "Pauzirajte mašinu, zatim je nastavite i pokušajte ponovo. U Mac aplikaciji odaberite Pauziraj mašinu, zatim Nastavi mašinu. U terminalu pokrenite cmux vm pause '<machine>', zatim cmux vm resume '<machine>'."
     },
     "networkRuleCapacity": {
       "title": "Mrežna pravila su na kapacitetu",

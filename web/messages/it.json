@@ -33,7 +33,7 @@
     "guestUnresponsive": {
       "title": "La macchina non risponde",
       "message": "Questa macchina non ha risposto in tempo, quindi la richiesta non è stata completata.",
-      "action": "Riavvia la macchina: esegui cmux vm pause, poi cmux vm resume, e riprova."
+      "action": "Metti in pausa la macchina, poi riprendila e riprova. Nell'app per Mac, scegli Metti in pausa la macchina, poi Riprendi la macchina. In un terminale, esegui cmux vm pause '<machine>', poi cmux vm resume '<machine>'."
     },
     "networkRuleCapacity": {
       "title": "Regole di rete al limite",

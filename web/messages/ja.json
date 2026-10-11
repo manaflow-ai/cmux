@@ -174,7 +174,7 @@
     "guestUnresponsive": {
       "title": "マシンが応答しません",
       "message": "このマシンが時間内に応答しなかったため、リクエストを完了できませんでした。",
-      "action": "cmux vm pause を実行してから cmux vm resume を実行してマシンを再起動し、もう一度お試しください。"
+      "action": "マシンを一時停止してから再開し、もう一度お試しください。Mac アプリでは「マシンを一時停止」を選んでから「マシンを再開」を選びます。ターミナルでは cmux vm pause '<machine>' を実行してから cmux vm resume '<machine>' を実行します。"
     },
     "networkRuleCapacity": {
       "title": "ネットワークルールの上限に達しました",

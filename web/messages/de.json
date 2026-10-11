@@ -33,7 +33,7 @@
     "guestUnresponsive": {
       "title": "Maschine antwortet nicht",
       "message": "Diese Maschine hat nicht rechtzeitig geantwortet, daher konnte die Anfrage nicht abgeschlossen werden.",
-      "action": "Starte die Maschine neu: Führe cmux vm pause und dann cmux vm resume aus und versuche es erneut."
+      "action": "Pausiere die Maschine, setze sie dann fort und versuche es erneut. Wähle in der Mac-App „Maschine pausieren“ und dann „Maschine fortsetzen“. Führe im Terminal cmux vm pause '<machine>' und dann cmux vm resume '<machine>' aus."
     },
     "networkRuleCapacity": {
       "title": "Netzwerkregeln ausgeschöpft",

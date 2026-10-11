@@ -17,7 +17,7 @@ import * as Option from "effect/Option";
 import { eq } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { cloudVms } from "../../db/schema";
-import { hasProviderTlsRuleLimitCause, ProviderGuestUnresponsiveError, type CreateOptions } from "./drivers/types";
+import { hasProviderGuestUnresponsiveCause, hasProviderTlsRuleLimitCause, ProviderGuestUnresponsiveError, type CreateOptions } from "./drivers/types";
 import * as Layer from "effect/Layer";
 import type {
   AttachEndpoint,
@@ -3679,12 +3679,14 @@ function withResumeOnSuspendedAfterFailure<A>(
   maxActiveVms?: number | null,
   /** The caller's current plan, whose shared pool a resumed machine draws from. */
   callerPlanId?: string | null,
+  /** Failures a status probe and resume cannot fix; they are returned as they are. */
+  isUnrecoverable: (error: VmWorkflowError) => boolean = () => false,
 ): Effect.Effect<A, VmWorkflowError> {
   return op.pipe(
     Effect.catchAll((originalError) => {
       const getStatus = providers.getStatus;
       const resume = providers.resume;
-      if (!getStatus || !resume) return Effect.fail(originalError);
+      if (!getStatus || !resume || isUnrecoverable(originalError)) return Effect.fail(originalError);
 
       return Effect.gen(function* () {
         const status = yield* getStatus(vm.provider, providerVmId).pipe(
@@ -5051,7 +5053,7 @@ export function openAttachEndpoint(input: OpenAttachEndpointInput) {
  * 2026-10-11) reaches nobody. 45 s leaves room for the response to arrive.
  */
 export const SCP_ANSWER_BUDGET_MS = 45_000;
-/** A dispatched setup always gets this long, even when lookup or resume spent the budget. */
+/** The operation always gets this long, even when auth and lookup spent the budget. */
 const SCP_PREPARE_MIN_WINDOW_MS = 25_000;
 
 /** What remains of the SCP answer budget after `elapsedMs` of it went to auth and lookup. */
@@ -5076,37 +5078,40 @@ export function prepareScpEndpoint(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireAccessibleUserVm(input);
-    if (!providers.prepareSCP) return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "prepareSCP" }));
+    const prepareSCP = providers.prepareSCP;
+    if (!prepareSCP) return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "prepareSCP" }));
     if (vm.status === "destroyed") return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
-    // Lookup and resume are never cut short (see execVm); the deadline governs the guest setup.
-    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "scp", {
-      forceProviderProbe: true, maxActiveVms: input.maxActiveVms, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane,
-    });
     const setupStartedAtMs = yield* Clock.currentTimeMillis;
     const setupWindowMs = Math.max(SCP_PREPARE_MIN_WINDOW_MS, deadlineAtMs - setupStartedAtMs);
-    // A provider that has not answered by now will not answer the client: the
-    // guest exec channel is stuck, so the answer names the machine, not an
-    // outage. Only the setup call is bounded; a resume after a failed attempt
-    // is never interrupted midway.
-    const setup = providers.prepareSCP(vm.provider, input.providerVmId, input.publicKey).pipe(
-      Effect.timeoutFail({
-        duration: setupWindowMs,
-        onTimeout: () => new VmProviderOperationError({
-          provider: vm.provider,
-          operation: "prepareSCP",
-          cause: new ProviderGuestUnresponsiveError(vm.provider, `SCP preparation in ${input.providerVmId}: no answer within ${Math.round(setupWindowMs / 1000)}s`),
-        }),
-      }),
-    );
-    const endpoint = yield* withResumeOnSuspendedAfterFailure(
-      repo,
-      providers,
-      vm,
-      input.providerVmId,
-      "scp",
-      setup,
-      input.maxActiveVms,
-      input.callerPlanId,
+    const unanswered = () => new VmProviderOperationError({
+      provider: vm.provider,
+      operation: "prepareSCP",
+      cause: new ProviderGuestUnresponsiveError(vm.provider, `SCP preparation in ${input.providerVmId}: no answer within ${Math.round(setupWindowMs / 1000)}s`),
+    });
+    // One deadline covers the preflight resume, the setup, and any status
+    // probe, resume and second attempt after it: a later answer reaches no
+    // one. The work is disconnected, so a resume past the deadline still
+    // finishes its bookkeeping in the background instead of being interrupted
+    // midway. A guest that did not answer is not retried here: a probe or
+    // resume inside the same request does not fix it.
+    const endpoint = yield* Effect.gen(function* () {
+      yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "scp", {
+        forceProviderProbe: true, maxActiveVms: input.maxActiveVms, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane,
+      });
+      return yield* withResumeOnSuspendedAfterFailure(
+        repo,
+        providers,
+        vm,
+        input.providerVmId,
+        "scp",
+        prepareSCP(vm.provider, input.providerVmId, input.publicKey),
+        input.maxActiveVms,
+        input.callerPlanId,
+        (error) => error._tag === "VmProviderOperationError" && hasProviderGuestUnresponsiveCause(error.cause),
+      );
+    }).pipe(
+      Effect.disconnect,
+      Effect.timeoutFail({ duration: setupWindowMs, onTimeout: unanswered }),
     );
     yield* repo.recordUsageEvent({
       userId: input.userId,

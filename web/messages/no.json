@@ -33,7 +33,7 @@
     "guestUnresponsive": {
       "title": "Maskinen svarer ikke",
       "message": "Denne maskinen svarte ikke i tide, så forespørselen kunne ikke fullføres.",
-      "action": "Start maskinen på nytt: kjør cmux vm pause, deretter cmux vm resume, og prøv igjen."
+      "action": "Sett maskinen på pause, gjenoppta den, og prøv igjen. I Mac-appen velger du Sett maskin på pause og deretter Gjenoppta maskin. I en terminal kjører du cmux vm pause '<machine>' og deretter cmux vm resume '<machine>'."
     },
     "networkRuleCapacity": {
       "title": "Nettverksregler har nådd kapasiteten",

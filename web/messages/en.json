@@ -174,7 +174,7 @@
     "guestUnresponsive": {
       "title": "Machine not responding",
       "message": "This machine did not respond in time, so the request could not finish.",
-      "action": "Restart the machine: run cmux vm pause, then cmux vm resume, and try again."
+      "action": "Pause the machine, then resume it, and try again. In the Mac app, choose Pause machine, then Resume machine. In a terminal, run cmux vm pause '<machine>', then cmux vm resume '<machine>'."
     },
     "networkRuleCapacity": {
       "title": "Network rules at capacity",

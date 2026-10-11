@@ -723,6 +723,16 @@ export class ProviderTlsRuleLimitError extends ProviderError {
 }
 
 /** Whether `err` or anything in its cause chain is a {@link ProviderTlsRuleLimitError}. */
+/** True when `err` or one of its causes is a {@link ProviderGuestUnresponsiveError}. */
+export function hasProviderGuestUnresponsiveCause(err: unknown): boolean {
+  let current = err;
+  for (let depth = 0; depth < 8 && current; depth += 1) {
+    if (current instanceof ProviderGuestUnresponsiveError) return true;
+    current = typeof current === "object" ? (current as { cause?: unknown }).cause : undefined;
+  }
+  return false;
+}
+
 export function hasProviderTlsRuleLimitCause(err: unknown): boolean {
   let current = err;
   for (let depth = 0; depth < 8 && current; depth += 1) {

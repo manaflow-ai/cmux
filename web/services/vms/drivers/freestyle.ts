@@ -638,6 +638,24 @@ function isFreestyleExecNoExit(err: unknown): boolean {
     && /exec produced no exit/i.test(err.message);
 }
 
+/**
+ * An exec failure that says the guest did not answer, not that the request
+ * was refused: a client timeout or abort, a gateway 502/504 (a background
+ * request polled past its limit), or the provider's VM_NON_RESPONSIVE. Early
+ * refusals (401/403/404/429) and other 5xx keep their own provider error.
+ */
+function isFreestyleGuestUnanswered(err: unknown): boolean {
+  let current = err;
+  for (let depth = 0; depth < 8 && current; depth += 1) {
+    if (current instanceof FreestyleApiError) {
+      return current.status === 502 || current.status === 504 || current.code === "VM_NON_RESPONSIVE";
+    }
+    if (current instanceof Error && (current.name === "TimeoutError" || current.name === "AbortError")) return true;
+    current = typeof current === "object" ? (current as { cause?: unknown }).cause : undefined;
+  }
+  return false;
+}
+
 function freestyleOperationError(operation: string, err: unknown): ProviderError {
   return isFreestyleNetworkFull(err)
     ? new ProviderNetworkFullError("freestyle", `${operation}: private network has no free addresses`, err)
@@ -1045,7 +1063,10 @@ export class FreestyleProvider implements VMProvider {
           .exec({ command: scpPrepareCommand(key, expires), timeoutMs: SCP_PREPARE_EXEC_TIMEOUT_MS, linuxUser: GUEST_LINUX_USER });
       } catch (err) {
         // The command never ran or its answer was lost: nothing is known about sshd.
-        throw new ProviderGuestUnresponsiveError("freestyle", `SCP preparation in ${vmId}: the machine did not answer the setup command`, err);
+        if (isFreestyleGuestUnanswered(err)) {
+          throw new ProviderGuestUnresponsiveError("freestyle", `SCP preparation in ${vmId}: the machine did not answer the setup command`, err);
+        }
+        throw new ProviderError("freestyle", `prepareSCP(${vmId})`, err);
       }
       if (result.statusCode === null || result.statusCode === undefined || result.statusCode === 124) {
         throw new ProviderGuestUnresponsiveError("freestyle", `SCP preparation in ${vmId}: the setup command did not exit within ${SCP_PREPARE_EXEC_TIMEOUT_MS / 1000}s`);

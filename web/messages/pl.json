@@ -33,7 +33,7 @@
     "guestUnresponsive": {
       "title": "Maszyna nie odpowiada",
       "message": "Ta maszyna nie odpowiedziała na czas, więc nie udało się ukończyć żądania.",
-      "action": "Uruchom maszynę ponownie: wykonaj cmux vm pause, potem cmux vm resume, i spróbuj jeszcze raz."
+      "action": "Wstrzymaj maszynę, potem ją wznów i spróbuj ponownie. W aplikacji na Maca wybierz Wstrzymaj maszynę, a potem Wznów maszynę. W terminalu uruchom cmux vm pause '<machine>', a potem cmux vm resume '<machine>'."
     },
     "networkRuleCapacity": {
       "title": "Osiągnięto limit reguł sieciowych",

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Freestyle } from "freestyle";
+import { FreestyleApiError, type Freestyle } from "freestyle";
 import { FreestyleProvider } from "../services/vms/drivers/freestyle";
 import { parseSshPublicKey, scpAuthorizedKeyLine } from "../services/vms/drivers/scp";
 import { VmProviderOperationError } from "../services/vms/errors";
@@ -77,7 +77,9 @@ describe("SCP setup on a machine that does not answer", () => {
   };
 
   const stuckExecs: [string, () => Promise<unknown>][] = [
-    ["the provider exec call fails", async () => { throw new Error("Status: 502 (Bad Gateway)"); }],
+    ["the exec poll ends in a gateway 502", async () => { throw new FreestyleApiError(502, { code: "INTERNAL_ERROR", message: "Bad Gateway" }); }],
+    ["the exec poll ends in a gateway 504", async () => { throw new FreestyleApiError(504, { code: "GATEWAY_TIMEOUT", message: "Gateway Timeout" }); }],
+    ["the exec request times out", async () => { throw new DOMException("The operation timed out.", "TimeoutError"); }],
     ["the guest command never exits", async () => ({ statusCode: null, stdout: "", stderr: "" })],
   ];
   test.each(stuckExecs)("names the machine as unresponsive when %s", async (_label, exec) => {
@@ -91,9 +93,27 @@ describe("SCP setup on a machine that does not answer", () => {
     expect(response?.status).toBe(503);
     const payload = await response!.json() as Record<string, unknown>;
     expect(payload).toMatchObject({ error: "vm_guest_unresponsive", retryable: false });
-    expect(String(payload.action)).toContain("cmux vm pause");
-    expect(String(payload.action)).toContain("cmux vm resume");
+    expect(String(payload.action)).toContain("cmux vm pause <machine>, then cmux vm resume <machine>");
+    expect(String(payload.action)).toContain("Pause machine, then Resume machine");
     expect(JSON.stringify(payload)).not.toMatch(/temporarily unavailable/i);
+  });
+
+  // A refusal that arrives before the command could run says nothing about
+  // the guest: it keeps its provider error and code.
+  test.each([
+    [401, "UNAUTHORIZED", "invalid api key"],
+    [500, "INTERNAL_ERROR", "exec dispatch failed"],
+  ])("keeps an early %i from the exec as a provider error", async (status, code, message) => {
+    const provider = unresponsiveProvider(async () => { throw new FreestyleApiError(status, { code, message }); });
+    const error = await failure(() => provider.prepareSCP(vmId, key));
+    expect(error.name).toBe("ProviderError");
+
+    const response = await vmWorkflowErrorResponse(
+      new VmProviderOperationError({ provider: "freestyle", operation: "prepareSCP", cause: error }),
+    );
+    const payload = await response!.json() as { error: string; details?: { providerCode?: string } };
+    expect(payload.error).not.toBe("vm_guest_unresponsive");
+    expect(payload.details?.providerCode).toBe(code);
   });
 
   test("keeps the guest's own error when the setup command fails", async () => {
