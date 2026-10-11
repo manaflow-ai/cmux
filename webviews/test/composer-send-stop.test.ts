@@ -2,8 +2,10 @@
 // bridge, and the host snapshot then restores Send. Exercise the fixture in a real Chromium page
 // so the play cannot pass by only checking the static working screenshot.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import fs from "node:fs";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { galleryFiles } from "../scripts/gallery/entries";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("composer-send-stop.test.ts", async () => {
@@ -28,6 +30,23 @@ await requireBrowserLane("composer-send-stop.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    // The stage's whole module graph compiled and its dependencies bundled before the page asks
+    // for them. Cold, beside the parallel test batch, that took longer than the page's wait, and an
+    // optimizer run finishing mid-load reloads the stage; the page's wait now covers the play alone.
+    const frame = path.join(webviews, "src/gallery/frame");
+    const files = [
+      ...fs
+        .readdirSync(frame)
+        .filter((name) => /\.tsx?$/.test(name))
+        .map((name) => path.join(frame, name)),
+      ...galleryFiles(),
+    ];
+    await Promise.all(files.map((file) => vite!.warmupRequest(`/${path.relative(webviews, file)}`)));
+    const client = vite.environments.client;
+    await client.waitForRequestsIdle();
+    const optimizer = client.depsOptimizer;
+    await optimizer?.scanProcessing;
+    await Promise.all(Object.values(optimizer?.metadata.discovered ?? {}).map((dependency) => dependency.processing));
     browser = await chromium.launch({ headless: true });
   });
   afterAll(async () => {
