@@ -12769,7 +12769,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // the fixture's action lane installed after that startup refresh;
                 // otherwise the UI test can never exercise the narrow overflow
                 // layout it is meant to cover.
-                DispatchQueue.main.async {
+                // Panel-title persistence also triggers the config file watcher
+                // after its coalescing delay, so wait until that refresh settles.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                     workspace.applySurfaceTabBarButtons(
                         buttons,
                         sourcePath: nil,
