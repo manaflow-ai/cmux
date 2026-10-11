@@ -511,7 +511,7 @@ fn is_socket(f: &std::fs::File) -> bool {
 /// --keep-agents`). Returns the daemon's readiness line.
 #[cfg(unix)]
 pub async fn start_keyed(fd: i32) -> Result<String> {
-    use std::io::BufRead;
+    use std::io::Read;
     use std::os::fd::FromRawFd;
     not_dumpable().context("make the launcher not dumpable before it reads the person key")?;
     let path = socket_path();
@@ -524,11 +524,22 @@ pub async fn start_keyed(fd: i32) -> Result<String> {
     // SAFETY: the caller passed this descriptor for this process to read;
     // ManuallyDrop: stdin stays open for the process.
     let input = std::mem::ManuallyDrop::new(unsafe { std::fs::File::from_raw_fd(fd) });
-    let mut line = zeroize::Zeroizing::new(String::with_capacity(80));
-    std::io::BufReader::new(std::io::Read::take(&*input, 128))
-        .read_line(&mut line)
-        .context("read the person key")?;
-    let key = zeroize::Zeroizing::new(line.trim().to_owned());
+    // Straight into one fixed buffer that is zeroed on drop: no reader
+    // buffer keeps another copy. One line: 64 hex characters and a newline.
+    let mut line = zeroize::Zeroizing::new([0u8; 129]);
+    let mut filled = 0;
+    while filled < line.len() && !line[..filled].contains(&b'\n') {
+        match (&*input).read(&mut line[filled..]) {
+            Ok(0) => break,
+            Ok(n) => filled += n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e).context("read the person key"),
+        }
+    }
+    let end = line[..filled].iter().position(|b| *b == b'\n').unwrap_or(filled);
+    let key = zeroize::Zeroizing::new(
+        std::str::from_utf8(&line[..end]).unwrap_or_default().trim().to_owned(),
+    );
     if !crate::hub::person::valid_key(&key) {
         return Err(anyhow!(
             "--person-key-fd {fd}: not a person key (64 lowercase hex characters)"

@@ -315,6 +315,17 @@ export default agentPaneEntry({
         ],
       }),
     },
+    "queued-keyboard": {
+      note: "Play: ↑ from the empty prompt reaches the last queued prompt, ↑ again the one before; Return edits it in its row (Return saves, Esc cancels). On a row, ⌥↑/⌥↓ move it, ⌘Return sends it now and Delete removes it.",
+      snapshot: { ...steering(true), queue: waiting },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-composer-prompt" });
+        await ctx.press("ArrowUp");
+        await ctx.press("ArrowUp");
+        await ctx.press("Enter");
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-queued-edit"));
+      },
+    },
     "queued-long": {
       note: "Many queued prompts, one too long for its row: the rows scroll, and the cut-off one shows a tooltip on hover.",
       snapshot: chat(working, {
@@ -341,7 +352,7 @@ export default agentPaneEntry({
     "queued-send-remove": {
       note: "Play: remove the first waiting prompt from its row, then Stop: the turn ends and the next prompt is sent. Neither moves the composer, the transcript or the rows below.",
       snapshot: chat(working, { isWorking: true, queue: waiting }),
-      native: { "chat.queue.remove": { removed: true } },
+      native: { "chat.queue.remove": { removed: true }, "chat.queue.edit": { ok: true } },
       afterCall: {
         // acpmux ends the turn and starts the next queued prompt (q2): its rows join the transcript.
         "chat.cancel": chat(
