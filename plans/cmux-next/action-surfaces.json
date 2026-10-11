@@ -7071,6 +7071,33 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "tab restart",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tab"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "tab.restart",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Restart Shell Here",
+      "title_key" : "action.tab.restart",
+      "title_table" : "Localizable"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "app show-tab",
       "context_menu" : "focusMove",
       "context_menus" : [
@@ -31072,7 +31099,7 @@
       "entries" : [
         {
           "enabled_when" : "can_perform",
-          "id" : "newTab.toRight",
+          "id" : "tab.restart",
           "kind" : "action",
           "order" : 0,
           "visible_when" : {
@@ -31085,7 +31112,7 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "duplicateTab",
+          "id" : "newTab.toRight",
           "kind" : "action",
           "order" : 1,
           "visible_when" : {
@@ -31129,6 +31156,19 @@
               "id" : "openBrowser.chromium",
               "kind" : "action",
               "order" : 2,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "duplicateTab",
+              "kind" : "action",
+              "order" : 3,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
