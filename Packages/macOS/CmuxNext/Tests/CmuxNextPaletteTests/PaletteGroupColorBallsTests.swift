@@ -20,7 +20,9 @@ struct PaletteGroupColorBallsTests {
         }
         for color in [GroupColor.red, .green, .orange] {
             for kind in ["tabGroup", "workspaceGroup", "screen"] {
-                #expect(try drawn("\(kind).color.\(color.rawValue)") == color.themeRGB(tokens).map { [$0] })
+                let id = "\(kind).color.\(color.rawValue)"
+                let got = try drawn(id), want = color.themeRGB(tokens).map { [$0] }
+                #expect(got == want, "\(id): drew \(got), theme \(String(describing: want)), dark \(tokens.isDark), ansi \(tokens.ansi.count)")
             }
         }
         // Grey: a group's "none" is the sidebar's neutral step; a screen's grey is the mid grey it draws.
