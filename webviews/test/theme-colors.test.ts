@@ -32,7 +32,9 @@ function definedVariables(): { names: Set<string>; prefixes: string[] } {
   const names = new Set<string>();
   const prefixes: string[] = [];
   // The gallery sets variables for its fixtures; the app never does.
-  const pages = files(SRC, /\.(css|ts|tsx)$/).filter((file) => !/\/(gallery|prototype)\//.test(file));
+  const pages = files(SRC, /\.(css|ts|tsx)$/).filter(
+    (file) => !/\/(gallery|prototype)\//.test(file) && !/\.gallery\./.test(file),
+  );
   const sources = [...pages, ...files(NATIVE, /\.swift$/)];
   for (const file of sources) {
     const text = fs.readFileSync(file, "utf8");
