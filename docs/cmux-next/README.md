@@ -64,5 +64,8 @@ cmux-next by session id. Split layouts currently come over as tabs in one pane.
 Builds with different bundle ids (for example DEV and nightly-next, or a tagged dev build) keep
 separate state. To move live terminals from one to the other, an agent runs this on the
 destination's socket: `session.transfer.peers`, then `session.transfer.pull {source}`. The
-playbook in [classic-to-next.md](classic-to-next.md) has examples. Agent chats resume by
-session id; terminals are recreated at the destination.
+playbook in [classic-to-next.md](classic-to-next.md) has examples. Terminals are recreated at
+the destination. A cmux-next agent chat moves into the destination's acpmux with its history,
+queued prompts and unsent draft (`acpmux transfer`), then opens there; a chat in the middle of a
+reply moves only with `{interrupt: true}`. Builds that share one acpmux (Release and NIGHTLY)
+move only the tab. Classic agent chats resume by session id.

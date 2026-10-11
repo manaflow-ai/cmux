@@ -200,62 +200,6 @@ export function ThemePreview({
   );
 }
 
-/** The 16 ANSI colors and the four named colors of a theme, labeled. */
-export function ThemePalette({ theme, separator }: { theme: GhosttyTheme; separator: string }) {
-  const swatch = 30;
-  const step = 34;
-  const left = 64;
-  const named: Array<[string, string]> = [
-    [t("settingsPage.theme.background"), theme.background],
-    [t("settingsPage.theme.foreground"), theme.foreground],
-    [t("settingsPage.theme.cursor"), theme.cursorColor ?? theme.foreground],
-    [t("settingsPage.theme.selection"), theme.selectionBackground ?? mixHex(theme.background, theme.foreground, 0.25)],
-  ];
-  return (
-    <svg
-      className="theme-palette"
-      viewBox={`0 0 ${W} 72`}
-      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- an inline SVG drawing; an <img> cannot draw the theme.
-      role="img"
-      aria-label={t("settingsPage.theme.palette")}
-    >
-      <g fontFamily="-apple-system, BlinkMacSystemFont, system-ui, sans-serif" fontSize="11" fill="currentColor">
-        <text x="0" y="20" className="theme-palette-label">
-          {t("settingsPage.theme.normal")}
-        </text>
-        <text x="0" y="56" className="theme-palette-label">
-          {t("settingsPage.theme.bright")}
-        </text>
-        {Array.from({ length: 16 }, (_, index) => (
-          <rect
-            key={index}
-            x={left + (index % 8) * step}
-            y={index < 8 ? 2 : 38}
-            width={swatch}
-            height={swatch}
-            rx="6"
-            fill={theme.palette[index] ?? theme.foreground}
-            stroke={separator}
-          >
-            <title>{`${index} ${theme.palette[index] ?? ""}`}</title>
-          </rect>
-        ))}
-        {named.map(([name, value], index) => (
-          <g key={name} transform={`translate(${left + 8 * step + 24 + (index % 2) * 170} ${index < 2 ? 2 : 38})`}>
-            <rect width={swatch} height={swatch} rx="6" fill={value} stroke={separator} />
-            <text x="40" y="13">
-              {name}
-            </text>
-            <text x="40" y="27" className="theme-palette-hex">
-              {value}
-            </text>
-          </g>
-        ))}
-      </g>
-    </svg>
-  );
-}
-
 /** `a` mixed toward `b` in sRGB (for a theme without a selection color). */
 function mixHex(a: string, b: string, fraction: number): string {
   const channels = (hex: string) => [1, 3, 5].map((index) => parseInt(hex.slice(index, index + 2), 16));
