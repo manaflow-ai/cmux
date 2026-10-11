@@ -144,7 +144,7 @@ export function ChatHeaderTools({
             ) : null
           ) : id === "preview" ? (
             // Hidden, not disabled, without a page (cx-qom0); an open preview keeps it, to close it here.
-            onPreview && (previewUrl || lit.includes(HEADER_ACTIONS.preview)) ? (
+            onPreview && (previewUrl || on(HEADER_ACTIONS.preview, mode)) ? (
               <button
                 key={id}
                 type="button"

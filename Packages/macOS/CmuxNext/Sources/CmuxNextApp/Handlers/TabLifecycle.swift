@@ -216,11 +216,12 @@ enum TabLifecycle {
         guard let invoked = ctx.daemonPane(invocation) else { return }
         let engine = plan.engine
         // From the docked agent chat, a tab in the strip (ChatColumnPlacement)
-        // that opens what the chat works on, not the strip's selected tab.
+        // that opens what the chat works on, not the strip's selected tab. The
+        // chat header's Preview is placed beside the chat as an agent's is.
         let pane: PaneModel
         var context: PaneController?
         var docked = false
-        if invocation.origin == .user, let chat = ctx.services.paneController(for: invoked) {
+        if invocation.origin == .user, !invocation.besideCaller, let chat = ctx.services.paneController(for: invoked) {
             let respawn = chatRespawn(ctx, url: url, engine: engine, profile: profileRequest)
             if let target = ChatColumnPlacement.route(from: chat, respawn: respawn, services: ctx.services) {
                 pane = target.pane

@@ -82,8 +82,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// when it is still there, else opens one.
     case paneAction(String, cwd: String? = nil, toggle: Bool = false)
     /// The header's Preview (`pane.action {id: "preview", url, mode}`): toggles or opens a browser tab
-    /// beside the chat on `url`, the local page its last turn started or mentioned. A web address
-    /// only; a click that closes the open preview may name none.
+    /// beside the chat on `url`, the local page its last turn started or mentioned. A loopback
+    /// address only; a click that closes the open preview may name none.
     case preview(url: String?, toggle: Bool)
     /// The chat tab's state the header's menu labels read: `{pinned}`.
     case tabState

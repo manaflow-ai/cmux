@@ -2,13 +2,12 @@ import CmuxNextDictation
 import Foundation
 
 extension AgentPaneRequest {
-    /// `pane.action {id: "preview"}`: its `url` comes from transcript text, so only an http(s)
-    /// address with a host reaches the App.
+    /// `pane.action {id: "preview"}`: its `url` comes from transcript text, so only a local page
+    /// (``Foundation/URL/isAgentPanePreview``, as the preview card's `browser.open`) reaches the App.
     private static func preview(_ params: [String: Any]?, method: String) -> AgentPaneRequest {
         let toggle = params?["mode"] as? String == "toggle"
         guard let raw = params?["url"] else { return .preview(url: nil, toggle: toggle) }
-        guard let text = raw as? String, text.count <= maximumOpenTabText, let url = URL(string: text),
-              ["http", "https"].contains(url.scheme?.lowercased()), url.host?.isEmpty == false else {
+        guard let text = raw as? String, text.count <= maximumOpenTabText, URL(string: text)?.isAgentPanePreview == true else {
             return .unsupported(method)
         }
         return .preview(url: text, toggle: toggle)
