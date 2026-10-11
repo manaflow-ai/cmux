@@ -152,6 +152,17 @@ describe("pauseVm", () => {
     expect(recorded.events).toEqual([]);
   });
 
+  // A pause whose route answered "in progress" (routeDeadline.ts) may finish
+  // at the provider after the response. The retry must not pause twice: it
+  // reconciles the row with the provider's observed status.
+  test("a retry after a pause that finished in the background records it without pausing again", async () => {
+    const { recorded, layer } = fakes({ row: machineRow(), providerStatus: "paused" });
+    const result = await Effect.runPromise(pauseVm(caller).pipe(Effect.provide(layer)));
+    expect(result).toEqual({ id: "fs-1", status: "paused" });
+    expect(recorded.paused).toEqual([]);
+    expect(recorded.statuses).toEqual([{ id: "row-1", status: "paused" }]);
+  });
+
   test("a provider without pause fails with the unsupported error (the route's 501)", async () => {
     const { recorded, layer } = fakes({ row: machineRow(), withPause: false });
     expect(await failureTag(pauseVm(caller), layer)).toBe("VmOperationUnsupportedError");
