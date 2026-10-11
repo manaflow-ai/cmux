@@ -28,13 +28,12 @@ import os
 /// launch. Reading: ``reports``, ``passesByClass``, ``maxPassesInOneTurn``
 /// (`debug.layers`).
 ///
-/// With ``breaksLoops`` (release builds) the guard also ends the loop before
-/// AppKit does: past ``breakLimit(viewCount:)`` in one window layout, the
-/// view's further `-[NSView layout]` calls in it are skipped (an override's
-/// own code around `super.layout()` still runs) and one layout is asked for
-/// on the next turn, so the app keeps running. A view that merely lays out
-/// often in a large window is never skipped. Debug builds leave it off, so
-/// a loop still ends the app where it can be fixed.
+/// With ``breaksLoops`` (release builds) the guard also ends the loop where
+/// it reports it, before AppKit throws: the view's further `-[NSView layout]`
+/// calls in that window layout are skipped (an override's own code around
+/// `super.layout()` still runs) and one layout is asked for on the next
+/// turn, so the app keeps running. Debug builds leave it off, so a loop
+/// still ends the app where it can be fixed.
 @MainActor
 public final class LayoutPassGuard {
     public struct Report: Sendable, Equatable {
@@ -48,8 +47,7 @@ public final class LayoutPassGuard {
         /// below ``LayoutPassGuard/bound`` only in a small window.
         public var limit: Int
         public var at: Date
-        /// The guard skips the view's layouts past its window's break limit
-        /// (``breaksLoops``).
+        /// The guard skipped the view's further layouts (``breaksLoops``).
         public var broken = false
     }
 
@@ -62,7 +60,7 @@ public final class LayoutPassGuard {
 
     /// A loop was found (main thread, once per view class per launch).
     public var onLoop: ((Report) -> Void)?
-    /// Skip a looping view's layouts past the break limit instead of letting
+    /// Skip a looping view's layouts past its window's limit instead of letting
     /// AppKit end the app. On in release builds (CrashReporter+Launch).
     public var breaksLoops = false
     public private(set) var reports: [Report] = []
@@ -76,7 +74,7 @@ public final class LayoutPassGuard {
     public private(set) var maxPassesWindowLimit: Int?
     /// Views counted per window at most; a window with this many or more
     /// gets the full ``bound``.
-    public static let viewCountCap = 2 * bound
+    static let viewCountCap = 2 * bound
     public private(set) var isInstalled = false
 
     /// One `layoutIfNeeded` of a window in progress: its nesting depth, the
@@ -86,8 +84,6 @@ public final class LayoutPassGuard {
         var depth = 0
         var counts: [ObjectIdentifier: (view: Weak, count: Int)] = [:]
         var limit: Int?
-        /// ``breakLimit(viewCount:)``, looked up once a view passes ``limit``.
-        var breakLimit: Int?
         /// Views whose further layouts in this window layout are skipped.
         var broken: Set<ObjectIdentifier> = []
     }
@@ -153,23 +149,13 @@ public final class LayoutPassGuard {
         viewCount < 8 ? max(2, viewCount - 1) : min(bound, viewCount / 2)
     }
 
-    /// Layout calls of one view in one window layout past which a release
-    /// build breaks the loop, for a window of `viewCount` views: the report
-    /// limit in a window under 8 views (already AppKit's own), otherwise
-    /// three quarters of them, short of AppKit's limit and far above a busy
-    /// but finite view (a titlebar widget lays out about 35 times in one turn
-    /// after some home actions).
-    public static func breakLimit(viewCount: Int) -> Int {
-        viewCount < 8 ? limit(viewCount: viewCount) : max(limit(viewCount: viewCount), viewCount * 3 / 4)
-    }
-
     /// `window`'s views (its frame view and every subview), counted up to
-    /// `cap`. Reads `subviews` only: no layout.
-    public static func viewCount(of window: NSWindow, cap: Int = viewCountCap) -> Int {
+    /// ``viewCountCap``. Reads `subviews` only: no layout.
+    public static func viewCount(of window: NSWindow) -> Int {
         guard let root = window.contentView?.superview ?? window.contentView else { return 0 }
         var views = 0
         var stack: [NSView] = [root]
-        while let view = stack.popLast(), views < cap {
+        while let view = stack.popLast(), views < viewCountCap {
             views += 1
             stack.append(contentsOf: view.subviews)
         }
@@ -225,12 +211,9 @@ public final class LayoutPassGuard {
             maxPassesWindowClass = String(describing: Swift.type(of: window))
             maxPassesWindowLimit = limit
         }
-        if breaksLoops, let limit, count > limit {
-            let breakLimit = windowLayouts[windowID]?.breakLimit ?? Self.breakLimit(viewCount: Self.viewCount(of: window, cap: 1024))
-            windowLayouts[windowID]?.breakLimit = breakLimit
-            if count == breakLimit + 1 { breakLoop(of: view, id: id, in: windowID, count: count) }
-        }
-        guard let limit, count == limit + 1, reportedClasses.insert(typeID).inserted else { return }
+        guard let limit, count == limit + 1 else { return }
+        if breaksLoops { breakLoop(of: view, id: id, in: windowID, count: count) }
+        guard reportedClasses.insert(typeID).inserted else { return }
         var ancestry: [String] = []
         var next = view.superview
         while let ancestor = next, ancestry.count < 8 {
