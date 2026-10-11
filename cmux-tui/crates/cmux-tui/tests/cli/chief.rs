@@ -768,3 +768,54 @@ fn a_dead_end_runs_the_daemons_cli_only_when_every_check_passes() {
     assert!(!stderr(&output).contains("running the daemon's CLI"), "{}", stderr(&output));
     let _ = fs::remove_dir_all(&dir);
 }
+
+/// Home streams the Chief's running reply: a trusted local connection that
+/// echoes `conversation-draft-events-v1` in `set-client-info` gets each
+/// `conversation-draft` on `subscribe`; a connection that did not ask never
+/// sees one (an old Home keeps its typing-only stream).
+#[test]
+fn subscribe_carries_drafts_only_to_a_home_that_asked_for_them() {
+    let (server, mut home, conversation, token) = chief_daemon("chief-draft-events");
+    home.request(
+        "set-client-info",
+        json!({"name": "home", "capabilities": ["conversation-draft-events-v1"]}),
+    );
+    home.request("subscribe", json!({}));
+    let mut plain = Conn::open(&server.socket);
+    plain.request("subscribe", json!({}));
+    let mut brain = bound_brain(&server.socket, &token);
+
+    brain.request(
+        "conversation-draft",
+        json!({"conversation": conversation, "turn": "turn:optchat:1", "segment": 0, "seq": 1,
+               "kind": "talk", "text": "Tests at the", "fresh": true, "done": false}),
+    );
+    // The typing event after the draft marks where the draft would be.
+    typing(&mut brain, &conversation, true);
+
+    let until_typing = |conn: &mut Conn| {
+        let mut seen = Vec::new();
+        loop {
+            let event = conn.event();
+            if event["event"] == "conversation-typing" {
+                return seen;
+            }
+            seen.push(event);
+        }
+    };
+    let drafts: Vec<Value> = until_typing(&mut home)
+        .into_iter()
+        .filter(|event| event["event"] == "conversation-draft")
+        .collect();
+    assert_eq!(drafts.len(), 1, "{drafts:?}");
+    assert_eq!(drafts[0]["conversation"], conversation.as_str());
+    assert_eq!(drafts[0]["participant"], "agent_mux");
+    assert_eq!(drafts[0]["item"]["turn"], "turn:optchat:1");
+    assert_eq!(drafts[0]["item"]["text"], "Tests at the");
+    assert_eq!(drafts[0]["item"]["fresh"], true);
+    let leaked: Vec<Value> = until_typing(&mut plain)
+        .into_iter()
+        .filter(|event| event["event"] == "conversation-draft")
+        .collect();
+    assert!(leaked.is_empty(), "a connection that did not ask got drafts: {leaked:?}");
+}
