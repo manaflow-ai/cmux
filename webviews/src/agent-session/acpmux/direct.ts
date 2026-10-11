@@ -516,6 +516,10 @@ export class AcpmuxDirectClient {
   private hasConnected = false;
   private closed = false;
   private selectionGeneration = 0;
+  /// The last attach sent, and what acpmux last accepted about whether the page shows its chat.
+  private attaching: Promise<unknown> = Promise.resolve();
+  private shownToAcpmux?: { sessionId: string; visible: boolean };
+  private viewSync: Promise<void> = Promise.resolve();
   /// The selection generation whose attach reply has landed; lag resync waits for it.
   private attachedGeneration = -1;
   private historyExhausted = false;
@@ -895,10 +899,25 @@ export class AcpmuxDirectClient {
   private showChanged = (): void => {
     const sessionId = this.selectedSessionId;
     if (!sessionId || this.closed) return;
-    const visible = pageShown();
-    void this.request("_acpmux/view", { sessionId, visible }).catch(() => undefined);
-    if (visible) this.markSeen(sessionId);
+    this.syncView();
+    if (pageShown()) this.markSeen(sessionId);
   };
+
+  /// Brings acpmux's view of the selected chat up to the page's. acpmux handles each request on
+  /// its own task, so a view must wait for the attach it changes and for the view before it.
+  private syncView(): void {
+    this.viewSync = this.viewSync.then(async () => {
+      await this.attaching;
+      const sessionId = this.selectedSessionId;
+      const visible = pageShown();
+      if (!sessionId || this.closed || this.shownToAcpmux?.sessionId !== sessionId) return;
+      if (this.shownToAcpmux.visible === visible) return;
+      await this.request("_acpmux/view", { sessionId, visible }).then(
+        () => (this.shownToAcpmux = { sessionId, visible }),
+        () => undefined,
+      );
+    });
+  }
 
   /// Selecting a session is seeing it, including an unread flag acpmux sent.
   private markSeen(sessionId: string): void {
@@ -1025,13 +1044,20 @@ export class AcpmuxDirectClient {
   /// Returns the attach page's events, or none when the selection moved on.
   private async attach(sessionId: string, generation = this.selectionGeneration): Promise<EventRecord[]> {
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
-    const result = await this.request("_acpmux/attach", {
+    const visible = pageShown();
+    const attaching = this.request("_acpmux/attach", {
       sessionId,
       limit: 400,
       kinds: ["transcript", COMMANDS_KIND, USAGE_KIND, CONFIG_KIND],
       eventStream: true,
-      visible: pageShown(),
+      visible,
     });
+    this.attaching = attaching.then(
+      () => (this.shownToAcpmux = { sessionId, visible }),
+      () => undefined,
+    );
+    const result = await attaching;
+    this.syncView();
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
     const page: EventRecord[] = result?.events ?? [];
     // An agent usually lists its commands once, at start, which is older than the page.
