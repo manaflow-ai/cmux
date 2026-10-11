@@ -54,12 +54,25 @@ public nonisolated struct AgentTurnStates: Hashable, Sendable {
 
     /// Applies one `_acpmux/session_changed`; a `purged` session leaves.
     public mutating func apply(changed params: [String: Any]) {
-        guard let id = params["sessionId"] as? String else { return }
-        if params["kind"] as? String == "purged" {
-            states[id] = nil
-        } else if let summary = params["session"] as? [String: Any] {
-            upsert(summary)
-        }
+        if let change = Self.change(params) { states[change.session] = change.state }
+    }
+
+    /// One decoded `_acpmux/session_changed` (decode it off the main actor): the session and
+    /// its new state (nil: no indicator, or purged). Nil when the line names no session state.
+    public static func change(_ params: [String: Any]) -> (session: String, state: AgentTurnState?)? {
+        guard let id = params["sessionId"] as? String else { return nil }
+        if params["kind"] as? String == "purged" { return (id, nil) }
+        guard let summary = params["session"] as? [String: Any] else { return nil }
+        return (summary["sessionId"] as? String ?? id, AgentTurnState.of(summary: summary))
+    }
+
+    /// Sets one session's state. False when it already had that state: the caller then
+    /// leaves the observed store untouched, so no tab or row redraws for it.
+    @discardableResult
+    public mutating func set(_ session: String, _ state: AgentTurnState?) -> Bool {
+        guard states[session] != state else { return false }
+        states[session] = state
+        return true
     }
 
     /// The completed turns of a watch result that a client watched as they

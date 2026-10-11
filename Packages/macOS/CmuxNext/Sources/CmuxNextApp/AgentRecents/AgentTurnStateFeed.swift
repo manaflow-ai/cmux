@@ -59,12 +59,13 @@ final class AgentTurnStateFeed {
         logger.info("agent turn states: watching \(self.socket, privacy: .public)")
         let connection = AgentActivityLineConnection(path: socket)
         subscription = connection
-        // One main-actor batch at a time, never a Task per line (MainActorLineBatch).
-        connection.start(send: Self.watchRequest, decode: { $0 }) { [weak self, weak connection] drain in
+        // Lines decode on the socket queue; one main-actor batch at a time, never a Task per
+        // line (MainActorLineBatch). The main actor only sets the states that changed.
+        connection.start(send: Self.watchRequest, decode: Message.init(line:)) { [weak self, weak connection] drain in
             guard let self, let connection, subscription === connection else { return }
             let started = ContinuousClock.now
             defer { DebugTimings.turnStatesApplied(lines: drain.values.count, ContinuousClock.now - started) }
-            for line in drain.values { handle(line) }
+            for message in drain.values { handle(message) }
             // Dropped lines leave the states incomplete: reconnect for a fresh page.
             if drain.overflowed, !drain.closed { connection.cancel() }
             if drain.overflowed || drain.closed { lost(connection) }
@@ -86,16 +87,45 @@ final class AgentTurnStateFeed {
         return payload
     }()
 
-    private func handle(_ line: Data) {
-        guard let message = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return }
-        if (message["id"] as? NSNumber)?.intValue == 2, let result = message["result"] as? [String: Any] {
-            backoff.reset()
-            for settled in AgentTurnStates.settledTurns(result) {
-                ProgramStatusSeenStore.shared.markTurnSeen(session: settled.session, turn: settled.turn)
+    /// One decoded line of the watch (decoded off the main actor).
+    nonisolated enum Message: Sendable {
+        /// The watch result: every session's state and the turns that start seen.
+        case page(AgentTurnStates, settled: [Settled])
+        /// One `_acpmux/session_changed`: the session's new state (nil: none, or purged).
+        case change(session: String, state: AgentTurnState?)
+
+        nonisolated struct Settled: Sendable {
+            let session: String
+            let turn: String
+        }
+
+        init?(line: Data) {
+            guard let message = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return nil }
+            if (message["id"] as? NSNumber)?.intValue == 2, let result = message["result"] as? [String: Any] {
+                var states = AgentTurnStates()
+                states.reset(result)
+                self = .page(states, settled: AgentTurnStates.settledTurns(result).map { Settled(session: $0.session, turn: $0.turn) })
+            } else if message["method"] as? String == "_acpmux/session_changed", let params = message["params"] as? [String: Any],
+                      let change = AgentTurnStates.change(params) {
+                self = .change(session: change.session, state: change.state)
+            } else {
+                return nil
             }
-            turns.states.reset(result)
-        } else if message["method"] as? String == "_acpmux/session_changed", let params = message["params"] as? [String: Any] {
-            turns.states.apply(changed: params)
+        }
+    }
+
+    private func handle(_ message: Message) {
+        switch message {
+        case .page(let states, let settled):
+            backoff.reset()
+            for turn in settled {
+                ProgramStatusSeenStore.shared.markTurnSeen(session: turn.session, turn: turn.turn)
+            }
+            if turns.states != states { turns.states = states }
+        case .change(let session, let state):
+            // Most session records leave the indicator as it was: write (and so redraw the
+            // tabs and rows that observe the store) only when the state differs.
+            if turns.states[session] != state { turns.states.set(session, state) }
         }
     }
 
