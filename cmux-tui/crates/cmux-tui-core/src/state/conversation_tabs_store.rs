@@ -160,14 +160,19 @@ impl ConversationTabRecord {
             Self::AgentSession { host, session, harness, host_name } => {
                 // `install:<id>`: the machine whose acpmux runs the session;
                 // `chief:<home id>`: the Chief home on that app's machine whose
-                // own acpmux runs it (a Chief subagent).
+                // own acpmux runs it (a Chief subagent); `registry:<id>`: the
+                // session daemon of that store (its `identify.session_id`),
+                // whose own machine's acpmux runs it (`agent-session-start-v1`).
                 let chief = host.strip_prefix("chief:").is_some_and(|id| {
                     id.len() == 8
                         && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
                 });
+                let id_host = |prefix: &str| {
+                    host.strip_prefix(prefix).is_some_and(|id| token(id, 120, b"_.-"))
+                };
                 anyhow::ensure!(
-                    chief || host.strip_prefix("install:").is_some_and(|id| token(id, 120, b"_.-")),
-                    "bad request: host must be install: and 1 to 120 letters, digits or '_', '.', '-', or chief: and 8 lowercase hex digits"
+                    chief || id_host("install:") || id_host("registry:"),
+                    "bad request: host must be install: or registry: and 1 to 120 letters, digits or '_', '.', '-', or chief: and 8 lowercase hex digits"
                 );
                 if let Some(session) = session {
                     validate_session(session)?;
