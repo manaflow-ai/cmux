@@ -6759,8 +6759,7 @@ impl PtySurface {
                 let Some((retry, space_epoch)) = retry else { break };
                 pending = retry;
                 let deadline = mux.terminal_journal_durable_deadline();
-                if let Err(error) =
-                    mux.wait_for_terminal_journal_space_until(space_epoch, deadline)
+                if let Err(error) = mux.wait_for_terminal_journal_space_until(space_epoch, deadline)
                 {
                     self.journal_capture_disabled.store(true, Ordering::Release);
                     if mux

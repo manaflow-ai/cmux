@@ -20319,10 +20319,8 @@ mod tests {
 
     #[test]
     fn journal_review_idle_maintenance_reclaims_free_pages() {
-        let root = std::env::temp_dir().join(format!(
-            "cmux-journal-idle-vacuum-{}",
-            crate::workspace_registry::new_uuid_v4()
-        ));
+        let root = std::env::temp_dir()
+            .join(format!("cmux-journal-idle-vacuum-{}", crate::workspace_registry::new_uuid_v4()));
         let mux = open_persistent_test_mux("idle-vacuum", &root);
         let database =
             mux.workspace_registry.lock().unwrap().session_journal_database_path().unwrap();
@@ -20335,9 +20333,8 @@ mod tests {
                  DROP TABLE vacuum_fixture;",
             )
             .unwrap();
-        let free_pages = || {
-            observer.query_row("PRAGMA freelist_count", [], |row| row.get::<_, i64>(0)).unwrap()
-        };
+        let free_pages =
+            || observer.query_row("PRAGMA freelist_count", [], |row| row.get::<_, i64>(0)).unwrap();
         let before = free_pages();
         assert!(before > 256);
 
@@ -20355,10 +20352,8 @@ mod tests {
 
     #[test]
     fn journal_review_maintenance_diagnostic_hides_upstream_errors() {
-        let root = std::env::temp_dir().join(format!(
-            "cmux-journal-diagnostic-{}",
-            crate::workspace_registry::new_uuid_v4()
-        ));
+        let root = std::env::temp_dir()
+            .join(format!("cmux-journal-diagnostic-{}", crate::workspace_registry::new_uuid_v4()));
         let mux = open_persistent_test_mux("maintenance-diagnostic", &root);
         let terminal_id = Arc::new(TerminalPublicId::parse(format!("term_{:032x}", 43)).unwrap());
         for _ in 0..4_100 {
@@ -20397,10 +20392,8 @@ mod tests {
 
     #[test]
     fn journal_review_gap_admission_waits_for_commit_and_reports_failure() {
-        let root = std::env::temp_dir().join(format!(
-            "cmux-journal-gap-receipt-{}",
-            crate::workspace_registry::new_uuid_v4()
-        ));
+        let root = std::env::temp_dir()
+            .join(format!("cmux-journal-gap-receipt-{}", crate::workspace_registry::new_uuid_v4()));
         let mux = open_persistent_test_mux("gap-receipt", &root);
         let terminal_id = Arc::new(TerminalPublicId::parse(format!("term_{:032x}", 42)).unwrap());
         let (entered, entered_receiver) = std::sync::mpsc::sync_channel(1);
