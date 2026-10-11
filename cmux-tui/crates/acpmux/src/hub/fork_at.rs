@@ -9,25 +9,28 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 
 /// Copies the transcript of Claude session `parent` in the store at `store`
-/// (a CLAUDE_CONFIG_DIR) through its `prompts`-th prompt's turn, beside the
+/// (a CLAUDE_CONFIG_DIR) up to its first prompt written at or after `cut_ms`
+/// (Unix milliseconds, the end of the turn the fork keeps), beside the
 /// parent's, and returns the copy's session id.
+///
+/// The cut is a time, not a count of the chat's prompts: an adopted chat's
+/// earlier history, a prompt Claude never stored and Claude's own
+/// interruption lines all make the two counts differ.
 pub(super) fn claude_transcript_through(
     store: &Path,
     parent: &str,
-    prompts: usize,
+    cut_ms: u64,
 ) -> anyhow::Result<String> {
-    let file = crate::adopt::find_claude(store, parent)
+    let file = crate::adopt::is_bare_id(parent)
+        .then(|| crate::adopt::find_claude(store, parent))
+        .flatten()
         .ok_or_else(|| anyhow::anyhow!("no Claude transcript for session {parent}"))?;
     let id = uuid::Uuid::now_v7().to_string();
     let mut lines = Vec::new();
-    let mut seen = 0;
     for line in BufReader::new(std::fs::File::open(&file)?).lines() {
         let Ok(mut record) = serde_json::from_str::<Value>(&line?) else { continue };
-        if is_prompt(&record) {
-            seen += 1;
-            if seen > prompts {
-                break;
-            }
+        if is_prompt(&record) && written_ms(&record).is_some_and(|at| at >= cut_ms) {
+            break;
         }
         if record.get("sessionId").is_some_and(Value::is_string) {
             record["sessionId"] = Value::String(id.clone());
@@ -62,4 +65,10 @@ fn is_prompt(record: &Value) -> bool {
         }
         _ => false,
     }
+}
+
+/// When Claude wrote the record, from its `timestamp`.
+fn written_ms(record: &Value) -> Option<u64> {
+    let at = record.get("timestamp")?.as_str()?;
+    cmux_chat_index::parse_rfc3339_ms(at).and_then(|ms| u64::try_from(ms).ok())
 }

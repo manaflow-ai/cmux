@@ -41,10 +41,16 @@ impl Hub {
                 .events(&session.id, 0, 500_000)
                 .map_err(|e| RpcError::internal(e.to_string()))?;
             let upto = || history.iter().filter(|e| e.seq <= through);
-            let prompts = upto().filter(|e| e.kind == "user_message").count();
+            let cut_ms = upto().last().map_or(0, |e| e.at);
             turn_count = upto().filter(|e| e.kind == "turn_result").count() as u64;
-            let store = crate::adopt::HarnessHomes::from_env().with_env(&[&fork_env]).claude;
-            let copy = super::fork_at::claude_transcript_through(&store, &sid, prompts)
+            // Claude resumes from the project directory the copy sits in.
+            if cwd != parent_meta.cwd {
+                return Err(RpcError::invalid_params(
+                    "a fork through an earlier turn keeps the chat's folder",
+                ));
+            }
+            let store = self.harness_homes().with_env(&[&fork_env]).claude;
+            let copy = super::fork_at::claude_transcript_through(&store, &sid, cut_ms)
                 .map_err(|e| RpcError::internal(format!("fork through turn: {e}")))?;
             (json!({}), copy)
         } else if is_claude {
