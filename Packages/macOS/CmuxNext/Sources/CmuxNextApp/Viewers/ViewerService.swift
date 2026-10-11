@@ -82,9 +82,10 @@ final class ViewerService {
             guard let self, let pane, let folder = urls?.first else { return }
             // One diff open at a time: a newer choice cancels the one before.
             self.diffOpen?.cancel()
-            self.diffOpen = Task { [weak self, weak pane] in
+            let created = beside?()
+            self.diffOpen = Task { @MainActor [weak self, weak pane] in
                 guard let self, let pane else { return }
-                do { try await self.openDiff(folder.path, in: pane, focus: beside == nil, created: beside?()) } catch {
+                do { try await self.openDiff(folder.path, in: pane, focus: created == nil, created: created) } catch {
                     if !Task.isCancelled { self.showRefusal(Self.reason(error)) }
                 }
                 // A cancelled open leaves the handle to the one that replaced it.

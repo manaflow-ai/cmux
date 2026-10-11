@@ -35,9 +35,9 @@ enum ViewerHandlers {
                 do { try await viewers.openDiff(folder, in: pane, focus: focus, created: created) } catch {
                     guard invocation.allowsViewChange else { return backgroundPickerRefusal() }
                     // The header's pick still opens beside the chat, as its diff would have.
-                    let page = viewers.diffPickerPage(for: pane, beside: invocation.besideCaller ? {
-                        AgentBesidePlacement.placed(invocation, in: pane, then: nil)
-                    } : nil)
+                    let page = invocation.besideCaller
+                        ? viewers.diffPickerPage(for: pane, beside: { AgentBesidePlacement.placed(invocation, in: pane, then: nil) })
+                        : viewers.diffPickerPage(for: pane)
                     context.services.palette.show(page: page, relativeTo: context.activeWindow?.window)
                 }
                 return nil
