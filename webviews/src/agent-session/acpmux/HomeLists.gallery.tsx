@@ -17,12 +17,14 @@ const inputSessions = [
     sessionId: "home-input-checkout",
     title: "Fix the checkout page",
     status: "waiting",
+    indicator: "input",
     updatedAt: minutesAgo(2),
     preview: "The payment form needs your answer.",
   }),
   session({
     sessionId: "home-input-cache",
     title: "Investigate the build cache",
+    indicator: "input",
     pendingPermissions: 1,
     updatedAt: minutesAgo(5),
     preview: "The runner is waiting for permission.",
@@ -82,6 +84,7 @@ const cappedInput = Array.from({ length: 5 }, (_, index) =>
     sessionId: `home-cap-input-${index + 1}`,
     title: `Waiting session ${index + 1}`,
     status: "waiting",
+    indicator: "input",
     updatedAt: minutesAgo(index + 1),
   }),
 );

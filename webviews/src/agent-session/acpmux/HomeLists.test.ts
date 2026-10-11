@@ -10,6 +10,7 @@ test("homeLists excludes unlisted and not-ready sessions, then caps each section
       sessionId: `input-${index}`,
       title: `Waiting ${index}`,
       status: "waiting",
+      indicator: "input",
       updatedAt: minutesAgo(index + 1),
     }),
   );
