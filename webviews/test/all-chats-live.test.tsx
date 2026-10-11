@@ -58,6 +58,8 @@ test("a loaded All chats list reads its first page again when the chat index pus
 
   root = createRoot(host);
   await act(async () => root!.render(<AllChatsList load={load} onOpen={() => {}} />));
+  // The first page's reply settles: the list is loaded and ready before the push.
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   expect(firstPages.length).toBe(1);
 
   // A chat changed on disk: the index pushes its newest chats.
