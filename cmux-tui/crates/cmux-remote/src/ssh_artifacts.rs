@@ -5,11 +5,14 @@
 //! The native app ships some payloads beside the manifest and only the checksum of
 //! the others; those are downloaded from the immutable per-commit release once,
 //! checked against the pin and cached by checksum for every later host.
+//! A macOS host gets this client's own executable, or its matching slice of a
+//! universal binary, so the app ships no macOS payload: it is this exact signed
+//! build. Only an architecture the client lacks is downloaded.
 //! npm platform packages ship the same manifest without payloads; the bootstrap
 //! then checks the npm-downloaded binary on the remote before running it.
 
 use std::collections::HashMap;
-use std::io::Read;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock, PoisonError};
 use std::time::Duration;
@@ -120,8 +123,83 @@ fn release_target(os: &str, arch: &str) -> Option<(&'static str, &'static str)> 
 pub(crate) enum Payload {
     /// Shipped beside the manifest and already checked against its pin.
     Bundled(PathBuf),
+    /// This client's own executable, which already is the remote Mac's build.
+    Client(PathBuf),
+    /// The remote Mac's slice of this client's universal executable;
+    /// [`extract_client_slice`] copies it out.
+    ClientSlice(ClientSlice),
     /// Pinned but not shipped; [`fetch_published`] downloads it.
     Published(PublishedPayload),
+}
+
+/// The range of a universal executable that holds one architecture's build.
+#[derive(Clone)]
+pub(crate) struct ClientSlice {
+    executable: PathBuf,
+    offset: u64,
+    size: u64,
+    cache: PathBuf,
+    name: String,
+}
+
+const MH_MAGIC_64: u32 = 0xfeed_facf;
+const FAT_MAGIC: u32 = 0xcafe_babe;
+const FAT_MAGIC_64: u32 = 0xcafe_babf;
+const CPU_TYPE_X86_64: u32 = 0x0100_0007;
+const CPU_TYPE_ARM64: u32 = 0x0100_000c;
+
+/// Where this client's executable holds the build for a Mac of `arch`.
+enum ClientArchitecture {
+    Whole,
+    Slice { offset: u64, size: u64 },
+}
+
+fn client_architecture(
+    executable: &Path,
+    arch: &str,
+) -> std::io::Result<Option<ClientArchitecture>> {
+    let cpu = match arch {
+        "aarch64" => CPU_TYPE_ARM64,
+        "x86_64" => CPU_TYPE_X86_64,
+        _ => return Ok(None),
+    };
+    let mut file = std::fs::File::open(executable)?;
+    let length = file.metadata()?.len();
+    let mut header = [0_u8; 8];
+    if file.read_exact(&mut header).is_err() {
+        return Ok(None);
+    }
+    let word = |bytes: &[u8]| u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+    if u32::from_le_bytes([header[0], header[1], header[2], header[3]]) == MH_MAGIC_64 {
+        let header_cpu = u32::from_le_bytes([header[4], header[5], header[6], header[7]]);
+        return Ok((header_cpu == cpu).then_some(ClientArchitecture::Whole));
+    }
+    let entry_size = match word(&header) {
+        FAT_MAGIC => 20,
+        FAT_MAGIC_64 => 32,
+        _ => return Ok(None),
+    };
+    let count = word(&header[4..]) as usize;
+    if count > 16 {
+        return Ok(None);
+    }
+    let mut entries = vec![0_u8; entry_size * count];
+    if file.read_exact(&mut entries).is_err() {
+        return Ok(None);
+    }
+    for entry in entries.chunks_exact(entry_size) {
+        let (offset, size) = if entry_size == 20 {
+            (u64::from(word(&entry[8..])), u64::from(word(&entry[12..])))
+        } else {
+            let wide = |bytes: &[u8]| (u64::from(word(bytes)) << 32) | u64::from(word(&bytes[4..]));
+            (wide(&entry[8..]), wide(&entry[16..]))
+        };
+        let inside = size > 0 && offset.checked_add(size).is_some_and(|end| end <= length);
+        if word(entry) == cpu && inside {
+            return Ok(Some(ClientArchitecture::Slice { offset, size }));
+        }
+    }
+    Ok(None)
 }
 
 /// A pinned executable that the native app downloads instead of bundling.
@@ -160,6 +238,31 @@ pub(crate) fn payload(
         Ok(actual) if actual == expected => Ok(Some(Payload::Bundled(path))),
         Ok(_) => Err(BootstrapError::Configuration("SSH artifact checksum mismatch".into())),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            // A Mac runs this client's own build. It is the signed executable
+            // running now, so it needs no pin; only an architecture the client
+            // lacks falls through to the pinned download.
+            if os == "macos" {
+                match client_architecture(executable, arch).map_err(BootstrapError::Io)? {
+                    Some(ClientArchitecture::Whole) => {
+                        return Ok(Some(Payload::Client(executable.to_path_buf())));
+                    }
+                    Some(ClientArchitecture::Slice { offset, size }) => {
+                        // Without a cache the whole universal executable is
+                        // uploaded; it runs on any Mac it has a slice for.
+                        let Some(cache) = source.cache else {
+                            return Ok(Some(Payload::Client(executable.to_path_buf())));
+                        };
+                        return Ok(Some(Payload::ClientSlice(ClientSlice {
+                            executable: executable.to_path_buf(),
+                            offset,
+                            size,
+                            cache: cache.to_path_buf(),
+                            name,
+                        })));
+                    }
+                    None => {}
+                }
+            }
             // Only the manifest's checksum ships for this platform. The download
             // must still match it, so absence never becomes an unverified upload.
             let cache = source.cache.ok_or_else(|| {
@@ -230,16 +333,49 @@ async fn is_cached(payload: &PublishedPayload) -> bool {
     sha256_of(payload.cache_path.clone()).await.is_ok_and(|actual| actual == payload.sha256)
 }
 
+/// Marks a cached build as in use, so pruning keeps it.
+fn touch(path: &Path) {
+    let _ = std::fs::File::options()
+        .write(true)
+        .open(path)
+        .and_then(|file| file.set_modified(std::time::SystemTime::now()));
+}
+
+/// Copies a remote Mac's slice out of this client's universal executable into
+/// the cache, named by its SHA-256, and returns the copy. A cached copy is used
+/// only while it still matches the slice.
+pub(crate) async fn extract_client_slice(slice: &ClientSlice) -> Result<PathBuf, BootstrapError> {
+    let slice = slice.clone();
+    tokio::task::spawn_blocking(move || -> std::io::Result<PathBuf> {
+        let mut executable = std::fs::File::open(&slice.executable)?;
+        executable.seek(SeekFrom::Start(slice.offset))?;
+        let mut bytes = vec![0_u8; usize::try_from(slice.size).map_err(std::io::Error::other)?];
+        executable.read_exact(&mut bytes)?;
+        let digest = format!("{:x}", Sha256::digest(&bytes));
+        let file_name = format!("{digest}-{}", slice.name);
+        let path = slice.cache.join(&file_name);
+        if file_sha256(&path).is_ok_and(|actual| actual == digest) {
+            touch(&path);
+            return Ok(path);
+        }
+        std::fs::create_dir_all(&slice.cache)?;
+        let partial = slice.cache.join(format!("{file_name}.{}.partial", std::process::id()));
+        std::fs::write(&partial, &bytes)?;
+        std::fs::rename(&partial, &path)?;
+        prune_cache(&slice.cache, &file_name);
+        Ok(path)
+    })
+    .await
+    .map_err(|error| BootstrapError::Io(std::io::Error::other(error.to_string())))?
+    .map_err(BootstrapError::Io)
+}
+
 /// Returns the cached copy of `payload`, downloading it first when needed.
 /// Bootstraps in this process share one download; the cache holds only files
 /// that matched the pin.
 pub(crate) async fn fetch_published(payload: &PublishedPayload) -> Result<PathBuf, BootstrapError> {
     if is_cached(payload).await {
-        // Pruning keeps what is in use.
-        let _ = std::fs::File::options()
-            .write(true)
-            .open(&payload.cache_path)
-            .and_then(|file| file.set_modified(std::time::SystemTime::now()));
+        touch(&payload.cache_path);
         return Ok(payload.cache_path.clone());
     }
     let mut receiver = {
