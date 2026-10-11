@@ -136,13 +136,12 @@ test("the rendered page: html carries only the surface background, body and cont
   }
 });
 
-test("on controls use the neutral accent: no theme hue (no blue) on switches, links or the current section", () => {
+test("on controls use the theme accent with a neutral fallback", () => {
   const root = new Map<string, string>();
   for (const { selector, property, value } of declarations(stylesheet))
     if (selector === ":root") root.set(property, value);
-  for (const name of ["--accent", "--accent-text"]) {
-    expect(root.get(name)).toBeDefined();
-    expect(root.get(name)).not.toContain("--cmux-app-accent");
-    expect(root.get(name)).not.toContain("--cmux-accent");
-  }
+  expect(root.get("--accent")).toBe("var(--cmux-accent, var(--text))");
+  expect(root.get("--accent-text")).toBe("var(--text)");
+  expect(root.get("--accent")).not.toContain("--cmux-app-accent");
+  expect(root.get("--accent-text")).not.toContain("--cmux-app-accent");
 });
