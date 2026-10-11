@@ -1,4 +1,4 @@
-import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { cx } from "./cx";
 
@@ -35,12 +35,31 @@ export interface ContextMenuProps {
  * The menu renders at the document root: a fixed popup inside an ancestor with a transform (or a
  * transform animation, such as a settings category's enter animation) is placed relative to that
  * ancestor, not the viewport, so it opened away from the pointer (cx-dmnf). Escape returns focus to
- * the invoking control when it has one.
+ * the invoking control when it has one. Like a native menu, it opens down and right of the pointer,
+ * and flips up or left where that would leave the window (a right-click on the agent pane's
+ * composer, at the window's bottom, opened it below the window).
  */
 export function ContextMenu({ items, children, className, selection, onOpen, ignore }: ContextMenuProps) {
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
   const [active, setActive] = useState(0);
   const returnFocus = useRef<HTMLElement | null>(null);
+  const menu = useRef<HTMLDivElement | null>(null);
+  // Where the menu sits, measured before it paints.
+  const [place, setPlace] = useState<{ left: number; top: number } | null>(null);
+  useLayoutEffect(() => {
+    const node = menu.current;
+    if (!point || !node) {
+      setPlace(null);
+      return;
+    }
+    const { width, height } = node.getBoundingClientRect();
+    const left = point.x + width > window.innerWidth - 4 ? point.x - width : point.x;
+    const top = point.y + height > window.innerHeight - 4 ? point.y - height : point.y;
+    setPlace({
+      left: Math.max(4, Math.min(left, window.innerWidth - width - 4)),
+      top: Math.max(4, Math.min(top, window.innerHeight - height - 4)),
+    });
+  }, [point]);
   const enabled = items.filter((item) => !item.disabled);
   const close = (restoreFocus = false) => {
     setPoint(null);
@@ -94,7 +113,10 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
             >
               <div
                 // Takes focus when it opens, so Up/Down/Return work.
-                ref={(node) => node?.focus()}
+                ref={(node) => {
+                  menu.current = node;
+                  node?.focus();
+                }}
                 className="ui-popup ui-context-menu"
                 role="menu"
                 data-focus-ring="rows"
@@ -102,8 +124,9 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
                 style={{
                   position: "fixed",
                   minWidth: 180,
-                  left: Math.max(4, Math.min(point.x, window.innerWidth - 244)),
-                  top: Math.max(4, point.y),
+                  left: place?.left ?? point.x,
+                  top: place?.top ?? point.y,
+                  visibility: place ? undefined : "hidden",
                 }}
                 onPointerDown={(event) => event.stopPropagation()}
                 onKeyDown={(event) => {
