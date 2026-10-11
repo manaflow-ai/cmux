@@ -3152,7 +3152,8 @@ jobs:
       # ghostty/src, so fetch only that submodule.
       - name: Check out the ghostty submodule for shell regressions
         if: ${{ !cancelled() }}
-        run: git submodule update --init --depth 1 ghostty
+        shell: bash
+        run: bash scripts/ci/init-submodule.sh ghostty
 
       - name: Validate bash prompt bootstrap export compatibility
         if: ${{ !cancelled() }}
