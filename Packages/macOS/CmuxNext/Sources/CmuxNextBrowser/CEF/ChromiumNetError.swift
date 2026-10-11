@@ -43,16 +43,17 @@ nonisolated struct ChromiumNetError {
     /// answers the browser's next certificate error on `host` before the
     /// page loads again: continued for an overridable error on an IP
     /// address, which HSTS never covers (RFC 6797), otherwise left to
-    /// Chromium's interstitial, which knows the host's HSTS state. Returns
-    /// whether Chromium decides, or nil when the browser is gone.
+    /// Chromium's interstitial, which knows the host's HSTS state (the shim
+    /// then marks that load error `chromiumInterstitial`). False when the
+    /// browser is gone.
     @MainActor
-    static func proceed(code: Int, host: String, browser: Int32, shim: CEFShimLibrary?) -> Bool? {
+    static func proceed(code: Int, host: String, browser: Int32, shim: CEFShimLibrary?) -> Bool {
         var v4 = in_addr(), v6 = in6_addr()
         let isAddress = inet_pton(AF_INET, host, &v4) == 1 || inet_pton(AF_INET6, host, &v6) == 1
         let chromiumDecides = !(isAddress && overridableCertificateCodes.contains(code))
         // Chromium's host keeps an IPv6 address in brackets.
         let chromiumHost = host.contains(":") ? "[\(host)]" : host
-        let answered = chromiumHost.withCString { shim?.certificateProceed(browser, $0, chromiumDecides ? 1 : 0) }
-        return answered == 1 ? chromiumDecides : nil
+        let answered = chromiumHost.withCString { shim?.certificateProceed(browser, $0, Int32(code), chromiumDecides ? 1 : 0) }
+        return answered == 1
     }
 }

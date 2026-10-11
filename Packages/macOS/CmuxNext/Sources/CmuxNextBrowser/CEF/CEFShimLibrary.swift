@@ -158,10 +158,10 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let sslStatus: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>?
     /// Clears the profile's certificate error decisions and connections.
     let clearCertificateExceptions: @convention(c) (Int32, Int32) -> Int32
-    /// Answers the browser's next certificate error on `host`: continue
-    /// (0), or let Chromium's own interstitial decide (1); 0 when the
-    /// browser is gone.
-    let certificateProceed: @convention(c) (Int32, UnsafePointer<CChar>?, Int32) -> Int32
+    /// Answers the browser's next certificate error `code` on `host`:
+    /// continue (0), or let Chromium's own interstitial decide (1); 0 when
+    /// the browser is gone.
+    let certificateProceed: @convention(c) (Int32, UnsafePointer<CChar>?, Int32, Int32) -> Int32
     let freeOwned: @convention(c) (UnsafeMutablePointer<CChar>?) -> Void
     /// Distinct renderer client ids hosting the tab's frames.
     let rendererClientIDs: @convention(c) (Int32, UnsafeMutablePointer<Int32>?, Int32) -> Int32

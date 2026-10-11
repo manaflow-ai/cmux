@@ -45,13 +45,11 @@ extension CEFTab {
             // Extensions finish loading after the first window exists and
             // badges are per page; refresh cheaply on each document load.
             refreshExtensionActions()
-        case .loadError(_, let code, let text, let url):
+        case .loadError(_, let code, let text, let url, let chromiumInterstitial):
             clearTitleBeforeCommit()
             guard let navigation else { return }
             var error = Self.loadError(code: code, text: text, url: url)
-            if error.isCertificateError, let host = chromiumDecidesCertificate, error.failingURL?.host() == host {
-                (chromiumDecidesCertificate, error.engineShowsPage) = (nil, true)
-            }
+            error.engineShowsPage = chromiumInterstitial
             machine.apply(.failed(navigation, error))
             if !error.isBenignInterruption, let failing = error.failingURL, PageBackground.isRealPage(failing) {
                 // The failed address is the tab's document now (Chrome's

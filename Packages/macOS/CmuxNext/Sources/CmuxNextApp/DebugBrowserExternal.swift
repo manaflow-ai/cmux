@@ -7,7 +7,8 @@ import Foundation
 // `debug.browser.external_opens`, `debug.browser.prompts` and `debug.browser.page_status`
 // (DEBUG builds), for the scripts/cmux-next live checks: the links a recording build sent
 // to other apps (`BrowserExternalApps`), a browser tab's pending prompts, and the cmux
-// pages over a tab's page (error page, certificate warning, sad tab).
+// pages over a tab's page (error page, certificate warning, sad tab; `press: "proceed"`
+// presses the warning's Proceed).
 enum DebugBrowserExternal {
     static func register(on router: ControlRouter?, services: AppServices) {
         #if DEBUG
@@ -22,7 +23,7 @@ enum DebugBrowserExternal {
                 guard let chrome = entry(call.params, services: services)?.chrome else {
                     return .value(.object(["error": .string("no browser tab")]))
                 }
-                return .value(.object(PageStatusDebug(chrome).fields.mapValues { .string($0) }))
+                return .value(.object(PageStatusDebug(chrome, pressProceed: call.params["press"]?.stringValue == "proceed").fields.mapValues { .string($0) }))
             },
         ])
         #endif

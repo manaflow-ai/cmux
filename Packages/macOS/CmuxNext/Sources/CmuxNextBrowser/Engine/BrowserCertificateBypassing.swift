@@ -4,8 +4,9 @@ public import Foundation
 /// trust, after the user chose Proceed on cmux's warning page (both engines;
 /// Chromium may hand the choice to its own interstitial for HSTS).
 public protocol BrowserCertificateBypassing: AnyObject {
-    /// Trusts the failing page's host for this browser profile until the
-    /// app quits, and loads the page again.
+    /// Trusts the failing page's host for this browser profile (WebKit:
+    /// until the app quits; Chromium keeps the choice in the profile), and
+    /// loads the page again.
     func proceedPastCertificateError()
 }
 

@@ -92,11 +92,10 @@ def page(script):
     return rpc("browser.page.eval", {"script": script, **({"tab": TAB} if TAB else {})}).get("value")
 
 
-def page_status():
-    reply = rpc("debug.browser.page_status", {"tab": TAB} if TAB else {})
-    if "error" in reply and not isinstance(reply.get("error"), str):
-        check(False, f"debug.browser.page_status answers ({reply})")
-    return reply
+def page_status(**params):
+    """What the pane shows; {} until the tab answers (a tab still being made)."""
+    reply = rpc("debug.browser.page_status", {**({"tab": TAB} if TAB else {}), **params})
+    return reply if "certificate" in reply else {}
 
 
 def shown_error():
@@ -162,14 +161,15 @@ def run_engine(engine, port):
         warned = quiet_wait(lambda: page_status().get("certificate") == "1", 30)
         check(bool(warned), f"{engine}: {host}'s untrusted certificate shows cmux's certificate warning ({page_status()})")
         if warned:
-            reply = rpc("action.run", {"action": "browser.certificateWarning.proceed", "origin": "script"})
-            check("error" not in reply, f"{engine}: Proceed runs on {host} ({reply})")
+            # Proceed is a person's action (refused over action.run): press the button.
+            reply = page_status(press="proceed")
+            check(reply.get("pressed") == "1", f"{engine}: Proceed runs on {host} ({reply})")
             if engine == "chromium" and host == "localhost":
-                gone = quiet_wait(lambda: not shown_error(), 20)
+                gone = quiet_wait(lambda: page_status().get("enginePage") == "1" and not shown_error(), 20)
                 check(bool(gone), f"{engine}: Proceed on a name hands over to Chromium's interstitial ({page_status()})")
             else:
                 ok = quiet_wait(reached, 30)
-                check(bool(ok) and not shown_error(), f"{engine}: Proceed on {host} loads the page ({page_status()})")
+                check(bool(ok) and page_status() and not shown_error(), f"{engine}: Proceed on {host} loads the page ({page_status()})")
         close_tab()
 
 

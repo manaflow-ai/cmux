@@ -4,8 +4,7 @@ import Foundation
 extension CEFTab: BrowserCertificateBypassing {
     public func proceedPastCertificateError() {
         guard let browserID, let error = state.loadError, let url = error.failingURL, let host = url.host(),
-              let chromiumDecides = ChromiumNetError.proceed(code: error.code, host: host, browser: browserID, shim: runtime.shim) else { return }
-        chromiumDecidesCertificate = chromiumDecides ? host : nil
+              ChromiumNetError.proceed(code: error.code, host: host, browser: browserID, shim: runtime.shim) else { return }
         load(url)
     }
 }
