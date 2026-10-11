@@ -90,6 +90,7 @@ extension Workspace {
                 restorableAgentIndex: restorableAgentIndex
             )
         }
+        pruneClaudeBackgroundViewerObservations()
         let orderedPanelIds = sidebarOrderedPanelIds()
         var seen: Set<UUID> = []
         var allPanelIds: [UUID] = []
@@ -321,6 +322,15 @@ extension Workspace {
             return (panel.id, panel)
         }, uniquingKeysWith: { first, _ in first })
         let restorableAgentIndex = restoreAgentIndex(for: snapshot.panels)
+        claudeBackgroundAttachRestoresByStablePanelID = AgentSessionAutoResumeSettings.isEnabled(
+            defaults: agentSessionAutoResumeDefaults
+        )
+            ? Self.claudeBackgroundAttachRestores(
+                panels: snapshot.panels.compactMap { panelSnapshotsById[$0.id] },
+                skipsRemoteTerminals: remoteTerminalStartupCommand() != nil
+            )
+            : [:]
+        defer { claudeBackgroundAttachRestoresByStablePanelID = nil }
         let shouldRestoreSingleDefaultCloudTerminal =
             isDefaultFreestyleSSHDRemoteWorkspace &&
             snapshot.panels.filter { $0.type == .terminal }.count == 1
@@ -591,6 +601,7 @@ extension Workspace {
         var simulatorSnapshot: SessionSimulatorPanelSnapshot? = nil
         let agentSessionSnapshot: SessionAgentSessionPanelSnapshot?
         let projectSnapshot: SessionProjectPanelSnapshot?; var workspaceTodoSnapshot: SessionWorkspaceTodoPanelSnapshot? = nil
+        var coderouterGuideSnapshot: SessionCoderouterGuidePanelSnapshot? = nil
         var notificationsPanelSnapshot: SessionNotificationsPanelSnapshot? = nil
         switch panel.panelType {
         case .terminal:
@@ -683,7 +694,10 @@ extension Workspace {
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
                 wasAgentRunning: localTmuxStartCommand == nil ? agentWasRunning : nil,
-                hasReceivedExplicitInput: terminalPanel.hasReceivedExplicitInput
+                hasReceivedExplicitInput: terminalPanel.hasReceivedExplicitInput,
+                claudeBackgroundViewer: localTmuxStartCommand == nil
+                    ? claudeBackgroundViewerForSnapshot(panelId: panelId, terminal: terminalPanel)
+                    : nil
             )
             browserSnapshot = nil
             markdownSnapshot = nil
@@ -793,6 +807,10 @@ extension Workspace {
             terminalSnapshot = nil; browserSnapshot = nil; markdownSnapshot = nil; filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil; agentSessionSnapshot = nil; projectSnapshot = nil
             workspaceTodoSnapshot = SessionWorkspaceTodoPanelSnapshot()
+        case .coderouterGuide:
+            terminalSnapshot = nil; browserSnapshot = nil; markdownSnapshot = nil; filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = nil; agentSessionSnapshot = nil; projectSnapshot = nil
+            coderouterGuideSnapshot = SessionCoderouterGuidePanelSnapshot()
         case .notifications:
             terminalSnapshot = nil; browserSnapshot = nil; markdownSnapshot = nil; filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil; agentSessionSnapshot = nil; projectSnapshot = nil
@@ -837,6 +855,7 @@ extension Workspace {
             agentSession: agentSessionSnapshot,
             project: projectSnapshot,
             workspaceTodo: workspaceTodoSnapshot,
+            coderouterGuide: coderouterGuideSnapshot,
             notificationsPanel: notificationsPanelSnapshot
         )
     }
@@ -1590,7 +1609,6 @@ extension Workspace {
             // Only auto-resume if the agent was actively running when the snapshot was saved.
             // wasAgentRunning == nil means a legacy snapshot; treat as true for backwards compatibility.
             let agentWasRunningAtQuit = snapshot.terminal?.wasAgentRunning ?? true
-            let shouldAutoResumeAgent = autoResumeAgentSessions && agentWasRunningAtQuit
             let remoteStartupCommand = remoteTerminalStartupCommand()
             let restoresRemoteWorkspaceTerminalSnapshot =
                 remoteStartupCommand != nil &&
@@ -1618,6 +1636,24 @@ extension Workspace {
                 persistedResumeBinding,
                 restorableAgent: restorableAgent
             )
+            // A Claude background session lives on in Claude's daemon. One pane
+            // reattaches its viewer; no pane starts `claude --resume` as a
+            // second writer. A workspace restore pass plans every pane up
+            // front; a single reopened or Dock-restored panel is planned here.
+            let claudeBackgroundRestore = autoResumeAgentSessions &&
+                !restoresRemoteWorkspaceTerminalSnapshot &&
+                restoredRemotePTYSessionID == nil &&
+                restoredHibernation == nil &&
+                snapshot.terminal?.isRemoteTerminal != true
+                ? (claudeBackgroundAttachRestoresByStablePanelID ?? Self.claudeBackgroundAttachRestores(
+                    panels: [snapshot],
+                    skipsRemoteTerminals: remoteStartupCommand != nil
+                ))[snapshot.id]
+                : nil
+            let claudeBackgroundAttach = claudeBackgroundRestore?.attach
+            let suppressesResumeForBackgroundSession = claudeBackgroundRestore != nil
+            let shouldAutoResumeAgent = autoResumeAgentSessions && agentWasRunningAtQuit &&
+                !suppressesResumeForBackgroundSession
             // A persisted agent snapshot can coexist with a non-agent surface
             // binding (for example, a process-detected tmux attach). Keep the
             // snapshot available for manual continuation, but never let the
@@ -1674,6 +1710,7 @@ extension Workspace {
                 stablePanelHasUncertainProcess
             let resumeBindingForStartup =
                 restoredHibernation != nil ||
+                suppressesResumeForBackgroundSession ||
                 restoreStartupBlocked ||
                 liveSessionOwner != nil ||
                 stablePanelHasLiveProcess ||
@@ -1747,6 +1784,7 @@ extension Workspace {
                 ?? (!restoreStartupBlocked &&
                     liveSessionOwner == nil &&
                     !stablePanelHasLiveProcess &&
+                    !suppressesResumeForBackgroundSession &&
                     restorableAgent == nil && restoredBindingLaunch == nil
                     ? sessionRestorePolicy.restorableTmuxStartCommand(snapshot.terminal?.tmuxStartCommand)
                     : nil)
@@ -1884,7 +1922,8 @@ extension Workspace {
                 hasRestorableAgent: restorableAgent != nil,
                 tmuxStartCommand: restoredTmuxStartCommand,
                 hasResumeStartupWork: restoredBindingLaunch != nil ||
-                    restoredAgentResumeLaunch != nil || deferredAgentResumeStartupInput != nil
+                    restoredAgentResumeLaunch != nil || deferredAgentResumeStartupInput != nil ||
+                    claudeBackgroundAttach != nil
             )
             let restoredRemotePTYAttachCommand = restoredRemotePTYSessionID.map {
                 remotePTYAttachStartupCommand(sessionID: $0, remoteCommand: remoteConfiguration?.configuredRemoteCommand)
@@ -1895,7 +1934,8 @@ extension Workspace {
             let restoredStartupInput = restoredRemotePTYAttachCommand == nil
                 ? (restoredBindingLaunch?.initialInput ??
                     restoredAgentResumeLaunch?.initialInput ??
-                    deferredAgentResumeStartupInput)
+                    deferredAgentResumeStartupInput ??
+                    claudeBackgroundAttach?.startupInput)
                 : nil
             let startupHandlesWorkingDirectory =
                 restoredTmuxStartupScript != nil ||
@@ -2093,13 +2133,16 @@ extension Workspace {
                 panel: terminalPanel,
                 snapshot: restorableAgent,
                 resumeBinding: resumeBinding,
-                manualResumeAvailable: restorableAgent != nil,
+                // The daemon still owns the session; offering a manual resume
+                // would invite a second writer.
+                manualResumeAvailable: restorableAgent != nil && !suppressesResumeForBackgroundSession,
                 willRunStartupInput: restoredAgentWillRunStartupInput,
                 resumeWorkingDirectory: restoredDirectoryIsLocalPath
                     ? resumeSessionWorkingDirectory
                     : nil,
                 chatWorkingDirectory: resumeSessionWorkingDirectory,
                 agentSessionAlreadyActive: liveSessionOwner != nil ||
+                    suppressesResumeForBackgroundSession ||
                     (deferredAgentResumeAdmission
                         ? true
                         : (restoreIndexUnavailable ? false : agentSessionAlreadyActive)),
@@ -2114,6 +2157,19 @@ extension Workspace {
                     workspaceID: id,
                     surfaceID: terminalPanel.id,
                     processID: liveSessionOwner.processID
+                )
+            }
+            if let claudeBackgroundRestore {
+                StartupBreadcrumbLog.append(
+                    "session.restore.panel.claudeBackgroundAttach",
+                    fields: [
+                        "workspace": id.uuidString,
+                        "panel": terminalPanel.id.uuidString,
+                        "session": String(claudeBackgroundRestore.registration.sessionID.prefix(8)),
+                        "daemonPid": String(claudeBackgroundRestore.registration.processID),
+                        "attach": claudeBackgroundAttach == nil ? "0" : "1",
+                        "viewer": snapshot.terminal?.claudeBackgroundViewer == nil ? "0" : "1"
+                    ]
                 )
             }
             if deferredAgentResumeAdmission {
@@ -2280,6 +2336,11 @@ extension Workspace {
             guard let todoPanel = newWorkspaceTodoSurface(inPane: paneId, focus: false) else { return nil }
             applySessionPanelMetadata(snapshot, toPanelId: todoPanel.id)
             return todoPanel.id
+        case .coderouterGuide:
+            guard snapshot.coderouterGuide != nil,
+                  let guidePanel = newCoderouterGuideSurface(inPane: paneId, focus: false) else { return nil }
+            applySessionPanelMetadata(snapshot, toPanelId: guidePanel.id)
+            return guidePanel.id
         case .notifications:
             guard snapshot.notificationsPanel != nil,
                   let notificationsPanel = newNotificationsSurface(inPane: paneId, focus: false) else { return nil }
@@ -3102,6 +3163,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// writer wins), so two panes running the same agent would otherwise hide
     /// each other; the row resolves the most urgent pane from these instead.
     var agentStatusEntriesByPanelId: [UUID: [String: SidebarStatusEntry]] = [:]
+    var programStatusStoresByPanelId: [UUID: ProgramStatusRecordStore] = [:]
+    var programStatusUrgencyByPanelId: [UUID: Int] = [:]
     var metadataBlocks: [String: SidebarMetadataBlock] {
         get { sidebarMetadata.metadataBlocks }
         set { sidebarMetadata.metadataBlocks = newValue }
@@ -4919,7 +4982,34 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         guard isRemoteTmuxMirror else { return false }
         pendingRemoteDisconnectReplacementsBySurfaceId.removeAll(); remoteTmuxKeepWorkspaceOpenAfterSessionEnd = false; isRemoteTmuxMirror = false; remoteTmuxWindowMirrors.removeAll()
         AppDelegate.shared?.remoteTmuxController.detachMirrorWorkspaceKeptOpenLocally(workspaceId: id)
+        repairRetiredRemoteTmuxContainerPanelsAfterDetach()
         return true
+    }
+
+    /// A window mirror retires its outer container panel after it mounts the
+    /// mirror-owned pane surface. If the workspace is later kept open while the
+    /// mirror detaches, that container remains in the bonsplit tree with a
+    /// permanently closed TerminalSurface. Remove it before the workspace is
+    /// presented as a local tab, and provide a fresh shell when nothing usable
+    /// remains. This closes the stale blank-tab path without touching live
+    /// panels (for example a user-created browser split).
+    private func repairRetiredRemoteTmuxContainerPanelsAfterDetach() {
+        let retiredPanelIDs = panels.values.compactMap { panel -> UUID? in
+            guard let terminalPanel = panel as? TerminalPanel,
+                  terminalPanel.surface.runtimeUnavailableReason == .closing else {
+                return nil
+            }
+            return terminalPanel.id
+        }
+        for panelID in retiredPanelIDs {
+            _ = closePanel(panelID, force: true)
+        }
+        // Only replace what this repair removed. Callers that detach an
+        // already-empty workspace (the last-surface close path, Dock surface
+        // moves, session end) create their own replacement; adding one here
+        // too left those workspaces with two terminals.
+        guard !retiredPanelIDs.isEmpty, panels.isEmpty, !isRetiredFromOwningTabManager else { return }
+        _ = createReplacementTerminalPanel()
     }
     private func clearRemoteTmuxWorkspaceCloseIntent(tabId: TabID) {
         remoteTmuxWorkspaceCloseButtonByTabId.removeValue(forKey: tabId); remoteTmuxKeepWorkspaceOpenTabIds.remove(tabId)
@@ -6182,7 +6272,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         } else {
             updateBindingOnlyRestoredAgentResumeState(panelId: panelId, shellState: state)
         }
-        if state == .promptIdle { _ = clearStaleAgentPIDs(panelId: panelId, refreshPorts: true) }
+        if state == .promptIdle {
+            _ = clearStaleAgentPIDs(panelId: panelId, refreshPorts: true)
+            dropTransientProgramStatus(panelId: panelId)
+        }
         // The restored agent's resume state may have just changed (for
         // example, completed when the shell prompt returned).
         syncTerminalTabAgentIconAsset(forPanelId: panelId)
@@ -6648,6 +6741,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     func resetSidebarContext(reason: String = "unspecified") {
         statusEntries.removeAll()
         agentStatusEntriesByPanelId.removeAll()
+        programStatusStoresByPanelId.removeAll()
+        programStatusUrgencyByPanelId.removeAll()
         // The failed-wake row mirrors banners that are still up.
         refreshAgentWakeFailureStatusEntry()
         clearAllAgentPIDs(refreshPorts: false)
@@ -6708,6 +6803,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     func pruneSurfaceMetadata(validSurfaceIds: Set<UUID>) {
+        for panelId in Array(programStatusStoresByPanelId.keys) where !validSurfaceIds.contains(panelId) {
+            clearProgramStatusPanel(panelId: panelId)
+        }
         for panelId in Array(pendingTerminalInputObserversByPanelId.keys) where !validSurfaceIds.contains(panelId) {
             removePendingTerminalInputObservers(forPanelId: panelId)
         }
@@ -6744,6 +6842,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         remoteDetectedSurfaceIds = remoteDetectedSurfaceIds.filter { validSurfaceIds.contains($0) }
         panelShellActivityStates = panelShellActivityStates.filter { validSurfaceIds.contains($0.key) }
+        programStatusStoresByPanelId = programStatusStoresByPanelId.filter { validSurfaceIds.contains($0.key) }
+        programStatusUrgencyByPanelId = programStatusUrgencyByPanelId.filter { validSurfaceIds.contains($0.key) }
         restoredPanelTitleBoundariesByPanelId = restoredPanelTitleBoundariesByPanelId.filter {
             validSurfaceIds.contains($0.key)
         }
@@ -8634,6 +8734,14 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// libproc-backed default, which requires a live foreground process on the
     /// pane's surface; injecting a substitute decouples callers from libproc.
     var foregroundProcessWorkingDirectoryProvider: ((UUID) -> String?)?
+
+    /// Last `claude attach` viewer check per panel, keyed by the foreground PID
+    /// so autosave reads a pane's argv once per foreground process.
+    var claudeBackgroundViewerObservationsByPanelId: [UUID: ClaudeBackgroundViewerObservation] = [:]
+
+    /// Background-session reattach decisions for the workspace restore pass in
+    /// progress; nil outside a pass, where `createPanel` plans its one panel.
+    var claudeBackgroundAttachRestoresByStablePanelID: [UUID: ClaudeBackgroundAttachRestore]?
 
     /// Rescues split/new-tab cwd inheritance from a pane whose restored
     /// auto-resume command is still running (#7155).
@@ -11532,6 +11640,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         bindSurface(newTabId, toPanelId: detached.panelId)
         detached.panel.retainTransferredSurfaceMachine(detached.surfaceMachine)
         panels[detached.panelId] = detached.panel
+        restoreProgramStatusStore(detached.programStatusStore, panelId: detached.panelId)
         if let restoredPanelTitleBoundary = detached.restoredPanelTitleBoundary {
             restoredPanelTitleBoundariesByPanelId[detached.panelId] = restoredPanelTitleBoundary
         } else {
@@ -12574,8 +12683,28 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return min(0.25, baseDelay * pow(2.0, Double(exponent)))
     }
 
+    /// Flushes only the host window that owns this workspace's layout.
+    ///
+    /// Layout follow-ups are emitted from AppKit and SwiftUI callbacks. Keep
+    /// the ownership lookup on MainActor so window and tab-manager state is
+    /// never read concurrently with window replacement.
     private func flushWorkspaceWindowLayouts() {
-        for window in NSApp.windows where window.isVisible {
+        // A follow-up belongs to this workspace's host window. Laying out
+        // every visible application window here made each workspace retry
+        // perform unrelated AppKit layout work (and multiplied the cost when
+        // several workspaces were converging at once).
+        MainActor.assumeIsolated {
+            // The owning manager is the common case and gives us an O(1)
+            // lookup. Recovery scans are reserved for window replacement or
+            // orphaned workspaces whose live owner has not been restored yet.
+            let visibleWindow: (NSWindow?) -> NSWindow? = { candidate in
+                guard let candidate, candidate.isVisible else { return nil }
+                return candidate
+            }
+            let window = visibleWindow(owningTabManager?.window)
+                ?? visibleWindow(AppDelegate.shared?.mainWindowContainingWorkspace(id))
+                ?? visibleWindow(AppDelegate.shared?.tabManagerFor(tabId: id)?.window)
+            guard let window else { return }
             window.contentView?.layoutSubtreeIfNeeded()
         }
     }
@@ -12624,6 +12753,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return !browserPortalReady(for: browserPanel)
     }
 
+    /// Runs one scheduled follow-up, flushing only when the pending state
+    /// requires fresh AppKit geometry before readiness can be checked.
     private func attemptEventDrivenLayoutFollowUp() {
         guard layoutFollowUpTimeoutScheduler.isScheduled, !isAttemptingLayoutFollowUp else { return }
         guard portalRenderingEnabled else {
@@ -12635,8 +12766,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         isAttemptingLayoutFollowUp = true
         defer { isAttemptingLayoutFollowUp = false }
 
-        flushWorkspaceWindowLayouts()
-
         let geometryPendingBefore = layoutFollowUpNeedsGeometryPass
         let terminalPortalPendingBefore = terminalPortalVisibilityNeedsFollowUp()
         let browserVisibilityPendingBefore = browserPortalVisibilityNeedsFollowUp()
@@ -12644,6 +12773,17 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let browserPanelPendingBefore = browserPanelNeedsFollowUp()
         let browserExitPendingBefore = layoutFollowUpBrowserExitFocusPanelId != nil
         let reparentFocusPendingBefore = !pendingReparentFocusSuppressionViews.isEmpty
+
+        // `reconcileTerminalGeometryPass` performs its own flush immediately
+        // before reading terminal bounds. Avoid doing that same layout pass a
+        // second time here. Browser-only follow-ups still need one pass to
+        // materialize their portal anchor before readiness is checked.
+        if !layoutFollowUpNeedsGeometryPass,
+           (layoutFollowUpBrowserPanelId != nil ||
+            layoutFollowUpTerminalFocusPanelId != nil ||
+            browserVisibilityPendingBefore) {
+            flushWorkspaceWindowLayouts()
+        }
 
         if layoutFollowUpNeedsGeometryPass {
             layoutFollowUpNeedsGeometryPass = reconcileTerminalGeometryPass()
@@ -12751,10 +12891,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         var needsFollowUpPass = false
         let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
 
-        // Flush pending AppKit layout first so terminal-host bounds reflect latest split topology.
-        for window in NSApp.windows where window.isVisible {
-            window.contentView?.layoutSubtreeIfNeeded()
-        }
+        // Flush pending AppKit layout first so terminal-host bounds reflect
+        // latest split topology. Keep the flush scoped to this workspace's
+        // host window; unrelated windows must not participate in a terminal
+        // geometry repair.
+        flushWorkspaceWindowLayouts()
 
         for panel in panels.values {
             guard let terminalPanel = panel as? TerminalPanel else { continue }
@@ -13902,6 +14043,8 @@ extension Workspace: BonsplitDelegate {
         let activationIntent = focusIntent ?? activationPanel.preferredFocusIntentForActivation()
         activationPanel.prepareFocusIntentForActivation(activationIntent)
         let panelId = effectiveFocusedPanelId
+        // The user reached this pane, so its finished OSC 7501 records have been seen.
+        dismissCompletedProgramStatus(panelId: panelId)
         if let terminalPanel = panel as? TerminalPanel {
             if terminalPanel.isAgentHibernated, shouldResumeHibernatedAgent {
                 _ = resumeAgentHibernation(panelId: panelId, focus: false)
@@ -14444,7 +14587,11 @@ extension Workspace: BonsplitDelegate {
                     }
 
                     self.forceCloseTabIds.insert(tabId)
-                    self.bonsplitController.closeTab(tabId)
+                    if !self.bonsplitController.closeTab(tabId) {
+                        // didCloseTab never runs for a rejected close, so drop the
+                        // bypass here or the next close would skip the warning.
+                        self.forceCloseTabIds.remove(tabId)
+                    }
                 }
             }
             return false
@@ -14542,6 +14689,7 @@ extension Workspace: BonsplitDelegate {
                 manuallyUnread: manualUnreadPanelIds.contains(panelId),
                 restoredUnreadIndicator: restoredUnreadPanelIndicators[panelId],
                 promptState: panelPrompts[panelId],
+                programStatusStore: programStatusStoresByPanelId[panelId],
                 restorableAgent: restorableAgent,
                 restorableAgentResumeState: restorableAgentResumeState,
                 restoredAgentCompletedGeneration: restoredAgentLifecycle.completedGeneration(panelId: panelId),
@@ -15044,7 +15192,7 @@ extension Workspace: BonsplitDelegate {
         if let builtInAction = executable.builtInAction {
             switch builtInAction {
             case .newWorkspace:
-                _ = AppDelegate.shared?.performNewWorkspaceAction(
+                _ = AppDelegate.shared?.performNewLocalWorkspaceAction(
                     tabManager: owningTabManager, debugSource: "surfaceTabBar.newWorkspace"
                 )
             case .newAgentChat: performSurfaceTabBarNewAgentChatAction(presentingWindow: presentingWindow)

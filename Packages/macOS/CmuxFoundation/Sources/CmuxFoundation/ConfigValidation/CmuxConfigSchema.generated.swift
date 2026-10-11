@@ -222,7 +222,21 @@ enum CmuxEmbeddedConfigSchema {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "enabled": { "type": "boolean", "default": false, "description": "Enable remote tmux mirroring." }
+            "enabled": { "type": "boolean", "default": false, "description": "Enable remote tmux mirroring." },
+            "originColors": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean", "default": false, "description": "Tint each remote workspace's sidebar row with a stable per-host color." }
+              }
+            },
+            "originHostTitles": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean", "default": false, "description": "Show a remote workspace's host after its title when another workspace has the same title." }
+              }
+            }
           }
         },
         "multiplexer": {
@@ -739,6 +753,12 @@ enum CmuxEmbeddedConfigSchema {
           "enum": ["top", "afterCurrent", "end"],
           "default": "afterCurrent",
           "description": "Where new workspaces are inserted in the sidebar."
+        },
+        "goToWorkspaceOrder": {
+          "type": "string",
+          "enum": ["sidebar", "recent"],
+          "default": "sidebar",
+          "description": "Order used by Go to Workspace (Cmd-P): sidebar order, or most recently focused workspaces."
         },
         "forkConversationDefaultDestination": {
           "type": "string",
@@ -1331,7 +1351,7 @@ enum CmuxEmbeddedConfigSchema {
                 "type": "string",
                 "minLength": 1,
                 "pattern": "\\S",
-                "description": "Shell command run via /bin/sh -c, once per file. It receives the file and endpoint on its environment (CMUX_UPLOAD_LOCAL_PATH, CMUX_UPLOAD_REMOTE_PATH, CMUX_UPLOAD_DESTINATION, CMUX_UPLOAD_PORT, CMUX_UPLOAD_IDENTITY_FILE, CMUX_UPLOAD_SSH_OPTIONS). Its stdout is what cmux inserts at the cursor."
+                "description": "Shell command run via /bin/sh -c, once per file. It receives the file and endpoint on its environment (CMUX_UPLOAD_LOCAL_PATH, CMUX_UPLOAD_REMOTE_PATH, CMUX_UPLOAD_DESTINATION, CMUX_UPLOAD_PORT, CMUX_UPLOAD_IDENTITY_FILE, CMUX_UPLOAD_SSH_OPTIONS). CMUX_UPLOAD_REMOTE_PATH is a file under ~/.cache/cmux/paste/<session>/, a directory the command has to create before writing to it. Its stdout is what cmux inserts at the cursor."
               },
               "enabled": {
                 "type": "boolean",
@@ -1664,6 +1684,12 @@ enum CmuxEmbeddedConfigSchema {
           "type": "boolean",
           "default": true,
           "description": "Show the workspace working directory."
+        },
+        "showCloudDeviceIcons": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show Cloud machine and device icons beside remote workspace titles independently of Git branch and directory details.",
+          "descriptionKey": "schemaDescriptions.sidebar.showCloudDeviceIcons"
         },
         "showPullRequests": {
           "type": "boolean",
@@ -2493,6 +2519,7 @@ enum CmuxEmbeddedConfigSchema {
               "sendFeedback",
               "showNotifications",
               "jumpToUnread",
+              "jumpToLastPrompt",
               "toggleUnread",
               "markOldestUnreadAndJumpNext",
               "markAllNotificationsRead",
@@ -2542,6 +2569,8 @@ enum CmuxEmbeddedConfigSchema {
               "reopenClosedBrowserPanel",
               "newSurface",
               "toggleTerminalCopyMode",
+              "previousAgentTurn",
+              "nextAgentTurn",
               "focusTextBoxInput",
               "cycleTextBoxSubmitAction",
               "attachTextBoxFile",
@@ -2560,6 +2589,7 @@ enum CmuxEmbeddedConfigSchema {
               "focusDown",
               "focusPreviousPane",
               "focusNextPane",
+              "focusPaneByNumber",
               "splitRight",
               "splitDown",
               "newPaneAutoLayout",

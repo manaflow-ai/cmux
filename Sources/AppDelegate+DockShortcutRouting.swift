@@ -103,7 +103,7 @@ extension KeyboardShortcutSettings.Action {
              .saveLayoutTemplate, .openFolder,
              .reopenPreviousSession, .goToWorkspace,
              .commandPalette, .agentInbox, .sendFeedback,
-             .showNotifications, .jumpToUnread, .toggleUnread,
+             .showNotifications, .jumpToUnread, .jumpToLastPrompt, .toggleUnread,
              .markOldestUnreadAndJumpNext,
              .markAllNotificationsRead, .clearAllNotifications,
              .focusRightSidebar,
@@ -137,8 +137,10 @@ extension KeyboardShortcutSettings.Action {
              .canvasDistributeHorizontally,
              .canvasDistributeVertically,
              .toggleRightSidebar,
+             .focusPaneByNumber,
              .findInDirectory,
-             .openDiffViewer:
+             .openDiffViewer,
+             .previousAgentTurn, .nextAgentTurn:
             .mainContainer
         }
     }

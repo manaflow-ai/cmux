@@ -1,4 +1,5 @@
 import Darwin
+import CmuxCore
 import Foundation
 
 struct CmuxTopResourceSummary: Sendable {
@@ -51,18 +52,6 @@ enum CmuxTopProcessMemorySource: String, Sendable {
     case rusageResidentSize = "proc_pid_rusage.RUSAGE_INFO_V4.ri_resident_size"
     case mixed
     case unavailable
-}
-
-struct CmuxTopProcessScope: Sendable, Equatable {
-    let workspaceID: UUID?
-    let surfaceID: UUID?
-    let attributionReason: String
-
-    init(workspaceID: UUID?, surfaceID: UUID?, attributionReason: String) {
-        self.workspaceID = workspaceID
-        self.surfaceID = surfaceID
-        self.attributionReason = attributionReason
-    }
 }
 
 // All stored indexes and records are immutable after construction.

@@ -13,6 +13,10 @@ nonisolated private let terminalUploadCommandRuleLogger = Logger(
 /// stdout (or the remote path it chose, if the command prints nothing). A rule
 /// with no `hostPattern` matches every remote host.
 ///
+/// The remote path cmux hands the command is in a per-session directory under
+/// `~/.cache/cmux/paste` that only the built-in `scp` creates. A command that
+/// writes there creates the directory first.
+///
 /// Semantics mirror `~/.ssh/config` `Host` blocks: a glob pattern (`*`, `?` via
 /// `fnmatch`), **first match wins**, no match → the built-in `scp` transport.
 public struct TerminalUploadCommandRule: Codable, Sendable, Equatable, Hashable {

@@ -414,8 +414,8 @@ struct SidebarCompactAgentStatusTests {
         #expect(on.compactsAgentStatus)
 
         #expect(
-            SidebarWorkspaceSnapshotFactory.presentationKey(settings: off, showsAgentActivity: true)
-                != SidebarWorkspaceSnapshotFactory.presentationKey(settings: on, showsAgentActivity: true)
+            SidebarWorkspaceSnapshotFactory.presentationKey(settings: off, showsAgentActivity: true, customColorHex: nil)
+                != SidebarWorkspaceSnapshotFactory.presentationKey(settings: on, showsAgentActivity: true, customColorHex: nil)
         )
     }
 

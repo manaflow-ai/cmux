@@ -26,6 +26,10 @@ final class RemoteTmuxController {
     /// owned by ``RemoteTmuxController`` and delegated to for discovery + master teardown.
     let transportRegistry = RemoteTmuxTransportRegistry()
 
+    /// Per-host sidebar origin colors, owned here (not an ambient global) so every
+    /// window resolves a destination to the same palette slot for the app session.
+    let hostColorRegistry = RemoteHostColorRegistry()
+
     /// Live `tmux -CC` control connections keyed by `connectionHash\u{1}session`
     /// (see ``connectionKey(host:sessionName:)``), so repeated attach requests for
     /// the same endpoint+session reuse the existing connection.
@@ -294,9 +298,16 @@ final class RemoteTmuxController {
 
     // MARK: - Sidebar mirroring (P3, initial increment)
 
+    /// Changes whenever the active mirror set changes. Sidebar presentation caches use this
+    /// generation to refresh their destination snapshot without scanning all mirrors on every row
+    /// refresh.
+    private(set) var hostDestinationsGeneration: UInt64 = 0
+
     /// Active session→workspace mirrors keyed `connectionHash\u{1}session`
     /// (see ``connectionKey(host:sessionName:)``).
-    var sessionMirrors: [String: RemoteTmuxSessionMirror] = [:]
+    var sessionMirrors: [String: RemoteTmuxSessionMirror] = [:] {
+        didSet { hostDestinationsGeneration &+= 1 }
+    }
 
     /// Outstanding login offers, keyed by ``RemoteTmuxHost/connectionHash``.
     ///
@@ -333,6 +344,9 @@ final class RemoteTmuxController {
     /// `workspaceName` semantics. It must be host-scoped because the stream publishes sessions
     /// asynchronously after the attach call returns.
     var pendingMultiplexWorkspaceNamesByHost: [String: String] = [:]
+    /// An explicit CLI attach restricts a multiplexed host to one remote session.
+    /// Bulk `ssh-tmux` attaches clear this filter before reconciling the view.
+    var requestedMultiplexSessionByHost: [String: String] = [:]
 
     /// In-flight attach guards and kill-on-close markers for remote tmux mirrors.
     let windowRegistry = RemoteTmuxWindowRegistry()
@@ -491,6 +505,21 @@ final class RemoteTmuxController {
     }
 
     // MARK: - Create / destroy propagation (P5)
+
+    /// Every mirrored workspace's destination, in one pass. A sidebar refresh resolves
+    /// colors for many rows at once. Derived fresh per call
+    /// rather than cached: ``RemoteTmuxSessionMirror/mirroredWorkspaceId`` follows a weak
+    /// workspace reference, so an index kept alongside `sessionMirrors` would still be
+    /// stale after a workspace closes without the dictionary itself changing.
+    func hostDestinationsByWorkspaceId() -> [UUID: String] {
+        var destinations: [UUID: String] = [:]
+        destinations.reserveCapacity(sessionMirrors.count)
+        for mirror in sessionMirrors.values {
+            guard let workspaceId = mirror.mirroredWorkspaceId else { continue }
+            destinations[workspaceId] = mirror.host.destination
+        }
+        return destinations
+    }
 
     /// A mirrored workspace was renamed → `rename-session` on the remote so the
     /// tmux session name tracks the cmux workspace title.

@@ -34,6 +34,8 @@ extension ShortcutAction {
         case .sendFeedback: return "Send Feedback"
         case .showNotifications: return "Show Notifications"
         case .jumpToUnread: return "Jump to Latest Unread"
+        case .jumpToLastPrompt:
+            return String(localized: "shortcut.jumpToLastPrompt.label", defaultValue: "Jump to Last Prompt")
         case .toggleUnread: return "Toggle Unread"
         case .markOldestUnreadAndJumpNext: return "Mark as Oldest Unread and Jump to Next Latest Unread"
         case .markAllNotificationsRead:
@@ -99,6 +101,10 @@ extension ShortcutAction {
             return String(localized: "menu.history.reopenLastClosed", defaultValue: "Reopen Last Closed")
         case .newSurface: return "New Surface"
         case .toggleTerminalCopyMode: return "Toggle Terminal Copy Mode"
+        case .previousAgentTurn:
+            return String(localized: "shortcut.previousAgentTurn.label", defaultValue: "Previous Agent Turn")
+        case .nextAgentTurn:
+            return String(localized: "shortcut.nextAgentTurn.label", defaultValue: "Next Agent Turn")
         case .focusTextBoxInput: return "Focus TextBox Input"
         case .cycleTextBoxSubmitAction:
             return String(localized: "shortcut.cycleTextBoxSubmitAction.label", defaultValue: "Cycle TextBox Submit Action")
@@ -119,6 +125,8 @@ extension ShortcutAction {
             return String(localized: "shortcut.focusPreviousPane.label", defaultValue: "Focus Previous Pane")
         case .focusNextPane:
             return String(localized: "shortcut.focusNextPane.label", defaultValue: "Focus Next Pane")
+        case .focusPaneByNumber:
+            return String(localized: "shortcut.focusPaneByNumber.label", defaultValue: "Focus Pane 1…9")
         case .splitRight: return "Split Right"
         case .splitDown: return "Split Down"
         case .newPaneAutoLayout:
