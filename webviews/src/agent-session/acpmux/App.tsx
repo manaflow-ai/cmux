@@ -3053,7 +3053,14 @@ function AcpmuxPane() {
               Array.isArray(hunk) ? hunk.map(String) : [],
               unstage === true,
             ),
-          "git.pullRequest": ({ action }) => client.gitPullRequest(action === "threads"),
+          "git.pullRequest": ({ action, number }) =>
+            client.gitPullRequest(
+              action === "threads"
+                ? { action }
+                : action === "merge" && typeof number === "number"
+                  ? { action, number }
+                  : {},
+            ),
           // What the agent works on, for a terminal or browser opened from this chat (#16620).
           "pane.context": async () => (snapshotRef.current ? paneContext(snapshotRef.current) : { urls: [] }),
         };
@@ -4151,6 +4158,17 @@ function AcpmuxPane() {
                     )}
                     <ChatHeaderTools
                       tabTools={!quick}
+                      // A merge asks the header again, so the chip shows the pull request merged.
+                      onMergePullRequest={
+                        localCwd
+                          ? (number) =>
+                              callNative("git.pullRequest", { action: "merge", number }).then(() => {
+                                void callNative("pane.tabState", { refresh: true })
+                                  .then(setHeaderState)
+                                  .catch(() => undefined);
+                              })
+                          : undefined
+                      }
                       onTerminal={(mode) => runSplitAction(HEADER_ACTIONS.terminal, localCwd, mode)}
                       onBrowser={(mode) => runSplitAction(HEADER_ACTIONS.browser, undefined, mode)}
                       // Changes owns the diff of the chat's folder; a remote chat's folder is not on this Mac.

@@ -1,13 +1,15 @@
 // The chat branch's pull request in the header (cx-tcwj, Codex desktop's PR chip): its number, a
 // dot for its checks, and a name that says both. A click opens its status (cx-ncc.77.1): the title,
 // linking the pull request, its state and review, and each check, failing first, linking its run.
-// The App pushes it with the header state, again while checks run and when a turn ends.
+// The App pushes it with the header state, again while checks run and when a turn ends. A green
+// one offers Merge (PullRequestMerge.tsx, cx-ncc.77.4).
 import { useRef, useState } from "react";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { Popover } from "../../../ui/Popover";
 import { usePopoverTrigger } from "../../../ui/popoverTrigger";
 import type { HeaderPullRequest } from "./headerState";
+import { PullRequestMerge } from "./PullRequestMerge";
 
 const STATES: Record<string, StringKey> = {
   open: "header.prState.open",
@@ -27,7 +29,14 @@ const REVIEWS: Record<string, StringKey> = {
   review_required: "header.prReview.required",
 };
 
-export function PullRequestChip({ pullRequest }: { pullRequest: HeaderPullRequest }) {
+export function PullRequestChip({
+  pullRequest,
+  onMerge,
+}: {
+  pullRequest: HeaderPullRequest;
+  /// Merge (PullRequestMerge.tsx); absent where the chat can't merge from here.
+  onMerge?: (number: number) => Promise<unknown>;
+}) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const [button, setButton] = useState<HTMLButtonElement | null>(null);
@@ -101,6 +110,7 @@ export function PullRequestChip({ pullRequest }: { pullRequest: HeaderPullReques
             ))}
           </ul>
         )}
+        {onMerge && <PullRequestMerge key={pullRequest.number} pullRequest={pullRequest} merge={onMerge} />}
       </Popover>
     </>
   );

@@ -9,7 +9,38 @@ extension AgentPaneGitPullRequest {
     static let mergeFields = "url,number,state,isDraft,mergeStateStatus,headRefOid,statusCheckRollup"
 
     @concurrent static func merge(_ number: Int, in folder: String, gh: String) async -> Outcome {
-        .refused(mergeNotReadyMessage)
+        let cli = { (arguments: [String]) in
+            await AgentPaneGitProcess.output(arguments, executable: gh, directory: folder, timeout: networkTimeout, network: true)
+        }
+        let view = await cli(["pr", "view", "--json", mergeFields])
+        guard view.status == 0, let object = AgentPaneGitReviewThread.object(in: view.text),
+              let url = object["url"] as? String, isPullRequestURL(url) else { return .refused(message(view)) }
+        guard object["number"] as? Int == number else { return .refused(mergeChangedMessage) }
+        guard (object["state"] as? String)?.uppercased() == "OPEN" else { return .refused(mergeNotOpenMessage) }
+        let rollup = object["statusCheckRollup"] as? [[String: Any]] ?? []
+        let checks = AgentPanePullRequest.checks(rollup).state
+        guard object["isDraft"] as? Bool != true, ["CLEAN", "HAS_HOOKS"].contains((object["mergeStateStatus"] as? String)?.uppercased()),
+              checks == "passing" || checks == "none" else { return .refused(mergeNotReadyMessage) }
+        let local = await AgentPaneGitProcess.output(["-C", folder, "rev-parse", "HEAD"], timeout: localTimeout)
+        guard let head = object["headRefOid"] as? String, head.count >= 40, head.allSatisfy(\.isHexDigit),
+              local.status == 0, local.text.trimmingCharacters(in: .whitespacesAndNewlines) == head else {
+            return .refused(mergeHeadMessage)
+        }
+        let how = await method(cli, url: url)
+        let merged = await cli(["pr", "merge", String(number), "--\(how)", "--match-head-commit", head])
+        guard merged.status == 0 else { return .refused(message(merged)) }
+        return .merged(url: url, number: number)
+    }
+
+    /// The user's default merge method for the repository (`merge`, `squash` or `rebase`); `merge`
+    /// when gh can't say.
+    private static func method(_ cli: ([String]) async -> AgentPaneGitProcess.Outcome, url: String) async -> String {
+        let parts = URL(string: url)?.path.split(separator: "/").map(String.init) ?? []
+        guard let host = URL(string: url)?.host, parts.count >= 2 else { return "merge" }
+        let view = await cli(["repo", "view", "\(host)/\(parts[0])/\(parts[1])", "--json", "viewerDefaultMergeMethod"])
+        let method = (AgentPaneGitReviewThread.object(in: view.text)?["viewerDefaultMergeMethod"] as? String)?.lowercased()
+        guard view.status == 0, let method, ["merge", "squash", "rebase"].contains(method) else { return "merge" }
+        return method
     }
 
     /// The branch's pull request is not the one the page showed.

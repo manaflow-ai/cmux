@@ -68,3 +68,15 @@
 .acpmux-pr-check>a,.acpmux-pr-check>span{min-width:0;overflow:hidden;color:inherit;text-decoration:none;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-pr-check:has(>a):hover{background:var(--acpmux-menu-hover)}
 .acpmux-pr-none{padding:4px 6px;border-top:.5px solid var(--acpmux-composer-edge);color:var(--agent-muted)}
+/* Merge on the PR chip's status (cx-ncc.77.4): asks once more in place, then says it merged or why not. */
+.acpmux-pr-merge{display:flex;flex-direction:column;gap:6px;margin-top:6px;padding:8px 6px 2px;border-top:.5px solid var(--acpmux-composer-edge);font-size:var(--text-detail)}
+.acpmux-pr-merge-buttons{display:flex;justify-content:flex-end;gap:6px}
+.acpmux-pr-merge button{height:24px;padding:0 10px;border:0;border-radius:12px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
+.acpmux-pr-merge button:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)))}
+.acpmux-pr-merge button:focus-visible{outline:2px solid var(--agent-accent);outline-offset:1px}
+.acpmux-pr-merge button[aria-disabled=true]{opacity:.6}
+.acpmux-pr-merge-start{align-self:flex-start}
+.acpmux-pr-merge .acpmux-pr-merge-confirm,.acpmux-pr-merge .acpmux-pr-merge-confirm:hover{background:var(--agent-accent);color:var(--agent-on-accent,var(--acpmux-base))}
+.acpmux-pr-merge output{color:var(--agent-muted)}
+.acpmux-pr-merge output[role=alert]{color:var(--agent-danger)}
+.acpmux-pr-merge[data-step=merged] output{color:var(--agent-ansi-5,#a371f7)}

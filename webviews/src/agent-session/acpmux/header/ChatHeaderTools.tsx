@@ -92,6 +92,7 @@ export function ChatHeaderTools({
   onMenuOpen,
   expand,
   onExpanded,
+  onMergePullRequest,
 }: {
   /// Terminal and Browser run their split with the quick action's mode: the App opens it, or for
   /// `toggle` closes the split this button opened when it is still there.
@@ -236,7 +237,7 @@ export function ChatHeaderTools({
   );
   return (
     <div className="acpmux-header-tools" onPointerEnter={onPointerEnter}>
-      {pullRequest && <PullRequestChip pullRequest={pullRequest} />}
+      {pullRequest && <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />}
       {onCustomize && buttons ? (
         // Only the buttons: the summary's and the menu's popups are portaled, and a right-click
         // inside them reaches this host through React.
