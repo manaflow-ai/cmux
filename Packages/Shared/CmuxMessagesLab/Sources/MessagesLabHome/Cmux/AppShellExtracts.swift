@@ -50,3 +50,11 @@ enum ResolutionAudit {
 enum MallocCounter {
     static var mainAllocations = 0
 }
+
+/// MessagesLab's rig frame-pacing log (appkit-native PacingLog.swift, a rig tool, not vendored):
+/// NativeScroll (3508ff9) notes its after-lift pacing in it when it is on. cmux: always off.
+final class PacingLog {
+    static let shared = PacingLog()
+    let isOn = false
+    func note(_ line: String) {}
+}

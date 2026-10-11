@@ -11,8 +11,10 @@ keep printing and --browsers Chromium tabs, and samples every --sample seconds:
     the soak on a host where nothing else uses WebKit);
   - control-socket round trips (system.ping, snapshot.get): a reply slower than --hang-after
     seconds is a hang;
-  - crashes: a new DiagnosticReports .ips of cmux, cmux-tui or acpmux, or the app, daemon or
-    acpmux PID changing;
+  - crashes: a new DiagnosticReports .ips of this app copy (its bundle ID), of a process of it
+    the soak saw (every kind but WebKit, launchd's children) or of a child of the app, or the
+    app, daemon or acpmux PID changing.
+    Other builds crashing on the same host (a capture mini's tagged builds) do not count;
   - agent turns: every agent gets a streaming turn ("slow") every --turn-every seconds; a turn
     still running after 5 minutes is stuck.
 
@@ -148,6 +150,7 @@ class Soak:
         self.args = args
         self.app = os.path.realpath(args.app)
         self.tag, executable = bundle_tag(self.app)
+        self.bundle_id = f"com.cmuxterm.app.debug.{self.tag}"
         self.binary = os.path.join(self.app, "Contents/MacOS", executable)
         self.tui = os.path.join(self.app, "Contents/Resources/bin/cmux-tui")
         self.socket = args.socket or f"/tmp/cmux-debug-{self.tag}.sock"
@@ -162,6 +165,8 @@ class Soak:
         self.agents = {}  # session id -> {"started": monotonic or None, "turns": n, "done": n}
         self.started = time.time()
         self.pids = {}
+        self.app_pid = None
+        self.seen_pids = set()  # every PID of this copy but WebKit's, for crash reports
         self.webkit_before = set()
 
     def event(self, kind, detail):
@@ -209,6 +214,7 @@ class Soak:
             raise SystemExit(f"readiness-soak: no control socket at {self.socket}")
         identity = self.control.call("system.identify").get("result", {})
         self.setup["identity"] = {k: identity.get(k) for k in ("pid", "build", "version", "bundle_identifier") if k in identity}
+        self.app_pid = self.setup["identity"].get("pid")
         say(f"app up: {self.setup['identity']}")
 
     def connect(self):
@@ -314,12 +320,30 @@ class Soak:
         return round((time.monotonic() - started) * 1000, 1), ok
 
     def crash_reports(self):
+        """This copy's crash reports since the soak started (other builds' reports do not count)."""
         found = []
         for path in glob.glob(os.path.expanduser("~/Library/Logs/DiagnosticReports/*.ips")):
             name = os.path.basename(path).lower()
-            if any(n in name for n in CRASH_NAMES) and os.path.getmtime(path) >= self.started:
+            if any(n in name for n in CRASH_NAMES) and os.path.getmtime(path) >= self.started and self.owns_report(path):
                 found.append(path)
         return sorted(found)
+
+    def owns_report(self, path):
+        """Whether an .ips names this copy's bundle ID, a PID of this copy or a child of its app. A
+        report still being written does not parse yet; it counts on a later tick, once it does."""
+        try:
+            with open(path, errors="replace") as handle:
+                header = json.loads(handle.readline())
+                if header.get("bundleID") == self.bundle_id:
+                    return True
+                body = json.loads(handle.read())
+        except (OSError, ValueError):
+            return False
+        return body.get("pid") in self.seen_pids or (self.app_pid is not None and body.get("parentPid") == self.app_pid)
+
+    def track(self, kinds):
+        """Remembers the PIDs whose crash reports are this copy's (not WebKit's: any app's)."""
+        self.seen_pids.update(pid for pid, kind in kinds.items() if kind != "webkit")
 
     def sample(self, before, kinds, wall):
         rows = {}
@@ -338,8 +362,9 @@ class Soak:
         end = time.monotonic() + self.args.hours * 3600
         next_turn = {session: time.monotonic() + i * self.args.turn_every / max(len(self.agents), 1)
                      for i, session in enumerate(self.agents)}
-        seen_reports = set(self.crash_reports())
         kinds = self.kinds()
+        self.track(kinds)
+        seen_reports = set(self.crash_reports())
         before = {pid: usage(pid) for pid in kinds}
         for key in ("app", "daemon", "acpmux"):
             self.pids[key] = sorted(pid for pid, kind in kinds.items() if kind == key)
@@ -350,6 +375,7 @@ class Soak:
             tick = time.monotonic()
             processes = self.sample(before, kinds, wall)
             kinds = self.kinds()
+            self.track(kinds)
             before = {pid: usage(pid) for pid in kinds}
             for key in ("app", "daemon", "acpmux"):
                 pids = sorted(pid for pid, kind in kinds.items() if kind == key)

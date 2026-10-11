@@ -167,6 +167,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `project.instructions`: the chat menu's Edit CLAUDE.md (AgentPaneProjectInstructions.swift);
     /// nil when its params break the contract.
     case projectInstructions(AgentPaneProjectInstructions?)
+    /// `project.addFiles`: the chat menu's Add Files to Project (AgentPaneProjectFiles.swift), with the
+    /// same `{cwd, name}`; nil when its params break the contract.
+    case projectAddFiles(AgentPaneProjectInstructions?)
     /// `transport.open`: open the host's acpmux socket named by the last handshake
     /// (``AgentPaneTransport``); answers `{connection}` once it is open.
     case transportOpen
