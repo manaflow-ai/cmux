@@ -103,6 +103,8 @@ final class PaletteShortcutRecorderView: NSView {
 
     override func layout() {
         super.layout()
+        // Hidden, it sits at zero height; laying its fields out there loops the window (cx-wcej).
+        guard !bounds.isEmpty else { return }
         glass.frame = bounds
         content.frame = CGRect(origin: .zero, size: glass.bounds.size)
         let padding = PaletteLayout.horizontalPadding

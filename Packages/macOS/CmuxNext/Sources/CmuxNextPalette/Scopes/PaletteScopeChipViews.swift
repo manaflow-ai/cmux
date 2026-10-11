@@ -126,8 +126,8 @@ final class PaletteScopeChipView: NSView {
         let labelHeight = label.intrinsicContentSize.height
         let ruleSpace = rule.isHidden ? 0 : Metrics.space4 + Metrics.dividerThickness
         let labelX = icon.frame.maxX + Metrics.space2
-        label.frame = NSRect(x: labelX, y: (bounds.height - labelHeight) / 2, width: max(0, bounds.width - labelX - inset - ruleSpace),
-                             height: labelHeight)
+        label.frame = pixelAligned(NSRect(x: labelX, y: (bounds.height - labelHeight) / 2,
+                                          width: max(0, bounds.width - labelX - inset - ruleSpace), height: labelHeight))
         let ruleHeight = Metrics.iconSize
         rule.frame = NSRect(x: bounds.width - Metrics.dividerThickness, y: (bounds.height - ruleHeight) / 2,
                             width: Metrics.dividerThickness, height: ruleHeight)
@@ -178,9 +178,12 @@ final class PaletteKeywordHintView: NSView {
 
     override func layout() {
         super.layout()
+        // Hidden, it sits at zero height; laying its fields out there loops the window (cx-wcej).
+        guard !bounds.isEmpty else { return }
         let labelSize = NSSize(width: PaletteText.fittingWidth(label), height: label.intrinsicContentSize.height)
         let keySize = keys.intrinsicContentSize
-        label.frame = NSRect(x: 0, y: (bounds.height - labelSize.height) / 2, width: labelSize.width, height: labelSize.height)
-        keys.frame = NSRect(x: labelSize.width + Metrics.space2, y: (bounds.height - keySize.height) / 2, width: keySize.width, height: keySize.height)
+        label.frame = pixelAligned(NSRect(x: 0, y: (bounds.height - labelSize.height) / 2, width: labelSize.width, height: labelSize.height))
+        keys.frame = pixelAligned(NSRect(x: labelSize.width + Metrics.space2, y: (bounds.height - keySize.height) / 2,
+                                         width: keySize.width, height: keySize.height))
     }
 }
