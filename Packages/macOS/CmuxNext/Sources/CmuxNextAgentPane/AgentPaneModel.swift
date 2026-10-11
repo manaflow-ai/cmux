@@ -130,6 +130,8 @@ public final class AgentPaneModel {
     /// Saves the inspector's exported log or a side panel document where the user picks; true
     /// when saved, false when the user cancelled. Nil leaves the page to copy the text instead.
     @ObservationIgnored public var onSaveFile: (@MainActor (AgentPaneSave) async throws -> Bool)?
+    /// Add Files to Project's open panel: the files the user picked, none when they cancelled.
+    @ObservationIgnored public var onChooseFiles: (@MainActor () async -> [URL])?
     @ObservationIgnored public internal(set) var composer = AgentPaneComposerSetting.fallback
     @ObservationIgnored public var onShowContextUsage: (@MainActor (Bool) async throws -> Void)?
 
@@ -294,13 +296,11 @@ public final class AgentPaneModel {
             }
             return AgentPaneReply.success()
         case .gitWrite(let write): return await respondToGitWrite(write)
-        case .git, .invalidGit, .githubRepository, .transportOpen, .transportSend, .transportGesture, .transportGestureRelease, .transportClose:
+        case .git, .invalidGit, .githubRepository, .gitStage, .gitPullRequest, .transportOpen, .transportSend, .transportGesture, .transportGestureRelease, .transportClose:
             return await AgentPaneTransportReply.reply(to: request, in: self)
         case .turnUndo(let undo): return await AgentPaneTurnUndo.reply(to: undo, in: self)
         case .invalidTurnUndo: return await AgentPaneTurnUndo.reply(to: nil, in: self)
-        case .gitStage(let request): return await AgentPaneGitStage.reply(to: request, in: self)
-        case .gitPullRequest(let request): return await AgentPaneGitPullRequest.reply(to: request, in: self)
-        case .projectInstructions(let request): return await AgentPaneProjectInstructions.reply(to: request, in: self)
+        case .projectInstructions, .projectAddFiles: return await AgentPaneProjectFiles.respond(to: request, in: self)
         case .reply(let reply): return await respond(to: reply)
         case .saveFile(let save): return await saveFile(save)
         case .showContextUsage(let show): return await showContextUsage(show)
