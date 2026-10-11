@@ -29,12 +29,12 @@ from typing import Iterable, Iterator, Sequence
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# Verbs of `cmux browser <tab_…|page> VERB` (cmux-tui src/cli/app.rs parse_page).
+# Verbs of `cmux browser <tab_…|page> VERB` (cmux-tui src/cli/app/page.rs parse_page).
 PAGE_VERBS = frozenset(
     {
         "back", "click", "eval", "fill", "focus", "forward", "goto", "navigate",
-        "close", "new-tab", "open", "reload", "select", "snapshot", "state", "switch", "tabs",
-        "text", "title", "type", "url", "value",
+        "close", "new-tab", "open", "reload", "screenshot", "select", "snapshot", "state", "switch",
+        "tabs", "text", "title", "type", "url", "value", "wait",
     }
 )
 

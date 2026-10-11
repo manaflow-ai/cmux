@@ -3,20 +3,23 @@
 // and a chevron; opened, a bordered list with a row per subagent (SUBAGENT_ROW rows below it).
 // Every line has a fixed height (model.ts), so a running clock or a changing status never moves
 // the transcript.
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import { Icon } from "../icons/Icon";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { formatDuration } from "../conversation/turns";
 import type { Subagent } from "./subagentFold";
 
+/// Opens a subagent's own view in the pane, or the session's own with undefined (App.tsx).
+export const SubagentNavContext = createContext<((id: string | undefined) => void) | undefined>(undefined);
+
 /// Avatars drawn before "+N".
 const STACK = 3;
 
-const running = (agent: Subagent) => agent.state === "running";
+export const running = (agent: Subagent) => agent.state === "running";
 
 /// Each subagent state's label in an open group.
-const STATE_LABEL = {
+export const STATE_LABEL = {
   running: "subagents.state.running",
   completed: "subagents.state.completed",
   failed: "subagents.state.failed",
@@ -36,7 +39,7 @@ export function groupElapsed(agents: readonly Subagent[], now: number): number {
 }
 
 /// The current time, ticking each second only while `live`.
-function useNow(live: boolean): number {
+export function useNow(live: boolean): number {
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     if (!live) return;
@@ -99,22 +102,60 @@ export function SubagentGroupHeader({
 }
 
 /// One subagent in an open group: its avatar with a status dot, name, state or current action,
-/// and time. `edge` rounds the list's first and last rows.
+/// and time. `edge` rounds the list's first and last rows. A click opens its own view.
 export function SubagentListRow({ row }: { row: AcpmuxRow }) {
   const t = useT();
+  const open = useContext(SubagentNavContext);
   const agent = row.subagents?.[0];
   const now = useNow(agent ? running(agent) : false);
   if (!agent) return null;
   const label = STATE_LABEL[agent.state as keyof typeof STATE_LABEL] ?? STATE_LABEL.completed;
   const state = running(agent) ? (agent.action ?? t(label)) : t(label);
-  return (
-    <div id={row.id} className="cv-subagent" data-edge={row.status}>
+  const content = (
+    <>
       <Avatar agent={agent} dot />
       <span className="cv-subagent__text">
         <span className="cv-subagent__name">{agent.name}</span>
         <span className="cv-subagent__state">{state}</span>
       </span>
       <span className="cv-subagent__time">{formatDuration(elapsed(agent, now))}</span>
+    </>
+  );
+  if (!open)
+    return (
+      <div id={row.id} className="cv-subagent" data-edge={row.status}>
+        {content}
+      </div>
+    );
+  return (
+    <button
+      type="button"
+      id={row.id}
+      className="cv-subagent"
+      data-edge={row.status}
+      aria-label={t("subagents.open", { name: agent.name })}
+      onClick={() => open(agent.id)}
+    >
+      {content}
+      <Icon name="disclosure.collapsed" size={12} />
+    </button>
+  );
+}
+
+/// The child view's first line: a "Subagent of" pill naming the agent that spawned it (`text`);
+/// a click goes back to that agent's view, or to the session's own.
+export function SubagentOfRow({ row }: { row: AcpmuxRow }) {
+  const t = useT();
+  const open = useContext(SubagentNavContext);
+  const agent = row.subagents?.[0];
+  if (!agent) return null;
+  return (
+    <div className="cv-subagent-of">
+      <button type="button" className="cv-subagent-of__pill" onClick={() => open?.(agent.parent ?? undefined)}>
+        <Icon name="agent.session" size={12} />
+        <span className="cv-subagent-of__label">{t("subagents.of")}</span>
+        <span className="cv-subagent-of__parent">{row.text}</span>
+      </button>
     </div>
   );
 }

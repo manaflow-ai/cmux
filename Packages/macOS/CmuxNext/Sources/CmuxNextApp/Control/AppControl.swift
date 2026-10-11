@@ -244,6 +244,10 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.send(call.params, services: services))
             },
+            // The app's resign and become-active path without activating it (DebugAppActivation).
+            .mainActor("debug.app_activation") { call in
+                .value(DebugAppActivation.send(call.params))
+            },
             .mainActor("debug.palette.capture") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugPaletteCapture.capture(call.params, services: services))

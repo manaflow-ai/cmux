@@ -35,7 +35,7 @@ final class BrowserPopupPanel: NSPanel {
         standardWindowButton(.closeButton)?.toolTip = Strings.popupCloseHelp
         minSize = CGSize(width: BrowserPopupPanelGeometry.minimumContent.width,
                          height: BrowserPopupPanelGeometry.minimumContent.height + Self.titleHeight)
-        animationBehavior = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? .none : .utilityWindow
+        animationBehavior = Motion.animatesMovement ? .utilityWindow : .none
         tabbingMode = .disallowed
         // Kind `.browserPopup`: only the close button, the one surface
         // background; the opener's scope is adopted when it opens.

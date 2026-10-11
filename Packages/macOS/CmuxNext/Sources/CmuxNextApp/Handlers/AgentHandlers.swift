@@ -57,6 +57,8 @@ enum AgentHandlers {
                 context.services.quickComposer.toggle()
             })
         }
+        // A chat tab's Move to Floating Chat (cx-b9qi): the same panel holds its session.
+        context.services.agentTabs.moveToFloatingChat = { [weak services = context.services] in services?.quickComposer.moveToFloatingChat(session: $0) ?? false }
         // Computer Use Setup: one model (`ComputerUseSetup`) behind the palette, the CLI, the
         // Settings card and the onboarding step. Setup opens the guided step; the two grant
         // actions open their Privacy & Security list.

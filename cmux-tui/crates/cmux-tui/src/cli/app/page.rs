@@ -1,10 +1,24 @@
 //! `cmux browser <tab_…|page> <verb> …`: page commands for a browser tab the
-//! cmux app hosts, sent as `browser.page.*` app control methods. Kept out of
-//! app.rs for its line budget.
+//! cmux app hosts, sent as `browser.page.*` app control methods, and where a
+//! screenshot's PNG is written. Kept out of app.rs for its line budget.
 
+use std::io::Write;
+use std::path::PathBuf;
+use std::time::Duration;
+
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as BASE64;
 use serde_json::{Map, Value, json};
 
-use super::{AppCommand, Options, READ_TIMEOUT, UsageError, WAITING_RUN_TIMEOUT};
+use super::super::OutputMode;
+use super::{AppCommand, Options, READ_TIMEOUT, UsageError, WAITING_RUN_TIMEOUT, failure};
+
+/// `browser.page.wait` answers by its own timeout (default 5 s, the old
+/// `cmux browser wait`); the CLI waits that long plus this margin.
+const DEFAULT_WAIT_MS: u64 = 5_000;
+pub(super) const WAIT_MARGIN: Duration = Duration::from_secs(5);
+/// The app gives a screenshot 30 s (a full page is captured tile by tile).
+pub(super) const SCREENSHOT_TIMEOUT: Duration = Duration::from_secs(35);
 
 /// `cmux browser <tab_…|page> <verb> …`: page commands for a browser tab the
 /// app hosts (`page` is the focused tab). A daemon browser (`browser_…`) is
@@ -45,6 +59,71 @@ pub(super) fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, Us
                 params.insert("interactive".into(), json!(true));
             }
             "browser.page.snapshot"
+        }
+        ("wait", _) => {
+            // `wait [SELECTOR] [--selector S] …`: one condition, chosen by the app.
+            let (selector, flags) = match rest.split_first() {
+                Some((first, flags)) if !first.starts_with("--") => (Some(first.as_str()), flags),
+                _ => (None, rest),
+            };
+            let options = Options::parse(
+                flags,
+                &[
+                    "selector",
+                    "text",
+                    "url-contains",
+                    "url",
+                    "load-state",
+                    "function",
+                    "timeout-ms",
+                    "timeout",
+                ],
+                &[],
+            )?;
+            if let Some(selector) = options.value("selector").or(selector) {
+                params.insert("selector".into(), json!(selector));
+            }
+            for (flag, key) in [
+                ("text", "text_contains"),
+                ("url", "url_contains"),
+                ("url-contains", "url_contains"),
+                ("load-state", "load_state"),
+                ("function", "function"),
+            ] {
+                if let Some(value) = options.value(flag) {
+                    params.insert(key.into(), json!(value));
+                }
+            }
+            let timeout_ms = match (options.value("timeout-ms"), options.value("timeout")) {
+                (Some(ms), _) => Some(ms.parse::<u64>().map_err(|_| usage())?),
+                (None, Some(seconds)) => {
+                    let seconds = seconds.parse::<f64>().map_err(|_| usage())?;
+                    if !seconds.is_finite() || seconds < 0.0 {
+                        return Err(usage());
+                    }
+                    Some(((seconds * 1000.0) as u64).max(1))
+                }
+                (None, None) => None,
+            };
+            if let Some(timeout_ms) = timeout_ms {
+                params.insert("timeout_ms".into(), json!(timeout_ms));
+            }
+            timeout = Duration::from_millis(timeout_ms.unwrap_or(DEFAULT_WAIT_MS)) + WAIT_MARGIN;
+            "browser.page.wait"
+        }
+        ("screenshot", _) => {
+            let options = Options::parse(rest, &["out", "selector"], &["full-page"])?;
+            if options.value("selector").is_some() && options.flag("full-page") {
+                return Err(usage());
+            }
+            if let Some(selector) = options.value("selector") {
+                params.insert("selector".into(), json!(selector));
+            }
+            if options.flag("full-page") {
+                params.insert("full_page".into(), json!(true));
+            }
+            let out = options.value("out").map(str::to_owned);
+            return Ok(AppCommand::Screenshot { params: Value::Object(params), out });
         }
         ("click" | "focus" | "text" | "value", [selector]) => {
             params.insert("selector".into(), json!(selector));
@@ -87,7 +166,7 @@ pub(super) fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, Us
         }
         _ => return Err(usage()),
     };
-    let flagged = ["snapshot", "tabs", "new-tab", "select", "switch", "close"];
+    let flagged = ["snapshot", "wait", "tabs", "new-tab", "select", "switch", "close"];
     if !flagged.contains(&verb.as_str()) && words.len() != rest.len() {
         return Err(usage());
     }
@@ -97,4 +176,102 @@ pub(super) fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, Us
         timeout: Some(timeout),
         pick: None,
     })
+}
+
+fn same_file(a: &std::path::Path, b: &std::path::Path) -> bool {
+    matches!((std::fs::canonicalize(a), std::fs::canonicalize(b)), (Ok(a), Ok(b)) if a == b)
+}
+
+/// Where a screenshot's PNG bytes are: inline in the result, or in the file the app saved.
+enum ScreenshotSource {
+    Inline(Vec<u8>),
+    Saved(PathBuf),
+}
+
+/// Puts a `browser.page.screenshot` PNG where `out` says and prints where it
+/// went: the path, or with `--json` the result without the image data.
+/// The app saves the PNG to a file and returns its `path` (the old `cmux
+/// browser screenshot` did too); `png_base64` comes inline only when small.
+/// Without `--out` the app's file is the result; `--out -` writes only the
+/// PNG to stdout.
+pub(super) fn save_screenshot(mut result: Value, out: Option<&str>, output: OutputMode) -> i32 {
+    let messages = &crate::localization::catalog().app_control;
+    let Some(object) = result.as_object_mut() else {
+        return failure("app.invalid_response", messages.invalid_response, output, 3);
+    };
+    let inline = object.remove("png_base64");
+    let saved = object.get("path").and_then(Value::as_str).map(PathBuf::from);
+    let inline = match inline.as_ref().and_then(Value::as_str).map(|data| BASE64.decode(data)) {
+        Some(Ok(png)) => Some(png),
+        Some(Err(_)) => {
+            return failure("app.invalid_response", messages.invalid_response, output, 3);
+        }
+        None => None,
+    };
+    // The PNG comes inline or as the app's saved file; a result with neither is invalid.
+    let source = match (inline, saved.clone()) {
+        (Some(png), _) => ScreenshotSource::Inline(png),
+        (None, Some(saved)) => ScreenshotSource::Saved(saved),
+        (None, None) => {
+            return failure("app.invalid_response", messages.invalid_response, output, 3);
+        }
+    };
+    let write_failed = |path: &std::path::Path, error: std::io::Error| {
+        let message = messages
+            .screenshot_write_failed
+            .replace("{path}", &path.display().to_string())
+            .replace("{error}", &error.to_string());
+        failure("io.write_failed", &message, output, 1)
+    };
+    if out == Some("-") {
+        let png = match source {
+            ScreenshotSource::Inline(png) => png,
+            ScreenshotSource::Saved(saved) => match std::fs::read(&saved) {
+                Ok(png) => png,
+                Err(error) => return write_failed(saved.as_path(), error),
+            },
+        };
+        let mut stdout = std::io::stdout().lock();
+        return match stdout.write_all(&png).and_then(|()| stdout.flush()) {
+            Ok(()) => 0,
+            Err(_) => 3,
+        };
+    }
+    let path = match (out, &saved) {
+        (None, Some(saved)) => saved.clone(),
+        (target, _) => {
+            let path = match target {
+                Some(path) => PathBuf::from(path),
+                None => {
+                    let name = super::super::command::random_prefixed("screenshot")
+                        .unwrap_or_else(|_| format!("screenshot-{}", std::process::id()));
+                    std::env::temp_dir()
+                        .join("cmux-browser-screenshots")
+                        .join(format!("{name}.png"))
+                }
+            };
+            let created = path
+                .parent()
+                .filter(|parent| !parent.as_os_str().is_empty())
+                .map_or(Ok(()), std::fs::create_dir_all);
+            let written = created.and_then(|()| match &source {
+                ScreenshotSource::Inline(png) => std::fs::write(&path, png),
+                // Copying a file onto itself truncates it first.
+                ScreenshotSource::Saved(saved) if same_file(saved, &path) => Ok(()),
+                ScreenshotSource::Saved(saved) => std::fs::copy(saved, &path).map(|_| ()),
+            });
+            if let Err(error) = written {
+                return write_failed(path.as_path(), error);
+            }
+            path
+        }
+    };
+    let path = std::fs::canonicalize(&path).unwrap_or(path).display().to_string();
+    match output {
+        OutputMode::Human => super::super::wire::print_local_success(&Value::String(path), output),
+        _ => {
+            result["path"] = json!(path);
+            super::super::wire::print_local_success(&result, output)
+        }
+    }
 }

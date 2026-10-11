@@ -62,7 +62,9 @@ fn write_rollout(codex_home: &Path, cwd: &Path) {
         .join(format!("sessions/2026/10/02/rollout-2026-10-02T09-00-00-{CODEX_ID}.jsonl"));
     std::fs::create_dir_all(rollout.parent().unwrap()).unwrap();
     let record = json!({"type": "session_meta", "payload": {"id": CODEX_ID, "cwd": cwd, "timestamp": "2026-10-02T09:00:00Z"}});
-    std::fs::write(&rollout, format!("{record}\n")).unwrap();
+    // A person's chat has a user message (the index lists no chat without one).
+    let prompt = json!({"type": "event_msg", "timestamp": "2026-10-02T09:00:01Z", "payload": {"type": "user_message", "message": "Fix the build"}});
+    std::fs::write(&rollout, format!("{record}\n{prompt}\n")).unwrap();
     // Written an hour ago: a transcript written in the last minutes is a
     // chat live in another process, which adopt refuses (adopt_live.rs).
     let hour_ago = std::time::SystemTime::now() - Duration::from_secs(3600);

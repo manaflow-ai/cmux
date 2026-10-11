@@ -145,6 +145,8 @@ public final class HomeComposeSheet: HomeSheetController, NSSearchFieldDelegate,
 
     public func numberOfRows(in tableView: NSTableView) -> Int { shown.count }
 
+    public func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? { ThemedTableRowView() }
+
     public func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let recipient = shown[row]
         let label = NSTextField(labelWithString: "")

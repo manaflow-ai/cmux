@@ -15,7 +15,8 @@ import Foundation
 /// - a send this view started is already in the projection (`aliases`): its
 ///   echo only updates the status
 /// - status (delivered, read, not delivered): `.status`, the newest change only
-/// - tapbacks: `.react` per participant and part (the reducer toggles)
+/// - tapbacks: `.react` per participant and part (the reducer toggles); mine
+///   with no author, MessagesLab's own tapback (its badge pops, Springs.tapback)
 /// - retracted: `.unsend`; edited (editedAt moved): `.edit`
 /// - typing: `.typing` on and off
 /// - anything MessagesLab has no action for (a removed message, content that
@@ -65,7 +66,7 @@ struct HomeDiff: Equatable {
                 // My send, already flying in the projection (status .sending).
                 let st = HomeMapping.status(item, me: me, summary: newSummary)
                 if let st, st != .sending { d.actions.append(.status(id(item), st)) }
-                if !item.reactions.isEmpty { react(from: [], to: item.reactions, id: id(item), owners: owners(item, newSummary), into: &d) }
+                if !item.reactions.isEmpty { react(from: [], to: item.reactions, id: id(item), owners: owners(item, newSummary), me: me, into: &d) }
             } else {
                 d.actions.append(.receive(msg(item)))
             }
@@ -98,19 +99,22 @@ struct HomeDiff: Equatable {
         }
         let s0 = HomeMapping.status(o, me: me, summary: oldSummary), s1 = HomeMapping.status(n, me: me, summary: newSummary)
         if let s1, s1 != s0 { d.actions.append(.status(id, s1)) }
-        if o.reactions != n.reactions { react(from: o.reactions, to: n.reactions, id: id, owners: owners(n, newSummary), into: &d) }
+        if o.reactions != n.reactions { react(from: o.reactions, to: n.reactions, id: id, owners: owners(n, newSummary), me: me, into: &d) }
         return true
     }
 
     /// One tapback per participant and part: the reducer replaces a changed
-    /// one and toggles a removed one off.
+    /// one and toggles a removed one off. Mine has no author (`by: nil`), as
+    /// MessagesLab dispatches the user's own tapback: the reducer's actor is
+    /// then `me` all the same, and the window view pops its badge and times it
+    /// as a tapback (from the menu's input when chosen there, PaneTapback.swift).
     /// Which HomeStore part each MessagesLab part shows (`HomeMapping.projectedParts`).
     private static func owners(_ item: TranscriptItem, _ summary: ConversationSummary?) -> [Int] {
         HomeMapping.projectedParts(item, summary: summary).owners
     }
 
     private static func react(from old: [CmuxHomeCore.Reaction], to new: [CmuxHomeCore.Reaction], id: ID, owners: [Int],
-                              into d: inout HomeDiff) {
+                              me: ParticipantID, into d: inout HomeDiff) {
         struct Slot: Hashable { var author: ParticipantID; var part: Int }
         let before = Dictionary(old.map { (Slot(author: $0.author, part: $0.partIndex), $0.kind) }, uniquingKeysWith: { _, b in b })
         let after = Dictionary(new.map { (Slot(author: $0.author, part: $0.partIndex), $0.kind) }, uniquingKeysWith: { _, b in b })
@@ -118,8 +122,9 @@ struct HomeDiff: Equatable {
             let a = before.value(for: slot), b = after.value(for: slot) // // crash program: dictionary reads
             guard a != b else { continue }
             let ref = PartRef(messageId: id, partIndex: HomeMapping.projectedIndex(slot.part, owners))
-            if let b { d.actions.append(.react(ref, HomeMapping.kind(b), by: slot.author.rawValue)) }
-            else if let a { d.actions.append(.react(ref, HomeMapping.kind(a), by: slot.author.rawValue)) }
+            let by = slot.author == me ? nil : slot.author.rawValue
+            if let b { d.actions.append(.react(ref, HomeMapping.kind(b), by: by)) }
+            else if let a { d.actions.append(.react(ref, HomeMapping.kind(a), by: by)) }
         }
     }
 

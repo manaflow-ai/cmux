@@ -2361,6 +2361,24 @@ impl WorkspaceRegistry {
         meta_value(&connection, "registry_id")
     }
 
+    /// Fails with `UnsupportedWorkspaceRegistrySchema` when the session's
+    /// saved registry needs a newer build, without opening it for writing.
+    /// The owner checks this before it binds its socket (cx-n3bs), so the
+    /// recovery text still sees whether another server holds the socket.
+    pub fn check_supported_schema(root: &Path, session_name: &str) -> anyhow::Result<()> {
+        let root = platform::normalize_filesystem_path(root.to_path_buf());
+        let session_dir =
+            platform::normalize_filesystem_path(root.join(session_storage_component(session_name)));
+        let db_path =
+            platform::normalize_filesystem_path(session_dir.join(WORKSPACE_REGISTRY_FILE));
+        if db_path.is_file()
+            && let Some(error) = preflight_unsupported_schema(&db_path)
+        {
+            return Err(error.into());
+        }
+        Ok(())
+    }
+
     pub fn in_memory(session_name: &str) -> anyhow::Result<Self> {
         let connection = Connection::open_in_memory()?;
         Self::initialize(

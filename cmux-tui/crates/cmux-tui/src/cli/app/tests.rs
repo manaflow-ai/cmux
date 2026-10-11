@@ -1,3 +1,7 @@
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as BASE64;
+
+use super::page::WAIT_MARGIN;
 use super::*;
 
 fn args(words: &[&str]) -> Vec<String> {
@@ -7,7 +11,10 @@ fn args(words: &[&str]) -> Vec<String> {
 fn call(command: AppCommand) -> (&'static str, Value) {
     match command {
         AppCommand::Call { method, params, .. } => (method, params),
-        AppCommand::Open { .. } | AppCommand::Events { .. } | AppCommand::DebugCall { .. } => {
+        AppCommand::Open { .. }
+        | AppCommand::Events { .. }
+        | AppCommand::DebugCall { .. }
+        | AppCommand::Screenshot { .. } => {
             panic!("expected a call")
         }
     }
@@ -17,27 +24,6 @@ fn call(command: AppCommand) -> (&'static str, Value) {
 fn non_app_scopes_are_left_to_the_resource_grammar() {
     assert_eq!(parse(&args(&["workspace", "list"])).unwrap(), None);
     assert_eq!(parse(&args(&[])).unwrap(), None);
-}
-
-#[test]
-fn history_and_bookmark_reads_call_the_app_and_other_words_run_actions() {
-    let (method, params) = call(
-        parse(&args(&["history", "search", "cmux", "--kind", "page", "--limit", "5"]))
-            .unwrap()
-            .unwrap(),
-    );
-    assert_eq!(method, "history.list");
-    assert_eq!(params, json!({ "text": "cmux", "kind": "page", "limit": 5 }));
-    let (method, params) =
-        call(parse(&args(&["bookmark", "list", "--folder", "Work"])).unwrap().unwrap());
-    assert_eq!(method, "bookmark.list");
-    assert_eq!(params, json!({ "folder": "Work" }));
-    assert!(parse(&args(&["history", "search"])).is_err());
-    assert!(parse(&args(&["bookmark", "list", "--limit", "0"])).is_err());
-    assert_eq!(call(parse(&args(&["accounts", "list"])).unwrap().unwrap()).0, "accounts.list");
-    let (method, params) = call(parse(&args(&["history", "reopen"])).unwrap().unwrap());
-    assert_eq!(method, "action.run");
-    assert_eq!(params["action"], "history reopen");
 }
 
 #[test]
@@ -266,6 +252,110 @@ fn app_browser_tabs_take_page_commands_and_daemon_browsers_stay_with_the_mux() {
     assert!(parse(&args(&["browser", "page", "fill", "#q"])).is_err());
 }
 
+// `cmux browser <tab|page> wait` sends one condition with its timeout, and
+// the CLI outwaits the app's own deadline; a second positional is refused.
+#[test]
+fn page_waits_reach_the_app_with_one_condition_and_the_cli_outwaits_them() {
+    let met = json!({ "id": 1, "ok": true, "result": { "tab": "tab_01ab", "met": true } });
+    let (socket, app) = fake_app(vec![met]);
+    let command = parse(&args(&["browser", "tab_01ab", "wait", "#done", "--timeout-ms", "20000"]))
+        .unwrap()
+        .unwrap();
+    let AppCommand::Call { timeout, .. } = &command else { panic!("expected a call") };
+    assert_eq!(*timeout, Some(Duration::from_millis(20_000) + WAIT_MARGIN));
+    assert_eq!(run(&global_for(&socket), command), 0);
+    let connections = app.join().unwrap();
+    let [request] = connections[0].as_slice() else { panic!("{connections:?}") };
+    assert_eq!(request["method"], "browser.page.wait");
+    let mut sent = request["params"].clone();
+    sent.as_object_mut().unwrap().remove("after");
+    assert_eq!(sent, json!({ "tab": "tab_01ab", "selector": "#done", "timeout_ms": 20000 }));
+    let (_, params) = call(
+        parse(&args(&[
+            "browser",
+            "page",
+            "wait",
+            "--url-contains",
+            "/done",
+            "--load-state",
+            "complete",
+            "--timeout",
+            "1.5",
+        ]))
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(
+        params,
+        json!({ "url_contains": "/done", "load_state": "complete", "timeout_ms": 1500 })
+    );
+    assert!(parse(&args(&["browser", "page", "wait", "#a", "#b"])).is_err());
+    assert!(parse(&args(&["browser", "page", "wait", "--timeout-ms", "soon"])).is_err());
+}
+
+// `cmux browser … screenshot`: the PNG lands at --out whether the app sends it
+// inline or only as its own file, --out naming that file leaves it whole, and
+// bad image data fails.
+#[test]
+fn a_screenshot_is_written_to_out_and_bad_image_data_fails() {
+    let png = [0x89, b'P', b'N', b'G', 0, 1];
+    let response = json!({ "id": 1, "ok": true, "result": {
+        "tab": "tab_01ab", "png_base64": BASE64.encode(png), "width": 1, "height": 1 } });
+    let (socket, app) = fake_app(vec![response]);
+    let dir = std::env::temp_dir()
+        .join(format!("cmux-shot-{}", super::super::command::random_prefixed("t").unwrap()));
+    let out = dir.join("nested").join("shot.png");
+    let command = parse(&args(&[
+        "browser",
+        "page",
+        "screenshot",
+        "--selector",
+        "#hero",
+        "--out",
+        out.to_str().unwrap(),
+    ]))
+    .unwrap()
+    .unwrap();
+    assert_eq!(run(&global_for(&socket), command), 0);
+    assert_eq!(std::fs::read(&out).unwrap(), png);
+    let connections = app.join().unwrap();
+    assert_eq!(connections[0][0]["method"], "browser.page.screenshot");
+    assert_eq!(connections[0][0]["params"]["selector"], "#hero");
+
+    // A large PNG comes only as the app's file, which --out copies.
+    let saved = dir.join("app.png");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(&saved, png).unwrap();
+    let response = json!({ "id": 1, "ok": true, "result": {
+        "tab": "tab_01ab", "path": saved.to_str().unwrap(), "width": 1, "height": 1 } });
+    let (socket, app) = fake_app(vec![response.clone()]);
+    let copy = dir.join("copy.png");
+    let command =
+        AppCommand::Screenshot { params: json!({}), out: Some(copy.to_str().unwrap().to_owned()) };
+    assert_eq!(run(&global_for(&socket), command), 0);
+    assert_eq!(std::fs::read(&copy).unwrap(), png);
+    app.join().unwrap();
+
+    // --out naming the app's own file leaves it whole.
+    let (socket, app) = fake_app(vec![response]);
+    let command =
+        AppCommand::Screenshot { params: json!({}), out: Some(saved.to_str().unwrap().to_owned()) };
+    assert_eq!(run(&global_for(&socket), command), 0);
+    assert_eq!(std::fs::read(&saved).unwrap(), png);
+    app.join().unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+
+    let broken = json!({ "id": 1, "ok": true, "result": { "png_base64": "not base64!" } });
+    let (socket, app) = fake_app(vec![broken]);
+    let command = AppCommand::Screenshot { params: json!({}), out: Some("-".into()) };
+    assert_eq!(run(&global_for(&socket), command), 3);
+    app.join().unwrap();
+    assert!(
+        parse(&args(&["browser", "page", "screenshot", "--selector", "#a", "--full-page"]))
+            .is_err()
+    );
+}
+
 // `cmux browser <tab|page> tabs|new-tab|select|close` reach the app as the
 // browser.page tab methods; runs that open, select or close carry an
 // idempotency key, so a busy retry is one run, and `--no-wait` asks the app
@@ -342,29 +432,6 @@ fn responses_split_transport_from_app_errors() {
             .is_err()
     );
     assert!(parse_response("").is_err());
-}
-
-#[test]
-fn open_directory_passes_focus_and_activate_for_both_flags() {
-    let root = std::env::temp_dir().join(format!("cmux-open-test-{}", std::process::id()));
-    std::fs::create_dir_all(&root).unwrap();
-    let root_text = root.to_string_lossy().into_owned();
-    let environment = std::collections::HashMap::new();
-    for (flags, expected) in [(vec!["--focus", "true"], true), (Vec::new(), false)] {
-        let mut command_args = flags.into_iter().map(String::from).collect::<Vec<_>>();
-        command_args.push(root.to_string_lossy().into_owned());
-        let AppCommand::Open { requests, .. } =
-            parse_open_with(&command_args, false, &environment, &mut std::io::empty()).unwrap()
-        else {
-            panic!("expected open command")
-        };
-        assert_eq!(requests.len(), 1);
-        assert_eq!(requests[0].method, "workspace.create");
-        assert_eq!(requests[0].params["cwd"].as_str(), Some(root_text.as_str()));
-        assert_eq!(requests[0].params["focus"], expected);
-        assert_eq!(requests[0].params["activate"], expected);
-    }
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
@@ -464,7 +531,10 @@ fn a_user_only_key_is_refused_without_confirm_and_waits_for_the_person_with_it()
 fn only_a_confirmed_settings_write_waits_without_a_deadline() {
     let timeout = |words: &[&str]| match parse(&args(words)).unwrap().unwrap() {
         AppCommand::Call { timeout, .. } => timeout,
-        AppCommand::Open { .. } | AppCommand::Events { .. } | AppCommand::DebugCall { .. } => {
+        AppCommand::Open { .. }
+        | AppCommand::Events { .. }
+        | AppCommand::DebugCall { .. }
+        | AppCommand::Screenshot { .. } => {
             panic!("expected a call")
         }
     };

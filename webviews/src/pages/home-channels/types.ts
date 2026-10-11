@@ -83,6 +83,23 @@ export interface HomeMessage {
   replyTo?: { message: string; partIndex: number };
   /** The first message of the thread this one belongs to (owners that keep threads). */
   threadRoot?: string;
+  /** The author's idempotency key: an agent's reply carries its turn's key, so its draft ends. */
+  clientMessageId?: string;
+}
+
+/** One item of an agent's running reply (`conversation-draft`, ephemeral, never stored). A `fresh`
+ * item sets its segment's whole text; another appends when its seq follows the last; `done` ends
+ * the turn. `turn` is the idempotency key the posted reply will carry. Only `talk` text shows. */
+export interface HomeDraftItem {
+  conversation: string;
+  participant: string;
+  turn: string;
+  segment: number;
+  seq: number;
+  talk: boolean;
+  text: string;
+  fresh: boolean;
+  done: boolean;
 }
 
 export interface HomeInbox {
@@ -107,6 +124,8 @@ export interface HomeEventBatch {
   /** Conversations whose open window must be refetched (a gap, a resubscribe). */
   stale?: string[];
   typing?: { conversation: string; participant: string; on: boolean }[];
+  /** Running replies, in order (applied before this batch's messages). */
+  drafts?: HomeDraftItem[];
 }
 
 export interface HomeSearchHit {

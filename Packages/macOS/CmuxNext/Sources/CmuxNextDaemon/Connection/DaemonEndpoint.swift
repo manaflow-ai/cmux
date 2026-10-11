@@ -155,6 +155,9 @@ public struct DaemonCapabilities: Sendable {
     /// column and leaves a fresh tab of the same kind (Dock Column on a
     /// screen with one tab).
     public let tabColumnRespawn = "tab-column-respawn-v1"
+    /// `restart-tab`: a terminal tab whose shell ended restarts under the
+    /// same terminal id (Unix daemons).
+    public let tabRestart = "tab-restart-v1"
     /// `create-terminal {detached: true}`: a kept terminal with no tab.
     public let detachedTerminals = "detached-terminals-v1"
     /// Personal state kept only on the home (local) session
@@ -165,6 +168,9 @@ public struct DaemonCapabilities: Sendable {
     public let browserProfiles = "browser-profiles-v1"
     /// Bookmarks per browser profile in personal state (plans/cmux-next/bookmarks.md).
     public let bookmarks = "bookmarks-v1"
+    /// The daemon history module (react-pages.md H3): page visits, the merged read model,
+    /// removal with restore ids, and `history-changed`.
+    public let history = "history-v1"
     /// Local conversations owned by the daemon (Home, plans/cmux-next/home.md):
     /// the `conversation-*` commands and `conversation-changed`/`conversation-typing` events.
     public let localConversations = "local-conversations-v1"
@@ -189,6 +195,11 @@ public struct DaemonCapabilities: Sendable {
     /// permissions through that machine's session daemon (cmux-tui/spec/commands.md
     /// "Agent session attach").
     public let agentSessionAttach = "agent-session-attach-v1"
+    /// `agent-session-start`: the session daemon starts a new chat for one of its agent tabs in
+    /// its own machine's acpmux (policy `ask`) and binds it (cmux-tui/spec/commands.md
+    /// "agent-session-start"). A chat in a remote workspace starts only through it; without it
+    /// the app asks to update that machine's cmux-tui, never starts on this Mac.
+    public let agentSessionStart = "agent-session-start-v1"
     /// Page tabs on the store: the `page` source of a conversation tab (App Store, Settings,
     /// Debug Settings), so they move and split like any tab (cmux-tui/spec/commands.md).
     public let pageTabs = "page-tabs-v1"
@@ -263,6 +274,13 @@ public struct DaemonCapabilities: Sendable {
     /// `terminal-clipboard-reply` and the targeted read events
     /// (`TerminalClipboardBroker`; plans/cmux-next/ghostty-config.md).
     public let terminalClipboardRead = "terminal-clipboard-read-v1"
+    /// The page relay's origin claim (`ResourceRelay.originClaimCapability`,
+    /// `ClientHello.originClaimCapability`).
+    public let originClaim = "origin-claim-v1"
+    /// `read-session-journal` for agent history (`AgentHistory`).
+    public let sessionJournal = "session-journal-v1"
+    /// Per-terminal resource usage (`TerminalResourcesRequest.capability`).
+    public let terminalResources = "terminal-resources-v1"
 
     /// Capabilities the bundled daemon must serve. The bundled cmux-tui is
     /// built from this checkout's own cmux-tui tree
@@ -274,14 +292,15 @@ public struct DaemonCapabilities: Sendable {
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
                                             terminalReap, terminalReaperActive, batchClose, closeReason, browserHostProvider, frontendBrowserActivate, frontendBrowserInsertAfter, loopbackForward, browserRuntime, screenMetadata, screenGroups, profiles,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
-                                            terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, workspacePin, notificationMarkUnread,
+                                            terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, history, workspacePin, notificationMarkUnread,
                                             terminalCommandJournal, dockColumns, edgeDocks, dockColumnRole, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, conversationDraftEvents, tabSplitRespawn, frontendBrowserHistory,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
-                                            workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, pageTabs, appScreens, conversationSearch, conversationThreads, cloudConversations, localAttachments,
+                                            workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, pageTabs, appScreens, conversationSearch, conversationThreads, cloudConversations, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
                                             terminalClipboardRead, personalMixedOrder, sidebarLayout, paletteUsage, projectList, splitClientKeys,
-                                            workspaceGroupIcon, workspaceGroupPin, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals] }
+                                            workspaceGroupIcon, workspaceGroupPin, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart,
+                                            originClaim, sessionJournal, terminalResources] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the

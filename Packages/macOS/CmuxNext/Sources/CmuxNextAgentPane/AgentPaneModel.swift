@@ -124,6 +124,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onShowContextUsage: (@MainActor (Bool) async throws -> Void)?
 
     @ObservationIgnored private let host: any AgentPaneHostProviding
+    /// The page's host is another machine's (cx-k21v): it never becomes this Mac's prewarmed spare.
+    @ObservationIgnored public var neverPooled = false
     /// What a new chat inherits from the tab it was opened from.
     @ObservationIgnored let seed: AgentPaneSeedSource?
 
@@ -189,7 +191,7 @@ public final class AgentPaneModel {
         switch request {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
         case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability, .painted, .newTabInputReady, .newTabContext, .unsupported,
-             .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage: break
+             .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState: break
         case .reply(let reply) where reply.isPassive: break
         default:
             if !userTouched { touchedBy = String(String(describing: request).prefix { $0 != "(" }) }
@@ -223,13 +225,17 @@ public final class AgentPaneModel {
                 }
                 if sessionId == nil, let folderNeeded = seed?.folderNeeded { handshake.folderNeeded = AgentPaneHandshake.FolderNeeded(reason: folderNeeded.reason) }
                 handshake.linkScheme = linkScheme
-                handshake.machineName = await Self.localMachineName?.value
+                // A chat on another machine names that machine (its host set it), never this Mac.
+                if handshake.machineName == nil { handshake.machineName = await Self.localMachineName?.value }
                 // A pane attaches only to the exact session its tab recorded: a session the
                 // daemon lacks (gone, or a recreated daemon's) shows "This chat isn't
                 // available", never another chat (P1 2026-10-09).
                 if sessionId != nil { handshake.sessionMustExist = true }
-                let filled = await startFolders.apply(to: &handshake, ready: request == .ready, model: self)
-                handshake.githubRepository = await AgentPaneGitHubRepository.read(at: handshake.cwd)
+                // A chat its host already started (on another machine) gets no new-chat folder steps:
+                // they read this Mac's folders and disk (cx-k21v).
+                let started = handshake.connection?.remote != nil
+                let filled = started ? false : await startFolders.apply(to: &handshake, ready: request == .ready, model: self)
+                if !started { handshake.githubRepository = await AgentPaneGitHubRepository.read(at: handshake.cwd) }
                 handshake.revealTurn = pendingRevealTurn
                 pendingRevealTurn = nil
                 hasHandshake = true
@@ -242,7 +248,13 @@ public final class AgentPaneModel {
                 return AgentPaneReply.handshake(handshake)
             } catch {
                 let message = AgentPaneHostError.userMessage(for: error)
-                return AgentPaneReply.failure(code: "host_unavailable", message: message)
+                var reply = AgentPaneReply.failure(code: "host_unavailable", message: message)
+                // A refused chat of another machine still names that machine on its chip (cx-k21v).
+                if let machine = (error as? any AgentPaneHostRefusal)?.machineName, var failure = reply["error"] as? [String: Any] {
+                    failure["details"] = ["machineName": machine]
+                    reply["error"] = failure
+                }
+                return reply
             }
         case .persistSession(let id):
             if id != sessionId {
@@ -325,7 +337,7 @@ public final class AgentPaneModel {
             onDictation(command)
             return AgentPaneReply.success()
         case .openFile(let path, let target): return await openFile(path, target: target)
-        case .quickDismiss, .quickSetOnTop, .quickSetCollapsed: return quick?.respond(to: request) ?? Self.unsupported("quick")
+        case .quickDismiss, .quickSetOnTop, .quickSetCollapsed, .quickFloatingState: return quick?.respond(to: request) ?? Self.unsupported("quick")
         case .openPreview(let url):
             guard let onOpenPreview, onOpenPreview(url) else {
                 return AgentPaneReply.failure(code: "open_failed", message: Self.openPreviewFailedMessage)
