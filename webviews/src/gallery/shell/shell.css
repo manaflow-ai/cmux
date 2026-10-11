@@ -336,6 +336,9 @@ body {
   gap: 4px;
   overflow-x: auto;
   padding: 0 12px 8px;
+  min-inline-size: 0;
+  margin: 0;
+  border: 0;
 }
 .gallery-browse-variants button {
   flex: 0 0 auto;
