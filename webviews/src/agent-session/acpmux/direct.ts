@@ -1202,6 +1202,13 @@ export class AcpmuxDirectClient {
     if (event.kind === "queued" || event.kind === "queue_updated") {
       const id = String(msg.promptId ?? "");
       if (id) this.queue = [...this.queue.filter((entry) => entry.id !== id), { id, prompt: String(msg.text ?? "") }];
+      // acpmux took a prompt that waits behind the turn: its queue row shows it now, and the
+      // composer is free for the next one.
+      if (id && event.kind === "queued") {
+        settleOptimisticPrompt(this.rows, this.optimisticPromptRows, msg);
+        this.optimisticPromptTexts.delete(id);
+        this.promptAccepts.get(id)?.();
+      }
     } else if (event.kind === "queue_removed" || event.kind === "dequeued")
       this.queue = this.queue.filter((entry) => entry.id !== String(msg.promptId ?? ""));
     else if (event.kind === "permission_request") this.applyPermission({ ...msg, sessionId: event.sessionId });
@@ -1467,6 +1474,7 @@ export class AcpmuxDirectClient {
             model: summary.model,
             effort: effort?.currentValue,
             promptCapabilities: summary.agentCapabilities?.promptCapabilities,
+            steering: summary.steering === true,
             status: summary.status,
             enforcement: sessionEnforcement(summary.enforcement),
             modes: summary.modes,
@@ -1539,12 +1547,15 @@ export class AcpmuxDirectClient {
   /// it), so the prompt leaves no bubble and the refusal names its reason in the transcript.
   /// `ticket`: the gesture a send kept for this prompt while acpmux held it for the folder trust
   /// answer (heldPrompt.ts); it rides as `_meta.cmuxGesture`, and the host strips it.
+  /// `steer`: into the running turn now, and an agent that cannot steer stops the turn and
+  /// takes it next (`_meta.acpmux.interrupt`); otherwise it waits behind the turn.
   async send(
     input: string,
     attachments: ComposerAttachment[] = [],
     promptId: string = crypto.randomUUID(),
     accepted?: () => void,
     ticket?: string,
+    steer = false,
   ): Promise<string | undefined> {
     const record = this.handoff.state.record;
     if (
@@ -1582,7 +1593,10 @@ export class AcpmuxDirectClient {
       await this.request("session/prompt", {
         sessionId,
         prompt: promptBlocks(input, attachments),
-        _meta: { acpmux: { promptId }, ...(ticket ? { cmuxGesture: ticket } : {}) },
+        _meta: {
+          acpmux: { promptId, ...(steer ? { steer: true, interrupt: true } : {}) },
+          ...(ticket ? { cmuxGesture: ticket } : {}),
+        },
       });
       accept();
     } catch (error) {
