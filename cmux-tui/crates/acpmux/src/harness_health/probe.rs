@@ -83,7 +83,7 @@ fn end_group(child: &mut std::process::Child) {
 }
 
 static VERSION: LazyLock<regex::Regex> = LazyLock::new(|| {
-    regex::Regex::new(r"\d+\.\d+(?:\.\d+)?(?:-[0-9A-Za-z.]+)?").expect("version pattern")
+    regex::Regex::new(r"\d+\.\d+(?:\.\d+)?(?:-[0-9A-Za-z.]+)?").expect("version pattern") // crash-allow: constant pattern
 });
 
 /// The first version number in a `--version` answer (`codex-acp 0.3.1`,

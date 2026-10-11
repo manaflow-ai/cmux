@@ -386,7 +386,11 @@ async fn health_reads_node_formulas_wrappers_and_signin_evidence() {
     // An interpreter running an adapter: node is not the harness.
     let node = root.join("node/bin/node");
     program(&root.join("node/Cellar/node/22.0.0/bin/node"), &node, "v22.0.0");
-    profile(&user, "wrapped", &format!("command = \"{} /x/adapter.js\"\n", node.display()));
+    profile(
+        &user,
+        "wrapped",
+        &format!("command = \"{}\"\nargs = [\"/x/adapter.js\"]\n", node.display()),
+    );
     // Signed in since the probe failed: the check passes, with the profile's env.
     let tool = root.join("tools/tool");
     program(&root.join("tools/tool-1.0.0"), &tool, "1.0.0");

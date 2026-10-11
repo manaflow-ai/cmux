@@ -9,7 +9,7 @@ impl Hub {
     /// Every configured harness as the health check sees it.
     pub async fn health_subjects(&self) -> Vec<Subject> {
         let cfg = self.config.read().await;
-        let probe_errors = self.probe_errors.lock().unwrap().clone();
+        let probe_errors = self.probe_errors.lock().unwrap_or_else(|e| e.into_inner()).clone();
         cfg.harnesses
             .iter()
             .filter_map(|(id, p)| {

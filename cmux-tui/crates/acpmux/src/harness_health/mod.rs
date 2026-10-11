@@ -121,7 +121,7 @@ fn builtin_login(family: &str) -> Option<&'static str> {
 
 static SIGN_IN: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
     regex::Regex::new(r"(?i)\b(not (logged|signed) in|log ?in|sign ?in|unauthenticated|authentication required|auth required|unauthorized)\b")
-        .expect("sign-in pattern")
+        .expect("sign-in pattern") // crash-allow: constant pattern
 });
 
 impl HealthService {
