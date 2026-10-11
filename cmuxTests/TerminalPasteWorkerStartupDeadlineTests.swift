@@ -1,3 +1,4 @@
+import CmuxTerminal
 import Foundation
 import Testing
 
