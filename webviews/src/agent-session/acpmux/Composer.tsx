@@ -9,7 +9,7 @@ import React, {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import type { AcpmuxSnapshot } from "./model";
+import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import {
   dragHasFiles,
   filesFrom,
@@ -119,8 +119,10 @@ type Props = {
   onStop(): void;
   /// Withdraws a queued prompt (`_acpmux/queue_remove`); false when it already started.
   onQueueRemove?(promptId: string): Promise<boolean>;
-  /// Withdraws a queued prompt and puts its text back in the prompt.
-  onQueueEdit?(entry: AcpmuxSnapshot["queue"][number]): Promise<boolean>;
+  /// Changes a queued prompt (`_acpmux/queue_edit`): its text, its place, or send it now.
+  onQueueChange?(promptId: string, edit: QueueEdit): Promise<boolean>;
+  /// The text of an edit whose prompt started meanwhile: it goes back in the prompt.
+  onQueueLost?(text: string): void;
   /// Text the prompt starts with, such as what a chat opened from another tab inherited.
   /// Each new value fills an empty prompt once, caret at the end; it is never sent by itself.
   draft?: string;
@@ -189,7 +191,8 @@ export function Composer({
   onSend,
   onStop,
   onQueueRemove,
-  onQueueEdit,
+  onQueueChange,
+  onQueueLost,
   draft,
   leading,
   accessory,
@@ -636,6 +639,16 @@ export function Composer({
       send(false, true);
       return;
     }
+    // ↑ on an empty prompt goes to the queue's last prompt (ComposerQueue.tsx has its keys).
+    if (event.key === "ArrowUp" && plain && !open && !text.trim() && snapshot.queue.length) {
+      const rows = form.current?.querySelectorAll<HTMLElement>(".acpmux-queued");
+      const last = rows?.[rows.length - 1];
+      if (last) {
+        event.preventDefault();
+        last.focus();
+        return;
+      }
+    }
     // Esc on an empty prompt stops the turn, as Stop does.
     if (event.key === "Escape" && plain && !open && stop && !quick) {
       event.preventDefault();
@@ -825,7 +838,14 @@ export function Composer({
           form.current.parentElement,
         )}
       <div className="acpmux-composer-box" data-context-first={contextFirst ? "" : undefined}>
-        <ComposerQueue queue={snapshot.queue} t={t} onRemove={onQueueRemove} onEdit={onQueueEdit} />
+        <ComposerQueue
+          queue={snapshot.queue}
+          t={t}
+          onRemove={onQueueRemove}
+          onChange={onQueueChange}
+          onLost={onQueueLost}
+          onLeave={() => field.current?.focus()}
+        />
         {contextFirst && context}
         <input
           ref={importInput}

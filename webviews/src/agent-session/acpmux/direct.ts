@@ -1,4 +1,4 @@
-import type { AcpmuxActivity, AcpmuxFileDiff, AcpmuxPermission, AcpmuxRow, AcpmuxSnapshot } from "./model";
+import type { AcpmuxActivity, AcpmuxFileDiff, AcpmuxPermission, AcpmuxRow, AcpmuxSnapshot, QueueEdit } from "./model";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
 import { promptBlocks, promptText, type ComposerAttachment } from "./attachments";
@@ -1203,12 +1203,19 @@ export class AcpmuxDirectClient {
   /// Mux events that move the live summary, queue or permission.
   private reduceLiveState(event: EventRecord): void {
     const msg = event.msg ?? {};
-    if (event.kind === "queued" || event.kind === "queue_updated") {
+    if (event.kind === "queue_updated") {
+      // An edit keeps the prompt's place.
+      const id = String(msg.promptId ?? "");
+      this.queue = this.queue.map((entry) => (entry.id === id ? { id, prompt: String(msg.text ?? "") } : entry));
+    } else if (event.kind === "queue_order" && Array.isArray(msg.order)) {
+      const at = new Map(msg.order.map((id: unknown, index: number) => [String(id), index]));
+      this.queue = [...this.queue].sort((a, b) => (at.get(a.id) ?? at.size) - (at.get(b.id) ?? at.size));
+    } else if (event.kind === "queued") {
       const id = String(msg.promptId ?? "");
       if (id) this.queue = [...this.queue.filter((entry) => entry.id !== id), { id, prompt: String(msg.text ?? "") }];
       // acpmux took a prompt that waits behind the turn: its queue row shows it now, and the
       // composer is free for the next one.
-      if (id && event.kind === "queued" && this.optimisticPromptRows.has(id)) {
+      if (id && this.optimisticPromptRows.has(id)) {
         settleOptimisticPrompt(this.rows, this.optimisticPromptRows, msg);
         this.optimisticPromptTexts.delete(id);
         this.queuedSends.add(id);
@@ -1708,6 +1715,12 @@ export class AcpmuxDirectClient {
   async removeQueued(promptId: string): Promise<{ removed: boolean }> {
     if (!this.selectedSessionId) return { removed: false };
     return this.request("_acpmux/queue_remove", { sessionId: this.selectedSessionId, promptId });
+  }
+  /// Changes a waiting prompt (`_acpmux/queue_edit`): `update` its text, `move` it to `index`
+  /// (0 runs next) or `send_now`. `ok` is false when it no longer waits.
+  async editQueued(promptId: string, edit: QueueEdit): Promise<{ ok: boolean }> {
+    if (!this.selectedSessionId) return { ok: false };
+    return this.request("_acpmux/queue_edit", { sessionId: this.selectedSessionId, promptId, ...edit });
   }
   /// Answers a permission: `optionId` picks an option (absent cancels the request), and
   /// `answers` carries a question's harness-shaped answers (question/model.ts `reply`). An option

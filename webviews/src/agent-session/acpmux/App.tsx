@@ -22,6 +22,7 @@ import {
   type AcpmuxPermission,
   type AcpmuxRow,
   type AcpmuxSnapshot,
+  type QueueEdit,
 } from "./model";
 import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
 import { postNative } from "./native";
@@ -263,6 +264,10 @@ const removeQueued = (promptId: string) =>
   callNative<{ removed?: boolean } | null>("chat.queue.remove", { promptId }).then(
     (result) => result?.removed === true,
   );
+
+/// Changes a waiting prompt (`_acpmux/queue_edit`); false when it already started.
+const editQueued = (promptId: string, edit: QueueEdit) =>
+  callNative<{ ok?: boolean } | null>("chat.queue.edit", { promptId, ...edit }).then((result) => result?.ok === true);
 
 /// Asks the host to show the Quick Composer's chat in a window.
 const postOpenInWindow = (sessionId: string) =>
@@ -2334,6 +2339,7 @@ function AcpmuxPane() {
             ),
           "chat.cancel": () => client.cancel(),
           "chat.queue.remove": ({ promptId }) => client.removeQueued(String(promptId)),
+          "chat.queue.edit": ({ promptId, ...edit }) => client.editQueued(String(promptId), edit as QueueEdit),
           "chat.permission": ({ permissionId, optionId, answers }) =>
             client.permission(
               String(permissionId),
@@ -3149,12 +3155,9 @@ function AcpmuxPane() {
           }}
           onStop={() => void callNative("chat.cancel")}
           onQueueRemove={removeQueued}
-          onQueueEdit={(entry) =>
-            removeQueued(entry.id).then((removed) => {
-              if (removed) composerHandle.current?.restore(entry.prompt, []);
-              return removed;
-            })
-          }
+          onQueueChange={editQueued}
+          // A prompt that started while it was edited comes back to the prompt, so the edit is kept.
+          onQueueLost={(text) => composerHandle.current?.restore(text, [])}
           onProject={chooseProject}
           // SSH… opens Connect to Machine; cmux Cloud… opens New Cloud Machine (Lawrence 2026-10-06).
           onConnect={(kind) =>
