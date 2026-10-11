@@ -340,7 +340,8 @@ class Next:
 
     @staticmethod
     def agent_params(agent: Agent) -> dict:
-        return {"agent": {"cwd": agent.cwd, "name": agent.title or None, "harness": agent.harness, "session": agent.session}}
+        name = agent.title or (os.path.basename(agent.cwd.rstrip("/")) if agent.cwd else None)
+        return {"agent": {"cwd": agent.cwd, "name": name or None, "harness": agent.harness, "session": agent.session}}
 
     @staticmethod
     def workspace_params(ws: Workspace) -> dict:
