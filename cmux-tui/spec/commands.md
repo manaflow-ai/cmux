@@ -1965,7 +1965,7 @@ Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
-| `surface` | `TabRef` | required | A terminal tab: its numeric id or public `tab_...` id |
+| `surface` (alias `tab`) | `TabRef` | required | A terminal tab: its numeric id or public `tab_...` id |
 
 Result:
 

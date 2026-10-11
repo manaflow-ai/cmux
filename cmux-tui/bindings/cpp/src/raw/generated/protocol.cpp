@@ -24460,6 +24460,9 @@ Result<RestartTabRequest> Codec<RestartTabRequest>::decode(const Json& value) {
     RestartTabRequest result{};
     const Json* field_surface = value.find("surface");
     if (!field_surface) {
+        field_surface = value.find("tab");
+    }
+    if (!field_surface) {
         return make_error(ErrorCode::decode, "missing required field 'surface'");
     }
     if (field_surface) {

@@ -16190,7 +16190,10 @@
        "name": "TabRef"
       },
       "presence": "required",
-      "nullable": false
+      "nullable": false,
+      "aliases": [
+       "tab"
+      ]
      }
     },
     "additional_properties": false

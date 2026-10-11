@@ -413,7 +413,7 @@ pub(super) fn parse_workspace_group(
 
 // tab
 
-/// `tab <tab_…|surface id> restart`: the private `restart-tab`
+/// `tab <tab_…> restart`: the private `restart-tab`
 /// (`tab-restart-v1`), which restarts a terminal tab whose shell ended under
 /// the same terminal id. One request, like the tab group commands, so it
 /// works against a headless daemon with no app running.
@@ -422,17 +422,11 @@ fn tab_restart(rest: &[&str], selectors: &Selectors) -> Result<CommandPlan, Usag
         return usage("tab restart");
     }
     let tab = selectors.values.get("tab").map(String::as_str).unwrap_or_default();
-    let surface = match tab.parse::<u64>() {
-        Ok(surface) => Value::from(surface),
-        Err(_) if tab.starts_with("tab_") => Value::String(tab.to_string()),
-        Err(_) => {
-            return Err(UsageError::new(
-                "tab restart needs a tab id (tab_… or the numeric surface id)",
-            ));
-        }
-    };
+    if !tab.starts_with("tab_") {
+        return Err(UsageError::new("tab restart needs a tab id (tab_…)"));
+    }
     let mut request = Map::new();
-    request.insert("surface".into(), surface);
+    request.insert("tab".into(), Value::String(tab.to_string()));
     Ok(group_raw_plan("restart-tab", request))
 }
 
