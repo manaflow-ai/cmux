@@ -347,6 +347,7 @@ impl SshBootstrapper {
             &crate::ssh_artifacts::PayloadSource {
                 base_url: &self.config.payload_base_url,
                 cache: self.config.payload_cache.as_deref(),
+                proxy_pac: self.config.payload_proxy_pac.as_deref(),
             },
         )? {
             Some(crate::ssh_artifacts::Payload::Bundled(path)) => Some(path),

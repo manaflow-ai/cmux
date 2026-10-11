@@ -130,12 +130,15 @@ pub(crate) struct PublishedPayload {
     url: String,
     sha256: String,
     cache_path: PathBuf,
+    proxy_pac: Option<String>,
 }
 
 /// Where the published builds live and where downloads are cached.
 pub(crate) struct PayloadSource<'a> {
     pub(crate) base_url: &'a str,
     pub(crate) cache: Option<&'a Path>,
+    /// Tests only: replaces the system proxy settings with this PAC script.
+    pub(crate) proxy_pac: Option<&'a str>,
 }
 
 pub(crate) fn payload(
@@ -172,6 +175,7 @@ pub(crate) fn payload(
                 ),
                 cache_path: cache.join(format!("{expected}-{name}")),
                 sha256: expected,
+                proxy_pac: source.proxy_pac.map(str::to_owned),
             })))
         }
         Err(error) => Err(BootstrapError::Io(error)),
@@ -290,40 +294,27 @@ async fn download(payload: &PublishedPayload) -> Result<PathBuf, String> {
         return Ok(payload.cache_path.clone());
     }
     if !sha256_of(partial.clone()).await.is_ok_and(|actual| actual == payload.sha256) {
-        let mut command = tokio::process::Command::new("curl");
-        // --continue-at - resumes what an earlier connect left. A stalled
-        // transfer fails within a minute instead of holding every bootstrap.
-        command.args(["--fail", "--silent", "--show-error", "--location", "--retry", "2"]);
-        command.args(["--connect-timeout", "20", "--speed-limit", "1024", "--speed-time", "60"]);
-        command.args(["--continue-at", "-"]);
-        if payload.url.starts_with("https://") {
-            command.args(["--proto", "=https", "--proto-redir", "=https", "--tlsv1.2"]);
-        }
-        command
-            .arg("--output")
-            .arg(&partial)
-            .arg(&payload.url)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::piped())
-            .kill_on_drop(true);
-        let output = tokio::time::timeout(DOWNLOAD_TIMEOUT, command.output())
+        // Try each route the system proxy settings give for the URL, in order,
+        // like URLSession. A failed route leaves its partial file to resume.
+        let routes = {
+            let url = payload.url.clone();
+            let pac = payload.proxy_pac.clone();
+            tokio::task::spawn_blocking(move || {
+                crate::ssh_payload_proxy::routes(&url, pac.as_deref())
+            })
             .await
-            .map_err(|_| "it did not finish in ten minutes".to_string())?
-            .map_err(|error| format!("could not run curl: {error}"))?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let stderr = stderr.trim();
-            if stderr.contains("416") {
-                // The partial file is longer than the build: it cannot be resumed.
-                let _ = std::fs::remove_file(&partial);
+            .unwrap_or_default()
+        };
+        let attempts: Vec<_> =
+            if routes.is_empty() { vec![None] } else { routes.iter().map(Some).collect() };
+        let mut result = Ok(());
+        for route in attempts {
+            result = run_curl(payload, &partial, route).await;
+            if result.is_ok() {
+                break;
             }
-            return Err(if stderr.is_empty() {
-                format!("curl exited with {}", output.status)
-            } else {
-                stderr.chars().take(400).collect()
-            });
         }
+        result?;
         let actual = sha256_of(partial.clone()).await.map_err(|error| error.to_string())?;
         if actual != payload.sha256 {
             let _ = std::fs::remove_file(&partial);
@@ -333,6 +324,52 @@ async fn download(payload: &PublishedPayload) -> Result<PathBuf, String> {
     std::fs::rename(&partial, &payload.cache_path).map_err(|error| error.to_string())?;
     prune_cache(&directory, &file_name);
     Ok(payload.cache_path.clone())
+}
+
+/// Appends `payload` to `partial` with curl, through `route` when given.
+async fn run_curl(
+    payload: &PublishedPayload,
+    partial: &Path,
+    route: Option<&crate::ssh_payload_proxy::ProxyRoute>,
+) -> Result<(), String> {
+    let mut command = tokio::process::Command::new("curl");
+    // --continue-at - resumes what an earlier connect left. A stalled
+    // transfer fails within a minute instead of holding every bootstrap.
+    command.args(["--fail", "--silent", "--show-error", "--location", "--retry", "2"]);
+    command.args(["--connect-timeout", "20", "--speed-limit", "1024", "--speed-time", "60"]);
+    command.args(["--continue-at", "-"]);
+    if payload.url.starts_with("https://") {
+        command.args(["--proto", "=https", "--proto-redir", "=https", "--tlsv1.2"]);
+    }
+    if let Some(route) = route {
+        command.args(route.curl_args());
+    }
+    command
+        .arg("--output")
+        .arg(partial)
+        .arg(&payload.url)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
+    let output = tokio::time::timeout(DOWNLOAD_TIMEOUT, command.output())
+        .await
+        .map_err(|_| "it did not finish in ten minutes".to_string())?
+        .map_err(|error| format!("could not run curl: {error}"))?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stderr = stderr.trim();
+    if stderr.contains("416") {
+        // The partial file is longer than the build: it cannot be resumed.
+        let _ = std::fs::remove_file(partial);
+    }
+    Err(if stderr.is_empty() {
+        format!("curl exited with {}", output.status)
+    } else {
+        stderr.chars().take(400).collect()
+    })
 }
 
 /// Deletes cached builds, and leftover partial and lock files, that are not
@@ -371,7 +408,8 @@ mod tests {
         )
         .unwrap();
         let executable = root.path().join("cmux-tui");
-        let source = PayloadSource { base_url: "https://files.example", cache: None };
+        let source =
+            PayloadSource { base_url: "https://files.example", cache: None, proxy_pac: None };
         assert!(
             payload(&executable, "fixture-build", "linux", "riscv64", &source).unwrap().is_none()
         );
@@ -401,13 +439,18 @@ mod tests {
         )
         .unwrap();
         let executable = root.path().join("cmux-tui");
-        let without_cache = PayloadSource { base_url: "https://files.example", cache: None };
+        let without_cache =
+            PayloadSource { base_url: "https://files.example", cache: None, proxy_pac: None };
         assert!(matches!(
             payload(&executable, "fixture-build", "linux", "x86_64", &without_cache),
             Err(BootstrapError::Configuration(_))
         ));
         let cache = root.path().join("cache");
-        let with_cache = PayloadSource { base_url: "https://files.example/", cache: Some(&cache) };
+        let with_cache = PayloadSource {
+            base_url: "https://files.example/",
+            cache: Some(&cache),
+            proxy_pac: None,
+        };
         let Ok(Some(Payload::Published(published))) =
             payload(&executable, "fixture-build", "linux", "x86_64", &with_cache)
         else {
