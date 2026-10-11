@@ -56,11 +56,23 @@ final class FileTreePageProvider: PageProvider {
             throw PageError.invalidParams("path must be relative to the folder")
         }
         let target = parts.reduce(folder) { $0.appendingPathComponent(String($1)) }
-        let root = folder.resolvingSymlinksInPath().path
-        let real = target.resolvingSymlinksInPath().path
+        let root = realPath(folder)
+        let real = realPath(target)
         guard real == root || real.hasPrefix(root.hasSuffix("/") ? root : root + "/") else {
             throw PageError.invalidParams("path must be relative to the folder")
         }
         return target
+    }
+
+    /// `url` with its symlinks resolved. Foundation drops `/private` (macOS's `/tmp`, `/var`) only for
+    /// a path that exists, so a missing tail (a file just deleted) joins its nearest existing folder.
+    private nonisolated static func realPath(_ url: URL) -> String {
+        var existing = url.standardizedFileURL
+        var missing: [String] = []
+        while (try? FileManager.default.attributesOfItem(atPath: existing.path)) == nil, existing.pathComponents.count > 1 {
+            missing.insert(existing.lastPathComponent, at: 0)
+            existing.deleteLastPathComponent()
+        }
+        return missing.reduce(existing.resolvingSymlinksInPath()) { $0.appendingPathComponent($1) }.path
     }
 }

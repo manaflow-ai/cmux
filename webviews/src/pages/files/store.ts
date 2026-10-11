@@ -43,8 +43,10 @@ export class FilesStore {
   private failed?: string;
   private unavailable = false;
   private notice?: string;
-  /** The latest `list` request per folder: an older reply that lands after a newer one is dropped. */
+  /** The latest `list` request per folder: an older reply that lands after a newer one is dropped.
+   * Ids count up across the page, so a folder listed again after it was forgotten never reuses one. */
   private requests = new Map<string, number>();
+  private lastRequest = 0;
   private folders = new Map<string, FolderState>();
   private expanded = new Set<string>();
   private selected?: string;
@@ -135,7 +137,7 @@ export class FilesStore {
 
   private async list(path: string): Promise<void> {
     if (!this.client) return;
-    const request = (this.requests.get(path) ?? 0) + 1;
+    const request = ++this.lastRequest;
     this.requests.set(path, request);
     this.setFolder(path, { loading: true, failed: undefined });
     try {
