@@ -171,10 +171,12 @@ final class HistoryService {
         let wants = { (kind: HistoryEntry.Kind) in kinds.isEmpty || kinds.contains(kind) }
         let since = range.start(now: Date())
         if daemonHistory != nil {
-            // The daemon removes page visits and hides agents and commands; closed items age out
-            // in their owners; the trail is the app's.
-            let owned = kinds.isEmpty ? Set(HistoryEntry.Kind.allCases).subtracting([.location]) : kinds.subtracting([.location])
+            // The daemon removes page visits and hides agents; closed items age out in their
+            // owners; the trail is the app's; terminal commands are deleted as rows in each daemon.
+            let appOwned: Set<HistoryEntry.Kind> = [.location, .command]
+            let owned = kinds.isEmpty ? Set(HistoryEntry.Kind.allCases).subtracting(appOwned) : kinds.subtracting(appOwned)
             if !owned.isEmpty { daemonMutation { try await $0.clear(kinds: owned, range: range) } }
+            if wants(.command) { commands.delete(since: since) }
             if wants(.page) {
                 for profile in [BrowserProfileID.default] + services.browserProfiles.ordered.map(\.engineProfile) {
                     services.cache.history(for: profile).forget(since: since)
@@ -217,7 +219,7 @@ final class HistoryService {
     func remove(_ entry: HistoryEntry) {
         // Pages keep the app path: the omnibox removes the URL and its persistence (the daemon when
         // it serves history-v1) removes every visit of it.
-        if daemonHistory != nil, entry.kind != .location, entry.kind != .page {
+        if daemonHistory != nil, entry.kind != .location, entry.kind != .page, entry.kind != .command {
             let id = entry.id
             daemonMutation { try await $0.remove(ids: [id]) }
             onChange?()
