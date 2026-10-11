@@ -22,6 +22,10 @@ extension QuickComposerPanel {
         }
     }
 
+    func setOnTop(_ onTop: Bool) {}
+
+    func setCollapsed(_ collapsed: Bool) {}
+
     func windowDidMove(_ notification: Notification) { saveFrame() }
 
     func windowDidEndLiveResize(_ notification: Notification) { saveFrame() }

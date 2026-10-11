@@ -30,6 +30,8 @@ final class QuickComposerController {
     /// The floating chat holds a started chat: it stays in the panel, which
     /// no longer hides on a click elsewhere.
     private(set) var holdsChat = false
+    /// Sends the floating chat's state to its page (`AgentPaneFloatingState.push`).
+    private let pushState: (AgentPaneFloatingState, AgentPaneView) -> Void
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.quickComposer")
 
     init(
@@ -37,13 +39,15 @@ final class QuickComposerController {
         makeWindow: @escaping () -> any QuickComposerWindow,
         openInWindow: @escaping (String?) -> Bool,
         startInBackground: @escaping @MainActor (AgentPaneQuickStart) async -> Bool,
-        floating: @escaping () -> Bool = { QuickComposerTunables.floatingChat.value }
+        floating: @escaping () -> Bool = { QuickComposerTunables.floatingChat.value },
+        pushState: @escaping (AgentPaneFloatingState, AgentPaneView) -> Void = { AgentPaneFloatingState.push($0, to: $1) }
     ) {
         self.makeChat = makeChat
         self.makeWindow = makeWindow
         self.openInWindow = openInWindow
         self.startInBackground = startInBackground
         self.floating = floating
+        self.pushState = pushState
     }
 
     var isShown: Bool { window?.isVisible == true }
@@ -121,9 +125,10 @@ final class QuickComposerController {
 
     private func adoptNewChat() -> AgentPaneView? {
         guard let chat = makeChat() else { return nil }
-        chat.model.onQuickDismiss = { [weak self] in self?.hide() }
-        chat.model.onQuickOpenInWindow = { [weak self] session in self?.openChatInWindow(session: session) }
-        chat.model.onQuickStartInBackground = { [weak self] start in await self?.startChatInBackground(start) }
+        chat.model.quick = AgentPaneQuickHooks(
+            dismiss: { [weak self] in self?.hide() },
+            openInWindow: { [weak self] session in self?.openChatInWindow(session: session) },
+            startInBackground: { [weak self] start in await self?.startChatInBackground(start) })
         self.chat = chat
         return chat
     }
