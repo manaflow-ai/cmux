@@ -143,6 +143,13 @@ final class CEFDownloads {
     /// ahead; a page's own asks the tab's gate first. A refused one is
     /// cancelled silently: no file, nothing in the downloads list.
     private func admitThenStart(id: Int32, browser: Int32, url: String, suggestedName: String, total: Int64?) {
+        // Chromium resuming a download it interrupted asks again under the
+        // same token: it goes on into its file, in its row, without asking.
+        if let item = items[id], let file = item.placement?.temporaryURL {
+            shim()?.answer(id, file.path(percentEncoded: false))
+            logger.notice("download \(id) resumes by Chromium")
+            return
+        }
         let pick = chosen.firstIndex { $0.browser == browser && $0.url == url }.map { chosen.remove(at: $0).destination }
         if pick != nil || takeStarted(browser: browser, url: url) {
             return start(id: id, browser: browser, url: url, suggestedName: suggestedName, total: total, pick: pick)
@@ -190,6 +197,13 @@ final class CEFDownloads {
         item.update(received: 0, total: total)
         item.cancelHandler = { shim.control(id, 0) }
         item.pauseHandler = { paused in shim.control(id, paused ? 1 : 2) }
+        if let source = URL(string: url), ["http", "https"].contains(source.scheme?.lowercased()) {
+            // Retry starts it again from its tab, to the file the person chose if they chose one.
+            item.retryHandler = { [weak self] in
+                guard let self else { return false }
+                return pick.map { save(source, to: $0, browser: browser) } ?? download(url, browser: browser)
+            }
+        }
         items[id] = item
         shim.answer(id, placement.temporaryURL.path(percentEncoded: false))
         logger.notice("download \(id) started for tab \(browser), chosen=\(pick != nil)")
