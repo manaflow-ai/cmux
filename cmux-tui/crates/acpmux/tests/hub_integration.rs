@@ -1487,9 +1487,9 @@ mod claude_failover;
 
 #[path = "hub_integration/fork_through.rs"]
 mod fork_through;
+#[path = "hub_integration/last_message.rs"]
+mod last_message;
 #[path = "hub_integration/transfer.rs"]
 mod transfer;
 #[path = "hub_integration/transfer_guard.rs"]
 mod transfer_guard;
-#[path = "hub_integration/last_message.rs"]
-mod last_message;

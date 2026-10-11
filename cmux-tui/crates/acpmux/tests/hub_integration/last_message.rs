@@ -24,7 +24,8 @@ async fn last_message_is_the_prompt_until_the_agent_answers() {
     let id = new_session(&mut c, "asking").await;
     // Fire the prompt without waiting for its response: it waits on a permission.
     c.next += 1;
-    let request = Message::request(c.next, method::SESSION_PROMPT, prompt(&id, "ask: rm -rf /", None));
+    let request =
+        Message::request(c.next, method::SESSION_PROMPT, prompt(&id, "ask: rm -rf /", None));
     c.tx.send(request.to_line()).await.unwrap();
     c.wait_for(method::MUX_PERMISSION_PENDING, |_| true).await;
     let session = hub.resolve(&id).unwrap();
