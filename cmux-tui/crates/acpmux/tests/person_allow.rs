@@ -951,7 +951,11 @@ fn acpmux_cli(home: &Path, args: &[&str], stdin: Option<&str>) -> std::process::
 #[tokio::test]
 async fn daemon_start_hands_its_stdin_key_to_the_daemon_it_starts() {
     let home = start_home("keyed");
-    let out = acpmux_cli(&home, &["--json", "daemon", "start", "--person-key-fd", "0"], Some(&format!("{KEY}\n")));
+    let out = acpmux_cli(
+        &home,
+        &["--json", "daemon", "start", "--person-key-fd", "0"],
+        Some(&format!("{KEY}\n")),
+    );
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     let status: Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(status["personKey"], true, "{status}");
@@ -965,9 +969,14 @@ async fn daemon_start_hands_its_stdin_key_to_the_daemon_it_starts() {
         let meta = std::fs::metadata(format!("/proc/{pid}/environ")).unwrap();
         assert_eq!(meta.uid(), 0, "the keyed daemon is dumpable");
     }
-    let again = acpmux_cli(&home, &["daemon", "start", "--person-key-fd", "0"], Some(&format!("{KEY}\n")));
+    let again =
+        acpmux_cli(&home, &["daemon", "start", "--person-key-fd", "0"], Some(&format!("{KEY}\n")));
     assert!(!again.status.success(), "a keyed start went on while a daemon runs");
-    assert!(String::from_utf8_lossy(&again.stderr).contains("already runs"), "{}", String::from_utf8_lossy(&again.stderr));
+    assert!(
+        String::from_utf8_lossy(&again.stderr).contains("already runs"),
+        "{}",
+        String::from_utf8_lossy(&again.stderr)
+    );
     let _ = acpmux_cli(&home, &["daemon", "shutdown"], None);
     let _ = std::fs::remove_dir_all(&home);
 }
@@ -989,14 +998,24 @@ fn the_key_reaches_the_daemon_only_after_it_is_not_dumpable() {
     assert_eq!(unsafe { libc::socketpair(libc::AF_UNIX, kind, 0, fds.as_mut_ptr()) }, 0);
     let (ours, theirs) = (fds[0], fds[1]);
     let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"));
-    cmd.args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "warn", "--person-key-fd", "3"])
-        .env("ACPMUX_HOME", &home)
-        .env("ACPMUX_SOCKET", home.join("s.sock"))
-        .env_remove("ACPMUX_LOGIN_ENV")
-        .env_remove("XPC_SERVICE_NAME")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null());
+    cmd.args([
+        "daemon",
+        "run",
+        "--memory",
+        "--ready-fd",
+        "1",
+        "--log",
+        "warn",
+        "--person-key-fd",
+        "3",
+    ])
+    .env("ACPMUX_HOME", &home)
+    .env("ACPMUX_SOCKET", home.join("s.sock"))
+    .env_remove("ACPMUX_LOGIN_ENV")
+    .env_remove("XPC_SERVICE_NAME")
+    .stdin(std::process::Stdio::null())
+    .stdout(std::process::Stdio::piped())
+    .stderr(std::process::Stdio::null());
     // SAFETY: only dup2 between fork and exec (async-signal-safe).
     unsafe {
         cmd.pre_exec(move || {

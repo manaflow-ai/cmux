@@ -597,8 +597,9 @@ impl Hub {
     /// key, which this daemon does not hold (cx-0q7o slice 2a).
     fn peer_decides(&self, params: &Value) -> bool {
         let meta = params.pointer("/_meta/acpmux");
-        let carried =
-            |f: &str| meta.and_then(|m| m.get(f)).and_then(Value::as_str).is_some_and(|v| !v.is_empty());
+        let carried = |f: &str| {
+            meta.and_then(|m| m.get(f)).and_then(Value::as_str).is_some_and(|v| !v.is_empty())
+        };
         carried(DECISION_NONCE_FIELD)
             && carried(DECISION_FIELD)
             && crate::server::session_key(params)

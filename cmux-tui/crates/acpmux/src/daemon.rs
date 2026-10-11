@@ -525,7 +525,9 @@ pub async fn start_keyed(fd: i32) -> Result<String> {
         .context("read the person key")?;
     let key = zeroize::Zeroizing::new(line.trim().to_owned());
     if !crate::hub::person::valid_key(&key) {
-        return Err(anyhow!("--person-key-fd {fd}: not a person key (64 lowercase hex characters)"));
+        return Err(anyhow!(
+            "--person-key-fd {fd}: not a person key (64 lowercase hex characters)"
+        ));
     }
     start_daemon_with(Some(key)).await
 }
@@ -868,8 +870,8 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::Fi
     // The key's socket pair: `ours` stays here, `theirs` goes to the daemon.
     let pair = match &key {
         Some(_) => {
-            let (ours, theirs) = std::os::unix::net::UnixStream::pair()
-                .context("socket pair for the person key")?;
+            let (ours, theirs) =
+                std::os::unix::net::UnixStream::pair().context("socket pair for the person key")?;
             Some((ours, theirs))
         }
         None => None,
