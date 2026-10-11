@@ -51,7 +51,7 @@ nonisolated struct HomeChiefFiles: Sendable {
         return configured(object(acpmuxConfigFile)["coderouterClaudeRoute"] as? String)
     }
 
-    /// The avatar alone (the header reads it when Home opens).
+    /// The avatar value alone (text or a picture's file name).
     func avatar() -> String? { snapshot().avatar }
 
     /// Whether an avatar value names a picture rather than text: a file
@@ -60,12 +60,14 @@ nonisolated struct HomeChiefFiles: Sendable {
         !avatar.contains("/") && ["png", "jpg", "jpeg", "heic"].contains((avatar as NSString).pathExtension.lowercased())
     }
 
-    /// The avatar picture's bytes: the file `avatar` names beside
-    /// profile.json; nil for a text avatar or an unreadable file.
-    func avatarPicture() -> Data? {
-        guard let avatar = avatar(), Self.namesPicture(avatar) else { return nil }
+    /// The header's avatar from one profile read: its text, or the bytes of
+    /// the picture it names (beside profile.json). A picture that cannot be
+    /// read gives neither, so its file name never shows as text.
+    func headerAvatar() -> (text: String?, picture: Data?) {
+        guard let avatar = (object(profileFile)["avatar"] as? String).flatMap({ $0.isEmpty ? nil : $0 }) else { return (nil, nil) }
+        guard Self.namesPicture(avatar) else { return (avatar, nil) }
         // concurrency-allow: HomeChiefFiles runs only inside Task.detached, never on the main actor
-        return try? Data(contentsOf: profileFile.deletingLastPathComponent().appendingPathComponent(avatar))
+        return (nil, try? Data(contentsOf: profileFile.deletingLastPathComponent().appendingPathComponent(avatar)))
     }
 
     func writeAvatar(_ text: String) {

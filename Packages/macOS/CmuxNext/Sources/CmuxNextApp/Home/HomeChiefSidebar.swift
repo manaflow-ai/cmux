@@ -23,6 +23,8 @@ final class HomeChiefSidebar: NSView {
     private let replies = NSTextField(wrappingLabelWithString: "")
     private let nameField = NSTextField(string: "")
     private let avatarField = NSTextField(string: "")
+    /// The avatar text the field last showed, so an unchanged commit writes nothing.
+    private var shownAvatar = ""
     private let stack = NSStackView()
     /// This Mac's brain only (its mux home, traces, memory): hidden for a
     /// Chief whose brain runs on a paired server.
@@ -166,6 +168,9 @@ final class HomeChiefSidebar: NSView {
     @objc private func avatarChanged() {
         let text = String(avatarField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).prefix(2))
         avatarField.stringValue = text
+        // Return on an unchanged field keeps the avatar (a picture shows as "").
+        guard text != shownAvatar else { return }
+        shownAvatar = text
         let files = HomeChiefFiles(muxHome: muxHome)
         // task-owner: one file write off the main actor; ends with it
         Task.detached { files.writeAvatar(text) }
@@ -229,7 +234,8 @@ final class HomeChiefSidebar: NSView {
         fill(effort, Self.efforts, current: snapshot.effort)
         // A picture's file name is not avatar text; the field stays empty for it.
         if avatarField.currentEditor() == nil {
-            avatarField.stringValue = snapshot.avatar.flatMap { HomeChiefFiles.namesPicture($0) ? nil : $0 } ?? ""
+            shownAvatar = snapshot.avatar.flatMap { HomeChiefFiles.namesPicture($0) ? nil : $0 } ?? ""
+            avatarField.stringValue = shownAvatar
         }
         stats.stringValue = snapshot.turns.first.map(HomeEngineStrings.lastTurn) ?? HomeEngineStrings.noTurn
         // Which engine answered each recent reply (the trace's turn.end).

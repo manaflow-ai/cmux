@@ -139,11 +139,13 @@ final class PaneHeaderView: NSView {
         }
     }
 
-    /// A picture clipped to the avatar disc, filling it.
+    /// A picture clipped to the avatar disc, filling it (its centered square).
     static func avatarImage(picture: NSImage) -> NSImage {
         NSImage(size: NSSize(width: avatarSize, height: avatarSize), flipped: false) { r in
             NSBezierPath(ovalIn: r).addClip()
-            picture.draw(in: r)
+            let size = picture.size, side = min(size.width, size.height)
+            let square = CGRect(x: (size.width - side) / 2, y: (size.height - side) / 2, width: side, height: side)
+            picture.draw(in: r, from: square, operation: .sourceOver, fraction: 1)
             return true
         }
     }
