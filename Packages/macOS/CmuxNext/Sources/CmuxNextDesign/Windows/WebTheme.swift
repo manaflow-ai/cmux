@@ -66,6 +66,11 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         variables = [
             "--cmux-surface-background": Self.css(page),
             "--cmux-surface-token": Self.css(surface),
+            // The page color made opaque (its own background over the theme's, if it has one),
+            // for rings, pills and glyphs on fills that must hide what is under them.
+            "--cmux-surface-solid": Self.css(surfaceKind.map {
+                backgrounds.opaqueFill(for: $0, tokens: tokens, base: surface.withAlpha(1))
+            } ?? surface.withAlpha(1)),
             "--cmux-elevated-background": Self.css(tokens.elevatedBackground),
             "--cmux-text": Self.css(tokens.textPrimary),
             "--cmux-text-secondary": Self.css(tokens.textSecondary),
