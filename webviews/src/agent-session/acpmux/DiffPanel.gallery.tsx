@@ -173,7 +173,11 @@ export default componentEntry<GalleryProps>({
   title: "Changes diff panel",
   area: "Agent pane",
   pane: true,
-  covers: ["agent-session/acpmux/DiffPanel.tsx#DiffPanel"],
+  // The Branch scope renders Create PR in its branch row.
+  covers: [
+    "agent-session/acpmux/DiffPanel.tsx#DiffPanel",
+    "agent-session/acpmux/changes/PullRequestButton.tsx#PullRequestButton",
+  ],
   load: async () => GalleryDiffPanel,
   styles: () => Promise.all([import("./styles.css"), import("./changes/changes.css")]),
   widths: { narrow: 520, normal: 860, wide: 1180 },
