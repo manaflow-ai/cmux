@@ -400,7 +400,7 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 @keyframes acpmux-floating-breathe{from{opacity:1}to{opacity:.35}}
 @media (prefers-reduced-motion:reduce){.acpmux-floating-status[data-status=streaming]{animation:none}}
 .acpmux-quick[data-floating=compact]{justify-content:center}
-.acpmux-floating-bar{display:flex;align-items:center;gap:4px;height:100%;padding:0 8px 0 4px}
+.acpmux-floating-bar{display:flex;align-items:center;gap:4px;height:100%;box-sizing:border-box;padding:12px 8px 0 4px}
 .acpmux-floating-bar-open{flex:1;min-width:0;display:flex;align-items:center;gap:8px;height:32px;padding:0 8px;border:0;border-radius:6px;background:none;color:inherit;font:inherit;text-align:start;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-floating-bar-open:hover{background:color-mix(in srgb,currentColor 8%,transparent)}
 .acpmux-floating-bar-open:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1px}
