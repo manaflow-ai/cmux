@@ -242,7 +242,9 @@ impl Target {
             .as_array()
             .unwrap()
             .iter()
-            .map(|f| (f["path"].as_str().unwrap().to_string(), f["size"].as_u64().unwrap() as usize))
+            .map(|f| {
+                (f["path"].as_str().unwrap().to_string(), f["size"].as_u64().unwrap() as usize)
+            })
             .collect();
         self.made += 1;
         let id = format!("rcv_{}", self.made);
@@ -427,7 +429,8 @@ mod agent_move {
         let help = Command::new(bin).args(["link", "agent", "move", "--help"]).output().unwrap();
         assert_eq!(help.status.code(), Some(0));
         assert!(String::from_utf8_lossy(&help.stdout).contains("--to-socket"));
-        let bad = Command::new(bin).args(["link", "agent", "move", "--surface", "7"]).output().unwrap();
+        let bad =
+            Command::new(bin).args(["link", "agent", "move", "--surface", "7"]).output().unwrap();
         assert_eq!(bad.status.code(), Some(64));
     }
 
@@ -449,7 +452,10 @@ mod agent_move {
         let source = world.source.lock().unwrap();
         assert_eq!(source.committed.as_deref(), Some("xfer_1"));
         assert!(source.aborted.is_empty());
-        assert!(world.first("target:agent-transfer-finish") < world.first("source:agent-transfer-commit"));
+        assert!(
+            world.first("target:agent-transfer-finish")
+                < world.first("source:agent-transfer-commit")
+        );
         assert_eq!(world.count("target:agent-transfer-receive-abort"), 0);
     }
 

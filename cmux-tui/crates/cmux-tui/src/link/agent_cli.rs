@@ -185,7 +185,9 @@ fn resolve(args: &Args, records: &Records, mut record: Record) -> Result<Option<
     match landed {
         Some(true) => commit(args, records, &mut record, 0, true).map(Some),
         Some(false) => give_back(args, records, &mut record).map(|()| None),
-        None => Err(unresolved(&record, "the machine cannot say yet whether the chat landed there")),
+        None => {
+            Err(unresolved(&record, "the machine cannot say yet whether the chat landed there"))
+        }
     }
 }
 

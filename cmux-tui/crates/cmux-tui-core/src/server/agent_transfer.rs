@@ -202,7 +202,10 @@ impl AgentTransfers {
             let Some(oldest) = oldest.map(|(id, _)| id.clone()) else { break };
             settled.remove(&oldest);
         }
-        settled.insert(receive_id.to_owned(), Settled { moved: receive.moved, touched: Instant::now() });
+        settled.insert(
+            receive_id.to_owned(),
+            Settled { moved: receive.moved, touched: Instant::now() },
+        );
     }
 
     /// The move a receive-abort forgets: a live receive's (dropped here) or
