@@ -86,7 +86,9 @@ public final class SidebarModel {
     /// The workspace list is hidden (`sidebar.showProjects` off).
     public var hidesWorkspaces = false
     /// Minimal mode (`sidebar.minimal`): rows draw only icon, name and marks.
-    public var minimal = false, expanded = false
+    public var minimal = false
+    /// Expanded rows (`sidebar.density`), unless minimal.
+    public var expanded = false
     /// Group by Folder (`sidebar.groupBy`): loose rows sit under folder headers.
     public var groupsByFolder = false
     /// `sidebar.groupByComputer`: a header per computer; off, one list.
