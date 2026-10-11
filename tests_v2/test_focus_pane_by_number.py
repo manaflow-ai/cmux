@@ -21,12 +21,24 @@ sys.path.insert(0, str(Path(__file__).parent))
 from cmux import cmux, cmuxError
 
 
+def _panes(c: cmux) -> list:
+    # The socket rate-limits tight polling; back off and retry.
+    for _ in range(20):
+        try:
+            return c.list_panes()
+        except cmuxError as error:
+            if "rate_limited" not in str(error):
+                raise
+            time.sleep(0.3)
+    return c.list_panes()
+
+
 def _pane_ids(c: cmux) -> list:
-    return [pid for _i, pid, _n, _f in c.list_panes()]
+    return [pid for _i, pid, _n, _f in _panes(c)]
 
 
 def _focused(c: cmux) -> str:
-    for _i, pid, _n, focused in c.list_panes():
+    for _i, pid, _n, focused in _panes(c):
         if focused:
             return pid
     return ""
@@ -40,7 +52,7 @@ def _split_new_pane(c: cmux, direction: str) -> str:
         added = [pid for pid in _pane_ids(c) if pid not in before]
         if added:
             return added[0]
-        time.sleep(0.1)
+        time.sleep(0.3)
     raise cmuxError(f"split {direction} made no pane")
 
 
@@ -52,7 +64,7 @@ def _press(c: cmux, combo: str, expected: str, timeout: float = 3.0) -> str:
         current = _focused(c)
         if current == expected:
             break
-        time.sleep(0.1)
+        time.sleep(0.3)
     return current
 
 
