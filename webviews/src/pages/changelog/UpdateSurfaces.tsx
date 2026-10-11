@@ -11,15 +11,31 @@ import type { Strings } from "../shared/i18n";
 import { formatReleaseDate } from "./model";
 import type { UpdateHighlights, UpdateSurfaceActions } from "./updateHighlights";
 
-export function UpdatedCard({ data, strings, actions }: { data: UpdateHighlights; strings: Strings; actions: UpdateSurfaceActions }) {
+export function UpdatedCard({
+  data,
+  strings,
+  actions,
+}: {
+  data: UpdateHighlights;
+  strings: Strings;
+  actions: UpdateSurfaceActions;
+}) {
   const [lead] = data.items;
   const more = data.items.length - 1 + data.moreCount;
   const titleId = useId();
   return (
     <section className="wn-card" aria-labelledby={titleId}>
-      <div className="wn-card-eyebrow" id={titleId}>{strings.format("updates.card.updatedTo", data.version)}</div>
+      <div className="wn-card-eyebrow" id={titleId}>
+        {strings.format("updates.card.updatedTo", data.version)}
+      </div>
       {actions.dismiss && (
-        <button type="button" className="wn-card-close" aria-label={strings.t("updates.card.dismiss")} title={strings.t("updates.card.dismiss")} onClick={actions.dismiss}>
+        <button
+          type="button"
+          className="wn-card-close"
+          aria-label={strings.t("updates.card.dismiss")}
+          title={strings.t("updates.card.dismiss")}
+          onClick={actions.dismiss}
+        >
           <svg viewBox="0 0 10 10" aria-hidden="true">
             <path d="M2 2l6 6M8 2l-6 6" />
           </svg>
@@ -41,11 +57,21 @@ export function UpdatedCard({ data, strings, actions }: { data: UpdateHighlights
   );
 }
 
-export function UpdateReadyHighlights({ data, strings, actions }: { data: UpdateHighlights; strings: Strings; actions: UpdateSurfaceActions }) {
+export function UpdateReadyHighlights({
+  data,
+  strings,
+  actions,
+}: {
+  data: UpdateHighlights;
+  strings: Strings;
+  actions: UpdateSurfaceActions;
+}) {
   const titleId = useId();
   return (
     <section className="wn-pop" aria-labelledby={titleId}>
-      <div className="wn-pop-title" id={titleId}>{strings.format("updates.popover.ready", data.version)}</div>
+      <div className="wn-pop-title" id={titleId}>
+        {strings.format("updates.popover.ready", data.version)}
+      </div>
       {data.date && <div className="wn-pop-sub">{formatReleaseDate(data.date, strings.language)}</div>}
       {data.items.length > 0 && (
         <ol className="wn-pop-list">
@@ -63,7 +89,9 @@ export function UpdateReadyHighlights({ data, strings, actions }: { data: Update
         </ol>
       )}
       <div className="wn-pop-foot">
-        {data.moreCount > 0 && <span className="wn-pop-more">{strings.format("updates.card.more", String(data.moreCount))}</span>}
+        {data.moreCount > 0 && (
+          <span className="wn-pop-more">{strings.format("updates.card.more", String(data.moreCount))}</span>
+        )}
         <button type="button" className="wn-pop-all" onClick={actions.openChangelog}>
           {strings.t("updates.popover.seeAll")}
           <span aria-hidden="true"> →</span>
