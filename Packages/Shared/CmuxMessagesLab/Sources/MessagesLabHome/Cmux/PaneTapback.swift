@@ -34,12 +34,19 @@ extension ChatController {
         menuHighlight?.fadeForChoice(origin: input.map { $0 + MessagesWindowView.menuTapbackStart })
     }
 
-    /// The kept choice when `action` is its commit (my tapback of that kind on that message, less
-    /// than 1 s after the input); taken once. Any other own tapback ends it.
+    /// How late after the input a commit may still take the input's timing. MessagesLab's action
+    /// comes 0.40-0.45 s after the press (its begin time then lies at most ~60 ms back); Home's
+    /// commit waits for HomeStore's owner as well. A later commit is timed from itself: a begin
+    /// time further back would start the badge's pop and the rows' move part-way through.
+    static let latestTapbackCommit = MessagesWindowView.menuTapbackStart + 0.1
+
+    /// The kept choice when `action` is its commit (my tapback of that kind on that message, at most
+    /// `latestTapbackCommit` after the input); taken once. Any other own tapback ends it.
     func takeTapbackChoice(for action: Action) -> TapbackChoice? {
         guard case let .react(ref, kind, nil) = action, let choice = tapbackChoice else { return nil }
         tapbackChoice = nil
-        guard choice.message == ref.messageId, choice.kind == kind, CACurrentMediaTime() - choice.input < 1 else { return nil }
+        guard choice.message == ref.messageId, choice.kind == kind,
+              CACurrentMediaTime() - choice.input <= Self.latestTapbackCommit else { return nil }
         return choice
     }
 
