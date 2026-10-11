@@ -8,6 +8,9 @@ public import AppKit
 @MainActor
 public final class PageMenuSystemItems {
     private var observer: (any NSObjectProtocol)?
+    /// The open menu and how many items the page put in it.
+    private weak var menu: NSMenu?
+    private var own = 0
 
     nonisolated public init() {}
 
@@ -25,13 +28,12 @@ public final class PageMenuSystemItems {
     /// Call at the end of `willOpenMenu`, once the menu holds the page's items.
     public func watch(_ menu: NSMenu) {
         stop()
-        let own = menu.numberOfItems
+        self.menu = menu
+        own = menu.numberOfItems
         // queue: nil runs the block inline, as AppKit adds the item, before the menu draws.
-        observer = NotificationCenter.default.addObserver(forName: NSMenu.didAddItemNotification, object: menu, queue: nil) { note in
-            MainActor.assumeIsolated { // main-proof: AppKit adds menu items on main
-                guard let menu = note.object as? NSMenu, let index = note.userInfo?["NSMenuItemIndex"] as? Int else { return }
-                Self.drop(at: index, from: menu, own: own)
-            }
+        observer = NotificationCenter.default.addObserver(forName: NSMenu.didAddItemNotification, object: menu, queue: nil) { [weak self] note in
+            guard let index = note.userInfo?["NSMenuItemIndex"] as? Int else { return }
+            MainActor.assumeIsolated { self?.drop(at: index) } // main-proof: AppKit adds menu items on main
         }
     }
 
@@ -39,11 +41,12 @@ public final class PageMenuSystemItems {
     public func stop() {
         if let observer { NotificationCenter.default.removeObserver(observer) }
         observer = nil
+        menu = nil
     }
 
     /// Removes the item at `index` when it is AutoFill, and a separator AppKit added before it.
-    static func drop(at index: Int, from menu: NSMenu, own: Int) {
-        guard index < menu.numberOfItems, menu.item(at: index)?.title == autoFillTitle else { return }
+    private func drop(at index: Int) {
+        guard let menu, index < menu.numberOfItems, menu.item(at: index)?.title == Self.autoFillTitle else { return }
         menu.removeItem(at: index)
         if index > own, index - 1 < menu.numberOfItems, menu.item(at: index - 1)?.isSeparatorItem == true {
             menu.removeItem(at: index - 1)
