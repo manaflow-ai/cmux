@@ -268,7 +268,10 @@ impl CloudConversations {
             let mut lease = self.inner.lease.lock().unwrap_or_else(PoisonError::into_inner);
             check_lease_holder(&lease, by_app)?;
             if !by_app {
-                super::session::check_known_origin(&params.api_base_url, &self.inner.options.api_origins)?;
+                super::session::check_known_origin(
+                    &params.api_base_url,
+                    &self.inner.options.api_origins,
+                )?;
             }
             let session = CloudSession::new(params, lease.generation + 1)?;
             lease.generation = session.generation;

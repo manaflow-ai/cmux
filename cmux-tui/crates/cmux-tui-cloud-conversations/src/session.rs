@@ -138,7 +138,10 @@ pub(crate) fn check_known_origin(raw: &str, extra: &[String]) -> Result<(), Clou
     });
     if loopback
         || KNOWN_API_ORIGINS.contains(&origin.as_str())
-        || extra.iter().filter_map(|entry| validate_api_base_url(entry).ok()).any(|known| known == origin)
+        || extra
+            .iter()
+            .filter_map(|entry| validate_api_base_url(entry).ok())
+            .any(|known| known == origin)
     {
         return Ok(());
     }

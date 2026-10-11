@@ -334,7 +334,11 @@ fn cloud_lease_another_clients_lease_is_never_the_apps_and_names_a_known_origin(
     assert_eq!(status["data"]["state"], "signed_out", "{status}");
     let refused = app.rpc(json!({"cmd":"cloud-inbox-list"}));
     assert_eq!(refused["error_code"], "cloud_signed_out", "{refused}");
-    assert!(cloud.bodies().is_empty(), "the app's request used the other lease: {:?}", cloud.bodies());
+    assert!(
+        cloud.bodies().is_empty(),
+        "the app's request used the other lease: {:?}",
+        cloud.bodies()
+    );
 
     assert_eq!(app.rpc(set(&cloud.base, "app.jwt"))["ok"], true);
     let status = app.rpc(json!({"cmd":"cloud-session-status"}));
