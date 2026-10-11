@@ -2,7 +2,7 @@
 // A batch of subagents inline in the transcript (SubagentGroup.tsx): the group row in each state,
 // as the snapshot rows the pane receives after direct.ts folds a session's subagent updates; an
 // open group's list (SubagentListRow), opened by a click; and the header summary's Subagents
-// section, which reads the same groups. A list line opens that subagent's own view (the child
+// section, Lineage, which reads the same groups. A list line opens that subagent's own view (the child
 // view): a "Subagent of" pill naming its parent, then its rows, nested groups included.
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
@@ -105,6 +105,12 @@ const NESTED_MIXED: typeof MIXED = {
   },
 };
 
+/** Opens the header summary, where Lineage takes the Subagents place. */
+const openSummary = async (ctx: PlayContext) => {
+  await ctx.click({ selector: ".acpmux-summary-button" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-summary-popover .acpmux-lineage"));
+};
+
 /** Opens the first group, then `name`'s own view. */
 const openChild = (name: string) => async (ctx: PlayContext) => {
   await openGroup(4)(ctx);
@@ -139,6 +145,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/summary/SummaryPopover.tsx#SummaryPopover",
     "agent-session/acpmux/summary/SummarySection.tsx#SummarySection",
     "agent-session/acpmux/summary/SubagentStack.tsx#SubagentStack",
+    "agent-session/acpmux/subagents/Lineage.tsx#Lineage",
   ],
   variants: {
     running: {
@@ -234,11 +241,47 @@ export default agentPaneEntry({
       },
     },
     summary: {
-      note: "The header summary: its Subagents section stacks the groups' subagents with their counts.",
+      note: "The header summary: its Lineage lists the chat's running subagents and folds the ended ones.",
       snapshot: MIXED,
+      play: openSummary,
+    },
+    "summary-legacy": {
+      note: "A chat recorded before acpmux reported subagents: Claude's Task calls as the Subagents stack.",
+      snapshot: chat([
+        user(prompt, 6),
+        activity(
+          [
+            tool("Audit retry policy", "think", "completed"),
+            tool("Audit error parsing", "think", "completed"),
+            tool("Audit timeouts", "think", "failed"),
+          ],
+          5.8,
+        ),
+        assistant("Two of three audits finished; the timeouts audit failed.", 4),
+      ]),
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-summary-button" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-summary-popover .acpmux-summary-subagents"));
+      },
+    },
+    "lineage-previous": {
+      note: "Lineage's Previous agents opened: the ended subagents below the running one.",
+      snapshot: MIXED,
+      play: async (ctx) => {
+        await openSummary(ctx);
+        await ctx.click({ selector: ".acpmux-lineage__previous" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-lineage__name").length === 4);
+      },
+    },
+    "lineage-child": {
+      note: "Lineage in a subagent's view: its parent, the chat, then its own running and previous subagents.",
+      snapshot: NESTED_MIXED,
+      play: async (ctx) => {
+        await openChild("Test coverage")(ctx);
+        await openSummary(ctx);
+        await ctx.waitFor(
+          () => ctx.document.querySelector(".acpmux-lineage__name")?.textContent === MIXED.summary?.title,
+        );
       },
     },
   },

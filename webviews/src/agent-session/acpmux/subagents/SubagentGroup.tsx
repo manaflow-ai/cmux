@@ -16,10 +16,10 @@ export const SubagentNavContext = createContext<((id: string | undefined) => voi
 /// Avatars drawn before "+N".
 const STACK = 3;
 
-const running = (agent: Subagent) => agent.state === "running";
+export const running = (agent: Subagent) => agent.state === "running";
 
 /// Each subagent state's label in an open group.
-const STATE_LABEL = {
+export const STATE_LABEL = {
   running: "subagents.state.running",
   completed: "subagents.state.completed",
   failed: "subagents.state.failed",
@@ -39,7 +39,7 @@ export function groupElapsed(agents: readonly Subagent[], now: number): number {
 }
 
 /// The current time, ticking each second only while `live`.
-function useNow(live: boolean): number {
+export function useNow(live: boolean): number {
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     if (!live) return;

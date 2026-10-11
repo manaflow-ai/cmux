@@ -1613,6 +1613,16 @@ function AcpmuxPane() {
     chatShellRuns,
     sessionMoves,
   ]);
+  /// The summary popover's Lineage: where the shown view sits among the chat's subagents.
+  const lineage = useMemo(
+    () => ({
+      views: snapshot.subagentViews,
+      current: childRows ? subagentView : undefined,
+      chat: chatName,
+      onOpen: setSubagentView,
+    }),
+    [snapshot.subagentViews, childRows, subagentView, chatName],
+  );
   // Another chat never opens on a subagent of this one.
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
   useEffect(() => setSubagentView(undefined), [shownSessionId]);
@@ -3570,6 +3580,7 @@ function AcpmuxPane() {
                           onOpenChanges={toggleLastChanges}
                           onOpenOutput={quick ? undefined : openOutput}
                           onOpenImage={quick ? undefined : openImage}
+                          lineage={lineage}
                         />
                       }
                       menu={chatMenu}
