@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# base-autofix.sh on a fixture repository: copies the regenerated files in
-# (never a frozen path or a workflow file: GITHUB_TOKEN cannot push those),
+# base-autofix.sh on a fixture repository: copies the regenerated files in,
+# the action exports a Mac job regenerated among them (never a frozen path or a
+# workflow file: GITHUB_TOKEN cannot push those),
 # reports a missing cmux-tui tree input without writing it (its second list is
 # a workflow's paths), and changes nothing when everything is current. No
 # network, no git push.
@@ -29,15 +30,22 @@ on:
 YML
 echo old > "$repo/Packages/macOS/CmuxNext/ci-target-graph.json"
 echo old > "$repo/plans/cmux-next/actions.md"
+echo old > "$repo/plans/cmux-next/action-surfaces.json"
+echo old > "$repo/Packages/macOS/CmuxNext/Package.swift"
 echo new > "$gen/Packages/macOS/CmuxNext/ci-target-graph.json"
 echo new > "$gen/plans/cmux-next/actions.md"
+echo new > "$gen/plans/cmux-next/action-surfaces.json"
+echo new > "$gen/Packages/macOS/CmuxNext/Package.swift"
 echo 'on: push' > "$gen/.github/workflows/cmux-tui-artifacts.yml"
 git -C "$repo" init -q && git -C "$repo" add -A && git -C "$repo" -c user.name=t -c user.email=t@t commit -qm fixture
 
 bash "$FIX" --no-fmt --generated "$gen" "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed"
 [[ "$(cat "$repo/Packages/macOS/CmuxNext/ci-target-graph.json")" == new ]] || fail "a regenerated file must be copied in"
-[[ "$(cat "$repo/plans/cmux-next/actions.md")" == old ]] || fail "a frozen path must never be written"
-grep -q '^skipped (frozen): plans/cmux-next/actions.md' "$tmp/out" || fail "a skipped frozen path must be reported"
+for export in actions.md action-surfaces.json; do
+  [[ "$(cat "$repo/plans/cmux-next/$export")" == new ]] || fail "the regenerated action export $export must be copied in"
+done
+[[ "$(cat "$repo/Packages/macOS/CmuxNext/Package.swift")" == old ]] || fail "a frozen path must never be written"
+grep -q '^skipped (frozen): Packages/macOS/CmuxNext/Package.swift' "$tmp/out" || fail "a skipped frozen path must be reported"
 grep -q '^skipped (frozen): .github/workflows/cmux-tui-artifacts.yml' "$tmp/out" || fail "a regenerated workflow file must be skipped and reported"
 grep -q '^left: cmux-tui tree input blob schemas/new/v.json' "$tmp/out" || fail "a missing tree input must be reported"
 grep -q 'schemas/new' "$repo/scripts/cmux-next/cmux-tui-tree-inputs.txt" "$repo/.github/workflows/cmux-tui-artifacts.yml" && fail "a missing tree input must not be written to either list"
