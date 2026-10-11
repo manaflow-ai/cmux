@@ -31,6 +31,8 @@ enum DebugLayers {
             "installed": .bool(guardian.isInstalled),
             "bound": .number(Double(LayoutPassGuard.bound)),
             "max_in_one_turn": .number(Double(guardian.maxPassesInOneTurn)),
+            "max_view_class": guardian.maxPassesClass.map(JSONValue.string) ?? .null,
+            "max_window_class": guardian.maxPassesWindowClass.map(JSONValue.string) ?? .null,
             "loops": .array(guardian.reports.map { report in
                 .object([
                     "view_class": .string(report.viewClass),
@@ -67,7 +69,7 @@ enum DebugLayers {
                 "rings": .array((root?.overlayRings ?? []).map { ring in
                     .object(["pane": .string(ring.pane), "frame_in_window": rect(ring.frameInWindow), "shows_ring": .bool(ring.showsRing),
                              "ring_in_window": rect(ring.ringInWindow), "content_in_window": rect(ring.contentInWindow),
-                             "ring_in_sync": .bool(ring.ringInWindow == ring.contentInWindow)])
+                             "ring_in_sync": .bool(ring.ringInSync)])
                 }),
                 "drop_highlight_in_window": root?.dropHighlightFrameInWindow.map(rect) ?? .null,
                 "drop_highlight_material": root.map { .string(String(describing: $0.dropHighlightMaterial)) } ?? .null,
@@ -101,7 +103,7 @@ enum DebugLayers {
         let inSync = layer.adoptedPlanes.allSatisfy(\.isInSync)
         // Every displayed ring strokes its pane's rounded content rect.
         let ringsInSync = layer.adoptedPlanes.allSatisfy { plane in
-            ((plane.home as? LayoutRootView)?.overlayRings ?? []).allSatisfy { $0.ringInWindow == $0.contentInWindow }
+            ((plane.home as? LayoutRootView)?.overlayRings ?? []).allSatisfy { $0.ringInSync }
         }
         var fields: [String: JSONValue] = [:]
         #if DEBUG

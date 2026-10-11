@@ -28,6 +28,8 @@ public final class LayoutRootView: NSView {
     /// Key-window observers of the current window (`observeKeyWindow()`).
     var keyWindowObservers: [any NSObjectProtocol] = []
     private var lastSnapshot: Snapshot?
+    /// The last reveal request applied; a newer one waits until its pane is in a screen's layout.
+    private var appliedReveal: ColumnCenterRequest?
     private var reportedVisible: Set<PaneID> = []
     private var reportedKeepAlive: Set<PaneID> = []
     var scrollLock: ScrollLock = .idle
@@ -61,6 +63,7 @@ public final class LayoutRootView: NSView {
         var style: LayoutStyle
         var gestureActive: Bool
         var centerRequest: ColumnCenterRequest?
+        var revealRequest: ColumnCenterRequest?
         var centerMode: CenterFocusedColumn
         var attention: [PaneID: AttentionMark]
         var scrollbar: StripScrollbarMode
@@ -152,6 +155,7 @@ public final class LayoutRootView: NSView {
             style: model.style,
             gestureActive: model.isGestureActive,
             centerRequest: model.centerRequest,
+            revealRequest: model.revealRequest,
             centerMode: model.centerFocusedColumn,
             attention: model.attention,
             scrollbar: model.stripScrollbar
@@ -170,6 +174,7 @@ public final class LayoutRootView: NSView {
                     style: model.style,
                     gestureActive: model.isGestureActive,
                     centerRequest: model.centerRequest,
+                    revealRequest: model.revealRequest,
                     centerMode: model.centerFocusedColumn,
                     attention: model.attention,
                     scrollbar: model.stripScrollbar
@@ -244,6 +249,10 @@ public final class LayoutRootView: NSView {
             if let request = snapshot.centerRequest, request != previous?.centerRequest, screen.layout.contains(request.pane),
                view.center(request.pane, animated: animated) {
                 needsFrames = true
+            }
+            if let request = snapshot.revealRequest, request != appliedReveal, screen.layout.contains(request.pane) {
+                appliedReveal = request
+                if view.center(request.pane, animated: animated, reveal: true) { needsFrames = true }
             }
         }
 

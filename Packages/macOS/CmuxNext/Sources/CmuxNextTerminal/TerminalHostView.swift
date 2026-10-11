@@ -23,6 +23,14 @@ public final class TerminalHostView: NSView {
     private var shownStatus: TerminalConnectionStatus = .connected
     private var hostLoss: TerminalHostLoss?
     private var hostLossCause: TerminalHostLossCause?
+    /// "Restart Shell Here" above the banner while the shell has ended.
+    private let restartButton = TerminalRestartButton()
+    /// The App's `tab.restart` for this tab; nil hides the button (a daemon
+    /// without `tab-restart-v1`, a tab that cannot restart).
+    public var onRestart: (@MainActor () -> Void)? {
+        get { restartButton.onRestart }
+        set { restartButton.onRestart = newValue }
+    }
 
     /// The first cell's top-left in this view's coordinates (top-left
     /// origin): Ghostty's leading and top padding, or with
@@ -55,6 +63,12 @@ public final class TerminalHostView: NSView {
             banner.centerXAnchor.constraint(equalTo: centerXAnchor),
             banner.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
             banner.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -24),
+        ])
+        restartButton.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(restartButton, positioned: .above, relativeTo: banner)
+        NSLayoutConstraint.activate([
+            restartButton.centerXAnchor.constraint(equalTo: centerXAnchor),
+            restartButton.bottomAnchor.constraint(equalTo: banner.topAnchor, constant: -8),
         ])
         // A config reload can change window-padding-x.
         configObserver = NotificationCenter.default.addObserver(forName: GhosttyRuntime.configDidChange, object: nil, queue: .main) { [weak self] _ in
@@ -99,6 +113,7 @@ public final class TerminalHostView: NSView {
     func showStatus(_ status: TerminalConnectionStatus) {
         shownStatus = status
         banner.show(status, hostLoss: hostLoss, cause: hostLossCause)
+        restartButton.show(status)
     }
 
     func showHostLoss(_ loss: TerminalHostLoss?, cause: TerminalHostLossCause?) {
