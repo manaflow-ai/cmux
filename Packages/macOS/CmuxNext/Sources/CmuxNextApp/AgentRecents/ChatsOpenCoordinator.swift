@@ -104,7 +104,7 @@ final class ChatsOpenCoordinator {
 
     private func dispatch(_ plan: AcpmuxChatOpenPlan, key: String, environment: AcpmuxEnvironment, inTerminal: Bool = false) async {
         guard let services else { return }
-        let chat = services.chatsFeed?.chats.first { $0.id == key }
+        let chat = services.chatsFeed?.chat(id: key)
         let title = chat?.title
         // A chat past the feed's window (the New Tab list pages the whole index) still names its
         // harness and session id in its key (`harness:sessionId`).
