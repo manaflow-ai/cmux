@@ -51,8 +51,7 @@ extension TabStripView {
                 dying.insert(id)
                 motion[id]?.width.target = 0
                 motion[id]?.alpha.target = 0
-                cell.showsSeparator = false
-                cell.isHovered = false
+                cell.beginClosing()
             } else {
                 removeTab(id)
             }

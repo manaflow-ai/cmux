@@ -73,6 +73,11 @@ import CmuxNextCompat
     public var homeFolder: String? = NSHomeDirectory()
     /// Folders the user added or picked by a gesture: roots from then on.
     public internal(set) var addedRoots: [String] = []
+
+    /// Makes `folder` (canonical) a root: the user's answer to a folder question (`workspace.useFolder`).
+    func grant(_ folder: String) {
+        if !addedRoots.contains(folder) { addedRoots.append(folder) }
+    }
     /// Whether the daemon's asking table (acpmux `web_modes.rs`) lists `mode` for the session's
     /// family: true or false, nil when it cannot tell (which needs the confirmation, fail closed).
     /// The host's default asks the daemon over its unix socket (`_acpmux/web_modes`).
@@ -91,7 +96,7 @@ import CmuxNextCompat
     public var requestHarnessEnable: (@MainActor (_ prompt: AgentPaneHarnessEnablePrompt, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
     /// The current socket's request ids (relay-owned, mapped back on the reply).
     var requestIds: AcpmuxRequestIds?
-    private var socketPath: String?
+    private(set) var socketPath: String?
     /// `_acpmux/tag` on the host's socket: sets and removes a session's tags (the chat menu's
     /// Archive). Replaced in tests.
     public var tagSession: @MainActor (_ sessionId: String, _ set: [String: String], _ remove: [String]) async throws -> Void = { _, _, _ in
@@ -144,6 +149,12 @@ import CmuxNextCompat
             Task { @MainActor [weak self] in self?.arrived(id) }
         }
         self.socket = socket
+        // cx-fcaq: the local WebSocket goes only to a port the acpmux this app runs listens on.
+        if connection.remote == nil, let executable = connection.executable, let port = connection.url.port,
+           !(await AcpmuxServerPeer.verifyListener(port: port, executable: executable)) {
+            if self.socket === socket { self.socket = nil; localAppToken = nil }
+            throw .connectFailed
+        }
         do {
             try await socket.start(timeout: limits.connectTimeout)
         } catch {
@@ -152,6 +163,12 @@ import CmuxNextCompat
             throw .connectFailed
         }
         guard self.socket === socket else { throw .staleConnection }
+        // cx-fcaq: the accepted end of this connection is the acpmux this app runs too.
+        if connection.remote == nil, let executable = connection.executable, let port = connection.url.port,
+           !(await AcpmuxServerPeer.verifyAccepted(port: port, executable: executable)) {
+            close(connection: id)
+            throw .connectFailed
+        }
         // P1: the daemon's mode fields, once per connection, before the page's first frame.
         modeFields = nil
         let answer = await webModes(nil, nil, nil)

@@ -63,7 +63,7 @@ final class SidebarIconView: NSView {
         case let .symbol(name, tint)?:
             let config = SidebarStyle.glyphConfig
             imageView.image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(config)
-                ?? NSImage(systemSymbolName: "terminal", accessibilityDescription: nil)?.withSymbolConfiguration(config)
+                ?? NSImage.icon(.terminal, size: SidebarStyle.kindGlyphSize)
             imageView.isHidden = false
         case let .favicon(favicon)?:
             imageView.image = NSImage(cgImage: favicon.image, size: NSSize(width: SidebarStyle.kindGlyphSize, height: SidebarStyle.kindGlyphSize))

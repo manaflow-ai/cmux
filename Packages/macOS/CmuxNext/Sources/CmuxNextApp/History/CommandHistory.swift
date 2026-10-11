@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHistory
 import CmuxNextSettings
@@ -26,13 +27,19 @@ final class CommandHistory {
         self.hidden = hidden
     }
 
-    deinit { observation?.cancel() }
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            observation?.cancel()
+        }
+    }
 
     /// Starts keeping the daemons' switch in step with the setting.
     func start(settings: SettingsController) {
         let machines = services.machines
         observation = Task { [weak self] in
-            for await state in Observations({ Self.state(settings: settings, daemons: machines.daemons) }) {
+            for await state in ObservationStream({ Self.state(settings: settings, daemons: machines.daemons) }) {
                 self?.sync(state)
             }
         }

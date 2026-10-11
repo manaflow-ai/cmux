@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 
@@ -49,6 +50,13 @@ enum AgentSessionWorkspace {
             throw ActionFailure(message: MiscHandlerStrings.daemonOffline)
         }
         let logger = daemon.logger
+        // Placed like Cmd-N (`workspaces.newPlacement`): in the group of the
+        // workspace the window shows, when it is in one (cx-caoh). A caller's
+        // key that names a listed workspace leaves that workspace where it is.
+        let windows = services.windows
+        if services.machines.workspace(id: key.rawValue) == nil {
+            NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: NewWorkspacePlacements.rule(for: nil, in: windows), windows: windows)
+        }
         return Task { @MainActor in
             do {
                 _ = try await WorkspaceCreation.create(key, name: name, on: connection, repair: repair) { workspace in
@@ -101,7 +109,7 @@ enum AgentSessionWorkspace {
     }
 
     @MainActor private static func waitForPane(of key: WorkspaceKey, in store: DaemonStore) async -> Bool {
-        for await ready in Observations({ firstPane(of: key, in: store) != nil }) where ready { return true }
+        for await ready in ObservationStream({ firstPane(of: key, in: store) != nil }) where ready { return true }
         return false
     }
 }

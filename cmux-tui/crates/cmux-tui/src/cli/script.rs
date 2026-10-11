@@ -533,17 +533,14 @@ fn print_log(output: OutputMode, level: &str, message: &str) {
     }
 }
 
-async fn connect(global: &GlobalArgs) -> Result<tokio::net::UnixStream, String> {
-    let Ok((socket, _)) = super::wire::resolve_socket_with_origin(global) else {
-        return Err(crate::localization::catalog().startup.invalid_session_name.to_string());
-    };
+async fn connect(socket: &std::path::Path) -> Result<tokio::net::UnixStream, String> {
     let connect_failed = |error: String| {
         messages()
             .connect_failed
             .replace("{path}", &socket.display().to_string())
             .replace("{error}", &error)
     };
-    let stream = tokio::net::UnixStream::connect(&socket)
+    let stream = tokio::net::UnixStream::connect(socket)
         .await
         .map_err(|error| connect_failed(error.to_string()))?;
     // Only this user's daemon (as every CLI connection checks).
@@ -589,12 +586,16 @@ fn run(global: &GlobalArgs, args: &[String]) -> i32 {
         },
         Action::Repl { timeout_ms } => (None, Value::Null, timeout_ms),
     };
+    let socket = match super::wire::resolve_socket_or_report(global) {
+        Ok((socket, _)) => socket,
+        Err(code) => return code,
+    };
     let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
         return 3;
     };
     let output = global.output;
     let result = runtime.block_on(async {
-        let stream = connect(global).await?;
+        let stream = connect(&socket).await?;
         let mut interrupts = SigInt(
             tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
                 .map_err(|error| error.to_string())?,

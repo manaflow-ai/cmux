@@ -151,7 +151,9 @@ public final class TerminalSession {
         surfaceView.updateSurfaceSize(forceReport: true)
     }
 
-    isolated deinit {
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // Sendable cleanup only, so it runs on whatever thread releases the session.
+    nonisolated deinit {
         eventsTask?.cancel()
         writerTask?.cancel()
         input.finish()

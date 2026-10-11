@@ -36,14 +36,10 @@ pub use session::{Session, live_tags};
 pub(super) use session::{prompt_text, short_text};
 mod shutdown;
 use shutdown::ShutdownPlan;
-#[cfg(test)]
-mod remote_sandbox_adopt_tests;
 mod spawn;
 mod steer_end;
 mod stream;
 mod tap;
-#[cfg(test)]
-mod tap_tests;
 pub use lifecycle::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
 };

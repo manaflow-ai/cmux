@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 public import CmuxNextPages
 public import CmuxNextSettings
@@ -19,7 +20,7 @@ public final class AgentPaneView: NSView {
     public let webView: WKWebView
     /// Opens a link the user clicked in the transcript. Defaults to the
     /// system handler; the App can route it to a cmux browser tab.
-    public var openURL: (URL) -> Void = { NSWorkspace.shared.open($0) }
+    public var openURL: (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }
 
     public let source: AgentPaneSource
     public var customization = AgentPaneCustomization() {
@@ -37,6 +38,8 @@ public final class AgentPaneView: NSView {
     }
     /// The newest device chats for the New Tab cards.
     public var deviceChats: [AgentPaneDeviceChat] = [] { didSet { if deviceChats != oldValue { AgentPaneDeviceChat.push(deviceChats, to: self) } } }
+    /// The newest recently closed items for the New Tab page's Recently Closed section.
+    public var recentlyClosed: [AgentPaneClosedItem] = [] { didSet { if recentlyClosed != oldValue { AgentPaneClosedItem.push(recentlyClosed, to: self) } } }
     public var editedFiles = AgentPaneEditedFilesSetting.fallback {
         didSet { if editedFiles != oldValue { applyEditedFiles() } }
     }
@@ -206,7 +209,7 @@ public final class AgentPaneView: NSView {
 
     private func observeMotion() {
         motionObservation = Task { [weak self] in
-            for await _ in Observations({ Motion.speed }) {
+            for await _ in ObservationStream({ Motion.speed }) {
                 guard let self else { return }
                 self.applyTheme()
             }
@@ -226,7 +229,7 @@ public final class AgentPaneView: NSView {
         guard page == nil else { return }
         applyZoom()
         uiScaleObservation = Task { [weak self] in
-            for await _ in Observations({ DesignSettings.shared.uiScale }) {
+            for await _ in ObservationStream({ DesignSettings.shared.uiScale }) {
                 guard let self else { return }
                 self.applyZoom()
             }
@@ -242,8 +245,12 @@ public final class AgentPaneView: NSView {
         }
     }
 
-    deinit {
-        uiScaleObservation?.cancel()
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            uiScaleObservation?.cancel()
+        }
     }
 
     @available(*, unavailable)

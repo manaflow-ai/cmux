@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
@@ -149,7 +150,7 @@ final class SettingsPageProvider: PageProvider {
             }
             return sectionActions?(section) ?? .array([])
         case "cmux.settings.file.reveal":
-            NSWorkspace.shared.activateFileViewerSelecting([settings.file.url])
+            NSWorkspace.shared.revealInBackground([settings.file.url])
             return .object([:])
         case "cmux.settings.preview":
             // Live preview (R82 commit 5): the value applies to every window without a write;
@@ -211,7 +212,7 @@ final class SettingsPageProvider: PageProvider {
             var last = initialRoot
             var lastFileRoots = initialFileRoots
             var lastManagedRoots = initialManagedRoots
-            for await (count, root, fileRoots, managedRoots) in Observations({
+            for await (count, root, fileRoots, managedRoots) in ObservationStream({
                 (settings.loadCount, settings.snapshot.root, settings.fileRoot.value(at: ChatSettings.rootsPath), settings.managedChatRoots)
             }) {
                 let keys = SettingsSchema.all.filter {
@@ -233,7 +234,7 @@ final class SettingsPageProvider: PageProvider {
                               onEvent: @escaping @MainActor (JSONValue) -> Void) -> PageSubscription {
         let task = Task { @MainActor in
             var last = read()
-            for await value in Observations({ read() }) where value != last {
+            for await value in ObservationStream({ read() }) where value != last {
                 last = value
                 onEvent(value)
             }

@@ -135,6 +135,7 @@ async fn turning_chats_off_hides_every_chat_and_survives_a_restart() {
     assert_eq!((off["enabled"].clone(), keys(&off)), (json!(false), Vec::<String>::new()));
 
     // The settings are in the daemon's file (owner-only), so a restart keeps them.
+    #[cfg(unix)]
     let file = h.0.join(".acpmux/chat-settings.json");
     #[cfg(unix)]
     {

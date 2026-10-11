@@ -34,6 +34,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ConversationOpResult, "transaction");
     try expectExplicitNullRejected(protocol.CreatePersonalGroupRequest, "collapsed");
     try expectExplicitNullRejected(protocol.CreateSurfaceWithReceiptRequest, "selector_fallbacks");
+    try expectExplicitNullRejected(protocol.CreateTerminalRequest, "detached");
     try expectExplicitNullRejected(protocol.CreateTerminalRequest, "keep");
     try expectExplicitNullRejected(protocol.CreateWorkspaceGroupRequest, "collapsed");
     try expectExplicitNullRejected(protocol.FeedLocalListRequest, "unread");
@@ -135,6 +136,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ConversationMessage, "edited_at");
     try expectExplicitNullRejected(protocol.ConversationMessage, "reply_to");
     try expectExplicitNullRejected(protocol.ConversationMessage, "retracted_at");
+    try expectExplicitNullRejected(protocol.ConversationMessage, "thread_root");
     try expectExplicitNullRejected(protocol.ConversationPart, "host");
     try expectExplicitNullRejected(protocol.ConversationPart, "preview");
     try expectExplicitNullRejected(protocol.ConversationPart, "runs");
@@ -189,6 +191,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.TerminalColors, "overrides");
     try expectExplicitNullRejected(protocol.TerminalColors, "palette");
     try expectExplicitNullRejected(protocol.TerminalKeyInput, "composing");
+    try expectExplicitNullRejected(protocol.TerminalPlacement, "terminal_resource_id");
     try expectExplicitNullRejected(protocol.Tree, "generation");
     try expectExplicitNullRejected(protocol.Tree, "pane_revision");
     try expectExplicitNullRejected(protocol.Tree, "registry_id");

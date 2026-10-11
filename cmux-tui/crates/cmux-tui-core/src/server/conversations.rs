@@ -25,6 +25,9 @@ use crate::conversation_store::{
 pub const LOCAL_CONVERSATIONS_CAPABILITY: &str = "local-conversations-v1";
 /// `conversation-search` on the local conversation owner.
 pub const CONVERSATION_SEARCH_CAPABILITY: &str = "conversation-search-v1";
+/// `thread_root` on `message.send` and on messages, and a send that moves
+/// the sender's own read cursor (cx-59n8.2).
+pub const CONVERSATION_THREADS_CAPABILITY: &str = "conversation-threads-v1";
 
 /// `conversation-create`: a retry with the same `idempotency_key` and request
 /// returns the conversation it created.

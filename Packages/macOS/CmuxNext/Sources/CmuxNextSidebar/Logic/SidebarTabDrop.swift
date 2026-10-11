@@ -8,4 +8,6 @@ public nonisolated enum SidebarTabDrop: Hashable, Sendable {
     case newWorkspace(section: SectionID, group: GroupID?, index: Int)
     /// Create a workspace at the end of a collapsed group.
     case intoGroup(GroupID)
+    /// Before a tab row's tab, in that tab's pane (a tab row's edge).
+    case beforeTab(WorkspaceID, TabID)
 }

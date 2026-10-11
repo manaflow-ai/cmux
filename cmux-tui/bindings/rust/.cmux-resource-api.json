@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "b4447adf6db5ac3a81eb297b385ad39a4a212a3892fb9ae0e57fe1de3d45eff8",
+  "catalog_sha256": "f57d84b280b43d96c29f988c78708c7ae3c61b8e751d02d239c83fbcc0cbf6d9",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -126,6 +126,15 @@
     },
     "conversation.typing": {
       "class": "mutation"
+    },
+    "credential.mint": {
+      "class": "read"
+    },
+    "credential.rotate": {
+      "class": "mutation"
+    },
+    "credential.verify": {
+      "class": "read"
     },
     "frontend_projection.get": {
       "class": "read"
@@ -421,6 +430,27 @@
     "session.window.title.set": {
       "class": "mutation"
     },
+    "settings.get": {
+      "class": "read"
+    },
+    "settings.list": {
+      "class": "read"
+    },
+    "settings.reset": {
+      "class": "mutation"
+    },
+    "settings.reset_all": {
+      "class": "mutation"
+    },
+    "settings.schema": {
+      "class": "read"
+    },
+    "settings.set": {
+      "class": "mutation"
+    },
+    "settings.snapshot": {
+      "class": "read"
+    },
     "sidebar_layout.get": {
       "class": "read"
     },
@@ -588,6 +618,9 @@
     },
     "workspace.agent_folder.set": {
       "class": "mutation"
+    },
+    "workspace.agent_start.get": {
+      "class": "read"
     },
     "workspace.close": {
       "class": "mutation"

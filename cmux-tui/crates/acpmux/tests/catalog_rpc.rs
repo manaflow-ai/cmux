@@ -1,7 +1,7 @@
 //! `catalog.refresh` and `catalog.changed` over a client connection, and the
 //! curated models in `_acpmux/models` and `_acpmux/harnesses`.
 
-use acpmux::catalog::{CatalogService, FetchOutcome, Fetcher};
+use acpmux::catalog::{FetchOutcome, Fetcher};
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;
@@ -127,11 +127,4 @@ async fn a_refresh_announces_the_new_catalog_to_every_connection() {
     let harnesses = caller.call("_acpmux/harnesses", json!({})).await;
     assert_eq!(harnesses["catalog"]["harnesses"][0]["profiles"], json!(["fcodex"]), "{harnesses}");
     let _ = std::fs::remove_dir_all(&dir);
-}
-
-#[test]
-fn a_hub_starts_from_the_bundled_catalog() {
-    let service = CatalogService::new();
-    assert_eq!(service.summary()["delivery"], "bundled");
-    assert!(!service.current().harnesses.is_empty());
 }

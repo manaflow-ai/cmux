@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextSettings
 import Observation
 import os
@@ -79,7 +80,7 @@ final class GlobalHotKeyService {
             // Suspension reads the whole focus context, so skip the changes
             // that move neither the keys nor the suspension.
             var last: (keys: [ActionID: Shortcut], suspended: Bool, enabled: Bool, startAgent: Bool)?
-            for await next in Observations({
+            for await next in ObservationStream({
                 (keys: registry.globalHotKeys(), suspended: registry.globalHotKeysSuspended, enabled: showHideEnabled(),
                  startAgent: startAgentEnabled())
             }) {

@@ -107,6 +107,10 @@ public struct DaemonCapabilities: Sendable {
     /// Browser tabs reach the machine's loopback services over a dedicated
     /// connection (`LoopbackForwardClient`, plans/cmux-next/remote-localhost.md).
     public let loopbackForward = "loopback-forward-v1"
+    /// The daemon starts the remote browser host on its machine
+    /// (`browser-runtime-*`, cx-2cob slice 2); the app reaches it through
+    /// `loopbackForward` on the same connection (`LoopbackForwardClient`).
+    public let browserRuntime = "browser-runtime-v1"
     /// `source` on notifications (cli, terminal, agent, daemon), and OSC 9,
     /// OSC 777 and OSC 99 parsed by the daemon from every terminal's output
     /// (plans/cmux-next/notifications.md).
@@ -169,6 +173,9 @@ public struct DaemonCapabilities: Sendable {
     /// `workspace.agent_folder.set` and `extra.agent_folder` (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
     /// An older daemon kept running across an app update lacks it: Choose Folder… asks for a restart.
     public let workspaceAgentFolder = "workspace-agent-folder-v1"
+    /// `workspace.agent_start.get`: the store's one answer for where a new agent chat starts
+    /// (cx-9aps). An older daemon lacks it; the pane then decides as before (compatibility only).
+    public let workspaceAgentStart = "workspace-agent-start-v1"
     /// Conversation tabs: `new-conversation-tab` and the `conversation` tab kind.
     /// Echoed so the daemon sends the canonical kind instead of `browser`.
     public let conversationTabs = "conversation-tabs-v1"
@@ -186,6 +193,9 @@ public struct DaemonCapabilities: Sendable {
     public let appScreens = "app-screens-v1"
     /// `conversation-search` on the local conversation owner.
     public let conversationSearch = "conversation-search-v1"
+    /// `thread_root` on conversation messages, and a send that moves the
+    /// sender's own read cursor (cmux-tui/spec/commands.md `conversation-op`).
+    public let conversationThreads = "conversation-threads-v1"
     /// Cloud conversations through the daemon (plans/cmux-next/home-cloud-proxy.md):
     /// the `cloud-session-*`, `cloud-inbox-*` and `cloud-conversation-*`
     /// commands and their `cloud-*` events. Advertised only when the daemon
@@ -259,16 +269,16 @@ public struct DaemonCapabilities: Sendable {
     /// with `DaemonIdentity.supports`, for remote and older daemons.
     public var optional: [String] { [workspaceGroups, workspaceMetadata, tabMetadata, frontendBrowserTabs, tabDrag,
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
-                                            terminalReap, terminalReaperActive, batchClose, closeReason, browserHostProvider, frontendBrowserActivate, frontendBrowserInsertAfter, loopbackForward, screenMetadata, screenGroups, profiles,
+                                            terminalReap, terminalReaperActive, batchClose, closeReason, browserHostProvider, frontendBrowserActivate, frontendBrowserInsertAfter, loopbackForward, browserRuntime, screenMetadata, screenGroups, profiles,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
                                             terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, workspacePin, notificationMarkUnread,
                                             terminalCommandJournal, dockColumns, edgeDocks, dockColumnRole, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, tabSplitRespawn, frontendBrowserHistory,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
-                                            workspaceKind, workspaceAgentFolder, conversationTabs, agentSessionTabs, agentSessionAttach, pageTabs, appScreens, conversationSearch, cloudConversations, localAttachments,
+                                            workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, pageTabs, appScreens, conversationSearch, conversationThreads, cloudConversations, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
                                             terminalClipboardRead, personalMixedOrder, sidebarLayout, paletteUsage, projectList, splitClientKeys,
-                                            workspaceGroupIcon, workspaceGroupPin, chiefInspect, feedLocalOwner] }
+                                            workspaceGroupIcon, workspaceGroupPin, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the
@@ -276,7 +286,7 @@ public struct DaemonCapabilities: Sendable {
     /// (DaemonCapabilityExportTests): new app features land with their
     /// daemon half, and check-daemon-capabilities.sh fails once the bundled
     /// daemon serves an entry, so it moves to `optional`.
-    public var unservedByBundledDaemon: [String] { [remoteTerminalTabs, detachedTerminals] }
+    public var unservedByBundledDaemon: [String] { [] }
 
     /// Whether the bundled daemon (this tree's cmux-tui) serves `capability`:
     /// a daemon without it is an older build, and restarting cmux updates it.

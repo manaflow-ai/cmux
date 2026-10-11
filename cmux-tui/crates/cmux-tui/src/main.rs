@@ -12,6 +12,8 @@ mod acp;
 mod agent_browser_provider;
 mod agent_hook_install;
 mod agent_plugin_config;
+#[cfg(unix)]
+mod agent_start_host;
 mod app;
 #[cfg(unix)]
 mod app_identity;
@@ -1768,6 +1770,12 @@ fn run_main() {
     #[cfg(unix)]
     let provider_token = CapturedProviderToken::capture();
     let provider_workspace_authority = CapturedProviderWorkspaceAuthority::capture();
+    if !args.attach {
+        // This process hosts terminals now (cx-4nar): an agent that started
+        // it must not mark a person's shells there as agent callers.
+        // SAFETY: still single-threaded startup, as for the captures above.
+        unsafe { startup_env::take_agent_caller_env() };
+    }
     let config = config::StartupConfigSnapshot::load();
     let provider = resolve_provider_launch(&args, &config)
         .unwrap_or_else(|error| usage_exit(&error.to_string()));
@@ -2399,6 +2407,10 @@ fn run_server(
     loopback_policy::install(&mux, loopback_forward_policy);
     #[cfg(unix)]
     mux.set_acpmux_socket(acp::daemon_socket_path());
+    #[cfg(unix)]
+    mux.set_acpmux_starter(acp::daemon_acpmux_starter());
+    #[cfg(unix)]
+    mux.set_agent_start_host(agent_start_host::source());
     let served_socket = pending_server.into_bound_path();
     mux.start_journal_plugin(served_socket.clone());
     let mut served_mux_cleanup = ServedMuxCleanup::new(mux.clone(), served_socket);
@@ -2775,6 +2787,9 @@ fn start_detached_owner_session(
             local_owner::EnsureError::WrongOwner => anyhow::bail!("{}", messages.wrong_owner),
             local_owner::EnsureError::DifferentSession => {
                 anyhow::bail!("{}", messages.different_session)
+            }
+            local_owner::EnsureError::DifferentState => {
+                anyhow::bail!("{}", messages.different_state)
             }
             local_owner::EnsureError::InvalidIdentity => {
                 anyhow::bail!("{}", messages.invalid_identity)

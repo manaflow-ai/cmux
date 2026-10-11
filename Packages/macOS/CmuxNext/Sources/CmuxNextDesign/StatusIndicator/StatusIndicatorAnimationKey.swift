@@ -4,6 +4,7 @@ extension StatusIndicatorPlan.Animation {
     var key: String {
         switch self {
         case .spin: "spin"
+        case .spinBackward: "spinBackward"
         case .step: "step"
         case .pulse: "pulse"
         case .frames: "frames"
@@ -14,6 +15,7 @@ extension StatusIndicatorPlan.Animation {
     init?(key: String) {
         switch key {
         case "spin": self = .spin
+        case "spinBackward": self = .spinBackward
         case "step": self = .step
         case "pulse": self = .pulse
         case "frames": self = .frames

@@ -69,7 +69,7 @@ const pair =
   scheme === "dark"
     ? { dark: theme, light: themeNamed(DEFAULT_LIGHT_THEME, DEFAULT_LIGHT_THEME) }
     : { dark: themeNamed(DEFAULT_DARK_THEME, DEFAULT_DARK_THEME), light: theme };
-const tokens = themeTokens(theme);
+const tokens = themeTokens(theme, env.accent);
 
 emulateMedia({
   "prefers-color-scheme": scheme,
@@ -83,7 +83,7 @@ bootstrap.textContent = webThemeBootstrap;
 document.head.append(bootstrap);
 bootstrap.remove();
 (window as unknown as { cmuxTheme: { apply(payload: unknown): void } }).cmuxTheme.apply(
-  webThemePayload(tokens, deriveAppTheme(theme)),
+  webThemePayload(tokens, deriveAppTheme(theme, env.accent)),
 );
 // Interface scale: the app sets WKWebView.pageZoom (DesignSettings.uiScale).
 if (env.scale !== 1) root.style.zoom = String(env.scale);

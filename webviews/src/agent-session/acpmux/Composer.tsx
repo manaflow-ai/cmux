@@ -1049,7 +1049,13 @@ function AttachmentChip({
     );
   }
   if (attachment.kind === "document" && attachment.data) {
-    return <PdfAttachmentChip attachment={attachment} remove={remove} codex={codex} />;
+    return (
+      <PdfAttachmentChip
+        attachment={{ ...attachment, kind: "document", data: attachment.data }}
+        remove={remove}
+        codex={codex}
+      />
+    );
   }
   return (
     <div className="acpmux-attachment acpmux-attachment-file" title={attachment.name}>
@@ -1192,7 +1198,7 @@ function SlashMenu({
   if (matches.length === 0)
     return (
       <div
-        className="acpmux-slash-menu acpmux-slash-empty"
+        className="ui-popup acpmux-slash-menu acpmux-slash-empty"
         id="acpmux-slash-menu"
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
         role="listbox"
@@ -1204,7 +1210,7 @@ function SlashMenu({
   return (
     <div
       ref={list}
-      className="acpmux-slash-menu"
+      className="ui-popup acpmux-slash-menu"
       id="acpmux-slash-menu"
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
       role="listbox"

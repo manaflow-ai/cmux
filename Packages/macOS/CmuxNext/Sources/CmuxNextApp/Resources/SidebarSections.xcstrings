@@ -1445,10 +1445,130 @@
     "sidebarSections.noBottomArea": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يحتوي الشريط الجانبي على منطقة سفلية؛ توضع الأقسام فوق مساحات العمل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "bočna traka nema donji dio; odjeljci idu iznad radnih prostora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "sidepanelet har intet nederste område; sektioner placeres over arbejdsområderne"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "die Seitenleiste hat keinen unteren Bereich; Abschnitte stehen über den Arbeitsbereichen"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "the sidebar has no bottom area; sections go above the workspaces"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "la barra lateral no tiene zona inferior; las secciones van encima de los espacios de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "la barre latérale n’a pas de zone inférieure ; les sections se placent au-dessus des espaces de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "la barra laterale non ha un’area inferiore; le sezioni vanno sopra gli spazi di lavoro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サイドバーには下部エリアがありません。セクションはワークスペースの上に置かれます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "របារចំហៀងគ្មានតំបន់ខាងក្រោមទេ។ ផ្នែកនានាដាក់នៅខាងលើកន្លែងធ្វើការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사이드바에는 하단 영역이 없습니다. 섹션은 작업 공간 위에 놓입니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "sidefeltet har ikke noe nederste område; seksjoner plasseres over arbeidsområdene"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "pasek boczny nie ma dolnego obszaru; sekcje trafiają nad obszary robocze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "a barra lateral não tem área inferior; as seções ficam acima dos espaços de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "у боковой панели нет нижней области; разделы располагаются над рабочими пространствами"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แถบด้านข้างไม่มีพื้นที่ด้านล่าง ส่วนต่างๆ จะอยู่เหนือพื้นที่ทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "kenar çubuğunun alt alanı yok; bölümler çalışma alanlarının üstüne gider"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "бічна панель не має нижньої області; розділи розміщуються над робочими просторами"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "thanh bên không có vùng dưới cùng; các mục nằm phía trên không gian làm việc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "边栏没有底部区域；分区位于工作区上方"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "側邊欄沒有底部區域；區段位於工作區上方"
           }
         }
       }

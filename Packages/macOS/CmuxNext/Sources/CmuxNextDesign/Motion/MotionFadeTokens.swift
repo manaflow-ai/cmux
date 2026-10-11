@@ -2,8 +2,12 @@ public import Foundation
 
 /// Timed opacity and color changes (ease-out).
 public nonisolated enum MotionFade: String, Sendable, CaseIterable {
-    /// Hover fills and hover-revealed buttons.
+    /// Hover and pressed fills easing in, and hover-revealed buttons.
     case hover
+    /// Hover and pressed fills clearing (`ChromeHover.fade(to:)`). 0, so
+    /// instant, by default, as in Edge: a fast sweep down a list leaves no
+    /// trail. Under Reduce Motion both hover tokens are instant.
+    case hoverOut
     /// Focus ring and inactive-pane dim.
     case focus
     /// A view or panel fades in.

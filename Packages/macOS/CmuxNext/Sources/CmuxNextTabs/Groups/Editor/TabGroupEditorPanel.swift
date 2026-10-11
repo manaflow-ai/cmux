@@ -48,6 +48,11 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     private var saveRow: TabGroupEditorRow?
     private var group: TabGroupItem?
     private var dismissing = false
+    /// The chip the editor opened from (screen coordinates), where it closes to.
+    private var anchor: CGRect = .zero
+    /// Bumped by every open and close, so a finished close that a reopen and
+    /// a second close overtook leaves the panel to the newer close.
+    private var generation = 0
 
     init() {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
@@ -166,7 +171,11 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     }
 
     func present(below anchor: CGRect, parent: NSWindow) {
+        let reopening = dismissing && isVisible
         dismissing = false
+        ignoresMouseEvents = false
+        self.anchor = anchor
+        generation += 1
         if self.parent !== parent {
             self.parent?.removeChildWindow(self)
             parent.addChildWindow(self, ordered: .above)
@@ -180,11 +189,11 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
             origin.y = max(origin.y, visible.minY + Metrics.space2)
         }
         setFrame(PopupStyle.standard.windowFrame(forCard: CGRect(origin: origin, size: size)), display: true)
-        alphaValue = 0
+        if !reopening { alphaValue = 0 }
         makeKeyAndOrderFront(nil)
         makeFirstResponder(nameField)
         styleFieldEditor()
-        Motion.animateTimed(.fadeIn, in: contentView) { animator().alphaValue = 1 }
+        openPopup(pivot: popupPivot(toward: anchor))
     }
 
     /// Gray selection and caret: the system accent (blue) never shows in chrome.
@@ -200,9 +209,20 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         guard !dismissing, isVisible else { return }
         dismissing = true
         commitName()
-        parent?.removeChildWindow(self)
-        orderOut(nil)
+        ignoresMouseEvents = true
+        // The keys go back to the window under it now, not when the fade ends.
+        makeFirstResponder(nil)
+        if isKeyWindow, let parent, parent.isVisible { parent.makeKey() }
         onClose?()
+        generation += 1
+        let closing = generation
+        closePopup(pivot: popupPivot(toward: anchor)) { [weak self] in
+            // A reopen during the close keeps the panel.
+            guard let self, self.dismissing, self.generation == closing else { return }
+            self.parent?.removeChildWindow(self)
+            self.orderOut(nil)
+            self.resetPopupScale()
+        }
     }
 
     override func resignKey() {

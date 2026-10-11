@@ -262,6 +262,268 @@
           }
         }
       }
+    },
+    "windowHints.refusal.preview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Click by Hint is a preview feature: turn on labs.previewFeatures in cmux.json."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "النقر عبر التلميح ميزة تجريبية: فعّل labs.previewFeatures في cmux.json."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klik preko oznake je funkcija u pregledu: uključite labs.previewFeatures u cmux.json."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klik via hint er en prøvefunktion: slå labs.previewFeatures til i cmux.json."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Per Hinweis klicken ist eine Vorschaufunktion: Aktiviere labs.previewFeatures in cmux.json."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hacer clic por pista es una función en vista previa: activa labs.previewFeatures en cmux.json."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cliquer par indice est une fonctionnalité en aperçu : activez labs.previewFeatures dans cmux.json."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clic tramite suggerimento è una funzione in anteprima: attiva labs.previewFeatures in cmux.json."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ヒントでクリックはプレビュー機能です。cmux.json で labs.previewFeatures をオンにしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចុចតាមស្លាកសញ្ញា ជាមុខងារសាកល្បង៖ បើក labs.previewFeatures នៅក្នុង cmux.json។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "힌트로 클릭은 미리 보기 기능입니다. cmux.json에서 labs.previewFeatures를 켜세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klikk via hint er en forhåndsvisningsfunksjon: slå på labs.previewFeatures i cmux.json."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kliknij przez podpowiedź to funkcja w wersji zapoznawczej: włącz labs.previewFeatures w cmux.json."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clicar por dica é um recurso em prévia: ative labs.previewFeatures no cmux.json."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Нажать по подсказке» — функция предварительного просмотра: включите labs.previewFeatures в cmux.json."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คลิกด้วยคำใบ้เป็นฟีเจอร์ตัวอย่าง: เปิด labs.previewFeatures ใน cmux.json"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İpucuyla tıkla bir önizleme özelliğidir: cmux.json içinde labs.previewFeatures ayarını açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Натиснути за підказкою» — функція попереднього перегляду: увімкніть labs.previewFeatures у cmux.json."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhấp theo gợi ý là tính năng xem trước: hãy bật labs.previewFeatures trong cmux.json."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按提示点击是预览功能：请在 cmux.json 中开启 labs.previewFeatures。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依提示點按是預覽功能：請在 cmux.json 中開啟 labs.previewFeatures。"
+          }
+        }
+      }
+    },
+    "windowHints.refusal.nothing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing to click in this window."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوجد ما يمكن النقر عليه في هذه النافذة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "U ovom prozoru nema ništa za kliknuti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Intet at klikke på i dette vindue."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In diesem Fenster gibt es nichts zum Klicken."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay nada en lo que hacer clic en esta ventana."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rien à cliquer dans cette fenêtre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niente da cliccare in questa finestra."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このウインドウにはクリックできる項目がありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានអ្វីត្រូវចុចនៅក្នុងបង្អួចនេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 윈도우에는 클릭할 항목이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingenting å klikke på i dette vinduet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "W tym oknie nie ma nic do kliknięcia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nada para clicar nesta janela."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В этом окне нечего нажимать."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีสิ่งใดให้คลิกในหน้าต่างนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu pencerede tıklanacak bir şey yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У цьому вікні нічого натискати."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có gì để nhấp trong cửa sổ này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此窗口中没有可点击的内容。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此視窗中沒有可點按的項目。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

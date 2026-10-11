@@ -10,6 +10,9 @@ public enum RemoteInstallError: Error, Hashable, Sendable {
     /// The machine has neither curl nor wget.
     case noDownloader
     case downloadFailed(String)
+    /// The bundled commit has no manifest and its cmux-tui tree (this key)
+    /// is not published either, so no matching build exists to install.
+    case treeNotPublished(key: String)
     /// The downloaded binary does not run there (`remote-probe` failed).
     case unrunnable(String)
     case notWritable(String)

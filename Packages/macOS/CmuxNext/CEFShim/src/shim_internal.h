@@ -86,6 +86,9 @@ struct ForkApi {
   int (*password_set_username)(const char*, const char*, const char*, void (*)(void*, int), void*) = nullptr;
   int (*password_reveal)(const char*, const char*, void (*)(void*, const char*, size_t), void*) = nullptr;
   int (*password_export)(const char*, const char*, void (*)(void*, int), void*) = nullptr;
+  // API version 22: the chrome.bookmarks bridge (shim_bookmarks.mm).
+  int (*bookmarks_observe)(const char*, void (*)(void*, const char*), void*) = nullptr;
+  int (*bookmarks_sync)(const char*, const char*) = nullptr;
 };
 
 struct Host {
@@ -129,6 +132,12 @@ void ForgetDevToolsProtocol(int browser_id);
 // Profile preference watches (shim_prefs.mm, UI thread).
 void ForgetPreferenceWatches(const std::string& key);
 void ReleasePreferenceWatches();
+
+// Bookmark watches (shim_bookmarks.mm, UI thread): one per initialized
+// persistent profile, forwarded as CMUX_SHIM_BOOKMARKS_EVENT.
+void WatchBookmarks(const std::string& key);
+void ForgetBookmarkWatch(const std::string& key);
+void ReleaseBookmarkWatches();
 
 // cmux-page:// (shim_page_scheme.mm). Registers every page added so far on
 // `context` (each profile keeps its own scheme handler factories).

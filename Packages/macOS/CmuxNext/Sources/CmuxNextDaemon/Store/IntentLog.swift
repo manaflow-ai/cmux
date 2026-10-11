@@ -18,8 +18,9 @@ enum IntentUndo: Equatable {
     case createdTab(surface: SurfaceID, pane: PaneID)
     /// The tab's record before a session bind.
     case tabSnapshot(surface: SurfaceID, previous: TabSnapshot)
-    /// The screen's split tree and columns before a provisional split, and the provisional pane.
-    case splitPane(screen: ScreenID, layout: LayoutNode, columns: [ColumnSnapshot], pane: PaneID)
+    /// The screen's split tree and columns before a provisional split, and the provisional pane
+    /// (nil when the split placed the daemon's pane, which the records already list).
+    case splitPane(screen: ScreenID, layout: LayoutNode, columns: [ColumnSnapshot], pane: PaneID?)
 }
 
 struct PendingIntent {
@@ -38,6 +39,9 @@ struct PendingIntent {
     /// A create intent whose reply named the daemon's tab: once the records hold that surface,
     /// the provisional tab is no longer shown.
     var createdSurface: SurfaceID?
+    /// Due, but what it shows has not reached the daemon's records yet (a split's pane, cx-ry0y):
+    /// it leaves the log once they hold it, or with the next snapshot.
+    var awaitsRecords = false
 }
 
 /// The ordered log of pending intents. Pure bookkeeping: the store applies
@@ -89,16 +93,34 @@ struct IntentLog {
         return entries.remove(at: index)
     }
 
+    /// Whether a settlement would remove anything now. An intent awaiting the records leaves on
+    /// the apply that brings them, never on a settlement by itself.
     func hasDue(appliedSequence: UInt64) -> Bool {
-        entries.contains { Self.isDue($0, appliedSequence: appliedSequence, snapshot: false) }
+        entries.contains { !$0.awaitsRecords && Self.isDue($0, appliedSequence: appliedSequence, snapshot: false) }
     }
 
     /// Removes the intents whose settle sequence the store reached (and,
-    /// after a snapshot, those waiting for one).
-    mutating func removeDue(appliedSequence: UInt64, snapshot: Bool = false) -> [PendingIntent] {
-        let due = entries.filter { Self.isDue($0, appliedSequence: appliedSequence, snapshot: snapshot) }
-        guard !due.isEmpty else { return [] }
-        entries.removeAll { Self.isDue($0, appliedSequence: appliedSequence, snapshot: snapshot) }
+    /// after a snapshot, those waiting for one). A due intent whose result
+    /// the records do not show yet (`awaiting`) stays until they do, so its
+    /// undo and the daemon's result land in one apply; a snapshot removes it
+    /// regardless, as it holds everything the daemon did.
+    mutating func removeDue(appliedSequence: UInt64, snapshot: Bool = false,
+                            awaiting: (PendingIntent) -> Bool = { _ in false }) -> [PendingIntent] {
+        var due: [PendingIntent] = []
+        var kept: [PendingIntent] = []
+        for var entry in entries {
+            guard entry.awaitsRecords || Self.isDue(entry, appliedSequence: appliedSequence, snapshot: snapshot) else {
+                kept.append(entry)
+                continue
+            }
+            if !snapshot, awaiting(entry) {
+                entry.awaitsRecords = true
+                kept.append(entry)
+            } else {
+                due.append(entry)
+            }
+        }
+        entries = kept
         for intent in due { noteSettled(intent.transaction) }
         return due
     }

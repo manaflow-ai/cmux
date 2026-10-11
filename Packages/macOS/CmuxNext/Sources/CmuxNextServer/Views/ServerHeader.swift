@@ -1,3 +1,4 @@
+import CmuxNextIcons
 import SwiftUI
 
 /// A small state dot.
@@ -35,8 +36,7 @@ struct ServerHeader: View {
     var body: some View {
         let label = OverallLabel(model.overall, colors: colors)
         HStack(spacing: 10) {
-            Image(systemName: model.snapshot?.platform == .macOS ? "macmini" : "server.rack")
-                .font(.system(size: 17, weight: .regular))
+            Icon(model.snapshot?.platform == .macOS ? .machineMac : .machineRemote, size: 18)
                 .foregroundStyle(colors.secondary)
                 .frame(width: 26)
             VStack(alignment: .leading, spacing: 2) {

@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextTabs
@@ -26,7 +27,7 @@ final class AgentTabStore {
     private let renderRate: AgentPaneRenderRate
     /// `~/.config/cmux/agent-pane/` hot reload, watched while any agent tab
     /// has a view.
-    private let customization: AgentPaneCustomizationWatcher
+    let customization: AgentPaneCustomizationWatcher
     /// The store record of agent tab `key` and the tree that lists it; nil for any other tab
     /// (AppServices looks in every machine's tree).
     var lookup: @MainActor (String) -> (record: AgentSessionRef, store: DaemonStore)? = { _ in nil }
@@ -56,12 +57,9 @@ final class AgentTabStore {
         -> (outcome: AgentSessionBindOutcome, sequence: UInt64?) = { _, _, _, _ in (.taken, nil) }
     /// Whether `daemon` is connected now: a disconnected owner refuses changes, nothing queues.
     var reachable: @MainActor (DaemonService) -> Bool = { $0.connection != nil }
-    /// Saves `path` as the agent folder of `workspace` (tab `key`'s), on the tab's daemon.
-    var persistAgentFolder: @MainActor (_ key: String, _ workspace: ResourceID, _ path: String) async -> AgentPaneFolderChoice = { _, _, _ in
-        .unavailable(AgentPaneFolderChoice.notSavedMessage)
-    }
-    /// Whether tab `key`'s daemon serves `workspace-agent-folder-v1`.
-    var servesAgentFolder: @MainActor (_ key: String) -> Bool = { _ in false }
+    /// Tab `key`'s daemon: where its workspace's agent folder is saved and where the store answers
+    /// where its new chats start (cx-9aps). Nil while the tab is not found.
+    var daemonForTab: @MainActor (_ key: String) -> DaemonService? = { _ in nil }
     /// Tabs closed while the store was still creating them: closed when it answers.
     var pendingCloses: [String: @MainActor (String) -> Void] = [:]
     /// This Mac's name for other Macs that show its tabs ("This chat runs on <name>"): at most
@@ -182,7 +180,7 @@ final class AgentTabStore {
         shortcuts = AgentPaneShortcuts.read(registry)
         // Rebinds in Settings or cmux.json reach every open page.
         shortcutObservation = Task { [weak self] in
-            for await value in Observations({ AgentPaneShortcuts.read(registry) }) {
+            for await value in ObservationStream({ AgentPaneShortcuts.read(registry) }) {
                 guard let self else { return }
                 shortcuts = value
                 for view in views.values { view.shortcuts = value }
@@ -337,11 +335,6 @@ final class AgentTabStore {
         model.onOpenChat = { [weak self] key in self?.pageChats.open?(key) }
         model.onOpenChatInTerminal = { [weak self] key in self?.pageChats.openInTerminal?(key) }
         model.onChatsPage = { [weak self] query in await self?.pageChats.page?(query) }
-        model.onImportAndSync = { [weak self] in
-            guard let self else { return }
-            if let page = newTabPages[resolve(provisional)] { page.handler.importAndSync() }
-            else { _ = actionRegistry?.perform("palette.welcomeChecklist", invocation: ActionInvocation(origin: .user)) }
-        }
         model.onAppAction = { [weak self] id in
             guard let self else { return }
             newTabPages[resolve(provisional)]?.handler.action(id)
@@ -362,7 +355,7 @@ final class AgentTabStore {
         view.customization = customization.current
         view.shortcuts = shortcuts
         pageSettings.apply(to: NewTabOmnibar.installed(on: view))
-        view.deviceChats = pageChats.chats
+        pageChats.seed(view)
         model.onShowContextUsage = { [weak pageSettings] show in try await pageSettings?.setShowContextUsage(show) }
         customization.start()
         return view

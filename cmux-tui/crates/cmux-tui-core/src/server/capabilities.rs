@@ -20,6 +20,10 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     if mux.serves_agent_session_attach() {
         capabilities.push(AGENT_SESSION_ATTACH_CAPABILITY);
     }
+    #[cfg(unix)]
+    if mux.serves_agent_session_start() {
+        capabilities.push(AGENT_SESSION_START_CAPABILITY);
+    }
     if mux.terminal_reaper_running() {
         capabilities.push(TERMINAL_REAPER_ACTIVE_CAPABILITY);
     }
@@ -79,6 +83,7 @@ pub(super) fn advertised_capabilities(
         TERMINAL_PLACEMENT_ENV_CAPABILITY,
         WORKSPACE_GROUPS_CAPABILITY,
         WORKSPACE_METADATA_CAPABILITY,
+        AGENT_PRESENCE_CAPABILITY,
         WORKSPACE_PIN_CAPABILITY,
         NOTIFICATION_MARK_UNREAD_CAPABILITY,
         TAB_METADATA_CAPABILITY,
@@ -98,9 +103,11 @@ pub(super) fn advertised_capabilities(
         PERSONAL_TERMINALS_CAPABILITY,
         BROWSER_PROFILES_CAPABILITY,
         BOOKMARKS_CAPABILITY,
+        crate::mux::settings::SETTINGS_CAPABILITY,
         crate::mux::feed_local::FEED_LOCAL_OWNER_CAPABILITY,
         conversations::LOCAL_CONVERSATIONS_CAPABILITY,
         conversations::CONVERSATION_SEARCH_CAPABILITY,
+        conversations::CONVERSATION_THREADS_CAPABILITY,
         crate::conversation_store::attachments::LOCAL_ATTACHMENTS_CAPABILITY,
         SCREEN_METADATA_CAPABILITY,
         SCREEN_GROUPS_CAPABILITY,
@@ -114,9 +121,11 @@ pub(super) fn advertised_capabilities(
         TERMINAL_STATE_CAPABILITY,
         FRONTEND_BROWSER_OWNER_CAPABILITY,
         crate::state::frontend_browser_keys::FRONTEND_BROWSER_TAB_KEYS_CAPABILITY,
+        crate::launch_credential::LAUNCH_CREDENTIAL_CAPABILITY,
         crate::state::home_store::WORKSPACE_KIND_CAPABILITY,
         crate::state::app_workspaces::APP_SCREENS_CAPABILITY,
         crate::state::agent_folder::CAPABILITY,
+        crate::state::agent_start::CAPABILITY,
         crate::state::personal_order::PERSONAL_MIXED_ORDER_CAPABILITY,
         crate::state::personal::WORKSPACE_GROUP_ICON_CAPABILITY,
         crate::state::personal::WORKSPACE_GROUP_PIN_CAPABILITY,
@@ -126,6 +135,8 @@ pub(super) fn advertised_capabilities(
         crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY,
         crate::state::conversation_tabs_store::AGENT_SESSION_TABS_CAPABILITY,
         crate::state::conversation_tabs_store::PAGE_TABS_CAPABILITY,
+        crate::state::remote_terminal_tabs_store::REMOTE_TERMINAL_TABS_CAPABILITY,
+        detached_terminals::DETACHED_TERMINALS_CAPABILITY,
         close_tabs_command::CLOSE_REASON_CAPABILITY,
         conversation_tabs_wire::CONVERSATION_TAB_TRANSACTION_CAPABILITY,
         crate::git_ops::CHECKPOINTS_CAPABILITY,

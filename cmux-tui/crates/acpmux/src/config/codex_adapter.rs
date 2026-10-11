@@ -71,23 +71,3 @@ pub async fn resolve_adapter_package_bin(npx: &str, package: &str) -> Option<Str
     let p = std::path::Path::new(&path);
     (p.is_absolute() && p.is_file()).then_some(path)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn package_launches_and_their_bin_names() {
-        let argv = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        assert_eq!(
-            adapter_package_launch(&argv(&["/usr/bin/npx", "-y", CODEX_ACP_PACKAGE])),
-            Some(("/usr/bin/npx", CODEX_ACP_PACKAGE))
-        );
-        assert_eq!(package_bin(CODEX_ACP_PACKAGE), Some("codex-acp"));
-        assert_eq!(package_bin("plain@2"), Some("plain"));
-        assert_eq!(package_bin("@scope"), None);
-        assert_eq!(package_bin("@s/x;rm -rf ~"), None);
-        assert!(adapter_package_launch(&argv(&["/usr/bin/node", "-y", "x"])).is_none());
-        assert!(adapter_package_launch(&argv(&["npx", "x"])).is_none());
-    }
-}

@@ -3634,15 +3634,23 @@ fn create_live_terminal_host_record(root: &std::path::Path) -> fs::File {
     live_file
 }
 
+/// A directory no other test of this process gets. The clock alone is not enough: macOS reports
+/// microseconds, so two tests that start a daemon of the same name at once got one state dir, and
+/// the second daemon found the session lock held (cx-ebm.58: the chief_pipe tests, 2 of 3 runs).
 fn unique_temp_dir(name: &str) -> PathBuf {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-    PathBuf::from("/tmp").join(format!("cmux-cli-{name}-{}-{stamp}", std::process::id()))
+    PathBuf::from("/tmp").join(format!("cmux-cli-{name}-{}-{stamp}-{n}", std::process::id()))
 }
 
 fn bin() -> &'static str {
     env!("CARGO_BIN_EXE_cmux-tui")
 }
 
+#[cfg(unix)]
+#[path = "cli/agent_session_start.rs"]
+mod agent_session_start;
 #[cfg(unix)]
 #[path = "cli/all_sessions_scope.rs"]
 mod all_sessions_scope;
@@ -3655,13 +3663,24 @@ mod chief;
 #[path = "cli/closed_delete.rs"]
 mod closed_delete;
 #[cfg(unix)]
+#[path = "cli/conversation_threads.rs"]
+mod conversation_threads;
+#[cfg(unix)]
+#[path = "cli/explicit_socket.rs"]
+mod explicit_socket;
+#[cfg(unix)]
 #[path = "cli/feed_local.rs"]
 mod feed_local;
+#[path = "cli/launch_credential.rs"]
+mod launch_credential;
 #[cfg(unix)]
 #[path = "cli/left_dock_undock.rs"]
 mod left_dock_undock;
 #[path = "cli/lone_width.rs"]
 mod lone_width;
+#[cfg(unix)]
+#[path = "cli/settings_owner.rs"]
+mod settings_owner;
 #[cfg(unix)]
 #[path = "cli/wg_hub.rs"]
 mod wg_hub;

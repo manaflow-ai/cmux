@@ -245,6 +245,7 @@ impl HostedReader {
                 if !reconnect_mux.terminal_host_connection_lost(surface.id, &identity) {
                     pty.host_connection_state
                         .store(TerminalHostConnectionState::Failed as u8, Ordering::Release);
+                    pty.stream_progress.notify();
                     return None;
                 }
                 if !retry.wait_or_fail(pty) {

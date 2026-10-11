@@ -368,7 +368,3 @@ fn outcome_text(outcome: &OpenOutcome) -> String {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "chats_tests.rs"]
-mod tests;

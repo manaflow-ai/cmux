@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextTabs
 import CmuxNextWakeups
@@ -34,6 +35,9 @@ final class PaneContentView: NSView, PaneContentChrome {
         didSet { if barPosition != oldValue { updateBand() } }
     }
     private var placementObservation: Task<Void, Never>?
+    /// The acting agent's name tag (`PaneContentView+AgentTag`).
+    let agentTag = AgentPresenceTagView()
+    private var agentTagObservation: Task<Void, Never>?
     /// No strip: the chat dock or a lone chat with one tab (``ChatDockChrome``).
     var hidesStrip = false {
         didSet {
@@ -80,15 +84,16 @@ final class PaneContentView: NSView, PaneContentChrome {
         stripScope.root(stripView)
         reveal.hold(stripView, until: .tabs)
         reveal.hold(contentHost, until: .pane)
+        agentTagObservation = observeAgentTag(stripModel)
         themeDidChange()
         tokenObservation = Task { [weak self] in
-            for await _ in Observations({ PaneChromeMetrics.current }) {
+            for await _ in ObservationStream({ PaneChromeMetrics.current }) {
                 self?.needsLayout = true
                 self?.refreshBandHeight()
             }
         }
         placementObservation = Task { [weak self] in
-            for await (position, order) in Observations({ (DesignSettings.shared.tabBarPosition, DesignSettings.shared.tabBarOrder) }) {
+            for await (position, order) in ObservationStream({ (DesignSettings.shared.tabBarPosition, DesignSettings.shared.tabBarOrder) }) {
                 self?.barPosition = position
                 self?.barOrder = order
             }
@@ -98,9 +103,14 @@ final class PaneContentView: NSView, PaneContentChrome {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    isolated deinit {
-        tokenObservation?.cancel()
-        placementObservation?.cancel()
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            tokenObservation?.cancel()
+            placementObservation?.cancel()
+            agentTagObservation?.cancel()
+        }
     }
 
 
@@ -125,6 +135,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         // bounds so Ghostty and its find/glass overlays get a real first
         // layout pass instead of staying at width zero.
         if let content, content.frame != contentHost.bounds { content.frame = contentHost.bounds }
+        layoutAgentTag()
         if hostChanged { onResize?() }
     }
 
@@ -240,11 +251,23 @@ final class PaneContentView: NSView, PaneContentChrome {
         // here, and the keyboard it held goes to what shows now.
         if let leaving { retire(leaving) }
         if let inner = innerChrome {
-            // A toolbar or bookmarks bar height change moves the strip and
-            // the content: lay out again, then report (v4 review b).
+            // A toolbar or bookmarks bar height change only reshapes the
+            // pane's rounded area and ring. It arrives from the browser
+            // chrome's own layout(): this pane's frames do not depend on it
+            // (a pinned strip follows its band constraints), so no layout of
+            // this ancestor is requested from inside that pass.
             inner.onPaneHeaderHeightChange = { [weak self] in
-                self?.needsLayout = true
-                self?.reportHeaderIfChanged()
+                guard let self else { return }
+                self.reportHeaderIfChanged()
+                // A strip pinned to the browser's band follows the band's
+                // guide: one more layout of this pane, asked for after the
+                // window's pass, never from inside the browser's layout.
+                guard self.isBandActive else { return }
+                if let window = self.window as? ShellWindow {
+                    window.afterLayoutPass { [weak self] in self?.needsLayout = true }
+                } else {
+                    self.needsLayout = true
+                }
             }
         }
         applyCornerRadius()

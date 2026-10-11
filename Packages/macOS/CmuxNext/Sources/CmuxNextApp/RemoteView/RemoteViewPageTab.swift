@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextIcons
 import CmuxNextRemoteView
 import Foundation
 import Observation
@@ -23,7 +24,7 @@ final class RemoteViewPageTab: BrowserTab {
     let profileID: BrowserProfileID
     let presentation: BrowserPresentation = .inView
     private(set) var state: BrowserTabState
-    let favicon: NSImage? = NSImage(systemSymbolName: "display", accessibilityDescription: nil)
+    let favicon: NSImage? = NSImage.icon(.remoteDisplay, size: 16)
     let pendingPrompts: [BrowserPrompt] = []
     @ObservationIgnored weak var delegate: (any BrowserTabDelegate)?
     @ObservationIgnored weak var keyRouter: (any BrowserKeyRouting)?
@@ -61,7 +62,21 @@ final class RemoteViewPageTab: BrowserTab {
             session = nil
             contentView = RemoteViewUnavailableView(content: .unavailable(reason))
         }
+        #if DEBUG
+        Self.live.add(self)
+        #endif
     }
+
+    #if DEBUG
+    /// Every live remote view tab, for `debug.remote_view` (weak).
+    static let live = NSHashTable<RemoteViewPageTab>.weakObjects()
+
+    /// The Connect button of a tab that asks first; nil for any other tab.
+    var debugConnect: (() -> Void)? { (contentView as? RemoteViewUnavailableView)?.onConnect }
+
+    /// The tab's session, when it streams (development path or mock).
+    var debugSession: RemoteViewPageSession? { session }
+    #endif
 
     func load(_ url: URL) {
         if RemoteViewTabRecord.matches(url) { return }

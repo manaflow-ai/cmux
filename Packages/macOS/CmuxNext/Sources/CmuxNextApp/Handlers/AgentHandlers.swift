@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -203,7 +204,7 @@ enum AgentHandlers {
         if let pane = context.scope(invocation).pane { return open(pane) }
         guard invocation.target == nil else { return context.refuse(MiscHandlerStrings.noPane) }
         guard let workspace = context.scope(invocation).workspace else { return context.refuse(MiscHandlerStrings.noPane) }
-        _ = context.registry.perform("newTab.sameKind", invocation: invocation)
+        _ = context.registry.perform("newTab.default", invocation: invocation)
         context.registry.track(Task { @MainActor in
             let pane = try? await ControlDeadline.shared.run(
                 method: "agent-pane.mount",
@@ -228,7 +229,7 @@ enum AgentHandlers {
         func mounted() -> PaneController? {
             workspace.screens.flatMap(\.panes).lazy.compactMap(services.paneController(for:)).first
         }
-        for await isMounted in Observations({ () -> Bool in
+        for await isMounted in ObservationStream({ () -> Bool in
             _ = services.paneMounts.generation
             return mounted() != nil
         }) where isMounted {
@@ -237,23 +238,44 @@ enum AgentHandlers {
         return nil
     }
 
-    /// A person's New Agent Chat (Cmd-I, the menu, the palette) opens the one New Tab page, the
-    /// same screen as Cmd-T and Cmd-N (Lawrence 2026-10-10, cx-n0i9: "we need just the one screen
-    /// for new tab"): a new workspace on the New Tab page, through New Workspace itself, so its
-    /// placement and page match Cmd-N. The page lists every chat; a prompt there starts one.
-    /// Cmd-I again while an untouched New Tab page is focused keeps that page (no second
-    /// workspace, no other screen). Scripts, an explicit target and a daemon that cannot hold
-    /// the page get a chat tab in `pane`: false.
+    /// A person's New Agent Chat (Cmd-I, the menu, the palette) opens a new
+    /// workspace whose only tab is the chat, like a new thread in the Codex
+    /// and Claude apps (lawrence-call-1006 D): always that one screen, never
+    /// the New Tab page (Leo 2026-10-10, cx-9z3j; Cmd-T and Cmd-N open the
+    /// page). The chat inherits the focused tab's cwd and draft as a tab
+    /// would. Scripts, an explicit target and a daemon that cannot hold a chat
+    /// get a tab in `pane`: false.
     private static func openNewAgentChatWorkspace(from pane: PaneController, invocation: ActionInvocation,
                                                   context: AppActionContext) -> Bool {
         let services = context.services
-        guard invocation.origin == .user, invocation.target == nil, services.agentTabs.canHost(on: pane.daemon) else { return false }
-        if let key = pane.currentTabKey, services.agentTabs.isNewTabPage(key),
-           let model = services.agentTabs.existingView(key)?.model, !model.userTouched {
+        guard invocation.origin == .user, invocation.target == nil, services.agentTabs.canHost(on: pane.daemon),
+              let windowID = context.activeWindow?.state.id else { return false }
+        // Cmd-I again on a chat that has not started yet (loaded, untouched, no prompt sent):
+        // that chat is the one target, already on screen. It takes the keyboard; no second
+        // workspace, page load, loading mark or repaint (cx-vurv).
+        if let model = pane.currentTabKey.flatMap({ services.agentTabs.existingView($0) })?.model, model.sessionId == nil, model.newTab == nil,
+           model.hasHandshake, !model.userTouched, model.transport.sessions.isUnstarted {
             services.windowController(showing: pane)?.focus.send(.focusPane(pane.paneKey, source: .intent))
             return true
         }
-        return context.registry.perform("newTab", invocation: ActionInvocation(origin: .user))
+        let folder = pane.selectedTab?.cwd
+        services.newTabKinds.record(.agent, folder: folder)
+        let source = pane.agentSeedFromSelectedTab()
+        let daemon = pane.daemon
+        context.registry.track(Task { @MainActor in
+            var seed = await source?.take() ?? AgentPaneSeed()
+            seed.cwd = seed.cwd ?? folder
+            var spawn = WorkspaceSpawn(cwd: seed.cwd)
+            spawn.firstChat = seed
+            do {
+                _ = try await services.windows.createWorkspace(spawn, on: daemon, into: windowID)
+                return nil
+            } catch {
+                daemon.logger.error("new agent chat workspace failed: \(String(describing: error), privacy: .public)")
+                return ActionWorkFailure("new agent chat: \(error)")
+            }
+        })
+        return true
     }
 
     private static func openNewAgentChat(in pane: PaneController, invocation: ActionInvocation, context: AppActionContext) {
@@ -283,6 +305,12 @@ enum AgentHandlers {
         let line = command + "\n"
         let logger = context.daemon.logger
         let repair = context.services.emptyWorkspaces
+        // A fork into a new workspace is placed like Cmd-N: in the current group (cx-caoh).
+        let key = WorkspaceKey.generate()
+        if placement == .newWorkspace {
+            let windows = context.services.windows
+            NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: NewWorkspacePlacements.rule(for: nil, in: windows), windows: windows)
+        }
         Task {
             do {
                 let surface: SurfaceID?
@@ -298,7 +326,6 @@ enum AgentHandlers {
                 case .newTab:
                     surface = try await connection.newTab(in: handle, options: options).surface
                 case .newWorkspace:
-                    let key = WorkspaceKey.generate()
                     workspace = key
                     surface = try await WorkspaceCreation.create(key, name: nil, on: connection, repair: repair) { created in
                         try await connection.createTerminal(in: created, cwd: options.cwd).surface

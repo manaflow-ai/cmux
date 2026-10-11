@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// Fills `BrowserChromeView.extensionSlot` with the pinned extension
 /// actions of the bound tab in Chromium's order (icon plus native
@@ -25,7 +26,7 @@ final class ExtensionActionToolbar {
     private var observation: ObservationLoop?
     private var buttons: [String: ExtensionActionButton] = [:]
     private(set) lazy var puzzle: ChromeIconButton = {
-        let button = ChromeIconButton(symbol: "puzzlepiece.extension", label: Strings.extensions,
+        let button = ChromeIconButton(icon: .extension, label: Strings.extensions,
                                       action: #selector(MenuTrampoline.fire), target: trampoline, toolbar: true)
         button.setAccessibilityIdentifier(Identifier.menuButton)
         return button
