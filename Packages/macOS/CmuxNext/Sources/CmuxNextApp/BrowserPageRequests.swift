@@ -23,7 +23,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             // A popup panel's page gets the same rows, acting for its opener's tab.
             services?.popups.hitItems = { [weak self] target, openerKey in self?.hitItems(for: target, tab: openerKey) ?? [] }
             // A reopened tab restores one history, not two (cx-d0d.11).
-            services?.cache.browserTabs.restoredInMemory = { [weak self] tab in self?.closedHistories.takeRestored(tab) ?? false }
+            services?.cache.browserTabs.restoredInMemory = { [weak self] tab, engine in self?.closedHistories.takeRestored(tab, engine: engine) ?? false }
             // A tab an agent-driven page opens is agent-driven from birth,
             // marked before its page exists (no rebuild on the agent's first
             // touch, no saved password filled), as its adopted pages are.

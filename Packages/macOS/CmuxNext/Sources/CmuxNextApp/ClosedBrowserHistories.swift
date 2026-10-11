@@ -31,8 +31,9 @@ final class ClosedBrowserHistories {
     private var closed: [Saved] = []
     /// Histories of tabs a reopen is recreating, until their pages claim them.
     private var expected: [Saved] = []
-    /// Tabs whose new page restored a history from here.
-    private var restoredTabs: Set<String> = []
+    /// Tabs whose new page restored a history from here, with the engine
+    /// it restored in.
+    private var restoredTabs: [String: BrowserEngineKind] = [:]
 
     /// A browser tab's page is closing (`TabContentCache.release`).
     func save(_ page: (any BrowserTab)?) {
@@ -67,13 +68,14 @@ final class ClosedBrowserHistories {
         guard let url, let index = expected.lastIndex(where: {
             $0.url == url && $0.profile == profile && now - $0.at <= Self.claimWindow && Self.isChromium($0.state) == chromium
         }) else { return nil }
-        restoredTabs.insert(tab)
+        restoredTabs[tab] = chromium ? .cef : .webkit
         return expected.remove(at: index).state
     }
 
-    /// True once when tab `tab`'s page restored a history from here.
-    func takeRestored(_ tab: String) -> Bool {
-        restoredTabs.remove(tab) != nil
+    /// True once when tab `tab`'s page in `engine` restored a history from
+    /// here; a Chromium page that failed to start and fell back to WebKit did not.
+    func takeRestored(_ tab: String, engine: BrowserEngineKind) -> Bool {
+        restoredTabs.removeValue(forKey: tab) == engine
     }
 
     /// `base` for a new Chromium page at `url`, with a reopened local tab's

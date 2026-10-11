@@ -65,7 +65,7 @@ final class BrowserTabService {
     var fetchHistory: @MainActor (DaemonService, SurfaceID) async -> FrontendBrowserHistory?
     /// True once for a tab whose page already restored its history in
     /// memory (`ClosedBrowserHistories`): the daemon's copy is not applied.
-    var restoredInMemory: @MainActor (String) -> Bool = { _ in false }
+    var restoredInMemory: @MainActor (String, BrowserEngineKind) -> Bool = { _, _ in false }
     /// Whether `daemon` serves `frontend-browser-tabs-v1`.
     var serves: @MainActor (DaemonService) -> Bool = { $0.supports(DaemonCapabilities.shared.frontendBrowserTabs) }
     /// Why Chromium cannot open a tab now; nil when it can (or may still
@@ -328,7 +328,7 @@ final class BrowserTabService {
                               while record: BrowserRecordWriter) {
         guard let restoring = page as? any BrowserTab & BrowserSessionRestoring else { return }
         let fetchHistory = fetchHistory, storeHistory = storeHistory, daemonForTab = daemonForTab
-        let restored = restoredInMemory(id)
+        let restored = restoredInMemory(id, page.engineKind)
         historyFetches[id]?.cancel()
         historyFetches[id] = Task { [weak self, weak record] in
             let saved = await fetchHistory(daemon, surface)
