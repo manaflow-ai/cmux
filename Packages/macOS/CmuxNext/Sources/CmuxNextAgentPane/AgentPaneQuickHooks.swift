@@ -1,0 +1,44 @@
+import Foundation
+
+/// The app side of Start Agent's panel (cx-hkat), its page's `quick.*` requests:
+/// hide the panel, open the chat in the main window, place a started chat, and
+/// the floating chat's keep-on-top and compact bar (cx-b9qi).
+public struct AgentPaneQuickHooks {
+    /// `quick.dismiss`: Esc hid the panel, keeping its draft.
+    public var dismiss: () -> Void
+    /// `quick.openInWindow`: open the chat in the main window. Gets the chat's
+    /// session, nil before the first prompt.
+    public var openInWindow: (String?) -> Void
+    /// `quick.startInBackground`: Return started the chat. The reply waits
+    /// until the host placed it or failed.
+    public var startInBackground: @MainActor (AgentPaneQuickStart) async -> Void
+    /// `quick.setOnTop {onTop}`: the floating chat floats over other windows or not.
+    public var setOnTop: (Bool) -> Void
+    /// `quick.setCollapsed {collapsed}`: the floating chat folds to its compact bar or opens again.
+    public var setCollapsed: (Bool) -> Void
+
+    public init(dismiss: @escaping () -> Void,
+                openInWindow: @escaping (String?) -> Void,
+                startInBackground: @escaping @MainActor (AgentPaneQuickStart) async -> Void,
+                setOnTop: @escaping (Bool) -> Void = { _ in },
+                setCollapsed: @escaping (Bool) -> Void = { _ in }) {
+        self.dismiss = dismiss
+        self.openInWindow = openInWindow
+        self.startInBackground = startInBackground
+        self.setOnTop = setOnTop
+        self.setCollapsed = setCollapsed
+    }
+}
+
+extension AgentPaneQuickHooks {
+    /// The panel requests that leave the chat's session alone.
+    func respond(to request: AgentPaneRequest) -> [String: Any] {
+        switch request {
+        case .quickDismiss: dismiss()
+        case .quickSetOnTop(let onTop): setOnTop(onTop)
+        case .quickSetCollapsed(let collapsed): setCollapsed(collapsed)
+        default: return AgentPaneModel.unsupported(String(describing: request))
+        }
+        return AgentPaneReply.success()
+    }
+}
