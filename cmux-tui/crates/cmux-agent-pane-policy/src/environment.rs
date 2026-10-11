@@ -31,6 +31,18 @@ pub const EXECUTABLE: &str = if cfg!(windows) { "acpmux.exe" } else { "acpmux" }
 /// `PATH`'s separator.
 const PATH_SEPARATOR: char = if cfg!(windows) { ';' } else { ':' };
 
+/// A variable of `environment`. Windows: names are case-insensitive (the
+/// system keeps `Path`, for example), so another spelling matches too.
+fn variable<'a>(environment: &'a BTreeMap<String, String>, name: &str) -> Option<&'a String> {
+    environment.get(name).or_else(|| {
+        if cfg!(windows) {
+            environment.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v)
+        } else {
+            None
+        }
+    })
+}
+
 /// The environment, or None when no `acpmux` executable exists.
 pub fn resolve(
     tag: Option<&str>,
@@ -44,13 +56,12 @@ pub fn resolve(
         .into_iter()
         .find(|p| is_executable(p))?;
     let slug = tag.and_then(tag_slug);
-    let home = match (environment.get("ACPMUX_HOME").filter(|h| !h.is_empty()), &slug) {
+    let home = match (variable(environment, "ACPMUX_HOME").filter(|h| !h.is_empty()), &slug) {
         (Some(custom), _) => PathBuf::from(custom),
         (None, Some(slug)) => user_home.join(".acpmux/tags").join(slug),
         (None, None) => user_home.join(".acpmux"),
     };
-    let socket = environment
-        .get("ACPMUX_SOCKET")
+    let socket = variable(environment, "ACPMUX_SOCKET")
         .filter(|s| !s.is_empty())
         .cloned()
         .unwrap_or_else(|| platform_socket_path(&home, uid, environment, user_home));
@@ -83,8 +94,7 @@ pub fn executable_candidates(
         directories.push(bundled.to_string_lossy().into_owned());
     }
     directories.extend(
-        environment
-            .get("PATH")
+        variable(environment, "PATH")
             .map(String::as_str)
             .unwrap_or("")
             .split(PATH_SEPARATOR)
@@ -141,7 +151,7 @@ fn platform_socket_path(
         // GetTempPath's order: TMP, TEMP, then the profile's own temp folder.
         let temp = ["TMP", "TEMP"]
             .iter()
-            .find_map(|k| environment.get(*k).filter(|v| !v.is_empty()).map(PathBuf::from))
+            .find_map(|k| variable(environment, k).filter(|v| !v.is_empty()).map(PathBuf::from))
             .unwrap_or_else(|| user_home.join("AppData").join("Local").join("Temp"));
         default_socket_path_windows(home, &temp)
     } else {
