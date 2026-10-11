@@ -14,6 +14,8 @@ final class WebKitDownloads: NSObject, WKDownloadDelegate {
     private var chosenDestinations: [ObjectIdentifier: URL] = [:]
     /// Paused downloads' resume data, by `BrowserDownload.id`.
     private var paused: [UUID: Data] = [:]
+    /// Downloads Pause cancelled whose resume data has not come back yet.
+    private var pausing: Set<ObjectIdentifier> = []
     /// Each running download's progress, mirrored into its item.
     private var progressObservations: [ObjectIdentifier: NSKeyValueObservation] = [:]
 
@@ -53,21 +55,31 @@ final class WebKitDownloads: NSObject, WKDownloadDelegate {
         }
         download.delegate = self
         let progress = download.progress
-        progressObservations[ObjectIdentifier(download)] = progress.observe(\.completedUnitCount, options: [.new]) { [weak item] progress, _ in
+        let key = ObjectIdentifier(download)
+        progressObservations[key] = progress.observe(\.completedUnitCount, options: [.new]) { [weak self, weak item] progress, _ in
             let received = progress.completedUnitCount, total = progress.totalUnitCount
-            Task { @MainActor in item?.update(received: received, total: total > 0 ? total : nil) }
+            Task { @MainActor in
+                // An update queued before Pause or the end is stale: it would clear the pause.
+                guard let self, let item, self.items[key] === item, !self.pausing.contains(key) else { return }
+                item.update(received: received, total: total > 0 ? total : nil)
+            }
         }
     }
 
     /// WebKit cannot pause a download: it is cancelled with resume data
     /// (the partial file stays), and Resume starts it again from there.
+    /// The download stays listed until the cancel answers: one that
+    /// finishes meanwhile still lands (`finish`).
     private func pause(_ download: WKDownload, item: BrowserDownload) {
-        items.removeValue(forKey: ObjectIdentifier(download))
-        progressObservations.removeValue(forKey: ObjectIdentifier(download))?.invalidate()
+        let key = ObjectIdentifier(download)
+        pausing.insert(key)
+        progressObservations.removeValue(forKey: key)?.invalidate()
         item.isPaused = true
         download.cancel { [weak self, weak item] data in
             Task { @MainActor in
-                guard let self, let item, item.status == .inProgress else { return }
+                guard let self else { return }
+                self.pausing.remove(key)
+                guard self.items.removeValue(forKey: key) != nil, let item, item.status == .inProgress else { return }
                 // A server that cannot resume (no resume data) fails the download.
                 guard let data else { return item.complete(.failed("cannot resume")) }
                 self.paused[item.id] = data
@@ -85,6 +97,8 @@ final class WebKitDownloads: NSObject, WKDownloadDelegate {
     }
 
     private func finish(_ download: WKDownload, status: BrowserDownload.Status) {
+        // The pause's own cancel ends no download.
+        if pausing.contains(ObjectIdentifier(download)), status != .finished { return }
         // `complete` quarantines a finished file (`BrowserDownloadPolicy`).
         progressObservations.removeValue(forKey: ObjectIdentifier(download))?.invalidate()
         items.removeValue(forKey: ObjectIdentifier(download))?.complete(status)
