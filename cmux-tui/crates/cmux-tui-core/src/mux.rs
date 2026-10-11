@@ -5963,8 +5963,16 @@ impl Mux {
         }
     }
 
-    pub(crate) fn wait_for_terminal_journal_space(&self, observed: u64) -> Result<(), String> {
-        self.journal_ingress.wait_for_queue_space(observed)
+    pub(crate) fn wait_for_terminal_journal_space_until(
+        &self,
+        observed: u64,
+        deadline: Instant,
+    ) -> Result<(), String> {
+        self.journal_ingress.wait_for_queue_space_until(observed, deadline)
+    }
+
+    pub(crate) fn terminal_journal_durable_deadline(&self) -> Instant {
+        self.journal_ingress.durable_deadline()
     }
 
     pub(crate) fn flush_terminal_journal(&self) -> anyhow::Result<()> {
@@ -6054,6 +6062,24 @@ impl Mux {
                 occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
                 reason,
             },
+        )
+    }
+
+    pub(crate) fn try_journal_terminal_output_gap_until(
+        &self,
+        terminal_id: Arc<TerminalPublicId>,
+        generation: Arc<str>,
+        reason: &'static str,
+        deadline: Instant,
+    ) -> anyhow::Result<()> {
+        self.journal_ingress.send_durable_until(
+            crate::journal_ingress::JournalIngressEvent::TerminalOutputGap {
+                terminal_id,
+                generation,
+                occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
+                reason,
+            },
+            deadline,
         )
     }
 

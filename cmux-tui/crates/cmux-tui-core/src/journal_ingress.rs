@@ -557,10 +557,6 @@ impl JournalIngressState {
         Ok(())
     }
 
-    fn wait_for_queue_space(&self, observed: u64) -> Result<(), String> {
-        self.wait_for_queue_space_until(observed, Instant::now() + journal_durable_wait())
-    }
-
     fn wait_for_queue_space_change(&self, observed: u64) -> Result<(), String> {
         let mut epoch = self.queue_space_epoch.lock().unwrap();
         while *epoch == observed {
@@ -686,6 +682,18 @@ impl JournalIngressSender {
     }
 
     pub(crate) fn send_durable(&self, event: JournalIngressEvent) -> anyhow::Result<()> {
+        self.send_durable_until(event, self.durable_deadline())
+    }
+
+    pub(crate) fn durable_deadline(&self) -> Instant {
+        Instant::now() + journal_durable_wait()
+    }
+
+    pub(crate) fn send_durable_until(
+        &self,
+        event: JournalIngressEvent,
+        deadline: Instant,
+    ) -> anyhow::Result<()> {
         if let Some(error) = self.state.admission_error() {
             anyhow::bail!(error);
         }
@@ -699,7 +707,6 @@ impl JournalIngressSender {
         };
         let Some(sender) = sender else { return Ok(()) };
         let (completion, result) = sync_channel(1);
-        let deadline = Instant::now() + journal_durable_wait();
         let commit_fence = Arc::new(AtomicU8::new(COMMIT_PENDING));
         self.enqueue_until(
             sender,
@@ -977,10 +984,6 @@ impl JournalIngressSender {
             }
             self.state.wait_for_queue_space_until(space_epoch, deadline)?;
         }
-    }
-
-    pub(crate) fn wait_for_queue_space(&self, observed: u64) -> Result<(), String> {
-        self.state.wait_for_queue_space(observed)
     }
 
     fn writer_error(&self) -> String {
