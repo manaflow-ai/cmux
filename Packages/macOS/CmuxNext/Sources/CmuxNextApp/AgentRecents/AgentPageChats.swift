@@ -42,7 +42,7 @@ final class AgentPageChats {
         self.open = open
         let push = { [weak self, weak feed] in
             guard let self, let feed else { return }
-            chats = Self.deviceChats(feed.chats)
+            chats = Self.deviceChats(feed.newest(AgentPaneDeviceChat.maximumPushed))
             for view in views() { view.deviceChats = chats }
         }
         feed.observe(self) { push() }
