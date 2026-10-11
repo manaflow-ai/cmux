@@ -15,6 +15,7 @@ pub(crate) use permission::{answer_permission, answer_question};
 
 mod extra;
 mod standard;
+mod transfer;
 
 pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: bool) -> Result<()> {
     if standard::handles(&cmd) {

@@ -48,7 +48,10 @@ final class WorkspaceRowView: SidebarRowView {
     /// fill; an indeterminate one fills the whole track, dimmed.
     let progressTrack = CALayer()
     let progressFill = CALayer()
-    var progress: SidebarProgress?
+    private(set) var progress: SidebarProgress?
+    /// Classic's status block under the name (`WorkspaceRowContent.status`).
+    let statusBlock = WorkspaceStatusView()
+    private(set) var statusHeight: CGFloat = 0
     private var hasSubtitle = false
     private var grouped = false
     private var iconKind: WorkspaceIcon?
@@ -82,7 +85,7 @@ final class WorkspaceRowView: SidebarRowView {
         mutedMark.imageScaling = .scaleProportionallyDown
         mutedMark.isHidden = true
         mutedMark.setAccessibilityElement(false)
-        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, badge, presenceDots, closeButton, moreButton, disclosureButton, tabCount, prBadge, placeholderBar]
+        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, badge, presenceDots, closeButton, moreButton, disclosureButton, tabCount, prBadge, placeholderBar, statusBlock]
             .forEach(addSubview)
         disclosureButton.isHidden = true
         tabCount.isHidden = true
@@ -168,9 +171,7 @@ final class WorkspaceRowView: SidebarRowView {
         subtitle.font = SidebarStyle.subtitleFont
         subtitle.stringValue = row.detail ?? ""
         hasSubtitle = row.detail != nil
-        (isExpanded, timeText) = (shown.expanded, shown.time)
-        timeLabel.stringValue = shown.time ?? ""
-        metaLabel.stringValue = shown.meta ?? ""
+        (isExpanded, timeText, timeLabel.stringValue, metaLabel.stringValue) = (shown.expanded, shown.time, shown.time ?? "", shown.meta ?? "")
         activity.configure(shown.activity, style: ws.activityStyle)
         activityState = shown.activity
         agentMarkVariant = content.agentMark
@@ -192,6 +193,9 @@ final class WorkspaceRowView: SidebarRowView {
         badgeText = shown.badge
         prBadge.stringValue = shown.badge ?? ""
         progress = shown.progress
+        statusBlock.isHidden = shown.status == nil || isShowingPlaceholder
+        statusBlock.configure(shown.status ?? SidebarWorkspaceStatus(), reservesBar: shown.progress != nil)
+        statusHeight = statusBlock.isHidden ? 0 : SidebarLayoutMetrics.standard.statusHeight(shown)
         // The workspace hover card shows the cwd (and CPU and memory).
         toolTip = nil
         // A placeholder says nothing; its section header says it connects.
@@ -257,7 +261,10 @@ final class WorkspaceRowView: SidebarRowView {
 
     override func layout() {
         super.layout()
-        let b = layoutBounds
+        let full = layoutBounds
+        // The name lines and the trailing cluster center in the head; the
+        // status block, when shown, fills the rest below it.
+        let b = NSRect(x: full.minX, y: full.minY, width: full.width, height: full.height - statusHeight)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
@@ -265,8 +272,8 @@ final class WorkspaceRowView: SidebarRowView {
         // Members indent under their group header; the members' line is
         // one layer per group under the rows (SidebarListView+GroupLines).
         let indent: CGFloat = grouped ? SidebarStyle.groupMemberIndent : 0
-        // The text lines stack centered; an expanded row's icon and trailing marks
-        // center on the title's line (`cy`), a compact row's on the row.
+        // The text lines stack centered in the head; an expanded row's icon and trailing
+        // marks center on the title's line (`cy`), a compact row's on the head.
         let th = ceil(title.intrinsicContentSize.height), sh = ceil(subtitle.intrinsicContentSize.height)
         let hasMeta = isExpanded && !metaLabel.stringValue.isEmpty
         let top = (b.height - th - (hasSubtitle ? Metrics.space1 + sh : 0) - (hasMeta ? Metrics.space1 + sh : 0)) / 2
@@ -379,7 +386,7 @@ final class WorkspaceRowView: SidebarRowView {
         subtitle.frame = NSRect(x: textX, y: top + th + Metrics.space1, width: lineW, height: sh)
         metaLabel.isHidden = !hasMeta
         metaLabel.frame = NSRect(x: textX, y: (hasSubtitle ? subtitle.frame.maxY : top + th) + Metrics.space1, width: lineW, height: sh)
-        layoutProgress(x: textX, width: max(0, b.width - Metrics.space3 - textX), bottom: b.maxY)
+        layoutStatus(x: textX, width: max(0, b.width - Metrics.space3 - textX), head: b.maxY, bottom: full.maxY)
         needsDisplay = true
     }
 }

@@ -18,6 +18,12 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
     public var rowSpacing: CGFloat
     public var groupBottomPadding: CGFloat
     public var emptySectionHeight: CGFloat
+    /// One line of a row's status block (`WorkspaceRowContent.status`).
+    public var statusLineHeight: CGFloat = 14
+    /// The progress bar's slot in a status block.
+    public var progressBarHeight: CGFloat = 8
+    /// Below a status block, above the row's bottom edge.
+    public var statusBottomPadding: CGFloat = 4
 
     public init(
         topPadding: CGFloat, bottomPadding: CGFloat, sectionHeaderHeight: CGFloat, sectionSpacing: CGFloat,
@@ -40,7 +46,14 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
     /// One line, two, or three (an expanded row's meta line adds one more line's height).
     func height(for content: WorkspaceRowContent) -> CGFloat {
         let lines = (content.detail == nil ? 0 : 1) + (content.meta == nil ? 0 : 1)
-        return rowHeight + CGFloat(lines) * (rowHeightWithSubtitle - rowHeight)
+        return rowHeight + CGFloat(lines) * (rowHeightWithSubtitle - rowHeight) + statusHeight(content)
+    }
+
+    /// The status block under the title lines: its text lines, the bar's
+    /// slot when the row has progress, and a bottom padding; 0 without one.
+    public func statusHeight(_ content: WorkspaceRowContent) -> CGFloat {
+        guard let status = content.status else { return 0 }
+        return CGFloat(status.lines.count) * statusLineHeight + (content.progress == nil ? 0 : progressBarHeight) + statusBottomPadding
     }
 }
 

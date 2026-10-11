@@ -46,8 +46,10 @@ on:
       - scripts/ci/macho_weaken.py
       - scripts/ci/macos-cross.sh
       - scripts/ci/macos-stubs/**
+      - first-party-apps/cloud/server/**
       - scripts/ci/macos_stubs.py
       # cmux-tui tree-key inputs: the crates embed these files.
+      - backend/catalog/cloud-operations.json
       - backend/packages/home-core/conformance/**
       - mux/packages/brain/conformance/**
       - skills/cmux-browser/**
@@ -167,8 +169,10 @@ on:
       - scripts/ci/macho_weaken.py
       - scripts/ci/macos-cross.sh
       - scripts/ci/macos-stubs/**
+      - first-party-apps/cloud/server/**
       - scripts/ci/macos_stubs.py
       # cmux-tui tree-key inputs: the crates embed these files.
+      - backend/catalog/cloud-operations.json
       - backend/packages/home-core/conformance/**
       - mux/packages/brain/conformance/**
       - skills/cmux-browser/**
@@ -524,10 +528,25 @@ jobs:
             python3 scripts/ci/cmux_next_route.py --event "$EVENT_NAME" --changed-files "$changed" \
               --labels "$labels" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
           fi
-          # Whether this pull request changes the cmux-tui it would test against.
-          # One that does not is never failed for an unpublished merge tree
-          # (the probe steps below, CMUX_TUI_TREE_BASE_FALLBACK).
-          if [[ "$EVENT_NAME" == pull_request ]] && ! grep -qE '^(cmux-tui/|ghostty-next$)' "$changed"; then
+          # Whether this pull request changes the cmux-tui it would test against:
+          # any v2 tree-key input (cmux-tui-tree-inputs.txt), such as cmux-tui/,
+          # ghostty-next or cmux-cloud's crate. One that does not is never
+          # failed for an unpublished merge tree (the probe steps below,
+          # CMUX_TUI_TREE_BASE_FALLBACK).
+          if [[ "$EVENT_NAME" == pull_request ]] && ! python3 - "$changed" <<'PY'
+          import sys
+          inputs = []
+          for raw in open("scripts/cmux-next/cmux-tui-tree-inputs.txt", encoding="utf-8"):
+              raw = raw.strip()
+              if raw and not raw.startswith("#"):
+                  kind, path = raw.split(maxsplit=1)
+                  if (kind, path) != ("gitlink", "ghostty"):  # v1 key only
+                      inputs.append((kind, path))
+          changed = [line.strip() for line in open(sys.argv[1], encoding="utf-8") if line.strip()]
+          hit = any(c == p or (k == "tree" and c.startswith(p + "/")) for c in changed for k, p in inputs)
+          sys.exit(0 if hit else 1)
+          PY
+          then
             echo "own_tui=false" >> "$GITHUB_OUTPUT"
           else
             echo "own_tui=true" >> "$GITHUB_OUTPUT"
@@ -869,6 +888,7 @@ jobs:
           python3 tests/test_cmux_next_tree_notify.py
           bash scripts/cmux-next/tests/pin-cmux-tui-resolve-newest.test.sh
           bash scripts/cmux-next/tests/pin-cmux-tui-dispatch.test.sh
+          bash scripts/cmux-next/tests/cmux-tui-tree-claim.test.sh
           bash scripts/cmux-next/tests/request-nightly-next.test.sh
           bash scripts/cmux-next/tests/continue-nightly-next.test.sh
           bash scripts/cmux-next/tests/reset-stale-submodules.test.sh
@@ -2225,13 +2245,25 @@ jobs:
       - name: Install Rust (diff sidecar)
         run: ./scripts/install-rust-ci.sh
 
+      # The same-tree fetch above also brought this tree's acpmux (built once
+      # with the cmux-tui binaries, cmuxterm-hq#1279). A tree published before
+      # the tree build carried acpmux has none, and this compiles it.
       - name: Build in-tree acpmux for the app bundle
         env:
           CMUX_NEXT_ACPMUX_ARCHS: arm64
         run: |
           set -euo pipefail
-          acpmux_bin="$RUNNER_TEMP/cmux-next-acpmux/acpmux"
-          scripts/cmux-next/build-acpmux.sh --output "$acpmux_bin"
+          acpmux_bin="$(scripts/cmux-next/pin-cmux-tui.sh acpmux-path)"
+          # A pull request on a fallback tree (CMUX_TUI_TREE_KEY, an older
+          # published tree) compiles this checkout's acpmux instead.
+          if [[ -x "$acpmux_bin" && ( -z "${CMUX_TUI_TREE_KEY:-}" ||
+                "$CMUX_TUI_TREE_KEY" == "$(scripts/cmux-next/pin-cmux-tui.sh key --rev HEAD)" ) ]]; then
+            printf 'commit=%s\nsource=same-tree\n' "$(git rev-parse HEAD)" > "$acpmux_bin.ref"
+            echo "same-tree acpmux: $acpmux_bin"
+          else
+            acpmux_bin="$RUNNER_TEMP/cmux-next-acpmux/acpmux"
+            scripts/cmux-next/build-acpmux.sh --output "$acpmux_bin"
+          fi
           echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
 
       # The app's web bundles are build output (cx-vn5); the "Verify web

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "e1da218602f37e98ffecdc5d0a9c5c526f9711e51fe63eb6517768e857a30b22";
+inline constexpr std::string_view kProtocolIrSha256 = "2304aafc2ea0c866da63b1459d38e771c9ca3f8c655dc06fed821ca8d3c6e703";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -316,6 +316,7 @@ struct FeedLocalReadRequest;
 struct FocusDirectionRequest;
 struct FocusPaneRequest;
 struct ForgetSessionRequest;
+struct GetBlobRequest;
 struct GetBrowserProviderRequest;
 struct GetCellPixelsRequest;
 struct GetFrontendBrowserHistoryRequest;
@@ -389,6 +390,7 @@ struct PasteImageResult;
 struct PinWorkspaceRequest;
 struct PingRequest;
 struct ProcessInfoRequest;
+struct PutBlobRequest;
 struct PutFrontendProjectionRequest;
 struct PutSessionRequest;
 struct ReadScreenRequest;
@@ -415,6 +417,7 @@ struct ReportFocusRequest;
 struct ResizeAttachedViewRequest;
 struct ResizeSurfaceRequest;
 struct ResolveTerminalRequest;
+struct RestartTabRequest;
 struct RunRequest;
 struct SaveScreenGroupRequest;
 struct SaveTabGroupRequest;
@@ -508,6 +511,7 @@ struct CloudSubscriptionStateEvent;
 struct ColorsChangedEvent;
 struct ConfigReloadRequestedEvent;
 struct ConversationChangedEvent;
+struct ConversationDraftEvent;
 struct ConversationTypingEvent;
 struct DaemonShutdownEvent;
 struct DetachedEvent;
@@ -1798,6 +1802,13 @@ struct ConversationCreateResult {
     friend bool operator==(const ConversationCreateResult&, const ConversationCreateResult&) = default;
 };
 
+struct ConversationDraftEvent {
+    std::string conversation{};
+    JsonValue item{};
+    std::string participant{};
+    friend bool operator==(const ConversationDraftEvent&, const ConversationDraftEvent&) = default;
+};
+
 struct ConversationDraftRequest {
     std::string conversation{};
     bool done{};
@@ -2382,6 +2393,11 @@ struct FrontendProjectionChangedEvent {
     std::string scope{};
     std::string subject_key{};
     friend bool operator==(const FrontendProjectionChangedEvent&, const FrontendProjectionChangedEvent&) = default;
+};
+
+struct GetBlobRequest {
+    std::string blob{};
+    friend bool operator==(const GetBlobRequest&, const GetBlobRequest&) = default;
 };
 
 struct GetBrowserProviderRequest {
@@ -3535,6 +3551,12 @@ struct ProviderWorkspaceMutationResult {
     friend bool operator==(const ProviderWorkspaceMutationResult&, const ProviderWorkspaceMutationResult&) = default;
 };
 
+struct PutBlobRequest {
+    std::string data{};
+    std::string media_type{};
+    friend bool operator==(const PutBlobRequest&, const PutBlobRequest&) = default;
+};
+
 struct PutFrontendProjectionRequest {
     Field<std::string> expected_generation{};
     Field<std::uint64_t> expected_projection_revision{};
@@ -3900,6 +3922,11 @@ struct ResolveTerminalResult {
     std::uint64_t terminal_revision{};
     std::string workspace_key{};
     friend bool operator==(const ResolveTerminalResult&, const ResolveTerminalResult&) = default;
+};
+
+struct RestartTabRequest {
+    TabRef surface{};
+    friend bool operator==(const RestartTabRequest&, const RestartTabRequest&) = default;
 };
 
 struct RowHeight {
@@ -6928,6 +6955,12 @@ struct Codec<ForgetSessionRequest> {
 };
 
 template <>
+struct Codec<GetBlobRequest> {
+    static Result<Json> encode(const GetBlobRequest& value);
+    static Result<GetBlobRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<GetBrowserProviderRequest> {
     static Result<Json> encode(const GetBrowserProviderRequest& value);
     static Result<GetBrowserProviderRequest> decode(const Json& value);
@@ -7366,6 +7399,12 @@ struct Codec<ProcessInfoRequest> {
 };
 
 template <>
+struct Codec<PutBlobRequest> {
+    static Result<Json> encode(const PutBlobRequest& value);
+    static Result<PutBlobRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<PutFrontendProjectionRequest> {
     static Result<Json> encode(const PutFrontendProjectionRequest& value);
     static Result<PutFrontendProjectionRequest> decode(const Json& value);
@@ -7519,6 +7558,12 @@ template <>
 struct Codec<ResolveTerminalRequest> {
     static Result<Json> encode(const ResolveTerminalRequest& value);
     static Result<ResolveTerminalRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<RestartTabRequest> {
+    static Result<Json> encode(const RestartTabRequest& value);
+    static Result<RestartTabRequest> decode(const Json& value);
 };
 
 template <>
@@ -8077,6 +8122,12 @@ template <>
 struct Codec<ConversationChangedEvent> {
     static Result<Json> encode(const ConversationChangedEvent& value);
     static Result<ConversationChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationDraftEvent> {
+    static Result<Json> encode(const ConversationDraftEvent& value);
+    static Result<ConversationDraftEvent> decode(const Json& value);
 };
 
 template <>

@@ -191,7 +191,10 @@ impl ChatIndex {
         for slot in &self.slots {
             let account = (slot.root.accounts.len() == 1).then(|| slot.root.accounts[0].clone());
             let root_id = slot.root.id();
-            for entry in &slot.scan.entries {
+            // Only person chats: not the Chief's sessions (cx-eb0m), acpmux's harness probes, or a
+            // session with no user message (Lawrence 2026-10-11).
+            for entry in slot.scan.entries.iter().filter(|entry| crate::scan::is_person_chat(entry))
+            {
                 let chat = merged.entry(entry.key()).or_insert_with(|| IndexedChat {
                     entry: entry.clone(),
                     accounts: Vec::new(),

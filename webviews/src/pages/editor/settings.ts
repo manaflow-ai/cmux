@@ -354,7 +354,8 @@ export const EDITOR_STYLE_DEFAULTS = {
   "--cmux-editor-background": "transparent",
   "--cmux-editor-foreground": "var(--cmux-editor-terminal-foreground, var(--page-text))",
   "--cmux-editor-line-highlight": "color-mix(in srgb, var(--cmux-editor-foreground) 5%, transparent)",
-  "--cmux-editor-selection": "var(--cmux-editor-terminal-selection, color-mix(in srgb, #0a84ff 30%, transparent))",
+  "--cmux-editor-selection":
+    "var(--cmux-editor-terminal-selection, color-mix(in srgb, var(--cmux-accent, currentColor) 28%, transparent))",
   "--cmux-editor-cursor": "var(--cmux-editor-foreground)",
   "--cmux-editor-line-number": "color-mix(in srgb, var(--cmux-editor-foreground) 40%, transparent)",
   "--cmux-editor-line-number-active": "color-mix(in srgb, var(--cmux-editor-foreground) 80%, transparent)",

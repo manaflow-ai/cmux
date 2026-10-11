@@ -2848,6 +2848,12 @@ class ForgetSessionRequest:
 
 
 @dataclass(frozen=True)
+class GetBlobRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/get-blob/request'
+    blob: str
+
+
+@dataclass(frozen=True)
 class GetBrowserProviderRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/get-browser-provider/request'
     pass
@@ -3476,6 +3482,13 @@ class ProcessInfoRequest:
 
 
 @dataclass(frozen=True)
+class PutBlobRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/put-blob/request'
+    data: str
+    media_type: str
+
+
+@dataclass(frozen=True)
 class PutFrontendProjectionRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/put-frontend-projection/request'
     frontend: str
@@ -3683,6 +3696,12 @@ class ResizeSurfaceRequest:
 class ResolveTerminalRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/resolve-terminal/request'
     terminal_id: str
+
+
+@dataclass(frozen=True)
+class RestartTabRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/restart-tab/request'
+    surface: TabRef
 
 
 @dataclass(frozen=True)
@@ -4513,6 +4532,16 @@ class ConversationChangedEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class ConversationDraftEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/conversation-draft/payload'
+    conversation: str
+    event: Literal['conversation-draft']
+    item: JsonValue
+    participant: str
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class ConversationTypingEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/conversation-typing/payload'
     conversation: str
@@ -5086,7 +5115,7 @@ PaneRef = Any
 TabRef = Any
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationResyncedEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, PersonalChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SettingsChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationResyncedEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, PersonalChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SettingsChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -5398,6 +5427,7 @@ __all__ = [
     'FocusDirectionRequest',
     'FocusPaneRequest',
     'ForgetSessionRequest',
+    'GetBlobRequest',
     'GetBrowserProviderRequest',
     'GetCellPixelsRequest',
     'GetFrontendBrowserHistoryRequest',
@@ -5470,6 +5500,7 @@ __all__ = [
     'PinWorkspaceRequest',
     'PingRequest',
     'ProcessInfoRequest',
+    'PutBlobRequest',
     'PutFrontendProjectionRequest',
     'PutSessionRequest',
     'ReadScreenRequest',
@@ -5496,6 +5527,7 @@ __all__ = [
     'ResizeAttachedViewRequest',
     'ResizeSurfaceRequest',
     'ResolveTerminalRequest',
+    'RestartTabRequest',
     'RunRequest',
     'SaveScreenGroupRequest',
     'SaveTabGroupRequest',
@@ -5589,6 +5621,7 @@ __all__ = [
     'ColorsChangedEvent',
     'ConfigReloadRequestedEvent',
     'ConversationChangedEvent',
+    'ConversationDraftEvent',
     'ConversationTypingEvent',
     'DaemonShutdownEvent',
     'DetachedEvent',

@@ -1,5 +1,6 @@
 //! Part of `Hub`; see `hub/mod.rs`. `_acpmux/queue_edit`: change a queued prompt before its
-//! turn (`update` its prompt, `move` it, or `send_now`). Every change is a record in the log, so
+//! turn (`update` its prompt, `move` it, or `send_now`), or `resume` the prompts a failed turn
+//! holds (`queue.rs` `pause_queue`; any of the queue's prompts names it). Every change is a record in the log, so
 //! a new daemon rebuilds the edited queue (`queue.rs` `restore_queues`), and every client sees it.
 
 use super::queue::PromptRun;
@@ -33,6 +34,10 @@ impl Hub {
             .filter(|p| !p.is_empty())
             .ok_or_else(|| RpcError::invalid_params("promptId is required"))?;
         let op = params.get("op").and_then(Value::as_str).unwrap_or_default();
+        // The queue moves as it is (`transfer_out.rs`).
+        if session.moving().is_some() {
+            return Err(super::queue::moving_error());
+        }
         let mut reply = json!({"sessionId": session.id, "promptId": prompt_id, "op": op});
         reply["ok"] = match op {
             "update" => {
@@ -59,7 +64,11 @@ impl Hub {
                 reply["sent"] = json!(sent);
                 json!(sent.is_some())
             }
-            _ => return Err(RpcError::invalid_params("op must be update, move or send_now")),
+            "resume" => json!(self.resume_queue(session)),
+            _ => {
+                let e = "op must be update, move, send_now or resume";
+                return Err(RpcError::invalid_params(e));
+            }
         };
         Ok(reply)
     }
@@ -122,7 +131,7 @@ impl Hub {
     /// Sends a waiting prompt now. With no turn running it goes next (`next`); into a running turn
     /// of an agent that steers it is steered in (`steer`) by the task that waits with it, so its
     /// `session/prompt` answers how it ran; otherwise it goes next and the running turn stops
-    /// (`interrupt`). `None` when it no longer waits.
+    /// (`interrupt`). `None` when it no longer waits. A failed turn no longer holds it.
     async fn send_queued_now(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -130,7 +139,7 @@ impl Hub {
         control: Control,
     ) -> Result<Option<&'static str>, RpcError> {
         let Some(running) = session.turn().map(|t| t.turn_id) else {
-            return Ok(self.move_queued(session, prompt_id, 0).then_some("next"));
+            return Ok(self.put_next(session, prompt_id).then_some("next"));
         };
         if session.steering.load(Ordering::SeqCst) {
             let Some(waiting) = session.queue().into_iter().find(|q| q.prompt_id == prompt_id)
@@ -156,7 +165,7 @@ impl Hub {
             session.queue_moved.notify_waiters();
             return Ok(Some("steer"));
         }
-        if !self.move_queued(session, prompt_id, 0) {
+        if !self.put_next(session, prompt_id) {
             return Ok(None);
         }
         self.cancel_turn(session, &running).await;

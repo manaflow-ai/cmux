@@ -236,6 +236,9 @@ impl Hub {
             )
             .with_data(json!({"reason": "steer.unavailable"})));
         }
+        if steer_now && session.moving().is_some() {
+            return Err(super::queue::moving_error());
+        }
         if steer_now {
             let turn_id = running.map(|t| t.turn_id).unwrap_or_default();
             let opts = PromptOptions { prompt_id: Some(prompt_id), on_accepted: None, ..opts };
@@ -389,7 +392,11 @@ impl Hub {
                     "failover",
                     json!({"from": from, "to": to, "reason": e.message, "turnId": turn_id}),
                 );
+                // The turn goes on, on the fallback.
+                let turn = session.turn();
                 self.detach_child(session).await;
+                *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = turn;
+                self.set_status(session, SessionStatus::Running);
                 session.meta.lock().unwrap().harness = to.clone();
                 self.save_meta(session);
                 let control = session.turn().map_or(control, |t| t.control);
@@ -458,7 +465,13 @@ impl Hub {
         turn_id: &str,
         turn_seq: u64,
     ) -> Result<Value, RpcError> {
-        *session.turn.lock().unwrap() = None;
+        // A model switch (`detach_child`) ended this turn already: its failure is not the queue's.
+        let detached = session
+            .turn
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+            .is_none_or(|t| t.turn_id != turn_id);
         session.queue_moved.notify_waiters();
         // A turn Claude answered is in its store: a respawn resumes it.
         if result.is_ok() {
@@ -548,6 +561,9 @@ impl Hub {
                     json!({"error": e.message, "code": e.code, "turnId": turn_id, "turnSeq": turn_seq}),
                 );
                 self.note_model_refusal(session, &e.message);
+                if !detached {
+                    self.pause_queue(session, turn_id);
+                }
                 let mut msg = json!({"status": "failed", "error": e.message, "code": e.code, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id});
                 if let Some(o) = msg.as_object_mut() {
                     let agent_error =
@@ -608,6 +624,7 @@ impl Hub {
             "turn_error",
             json!({"error": e.message, "code": e.code, "turnId": turn_id, "turnSeq": 0}),
         );
+        self.pause_queue(session, turn_id);
         let msg = json!({"status": "failed", "error": e.message, "code": e.code, "turnSeq": 0, "turnId": turn_id, "promptId": prompt_id});
         self.record_last_turn(session, &msg);
         self.append(session, "mux", "turn_result", msg);

@@ -1653,7 +1653,13 @@ static CLOUD_TEMPLATE_ENV: std::sync::OnceLock<CloudTemplateEnv> = std::sync::On
 /// path cannot be resolved reports its build id only.
 #[cfg(unix)]
 fn install_daemon_build() {
+    // cmux-remote (which stamps the source revision) is a Unix-only
+    // dependency; a Windows daemon reports its package version until the
+    // stamp moves to a cross-platform crate.
+    #[cfg(unix)]
     let build_id = cmux_remote::ssh_bootstrap::BUILD_IDENTITY;
+    #[cfg(not(unix))]
+    let build_id = env!("CARGO_PKG_VERSION");
     let cli_path = std::env::current_exe().and_then(std::fs::canonicalize).unwrap_or_default();
     cmux_tui_core::server::install_daemon_build(cmux_tui_core::server::DaemonBuild::new(
         build_id, cli_path,
@@ -2248,6 +2254,15 @@ fn run_server(
         }
     }
     let provider_management_pending = provider_management_listener.is_some();
+    // Bind and serve the session socket before the restore below (registry
+    // load, terminal host adoption), which can take minutes on a loaded
+    // machine (cx-n3bs). For that whole time the socket names this process
+    // as the session's owner: `server ensure` sees a restoring owner and
+    // waits for it on every platform, and a second owner loses the bind and
+    // exits before it touches the registry or a terminal host.
+    let restoring_server =
+        cmux_tui_core::server::bind_session_socket(&args.session, args.socket.clone())?
+            .serve_restoring(&args.session)?;
     let mux =
         match (state_root.as_deref(), provider_workspace_authority, provider_management_pending) {
             (Some(root), Some(authority), false) => Mux::open_persistent_provider_managed(
@@ -2323,14 +2338,7 @@ fn run_server(
                 start_local_owner_event_loop(&mux)
             }
         });
-    let pending_server = match cmux_tui_core::server::serve_paused(mux.clone(), args.socket.clone())
-    {
-        Ok(server) => server,
-        Err(error) => {
-            mux.shutdown();
-            return Err(error);
-        }
-    };
+    let pending_server = restoring_server.attach(mux.clone());
     // Kept alive until this function returns; dropping it removes the socket.
     #[cfg(unix)]
     let _link_entry = link::start_link_entry(args.link_entry, &mux, &socket_path)
@@ -2804,6 +2812,9 @@ fn start_detached_owner_session(
                 anyhow::bail!("{}", messages.owner_spawn_failed())
             }
             local_owner::EnsureError::NotReady => anyhow::bail!("{}", messages.owner_not_ready),
+            local_owner::EnsureError::RestoreTimeout => {
+                anyhow::bail!("{}", messages.owner_restore_timeout)
+            }
             local_owner::EnsureError::WrongOwner => anyhow::bail!("{}", messages.wrong_owner),
             local_owner::EnsureError::DifferentSession => {
                 anyhow::bail!("{}", messages.different_session)

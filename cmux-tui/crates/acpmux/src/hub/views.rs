@@ -57,11 +57,15 @@ impl Hub {
             "lastPrompt": m.last_prompt,
             "preview": m.preview.as_deref().map(|p| short_text(p, 160)),
             "queued": session.queued(),
+            // A turn failed: the prompts that waited behind it wait for a client to resume them.
+            "queuePaused": session.queue_paused(),
+            // Being moved to another daemon (`transfer_out.rs`): it takes no prompt meanwhile.
+            "moving": session.moving().is_some(),
             // The agent takes a prompt mid-turn (`_meta.acpmux.steer`); else a steer waits, or
             // with `interrupt` stops the turn and runs next.
             "steering": session.steering.load(Ordering::SeqCst),
             "turn": turn.map(|t| json!({"startedAt": t.started_at, "client": t.client, "prompt": t.prompt_preview, "turnId": t.turn_id, "promptId": t.prompt_id, "turnSeq": t.turn_seq})),
-            "queue": session.queue().into_iter().map(|q| json!({"promptId": q.prompt_id, "turnId": q.turn_id, "client": q.client, "prompt": q.preview, "queuedAt": q.queued_at})).collect::<Vec<_>>(),
+            "queue": session.queue().into_iter().map(|q| json!({"promptId": q.prompt_id, "turnId": q.turn_id, "client": q.client, "prompt": q.preview, "queuedAt": q.queued_at, "held": q.held})).collect::<Vec<_>>(),
             "pendingPermissions": session.pending_permissions().len(),
             "currentModeId": m.modes.as_ref().and_then(|x| x.get("currentModeId")).cloned(),
             "model": current_model(&m),

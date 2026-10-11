@@ -67,6 +67,7 @@ and render-server field animation, blurred header and native scrolling.
 | SwipeReply | the pane controller's window is optional |
 | RowDrawing | file, audio, contact and voice memo rows on my side use the theme's sent text colour (white by default; a light accent showed white text) |
 | Engine, WindowView | `cmuxSetAttachment`: an attachment part's picture or upload state changed in HomeStore (no content change, no transition; the row redraws in place) |
+| Engine | `.replaceWindow` sets the total to the window's end: Home has no pager, its window always ends at the newest message, and a rebuild that left the old total kept `atNewest` false, so received messages stayed hidden (cx-7nf0) |
 | Engine, Layout, Transcript | `cmuxNotice`: the host's notice (Home's merge notice) is MessagesLab's centered system row under the newest message, not an overlay; its accessibility label has no leading space |
 | Compose | `onPastePasteboard`: the field's paste reaches the host's attachment intake first (Home's type rule, prepared by HomeStore) |
 | Layout | `code` runs draw monospaced with one font held for the process (`HomeFonts.code`: a font made per run on the row render threads came back nil and crashed) |

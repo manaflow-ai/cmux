@@ -47,14 +47,9 @@ pub(super) async fn handle_request(
     m: &str,
     mut params: Value,
 ) -> Result<Value, RpcError> {
-    // The pane's fork through a turn is a session/fork at the chat's end,
-    // checked as one from here on (`fork_through.rs`).
-    let m = if m == method::ACP_SESSION_FORK {
-        params = super::fork_through::to_session_fork(hub, &params)?;
-        method::SESSION_FORK
-    } else {
-        m
-    };
+    // The pane's fork through a turn is a session/fork, checked as one from
+    // here on (`fork_through.rs`).
+    let m = super::fork_through::as_session_fork(hub, m, &mut params).await?;
     // Before anything runs or is forwarded to a peer (`remote_guard.rs`).
     if conn.origin != Origin::Local {
         super::remote_guard::check(hub, conn.origin, m, &mut params).await?;
@@ -129,7 +124,7 @@ async fn dispatch_request(
                     method::MUX_DRAFT_GET, method::MUX_DRAFT_SET,
                     method::MUX_SET_POLICY, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
                 ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt"], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds", "sessionTransfer"], "trustGate": true}}
             }))
         }
         method::AUTHENTICATE => Ok(json!({})),
@@ -143,6 +138,37 @@ async fn dispatch_request(
                     "the person proof does not answer this connection's challenge (it must be the second request, after initialize)",
                 )
                 .with_data(json!({"reason": crate::hub::person::PROOF_REFUSED})))
+            }
+        }
+        method::MUX_PERSON_HOLDS => {
+            // The unix socket only: the app reaches a daemon it started over
+            // its own exec channel (`acp stdio`), never over a WebSocket.
+            if conn.origin != Origin::Local {
+                return Err(RpcError::invalid_params(
+                    "_acpmux/person_holds is accepted only over the local unix socket",
+                ));
+            }
+            // A few answers per connection. Not a security bound (a new
+            // connection gets 8 more): the answers are an HMAC over
+            // caller-chosen nonces that is valid only in its own domain, so
+            // they never serve as a decision or connection proof.
+            let calls = conn.holds_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if calls >= crate::hub::person::HOLDS_PER_CONNECTION {
+                return Err(RpcError::new(
+                    -32000,
+                    "this connection asked _acpmux/person_holds too often: open a new connection",
+                )
+                .with_data(json!({"reason": crate::hub::person::HOLDS_LIMIT})));
+            }
+            let nonce = str_param(&params, "nonce")
+                .filter(|n| crate::hub::person::valid_key(n))
+                .ok_or_else(|| {
+                    RpcError::invalid_params("nonce must be 64 lowercase hex characters")
+                })?;
+            match hub.person.holds(nonce) {
+                Some(proof) => Ok(json!({"instance": hub.person.instance(), "proof": proof})),
+                None => Err(RpcError::new(-32000, "this daemon holds no person key")
+                    .with_data(json!({"reason": crate::hub::person::NO_KEY}))),
             }
         }
         method::MUX_PERSON_ENROLL => {
@@ -360,7 +386,8 @@ async fn dispatch_request(
                 .or_else(|| params.get("name").and_then(Value::as_str))
                 .map(str::to_owned);
             let env = crate::session_env::parse(mux_meta(&params))?;
-            let new = hub.fork(&s, name, cwd, env).await?;
+            let through = super::fork_through::through(&params);
+            let new = hub.fork(&s, name, cwd, env, through).await?;
             attach(hub, conn, &new.id);
             let meta = new.meta();
             Ok(
@@ -951,7 +978,7 @@ async fn dispatch_request(
             let s = hub.resolve(session_key(&params)?)?;
             let prompt_id = str_param(&params, "promptId")
                 .ok_or_else(|| RpcError::invalid_params("promptId is required"))?;
-            let removed = hub.remove_queued(&s, prompt_id);
+            let removed = hub.withdraw_queued(&s, prompt_id)?;
             Ok(json!({"sessionId": s.id, "promptId": prompt_id, "removed": removed}))
         }
         method::MUX_PERMISSION_GROUPS => {
@@ -989,7 +1016,7 @@ async fn dispatch_request(
                 .ok_or_else(|| RpcError::invalid_params("policy is required"))?
                 .parse()
                 .map_err(RpcError::invalid_params)?;
-            hub.set_policy(&s, policy).await;
+            hub.set_policy_unless_moving(&s, policy).await?;
             Ok(hub.session_summary(&s))
         }
         method::MUX_EXPORT => {

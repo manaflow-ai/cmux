@@ -19,11 +19,16 @@
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
   /* The theme accent: the text color by default (no system blue), the theme's hue with
      appearance.accent. */
-  accent-color: var(--cmux-accent, AccentColor);
+  accent-color: var(--cmux-accent, currentColor);
   /* Keyboard focus stays visible without competing with the content. The host theme supplies
      the neutral focus token; the alpha is applied here so every first-party surface shares it. */
   --cmux-focus-ring-width: 1.5px;
   --cmux-focus-ring-color: color-mix(in srgb, var(--cmux-app-focus-ring, var(--cmux-focus-ring, currentColor)) 48%, transparent);
+  /* The highlighted row of a menu, list or palette (keyboard or pointer): a tint one step past
+     hover (the text at about 6%), never a ring and never the accent's selection tint. The left
+     bar in the theme accent is an option, 0 (off) by default. */
+  --cmux-row-focus: color-mix(in srgb, var(--cmux-text, currentColor) 10%, transparent);
+  --cmux-row-focus-bar: 0px;
   overscroll-behavior: none;
 }
 
@@ -111,12 +116,35 @@ input[type="submit"] {
    rules. Mouse focus is removed above; keyboard focus gets a thin theme-toned ring with no glow.
    A borderless field inside a box that shows focus itself (`data-focus-ring="none"`, the New Tab
    field) is left out: a text field is :focus-visible on every focus, so the ring drew a rectangle
-   inside the box. */
-:focus-visible:not([data-focus-ring="none"]) {
+   inside the box. Rows of menus, lists and palettes, and the containers that hold their active
+   row, show focus as the row tint below instead. */
+:focus-visible:not([data-focus-ring="none"], [data-focus-ring="row"], [data-focus-ring="rows"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"]) {
   outline-width: var(--cmux-focus-ring-width) !important;
   outline-style: solid !important;
   outline-color: var(--cmux-focus-ring-color) !important;
   box-shadow: none !important;
+}
+
+/* Text selection takes the theme accent's tint (the text color under the default neutral
+   accent), never the system highlight blue. A page with its own selection color sets it later. */
+::selection {
+  background-color: color-mix(in srgb, var(--cmux-accent, CanvasText) 28%, transparent);
+}
+
+/* A keyboard-focused row: the row tint, laid over the row's own fill as a background image so a
+   selected or checked row still changes when it takes focus, and the accent bar when it is on. A
+   row that marks its highlight itself (`data-highlighted`, the menus' and pickers' keyboard row)
+   draws that instead. */
+:is([data-focus-ring="row"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"]):focus-visible:not([data-highlighted]) {
+  outline: none;
+  background-image: linear-gradient(var(--cmux-row-focus), var(--cmux-row-focus));
+  box-shadow: inset var(--cmux-row-focus-bar) 0 0 var(--cmux-accent, currentColor);
+}
+
+/* A menu or list that always shows its active row highlighted (`data-focus-ring="rows"`) needs no
+   ring of its own around the rows. */
+[data-focus-ring="rows"]:focus-visible {
+  outline: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -142,7 +170,9 @@ input[type="submit"] {
     --cmux-diff-text-muted: var(--cmux-diff-fg, CanvasText) !important;
     --cmux-diff-text-subtle: var(--cmux-diff-fg, CanvasText) !important;
     --cmux-focus-ring-width: 2px;
-    --cmux-focus-ring-color: currentColor;
+    /* The theme accent at full strength: the host fits it to 3:1 or better on the page's own
+       surfaces (the text color under the default neutral accent), never the system blue. */
+    --cmux-focus-ring-color: var(--cmux-accent, var(--cmux-app-focus-ring, CanvasText));
   }
 
   :root:not([data-borders="none"]) {
@@ -163,7 +193,7 @@ input[type="submit"] {
   }
 
   :focus-visible {
-    outline: var(--cmux-focus-ring-width) solid currentColor !important;
+    outline: var(--cmux-focus-ring-width) solid var(--cmux-focus-ring-color) !important;
     outline-offset: 2px;
   }
 }

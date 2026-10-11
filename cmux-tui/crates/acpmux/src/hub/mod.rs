@@ -8,6 +8,7 @@ mod adoption;
 mod catalog_reload;
 mod cursor_ext;
 mod fork;
+mod fork_at;
 mod handoff;
 mod harness_view;
 mod harness_watch;
@@ -56,6 +57,8 @@ mod remote_sandbox;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub mod rules;
 mod transfer;
+mod transfer_in;
+mod transfer_out;
 mod turns;
 mod warm;
 mod xai;
@@ -531,6 +534,7 @@ impl Hub {
             queued: AtomicU64::new(0),
             queue: StdMutex::new(Vec::new()),
             queue_moved: Notify::new(),
+            moving: StdMutex::new(None),
             restored: StdMutex::new(Vec::new()),
             stream: StdMutex::new(StreamState::default()),
             permissions: StdMutex::new(permission_groups::PermissionState::default()),
@@ -621,10 +625,24 @@ impl Hub {
         msg: Value,
         host_seq: Option<u64>,
     ) -> (EventRecord, bool) {
+        self.append_at(session, dir, kind, msg, host_seq, None)
+    }
+
+    /// [`Hub::append_logged`] of a record that happened at `at` (Unix ms;
+    /// None: now), as a fork's copy of its parent's turns did.
+    pub(super) fn append_at(
+        &self,
+        session: &Session,
+        dir: &str,
+        kind: &str,
+        msg: Value,
+        host_seq: Option<u64>,
+        at: Option<u64>,
+    ) -> (EventRecord, bool) {
         let _order = session.append_lock.lock().unwrap();
         let seq = session.seq.fetch_add(1, Ordering::SeqCst) + 1;
-        let record =
-            EventRecord { seq, at: now_ms(), dir: dir.into(), kind: kind.into(), msg, host_seq };
+        let at = at.unwrap_or_else(now_ms);
+        let record = EventRecord { seq, at, dir: dir.into(), kind: kind.into(), msg, host_seq };
         if session.purged.load(Ordering::SeqCst) {
             return (record, true);
         }
@@ -658,6 +676,9 @@ impl Hub {
                 | "queued"
                 | "dequeued"
                 | "queue_removed"
+                | "queue_order"
+                | "queue_paused"
+                | "queue_resumed"
                 | "created"
                 | "tags"
                 | "rules"
@@ -751,6 +772,9 @@ impl Hub {
                 "composer draft exceeds {} characters",
                 Self::MAX_COMPOSER_DRAFT_CHARS
             ));
+        }
+        if session.moving().is_some() {
+            return Err(queue::moving_error().message);
         }
         let draft = (!text.trim().is_empty()).then(|| text.to_owned());
         {

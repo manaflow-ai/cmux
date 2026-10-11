@@ -57,6 +57,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let stop: @convention(c) (Int32) -> Void
     let setFocus: @convention(c) (Int32, Int32) -> Void
     let setZoomLevel: @convention(c) (Int32, Double) -> Void
+    /// Chromium's print preview over the page; 0 when the browser is gone.
+    let printPage: @convention(c) (Int32) -> Int32
     let find: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, Int32, Int32, Int32) -> Void
     let stopFinding: @convention(c) (Int32, Int32) -> Void
     let close: @convention(c) (Int32) -> Void
@@ -120,6 +122,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let downloadURL: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32
     let downloadContinue: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32
     let downloadControl: @convention(c) (Int32, Int32) -> Int32
+    /// Answers PERMISSION_PROMPT: 1 allow, 2 deny, else no answer.
+    let permissionContinue: @convention(c) (Int32, Int32) -> Int32
 
     // Page Info site state (ABI 3).
     let contentSetting: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
@@ -254,6 +258,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         stop = try r("cmux_shim_stop")
         setFocus = try r("cmux_shim_set_focus")
         setZoomLevel = try r("cmux_shim_set_zoom_level")
+        printPage = try r("cmux_shim_print")
         find = try r("cmux_shim_find")
         stopFinding = try r("cmux_shim_stop_finding")
         close = try r("cmux_shim_close")
@@ -296,6 +301,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         downloadURL = try r("cmux_shim_download_url")
         downloadContinue = try r("cmux_shim_download_continue")
         downloadControl = try r("cmux_shim_download_control")
+        permissionContinue = try r("cmux_shim_permission_continue")
         contentSetting = try r("cmux_shim_content_setting")
         setContentSetting = try r("cmux_shim_set_content_setting")
         visitCookies = try r("cmux_shim_visit_cookies")

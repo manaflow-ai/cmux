@@ -99,6 +99,7 @@ public final class Commands {
     public static final CommandMetadata FOCUS_DIRECTION = new CommandMetadata("focus-direction", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FOCUS_PANE = new CommandMetadata("focus-pane", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FORGET_SESSION = new CommandMetadata("forget-session", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata GET_BLOB = new CommandMetadata("get-blob", Authority.CONTROL, 12, "icon-assets-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata GET_BROWSER_PROVIDER = new CommandMetadata("get-browser-provider", Authority.LOCAL_ADMIN, 10, "browser-provider-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata GET_CELL_PIXELS = new CommandMetadata("get-cell-pixels", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata GET_FRONTEND_BROWSER_HISTORY = new CommandMetadata("get-frontend-browser-history", Authority.CONTROL, 12, "frontend-browser-history-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -163,6 +164,7 @@ public final class Commands {
     public static final CommandMetadata PIN_WORKSPACE = new CommandMetadata("pin-workspace", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PING = new CommandMetadata("ping", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PROCESS_INFO = new CommandMetadata("process-info", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata PUT_BLOB = new CommandMetadata("put-blob", Authority.CONTROL, 12, "icon-assets-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PUT_FRONTEND_PROJECTION = new CommandMetadata("put-frontend-projection", Authority.CONTROL, 7, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PUT_SESSION = new CommandMetadata("put-session", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata READ_SCREEN = new CommandMetadata("read-screen", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
@@ -187,6 +189,7 @@ public final class Commands {
     public static final CommandMetadata RESIZE_ATTACHED_VIEW = new CommandMetadata("resize-attached-view", Authority.FRONTEND, 10, "view-attachment-lease-v1", StreamKind.NONE, Map.ofEntries(Map.entry("identity", 12L), Map.entry("view", 12L)), Map.ofEntries(Map.entry("identity", "shared-sizing-v1"), Map.entry("view", "shared-sizing-v1")));
     public static final CommandMetadata RESIZE_SURFACE = new CommandMetadata("resize-surface", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata RESOLVE_TERMINAL = new CommandMetadata("resolve-terminal", Authority.CONTROL, 9, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata RESTART_TAB = new CommandMetadata("restart-tab", Authority.CONTROL, 12, "tab-restart-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata RUN = new CommandMetadata("run", Authority.CONTROL, 6, null, StreamKind.NONE, Map.ofEntries(Map.entry("key", 9L)), Map.of());
     public static final CommandMetadata SAVE_SCREEN_GROUP = new CommandMetadata("save-screen-group", Authority.CONTROL, 12, "screen-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SAVE_TAB_GROUP = new CommandMetadata("save-tab-group", Authority.CONTROL, 12, "saved-tab-groups-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -349,6 +352,7 @@ public final class Commands {
         values.put("focus-direction", FOCUS_DIRECTION);
         values.put("focus-pane", FOCUS_PANE);
         values.put("forget-session", FORGET_SESSION);
+        values.put("get-blob", GET_BLOB);
         values.put("get-browser-provider", GET_BROWSER_PROVIDER);
         values.put("get-cell-pixels", GET_CELL_PIXELS);
         values.put("get-frontend-browser-history", GET_FRONTEND_BROWSER_HISTORY);
@@ -413,6 +417,7 @@ public final class Commands {
         values.put("pin-workspace", PIN_WORKSPACE);
         values.put("ping", PING);
         values.put("process-info", PROCESS_INFO);
+        values.put("put-blob", PUT_BLOB);
         values.put("put-frontend-projection", PUT_FRONTEND_PROJECTION);
         values.put("put-session", PUT_SESSION);
         values.put("read-screen", READ_SCREEN);
@@ -437,6 +442,7 @@ public final class Commands {
         values.put("resize-attached-view", RESIZE_ATTACHED_VIEW);
         values.put("resize-surface", RESIZE_SURFACE);
         values.put("resolve-terminal", RESOLVE_TERMINAL);
+        values.put("restart-tab", RESTART_TAB);
         values.put("run", RUN);
         values.put("save-screen-group", SAVE_SCREEN_GROUP);
         values.put("save-tab-group", SAVE_TAB_GROUP);

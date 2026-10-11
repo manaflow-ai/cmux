@@ -80,9 +80,9 @@ extension CEFTab {
             findRequests.result(count: count, active: active, isFinal: isFinal)
         case .closeRequested:
             emit(.close)
-        case .navigationReroute(_, let url, _):
-            if let url = URL(string: url) { emit(.rerouteStore(url)) }
+        case .navigationReroute(_, let url, _): if let url = URL(string: url) { emit(.rerouteStore(url)) }
         case .localFileHandoff(_, let url): if let url = URL(string: url) { emit(.openLocalFile(url)) }
+        case .externalURL(_, let url, true): if let url = URL(string: url) { BrowserExternalApps.shared.open(url, from: committedURL, ask: enqueuePrompt) }
         case .keyUnhandled(_, let keyCode, let shift):
             if keyCode == 0x1B {
                 emit(.unhandledEscape)
@@ -93,10 +93,9 @@ extension CEFTab {
             emit(.takeFocus(forward: forward))
         case .renderTerminated(_, let status, let code, _):
             rendererTerminated(.cef(status: status, code: code))
-        case .renderUnresponsive:
-            machine.apply(.unresponsiveChanged(true))
-        case .renderResponsive:
-            machine.apply(.unresponsiveChanged(false))
+        case .renderUnresponsive: machine.apply(.unresponsiveChanged(true))
+        case .renderResponsive: machine.apply(.unresponsiveChanged(false))
+        case .permissionPrompt, .permissionDismissed: CEFPermissionPrompts(tab: self).handle(event)
         case .devToolsMessage(_, let json):
             agentRelay.deliver(json)
         default:

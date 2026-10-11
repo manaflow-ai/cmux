@@ -59,18 +59,19 @@ final class ThemeCoordinator {
     /// resolved like the other theme levels (the variant for the system appearance, the user's
     /// explicit config colors over it). `followTerminal` leaves each scope on its own theme.
     func followChromeTheme(_ settings: SettingsController) {
-        chromeTheme = settings.snapshot.chromeTheme
-        ThemeStore.shared.setAccent(settings.snapshot.accent)
+        // `applied`: a live preview (a theme picker's highlighted row) shows too.
+        chromeTheme = settings.applied.chromeTheme
+        ThemeStore.shared.setAccent(settings.applied.accent)
         applyChromeTheme()
         // `appearance.accent` re-derives the terminal-theme tokens (the store) and the app theme.
         accentObservation = Task { [weak self] in
-            for await accent in ObservationStream({ settings.snapshot.accent }) {
+            for await accent in ObservationStream({ settings.applied.accent }) {
                 guard let self, ThemeStore.shared.setAccent(accent) else { continue }
                 self.applyChromeTheme()
             }
         }
         chromeObservation = Task { [weak self] in
-            for await theme in ObservationStream({ settings.snapshot.chromeTheme }) {
+            for await theme in ObservationStream({ settings.applied.chromeTheme }) {
                 guard let self, theme != self.chromeTheme else { continue }
                 self.chromeTheme = theme
                 self.applyChromeTheme()
@@ -278,6 +279,10 @@ final class TerminalThemeBinding: ThemeResponsive {
     weak var coordinator: ThemeCoordinator?
     private unowned let scope: ThemeScope
     private weak var session: TerminalSession?
+
+    // cx-qxxu: released with its terminal, which Cmd-T's New Tab page can withdraw while its
+    // action runs; a main-actor deinit's hop traps there (cx-t7hu).
+    nonisolated deinit {}
 
     init(scope: ThemeScope, session: TerminalSession) {
         self.scope = scope

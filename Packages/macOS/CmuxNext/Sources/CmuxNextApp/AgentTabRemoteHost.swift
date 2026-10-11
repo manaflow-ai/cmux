@@ -8,18 +8,39 @@ import Foundation
 /// ``AgentSessionAttachClient``); the page never reaches that machine's acpmux directly.
 nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     let surface: UInt64
-    let session: String
+    /// The chat's session; nil for a new chat that ``start`` starts on its machine first.
+    let session: String?
     let machine: String
     let endpoint: AgentSessionAttachClient.EndpointProvider
+    /// The keyed restart of the machine's acpmux (an SSH machine, or a paired server on the ssh
+    /// route); nil where the app has no exec channel of its own (cx-0q7o).
+    var approvals: AgentPaneRemoteApprovals?
+    /// Starts a new chat in the machine's own acpmux (`agent-session-start`, policy `ask`) and
+    /// answers the tab's surface there and the session (``AgentTabStore/startRemoteChat``).
+    var start: (@Sendable () async throws -> AgentTabRemoteStart.Started)?
 
     func handshake(sessionId: String?) async throws -> AgentPaneHandshake {
-        let route = AgentPaneRemoteRoute(machine: machine) { [surface, session, endpoint] in
+        var surface = surface
+        let session: String
+        if let start {
+            // Also on a reconnect: the tab this run opened may have been provisional when this
+            // host was made, and the start answers the store's surface with its one session.
+            let started = try await start()
+            (surface, session) = (started.surface, started.session)
+        } else if let known = sessionId ?? self.session {
+            session = known
+        } else {
+            throw AgentRemoteStartRefusal.startUnsupported(machine: machine)
+        }
+        let route = AgentPaneRemoteRoute(machine: machine, approvals: approvals) { [surface, session, endpoint] in
             let client = AgentSessionAttachClient(surface: surface, endpoint: endpoint)
             return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client), session: session)
         }
         var handshake = AgentPaneHandshake.acpmux(.remote(route), sessionId: session)
         // The chat exists on its machine: never a fallback to another one.
         handshake.sessionMustExist = true
+        // The composer's machine chip names the chat's machine, not this Mac (cx-k21v).
+        handshake.machineName = machine
         return handshake
     }
 }
@@ -46,8 +67,11 @@ nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
 
     func cancel() async throws { _ = try await mapped { try await client.cancel(); return Data() } }
 
-    func permission(id: String, option: String) async throws {
-        _ = try await mapped { try await client.permission(id: id, option: option); return Data() }
+    func permission(id: String, option: String, decisionNonce: String?, personDecision: String?) async throws {
+        _ = try await mapped {
+            try await client.permission(id: id, option: option, decisionNonce: decisionNonce, personDecision: personDecision)
+            return Data()
+        }
     }
 
     func detach() async { await client.detach() }

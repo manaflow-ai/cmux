@@ -11,6 +11,8 @@
  */
 :root {
   --accent: var(--cmux-accent, var(--text));
+  /* A highlighted list row (desktop.css --cmux-row-focus): hover's family, a touch stronger. */
+  --row-focus: var(--cmux-row-focus, var(--accent-soft));
   --on-accent: var(--cmux-on-accent, var(--cmux-app-window, var(--cmux-surface-token, Canvas)));
   --accent-text: var(--text);
   --column: 720px;
@@ -404,7 +406,15 @@
 }
 
 .theme-option[data-highlighted] {
-  background: var(--accent-soft);
+  background: var(--row-focus);
+  box-shadow: inset var(--cmux-row-focus-bar, 0px) 0 0 var(--cmux-accent, currentColor);
+}
+
+/* The right-clicked (pinned) preview: its ball is ringed in the text color while the app shows it. */
+.theme-option-row[data-previewing] .theme-ball {
+  border-radius: 50%;
+  outline: 1.5px solid currentColor;
+  outline-offset: 1px;
 }
 
 .theme-option-row {

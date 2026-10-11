@@ -7,6 +7,9 @@ nonisolated enum Strings {
     static var back: String { String(localized: "browser.toolbar.back", defaultValue: "Back", bundle: .module) }
     static var forward: String { String(localized: "browser.toolbar.forward", defaultValue: "Forward", bundle: .module) }
     static var reload: String { String(localized: "browser.toolbar.reload", defaultValue: "Reload This Page", bundle: .module) }
+    /// The Reload button's right-click menu (cx-2lm4).
+    static var menuReload: String { String(localized: "browser.toolbar.menu.reload", defaultValue: "Reload Page", bundle: .module) }
+    static var menuHardReload: String { String(localized: "browser.toolbar.menu.hardReload", defaultValue: "Hard Reload Page", bundle: .module) }
     static var stop: String { String(localized: "browser.toolbar.stop", defaultValue: "Stop Loading", bundle: .module) }
     static var bookmarkAdd: String { String(localized: "browser.bookmark.add", defaultValue: "Bookmark This Page", bundle: .module) }
     static var bookmarkEdit: String { String(localized: "browser.bookmark.edit", defaultValue: "Edit Bookmark", bundle: .module) }
@@ -75,6 +78,12 @@ nonisolated enum Strings {
     }
     static func permissionCameraAndMicrophone(_ origin: String) -> String {
         String(localized: "browser.permission.cameraAndMicrophone", defaultValue: "\(origin) wants to use your camera and microphone.", bundle: .module)
+    }
+    static func permissionLocation(_ origin: String) -> String {
+        String(localized: "browser.permission.location", defaultValue: "\(origin) wants to know your location.", bundle: .module)
+    }
+    static func permissionNotifications(_ origin: String) -> String {
+        String(localized: "browser.permission.notifications", defaultValue: "\(origin) wants to show notifications.", bundle: .module)
     }
     /// The automatic-downloads question; `origin` is empty for a page
     /// without one (data:, about:blank).

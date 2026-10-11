@@ -7,6 +7,7 @@
 // - ↑ on the empty prompt reaches the last queued prompt; ⌥↑ moves it up, and it keeps focus.
 // - Return edits a queued prompt in its row; it keeps its place.
 // - ⌘Return sends one now; Delete removes one.
+// - A queue a failed turn paused says so, and Resume runs it again.
 //
 // Real Chromium from Playwright; skipped where it is not installed (the hosted webviews job).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -29,6 +30,7 @@ await requireBrowserLane("agent-pane-queue.test.ts", async () => {
   const SESSION = "queue-session";
   const turn = { turnId: "turn-1", promptId: "p-turn", startedAt: Date.now(), prompt: "Refactor the parser" };
   let queue: { promptId: string; prompt: string }[] = [];
+  let paused = false;
   const summary = () => ({
     sessionId: SESSION,
     cwd: "/home/dev/api",
@@ -36,6 +38,7 @@ await requireBrowserLane("agent-pane-queue.test.ts", async () => {
     harness: "codex",
     status: "running",
     steering: true,
+    queuePaused: paused,
     queued: queue.length,
     queue,
     turn,
@@ -93,6 +96,16 @@ await requireBrowserLane("agent-pane-queue.test.ts", async () => {
         } else if (params.op === "update") {
           entry.prompt = params.text;
           event(ws, "queue_updated", { promptId: entry.promptId, text: params.text });
+        } else if (params.op === "resume") {
+          paused = false;
+          event(ws, "queue_resumed", { queued: queue.length });
+          ws.send(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              method: "_acpmux/session_changed",
+              params: { sessionId: SESSION, session: summary(), kind: "queue", recordKind: "queue_resumed", seq },
+            }),
+          );
         } else if (params.op === "send_now") {
           queue = queue.filter((q) => q !== entry);
           event(ws, "dequeued", { promptId: entry.promptId });
@@ -137,7 +150,8 @@ await requireBrowserLane("agent-pane-queue.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  async function openChat(first = "first"): Promise<Page> {
+  async function openChat(first = "first", pausedQueue = false): Promise<Page> {
+    paused = pausedQueue;
     queue = [
       { promptId: "q-1", prompt: first },
       { promptId: "q-2", prompt: "second" },
@@ -157,6 +171,19 @@ await requireBrowserLane("agent-pane-queue.test.ts", async () => {
     page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset.promptId ?? null);
 
   describe("queued prompts from the keyboard", () => {
+    test("a queue a failed turn paused says so, and Resume runs it again", async () => {
+      const page = await openChat("first", true);
+      const note = page.locator(".acpmux-queue-paused", { hasText: "Paused after an error" });
+      await note.waitFor({ timeout: 10_000 });
+      await note.getByRole("button", { name: "Resume" }).click();
+      await note.waitFor({ state: "detached" });
+      expect({ edits, rows: await rows(page) }).toEqual({
+        edits: [{ op: "resume", promptId: "q-1" }],
+        rows: ["first", "second", "third"],
+      });
+      await page.close();
+    });
+
     test("↑ on the empty prompt reaches the last queued prompt; ⌥↑ moves it up", async () => {
       const page = await openChat();
       await page.locator(".acpmux-composer-prompt").click();

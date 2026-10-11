@@ -61496,27 +61496,27 @@
     "settings.workspaceRow.agentStatus.help": {
       "extractionState": "manual",
       "localizations": {
-        "ar": { "stringUnit": { "state": "needs_review", "value": "سطر الحالة الذي يبلغ عنه الوكلاء والخطافات." } },
-        "bs": { "stringUnit": { "state": "needs_review", "value": "Statusna linija koju prijavljuju agenti i hookovi." } },
-        "da": { "stringUnit": { "state": "needs_review", "value": "Statuslinjen, som agenter og hooks rapporterer." } },
-        "de": { "stringUnit": { "state": "needs_review", "value": "Die Statuszeile, die Agenten und Hooks melden." } },
-        "en": { "stringUnit": { "state": "translated", "value": "The status line agents and hooks report." } },
-        "es": { "stringUnit": { "state": "needs_review", "value": "La línea de estado que informan los agentes y hooks." } },
-        "fr": { "stringUnit": { "state": "needs_review", "value": "La ligne d'état signalée par les agents et les hooks." } },
-        "it": { "stringUnit": { "state": "needs_review", "value": "La riga di stato riportata da agenti e hook." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "エージェントとフックが報告するステータス行。" } },
-        "km": { "stringUnit": { "state": "needs_review", "value": "បន្ទាត់ស្ថានភាពដែលភ្នាក់ងារ និង hook រាយការណ៍។" } },
-        "ko": { "stringUnit": { "state": "needs_review", "value": "에이전트와 훅이 보고하는 상태 줄." } },
-        "nb": { "stringUnit": { "state": "needs_review", "value": "Statuslinjen som agenter og hooks rapporterer." } },
-        "pl": { "stringUnit": { "state": "needs_review", "value": "Wiersz stanu zgłaszany przez agentów i hooki." } },
-        "pt-BR": { "stringUnit": { "state": "needs_review", "value": "A linha de status que agentes e hooks informam." } },
-        "ru": { "stringUnit": { "state": "needs_review", "value": "Строка статуса, которую сообщают агенты и хуки." } },
-        "th": { "stringUnit": { "state": "needs_review", "value": "บรรทัดสถานะที่เอเจนต์และ hook รายงาน" } },
-        "tr": { "stringUnit": { "state": "needs_review", "value": "Ajanların ve kancaların bildirdiği durum satırı." } },
-        "uk": { "stringUnit": { "state": "needs_review", "value": "Рядок стану, який повідомляють агенти й хуки." } },
-        "vi": { "stringUnit": { "state": "needs_review", "value": "Dòng trạng thái do tác tử và hook báo cáo." } },
-        "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "代理和钩子报告的状态行。" } },
-        "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "代理程式與掛鉤回報的狀態列。" } }
+        "ar": { "stringUnit": { "state": "needs_review", "value": "الحالة التي يبلغ عنها الوكلاء والخطافات، كل منها في سطر." } },
+        "bs": { "stringUnit": { "state": "needs_review", "value": "Status koji prijavljuju agenti i hookovi, svaki u svom redu." } },
+        "da": { "stringUnit": { "state": "needs_review", "value": "Status, som agenter og hooks rapporterer, én linje hver." } },
+        "de": { "stringUnit": { "state": "needs_review", "value": "Der Status, den Agenten und Hooks melden, je eine Zeile." } },
+        "en": { "stringUnit": { "state": "translated", "value": "The status agents and hooks report, one line each." } },
+        "es": { "stringUnit": { "state": "needs_review", "value": "El estado que informan los agentes y hooks, una línea cada uno." } },
+        "fr": { "stringUnit": { "state": "needs_review", "value": "L'état signalé par les agents et les hooks, une ligne chacun." } },
+        "it": { "stringUnit": { "state": "needs_review", "value": "Lo stato riportato da agenti e hook, una riga ciascuno." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェントとフックが報告するステータス(1 件ごとに 1 行)。" } },
+        "km": { "stringUnit": { "state": "needs_review", "value": "ស្ថានភាពដែលភ្នាក់ងារ និង hook រាយការណ៍ មួយបន្ទាត់ម្ដង។" } },
+        "ko": { "stringUnit": { "state": "needs_review", "value": "에이전트와 훅이 보고하는 상태(항목마다 한 줄)." } },
+        "nb": { "stringUnit": { "state": "needs_review", "value": "Statusen agenter og hooks rapporterer, én linje hver." } },
+        "pl": { "stringUnit": { "state": "needs_review", "value": "Stan zgłaszany przez agentów i hooki, każdy w osobnym wierszu." } },
+        "pt-BR": { "stringUnit": { "state": "needs_review", "value": "O status que agentes e hooks informam, uma linha cada." } },
+        "ru": { "stringUnit": { "state": "needs_review", "value": "Статус, который сообщают агенты и хуки, по строке на запись." } },
+        "th": { "stringUnit": { "state": "needs_review", "value": "สถานะที่เอเจนต์และ hook รายงาน บรรทัดละหนึ่งรายการ" } },
+        "tr": { "stringUnit": { "state": "needs_review", "value": "Ajanların ve kancaların bildirdiği durum, her biri bir satırda." } },
+        "uk": { "stringUnit": { "state": "needs_review", "value": "Стан, який повідомляють агенти й хуки, по рядку на запис." } },
+        "vi": { "stringUnit": { "state": "needs_review", "value": "Trạng thái do tác tử và hook báo cáo, mỗi mục một dòng." } },
+        "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "代理和钩子报告的状态，每项一行。" } },
+        "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "代理程式與掛鉤回報的狀態，每項一行。" } }
       }
     },
     "settings.workspaceRow.ports.help": {
@@ -75529,6 +75529,268 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "工作區列只顯示圖示、名稱與未讀標記，區段標題變成細線。"
+          }
+        }
+      }
+    },
+    "settings.workspaceRow.log": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ログ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "السجل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zapisnik"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Log"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Protokoll"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Registro"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Journal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Log"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំណត់ហេតុ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "로그"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Logg"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dziennik"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Log"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Журнал"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บันทึก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Günlük"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Журнал"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhật ký"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "日志"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "日誌"
+          }
+        }
+      }
+    },
+    "settings.workspaceRow.log.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The newest line agents and scripts log: cmux workspace log append <text>."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントやスクリプトが記録した最新の行: cmux workspace log append <text>。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أحدث سطر يسجله الوكلاء والبرامج النصية: cmux workspace log append <text>."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Najnoviji red koji zapisuju agenti i skripte: cmux workspace log append <text>."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den nyeste linje, som agenter og scripts logger: cmux workspace log append <text>."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die neueste Zeile, die Agenten und Skripte protokollieren: cmux workspace log append <text>."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La línea más reciente que registran los agentes y scripts: cmux workspace log append <text>."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La dernière ligne journalisée par les agents et les scripts : cmux workspace log append <text>."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'ultima riga registrata da agenti e script: cmux workspace log append <text>."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្ទាត់ថ្មីបំផុតដែលភ្នាក់ងារ និងស្គ្រីបកត់ត្រា៖ cmux workspace log append <text>។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트와 스크립트가 기록한 최신 줄: cmux workspace log append <text>."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den nyeste linjen agenter og skript logger: cmux workspace log append <text>."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Najnowszy wiersz zapisany przez agentów i skrypty: cmux workspace log append <text>."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A linha mais recente que agentes e scripts registram: cmux workspace log append <text>."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Последняя строка, которую записали агенты и скрипты: cmux workspace log append <text>."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บรรทัดล่าสุดที่เอเจนต์และสคริปต์บันทึก: cmux workspace log append <text>"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajanların ve betiklerin kaydettiği en yeni satır: cmux workspace log append <text>."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Найновіший рядок, який записали агенти й скрипти: cmux workspace log append <text>."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dòng mới nhất mà tác tử và script ghi lại: cmux workspace log append <text>."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理和脚本记录的最新一行：cmux workspace log append <text>。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理程式與指令碼記錄的最新一行：cmux workspace log append <text>。"
           }
         }
       }

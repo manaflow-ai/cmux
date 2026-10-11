@@ -6,7 +6,9 @@ as on any chat: Terminal and Browser each open a tab of their kind beside the ch
 tab opens a New Tab page in a new column right of the chat (cx-qom0). A plain chat (New Agent
 Chat) is checked first, as the control; then [+] on four New Tab Page chats (the page's move
 into the column raced the store's tree), the first one's column page also starting a chat;
-then Terminal and Browser on another New Tab Page chat.
+then Terminal and Browser on another New Tab Page chat, and that chat's [+] and Terminal with the
+browser beside it (cx-p0fz: the address bar's restyle restarted its edit in a loop and the
+main-thread watchdog stopped the app).
 
 The script attaches to an app already running (a capture slot's `capture-host launch`, or a
 tagged build) through its debug socket. The app needs an ACP harness with id `fake`
@@ -194,8 +196,7 @@ def close_created():
 
 
 def main():
-    # Control: a plain chat. Browser checks come last: once a browser tab is open, a later
-    # focus change can hang the app (cx-p0fz).
+    # Control: a plain chat.
     workspace, pane = new_workspace()
     rpc("action.run", {"action": "palette.newAgentChat", "target": f"pane:{pane}", "focus": True})
     chat = wait(lambda: chat_pane(workspace), 60, 1)
@@ -218,12 +219,23 @@ def main():
                 check_header("[+] column chat", workspace, column)
         close_created()
 
-    # Terminal and Browser on a New Tab page's chat.
+    # Terminal and Browser on a New Tab page's chat, then [+] (Hide tabs, with the browser beside
+    # the chat) and Terminal again: with the browser's address bar editing, the next header click
+    # hung the app (cx-p0fz).
     made = page_workspace("Last New Tab Page")
     if made:
         workspace, page = made
         check_header("New Tab Page chat", workspace, page)
         check_header("New Tab Page chat", workspace, page, "Browser", "browser")
+        for label in ("Hide tabs", "Terminal"):
+            clicked = click_header(page, label)
+            time.sleep(2)  # test harness: the click lands
+            answers = bool(wait(lambda: "error" not in (rpc("debug.windows", timeout=5) or {"error": 1}), 15))
+            row(f"New Tab Page chat beside a browser: header {label} keeps the app answering", "the click lands; the app answers",
+                f"clicked {(clicked or {}).get('clicked')}; panes {panes_of(workspace) if answers else 'no answer'}",
+                answers and bool((clicked or {}).get("clicked")))
+            if not answers:
+                return
 
 
 if not wait(lambda: (rpc("debug.windows") or {}).get("windows"), 60):
