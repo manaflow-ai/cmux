@@ -62,11 +62,6 @@ public final class MarqueeLabel: NSView {
     /// The whole title does not fit.
     public var isTruncated: Bool { fade.geometry?.isTruncated ?? false }
     public var isMarqueeActive: Bool { fade.isMarqueeActive }
-    /// The motion policy the marquee follows; tests pin it.
-    public var motionPolicy: () -> MotionPolicy {
-        get { fade.policy }
-        set { fade.policy = newValue }
-    }
 
     /// Starts the hover marquee (after its delay). False when the title
     /// fits or motion is reduced or off.

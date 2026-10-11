@@ -122,7 +122,4 @@ final class DaemonConnectingView: NSView {
     }
 
     var titleText: String { titleLabel.stringValue }
-    /// The status line shows or is fading in (it keeps its space while
-    /// hidden, so nothing moves when it appears).
-    var isTitleShown: Bool { statusDue }
 }
