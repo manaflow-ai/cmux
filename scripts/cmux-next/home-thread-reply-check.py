@@ -9,7 +9,9 @@ in Home, then, through the user's paths only: clicks the thread's "2 Replies"
 (`debug.home.drive thread`, the click's path), types and presses Return in the
 thread view's field (`type`, `send`). The owner's `conversation-thread` read
 must then hold the new reply with `thread_root` = the root, and the reply
-count goes from 2 to 3. Esc closes the view. Screenshots before, in the thread, after.
+count goes from 2 to 3. A real Esc with the key focus outside the pane leaves the view
+open; Esc in the pane closes it. Then Reply… on a reply whose root is out of Home's window
+must still send to that root. Screenshots before, in the thread, after.
 No system input: socket only. Runs on cmux-lawrence-2 (nx-remote --needs gui
 --app-from-fleet); ends with the DEBUG quit fixture, endAgents and the tag's
 `acpmux daemon shutdown`.
@@ -195,12 +197,63 @@ try:
     check("the reply went out with thread_root = the root", bool(mine) and mine.get("thread_root") == root, mine)
     time.sleep(1)  # test harness: the reply's arrival animation, before the screenshot
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "thread-after.png")})
+    # A real Esc while the key focus is outside the pane (a terminal split, the sidebar, the
+    # palette) is theirs: the thread stays open (cx-6ida review P2).
+    drive("post_escape", outside=True)
+    time.sleep(0.5)  # test harness: the posted key press goes through the app's event queue
+    state = drive("thread_state")
+    check("Esc with the key focus outside the pane leaves the thread open", bool(state.get("open_thread")), state)
     drive("escape")
     closed = drive("escape")
     check("Esc closes the thread view", closed.get("open_thread") is None, closed)
     time.sleep(1)  # test harness: the view's fly-out, before the screenshot
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "after.png")})
     check("Home still shows the root", root_text in (drive("texts").get("texts") or []))
+
+    # Reply… on a reply whose root is out of Home's loaded window (HomeStore tail 60): the send
+    # still names the thread's root, not the reply (cx-6ida review P2).
+    created = daemon(owner, "conversation-create", idempotency_key=f"late-reply-{stamp}", actor=me, title=f"Late reply {stamp}",
+                     participants=[{"id": me, "kind": "human", "display_name": "Me"},
+                                   {"id": "agent_instinct", "kind": "agent", "display_name": "Maybe: Instinct"}])
+    conversation = (created.get("conversation") or {}).get("id")
+    if not check("a second conversation", bool(conversation), created):
+        sys.exit(1)
+    old_root = seed(f"Old root {stamp}")
+    seed(f"Old reply {stamp}", old_root)
+    for i in range(65):
+        seed(f"Filler {i} {stamp}")
+    root_text = f"Late reply {stamp}"
+    check("the owner committed a late reply", bool(seed(root_text, old_root)))
+    check("the old thread has two replies", bool(poll(lambda: thread_read(conversation, old_root)["count"] == 2)),
+          thread_read(conversation, old_root))
+    check("Home shows the late reply", bool(poll(opened, timeout=120)), drive("texts"))
+    check("the old root is out of Home's loaded window", f"Old root {stamp}" not in (drive("texts", limit=500).get("texts") or []))
+    state = drive("reply", mine=True)
+    result["late_open"] = state
+    check("Reply… on the late reply opens a thread view", bool(state.get("open_thread")), state)
+    # Esc in the view's focused field first only unfocuses it (the transcript takes the focus);
+    # a second, real Esc then reaches the pane's monitor and closes the view.
+    drive("focus")
+    state = drive("escape")
+    check("the first Esc in the field keeps the view open", bool(state.get("open_thread")), state)
+    drive("post_escape")
+    time.sleep(0.5)  # test harness: the posted key press goes through the app's event queue
+    state = drive("thread_state")
+    check("a second, real Esc closes the view", state.get("open_thread") is None, state)
+    state = drive("reply", mine=True)
+    check("Reply… opens the view again", bool(state.get("open_thread")), state)
+    late_text = f"Reply to the late reply {stamp}"
+    drive("type", text=late_text)
+    sent = drive("send")
+    check("Return in that view sends", bool(sent.get("ok")), sent)
+    late_after = poll(lambda: (t := thread_read(conversation, old_root)) and t["count"] == 3 and t, timeout=20)
+    result["late_after"] = late_after or thread_read(conversation, old_root)
+    check("the old root's thread holds the reply (reply count 2 -> 3)", bool(late_after), result["late_after"])
+    late = next((m for m in snapshot(conversation) if m.get("text") == late_text), None)
+    result["late_reply"] = late
+    check("the reply names the old root, not the late reply", bool(late) and late.get("thread_root") == old_root, late)
+    time.sleep(1)  # test harness: the reply's arrival animation, before the screenshot
+    rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "late-reply.png")})
 finally:
     reply = rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
     if not (isinstance(reply, dict) and reply.get("quitting") == "end-sessions"):

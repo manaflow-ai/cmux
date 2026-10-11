@@ -23,6 +23,12 @@ enum CmuxStrings {
         String(localized: "home.send.chiefRestarted", defaultValue: "The Chief restarted. Press Return to send.", table: "CmuxHome", bundle: .module)
     }
 
+    /// A reply's thread root is not delivered yet (my send still going): the thread view closes.
+    static var threadRootNotReady: String {
+        String(localized: "home.thread.rootNotReady", defaultValue: "You can reply in this thread once its first message is delivered.",
+               table: "CmuxHome", bundle: .module)
+    }
+
     /// The context menu item that cancels my send while it uploads or after it failed.
     static var cancelUpload: String {
         String(localized: "home.menu.cancelUpload", defaultValue: "Cancel Upload", table: "CmuxHome", bundle: .module)
