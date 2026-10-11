@@ -475,14 +475,14 @@ function ToolsSection({
                       }
                     }}
                   >
-                    {tool.menu.map((id) => (
+                    {tool.menu.map((id, itemIndex) => (
                       <button
                         type="button"
                         role="menuitem"
                         key={id}
                         ref={(node) => {
                           const items = menuItems.current.get(tool.id) ?? [];
-                          items[index] = node;
+                          items[itemIndex] = node;
                           menuItems.current.set(tool.id, items);
                         }}
                         onKeyDown={(event) => {

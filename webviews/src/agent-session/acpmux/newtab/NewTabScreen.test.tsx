@@ -178,6 +178,30 @@ test("tool overflow menus expose disclosure state and dismiss on Escape or outsi
   await act(async () => root.unmount());
 });
 
+test("multi-item tool menus keep roving keyboard focus in menu order", async () => {
+  const { container, root } = await mount({
+    tools: [{ id: "newSurface", title: "Terminal", symbol: "terminal", menu: ["splitRight", "splitDown"] }],
+  });
+  const trigger = container.querySelector<HTMLButtonElement>(".nt-tool-menu > button")!;
+  const items = () => [...container.querySelectorAll<HTMLButtonElement>("[role=menuitem]")];
+
+  await act(async () => trigger.click());
+  expect(items()).toHaveLength(2);
+  expect(dom.window.document.activeElement).toBe(items()[0]);
+
+  await act(async () => {
+    items()[0]!.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+  });
+  expect(dom.window.document.activeElement).toBe(items()[1]);
+
+  await act(async () => {
+    items()[1]!.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Home", bubbles: true }));
+  });
+  expect(dom.window.document.activeElement).toBe(items()[0]);
+
+  await act(async () => root.unmount());
+});
+
 test("! puts the field in shell mode in place: no terminal, no rows, the cards stay", async () => {
   const { container, root, field, type, calls } = await mount();
   await type("!");
