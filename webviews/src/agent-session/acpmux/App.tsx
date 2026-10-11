@@ -516,9 +516,13 @@ type ReportDrawn = (id: string, version: number, height: number) => void;
 type TranscriptRange = { anchorId: string; focusId: string };
 
 /// Assistant and summary rows already expose the turn's copy action in TurnFooter. Keep the
-/// floating action for prompts and tool rows where no adjacent copy control exists.
+/// floating action for prompts and tool rows where no adjacent copy control exists. The child
+/// view's "Subagent of" pill is navigation, with nothing to copy.
 const transcriptHasFloatingCopy = (row: AcpmuxRow) =>
-  row.kind !== "assistant" && row.kind !== "turnSummary" && transcriptCopyText(row).length > 0;
+  row.kind !== "assistant" &&
+  row.kind !== "turnSummary" &&
+  row.kind !== SUBAGENT_OF &&
+  transcriptCopyText(row).length > 0;
 
 /// Slides the thread from `step` px below to its place over 180 ms, so content that grew at the
 /// latest row glides in. Glides stack (`composite: "add"`). None under Reduce Motion.

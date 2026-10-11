@@ -215,12 +215,13 @@ export default agentPaneEntry({
     },
     child: {
       note: "A list line opened: the subagent's own view, under a Subagent of pill naming the chat.",
+      height: 640,
       snapshot: NESTED_MIXED,
       play: openChild("Test coverage"),
     },
     "child-nested": {
       note: "A nested group in the child view opened, then its finished subagent: the pill names its parent.",
-      height: 520,
+      height: 760,
       snapshot: NESTED_MIXED,
       play: async (ctx) => {
         await openChild("Test coverage")(ctx);
@@ -231,6 +232,7 @@ export default agentPaneEntry({
     },
     "child-back": {
       note: "The pill goes back to the parent: the chat's transcript, its group still open.",
+      height: 680,
       snapshot: NESTED_MIXED,
       play: async (ctx) => {
         await openChild("Test coverage")(ctx);
@@ -275,6 +277,7 @@ export default agentPaneEntry({
     },
     "lineage-child": {
       note: "Lineage in a subagent's view: its parent, the chat, then its own running and previous subagents.",
+      height: 640,
       snapshot: NESTED_MIXED,
       play: async (ctx) => {
         await openChild("Test coverage")(ctx);
