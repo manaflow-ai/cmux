@@ -103,10 +103,14 @@ if [ "$count" -eq 0 ]; then
   echo "error: no webviews test files found under $PWD" >&2
   exit 1
 fi
-xargs -0 grep -lZ -- vite.config.acpmux-pane.mjs < "$results/files" > "$results/serial" || true
+# A file that starts a Vite dev server (the agent pane's or the gallery's) runs alone: two servers
+# optimize dependencies into the same node_modules/.vite at once, and each loses files the other
+# wrote, so their first page never loads.
+dev_servers='vite\.config\.(acpmux-pane\.mjs|gallery-dev\.ts)'
+xargs -0 grep -lEZ -- "$dev_servers" < "$results/files" > "$results/serial" || true
 serial="$(tr -cd '\0' < "$results/serial" | wc -c | tr -d ' ')"
-xargs -0 grep -LZ -- vite.config.acpmux-pane.mjs < "$results/files" > "$results/parallel" || true
-echo "running $count webviews test files, $jobs at a time ($serial agent pane dev server files one at a time after), ${timeout_seconds}s each"
+xargs -0 grep -LEZ -- "$dev_servers" < "$results/files" > "$results/parallel" || true
+echo "running $count webviews test files, $jobs at a time ($serial dev server files one at a time after), ${timeout_seconds}s each"
 : > "$results/summary"
 xargs -0 -P "$jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/parallel"
 xargs -0 -P 1 -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/serial"
