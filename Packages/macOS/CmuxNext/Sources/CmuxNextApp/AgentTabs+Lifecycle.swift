@@ -169,6 +169,7 @@ extension AgentTabStore {
     func rekey(_ key: String, to real: String) {
         guard key != real else { return }
         aliases[key] = real
+        if remoteCreations[key] != nil || remoteSeeds[key] != nil { remoteAliases[key] = real }
         if let view = views.removeValue(forKey: key) {
             // A page made under the store's id meanwhile (another window) gives way to the one shown.
             if let other = views[real], other !== view { retirer.retire(other) }
@@ -291,6 +292,7 @@ extension AgentTabStore {
         remoteStarts.removeValue(forKey: key)?.cancel()
         adoptions = adoptions.filter { $0.value != key }
         aliases = aliases.filter { $0.value != key }
+        remoteAliases = remoteAliases.filter { $0.value != key && $0.key != key }
         linkedSessions.remove(key)
         pendingTurns[key] = nil
         tabStores[key] = nil

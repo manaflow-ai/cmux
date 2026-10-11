@@ -113,6 +113,8 @@ final class AgentTabStore {
     var remoteSeeds: [String: AgentPaneSeedSource] = [:]
     /// New chats on another machine whose store tab is still being created: they start once it is.
     var remoteCreations: [String: AgentTabPending] = [:]
+    /// Provisional id -> store id of new chats on another machine, kept while the tab lives.
+    var remoteAliases: [String: String] = [:]
     /// Starts in flight on another machine, so a reconnecting page waits for the same one.
     var remoteStarts: [String: Task<AgentTabRemoteStart.Started, any Error>] = [:]
     /// The folder a new chat on another machine starts in when its seed names none: a folder of
@@ -239,6 +241,11 @@ final class AgentTabStore {
 
     /// The store's id of `key` (a provisional id after its creation answered).
     func resolve(_ key: String) -> String { aliases[key] ?? key }
+
+    /// ``resolve(_:)`` for a new chat on another machine: its page's host keeps the provisional id
+    /// it was made with, and the start runs at the first send, after the tree settled and dropped
+    /// the provisional alias (cx-k21v: a remote New Tab page's send failed with unknown_tab).
+    func resolveRemote(_ key: String) -> String { aliases[key] ?? remoteAliases[key] ?? key }
 
     /// Scrolls tab `key`'s transcript to `turn` (a `#turn-<turnId>` link):
     /// through its page, or with the handshake of a page not made yet.
