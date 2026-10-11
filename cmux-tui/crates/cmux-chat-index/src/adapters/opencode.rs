@@ -87,8 +87,8 @@ impl Flavor {
     }
 }
 
-/// The OpenCode DB under `root` (an OpenCode data dir) that has top-level
-/// session `id`, with the folder it recorded: what acpmux adopts.
+/// The OpenCode DB under `root` (an OpenCode data dir) that has session
+/// `id`, with the folder it recorded: what acpmux adopts.
 pub fn find_session(root: &Path, id: &str) -> Option<(PathBuf, Option<String>)> {
     let dbs = db_files(root, Flavor::OpenCode).ok()?;
     dbs.into_iter().find_map(|db| {
