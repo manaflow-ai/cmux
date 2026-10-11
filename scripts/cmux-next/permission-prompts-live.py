@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Live check: location and notification permission prompts in both engines (cx-d0d.25).
+"""Live check: location and notification permission prompts in both engines (cx-d0d.25), and
+WebKit web notifications as cmux banners (cx-d0d.63).
 
   scripts/cmux-next/permission-prompts-live.py --tag <tag> [--out DIR] [--app PATH] [--engines chromium,webkit]
 
@@ -10,7 +11,10 @@ page (a new port, so a new origin, every run). For each engine:
      Block fails it with PERMISSION_DENIED, and after a reload a second request
      fails at once with no prompt: the answer is remembered for the site;
   2. WebKit: `Notification.requestPermission()` asks in the prompt bar; Allow
-     grants it, and after a reload it is granted with no prompt. Chromium has
+     grants it, and after a reload it is granted with no prompt. A notification the page
+     makes before that shows no banner; after it, `new Notification(...)` shows a cmux
+     banner on the page's tab (title, the site, the body), and a click on the banner runs
+     the page's `onclick`. Chromium has
      no web notifications (`disable-notifications`: DesktopNotifier owns the app's one
      macOS notification authorization), so the page sees no `Notification`.
 
@@ -40,6 +44,12 @@ function locate() {
     (e) => { window.geo = "error " + e.code; }, {timeout: 60000});
 }
 window.notify = "idle";
+window.clicked = 0;
+function notifyNow(title) {
+  const n = new Notification(title, {body: "from the page"});
+  n.onclick = () => { window.clicked += 1; };
+  return true;
+}
 function askNotify() {
   window.notify = "pending";
   Notification.requestPermission().then((p) => { window.notify = p; }, (e) => { window.notify = "error " + e; });
@@ -154,6 +164,14 @@ def load(engine, url):
     return ok
 
 
+def banners():
+    return rpc("debug.notifications").get("banners") or []
+
+
+def banner(title):
+    return next((b for b in banners() if b.get("title") == title), None)
+
+
 def run_engine(engine):
     global TAB
     print(f"== {engine}", flush=True)
@@ -179,6 +197,9 @@ def run_engine(engine):
     if engine == "chromium":
         check(page("typeof Notification") == "undefined", f"{engine}: the page has no web notifications (by design)")
     else:
+        check(run(engine, "notifyNow('cmux early')"), f"{engine}: the page makes a notification before asking")
+        time.sleep(2)
+        check(banner("cmux early") is None, f"{engine}: a notification without permission shows no banner ({banners()})")
         check(run(engine, "askNotify(); true"), f"{engine}: the page requests notifications")
         shown = quiet_wait(lambda: permission_prompts("notifications"), 10)
         check(bool(shown), f"{engine}: a notification request asks in the prompt bar ({prompts()}, notify {state('notify')})")
@@ -191,6 +212,14 @@ def run_engine(engine):
             got = settled("notify")
             check(got == "granted" and not permission_prompts("notifications"),
                   f"{engine}: after a reload notifications are granted with no prompt ({got}, {prompts()})")
+            check(run(engine, "notifyNow('cmux web notification')"), f"{engine}: the page makes a notification")
+            shown = quiet_wait(lambda: banner("cmux web notification"), 10)
+            check(bool(shown) and "127.0.0.1" in shown.get("body", "") and "from the page" in shown.get("body", ""),
+                  f"{engine}: a granted page's notification shows a cmux banner with its site ({shown}, {banners()})")
+            if shown:
+                rpc("debug.notifications", {"action": "click", "id": shown["id"], "surface": shown.get("surface")})
+                check(bool(quiet_wait(lambda: state("clicked") == 1, 10)),
+                      f"{engine}: clicking the banner runs the page's onclick ({state('clicked')})")
 
     rpc("action.run", {"action": "closeTab", "origin": "script"})
     TAB = None
