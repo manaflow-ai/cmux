@@ -90,6 +90,8 @@ final class SidebarBridge {
         sectionsObservation?.cancel()
         appSections?.releaseAll()
         cardsObservation?.cancel()
+        // The update surface pages cancel their subscriptions (cx-urd.61.2).
+        container.sidebarView.updateSurfaces = nil
     }
 
     private func observe() {

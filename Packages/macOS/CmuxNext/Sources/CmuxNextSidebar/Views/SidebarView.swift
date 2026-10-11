@@ -161,6 +161,8 @@ public final class SidebarView: NSView {
     /// popover does not open and the Updated card does not show.
     public var updateSurfaces: (any SidebarUpdateSurfaces)? {
         didSet {
+            updateCardView.highlights?.close()
+            updatedCardView.island?.close()
             updateCardView.highlights = updateSurfaces?.island(.ready)
             updatedCardView.island = updateSurfaces?.island(.updated)
             updatedCardView.onHeightChange = { [weak self] in self?.needsLayout = true }

@@ -9,3 +9,7 @@ html[data-surface] body {
 html[data-surface] #root {
   display: flow-root;
 }
+/* The host gives the width (300 pt, which is fewer CSS px when the interface scale zooms the page). */
+html[data-surface] .wn-pop {
+  width: auto;
+}

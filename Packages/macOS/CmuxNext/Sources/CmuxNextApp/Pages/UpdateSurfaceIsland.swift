@@ -29,6 +29,7 @@ final class UpdateSurfaceIsland: SidebarSurfaceIsland {
     let view: NSView
     private(set) var contentHeight: CGFloat = 0
     var onHeightChange: (() -> Void)?
+    var onAction: (() -> Void)?
     private let provider: UpdateSurfaceProvider
 
     init(kind: SidebarUpdateSurfaceKind, services: AppServices?) {
@@ -36,10 +37,19 @@ final class UpdateSurfaceIsland: SidebarSurfaceIsland {
         self.provider = provider
         view = services.flatMap { PageFactory(services: $0).updateSurfacePage(kind: kind, provider: provider) } ?? NSView()
         provider.onHeight = { [weak self] height in self?.setHeight(height) }
+        provider.onAction = { [weak self] in self?.onAction?() }
     }
 
+    func close() {
+        (view as? PageWebView)?.close()
+    }
+
+    /// `height` is in CSS px; the page is zoomed (the interface scale), so
+    /// one CSS px is `pageZoom * magnification` points.
     private func setHeight(_ height: CGFloat) {
-        let height = max(0, ceil(height))
+        let web = (view as? PageWebView)?.webKitView
+        let zoom = (web?.pageZoom ?? 1) * (web?.magnification ?? 1)
+        let height = max(0, ceil(height * zoom))
         guard height != contentHeight else { return }
         contentHeight = height
         onHeightChange?()
@@ -55,6 +65,8 @@ final class UpdateSurfaceProvider: PageProvider {
     let kind: SidebarUpdateSurfaceKind
     private weak var services: AppServices?
     var onHeight: ((CGFloat) -> Void)?
+    /// The page ran an action (the popover closes).
+    var onAction: (() -> Void)?
 
     init(kind: SidebarUpdateSurfaceKind, services: AppServices?) {
         self.kind = kind
@@ -63,7 +75,8 @@ final class UpdateSurfaceProvider: PageProvider {
 
     private var highlights: UpdateHighlights? {
         guard let updater = services?.updater else { return nil }
-        return kind == .ready ? updater.stagedHighlights : updater.lastUpdateHighlights
+        guard kind == .updated else { return updater.stagedHighlights }
+        return updater.lastUpdateHighlights ?? updater.updatedWithoutRecordHighlights
     }
 
     private func json(_ highlights: UpdateHighlights?) throws -> JSONValue {
@@ -83,6 +96,7 @@ final class UpdateSurfaceProvider: PageProvider {
             return .null
         case "cmux.changelog.surface.openChangelog":
             _ = kind == .ready ? services.updater.openStagedChangelog() : services.updater.openWhatsNewForLastUpdate()
+            onAction?()
             return .null
         case "cmux.changelog.surface.dismiss":
             services.updater.whatsNew.dismissUpdated()
@@ -101,8 +115,9 @@ final class UpdateSurfaceProvider: PageProvider {
         // task-owner: the page's subscription; cancelled with it.
         let task = Task { @MainActor [weak self] in
             for await highlights in ObservationStream({ [weak self] in self?.highlights }) {
-                guard let value = try? self?.json(highlights) else { continue }
-                self?.services?.updater.log.append("update surface \(self?.kind.rawValue ?? ""): data \(highlights == nil ? "none" : "\(highlights?.items.count ?? 0) items")")
+                guard let self else { return }
+                guard let value = try? json(highlights) else { continue }
+                services?.updater.log.append("update surface \(kind.rawValue): data \(highlights == nil ? "none" : "\(highlights?.items.count ?? 0) items")")
                 onEvent(value)
             }
         }

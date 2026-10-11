@@ -28,17 +28,19 @@ final class SidebarUpdateCardView: NSView {
         didSet {
             popover = nil
             oldValue?.view.removeFromSuperview()
+            highlights?.onAction = { [weak self] in self?.hideNotes() }
             parkHighlights()
         }
     }
 
-    /// The highlights page waits inside the card, transparent and click-
-    /// through, so it loads and reports its height while the card shows; the
-    /// popover takes it while open and gives it back when it closes.
+    /// The highlights page waits in the card's view tree, transparent,
+    /// click-through and outside the card's bounds, so it loads and reports
+    /// its height while the card shows; the popover takes it while open and
+    /// gives it back when it closes.
     func parkHighlights() {
         guard let highlights, highlights.view.superview !== parking else { return }
         if parking.superview == nil { addSubview(parking, positioned: .below, relativeTo: nil) }
-        parking.frame = NSRect(x: 0, y: 0, width: Self.popoverWidth, height: max(1, highlights.contentHeight))
+        parking.frame = NSRect(x: SidebarIslandParking.offscreenX, y: 0, width: Self.popoverWidth, height: max(1, highlights.contentHeight))
         highlights.view.removeFromSuperview()
         highlights.view.frame = parking.bounds
         highlights.view.autoresizingMask = [.width, .height]

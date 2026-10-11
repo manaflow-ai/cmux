@@ -16,6 +16,10 @@ public protocol SidebarSurfaceIsland: AnyObject {
     var contentHeight: CGFloat { get }
     /// The content height changed.
     var onHeightChange: (() -> Void)? { get set }
+    /// The page ran one of its actions (the popover then closes).
+    var onAction: (() -> Void)? { get set }
+    /// The sidebar went away: the page cancels its subscriptions.
+    func close()
 }
 
 /// Makes the update surfaces (set by the App on each sidebar).
@@ -63,7 +67,12 @@ final class SidebarPopoverIslandHost: NSView {
 
 /// Where a surface's page waits while its popover is closed: in the window
 /// (so the page loads and measures), invisible, and never under the pointer.
+/// Its owner places it outside the card's bounds, so the page's own tracking
+/// areas (cursor, hover) see no pointer; it is not in the accessibility tree.
 final class SidebarIslandParking: NSView {
+    /// Far outside any card: the parked page's visible rect is empty.
+    static let offscreenX: CGFloat = -10_000
+
     override init(frame: NSRect) {
         super.init(frame: frame)
         alphaValue = 0
@@ -74,6 +83,8 @@ final class SidebarIslandParking: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func accessibilityChildren() -> [Any]? { [] }
 }
 
 /// The "cmux Updated!" card's slot view: the updated surface, sized to the

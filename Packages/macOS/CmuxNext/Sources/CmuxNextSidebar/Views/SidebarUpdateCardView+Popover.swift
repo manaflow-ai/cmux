@@ -71,6 +71,8 @@ extension SidebarUpdateCardView {
 extension SidebarUpdateCardView: NSPopoverDelegate {
     /// The popover closed: the highlights page goes back to wait in the card.
     func popoverDidClose(_ notification: Notification) {
+        // A close that arrives after the popover showed again keeps the page.
+        guard popover?.isShown != true else { return }
         parkHighlights()
     }
 }
