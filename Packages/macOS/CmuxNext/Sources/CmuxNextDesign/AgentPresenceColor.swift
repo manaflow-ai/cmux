@@ -6,7 +6,8 @@ public import CmuxTheme
 /// agent keeps its color across rows, panes and restarts, and the colors
 /// follow the terminal palette. Kept readable over the sidebar like the group
 /// colors (`GroupColor.themeRGB`).
-public nonisolated enum AgentPresenceColor {
+public nonisolated struct AgentPresenceColor {
+    public nonisolated init() {}
     /// The accents in pick order: the group colors' automatic order, then
     /// blue, which presence may use because it is never the app's selection.
     static let order: [GroupColor] = GroupColor.automaticOrder + [.blue]
