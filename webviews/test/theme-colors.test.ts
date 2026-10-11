@@ -121,7 +121,7 @@ describe("page colors follow the theme", () => {
 
   test("an element never fills or rings itself with the clear page background", () => {
     // The page's own background (`html`, a root alias) may read it; an element takes the opaque
-    // surface (`--cmux-surface-token`).
+    // page color (`--cmux-surface-solid`).
     const pageFill = /^\s*background:\s*var\(--cmux-surface-background,\s*transparent\)/;
     const alias = /^\s*--[\w-]+:\s*var\(--cmux-surface-background\b/;
     const found = pageCSS.flatMap((file) =>
