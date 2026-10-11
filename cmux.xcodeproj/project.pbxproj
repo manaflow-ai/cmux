@@ -3557,6 +3557,7 @@
 		A13387000000000000000013 /* SplitPaneGeometryProjectionRenderParityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13387000000000000000014 /* SplitPaneGeometryProjectionRenderParityTests.swift */; };
 		A1338700000000000000000F /* SplitPaneGeometryProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13387000000000000000010 /* SplitPaneGeometryProjectionTests.swift */; };
 		0928F192E46E73B3D73237D5 /* SplitSpaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 751E2E409D9D8EED12988A80 /* SplitSpaceTests.swift */; };
+		2C3317659EE07C8F673E81BB /* SSHBrowserPageLoopbackNavigationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 423E18A9B4C3FEFE5D378A53 /* SSHBrowserPageLoopbackNavigationTests.swift */; };
 		BB778780CAC943B89A7D904E /* SSHConfiguredRemoteCommandHostTests+Harness.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDF9EEAA233347858BCF3320 /* SSHConfiguredRemoteCommandHostTests+Harness.swift */; };
 		F6724600A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6724601A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift */; };
 		797800040000000000000001 /* SSHDeepSleepReattachTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 797800040000000000000002 /* SSHDeepSleepReattachTests.swift */; };
@@ -8043,6 +8044,7 @@
 		A13387000000000000000014 /* SplitPaneGeometryProjectionRenderParityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitPaneGeometryProjectionRenderParityTests.swift; sourceTree = "<group>"; };
 		A13387000000000000000010 /* SplitPaneGeometryProjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitPaneGeometryProjectionTests.swift; sourceTree = "<group>"; };
 		751E2E409D9D8EED12988A80 /* SplitSpaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SplitSpaceTests.swift"; sourceTree = "<group>"; };
+		423E18A9B4C3FEFE5D378A53 /* SSHBrowserPageLoopbackNavigationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SSHBrowserPageLoopbackNavigationTests.swift"; sourceTree = "<group>"; };
 		EDF9EEAA233347858BCF3320 /* SSHConfiguredRemoteCommandHostTests+Harness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SSHConfiguredRemoteCommandHostTests+Harness.swift"; sourceTree = "<group>"; };
 		F6724601A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHConfiguredRemoteCommandHostTests.swift; sourceTree = "<group>"; };
 		797800040000000000000002 /* SSHDeepSleepReattachTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHDeepSleepReattachTests.swift; sourceTree = "<group>"; };
@@ -13712,6 +13714,7 @@
 				90DE3B8367240280F25B9F8F /* TerminalPasteWorkerStartupDeadlineTests.swift */,
 				AE9E0374E48A69A913AF07CE /* AgentMessageHookClaimTests.swift */,
 				7BA01C93EAB38BB65F12E12D /* CloudLoopbackOriginTestServer.swift */,
+				423E18A9B4C3FEFE5D378A53 /* SSHBrowserPageLoopbackNavigationTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -18641,6 +18644,7 @@
 				A13387000000000000000013 /* SplitPaneGeometryProjectionRenderParityTests.swift in Sources */,
 				A1338700000000000000000F /* SplitPaneGeometryProjectionTests.swift in Sources */,
 				0928F192E46E73B3D73237D5 /* SplitSpaceTests.swift in Sources */,
+				2C3317659EE07C8F673E81BB /* SSHBrowserPageLoopbackNavigationTests.swift in Sources */,
 				BB778780CAC943B89A7D904E /* SSHConfiguredRemoteCommandHostTests+Harness.swift in Sources */,
 				F6724600A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift in Sources */,
 				797800040000000000000001 /* SSHDeepSleepReattachTests.swift in Sources */,
