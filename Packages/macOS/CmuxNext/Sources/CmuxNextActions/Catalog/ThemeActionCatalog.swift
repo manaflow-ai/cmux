@@ -71,8 +71,8 @@ nonisolated extension CatalogArgument {
     /// Same list and order as onboarding's theme step
     /// (`ThemeCatalog.curated` in CmuxNextDesign; a test keeps them equal).
     static let curatedThemes = [
-        "Catppuccin Mocha", "TokyoNight", "Rose Pine", "Gruvbox Dark", "Nord", "Vesper",
-        "Catppuccin Latte", "Rose Pine Dawn", "GitHub Light Default",
+        "Rose Pine", "Rose Pine Moon", "Catppuccin Mocha", "TokyoNight", "Gruvbox Dark", "Nord", "Vesper",
+        "Rose Pine Dawn", "Catppuccin Latte", "GitHub Light Default",
     ]
 }
 

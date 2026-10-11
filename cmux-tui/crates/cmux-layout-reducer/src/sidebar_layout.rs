@@ -1,10 +1,12 @@
 //! The pure reducer of the sidebar section layout (`sidebar-layout-v1`,
-//! plans/cmux-next/sidebar-sections.md section 4). No I/O. It mirrors the
-//! app's `SidebarLayoutReducer` (CmuxNextSidebar/Sections) exactly: same
-//! JSON, same defaults, same index rules, same invariants L1-L6, same reject
-//! reasons. The shared fixture
+//! plans/cmux-next/sidebar-sections.md section 4). No I/O. The daemon's
+//! `sidebar_layout.update` commits with it, and the app folds its pending
+//! edits with it through `cmux_layout_reducer_json` (op
+//! `sidebar_layout_reduce`, [`respond`]), so the edit the app shows is the
+//! one the daemon will store (cx-qvj1 replaces the app's Swift copy,
+//! `SidebarLayoutReducer`). The shared fixture
 //! Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json
-//! keeps the two reducers equal.
+//! holds the cases both sides answer.
 //!
 //! L5: values and keys from a newer client are kept verbatim. Enumerated
 //! strings (region, look, content, arrangement layout and align) keep an
@@ -511,6 +513,30 @@ pub fn reduce(document: &Document, op: &Op) -> Result<Document, Reject> {
         return Ok(document.clone());
     }
     Ok(Document { revision: document.revision + 1, sections })
+}
+
+/// The app's request (`cmux_layout_reducer_json` op `sidebar_layout_reduce`):
+/// fold one op onto the document it shows, so an edit is visible before the
+/// owner's `sidebar_layout.update` confirms it with this same reducer.
+#[derive(Debug, Deserialize)]
+pub struct Request {
+    pub document: Document,
+    pub op: Op,
+}
+
+/// `{"document": ...}` or `{"reject": "<reason>"}`.
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+pub enum Reply {
+    Document { document: Document },
+    Reject { reject: &'static str },
+}
+
+pub fn respond(request: &Request) -> Reply {
+    match reduce(&request.document, &request.op) {
+        Ok(document) => Reply::Document { document },
+        Err(reject) => Reply::Reject { reject: reject.as_str() },
+    }
 }
 
 fn find_section(id: &str, sections: &[Section]) -> Result<usize, Reject> {

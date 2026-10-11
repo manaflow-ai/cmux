@@ -4,36 +4,37 @@
 //! ends that daemon's agent hosts and their sessions. A daemon the host
 //! found running (the app's, a supervisor's) is not its to stop.
 
-mod exe;
-
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+mod real_python;
+
 /// A fake `acpmux`: `daemon run` listens on $ACPMUX_SOCKET and writes its pid;
-/// `daemon shutdown` records the call and ends it.
+/// `daemon shutdown` records the call and ends it. The host speaks only to a
+/// socket whose server process runs `ACPMUX_BIN` (cx-ggai), so the fake is the
+/// Python interpreter's own image, which runs the script `daemon` from its
+/// working folder, `$ACPMUX_HOME` (where the host starts it).
 fn fake_acpmux(dir: &Path) -> std::path::PathBuf {
-    let bin = dir.join("fake-acpmux");
-    exe::write_executable(
-        &bin,
-        r#"#!/bin/sh
-case "$1 $2" in
-"daemon run")
-  exec python3 -c '
-import os, socket
-s = socket.socket(socket.AF_UNIX); s.bind(os.environ["ACPMUX_SOCKET"]); s.listen(16)
-open(os.environ["ACPMUX_HOME"] + "/run.pid", "w").write(str(os.getpid()))
-held = []
-while True:
-    held.append(s.accept()[0])
-' ;;
-"daemon shutdown")
-  echo shutdown >> "$ACPMUX_HOME/calls"
-  kill "$(cat "$ACPMUX_HOME/run.pid")" ;;
-esac
+    let home = dir.join("acpmux");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(
+        home.join("daemon"),
+        r#"import os, signal, socket, sys
+home = os.environ["ACPMUX_HOME"]
+if sys.argv[1:2] == ["run"]:
+    s = socket.socket(socket.AF_UNIX); s.bind(os.environ["ACPMUX_SOCKET"]); s.listen(16)
+    open(home + "/run.pid", "w").write(str(os.getpid()))
+    held = []
+    while True:
+        held.append(s.accept()[0])
+elif sys.argv[1:2] == ["shutdown"]:
+    open(home + "/calls", "a").write("shutdown\n")
+    os.kill(int(open(home + "/run.pid").read()), signal.SIGTERM)
 "#,
-    );
-    bin
+    )
+    .unwrap();
+    real_python::image()
 }
 
 /// Running, not a zombie: an orphan whose new parent has not reaped it yet
@@ -132,6 +133,7 @@ fn an_acpmux_daemon_the_host_found_running_is_left_alone() {
     let socket = acpmux_home.join("acpmux.sock");
     let mut theirs = Command::new(&bin)
         .args(["daemon", "run"])
+        .current_dir(&acpmux_home)
         .env("ACPMUX_HOME", &acpmux_home)
         .env("ACPMUX_SOCKET", &socket)
         .spawn()
