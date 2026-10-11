@@ -9,7 +9,7 @@ viewport (`debug.surfaces` text) and the daemon's screen and history (`cmux term
 `history read`). It also presses Cmd-=, Cmd-0, Cmd-Up and Cmd-Shift-G in the terminal and prints
 which owner took each key (`debug.key` handled_by / action / trace), checks the keys the terminal
 shortcut audit fixed (Cmd-Return, Cmd-Option-W, Cmd-Option-Shift-W, Cmd-C with and without a
-selection; plans/cmux-next/terminal-shortcuts.md) and lists the owner of every other terminal key
+selection, Cmd-[ / Cmd-] focus history; plans/cmux-next/terminal-shortcuts.md) and lists the owner of every other terminal key
 of that table (OWNER lines).
 
 On exit it quits the app with the debug.quit end-sessions fixture, stops the tag's cmux-tui session and kills any
@@ -201,6 +201,15 @@ def shortcut_checks():
     print("Cmd-A:", owner(reply), flush=True)
     reply = key("c", ["cmd"])
     row("terminal Cmd-C after Cmd-A", "action terminalCopy", owner(reply), reply.get("action") == "terminalCopy")
+    # Cmd-[ / Cmd-]: focus history Back / Forward in a terminal (chief decision, as the shipping
+    # cmux); Ghostty's goto_split default and the browser-only consume no longer take them.
+    for name, label, action in [("[", "Cmd-[", "focusHistoryBack"), ("]", "Cmd-]", "focusHistoryForward")]:
+        report, text = resolve("cmd+" + name)
+        print(f"resolve {label}: {text}", flush=True)
+        reply = key(name, ["cmd"])
+        row(f"terminal {label}", f"{action} (run, or refused when the trail has no step)", owner(reply),
+            action in (reply.get("action"), reply.get("refused_action")))
+        time.sleep(1)  # test harness: a focus move settles
     # Owner listing (no assertion): what takes each terminal key today, for the audit table.
     for name, mods, label in [
         ("a", ["cmd"], "Cmd-A"), ("k", ["cmd", "shift"], "Cmd-Shift-K"),
@@ -209,7 +218,7 @@ def shortcut_checks():
         ("pagedown", ["cmd"], "Cmd-PageDown"), ("left", ["cmd"], "Cmd-Left"), ("right", ["cmd"], "Cmd-Right"),
         ("delete", ["cmd"], "Cmd-Backspace"), ("right", ["option"], "Option-Right"), ("left", ["shift"], "Shift-Left"),
         ("/", ["control"], "Ctrl-/"), ("return", ["control"], "Ctrl-Return"),
-        ("[", ["cmd"], "Cmd-["), ("e", ["cmd"], "Cmd-E"), ("g", ["cmd"], "Cmd-G"),
+        ("e", ["cmd"], "Cmd-E"), ("g", ["cmd"], "Cmd-G"),
         ("g", ["cmd", "option"], "Cmd-Option-G"), ("f", ["cmd"], "Cmd-F"), ("escape", [], "Escape"),
         # Last: Ctrl-Tab moves to the next tab and Cmd-Z may reopen a closed item.
         ("tab", ["control"], "Ctrl-Tab"), ("z", ["cmd"], "Cmd-Z"),

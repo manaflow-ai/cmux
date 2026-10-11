@@ -74,7 +74,8 @@ struct AppCrashReporting: Sendable {
             reporter.captureNonFatal(
                 "layout loop: \(report.viewClass) laid out \(report.passes) times in one turn",
                 type: "LayoutLoop", fingerprint: ["layout-loop", report.viewClass],
-                tags: ["layout_loop_view": report.viewClass, "layout_loop_window": report.windowClass ?? "none"],
+                tags: ["layout_loop_view": report.viewClass, "layout_loop_window": report.windowClass ?? "none",
+                       "layout_loop_limit": String(report.limit)],
                 extra: ["ancestry": report.ancestry.joined(separator: " < ")])
         }
         guardian.install()
