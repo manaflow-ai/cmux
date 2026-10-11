@@ -3662,6 +3662,8 @@ mod app_workspaces;
 mod chief;
 #[path = "cli/closed_delete.rs"]
 mod closed_delete;
+#[path = "cli/command_history.rs"]
+mod command_history;
 #[cfg(unix)]
 #[path = "cli/conversation_threads.rs"]
 mod conversation_threads;
