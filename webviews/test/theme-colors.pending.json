@@ -1,0 +1,10 @@
+{
+  "//": "Stylesheets with literal colors not yet taken from the theme (test/theme-colors.test.ts), and their count, which may only go down.",
+  "agent-activity/styles.css": 1,
+  "agent-session/shared/styles.css": 9,
+  "optchat-inspector/styles.css": 19,
+  "pages/editor/styles.css": 2,
+  "pages/markdown/styles.css": 2,
+  "styles.css": 20,
+  "viewer-empty/styles.css": 2
+}

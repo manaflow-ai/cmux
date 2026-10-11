@@ -394,7 +394,7 @@ body,
 }
 .hc-members-faces > .hc-avatar,
 .hc-thread-faces > .hc-avatar {
-  box-shadow: 0 0 0 2px var(--cmux-surface-background, Canvas);
+  box-shadow: 0 0 0 2px var(--cmux-surface-token, Canvas);
 }
 .hc-members-faces > .hc-avatar + .hc-avatar {
   margin-inline-start: -6px;
@@ -478,7 +478,7 @@ body,
   padding: 0 12px;
   border: 1px solid var(--page-separator);
   border-radius: 999px;
-  background: var(--cmux-surface-background, Canvas);
+  background: var(--cmux-surface-token, Canvas);
   color: var(--page-text-2);
   font-size: var(--text-caption);
   font-weight: 600;
@@ -685,7 +685,7 @@ body,
 .hc-thread-link:hover,
 .hc-thread-link:focus-visible {
   border-color: var(--page-separator);
-  background: var(--cmux-surface-background, Canvas);
+  background: var(--cmux-surface-token, Canvas);
 }
 .hc-thread-count {
   font-weight: 700;
@@ -887,7 +887,7 @@ body,
 }
 .hc-composer.hc-edit {
   margin: 4px 0;
-  background: var(--cmux-surface-background, Canvas);
+  background: var(--cmux-surface-token, Canvas);
 }
 
 /* Composer popovers (ui/Popover places them on the dropdown layer). */
