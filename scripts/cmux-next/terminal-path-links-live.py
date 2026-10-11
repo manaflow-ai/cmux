@@ -16,6 +16,8 @@ matched text does (its `open_url` action). Checks:
   4. a folder opens in Finder;
   5. a path that exists nowhere opens nothing;
   6. `localhost:3000/docs` is a web link (http://localhost:3000/docs), not a scheme.
+  7. Cmd-hover (cx-do47.1) over a printed path that names a file reports a link under the
+     pointer; over one that names nothing it reports none (Ghostty's link filter).
 
 GUI host only (a capture mini). The app quits and the tag's daemons stop at the end.
 Exits 1 when a check fails.
@@ -127,6 +129,10 @@ with open(os.path.join(APP, "Contents/Info.plist"), "rb") as f:
 BINARY = os.path.join(APP, "Contents/MacOS", INFO["CFBundleExecutable"])
 SCRATCH = tempfile.mkdtemp(prefix=f"terminal-path-links-{opts.tag}-")
 CONFIG = os.path.join(SCRATCH, "cmux.json")
+# link-previews: Ghostty reports the regex link under the pointer (`hovered`).
+GHOSTTY = os.path.join(SCRATCH, "ghostty")
+with open(GHOSTTY, "w") as f:
+    f.write("link-previews = true\n")
 with open(CONFIG, "w") as f:
     f.write("{}\n")
 teardown = TagTeardown(APP)
@@ -136,7 +142,7 @@ if os.path.exists(SOCKET):
 app = subprocess.Popen([BINARY], env={
     "HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
     "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_NO_ACTIVATE": "1",
-    "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
+    "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": GHOSTTY,
     "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800", "CMUX_NEXT_TEST_RECORD_EXTERNAL_OPENS": "1"},
     stdout=open(os.path.join(opts.out, "app.log"), "w"), stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
 print(f"app pid {app.pid}, repo {REPO}, out {opts.out}", flush=True)
@@ -209,6 +215,25 @@ try:
     # 6. host:port is a web link, not a scheme.
     opened = click("localhost:3000/docs")
     check(opened == ["browser:http://localhost:3000/docs"], f"localhost:3000/docs opens the browser at http://localhost:3000/docs ({opened})")
+
+    # 7. Cmd-hover (cx-do47.1): a path that names a file is a link; one that names nothing is
+    # plain text, with no underline and no link under the pointer.
+    rpc("action.run", {"action": "palette.goToTab", "target": {"kind": "tab", "id": TERMINAL}, "origin": "script"})
+    rpc("action.run", {"action": "terminal.sendText", "target": {"kind": "tab", "id": TERMINAL}, "origin": "script",
+                       "args": {"text": "clear && printf '%s\\n%s\\n' build-fleet/ORG-BACKUP.md missing/nowhere.md\n"}})
+    time.sleep(2)  # test harness: the shell runs the command and the output draws
+
+    def hovered(row):
+        """The link Ghostty reports with Cmd held over column 4 of viewport row `row`."""
+        for _ in range(2):  # the first hover starts the file check off the main thread
+            rpc("debug.terminal.links", {"tab": TERMINAL, "hover": [4, row]})
+            time.sleep(1)  # test harness: the check's answer and the pointer sent again
+        return rpc("debug.terminal.links", {"tab": TERMINAL}).get("hovered")
+
+    shown = hovered(0)
+    check(shown == "build-fleet/ORG-BACKUP.md", f"Cmd-hover on a path that names a file is a link ({shown!r})")
+    shown = hovered(1)
+    check(not shown, f"Cmd-hover on a path that names nothing is no link ({shown!r})")
 finally:
     rpc("action.run", {"action": "quitEndSessions"})
     try:

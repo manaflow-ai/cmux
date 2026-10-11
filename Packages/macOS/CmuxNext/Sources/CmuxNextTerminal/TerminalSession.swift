@@ -166,6 +166,17 @@ public final class TerminalSession {
         surfaceView.window?.makeFirstResponder(surfaceView)
     }
 
+    #if DEBUG
+    /// Moves the pointer over viewport cell (`column`, `row`) with Cmd held, as a mouse
+    /// does (live checks).
+    public func hoverLinkForTesting(column: Int, row: Int) {
+        guard let surface = surfaceView.surface else { return }
+        let cell = surfaceView.cellPointSize
+        let point = CGPoint(x: (Double(column) + 0.5) * cell.width, y: (Double(row) + 0.5) * cell.height)
+        ghostty_surface_mouse_pos(surface, point.x, point.y, GhosttyInput.mods(.command))
+    }
+    #endif
+
     /// Activates `text` as a Cmd-click on a link Ghostty detected does (its `open_url` action).
     @discardableResult
     public func activateLink(_ text: String) -> Bool {
