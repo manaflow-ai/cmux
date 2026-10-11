@@ -204,8 +204,7 @@ pub struct CloudConversations {
 }
 
 /// The refusal text of a lease change from a connection that is not the app.
-pub const APP_ONLY_LEASE: &str =
-    "the cloud session lease belongs to the verified cmux app connection; only it may set or clear it";
+const APP_ONLY_LEASE: &str = "the cloud session lease belongs to the verified cmux app connection; only it may set or clear it";
 
 fn check_lease_holder(lease: &Lease, by_app: bool) -> Result<(), CloudError> {
     if by_app || !lease.app_held || lease.session.is_none() {
