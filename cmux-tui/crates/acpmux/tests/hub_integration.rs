@@ -1509,3 +1509,5 @@ mod claude_failover;
 
 #[path = "hub_integration/fork_through.rs"]
 mod fork_through;
+#[path = "hub_integration/aside.rs"]
+mod aside;
