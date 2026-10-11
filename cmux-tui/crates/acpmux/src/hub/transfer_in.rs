@@ -7,7 +7,11 @@
 //! - `_acpmux/transfer_finish {receiveId, cwd?, name?, from?}`: the chat is imported (its history,
 //!   draft and agent store), in `cwd` when its folder has another path here, and its queue runs
 //!   here at once, held prompts still held. Answers the session summary.
+//!
+//! A receive with a `guard` (`transfer_guard.rs`) keeps it for its write and finish calls, and
+//! answers `guarded: true`.
 
+use super::transfer_guard::{Guard, bundle_path_kind};
 use super::transfer_out::{
     MAX_BUNDLE, MAX_FILES, MAX_PAGE, TRANSFER_SCHEMA, inside, transfers_dir,
 };
@@ -62,6 +66,10 @@ impl Hub {
 
     pub(super) async fn transfer_receive(&self, params: &Value) -> Result<Value, RpcError> {
         let manifest = params.get("manifest").cloned().unwrap_or(Value::Null);
+        let guard = match params.get("guard") {
+            Some(g) => Some(Guard::parse(g).await?),
+            None => None,
+        };
         if manifest["schema"] != TRANSFER_SCHEMA {
             return Err(transfer_error("schema", format!("this daemon takes {TRANSFER_SCHEMA}")));
         }
@@ -88,14 +96,25 @@ impl Hub {
         if files.len() > MAX_FILES || total > MAX_BUNDLE {
             return Err(transfer_error("size", format!("{} files, {total} bytes", files.len())));
         }
+        if let Some(g) = &guard {
+            self.guarded_receive_check(g, &manifest).await?;
+        }
         self.sweep();
         let receive_id = uuid::Uuid::now_v7().to_string();
         let dir = transfers_dir().join(format!("in-{receive_id}"));
         let made = std::fs::create_dir_all(dir.join("bundle")).and_then(|()| {
+            // The guard first: a receive with a manifest and no guard file is an unguarded one.
+            if let Some(g) = &guard {
+                g.store(&dir)?;
+            }
             std::fs::write(dir.join("manifest.json"), serde_json::to_vec(&manifest)?)
         });
         made.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
-        Ok(json!({"receiveId": receive_id, "sessionId": id}))
+        let mut answer = json!({"receiveId": receive_id, "sessionId": id});
+        if guard.is_some() {
+            answer["guarded"] = json!(true);
+        }
+        Ok(answer)
     }
 
     /// Appends one page to a bundle file; pages come in order, each at the size written so far.
@@ -107,6 +126,12 @@ impl Hub {
         let Some(&(_, size)) = files.iter().find(|(p, _)| p == path) else {
             return Err(transfer_error("path", format!("{path:?} is not in the manifest")));
         };
+        if Guard::stored(&dir)?.is_some() && bundle_path_kind(path).is_none() {
+            return Err(transfer_error(
+                "path",
+                format!("{path:?} is not a file a guarded move takes"),
+            ));
+        }
         let data = BASE64.decode(text("data")).map_err(|e| transfer_error("data", e))?;
         let file = inside(&dir.join("bundle"), path)?;
         let have = std::fs::metadata(&file).map_or(0, |m| m.len());
@@ -136,6 +161,7 @@ impl Hub {
         let text = |k: &str| params.get(k).and_then(Value::as_str).filter(|s| !s.is_empty());
         let dir = receive_dir(text("receiveId").unwrap_or(""))?;
         let (manifest, files) = receive_manifest(&dir)?;
+        let guard = Guard::stored(&dir)?;
         let bundle = dir.join("bundle");
         for (path, size) in &files {
             let have = std::fs::metadata(inside(&bundle, path)?).map_or(0, |m| m.len());
@@ -143,8 +169,14 @@ impl Hub {
                 return Err(transfer_error("incomplete", format!("{path:?}: {have} of {size}")));
             }
         }
+        let from = params.get("from").cloned().unwrap_or(Value::Null);
+        if let Some(g) = &guard {
+            self.guard_session(&bundle, g, text("cwd"), &from).await?;
+        }
         // Its folder may have another path here (a remote machine's checkout).
-        if let Some(cwd) = text("cwd") {
+        if guard.is_none()
+            && let Some(cwd) = text("cwd")
+        {
             let path = bundle.join("session.json");
             let edited = std::fs::read(&path).map_err(anyhow::Error::from).and_then(|raw| {
                 let mut meta: Value = serde_json::from_slice(&raw)?;
@@ -157,6 +189,15 @@ impl Hub {
         let id = manifest["sessionId"].as_str().unwrap_or("");
         let old = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
         if let Some(old) = old.filter(|s| self.moved_away(s)) {
+            // A guarded move never replaces a copy from a folder outside its roots.
+            if let Some(g) = &guard
+                && g.folder(&old.meta().cwd.to_string_lossy()).await.is_none()
+            {
+                return Err(transfer_error(
+                    "exists",
+                    format!("chat {id} is here already, in a folder outside the move's roots"),
+                ));
+            }
             // Only once the chat can live here: a failed import keeps the closed copy's log.
             let cwd = text("cwd").map(PathBuf::from).or_else(|| {
                 let raw = std::fs::read(bundle.join("session.json")).ok()?;
@@ -168,8 +209,11 @@ impl Hub {
             }
             self.kill(&old, true).await?;
         }
-        let session = self.import_into(&bundle, text("name").map(str::to_owned), true).await?;
-        let from = params.get("from").cloned().unwrap_or(Value::Null);
+        let name = text("name").map(str::to_owned);
+        let session = self.import_into(&bundle, name, true, guard.as_ref()).await?;
+        if let Some(g) = &guard {
+            self.append(&session, "mux", "transfer_guarded", g.to_value());
+        }
         let transfer_id = manifest["transferId"].clone();
         self.append(
             &session,

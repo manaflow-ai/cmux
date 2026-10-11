@@ -86,16 +86,18 @@ impl Hub {
         bundle: &Path,
         name: Option<String>,
     ) -> Result<Arc<Session>, RpcError> {
-        self.import_into(bundle, name, false).await
+        self.import_into(bundle, name, false, None).await
     }
 
     /// `import`; a `live` one (a chat moved here, `transfer_in.rs`) has its queue back before
-    /// any client sees it, so no new prompt runs ahead of it.
+    /// any client sees it, so no new prompt runs ahead of it. A `guard`ed one (`transfer_guard.rs`)
+    /// queues under the guard's control and restores only its own agent file, without its mode.
     pub(super) async fn import_into(
         self: &Arc<Self>,
         bundle: &Path,
         name: Option<String>,
         live: bool,
+        guard: Option<&super::transfer_guard::Guard>,
     ) -> Result<Arc<Session>, RpcError> {
         let meta_text = std::fs::read_to_string(bundle.join("session.json"))
             .map_err(|e| RpcError::invalid_params(format!("read session.json: {e}")))?;
@@ -149,14 +151,20 @@ impl Hub {
         self.store.save(&meta).map_err(|e| RpcError::internal(e.to_string()))?;
         // Copy events verbatim, preserving seq. A partial transcript is not
         // a valid import: any unreadable file or record rolls it back.
-        let last = match self.copy_bundle_events(bundle, &meta.id) {
+        let last = match self.copy_bundle_events(bundle, &meta.id, guard.map(|g| g.control)) {
             Ok(last) => last,
             Err(e) => {
                 let _ = self.store.delete(&meta.id);
                 return Err(RpcError::invalid_params(format!("import events: {e}")));
             }
         };
-        let restored = crate::native::restore(bundle, &meta).unwrap_or_default();
+        let restored = match guard {
+            None => crate::native::restore(bundle, &meta).unwrap_or_default(),
+            Some(_) => crate::native::guarded_plan(bundle, &meta)
+                .map_err(anyhow::Error::msg)
+                .and_then(|plan| crate::native::restore_guarded(&plan))
+                .unwrap_or_default(),
+        };
         session.seq.store(last, Ordering::SeqCst);
         session.meta.lock().unwrap().last_seq = last;
         if live {
@@ -176,8 +184,9 @@ impl Hub {
     }
 
     /// Append every record of a bundle's `events/*.ndjson` to the store, in
-    /// file order. Returns the highest sequence copied.
-    fn copy_bundle_events(&self, bundle: &Path, id: &str) -> Result<u64> {
+    /// file order. Returns the highest sequence copied. Under a guard's `control`, the
+    /// records of prompts still to run carry it (`transfer_guard.rs` `guarded_record`).
+    fn copy_bundle_events(&self, bundle: &Path, id: &str, control: Option<Control>) -> Result<u64> {
         let events_path = bundle.join("events");
         if !events_path.exists() {
             return Ok(0);
@@ -198,8 +207,11 @@ impl Hub {
                 if line.trim().is_empty() {
                     continue;
                 }
-                let rec: EventRecord = serde_json::from_str(line)
+                let mut rec: EventRecord = serde_json::from_str(line)
                     .map_err(|e| anyhow::anyhow!("{} line {}: {e}", f.display(), n + 1))?;
+                if let Some(control) = control {
+                    super::transfer_guard::guarded_record(&mut rec, control);
+                }
                 last = last.max(rec.seq);
                 self.store.append(id, &rec)?;
             }

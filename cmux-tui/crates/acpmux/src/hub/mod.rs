@@ -59,6 +59,7 @@ mod remote_sandbox;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub mod rules;
 mod transfer;
+mod transfer_guard;
 mod transfer_in;
 mod transfer_out;
 mod turns;
