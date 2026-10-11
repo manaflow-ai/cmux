@@ -67,10 +67,10 @@ public final class LayoutPassGuard {
     /// Per view this turn, at its window's frame; the weak reference tells a
     /// reused address apart.
     private var turnCounts: [ObjectIdentifier: (view: Weak, count: Int, broken: Bool, windowFrame: NSRect)] = [:]
-    /// Views broken in the last turn: a view broken again is not asked to
-    /// lay out once more, so a loop that persists settles instead of
-    /// spinning every turn.
-    private var brokenLastTurn: Set<ObjectIdentifier> = []
+    /// Views broken since they last got through a turn without tripping: a
+    /// view broken again is not asked to lay out once more, so a loop that
+    /// persists settles instead of spinning every frame.
+    private var looping: [ObjectIdentifier: Weak] = [:]
     /// Views inside a counted layout call: their inner overrides and
     /// `super.layout()` pass through.
     private var inLayout: Set<ObjectIdentifier> = []
@@ -114,11 +114,8 @@ public final class LayoutPassGuard {
 
     private func endTurn() {
         inLayout.removeAll()
-        guard !turnCounts.isEmpty else {
-            brokenLastTurn.removeAll()
-            return
-        }
-        brokenLastTurn = Set(turnCounts.filter { $0.value.broken }.keys)
+        guard !turnCounts.isEmpty else { return }
+        for (id, entry) in turnCounts where !entry.broken { looping[id] = nil }
         turnCounts.removeAll(keepingCapacity: true)
     }
 
@@ -198,11 +195,13 @@ public final class LayoutPassGuard {
         onLoop?(report)
     }
 
-    /// Skips `view`'s further layouts this turn and, unless it was broken
-    /// last turn too, asks for one layout on the next turn.
+    /// Skips `view`'s further layouts this turn and, unless it is still
+    /// looping from an earlier break, asks for one layout on the next turn.
     private func breakLoop(of view: NSView, id: ObjectIdentifier, count: Int) {
         turnCounts[id] = (Weak(view), count, true, view.window?.frame ?? .zero)
-        guard !brokenLastTurn.contains(id) else { return }
+        guard looping[id]?.object !== view else { return }
+        looping = looping.filter { $0.value.object != nil }
+        looping[id] = Weak(view)
         DispatchQueue.main.async { [weak view] in
             // main-proof: DispatchQueue.main runs its blocks on the main thread
             MainActor.assumeIsolated { view?.needsLayout = true }
