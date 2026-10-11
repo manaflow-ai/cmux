@@ -25,9 +25,12 @@ enum OnboardingHandlers {
             registry.track(Task { @MainActor in
                 do {
                     let opened = try await AppOnboardingServices(owner: services.onboarding).importClassicSessions()
-                    ClassicImportStrings.toast(opened > 0 ? ClassicImportStrings.imported : ClassicImportStrings.nothingSaved, in: window)
+                    let notice = opened > 0 ? ClassicImportStrings.imported : ClassicImportStrings.nothingSaved
+                    services.onboarding.classicImportNotice = notice
+                    ClassicImportStrings.toast(notice, in: window)
                     return nil
                 } catch {
+                    services.onboarding.classicImportNotice = ClassicImportStrings.failed
                     ClassicImportStrings.toast(ClassicImportStrings.failed, in: window)
                     return ActionWorkFailure("import-classic: \(error)")
                 }

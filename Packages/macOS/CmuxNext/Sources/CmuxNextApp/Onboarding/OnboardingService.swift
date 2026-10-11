@@ -28,6 +28,12 @@ final class OnboardingService {
     /// Where `workspace.importClassic` reads classic's saved session; nil
     /// reads the one classic saved last (tests point it at a fixture).
     var classicSessions: ClassicSessionImporter?
+    /// How `workspace.importClassic` reaches a classic SSH workspace's host:
+    /// the daemon for that destination. Nil connects through `SSHService`
+    /// (tests stand in a daemon).
+    var classicSSH: (@MainActor (String) throws -> DaemonService)?
+    /// The toast `workspace.importClassic` showed last.
+    var classicImportNotice: String?
 
     /// Computer Use Setup: the helper's grants for the palette action, Settings and the tool window.
     private(set) lazy var computerUseSetup = ComputerUseSetup.app(services: services)

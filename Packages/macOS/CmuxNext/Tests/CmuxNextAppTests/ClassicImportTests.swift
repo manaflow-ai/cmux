@@ -6,22 +6,49 @@ import CmuxNextOnboarding
 import Foundation
 import Testing
 
-/// `workspace.importClassic` (cx-rwlb), end to end: the real daemon, the app's
-/// actions, and a real classic 0.64.19 session file
-/// (tests/fixtures/classic-to-next, shared with classic-to-next.py's test).
+/// `workspace.importClassic` (cx-rwlb, cx-1uacm), end to end: the real daemon,
+/// the app's actions, and real classic 0.64.19 session files
+/// (tests/fixtures/classic-to-next):
+/// - `session-com.cmuxterm.app.json`: a split workspace (shared with
+///   classic-to-next.py's test).
+/// - `session-everything.json`: a workspace with browser tabs and an SSH
+///   workspace, both made through classic's own CLI. Two parts are added by
+///   hand in classic's schema: the Claude Code session on the `claude`
+///   terminal (`terminal.agent`) and the `vm box` Cloud VM workspace
+///   (`cloudVM`). The capture mini had no credentials for either.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(2)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct ClassicImportTests {
-    private static let fixture: URL = {
+    private static func fixture(_ name: String) -> URL {
         var root = URL(fileURLWithPath: #filePath)
         for _ in 0..<6 { root.deleteLastPathComponent() }
-        return root.appendingPathComponent("tests/fixtures/classic-to-next/session-com.cmuxterm.app.json")
-    }()
+        return root.appendingPathComponent("tests/fixtures/classic-to-next/\(name)")
+    }
 
-    /// The pane tree as text: tab names in a pane, `right(…|…)` / `down(…|…)` for a split.
+    private static let splits = fixture("session-com.cmuxterm.app.json")
+    private static let everything = fixture("session-everything.json")
+
+    /// What the import left: each workspace's pane trees by name, the SSH
+    /// destinations it reached, and its toast.
+    private struct Imported {
+        var shapes: [String: [String]] = [:]
+        var sshDestinations: [String] = []
+        var notice: String?
+    }
+
+    /// A tab as text: a terminal's name, `browser:<url>`, `chat:<harness>`.
+    private static func label(_ tab: TabSnapshot) -> String {
+        switch tab.kind {
+        case .browser: "browser:\(tab.url ?? "")"
+        case .conversation: "chat:\(tab.conversation?.agentSession?.harness ?? "")"
+        default: tab.name ?? tab.title
+        }
+    }
+
+    /// The pane tree as text: tab labels in a pane, `right(…|…)` / `down(…|…)` for a split.
     private static func shape(_ node: LayoutNode, _ panes: [PaneSnapshot]) -> String {
         switch node {
         case .leaf(let id):
-            return (panes.first { $0.id == id }?.tabs ?? []).map { $0.name ?? $0.title }.joined(separator: ",")
+            return (panes.first { $0.id == id }?.tabs ?? []).map(label).joined(separator: ",")
         case .split(_, let direction, _, let a, let b):
             return "\(direction.rawValue)(\(shape(a, panes))|\(shape(b, panes)))"
         default:
@@ -32,49 +59,66 @@ struct ClassicImportTests {
     /// The person runs Import Workspaces from Classic cmux: classic's split
     /// workspace opens with the same panes, tabs, tab names and directions.
     @Test func importKeepsTheClassicSplitWorkspace() async throws {
-        let shapes = try await importedShapes { $0 }
+        let shapes = try await importClassic(Self.splits).shapes.values.flatMap { $0 }
         // Left: api and logs as tabs of one pane; right: web over db.
         #expect(shapes.contains("right(api,logs|down(web|db))"), "\(shapes)")
     }
 
-    /// A browser panel does not come over (cmux-next has no classic browser
-    /// state to open), and is not a stray terminal either: a pane that held
-    /// only a browser closes up.
-    @Test func aBrowserOnlyPaneClosesUp() async throws {
+    /// A pane holding only a panel the import cannot bring (here a markdown
+    /// viewer) closes up instead of becoming a stray terminal.
+    @Test func aPaneOfPanelsThatDoNotComeOverClosesUp() async throws {
         let db = "\"title\":\"db\",\"ttyName\":\"ttys023\",\"type\":\"terminal\""
-        let shapes = try await importedShapes { session in
+        let shapes = try await importClassic(Self.splits) { session in
             #expect(session.contains(db), "the fixture's db panel changed")
-            return session.replacingOccurrences(of: db, with: "\"title\":\"db\",\"type\":\"browser\"")
-        }
+            return session.replacingOccurrences(of: db, with: "\"title\":\"db\",\"type\":\"markdown\"")
+        }.shapes.values.flatMap { $0 }
         #expect(shapes.contains("right(api,logs|web)"), "\(shapes)")
     }
 
-    /// An SSH or Cloud VM workspace stays in classic: its terminals ran on
-    /// another machine, and a local shell in its folder is the wrong place.
-    @Test func aRemoteWorkspaceStaysInClassic() async throws {
-        let title = "\"customTitle\":\"split api\""
-        let shapes = try await importedShapes { session in
-            #expect(session.contains(title), "the fixture's split workspace changed")
-            return session.replacingOccurrences(of: title, with: title + ",\"remote\":{\"destination\":\"dev.example.test\"}")
-        }
-        #expect(shapes.isEmpty, "\(shapes)")
+    /// Browser tabs come over with their URLs, in their pane and order
+    /// (classic: `new-pane --type browser`, then a second tab in that pane).
+    @Test func browserTabsComeOverWithTheirURLs() async throws {
+        let shapes = try await importClassic(Self.everything).shapes["full"] ?? []
+        #expect(shapes.contains { $0.hasSuffix("|browser:https://example.com/docs,browser:https://example.org/)") }, "\(shapes)")
     }
 
-    /// Runs the action on the fixture (after `edit`) and returns the pane
-    /// trees of the workspace holding classic's web tab (none when no
-    /// workspace holds it).
-    private func importedShapes(_ edit: (String) -> String) async throws -> [String] {
+    /// A terminal that ran a Claude Code session comes over as an agent chat
+    /// resuming that session (acpmux adopt), where the terminal was.
+    @Test func anAgentSessionComesOverAsItsChat() async throws {
+        let shapes = try await importClassic(Self.everything).shapes["full"] ?? []
+        #expect(shapes.contains { $0.hasPrefix("right(down(app|chat:claude)|") }, "\(shapes)")
+    }
+
+    /// An SSH workspace opens on its host (classic: `cmux ssh cmux@127.0.0.1
+    /// --port 2222`), through the daemon for that destination.
+    @Test func anSSHWorkspaceOpensOnItsHost() async throws {
+        let imported = try await importClassic(Self.everything)
+        #expect(imported.sshDestinations == ["cmux@127.0.0.1:2222"], "\(imported.sshDestinations)")
+        #expect(imported.shapes["ssh box"] != nil, "\(imported.shapes.keys.sorted())")
+    }
+
+    /// A Cloud VM workspace stays in classic, and the toast says so.
+    @Test func aCloudVMWorkspaceStaysInClassicAndTheToastSaysSo() async throws {
+        let imported = try await importClassic(Self.everything)
+        #expect(imported.shapes["vm box"] == nil, "\(imported.shapes.keys.sorted())")
+        #expect(imported.notice?.contains("Cloud VM") == true, "\(imported.notice ?? "no toast")")
+    }
+
+    /// Runs the action on `fixture` (after `edit`), with SSH workspaces
+    /// reaching this test's daemon, and returns what it opened.
+    private func importClassic(_ fixture: URL, _ edit: (String) -> String = { $0 }) async throws -> Imported {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-classic-\(UUID().uuidString.prefix(8))")
         defer { try? FileManager.default.removeItem(at: root) }
-        // The fixture's folders, moved under this test's scratch directory.
+        // The fixtures' folders, moved under this test's scratch directory.
         let proj = root.appendingPathComponent("proj")
-        for folder in ["api/logs", "web", "db"] {
+        for folder in ["api/logs", "web", "db", "app", "docs"] {
             try FileManager.default.createDirectory(at: proj.appendingPathComponent(folder), withIntermediateDirectories: true)
         }
         // Classic writes `\/` in paths; plain `/` reads the same.
-        let session = try edit(String(contentsOf: Self.fixture, encoding: .utf8).replacingOccurrences(of: "\\/", with: "/"))
+        let session = try edit(String(contentsOf: fixture, encoding: .utf8).replacingOccurrences(of: "\\/", with: "/"))
             .replacingOccurrences(of: "/Users/cmux/p4rt-classic/proj", with: proj.path)
+            .replacingOccurrences(of: "/Users/cmux/p4rt-full/proj", with: proj.path)
             .replacingOccurrences(of: "/Users/cmux", with: root.path)
         let file = root.appendingPathComponent("session-com.cmuxterm.app.json")
         try session.write(to: file, atomically: true, encoding: .utf8)
@@ -88,6 +132,11 @@ struct ClassicImportTests {
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
         services.onboarding.classicSessions = ClassicSessionImporter(fileURL: file)
+        var destinations: [String] = []
+        services.onboarding.classicSSH = { destination in
+            destinations.append(destination)
+            return services.daemon
+        }
         services.daemon.start {
             DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)
         }
@@ -97,8 +146,8 @@ struct ClassicImportTests {
             for controller in services.windows.controllers { controller.window?.close() }
         }
         // The daemon ends with its terminals on every path, a failed expectation included.
-        let shapes: Result<[String], any Error>
-        do { shapes = .success(try await Self.importAndRead(services)) } catch { shapes = .failure(error) }
+        let result: Result<Imported, any Error>
+        do { result = .success(try await Self.importAndRead(services)) } catch { result = .failure(error) }
         // Stop the app's connection first: on the daemon's EOF it would start a
         // fresh daemon that outlives the test. The shutdown uses its own socket.
         if let connection = services.daemon.connection {
@@ -106,12 +155,14 @@ struct ClassicImportTests {
             await connection.close()
             _ = try? await connection.shutdownDaemon(endTerminals: true)
         }
-        return try shapes.get()
+        var imported = try result.get()
+        imported.sshDestinations = destinations
+        return imported
     }
 
-    /// Waits for the launch, runs the action and returns the pane trees of
-    /// the workspace holding classic's web tab, if one does.
-    private static func importAndRead(_ services: AppServices) async throws -> [String] {
+    /// Waits for the launch, runs the action and reads every workspace's
+    /// pane trees and the toast.
+    private static func importAndRead(_ services: AppServices) async throws -> Imported {
         let deadline = ContinuousClock.now + .seconds(90)
         // The launch is ready once restore has made its first terminal.
         func ready() -> Bool { services.daemon.store.workspaces.contains { $0.screens.contains { !$0.panes.isEmpty } } }
@@ -126,11 +177,12 @@ struct ClassicImportTests {
         #expect(ran, "workspace.importClassic is not an action")
         for task in work { #expect(await task.value == nil) }
 
-        let tree = try await connection.listWorkspaces()
-        guard let screen = tree.workspaces.first(where: { workspace in
-            workspace.screens.contains { $0.panes.contains { $0.tabs.contains { ($0.name ?? $0.title) == "web" } } }
-        })?.screens.first else { return [] }
-        let trees = [screen.layout] + screen.columns.flatMap { [$0.layout] + $0.rows.map(\.layout) }
-        return trees.map { shape($0, screen.panes) }
+        var imported = Imported(notice: services.onboarding.classicImportNotice)
+        for workspace in try await connection.listWorkspaces().workspaces {
+            guard let screen = workspace.screens.first else { continue }
+            let trees = [screen.layout] + screen.columns.flatMap { [$0.layout] + $0.rows.map(\.layout) }
+            imported.shapes[workspace.name, default: []] += trees.map { shape($0, screen.panes) }
+        }
+        return imported
     }
 }
