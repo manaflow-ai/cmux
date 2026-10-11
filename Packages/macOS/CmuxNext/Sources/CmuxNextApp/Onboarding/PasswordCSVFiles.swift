@@ -33,11 +33,21 @@ struct PasswordCSVFiles {
 
     /// Imports a CSV the person picked, then moves it to the Trash; the failure, if any.
     func importFile(_ url: URL, profile: String) async -> ActionWorkFailure? {
+        await importCSV(trashing: url, profile: profile) { try await $0.run(file: url, intoProfile: profile) }
+    }
+
+    /// Imports a CSV from an export archive, then moves the archive (`file`) to the Trash.
+    func importBytes(_ bytes: SecretBytes, profile: String, trashing file: URL) async -> ActionWorkFailure? {
+        await importCSV(trashing: file, profile: profile) { try await $0.run(bytes: bytes, intoProfile: profile) }
+    }
+
+    private func importCSV(trashing url: URL, profile: String,
+                           run: (PasswordCSVImporter) async throws -> PasswordImportReport) async -> ActionWorkFailure? {
         let cef = services.cache.cef
         guard await cef.canImportPasswords() else { return ActionWorkFailure(PasswordCSVStrings.unavailable) }
         let destination = AppPasswordDestination(available: true) { rows, profile in try await cef.importPasswords(rows, into: profile) }
         do {
-            let report = try await PasswordCSVImporter(destination: destination).run(file: url, intoProfile: profile)
+            let report = try await run(PasswordCSVImporter(destination: destination))
             // The app window, not the key window: after the cmux picker that is the palette's panel.
             let windows = services.windows
             Self.trash(url, report: report) { windows.active?.window ?? NSApp.keyWindow ?? NSApp.mainWindow }
