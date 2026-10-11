@@ -185,6 +185,9 @@ pub(crate) fn classify_client_line(line: &[u8]) -> Lane {
         // the live records of one attachment stay in one ordered lane, so a
         // record never overtakes the reply it follows.
         Some(name) if name.starts_with("agent-session-") => Lane::Bulk,
+        // `agent-transfer-v1`: bundle pages of up to 4 MiB never queue ahead
+        // of PTY input.
+        Some(name) if name.starts_with("agent-transfer-") => Lane::Bulk,
         // Read-only lookups never wait behind PTY input or a slow mutation
         // commit; a stalled Interactive lane must not make a live terminal
         // look missing to the client resolving it.
@@ -225,6 +228,16 @@ mod tests {
         }
         tracker.observe_request(br#"{"id":7,"cmd":"loopback-open"}"#, Lane::Bulk);
         assert_eq!(tracker.classify_server_line(br#"{"id":7,"ok":true}"#), Some(Lane::Bulk));
+    }
+
+    #[test]
+    fn agent_transfer_pages_use_the_bulk_lane() {
+        for line in [
+            &br#"{"id":1,"cmd":"agent-transfer-write","receive_id":"r","path":"a","offset":0,"data":""}"#[..],
+            br#"{"id":2,"cmd":"agent-transfer-read","transfer_id":"t","path":"a","offset":0}"#,
+        ] {
+            assert_eq!(classify_client_line(line), Lane::Bulk);
+        }
     }
 
     #[test]

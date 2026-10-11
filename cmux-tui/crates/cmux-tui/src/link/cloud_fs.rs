@@ -65,20 +65,33 @@ pub(super) fn trusted_stamp(stamp: &Path, top: &Path, owner_uid: u32) -> bool {
     STAMP_PREFIXES.iter().any(|prefix| text.starts_with(prefix))
 }
 
-/// Installs the file owner over `HOME` when this is a Cloud host. Returns
-/// whether `fs-v1` is now served.
-pub(super) fn install_if_cloud_host() -> bool {
+/// True when this machine is a cmux Cloud host (the module's test).
+fn this_is_a_cloud_host() -> bool {
     let env_file = crate::coderouter_usage::default_env_file_path()
         .and_then(|path| std::fs::read_to_string(path).ok());
     let identity =
         crate::coderouter_usage::resolve_source(|key| std::env::var(key).ok(), env_file.as_deref())
             .is_some();
     let linux = cfg!(target_os = "linux");
-    if !is_cloud_host(
+    is_cloud_host(
         linux,
         linux && trusted_stamp(Path::new(IMAGE_STAMP), Path::new("/"), 0),
         identity,
-    ) {
+    )
+}
+
+/// What `agent-transfer-v1` guards moved chats with: on a Cloud host they
+/// arrive under `$HOME/work` under peer control, elsewhere only in the folder
+/// the app names, under web control. `None` without a `HOME`.
+pub(super) fn agent_transfer_host() -> Option<cmux_tui_core::server::AgentTransferHost> {
+    let home = std::env::var_os("HOME").map(PathBuf::from)?;
+    Some(cmux_tui_core::server::AgentTransferHost { cloud: this_is_a_cloud_host(), home })
+}
+
+/// Installs the file owner over `HOME` when this is a Cloud host. Returns
+/// whether `fs-v1` is now served.
+pub(super) fn install_if_cloud_host() -> bool {
+    if !this_is_a_cloud_host() {
         return false;
     }
     let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else { return false };
