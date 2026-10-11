@@ -71,6 +71,8 @@ PATH_OWNERS = {
     ".github/workflows/ci-web.yml": frozenset(GROUPS),
     ".github/workflows/web-complexity.yml": frozenset(("ci",)),
     ".github/workflows/web-complexity-trusted.yml": frozenset(("ci",)),
+    ".github/workflows/cmux-next-pr-merge-tree.yml": frozenset(("ci",)),
+    "scripts/ci/publish_pr_merge_tree.py": frozenset(("ci",)),
     ".github/workflows/iroh-v2-production-drift.yml": frozenset(("ci",)),
     "tests/test_iroh_drift_issue.py": frozenset(("ci",)),
     ".github/workflows/feature-flag-review-drift.yml": frozenset(("ci",)),
