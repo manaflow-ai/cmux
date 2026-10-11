@@ -972,8 +972,8 @@ final class BonsplitTabDragUITests: XCTestCase {
         let firstActionButton = app.descendants(matching: .any)
             .matching(identifier: "paneTabBarControl.custom.cmux-ui-test-action-1")
             .firstMatch
-        let firstActionButton = app.descendants(matching: .any)
-            .matching(identifier: "paneTabBarControl.custom.cmux-ui-test-action-1")
+        let lastActionButton = app.descendants(matching: .any)
+            .matching(identifier: "paneTabBarControl.custom.cmux-ui-test-action-\(actionButtonCount)")
             .firstMatch
 
         hover(
@@ -1043,6 +1043,9 @@ final class BonsplitTabDragUITests: XCTestCase {
 
         let lastActionButton = app.descendants(matching: .any)
             .matching(identifier: "paneTabBarControl.custom.cmux-ui-test-action-\(actionButtonCount)")
+            .firstMatch
+        let firstActionButton = app.descendants(matching: .any)
+            .matching(identifier: "paneTabBarControl.custom.cmux-ui-test-action-1")
             .firstMatch
         hover(
             in: window,
