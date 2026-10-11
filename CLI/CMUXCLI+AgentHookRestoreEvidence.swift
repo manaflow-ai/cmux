@@ -135,7 +135,9 @@ extension CMUXCLI {
         transcriptPath: String?,
         currentPID: Int?
     ) -> AgentHookLaunchCommandRecord? {
-        if current?.isRejectedCapture == true {
+        let ompCaptureUnavailable = kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "omp"
+            && ompLaunchCaptureIsUnavailable(current)
+        if current?.isRejectedCapture == true || ompCaptureUnavailable {
             if let preserved = mappedLaunchAfterRejectedCapture(kind: kind, current: current, mapped: mapped) {
                 return kind == "codex"
                     ? repairedCodexLaunchCommand(preserved, transcriptPath: transcriptPath)
@@ -196,7 +198,9 @@ extension CMUXCLI {
         guard ProcessInfo.processInfo.environment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] != "1" else {
             return nil
         }
-        if current?.isRejectedCapture == true {
+        let ompCaptureUnavailable = kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "omp"
+            && ompLaunchCaptureIsUnavailable(current)
+        if current?.isRejectedCapture == true || ompCaptureUnavailable {
             if mappedLaunchAfterRejectedCapture(kind: kind, current: current, mapped: mapped) != nil {
                 return mapped?.cwd ?? currentCwd
             }
@@ -239,6 +243,7 @@ extension CMUXCLI {
         rejectionReason == .launcherDoesNotDescribeKind
             || rejectionReason == .nativeProcessDoesNotDescribeKind
             || rejectionReason == .argvLooksLikeShellWrapper
+            || rejectionReason == .argvUnavailable
             || rejectionReason == .argvDecodeFailed
     }
 
