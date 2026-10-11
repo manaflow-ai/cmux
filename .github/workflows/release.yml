@@ -518,7 +518,6 @@ jobs:
               "$app/Contents/Resources/bin/cmux" \
               "$app/Contents/Resources/bin/ghostty" \
               "$app/Contents/Resources/bin/cmux-tui" \
-              "$app/Contents/Resources/bin/cmux-cua" \
               "$app/Contents/Resources/bin/cmux-diff-sidecar" \
               "$app/Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua"
             do
