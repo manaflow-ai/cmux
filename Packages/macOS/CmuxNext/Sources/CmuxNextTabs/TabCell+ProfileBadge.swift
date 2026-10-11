@@ -30,7 +30,7 @@ extension TabCell {
     func applyProfileDotColors() {
         guard let dot = profileLayer else { return }
         if let color = item.profileBadge?.color {
-            dot.backgroundColor = color.swatch.cgColor
+            dot.backgroundColor = color.markColor.cgColor
             dot.borderWidth = 0
         } else {
             // A ring; with appearance.borders none a faint fill instead

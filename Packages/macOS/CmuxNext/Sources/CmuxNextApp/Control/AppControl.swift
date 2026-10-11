@@ -74,9 +74,10 @@ final class AppControl {
             // Work per layout change: pane snapshots, applies, topology sends (bench_pane_scale.py).
             .mainActor("debug.layout_counters") { call in .value(DebugLayoutCounters.handle(call.params)) },
             // Click by Hint labels (hint-mode-e2e.py).
-            .mainActor("debug.hints") { [weak services] _ in
+            .mainActor("debug.hints") { [weak services] call in
                 guard let services else { return .value(.null) }
-                return .value(DebugHints.report(services.windowHints))
+                DebugHints.watchMenus()
+                return .value(DebugHints.report(services.windowHints, params: call.params))
             },
             .mainActor("debug.page_host_pool") { [weak services] call in
                 .value(DebugPageHostPool.handle(call.params, services: services))

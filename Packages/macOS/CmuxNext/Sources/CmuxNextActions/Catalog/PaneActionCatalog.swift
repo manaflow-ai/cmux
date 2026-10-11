@@ -136,6 +136,15 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 keywords: ["navigate"], category: .pane, symbol: "arrow.forward.square",
                 surfaces: [.palette, .keyboard], targets: [.pane], cliName: "pane focus-next"
             ),
+            // Ctrl-Cmd-1..9 (cx-zjtn.2): the screen's panes in Focus Next
+            // Pane order; 9 is the last pane.
+            ActionDescriptor(
+                id: "focusPaneByNumber",
+                title: String(localized: "action.focusPaneByNumber", defaultValue: "Focus Pane 1…9", bundle: .module),
+                keywords: ["pane", "jump", "number", "index", "navigate"], defaultShortcut: Shortcut("1", modifiers: [.control, .command]),
+                shortcutFamily: .digits, category: .pane, symbol: "number.square", surfaces: [.keyboard],
+                arguments: [CatalogArgument.indexNumber], targets: [.pane], cliName: "pane focus-1-9"
+            ),
             ActionDescriptor(
                 id: "triggerFlash",
                 title: String(localized: "action.triggerFlash", defaultValue: "Flash Focused Pane", bundle: .module),
