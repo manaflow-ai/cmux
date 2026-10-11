@@ -253,6 +253,7 @@ mod screen_changed;
 pub(crate) mod screen_groups;
 mod signaled_mutex;
 pub(crate) use signaled_mutex::SignaledMutex;
+mod new_terminal_cwd;
 mod session_paths;
 pub(crate) mod settings;
 mod shell_history_feed;
@@ -898,16 +899,6 @@ impl Mux {
             });
         }
         Ok(())
-    }
-
-    /// Working directory of a pane's active surface, if reported.
-    fn pane_cwd(&self, pane: PaneId) -> Option<String> {
-        let surface = {
-            let state = self.state.lock().unwrap();
-            let active = state.panes.get(&pane)?.active_surface()?;
-            state.surfaces.get(&active).cloned()
-        };
-        surface.and_then(|surface| surface.local_cwd())
     }
 
     fn workspace_key_for_pane(&self, pane: PaneId) -> Option<String> {
