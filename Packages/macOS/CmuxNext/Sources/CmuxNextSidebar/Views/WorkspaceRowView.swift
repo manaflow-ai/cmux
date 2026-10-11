@@ -30,8 +30,6 @@ final class WorkspaceRowView: SidebarRowView {
     /// behind a fade (Lawrence 2026-10-11: no layout shift).
     let moreButton = SidebarIconButton(icon: .actionMore, pointSize: { Metrics.smallIconSize - Metrics.space1 },
                                        label: Strings.workspaceMenu)
-    /// The fade under the hover actions, over the end of the title (`SidebarActionScrim`).
-    private let actionScrim = SidebarActionScrim()
     /// `sidebar.showWorkspaceTabs`: hides or lists the workspace's tabs. Always drawn
     /// while the setting is on (never on hover), so rows never shift.
     let disclosureButton = SidebarIconButton(icon: .disclosureCollapsed, pointSize: { Metrics.smallIconSize - Metrics.space2 },
@@ -85,9 +83,8 @@ final class WorkspaceRowView: SidebarRowView {
         mutedMark.imageScaling = .scaleProportionallyDown
         mutedMark.isHidden = true
         mutedMark.setAccessibilityElement(false)
-        [icon, title, subtitle, activity, agentMark, mutedMark, badge, presenceDots, actionScrim, closeButton, moreButton, disclosureButton, tabCount, prBadge, placeholderBar, statusBlock]
+        [icon, title, subtitle, activity, agentMark, mutedMark, badge, presenceDots, closeButton, moreButton, disclosureButton, tabCount, prBadge, placeholderBar, statusBlock]
             .forEach(addSubview)
-        actionScrim.isHidden = true
         disclosureButton.isHidden = true
         tabCount.isHidden = true
         prBadge.isHidden = true
@@ -255,10 +252,6 @@ final class WorkspaceRowView: SidebarRowView {
             paintFill(isDropTarget || isSelected ? Palette.selectionFill
                 : isSecondarySelected ? Palette.secondarySelectionFill
                 : isHovered && !isPlaceholderRow ? Palette.hoverFill : nil)
-            // The hover actions' fade ends in the row's own background.
-            let rowFill: KeyPath<ThemeTokens, ThemeRGB>? = isDropTarget || isSelected ? \.selectionFill
-                : isSecondarySelected ? \.secondarySelectionFill : isHovered && !isPlaceholderRow ? \.hoverFill : nil
-            actionScrim.paint(Palette.sidebarRowBackground(fill: rowFill), fade: SidebarStyle.titleFadeWidth)
             // The sidebar's own tonal step, once more: a bar a step apart.
             placeholderBar.layer?.backgroundColor = Palette.sidebarStep.cgColor
         }
@@ -314,12 +307,14 @@ final class WorkspaceRowView: SidebarRowView {
         }
         // Lawrence 2026-10-11 ("Overlay with fade"): the title keeps its full
         // width at rest and on hover. The x and the more button draw over the
-        // end of the title (and the marks there) behind a fade in the row's
-        // background, so nothing moves. An unread badge keeps its slot at
-        // rest, and the x takes that slot on hover.
+        // end of the title, which fades out before them (an alpha mask), so
+        // nothing moves. Marks under them hide while they show. An unread
+        // badge keeps its slot at rest, and the action that lands there on
+        // hover hides it.
         let showClose = isHovered && !isShowingPlaceholder && isClosable
+        let showMore = !isPlaceholderRow && onMore != nil && isHovered && !renaming
         closeButton.isHidden = !showClose
-        badge.isHidden = showClose || !badge.state.isUnread
+        badge.isHidden = showClose || (showMore && !isClosable) || !badge.state.isUnread
         var slot: CGFloat = 0
         if badge.state.isUnread {
             let w = badge.preferredWidth
@@ -333,16 +328,9 @@ final class WorkspaceRowView: SidebarRowView {
         // The menu button, on hover only, left of the x (or in its place on a
         // row that cannot close). Hidden (not only clear) when it does not
         // show; VoiceOver uses the row's custom action.
-        let showMore = !isPlaceholderRow && onMore != nil && isHovered && !renaming
         moreButton.isHidden = !showMore
         moreButton.frame = closeButton.frame.offsetBy(dx: showClose ? -(control + Metrics.space1) : 0, dy: 0)
-        let overlay = [showClose ? closeButton.frame : nil, showMore ? moreButton.frame : nil].compactMap { $0 }
-        actionScrim.isHidden = overlay.isEmpty
-        if let first = overlay.map(\.minX).min(), let last = overlay.map(\.maxX).max() {
-            let fade = SidebarStyle.titleFadeWidth
-            actionScrim.frame = NSRect(x: first - Metrics.space1 - fade, y: b.minY, width: last - first + Metrics.space1 + fade, height: b.height)
-            needsDisplay = true
-        }
+        let overlayStart = [showClose ? closeButton.frame.minX : nil, showMore ? moreButton.frame.minX : nil].compactMap { $0 }.min()
         let ind = SidebarStyle.indicatorSize
         let markReplacesStatus = !agentMark.isHidden && agentMarkVariant == .replacesStatus
         activity.isHidden = markReplacesStatus
@@ -390,6 +378,16 @@ final class WorkspaceRowView: SidebarRowView {
         } else {
             title.frame = NSRect(x: textX + inset, y: (b.height - th) / 2, width: titleWidth, height: th)
             subtitle.isHidden = true
+        }
+        // The hover actions draw over the text's end: the title and second
+        // line fade out before them (alpha masks, every backdrop), and the
+        // marks they cover hide while they show.
+        let fade = SidebarStyle.titleFadeWidth
+        title.trailingOcclusion = overlayStart.map { max(0, title.frame.maxX - ($0 - Metrics.space1)) } ?? 0
+        subtitle.wantsLayer = true
+        subtitle.setTrailingFade(occlusion: overlayStart.map { max(0, subtitle.frame.maxX - ($0 - Metrics.space1)) } ?? 0, fade: fade)
+        for mark in [activity, agentMark, mutedMark, presenceDots] as [NSView] {
+            mark.alphaValue = overlayStart.map { mark.frame.maxX > $0 - Metrics.space1 } == true ? 0 : 1
         }
         layoutStatus(x: textX, width: max(0, b.width - Metrics.space3 - textX), head: b.maxY, bottom: full.maxY)
         needsDisplay = true
