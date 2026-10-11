@@ -199,7 +199,7 @@ async fn wait_status(c: &mut TestClient, id: &str, status: &str) {
 #[tokio::test]
 async fn a_move_whose_client_goes_away_before_the_bundle_is_read_gives_the_chat_back_on_its_own() {
     let (a, mut src) = setup(PermissionPolicy::ApproveAll).await;
-    a.set_transfer_lease(Duration::from_millis(300));
+    a.set_transfer_lease(Duration::from_secs(2));
     let id = busy_chat(&mut src, &[("p-a", "a")]).await;
     let begin = src
         .request("_acpmux/transfer_begin", json!({"sessionId": id, "interrupt": true}))
@@ -221,7 +221,7 @@ async fn a_move_whose_client_goes_away_before_the_bundle_is_read_gives_the_chat_
 #[tokio::test]
 async fn a_move_whose_client_goes_away_after_the_target_took_the_chat_commits_on_its_own() {
     let (a, mut src) = setup(PermissionPolicy::ApproveAll).await;
-    a.set_transfer_lease(Duration::from_millis(300));
+    a.set_transfer_lease(Duration::from_secs(2));
     let (b, mut dst) = setup(PermissionPolicy::ApproveAll).await;
     let socket = listen(&b).await;
     let id = busy_chat(&mut src, &[("p-a", "a")]).await;
@@ -254,7 +254,7 @@ async fn a_move_whose_client_goes_away_after_the_target_took_the_chat_commits_on
 async fn a_move_whose_client_goes_away_before_the_target_finished_is_dropped_there_and_given_back()
 {
     let (a, mut src) = setup(PermissionPolicy::ApproveAll).await;
-    a.set_transfer_lease(Duration::from_millis(300));
+    a.set_transfer_lease(Duration::from_secs(2));
     let (b, mut dst) = setup(PermissionPolicy::ApproveAll).await;
     let socket = listen(&b).await;
     let id = busy_chat(&mut src, &[("p-a", "a")]).await;
@@ -275,6 +275,9 @@ async fn a_move_whose_client_goes_away_before_the_target_finished_is_dropped_the
     src.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "echo: a").await;
     let late = dst.request("_acpmux/transfer_finish", json!({"receiveId": receive_id})).await;
     assert!(late.as_ref().is_err_and(|e| e.contains("transfer.unknown")), "{late:?}");
+    // A client that kept the bundle cannot start the move over there either.
+    let again = dst.request("_acpmux/transfer_receive", json!({"manifest": begin})).await;
+    assert!(again.as_ref().is_err_and(|e| e.contains("transfer.forgotten")), "{again:?}");
     let there = dst.request(method::MUX_INFO, json!({"sessionId": id})).await;
     assert!(there.is_err(), "the target has no copy: {there:?}");
 }
