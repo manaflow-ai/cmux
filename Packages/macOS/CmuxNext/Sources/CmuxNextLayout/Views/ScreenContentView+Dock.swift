@@ -144,13 +144,27 @@ extension ScreenContentView {
     /// hidden under it: a layer mask does not change hit testing.
     override func hitTest(_ point: NSPoint) -> NSView? {
         let local = convert(point, from: superview)
-        guard !isHidden, geometry.dock.contains(where: { $0.cover.contains(local) }) else { return super.hitTest(point) }
+        guard !isHidden, geometry.dock.contains(where: { $0.cover.contains(local) }) else {
+            // A zoom's covered panes have left the layout: a click there goes to this view.
+            let hit = super.hitTest(point)
+            guard !covered.isEmpty, let hit, coveredHost(containing: hit) != nil else { return hit }
+            return self
+        }
         for view in subviews.reversed() where !view.isHidden {
-            if let host = view as? PaneHostView, geometry.scrolls(pane: host.pane) { continue }
+            if let host = view as? PaneHostView, geometry.scrolls(pane: host.pane) || covered.contains(host.pane) { continue }
             if let divider = view as? DividerHandleView, scrolls(divider.kind) { continue }
             if let hit = view.hitTest(local) { return hit }
         }
         return self
+    }
+
+    private func coveredHost(containing view: NSView) -> PaneHostView? {
+        var current: NSView? = view
+        while let candidate = current, candidate !== self {
+            if let host = candidate as? PaneHostView, covered.contains(host.pane) { return host }
+            current = candidate.superview
+        }
+        return nil
     }
 
     /// Pane frames for directional focus in one logical line: the left
