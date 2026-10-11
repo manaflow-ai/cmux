@@ -134,19 +134,23 @@ describe("gallery coverage", async () => {
 
   test("every cover names a component or page that exists", () => {
     const unknown = entries.flatMap((entry) =>
-      entry.covers.map((cover) => ({ entry: entry.id, cover })).filter(({ cover }) => {
-      if (cover.startsWith("swift:")) return false;
-      if (cover.startsWith("page:")) return !allPages.includes(cover.slice(5));
-      const [file, name] = cover.split("#");
-      const names = byFile.get(file!);
-        return !names || (name !== undefined && !names.includes(name));
-      }),
+      entry.covers
+        .map((cover) => ({ entry: entry.id, cover }))
+        .filter(({ cover }) => {
+          if (cover.startsWith("swift:")) return false;
+          if (cover.startsWith("page:")) return !allPages.includes(cover.slice(5));
+          const [file, name] = cover.split("#");
+          const names = byFile.get(file!);
+          return !names || (name !== undefined && !names.includes(name));
+        }),
     );
     expect(
       scope.owned(
         unknown,
         ({ entry, cover }) => {
-          const own = cover.startsWith("page:") ? place(cover.slice(5)) : place(cover.includes("#") ? cover : `${cover}#`);
+          const own = cover.startsWith("page:")
+            ? place(cover.slice(5))
+            : place(cover.includes("#") ? cover : `${cover}#`);
           return { files: [...entryPlace(entry).files, ...own.files], names: own.names };
         },
         ({ entry, cover }) => `${entry}: ${cover}`,
@@ -171,7 +175,13 @@ describe("gallery coverage", async () => {
   test("each owner prefix still names allowlisted work", () => {
     const names = [...allowlist.components, ...allowlist.pages];
     const idle = Object.keys(allowlist.owners ?? {}).filter((prefix) => !names.some((name) => name.startsWith(prefix)));
-    expect(scope.owned(idle, (prefix) => ({ files: [], names: [prefix] }), (prefix) => prefix)).toEqual([]);
+    expect(
+      scope.owned(
+        idle,
+        (prefix) => ({ files: [], names: [prefix] }),
+        (prefix) => prefix,
+      ),
+    ).toEqual([]);
   });
 
   test("coverage counts", () => {

@@ -32,15 +32,23 @@ describe("ui rules", () => {
 
   test("a pending file never gains violations", () => {
     const grown = Object.entries(actual).filter(([file, count]) => file in pending && count > Number(pending[file]));
-    expect(scope.owned(grown, ([file]) => at(file), ([file, count]) => `${file}: ${count} > ${pending[file]}`)).toEqual(
-      [],
-    );
+    expect(
+      scope.owned(
+        grown,
+        ([file]) => at(file),
+        ([file, count]) => `${file}: ${count} > ${pending[file]}`,
+      ),
+    ).toEqual([]);
   });
 
   test("the pending list shrinks with the migration (lower a count, delete a clean file)", () => {
     const stale = Object.entries(pending).filter(([file, count]) => (actual[file] ?? 0) < Number(count));
     expect(
-      scope.owned(stale, ([file]) => at(file), ([file, count]) => `${file}: ${actual[file] ?? 0} < ${count}`),
+      scope.owned(
+        stale,
+        ([file]) => at(file),
+        ([file, count]) => `${file}: ${actual[file] ?? 0} < ${count}`,
+      ),
     ).toEqual([]);
   });
 
