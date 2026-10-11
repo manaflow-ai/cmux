@@ -56,9 +56,10 @@
 //!   policy, a rule or a mode: those widen and stay the person's own.
 //!   A keyed daemon is not dumpable (`daemon.rs`), so an agent it starts
 //!   cannot read the key from its memory.
-//! - Through a peer (slice 2a): a daemon that only mirrors a peer's session
-//!   cannot check a proof made with the peer's key, so it forwards a
-//!   proof-carrying allow and the peer decides. `answeredBy` from a
+//! - Through a peer (slice 2a, 2b): a daemon that only mirrors a peer's
+//!   session cannot check a proof made with the peer's key, so it forwards
+//!   every answer for that session (allow, deny, cancel) and the peer
+//!   decides; a forwarded answer counts hops (`server/peer_forward.rs`). `answeredBy` from a
 //!   connection that is not the person counts only together with a proof
 //!   that counts. `initialize` and `_acpmux/status` name the run
 //!   (`personInstance`); status says whether it holds a key (`personKey`).
@@ -456,9 +457,10 @@ impl Hub {
         match m {
             method::MUX_PERMISSION_RESPOND => {
                 let option = params.get("optionId").filter(|v| !v.is_null());
-                // A peer's prompt with a decision proof: the peer decides
-                // with its own key; it gets the whole request.
-                if option.is_some() && self.peer_decides(params) {
+                // A peer's prompt: the peer is the only one that decides
+                // its prompts (with its own key and rules); it gets the
+                // whole request, an allow, a deny or a cancel (slice 2b).
+                if self.is_peer_session(params) {
                     return Ok(());
                 }
                 let proved = option.is_some_and(|o| self.person_decided(params, o));
@@ -592,19 +594,14 @@ impl Hub {
         }
     }
 
-    /// Whether an allow is for a peer's session (this daemon does not have it)
-    /// and carries a decision proof: the peer checks the proof with its own
-    /// key, which this daemon does not hold (cx-0q7o slice 2a).
-    fn peer_decides(&self, params: &Value) -> bool {
-        let meta = params.pointer("/_meta/acpmux");
-        let carried = |f: &str| {
-            meta.and_then(|m| m.get(f)).and_then(Value::as_str).is_some_and(|v| !v.is_empty())
-        };
-        carried(DECISION_NONCE_FIELD)
-            && carried(DECISION_FIELD)
-            && crate::server::session_key(params)
-                .ok()
-                .is_some_and(|k| self.resolve(k).is_err() && self.resolve_remote(k).is_some())
+    /// Whether the request names a peer's session (this daemon does not
+    /// have it): `server/peer_forward.rs` forwards it whole, and the peer
+    /// checks it with its own key, which this daemon does not hold. The same
+    /// condition as the forward's.
+    fn is_peer_session(&self, params: &Value) -> bool {
+        crate::server::session_key(params)
+            .ok()
+            .is_some_and(|k| self.resolve(k).is_err() && self.resolve_remote(k).is_some())
     }
 
     /// Whether a relayed allow carries the person's decision proof for the

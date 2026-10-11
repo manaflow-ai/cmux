@@ -28,9 +28,11 @@
 //! - `agent-session-prompt {surface, prompt_id, text}` sends one text prompt
 //!   and answers once acpmux recorded it (`{prompt_id, turn_id, queued}`).
 //! - `agent-session-cancel {surface}` cancels the running turn.
-//! - `agent-session-permission {surface, permission_id, option_id}` answers a
-//!   permission request acpmux announced on this attachment. The daemon never
-//!   answers one by itself.
+//! - `agent-session-permission {surface, permission_id, option_id,
+//!   decision_nonce?, person_decision?, answered_by?}` answers a permission
+//!   request acpmux announced on this attachment. The daemon never answers
+//!   one by itself, and never holds a person key: the proof fields go to
+//!   acpmux unchanged, which decides (cx-0q7o).
 //! - `agent-session-detach {surface}`.
 //!
 //! Events: `agent-session-record {surface, record}` (one acpmux record,
@@ -313,6 +315,28 @@ struct PermissionParams {
     surface: SurfaceId,
     permission_id: String,
     option_id: String,
+    /// The person's decision proof for this answer (acpmux `hub/person.rs`,
+    /// cx-0q7o): passed to acpmux unchanged, and acpmux decides.
+    #[serde(default)]
+    decision_nonce: Option<String>,
+    #[serde(default)]
+    person_decision: Option<String>,
+    /// Which device the person answered on: acpmux records it only with a
+    /// proof that counts.
+    #[serde(default)]
+    answered_by: Option<AnsweredBy>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AnsweredBy {
+    device: String,
+    feed_item: String,
+}
+
+/// 64 lowercase hex characters: a decision nonce or proof.
+fn is_hex64(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 /// Refusal codes (`error_code`).
@@ -889,15 +913,43 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
         AgentSessionCommand::Prompt(PromptParams { prompt_id, text, .. }) => {
             prompt(attachment, prompt_id, text)
         }
-        AgentSessionCommand::Permission(PermissionParams { permission_id, option_id, .. }) => {
+        AgentSessionCommand::Permission(PermissionParams {
+            permission_id,
+            option_id,
+            decision_nonce,
+            person_decision,
+            answered_by,
+            ..
+        }) => {
             if option_id.is_empty() || option_id.len() > 256 {
+                return Err(Refusal::BadRequest);
+            }
+            if !decision_nonce.as_deref().is_none_or(is_hex64)
+                || !person_decision.as_deref().is_none_or(is_hex64)
+                || answered_by
+                    .as_ref()
+                    .is_some_and(|a| a.device.len() > 128 || a.feed_item.len() > 128)
+            {
                 return Err(Refusal::BadRequest);
             }
             if !attachment.has_permission(&permission_id) {
                 return Err(Refusal::UnknownPermission);
             }
-            let params =
+            let mut params =
                 json!({"sessionId": session, "permissionId": permission_id, "optionId": option_id});
+            let mut meta = serde_json::Map::new();
+            if let Some(nonce) = decision_nonce {
+                meta.insert("decisionNonce".into(), Value::String(nonce));
+            }
+            if let Some(proof) = person_decision {
+                meta.insert("personDecision".into(), Value::String(proof));
+            }
+            if let Some(by) = answered_by {
+                meta.insert("answeredBy".into(), json!({"device": by.device, "feedItem": by.feed_item}));
+            }
+            if !meta.is_empty() {
+                params["_meta"] = json!({"acpmux": meta});
+            }
             let answered = attachment.link.call("_acpmux/permission_respond", params, CALL_TIMEOUT);
             // A failed answer stays answerable; a delivered one is spent.
             if answered.is_ok() {
