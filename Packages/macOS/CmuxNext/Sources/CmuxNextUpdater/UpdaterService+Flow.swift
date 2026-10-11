@@ -64,6 +64,10 @@ extension UpdaterService {
             #if DEBUG
             UpdateHarness.mark("install_started")
             #endif
+            if let failure = installPreflightFailure() {
+                failInstall(failure)
+                return
+            }
             recordBeforeInstall()
             willInstallStaged?()
             installStaged()

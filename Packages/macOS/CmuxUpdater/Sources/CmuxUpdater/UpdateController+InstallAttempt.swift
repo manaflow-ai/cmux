@@ -39,8 +39,15 @@ extension UpdateController {
         )
     }
 
+    /// The install must not start (a check before the click failed: the app's folder is not
+    /// writable, the disk is full, the staged update is gone): the update error with `message`,
+    /// its retry and the channel's manual download, and the app keeps running.
+    public func failStagedInstall(message: String, diagnostic: String) {
+        setInstallDidNotStartError(diagnostic: diagnostic, message: message)
+    }
+
     /// Ends the accepted-install lifecycle with an actionable retry instead of an empty pill.
-    func setInstallDidNotStartError(diagnostic: String) {
+    func setInstallDidNotStartError(diagnostic: String, message: String? = nil) {
         installWatchdog.disarm()
         cancelReadinessRetry()
         attemptCoordinator.cancel()
@@ -50,7 +57,7 @@ extension UpdateController {
         let error = NSError(
             domain: UpdateStateModel.updateErrorDomain,
             code: UpdateStateModel.installDidNotStartCode,
-            userInfo: [NSLocalizedDescriptionKey: String(
+            userInfo: [NSLocalizedDescriptionKey: message ?? String(
                 localized: "update.error.didNotStart.message",
                 defaultValue: "cmux couldn’t start the update. Check your internet connection and try again."
             )]
