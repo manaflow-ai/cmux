@@ -1,5 +1,6 @@
 public import CmuxNextWakeups
 import Darwin
+import os
 public import Foundation
 import CmuxNextCompat
 
@@ -14,6 +15,7 @@ import CmuxNextCompat
 /// would reach it.
 public nonisolated final class AgentActivityLineConnection: @unchecked Sendable { // crash-allow: every mutable field is read and written only on `queue` (one serial queue)
     private let queue = DispatchQueue(label: "cmux.agent-activity.socket")
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-activity.socket")
     private var descriptor: Int32 = -1
     private var source: (any DispatchSourceRead)?
     private var buffer = Data()
@@ -47,8 +49,12 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
             descriptor = fd
             // An impostor server must not get the request (or its token): the
             // check is on this very connection, before its first byte.
-            if let acceptsServer, !(UnixSocketPeer(descriptor: fd).map(acceptsServer) ?? false) {
-                return finish()
+            if let acceptsServer {
+                let peer = UnixSocketPeer(descriptor: fd)
+                guard let peer, acceptsServer(peer) else {
+                    Self.logger.error("CUA socket \(self.path, privacy: .public): server \(peer?.executablePath ?? "unknown", privacy: .public) is not the signed helper; nothing sent")
+                    return finish()
+                }
             }
             let reader = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
             reader.setEventHandler { [weak self] in self?.readable() }
