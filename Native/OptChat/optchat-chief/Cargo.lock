@@ -650,6 +650,7 @@ dependencies = [
  "cmux-server-core",
  "core-foundation-sys",
  "libc",
+ "optchat-chief",
  "optchat-core",
  "optchat-host",
  "ring",
