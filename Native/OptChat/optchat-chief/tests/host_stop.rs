@@ -236,10 +236,14 @@ fn a_sigterm_while_acpmux_starts_still_stops_it() {
     unsafe { libc::kill(host.id() as i32, libc::SIGTERM) };
     // The host's stop watcher has taken the signal (it logs before it stops)
     // while acpmux still waits: the stop comes inside the start, every time.
-    wait_for("the host taking the stop signal", Duration::from_secs(10), || {
-        std::fs::read_to_string(&stderr)
-            .is_ok_and(|log| log.contains("stopping before the brain runs"))
-    });
+    wait_for(
+        "the host taking the stop signal",
+        Duration::from_secs(10),
+        || {
+            std::fs::read_to_string(&stderr)
+                .is_ok_and(|log| log.contains("stopping before the brain runs"))
+        },
+    );
     // The daemon goes on: it listens, so the host's start completes.
     std::fs::write(&barrier, "go").unwrap();
     let mut status = None;
