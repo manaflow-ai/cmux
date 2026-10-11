@@ -46,14 +46,16 @@ impl Hub {
     /// Agents under hosts are detached and keep running, unless
     /// `end_agents_at_shutdown` asked to end them: then they end through
     /// their host (else by nonce proof), and a turn in progress is recorded
-    /// as cancelled.
-    pub async fn shutdown_all(&self) {
+    /// as cancelled. Returns how many hosted agents it left running for the
+    /// next daemon (the local router stays for them).
+    pub async fn shutdown_all(&self) -> usize {
         // Pooled sessions are hidden, never user sessions: they end with the
         // daemon, alongside the sessions below.
-        tokio::join!(self.stop_pool(), self.shutdown_sessions());
+        let ((), kept) = tokio::join!(self.stop_pool(), self.shutdown_sessions());
+        kept
     }
 
-    async fn shutdown_sessions(&self) {
+    async fn shutdown_sessions(&self) -> usize {
         const LOCK: std::time::Duration = std::time::Duration::from_millis(200);
         // The idle reaper must not end a hosted agent this shutdown hands off.
         self.stop_idle_reaper();
@@ -72,6 +74,7 @@ impl Hub {
         // whose link may be closed. `end_unadopted_host` ends it with nonce
         // proof, the same fallback as closing the session.
         let mut host_fallback = Vec::new();
+        let mut unreached = 0;
         for s in &sessions {
             let ends = end_agents && !keep.contains(&s.id);
             let Ok(mut slot) = tokio::time::timeout(LOCK, s.child.lock()).await else {
@@ -80,6 +83,9 @@ impl Hub {
                 if ends {
                     host_fallback.push(s.clone());
                     self.settle_cancelled(s);
+                } else {
+                    // It may run under a host: count it as kept.
+                    unreached += 1;
                 }
                 continue;
             };
@@ -119,6 +125,7 @@ impl Hub {
             tracing::warn!("agent hosts did not end within {SHUTDOWN_GRACE:?}");
         }
         self.flush();
+        hosted.len() + unreached
     }
 
     /// Quit Everything: the turn in progress ends as cancelled (one

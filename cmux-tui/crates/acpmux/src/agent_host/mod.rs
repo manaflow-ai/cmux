@@ -173,6 +173,10 @@ pub struct SpawnSpec {
     pub socket: PathBuf,
     /// Bytes of unacknowledged entries before back-pressure.
     pub buffer_cap: usize,
+    /// The local router's owner FIFO of the daemon's home; the host holds
+    /// a write end for its whole life (`daemon::router_owner_fifo`).
+    #[serde(default)]
+    pub router_owner_fifo: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -457,6 +461,29 @@ pub fn remove_artifacts(dir: &Path, record: &HostRecord) {
     let _ = std::fs::remove_file(record_path(dir, &record.session_id));
     let _ = std::fs::remove_file(live_path(dir, &record.session_id, &record.start_nonce));
     let _ = std::fs::remove_file(&record.socket);
+}
+
+/// Whether the record file at `path` names the host incarnation `nonce`. A
+/// record that exists but cannot be read counts as this host's (never end
+/// or delete on a doubt); a missing one does not.
+pub fn names_this_host(path: &Path, nonce: &str) -> bool {
+    match std::fs::read(path) {
+        Ok(bytes) => serde_json::from_slice::<HostRecord>(&bytes)
+            .ok()
+            .is_none_or(|record| record.start_nonce == nonce),
+        Err(e) => e.kind() != std::io::ErrorKind::NotFound,
+    }
+}
+
+/// A host's own exit: its lock, and its record and socket only while the
+/// record still names it (a newer host of the same session owns them then).
+pub fn remove_own_artifacts(dir: &Path, record: &HostRecord) {
+    let _ = std::fs::remove_file(live_path(dir, &record.session_id, &record.start_nonce));
+    let path = record_path(dir, &record.session_id);
+    if names_this_host(&path, &record.start_nonce) && path.exists() {
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&record.socket);
+    }
 }
 
 /// Hosts of pooled sessions (hidden sessions nobody took yet,
