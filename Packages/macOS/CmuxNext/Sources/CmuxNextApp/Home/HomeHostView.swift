@@ -33,6 +33,8 @@ final class HomeHostView: NSView {
     /// The Chief's avatar when its profile sets none: the bundled cat
     /// (160 px, sharp on the 40 pt header disc up to 4x).
     static let defaultAvatar = Bundle.module.image(forResource: "ChiefAvatar")
+    /// The same cat for the Chief's tile in the conversation list.
+    static let defaultTileAvatar = Bundle.module.url(forResource: "ChiefAvatar", withExtension: "png").map(HomeChiefAvatar.picture)
     private var firstPage: Task<Void, Never>?
     /// Which brain answers this conversation (this Mac's or a paired server's).
     private let control: HomeChiefControl
@@ -58,9 +60,10 @@ final class HomeHostView: NSView {
             self?.transcript.avatarPicture = avatar.picture.flatMap(NSImage.init(data:)) ?? (avatar.text == nil ? Self.defaultAvatar : nil)
             self?.transcript.avatarText = avatar.text
         }
-        sidebar.onAvatar = { [weak self] text in
+        sidebar.onAvatar = { [weak self, weak service] text in
             self?.transcript.avatarPicture = text == nil ? Self.defaultAvatar : nil
             self?.transcript.avatarText = text
+            service?.directory.chiefAvatar = text.map(HomeChiefAvatar.text) ?? Self.defaultTileAvatar
         }
         sidebar.onShowMemory = { [weak services] in
             _ = services?.registry.perform(ChiefInspectorHandlers.actionID, invocation: ActionInvocation(origin: .user))
