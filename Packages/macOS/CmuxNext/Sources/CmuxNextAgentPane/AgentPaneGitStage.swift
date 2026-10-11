@@ -55,7 +55,7 @@ public nonisolated struct AgentPaneGitStage: Equatable, Sendable {
 
     /// Runs the request when `cwd` is inside one of `roots`. Nil on success, else git's message or
     /// why it did not run.
-    static func run(_ request: AgentPaneGitStage, roots: [String]) async -> String? {
+    static func run(_ request: AgentPaneGitStage, roots: [String], home: String = NSHomeDirectory()) async -> String? {
         let canonicalRoots = roots.compactMap(AcpmuxPathPolicy.canonical).filter { $0 != "/" }
         guard let folder = AcpmuxPathPolicy.canonical(request.cwd),
               canonicalRoots.contains(where: { AcpmuxPathPolicy.contains(root: $0, path: folder) }) else {
