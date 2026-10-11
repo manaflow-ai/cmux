@@ -150,13 +150,8 @@ public final class ChromeHover {
     public func refresh(animated: Bool = true) {
         guard let view else { return }
         view.performWithTheme {
-            let color = (Self.fillColor(state) ?? .clear).cgColor
-            if animated, let token = Self.fade(to: color, pressed: state.pressed) {
-                Motion.set(fill, "backgroundColor", to: color, fade: token)
-            } else {
-                fill.removeAnimation(forKey: "backgroundColor")
-                Motion.transaction(nil) { fill.backgroundColor = color }
-            }
+            // `paint` eases from the color at alpha 0, so the first hover fades in too.
+            Self.paint(fill, Self.fillColor(state), animated: animated, pressed: state.pressed)
             Motion.transaction(nil) {
                 fill.borderColor = Palette.focusRing.cgColor
                 fill.borderWidth = state.focused ? Metrics.lineWidth(1.5) : 0
