@@ -17,9 +17,11 @@ import CmuxNextDaemon
 @MainActor
 final class AgentChatSplitToggles {
     /// The header actions that own a panel, sorted.
-    static let panels = [changes, preview, "splitBrowserRight", "splitRight"]
+    static let panels = [changes, files, preview, "splitBrowserRight", "splitRight"]
     /// Changes: the diff viewer's page.
     static let changes = "openDiffViewer"
+    /// Files: a tree of the chat's folder (cx-p4rt), off by default until styled.
+    static let files = "files"
     /// Preview: a browser tab on the local page the chat's last turn started or mentioned.
     static let preview = AgentPaneModel.previewAction
 
@@ -29,6 +31,7 @@ final class AgentChatSplitToggles {
         case "splitRight": tab.kind == .pty
         case "splitBrowserRight", preview: tab.kind == .browser
         case changes: tab.page == "diff"
+        case files: tab.page == InternalPageID.files.rawValue
         default: false
         }
     }
@@ -89,6 +92,8 @@ final class AgentChatSplitToggles {
             // The chat's repository, whichever tab the diff opens beside.
             let path = cwd ?? store?.tab(id: chat)?.cwd
             actions.runBeside(id, arguments: path.map { ["path": .string($0)] } ?? [:], on: target)
+        case files:
+            actions.openFiles(cwd ?? store?.tab(id: chat)?.cwd, on: target)
         case preview:
             guard let url else { return }
             actions.runBeside("openBrowser", arguments: ["url": .string(url)], on: target)
