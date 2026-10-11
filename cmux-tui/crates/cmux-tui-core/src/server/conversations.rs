@@ -28,6 +28,9 @@ pub const CONVERSATION_SEARCH_CAPABILITY: &str = "conversation-search-v1";
 /// `conversation-draft`: the v1 command of `conversation.draft` for a bound
 /// agent connection (the Chief brain's link).
 pub const CONVERSATION_DRAFT_CAPABILITY: &str = "conversation-draft-v1";
+/// `conversation-draft` events on `subscribe` for a trusted local connection
+/// that echoes this capability in `set-client-info` (the app's Home).
+pub const CONVERSATION_DRAFT_EVENTS_CAPABILITY: &str = "conversation-draft-events-v1";
 /// `thread_root` on `message.send` and on messages, and a send that moves
 /// the sender's own read cursor (cx-59n8.2).
 pub const CONVERSATION_THREADS_CAPABILITY: &str = "conversation-threads-v1";
