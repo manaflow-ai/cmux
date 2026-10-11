@@ -14,10 +14,11 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "994baf43ee557f1ab2a08315307d0f85c35fcaf0f07ff9e81bb174f3af52f3e1";
+inline constexpr std::string_view kProtocolIrSha256 = "db590352fbeb19e7bf3fd74c8873d87e886b9a44e469da9d73132a7124cb4bfc";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
+enum class AgentPresenceActivity;
 struct AgentRecord;
 enum class AgentReportSource;
 struct AgentSessionSource;
@@ -486,6 +487,7 @@ struct WaitForRequest;
 struct ZoomPaneRequest;
 struct ActivityChangedEvent;
 struct AgentChangedEvent;
+struct AgentPresenceChangedEvent;
 struct BellEvent;
 struct BookmarksChangedEvent;
 struct BrowserStateEvent;
@@ -529,6 +531,7 @@ struct ScreenChangedEvent;
 struct ScreenClosedEvent;
 struct ScreenRenamedEvent;
 struct ScrollChangedEvent;
+struct SettingsChangedEvent;
 struct SizeStateEvent;
 struct StatusEvent;
 struct SurfaceExitedEvent;
@@ -583,6 +586,7 @@ enum class ZoomPaneRequestMode;
 enum class BrowserStateEventStatus;
 enum class ClientAttachedEventTransport;
 enum class GraphicsStatusEventKind;
+enum class SettingsChangedEventOrigin;
 struct ConversationAttachmentUploadResultStoredPoster;
 struct ConversationAttachmentUploadResultStoredPreview;
 
@@ -656,6 +660,28 @@ struct AgentChangedEvent {
     Id surface{};
     std::uint64_t updated_at_ms{};
     friend bool operator==(const AgentChangedEvent&, const AgentChangedEvent&) = default;
+};
+
+enum class AgentPresenceActivity {
+    thinking,
+    editing,
+    reading,
+    running,
+    browsing,
+    computer_use,
+    waiting,
+};
+
+struct AgentPresenceChangedEvent {
+    std::optional<AgentPresenceActivity> activity{};
+    std::optional<std::string> agent{};
+    std::optional<std::uint64_t> line{};
+    std::optional<std::string> path{};
+    std::optional<std::string> session{};
+    Id surface{};
+    std::optional<std::string> tool{};
+    std::optional<std::uint64_t> updated_at_ms{};
+    friend bool operator==(const AgentPresenceChangedEvent&, const AgentPresenceChangedEvent&) = default;
 };
 
 struct AgentRecord {
@@ -4330,6 +4356,23 @@ struct SetWorkspaceMetadataRequest {
     friend bool operator==(const SetWorkspaceMetadataRequest&, const SetWorkspaceMetadataRequest&) = default;
 };
 
+enum class SettingsChangedEventOrigin {
+    user,
+    cli,
+    mcp,
+    script,
+    remote,
+    app,
+    file,
+};
+
+struct SettingsChangedEvent {
+    std::vector<std::string> keys{};
+    SettingsChangedEventOrigin origin{};
+    std::uint64_t revision{};
+    friend bool operator==(const SettingsChangedEvent&, const SettingsChangedEvent&) = default;
+};
+
 struct ShutdownDaemonRequest {
     std::optional<bool> end_terminals{};
     std::optional<bool> force{};
@@ -5069,6 +5112,12 @@ template <>
 struct Codec<ActivitySubscribeResult> {
     static Result<Json> encode(const ActivitySubscribeResult& value);
     static Result<ActivitySubscribeResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentPresenceActivity> {
+    static Result<Json> encode(const AgentPresenceActivity& value);
+    static Result<AgentPresenceActivity> decode(const Json& value);
 };
 
 template <>
@@ -7880,6 +7929,12 @@ struct Codec<AgentChangedEvent> {
 };
 
 template <>
+struct Codec<AgentPresenceChangedEvent> {
+    static Result<Json> encode(const AgentPresenceChangedEvent& value);
+    static Result<AgentPresenceChangedEvent> decode(const Json& value);
+};
+
+template <>
 struct Codec<BellEvent> {
     static Result<Json> encode(const BellEvent& value);
     static Result<BellEvent> decode(const Json& value);
@@ -8135,6 +8190,12 @@ template <>
 struct Codec<ScrollChangedEvent> {
     static Result<Json> encode(const ScrollChangedEvent& value);
     static Result<ScrollChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<SettingsChangedEvent> {
+    static Result<Json> encode(const SettingsChangedEvent& value);
+    static Result<SettingsChangedEvent> decode(const Json& value);
 };
 
 template <>
@@ -8459,6 +8520,12 @@ template <>
 struct Codec<GraphicsStatusEventKind> {
     static Result<Json> encode(const GraphicsStatusEventKind& value);
     static Result<GraphicsStatusEventKind> decode(const Json& value);
+};
+
+template <>
+struct Codec<SettingsChangedEventOrigin> {
+    static Result<Json> encode(const SettingsChangedEventOrigin& value);
+    static Result<SettingsChangedEventOrigin> decode(const Json& value);
 };
 
 template <>

@@ -53,7 +53,7 @@ final class RemoteUpstreamIndicator: NSView {
                 divider.layer?.backgroundColor = colors.separator.cgColor
                 row.addArrangedSubview(divider)
             }
-            let icon = RemoteChrome.symbol(RemoteUpstreamIndicator.symbol(kind), size: 12, weight: .semibold)
+            let icon = RemoteChrome.symbol(RemoteUpstreamIndicator.symbol(kind), size: 12)
             icon.contentTintColor = colors.accent
             let label = RemoteChrome.label(RemoteViewStrings.sharing(kind), size: 12, weight: .medium)
             label.textColor = colors.textPrimary

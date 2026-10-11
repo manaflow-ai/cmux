@@ -17,7 +17,7 @@ public nonisolated enum SidebarEdits {
     @discardableResult
     public static func apply(_ intent: SidebarIntent, to sections: inout [SidebarSection]) -> Bool {
         switch intent {
-        case .select, .selectTab, .moveTab, .newWorkspace, .openGroup, .switchProfile, .newProfile, .reorderProfile, .activateItem, .installUpdate, .setAutomaticUpdates,
+        case .select, .selectTab, .moveTab, .newWorkspace, .openGroup, .switchProfile, .newProfile, .openHistory, .reorderProfile, .activateItem, .installUpdate, .setAutomaticUpdates,
              .openUpdateLink, .noticeAction, .dismissNotice, .openWhatsNew, .shareCmux, .dismissUpdated, .layout, .toggleLayoutSection,
              .dropOnLayoutSection, .groupEditorEnded:
             return false
@@ -40,7 +40,7 @@ public nonisolated enum SidebarEdits {
         case let .renameGroup(id, name):
             return mutateGroup(id, in: &sections) { $0.name = name }
         case let .setGroupColor(id, color):
-            return mutateGroup(id, in: &sections) { $0.color = color }
+            return mutateGroup(id, in: &sections) { $0.tint = color }
         case let .ungroup(id):
             return ungroup(id, in: &sections)
         case let .toggleCollapse(target):
@@ -121,6 +121,14 @@ public nonisolated enum SidebarEdits {
     public static func treeOrder(_ ids: some Collection<WorkspaceID>, in sections: [SidebarSection]) -> [WorkspaceID] {
         let wanted = Set(ids)
         return sections.flatMap(\.workspaces).map(\.id).filter { wanted.contains($0) }
+    }
+
+    /// Whether every workspace `ids` names may join group `group`: the group exists and each one
+    /// may live in its section (a group holds workspaces of one machine row). The one rule for a
+    /// drag, the palette and the CLI (`moveWorkspaceToGroup`).
+    public static func canMove(_ ids: [WorkspaceID], toGroup group: GroupID, in sections: [SidebarSection]) -> Bool {
+        guard let (s, _) = locateGroup(group, in: sections), !ids.isEmpty else { return false }
+        return ids.allSatisfy { id in workspace(id, in: sections).map { canPlace($0, in: sections[s]) } ?? false }
     }
 
     /// Whether a workspace may live in a section.

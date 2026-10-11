@@ -22,7 +22,7 @@ nonisolated enum AcpmuxDaemonLauncher {
     }
 
     static let script = #"set -m; "$@" 3>&1 1>>"$ACPMUX_LAUNCH_LOG" 2>&1 </dev/null &"#
-    /// The daemon reads this launch's person key (``AcpmuxPersonKey``) from this descriptor and
+    /// The daemon reads its person key (``AcpmuxPersonKey``) from this descriptor and
     /// closes it before it starts any agent; the key never goes into argv or the environment.
     static let personKeyDescriptor: Int32 = 4
 
@@ -82,7 +82,8 @@ nonisolated enum AcpmuxDaemonLauncher {
             if keyPipe[0] >= 0 { Darwin.close(keyPipe[0]) }
             if keyPipe[1] >= 0 { Darwin.close(keyPipe[1]) }
         }
-        let keyLine = Array((AcpmuxPersonKey.current + "\n").utf8)
+        // A new key for this new daemon (one key per daemon instance, cx-fcaq).
+        let keyLine = Array((AcpmuxPersonKey.spawnKey(for: environment.socketPath) + "\n").utf8)
         let written = keyLine.withUnsafeBytes { Darwin.write(keyPipe[1], $0.baseAddress, $0.count) }
         guard written == keyLine.count else { throw Failure.spawnFailed("unable to pass the person key") }
         Darwin.close(keyPipe[1])

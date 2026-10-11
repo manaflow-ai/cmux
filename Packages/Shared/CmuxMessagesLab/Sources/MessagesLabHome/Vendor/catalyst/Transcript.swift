@@ -39,7 +39,7 @@ final class TranscriptModel {
         var i = rows.count, live = liveCount
         while live > n, i > 0 {
             i -= 1
-            if rows[checked: i]?.ghost == false { live -= 1 } // cmux: checked
+            if rows[checked: i]?.ghost == false { live -= 1 } // checked
         }
         return i
     }
@@ -60,8 +60,8 @@ final class TranscriptModel {
     func setTail(from m0: Int, liveCut cut: Int, _ tail: [RowSpec], at t: Double, ghosts: Bool) {
         let mc = modelIndex(ofLive: cut)
         var specs: [RowSpec] = []
-        specs.reserveCapacity(tail.count + max(0, mc - m0)) // cmux
-        for row in rows.slice(m0, mc) where !row.ghost { specs.append(row.spec) } // cmux: clamped slice (an m0 past mc built an inverted range)
+        specs.reserveCapacity(tail.count + max(0, mc - m0))
+        for row in rows.slice(m0, mc) where !row.ghost { specs.append(row.spec) } // clamped slice (an m0 past mc built an inverted range)
         specs += tail
         let previous = merge(specs, from: m0, at: t, ghosts: ghosts)
         rebuild(from: m0, previous: previous)
@@ -71,10 +71,10 @@ final class TranscriptModel {
     @discardableResult
     private func merge(_ specs: [RowSpec], from m0: Int, at t: Double, ghosts: Bool) -> [Row] {
         let newKeys = Set(specs.map(\.key))
-        let start = min(max(0, m0), rows.count) // cmux: a start outside the rows is clamped (no trap)
+        let start = min(max(0, m0), rows.count) // a start outside the rows is clamped (no trap)
         let previous = start == 0 ? rows : Array(rows.slice(from: start))
         let old = previous.filter { !$0.ghost }
-        // cmux: a key -> row map and a slice cursor instead of index math (crash program).
+        // a key -> row map and a slice cursor instead of index math.
         var oldRows: [String: Row] = [:]
         oldRows.reserveCapacity(old.count)
         for r in old { oldRows.updateValue(r, forKey: r.spec.key) }
@@ -104,7 +104,7 @@ final class TranscriptModel {
         return previous
     }
 
-    private func index(ofKey key: String, from base: Int = 0) -> Int? { rows.slice(from: base).firstIndex { $0.spec.key == key } } // cmux: clamped slice
+    private func index(ofKey key: String, from base: Int = 0) -> Int? { rows.slice(from: base).firstIndex { $0.spec.key == key } } // clamped slice
 
     /// Put a ghost that is still fading back right after the row it followed
     /// (the first row if none). It used to be appended at the end: a second
@@ -115,10 +115,10 @@ final class TranscriptModel {
     /// (`previous`: the replaced rows from `base` on.)
     private func insertGhost(_ g: Row, _ previous: [Row], base: Int) {
         guard let k = previous.firstIndex(where: { $0.spec.key == g.spec.key }) else { rows.append(g); return }
-        for p in previous.prefix(k).reversed() { // cmux: no index math
+        for p in previous.prefix(k).reversed() { // no index math
             if let at = index(ofKey: p.spec.key, from: base) { rows.insert(g, at: at + 1); return }
         }
-        rows.insert(g, at: min(max(0, base), rows.count)) // cmux: never past the end
+        rows.insert(g, at: min(max(0, base), rows.count)) // never past the end
     }
 
     /// Paging splice (no animation): replace rows at the two ends.
@@ -126,7 +126,7 @@ final class TranscriptModel {
         let keepEnd = rows.count - dropTail
         guard dropHead <= keepEnd else { return }
         let make = { (s: RowSpec) in Row(spec: s, removedAt: nil, insertedAt: -1) }
-        rows = newHead.map(make) + rows.slice(dropHead, keepEnd) + newTail.map(make) // cmux: clamped slice
+        rows = newHead.map(make) + rows.slice(dropHead, keepEnd) + newTail.map(make) // clamped slice
         rebuild()
     }
 
@@ -147,13 +147,13 @@ final class TranscriptModel {
 
     private func rebuild() {
         defer {
-            connectors = rows.enumerated().compactMap { entry -> (reply: Int, root: Int?)? in // cmux: no index math
+            connectors = rows.enumerated().compactMap { entry -> (reply: Int, root: Int?)? in // no index math
                 let (i, row) = entry
                 guard !row.ghost, case let .part(p) = row.spec.kind, let root = p.connectorRoot else { return nil }
-                return (i, self.index.value(for: root)) // cmux: dictionary read
+                return (i, self.index.value(for: root)) // dictionary read
             }
         }
-        // cmux: built by appending (no index writes).
+        // built by appending (no index writes).
         var newOffsets: [CGFloat] = []
         newOffsets.reserveCapacity(rows.count + 1)
         var newIndex: [String: Int] = [:]
@@ -174,30 +174,30 @@ final class TranscriptModel {
     /// `rebuild` for a tail update from `m0` (no ghost before it): index entries of the replaced
     /// rows go, the tail's are added; offsets and connectors before `m0` stay.
     private func rebuild(from m0: Int, previous: [Row]) {
-        let m0 = min(max(0, m0), rows.count, max(0, offsets.count - 1)) // cmux: a start outside the rows is clamped
-        for r in previous where (index[r.spec.key] ?? -1) >= m0 { index.removeValue(forKey: r.spec.key) } // cmux: dictionary write
-        var y = offsets[checked: m0] ?? 0 // cmux: checked
-        offsets.removeLast(offsets.count - m0) // cmux: no range that can trap
+        let m0 = min(max(0, m0), rows.count, max(0, offsets.count - 1)) // a start outside the rows is clamped
+        for r in previous where (index[r.spec.key] ?? -1) >= m0 { index.removeValue(forKey: r.spec.key) } // dictionary write
+        var y = offsets[checked: m0] ?? 0 // checked
+        offsets.removeLast(offsets.count - m0) // no range that can trap
         var ghostsInTail = 0
         lowestGhost = rows.count
-        for (i, r) in rows.enumerated().dropFirst(m0) { // cmux: no index math
+        for (i, r) in rows.enumerated().dropFirst(m0) { // no index math
             offsets.append(y)
             if r.ghost { ghostsInTail += 1; if lowestGhost == rows.count { lowestGhost = i } } else { y += r.spec.total }
-            index.updateValue(i, forKey: r.spec.key) // cmux: dictionary write
+            index.updateValue(i, forKey: r.spec.key) // dictionary write
         }
         offsets.append(y)
         liveCount = rows.count - ghostsInTail
         // A connector's root is an older message: replies before m0 keep theirs.
         connectors.removeAll { $0.reply >= m0 }
-        for (i, row) in rows.enumerated().dropFirst(m0) { // cmux: no index math
+        for (i, row) in rows.enumerated().dropFirst(m0) { // no index math
             guard !row.ghost, case let .part(p) = row.spec.kind, let root = p.connectorRoot else { continue }
-            connectors.append((i, index.value(for: root))) // cmux: dictionary read
+            connectors.append((i, index.value(for: root))) // dictionary read
         }
     }
 
     /// Content top of row i relative to the first slot (bottom aligned in its
     /// slot; a ghost keeps its content below its zero-height slot).
-    /// cmux: a stale index (outside the rows) gives 0 and logs a fault once.
+    /// a stale index (outside the rows) gives 0 and logs a fault once.
     func contentTop(_ i: Int) -> CGFloat { Self.contentTop(i, rows: rows, offsets: offsets) ?? 0 }
 
     fileprivate static func contentTop(_ i: Int, rows: [Row], offsets: [CGFloat]) -> CGFloat? {
@@ -217,7 +217,7 @@ final class TranscriptModel {
         var lo = 0, hi = rows.count
         while lo < hi {
             let mid = (lo + hi) / 2
-            if (offsets[checked: mid + 1] ?? .infinity) < y { lo = mid + 1 } else { hi = mid } // cmux: checked
+            if (offsets[checked: mid + 1] ?? .infinity) < y { lo = mid + 1 } else { hi = mid } // checked
         }
         return lo
     }
@@ -229,7 +229,7 @@ final class TranscriptModel {
         var rows: [Row]
         func contentTop(_ key: String) -> CGFloat? {
             guard let i = index[key] else { return nil }
-            return TranscriptModel.contentTop(i, rows: rows, offsets: offsets) // cmux: checked
+            return TranscriptModel.contentTop(i, rows: rows, offsets: offsets) // checked
         }
     }
     var snapshot: Snapshot { Snapshot(index: index, offsets: offsets, rows: rows) }
@@ -248,10 +248,10 @@ final class TranscriptModel {
         init(_ m: TranscriptModel, from: Int) {
             model = m; self.from = from; count = m.rows.count
             if from == 0 { rows = m.rows; offsets = m.offsets; tailIndex = m.index; return }
-            rows = Array(m.rows.slice(from: from)); offsets = Array(m.offsets.slice(from: from)) // cmux: clamped slices
+            rows = Array(m.rows.slice(from: from)); offsets = Array(m.offsets.slice(from: from)) // clamped slices
             var idx: [String: Int] = [:]
             idx.reserveCapacity(rows.count)
-            for (j, r) in rows.enumerated() { idx.updateValue(from + j, forKey: r.spec.key) } // cmux: dictionary write
+            for (j, r) in rows.enumerated() { idx.updateValue(from + j, forKey: r.spec.key) } // dictionary write
             tailIndex = idx
         }
         func index(_ key: String) -> Int? {
@@ -259,16 +259,16 @@ final class TranscriptModel {
             if from > 0, let j = model.index[key], j < from { return j }
             return nil
         }
-        /// cmux: nil for an index outside the snapshot (no trap).
+        /// nil for an index outside the snapshot (no trap).
         func row(_ i: Int) -> Row? { i >= from ? rows[checked: i - from] : model.rows[checked: i] }
         func contentTop(_ key: String) -> CGFloat? {
-            guard let i = index(key), let r = row(i) else { return nil } // cmux: checked
+            guard let i = index(key), let r = row(i) else { return nil } // checked
             let o = { (k: Int) -> CGFloat? in k >= self.from ? self.offsets[checked: k - self.from] : self.model.offsets[checked: k] }
             guard let top = o(i), let bottom = o(i + 1) else { return nil }
             return r.ghost ? top + r.spec.gap : bottom - r.spec.height
         }
         /// Every old key in order (UICollectionView's diff only).
-        var keys: [String] { model.rows.prefix(max(0, from)).map(\.spec.key) + rows.map(\.spec.key) } // cmux: no range subscript
+        var keys: [String] { model.rows.prefix(max(0, from)).map(\.spec.key) + rows.map(\.spec.key) } // no range subscript
     }
     func tailSnapshot(from: Int) -> TailSnapshot { TailSnapshot(self, from: from) }
 }
@@ -301,7 +301,7 @@ final class ChatLayout: UICollectionViewLayout {
     func contentTop(_ i: Int) -> CGFloat { rowsTop + model.contentTop(i) }
 
     func frame(for i: Int) -> CGRect {
-        let h = model.rows[checked: i]?.spec.height ?? 0 // cmux: checked
+        let h = model.rows[checked: i]?.spec.height ?? 0 // checked
         return CGRect(x: 0, y: contentTop(i) - RowDraw.margin, width: width, height: h + 2 * RowDraw.margin)
     }
 
@@ -344,7 +344,7 @@ final class ChatLayout: UICollectionViewLayout {
         let a = UICollectionViewLayoutAttributes(forCellWith: IndexPath(item: i, section: 0))
         a.frame = frame(for: i)
         a.zIndex = i
-        cache.updateValue(a, forKey: i) // cmux: dictionary write
+        cache.updateValue(a, forKey: i) // dictionary write
         return a
     }
 
@@ -352,7 +352,7 @@ final class ChatLayout: UICollectionViewLayout {
     /// Content y of a connector's top (the root's vertical center).
     func connectorTop(_ c: (reply: Int, root: Int?)) -> CGFloat {
         guard let r = c.root else { return rowsTop }
-        return contentTop(r) + (model.rows[checked: r]?.spec.height ?? 0) / 2 // cmux: checked
+        return contentTop(r) + (model.rows[checked: r]?.spec.height ?? 0) / 2 // checked
     }
 
     override func layoutAttributesForElements(in rect: CGRect) -> [UICollectionViewLayoutAttributes]? {
@@ -418,14 +418,14 @@ final class MotionLedger {
         guard let list = entries[key] else { return [] }
         let holds = list.filter { $0.hold != nil }.map(\.id)
         let keep = list.filter { $0.hold == nil }
-        if keep.isEmpty { entries.removeValue(forKey: key) } else { entries.updateValue(keep, forKey: key) } // cmux: dictionary write
+        if keep.isEmpty { entries.removeValue(forKey: key) } else { entries.updateValue(keep, forKey: key) } // dictionary write
         return holds
     }
 
     func prune(before t: CFTimeInterval) {
         for (k, list) in entries {
             let keep = list.filter { $0.end > t }
-            if keep.isEmpty { entries.removeValue(forKey: k) } else { entries.updateValue(keep, forKey: k) } // cmux: dictionary write
+            if keep.isEmpty { entries.removeValue(forKey: k) } else { entries.updateValue(keep, forKey: k) } // dictionary write
         }
     }
 
@@ -525,7 +525,7 @@ final class RowCell: UICollectionViewCell {
     deinit {
         RowCell.destroyed += 1
         if ProcessInfo.processInfo.environment["ML_CELLS"] != nil, RowCell.destroyed % 500 == 7 {
-            FileHandle.standardError.write(Data(("deinit stack:\n" + Thread.callStackSymbols.prefix(14).joined(separator: "\n") + "\n").utf8)) // cmux: no force unwrap
+            FileHandle.standardError.write(Data(("deinit stack:\n" + Thread.callStackSymbols.prefix(14).joined(separator: "\n") + "\n").utf8)) // no force unwrap
         }
     }
 
@@ -693,7 +693,7 @@ final class RowCell: UICollectionViewCell {
             let t0 = CACurrentMediaTime()
             let img = RowBitmaps.render(spec)
             RowCell.mainDrawSpent += CACurrentMediaTime() - t0
-            if let img { RowBitmaps.shared.insert([(spec, img)]) } // cmux: an unallocated bitmap is not cached
+            if let img { RowBitmaps.shared.insert([(spec, img)]) } // an unallocated bitmap is not cached
             RowCell.syncRenders += 1
             Reclaimer.release(bitmap.contents)
             MediaPlaceholder.clear(bitmap)
@@ -766,7 +766,7 @@ final class RowCell: UICollectionViewCell {
         guard let spec else { return }
         let img: CGImage
         if let cached = RowBitmaps.shared.image(for: spec) { img = cached } else {
-            // cmux: a bitmap that could not be allocated is not shown (BitmapFailure logged it).
+            // a bitmap that could not be allocated is not shown (BitmapFailure logged it).
             guard let rendered = RowBitmaps.render(spec) else { return }
             img = rendered
             RowBitmaps.shared.insert([(spec, img)])
@@ -803,7 +803,7 @@ final class RowCell: UICollectionViewCell {
         var images = [CGImage?](repeating: nil, count: specs.count)
         images.withUnsafeMutableBufferPointer { out in
             DispatchQueue.concurrentPerform(iterations: specs.count) { i in
-                // cmux: checked reads and writes (crash ratchet)
+                // checked reads and writes (crash ratchet)
                 if let slot = out.checkedIndex(i), let spec = specs[checked: i] { out[slot] = RowBitmaps.render(spec) }
             }
         }
@@ -881,7 +881,7 @@ final class RowCell: UICollectionViewCell {
             if let badge, !badge.isHidden { badge.isHidden = true; badgeState = "" }
             return
         }
-        guard let kind = p.reactions[checked: i]?.kind else { return } // cmux: checked (i from firstIndex)
+        guard let kind = p.reactions[checked: i]?.kind else { return } // checked (i from firstIndex)
         let side: CGFloat = p.outgoing ? -1 : 1
         let c = PartRenderer.badgeCenter(body: RowDraw.bodyRect(spec), outgoing: p.outgoing, index: i)
         let pop = RowCell.badgePop.flatMap { $0.0 == p.ref ? $0.1 : nil }
@@ -924,7 +924,7 @@ final class RowCell: UICollectionViewCell {
             img = WideBitmap.make(size: size, scale: Fixture.renderScale, opaque: false) { ctx in
                 PartRenderer.drawBadgeGlyph(kind, center: CGPoint(x: 20, y: 20), ctx: ctx)
             }
-            Self.badgeGlyphs[key] = img // cmux: an unallocated glyph is not cached (nil)
+            Self.badgeGlyphs[key] = img // an unallocated glyph is not cached (nil)
         }
         glyph.contents = img
         glyph.contentsScale = Fixture.renderScale
@@ -944,7 +944,7 @@ final class RowCell: UICollectionViewCell {
     static let popGlyph = (delay: 0.136, spring: Spring(duration: 0.6298, bounce: 0.596))
     private static func pop(box: CALayer, glyph: CALayer, begin: CFTimeInterval) {
         func keyframes(_ f: (Double) -> Double, until end: Double) -> CAKeyframeAnimation {
-            let n = CrashGuard.int(end * 240, in: 0...14_400) // cmux: at most 60 s of keyframes; never a negative range
+            let n = CrashGuard.int(end * 240, in: 0...14_400) // at most 60 s of keyframes; never a negative range
             let a = CAKeyframeAnimation(keyPath: "transform.scale")
             a.values = (0...n).map { NSNumber(value: max(0.001, f(Double($0) / 240))) }
             a.keyTimes = (0...n).map { NSNumber(value: Double($0) / Double(n)) }

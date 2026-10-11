@@ -97,6 +97,22 @@ static SEEN_UP: AtomicBool = AtomicBool::new(false);
 /// the callers' own link loops retry after that.
 const SUPERVISED_WAIT: Duration = Duration::from_secs(30);
 
+/// How long a host waits for the next daemon after its daemon went away. A
+/// handoff stops a daemon without ending its sessions (`_acpmux/shutdown`
+/// without `endAgents`): its hosted agents detach, and the client that handed
+/// it off starts the next daemon, which adopts them. An app build from before
+/// cx-ebm.54 still does so from a subagent tab (its version and person-key
+/// handoffs wait up to 15 s for the old daemon's exit, then start their own);
+/// a supervisor restarts its daemon the same way. A daemon that is not back
+/// by then was ended.
+pub const HANDOFF_WAIT: Duration = Duration::from_secs(20);
+
+/// Whether a daemon answers on `socket` within `wait`; never starts one
+/// (the next daemon of a handoff is its starter's, cx-ebm.54).
+pub fn await_next(socket: &Path, wait: Duration) -> bool {
+    await_socket(socket, wait).is_ok()
+}
+
 /// [`ensure_with`] in this process's mode (`OPTCHAT_ACPMUX_SUPERVISED`).
 pub fn ensure(socket: &Path, log: &dyn Fn(&str)) -> Result<Option<u32>, String> {
     let bin = env("ACPMUX_BIN");
@@ -136,15 +152,22 @@ pub fn ensure_with(
             socket.display()
         )),
         Action::Spawn => {
-            let pid = spawn(socket, bin, log)?;
-            seen_up.store(true, Ordering::SeqCst);
+            // Recorded before the child exists (cx-33c6): a stop from here on
+            // waits for this start and stops what it started; after a stop no
+            // start begins.
+            if bin.is_some() && !begin_start() {
+                return Err("the host is stopping; it starts no acpmux".into());
+            }
+            let result = spawn(socket, bin, log);
             if let Some(bin) = bin {
-                let _ = STARTED.set(Started {
+                finish_start(result.is_ok().then(|| Started {
                     bin: bin.into(),
                     socket: socket.to_path_buf(),
                     home: daemon_home(socket),
-                });
+                }));
             }
+            let pid = result?;
+            seen_up.store(true, Ordering::SeqCst);
             Ok(Some(pid))
         }
     }
@@ -191,7 +214,48 @@ struct Started {
     home: PathBuf,
 }
 
-static STARTED: std::sync::OnceLock<Started> = std::sync::OnceLock::new();
+/// The starts of this process: in flight, done, and whether it stops.
+struct Starts {
+    starting: u32,
+    started: Option<Started>,
+    stopped: bool,
+}
+
+static STARTS: std::sync::Mutex<Starts> = std::sync::Mutex::new(Starts {
+    starting: 0,
+    started: None,
+    stopped: false,
+});
+static START_DONE: std::sync::Condvar = std::sync::Condvar::new();
+
+fn starts() -> std::sync::MutexGuard<'static, Starts> {
+    STARTS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// A start begins, unless a stop came first.
+fn begin_start() -> bool {
+    let mut starts = starts();
+    if starts.stopped {
+        return false;
+    }
+    starts.starting += 1;
+    true
+}
+
+/// A start ended, with the daemon it started (None: it started none).
+fn finish_start(started: Option<Started>) {
+    let mut starts = starts();
+    starts.starting -= 1;
+    if starts.started.is_none() {
+        starts.started = started;
+    }
+    START_DONE.notify_all();
+}
+
+/// How long a stop waits for a start in flight: [`spawn`] ends within 30 s.
+const START_WAIT: Duration = Duration::from_secs(35);
 
 /// How long `acpmux daemon shutdown` may take (it ends every agent host,
 /// with its own SIGTERM-to-SIGKILL grace).
@@ -203,7 +267,16 @@ const SHUTDOWN_LIMIT: Duration = Duration::from_secs(20);
 /// found running belongs to the app or a supervisor and is left alone.
 /// Returns whether it stopped one.
 pub fn shutdown_started(log: &dyn Fn(&str)) -> bool {
-    let Some(started) = STARTED.get() else {
+    // A start in flight (the child exists, its socket not yet) finishes
+    // first, so its daemon is stopped too; no start begins after this.
+    let started = {
+        let (mut starts, _) = START_DONE
+            .wait_timeout_while(starts(), START_WAIT, |s| s.starting > 0)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        starts.stopped = true;
+        starts.started.take()
+    };
+    let Some(started) = started else {
         return false;
     };
     let mut command = Command::new(&started.bin);
@@ -306,6 +379,9 @@ fn spawn(socket: &Path, bin: Option<&str>, log: &dyn Fn(&str)) -> Result<u32, St
             ));
         }
         if Instant::now() >= deadline {
+            // Started and never ready: it is this host's, so it ends here.
+            let _ = child.kill();
+            let _ = child.wait();
             return Err(format!(
                 "acpmux socket {} not ready after 30 s",
                 socket.display()

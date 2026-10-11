@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// The shared notice card above the footer (BOTTOM-LEFT-CARDS K1; Lawrence
 /// 2026-10-09): every message to the user in this slot (the "Did you know"
@@ -28,7 +29,7 @@ final class SidebarNoticeCardView: NSView {
     private let track = CALayer()
     private let bar = CALayer()
     private(set) var actionButtons: [SidebarUpdateButton] = []
-    let closeButton = SidebarIconButton(symbol: "xmark", pointSize: { 9 }, label: "")
+    let closeButton = SidebarIconButton(icon: .actionClose, pointSize: { 9 }, label: "")
     /// The card's material: Liquid Glass, or opaque under Reduce Transparency.
     let surface: OverlaySurfaceView
     /// The lines and buttons, flipped, over the surface.
@@ -226,8 +227,7 @@ final class SidebarNoticeCardView: NSView {
             for label in lineLabels { label.textColor = Palette.textSecondary }
             shortcutLabel.textColor = Palette.textTertiary
             icon.contentTintColor = Palette.textSecondary
-            let config = NSImage.SymbolConfiguration(pointSize: Typography.bodyEmphasized.pointSize, weight: .regular)
-            icon.image = notice?.symbol.flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: nil)?.withSymbolConfiguration(config) }
+            icon.image = notice?.symbol.map { NSImage.icon(symbol: $0, size: .iconRowSize(forLabelPointSize: Typography.bodyEmphasized.pointSize)) }
             track.backgroundColor = Palette.hoverFill.cgColor
             bar.backgroundColor = Palette.textSecondary.cgColor
         }

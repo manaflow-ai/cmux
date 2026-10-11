@@ -5,6 +5,8 @@
 // the next page loads when its loader row scrolls into view. One click opens the chat in a new
 // workspace with the agent pane (the host's Open Chat path); Open in terminal is in the row's
 // right-click menu. The row look follows the TEMPORARY design picker (`sidebar.allChats.design`).
+// With `onBring` (the History page, cx-zlnl) rows also select: Cmd/Ctrl-click toggles one,
+// Shift-click a range, Enter opens the selection, and the menu brings it into active sessions.
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { VirtualList } from "../../../ui/VirtualList";
@@ -111,12 +113,48 @@ function useChatPages(load: LoadChatsPage) {
   return { state, fetchPage };
 }
 
+/// Selection by Cmd/Ctrl-click (toggle) and Shift-click (the range from the last clicked row),
+/// in list order. A new query starts with nothing selected.
+function useSelection(rows: AllChatsRow[], query: string) {
+  const [selected, setSelected] = useState<string[]>([]);
+  const anchor = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    setSelected([]);
+    anchor.current = undefined;
+  }, [query]);
+  /// True when the click selected (a modifier was held); false leaves it to open.
+  const click = (event: React.MouseEvent, key: string): boolean => {
+    if (event.shiftKey) {
+      const from = rows.findIndex((row) => row.key === anchor.current);
+      const to = rows.findIndex((row) => row.key === key);
+      if (from < 0 || to < 0) {
+        anchor.current = key;
+        setSelected([key]);
+      } else {
+        setSelected(rows.slice(Math.min(from, to), Math.max(from, to) + 1).map((row) => row.key));
+      }
+      return true;
+    }
+    if (event.metaKey || event.ctrlKey) {
+      anchor.current = key;
+      setSelected((current) => (current.includes(key) ? current.filter((k) => k !== key) : [...current, key]));
+      return true;
+    }
+    anchor.current = key;
+    setSelected([]);
+    return false;
+  };
+  const clear = useCallback(() => setSelected([]), []);
+  return { selected, click, clear };
+}
+
 export function AllChatsList({
   load,
   onOpen,
   active = [],
   onOpenActive,
   onOpenInTerminal,
+  onBring,
   now = Date.now(),
 }: {
   load: LoadChatsPage;
@@ -124,6 +162,8 @@ export function AllChatsList({
   active?: ActiveChat[];
   onOpenActive?(id: string): void;
   onOpenInTerminal?(key: string): void;
+  /// Rows select, and the menu's Bring into Active Sessions opens the selection (cx-zlnl).
+  onBring?(keys: string[]): void;
   now?: number;
 }) {
   const t = useT();
@@ -132,6 +172,30 @@ export function AllChatsList({
   const menuKey = useRef<string | undefined>(undefined);
   const [menuTarget, setMenuTarget] = useState<string | undefined>(undefined);
   const { rows, nextCursor } = state;
+  const selection = useSelection(rows, state.query);
+  // The menu acts on the selection when the clicked row is in it, else on that row.
+  const menuKeys = menuTarget ? (selection.selected.includes(menuTarget) ? selection.selected : [menuTarget]) : [];
+  // While rows are selected, Enter opens them and Escape clears them. The page listens, not the
+  // rows: WebKit does not focus a button on click, so after Cmd/Shift-click no row has focus.
+  const { selected, clear } = selection;
+  useEffect(() => {
+    if (!onBring || selected.length === 0) return;
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (event.defaultPrevented || target?.closest("input, textarea, [role=menu]")) return;
+      if (event.key === "Enter") {
+        event.preventDefault();
+        onBring(selected);
+        clear();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        clear();
+      }
+    };
+    // ui-allow: page-wide Enter/Escape for a selection; WebKit leaves no row focused after a click
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onBring, selected, clear]);
   const count = rows.length + (nextCursor ? 1 : 0);
   const loadMore = useCallback(
     (element: HTMLElement | null) => {
@@ -161,8 +225,12 @@ export function AllChatsList({
           type="button"
           className="nt-all-row"
           data-untitled={row.title ? undefined : true}
+          data-selected={selection.selected.includes(row.key) ? true : undefined}
           title={row.cwd ? `${title}\n${row.cwd}` : title}
-          onClick={() => onOpen(row.key)}
+          onClick={(event) => {
+            if (onBring && selection.click(event, row.key)) return;
+            onOpen(row.key);
+          }}
         >
           <span className="nt-all-glyph">
             <AgentMark harness={row.harness} />
@@ -174,16 +242,31 @@ export function AllChatsList({
       </div>
     );
   };
-  const items = onOpenInTerminal
-    ? [
-        {
-          id: "terminal",
-          label: t("shell.openInTerminal"),
-          disabled: !menuTarget,
-          onSelect: () => menuTarget && onOpenInTerminal(menuTarget),
-        },
-      ]
-    : [];
+  const items = [
+    ...(onBring
+      ? [
+          {
+            id: "bring",
+            label: nt("bringIntoActive"),
+            disabled: menuKeys.length === 0,
+            onSelect: () => {
+              onBring(menuKeys);
+              selection.clear();
+            },
+          },
+        ]
+      : []),
+    ...(onOpenInTerminal
+      ? [
+          {
+            id: "terminal",
+            label: t("shell.openInTerminal"),
+            disabled: !menuTarget,
+            onSelect: () => menuTarget && onOpenInTerminal(menuTarget),
+          },
+        ]
+      : []),
+  ];
   return (
     <section className="nt-all" aria-label={nt("chats")}>
       <header className="nt-chats-head">

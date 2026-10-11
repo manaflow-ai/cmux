@@ -13,6 +13,9 @@ nonisolated final class DaemonHomeSource: HomeSource {
         var continuations: [UUID: AsyncStream<HomeEvent>.Continuation] = [:]
         var connection: DaemonConnection?
         var lastEvent: [HomeEvent] = []
+        /// An inbox read runs (`rereadInbox`); another is due after it.
+        var inboxRead = false
+        var inboxReadAgain = false
     }
     private let state = Mutex(State())
     /// Per subscriber. A subscriber that falls this far behind loses the
@@ -43,12 +46,10 @@ nonisolated final class DaemonHomeSource: HomeSource {
             publish(.connection(.offline(since: Date())))
             return
         }
-        // task-owner: one inbox read per connection; ends with its reply
-        Task { [weak self] in
-            guard let self else { return }
-            publish(.connection(.online))
-            if let inbox = try? await inbox() { publish(.inbox(inbox)) }
-        }
+        publish(.connection(.online))
+        // The same serial read as an event's reread, so an older reply never
+        // replaces a newer inbox (the Chief conversation created meanwhile).
+        rereadInbox()
     }
 
     func publish(_ event: HomeEvent) {
@@ -64,17 +65,54 @@ nonisolated final class DaemonHomeSource: HomeSource {
         for target in targets { target.yield(event) }
     }
 
-    /// One owner event (`conversation-changed`) as Home core events.
+    /// One owner event (`conversation-changed`) as Home core events. A
+    /// conversation's own head (`conversation`: it was created, renamed or
+    /// imported) goes to the store as it is. An event of a conversation the
+    /// caller has no head for (another client, such as the Chief's brain
+    /// host, created it after this connection's inbox read) reads the
+    /// owner's inbox again, so the store always learns the conversation:
+    /// without it Home shows no Chief and its first send goes nowhere
+    /// (cx-ebm.55).
     func publish(_ event: ConversationEvent, summary: CmuxNextDaemon.ConversationSummary?) {
         switch event.change {
         case .message(let message), .messageUpdated(let message):
             publish(.message(HomeCoreMapping.message(message), rev: event.rev))
-        case .readCursor, .conversation, .unknown:
+        case .conversation(let head):
+            publish(.conversationChanged(HomeCoreMapping.summary(head), stream: .conversation(ConversationID(head.id)),
+                                         rev: event.rev))
+            if summary == nil { rereadInbox() }
+            return
+        case .readCursor, .unknown:
             break
         }
         if let summary {
             publish(.conversationChanged(HomeCoreMapping.summary(summary), stream: .conversation(ConversationID(summary.id)),
                                          rev: event.rev))
+        } else {
+            rereadInbox()
+        }
+    }
+
+    /// Reads the owner's inbox and publishes it; one read at a time, and a
+    /// request made during a read runs one more read after it.
+    private func rereadInbox() {
+        let start = state.withLock { state -> Bool in
+            if state.inboxRead { state.inboxReadAgain = true; return false }
+            state.inboxRead = true
+            return true
+        }
+        guard start else { return }
+        // task-owner: one inbox read (and at most one more); ends with its reply
+        Task { [weak self] in
+            while let self {
+                if let inbox = try? await inbox() { publish(.inbox(inbox)) }
+                let again = state.withLock { state -> Bool in
+                    if state.inboxReadAgain { state.inboxReadAgain = false; return true }
+                    state.inboxRead = false
+                    return false
+                }
+                if !again { return }
+            }
         }
     }
 

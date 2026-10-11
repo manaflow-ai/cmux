@@ -36,13 +36,24 @@
 #               on macOS 14 and uses CmuxNextCompat's Mutex/Atomic.
 #               CHECK_CONCURRENCY_ONLY=synchronization runs only this rule
 #               (safe-push blocks on it).
-#   isolated deinit: the class must say `@MainActor` itself or inherit it from
-#               an AppKit view, window or controller. Isolation inferred only
-#               from `.defaultIsolation(MainActor.self)` is lost when another
-#               module deserializes the class in a Release (whole-module) build
-#               on Swift 6.2 (Xcode 26): "deinit is marked isolated, but
-#               containing class ... is not isolated to an actor". Debug
-#               builds and Xcode 27 accept it, so only the nightly fails.
+#   isolated deinit: never (cx-t7hu), nor a plain deinit in main-actor
+#               scope of a uiSwiftSettings target, which is isolated by default
+#               there. Its runtime hop
+#               (swift_task_deinitOnExecutor) traps when the object is released
+#               inline inside an action's task-local scope under CEF. Write
+#               `nonisolated deinit`, with main-actor cleanup in
+#               `guard Thread.isMainThread else { return }` plus
+#               `MainActor.assumeIsolated { ... }`.
+#   workspace opens: `NSWorkspace.shared.open(url)` and the Finder reveal
+#               calls block the main thread in LaunchServices (cx-050n); only
+#               CmuxNextCompat/NSWorkspace+Background.swift makes them.
+#   CHECK_CONCURRENCY_ONLY=crash-class runs only the isolated-deinit,
+#               task-local and workspace-open rules; CI blocks on it.
+#   task-local bindings: only `$local.withValueInTask` (CmuxNextActions/
+#               TaskLocal+InTask.swift) calls `.withValue(`. Bound where no task
+#               is current, a task local lives in the thread's fallback storage,
+#               and an isolated deinit run inline there makes the Swift 6.2
+#               runtime free() a marker its global task allocator made (cx-bpcj).
 #
 # Usage: scripts/cmux-next/check-concurrency.sh [package-root]
 set -euo pipefail
@@ -156,28 +167,33 @@ MAIN_ACTOR = [
 ]
 
 ISOLATED_DEINIT = re.compile(r"^\s*isolated\s+deinit\b")
-CLASS_DECL = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*((public|open|internal|package|fileprivate|private|final)\s+)*class\s+\w+")
-# AppKit superclasses that are @MainActor in the SDK.
-MAIN_ACTOR_SUPERCLASS = re.compile(r"class\s+\w+(<[^>]*>)?\s*:\s*NS\w*(View|Window|Panel|Controller|Responder)\b")
-ATTRIBUTE_LINE = re.compile(r"^\s*@\w+")
-
-def deinit_class_lacks_main_actor(lines, index):
-    j = index - 1
-    while j >= 0 and not CLASS_DECL.match(lines[j]):
-        j -= 1
-    if j < 0:
-        return False
-    if "@MainActor" in lines[j] or MAIN_ACTOR_SUPERCLASS.search(lines[j]):
-        return False
-    k = j - 1
-    while k >= 0 and ATTRIBUTE_LINE.match(lines[k]):
-        if "@MainActor" in lines[k]:
-            return False
-        k -= 1
-    return True
-
+# A plain deinit takes the target's default isolation: main-actor in a uiSwiftSettings target.
+PLAIN_DEINIT = re.compile(r"^\s*deinit\b")
+TASK_LOCAL_BINDING = re.compile(r"\.withValue\s*\(")
+TASK_LOCAL_HELPER = "CmuxNextActions/TaskLocal+InTask.swift"
+# NSWorkspace.shared.open(x) with one argument, and the Finder reveal calls.
+WORKSPACE_SYNC = re.compile(r"NSWorkspace\.shared\.(open\((?:[^,()]|\([^()]*\))*\)|activateFileViewerSelecting\(|selectFile\(|openFile\(|launchApplication\()")
+WORKSPACE_HELPER = "CmuxNextCompat/NSWorkspace+Background.swift"
 ALLOW = re.compile(r"//\s*concurrency-allow:\s*\S")
 COMMENT_ONLY = re.compile(r"^\s*(//|\*|/\*)")
+
+def crash_class_hits(code, lines, index, module, main_lines, relative):
+    """The crash-class rules (CHECK_CONCURRENCY_ONLY=crash-class; CI blocks on them)."""
+    hits = []
+    if ISOLATED_DEINIT.match(code):
+        hits.append("isolated deinit (its hop traps inside an action's task-local scope, cx-t7hu; "
+                    "write nonisolated deinit with MainActor.assumeIsolated on the main thread)")
+    if PLAIN_DEINIT.match(code) and module in MAIN_ACTOR_MODULES and main_lines[index]:
+        hits.append("deinit of a main-actor class in a main-actor-default target is isolated (its hop traps "
+                    "inside an action's task-local scope, cx-t7hu); write nonisolated deinit")
+    if TASK_LOCAL_BINDING.search(code) and relative != TASK_LOCAL_HELPER and not allowed(lines, index):
+        hits.append("task local bound with withValue (where no task is current the runtime frees a marker "
+                    "with free() that its task allocator made, cx-bpcj); use $local.withValueInTask")
+    if WORKSPACE_SYNC.search(code) and relative != WORKSPACE_HELPER and not allowed(lines, index):
+        hits.append("synchronous NSWorkspace open or reveal (LaunchServices and Finder calls block the main "
+                    "thread until the watchdog fires, cx-050n); use openInBackground / revealInBackground")
+    return hits
+
 
 def allowed(lines, index, escape=ALLOW):
     if escape.search(lines[index]):
@@ -214,15 +230,22 @@ for dirpath, _, files in os.walk(sources):
                 continue
             code = line.split("//", 1)[0] if "//" in line and '"' not in line else line
             rules = rules_all + (rules_main if main_lines[index] else [])
-            if (SYNCHRONIZATION_IMPORT.match(code) and module not in LOCK_PRIMITIVES_MODULES
+            if (ONLY != "crash-class" and SYNCHRONIZATION_IMPORT.match(code) and module not in LOCK_PRIMITIVES_MODULES
                     and relative.replace(os.sep, "/") not in SYNCHRONIZATION_PENDING_FILES):
                 print(f"concurrency: {os.path.relpath(path, root)}:{index + 1}: {SYNCHRONIZATION_RULE}")
                 print(f"    {line.strip()}")
                 failures += 1
             if ONLY == "synchronization":
                 continue
-            hits = [name for name, rx in rules if rx.search(code) and not allowed(lines, index)
-                    and not (module in LOCK_PRIMITIVES_MODULES and name == "os_unfair_lock")]
+            hits = crash_class_hits(code, lines, index, module, main_lines, relative.replace(os.sep, "/"))
+            if ONLY == "crash-class":
+                for name in hits:
+                    print(f"concurrency: {os.path.relpath(path, root)}:{index + 1}: {name}")
+                    print(f"    {line.strip()}")
+                    failures += 1
+                continue
+            hits += [name for name, rx in rules if rx.search(code) and not allowed(lines, index)
+                     and not (module in LOCK_PRIMITIVES_MODULES and name == "os_unfair_lock")]
             if TASK_GROUP.search(code) and not allowed(lines, index):
                 window = lines[index + 1:index + 1 + TASK_GROUP_WINDOW]
                 if any(GROUP_SLEEP.search(other) for other in window):
@@ -233,9 +256,6 @@ for dirpath, _, files in os.walk(sources):
                 hits += [name for name, rx in rules_wakeup if rx.search(code)]
             if is_service and UNOWNED_TASK.search(code) and not allowed(lines, index, TASK_OWNER):
                 hits.append("unowned Task in service code (store and cancel the handle, or `// task-owner: <reason>`)")
-            if ISOLATED_DEINIT.match(code) and deinit_class_lacks_main_actor(lines, index):
-                hits.append("isolated deinit in a class without an explicit @MainActor (Release builds on "
-                            "Xcode 26 reject it across modules; write @MainActor on the class)")
             for name in hits:
                 print(f"concurrency: {os.path.relpath(path, root)}:{index + 1}: {name}")
                 print(f"    {line.strip()}")

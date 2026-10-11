@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 994baf43ee557f1ab2a08315307d0f85c35fcaf0f07ff9e81bb174f3af52f3e1. */
+/* cmux-tui mux protocol 12, IR db590352fbeb19e7bf3fd74c8873d87e886b9a44e469da9d73132a7124cb4bfc. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "994baf43ee557f1ab2a08315307d0f85c35fcaf0f07ff9e81bb174f3af52f3e1" as const;
+export const SDK_IR_SHA256 = "db590352fbeb19e7bf3fd74c8873d87e886b9a44e469da9d73132a7124cb4bfc" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -3090,6 +3090,14 @@ export const EVENT_METADATA = {
     ],
     "emission": "emitted"
   },
+  "agent-presence-changed": {
+    "since": 12,
+    "capability": "agent-presence-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
   "bell": {
     "since": 5,
     "capability": null,
@@ -3444,6 +3452,14 @@ export const EVENT_METADATA = {
     ],
     "emission": "emitted"
   },
+  "settings-changed": {
+    "since": 12,
+    "capability": "settings-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
   "size-state": {
     "since": 12,
     "capability": "shared-sizing-v1",
@@ -3703,6 +3719,18 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       }
     },
     "kind": "object"
+  },
+  "AgentPresenceActivity": {
+    "kind": "enum",
+    "values": [
+      "thinking",
+      "editing",
+      "reading",
+      "running",
+      "browsing",
+      "computer_use",
+      "waiting"
+    ]
   },
   "AgentRecord": {
     "additional_properties": false,
@@ -23634,6 +23662,91 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "agent-presence-changed": {
+    "additional_properties": false,
+    "fields": {
+      "activity": {
+        "description": "What the agent is doing now; null clears the surface's presence and every other field is then null.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "AgentPresenceActivity"
+        }
+      },
+      "agent": {
+        "description": "Adapter identity (claude, codex, ...).",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "agent-presence-changed"
+        }
+      },
+      "line": {
+        "description": "The 1-based line the tool call targets, when the tool input names one.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "path": {
+        "description": "The file the tool call targets, when the tool input names one.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "session": {
+        "description": "The agent's portable session id, a stable identity for colour.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "surface": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "tool": {
+        "description": "The native tool name of the current or last tool call.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "updated_at_ms": {
+        "description": "When the hook observed the event; null on clear.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "bell": {
     "additional_properties": false,
     "fields": {
@@ -25626,6 +25739,55 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "settings-changed": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "settings-changed"
+        }
+      },
+      "keys": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "origin": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "enum",
+          "values": [
+            "user",
+            "cli",
+            "mcp",
+            "script",
+            "remote",
+            "app",
+            "file"
+          ]
+        }
+      },
+      "revision": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       }
     },

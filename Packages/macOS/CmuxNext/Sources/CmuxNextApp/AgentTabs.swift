@@ -27,7 +27,7 @@ final class AgentTabStore {
     private let renderRate: AgentPaneRenderRate
     /// `~/.config/cmux/agent-pane/` hot reload, watched while any agent tab
     /// has a view.
-    private let customization: AgentPaneCustomizationWatcher
+    let customization: AgentPaneCustomizationWatcher
     /// The store record of agent tab `key` and the tree that lists it; nil for any other tab
     /// (AppServices looks in every machine's tree).
     var lookup: @MainActor (String) -> (record: AgentSessionRef, store: DaemonStore)? = { _ in nil }
@@ -358,7 +358,7 @@ final class AgentTabStore {
         view.customization = customization.current
         view.shortcuts = shortcuts
         pageSettings.apply(to: NewTabOmnibar.installed(on: view))
-        view.deviceChats = pageChats.chats
+        pageChats.seed(view)
         model.onShowContextUsage = { [weak pageSettings] show in try await pageSettings?.setShowContextUsage(show) }
         customization.start()
         return view

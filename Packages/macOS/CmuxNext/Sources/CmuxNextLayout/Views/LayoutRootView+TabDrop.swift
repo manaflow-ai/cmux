@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import QuartzCore
 
 /// Tab drops: the in-process drag API for tab strips that track the mouse
 /// themselves, and the AppKit `NSDraggingDestination` path.
@@ -7,9 +8,12 @@ extension LayoutRootView {
     /// Updates the drop highlight for an in-process tab drag (for tab strips
     /// that track the mouse themselves instead of using NSDraggingSession).
     /// `removing` is the pane the drag empties: the split room is decided
-    /// here once, with it, and the commit runs this decision.
+    /// here once, with it, and the commit runs this decision. `edgeDwell`: a
+    /// pane edge splits only after the pointer has stayed on it this long;
+    /// before that it joins the pane (cmuxterm-hq#1829: eager split targets).
     @discardableResult
-    public func updateTabDrag(_ tab: TabID, locationInWindow: NSPoint, removing: PaneID? = nil) -> DropTarget? {
+    public func updateTabDrag(_ tab: TabID, locationInWindow: NSPoint, removing: PaneID? = nil,
+                              edgeDwell: CFTimeInterval = 0) -> DropTarget? {
         dragTab = tab
         tabDragRemoving = removing
         guard let active = model.activeScreenID, let view = screenViews[active] else {
@@ -17,9 +21,21 @@ extension LayoutRootView {
             return nil
         }
         let local = view.convert(locationInWindow, from: nil)
-        guard let hit = view.dropTarget(at: local, removing: removing, previous: tabDropHit) else {
+        guard var hit = view.dropTarget(at: local, removing: removing, previous: tabDropHit) else {
             hideHighlight()
             return nil
+        }
+        tabDragDwellDeadline = nil
+        if edgeDwell > 0, case let .pane(_, zone) = hit.hit, zone != .center {
+            let now = CACurrentMediaTime()
+            if tabDragEdge?.hit != hit.hit { tabDragEdge = (hit.hit, now) }
+            let deadline = (tabDragEdge?.since ?? now) + edgeDwell
+            if now < deadline, let held = view.dropTarget(at: local, removing: removing, previous: tabDropHit, edgesArmed: false) {
+                hit = held
+                tabDragDwellDeadline = deadline
+            }
+        } else {
+            tabDragEdge = nil
         }
         tabDropHit = hit.hit
         let rect = convert(hit.highlight, from: view)
@@ -89,6 +105,8 @@ extension LayoutRootView {
     func hideHighlight() {
         tabDragHighlightOnScreen = nil
         tabDropHit = nil
+        tabDragEdge = nil
+        tabDragDwellDeadline = nil
         if highlight.hide(animated: canAnimate) { driver.start() }
     }
 

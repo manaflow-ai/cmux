@@ -36,6 +36,16 @@
       "size": 5857
     },
     {
+      "path": "AgentPresenceActivity.java",
+      "sha256": "3a4e09b8305370e5ed01bc0de1e4625beeb68c8cdbfbb4f721ae302b68cb8250",
+      "size": 1067
+    },
+    {
+      "path": "AgentPresenceChangedEvent.java",
+      "sha256": "5773a4d9c7d7e58ffd82540b1d371948ced0c95f86c875ac3302ce9c9b3bb86e",
+      "size": 7788
+    },
+    {
       "path": "AgentRecord.java",
       "sha256": "eef00432f4ddccf77ea227a7a744562bb05d4d529c03e789caaf21bb4a8969be",
       "size": 4707
@@ -942,8 +952,8 @@
     },
     {
       "path": "Events.java",
-      "sha256": "25d5a62883df41e4e038a364378292bade1fe6590516b986b746b4780daf62e7",
-      "size": 14075
+      "sha256": "84049781c764db094aa1b9a44f1574bcae4ec6e935edd77a552bf21bf6ff40fc",
+      "size": 14507
     },
     {
       "path": "ExportLayoutRequest.java",
@@ -1687,8 +1697,8 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "83bd35111f4fa56bcd1910f8abaf752c54090d5c08e7bce862608416395c1a6a",
-      "size": 5901
+      "sha256": "43c44d9ae1abc3226702b9d07c6462dfed23aee31b846e4de5712d609fd98d52",
+      "size": 6066
     },
     {
       "path": "ProtocolEvent.java",
@@ -2239,6 +2249,16 @@
       "path": "SetWorkspaceMetadataRequest.java",
       "sha256": "4154573cdfc79d1e8acc0b99c40c38903118a195305a34c1a6468c78c03934c2",
       "size": 9057
+    },
+    {
+      "path": "SettingsChangedEvent.java",
+      "sha256": "26891a446049e220f6f3183449795af2f701945acecf9abcbdc58345359ed060",
+      "size": 3836
+    },
+    {
+      "path": "SettingsChangedEventOrigin.java",
+      "sha256": "ff783560a0ba268bb026c06d16431b20573249757781958e66ad5ed7796ce1a9",
+      "size": 1038
     },
     {
       "path": "ShutdownDaemonRequest.java",
@@ -2887,7 +2907,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "994baf43ee557f1ab2a08315307d0f85c35fcaf0f07ff9e81bb174f3af52f3e1",
+  "ir_sha256": "db590352fbeb19e7bf3fd74c8873d87e886b9a44e469da9d73132a7124cb4bfc",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

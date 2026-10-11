@@ -3,37 +3,72 @@ import Foundation
 /// The app side of the chat header (`pane.action`, `pane.tabState`): runs a
 /// ``AgentPaneModel/headerActions`` id on the chat's tab, a split in `cwd` when given,
 /// toggles a quick action's split (`mode: "toggle"`: close the one it opened, else open),
-/// and reads the tab's state the "..." menu's labels show (`{pinned}`).
+/// and reads the header's state (``AgentPaneHeaderState``: the pin the "..." menu's labels show,
+/// whether the panes beside the chat show, and which toggles are lit).
 public struct AgentPaneHeaderHooks {
     public var run: @MainActor (String, String?) -> Void
     public var toggle: @MainActor (String, String?) -> Void
-    public var tabState: @MainActor () -> [String: Any]
+    public var tabState: @MainActor () -> AgentPaneHeaderState
     /// Opens acpmux session `id` in a new split beside the chat's tab (New side chat).
     public var openSide: @MainActor (String) -> Void
+    /// [+] New tab / Hide tabs: opens, hides or shows the panes beside the chat; whether they show
+    /// after it, nil when it could not run.
+    public var sideTabs: @MainActor () -> Bool?
+    /// Preview: toggles (`true`) or opens a browser tab beside the chat on a local page.
+    public var preview: @MainActor (String?, Bool) -> Void
+    /// The right-click menu's quick actions, saved to `agent-pane/layout.json`; whether they were.
+    public var saveQuickActions: @MainActor ([AgentPaneQuickAction]) async -> Bool
 
     public init(run: @escaping @MainActor (String, String?) -> Void,
                 toggle: (@MainActor (String, String?) -> Void)? = nil,
-                tabState: @escaping @MainActor () -> [String: Any],
-                openSide: @escaping @MainActor (String) -> Void = { _ in }) {
+                tabState: @escaping @MainActor () -> AgentPaneHeaderState,
+                openSide: @escaping @MainActor (String) -> Void = { _ in },
+                sideTabs: @escaping @MainActor () -> Bool? = { nil },
+                preview: @escaping @MainActor (String?, Bool) -> Void = { _, _ in },
+                saveQuickActions: @escaping @MainActor ([AgentPaneQuickAction]) async -> Bool = { _ in false }) {
         self.run = run
         self.toggle = toggle ?? run
         self.tabState = tabState
         self.openSide = openSide
+        self.sideTabs = sideTabs
+        self.preview = preview
+        self.saveQuickActions = saveQuickActions
     }
 }
 
 extension AgentPaneModel {
     /// The app actions the chat header runs on its tab (`pane.action`): the Terminal and Browser
-    /// splits and the "..." menu's tab verbs.
+    /// splits, Changes' diff and the "..." menu's tab verbs. Preview has its own request.
     public static let headerActions: Set<String> = [
-        "splitRight", "splitBrowserRight", "renameTab", "palette.toggleTabPin",
+        "splitRight", "splitBrowserRight", "openDiffViewer", "renameTab", "palette.toggleTabPin",
         "moveSurfaceToPaneRight", "palette.moveTabToNewWorkspace", "tab.moveToNewWindow", "closeTab",
     ]
 
+    /// The header's [+] New tab / Hide tabs (`pane.action {id: "sideTabs"}`), answered with `{shown}`.
+    static let sideTabsAction = "sideTabs"
+    /// The header's Preview (`pane.action {id: "preview", url}`), ``AgentPaneRequest/preview(url:toggle:)``.
+    public static let previewAction = "preview"
+
     /// `pane.action` runs a listed action on a chat (never the New Tab page); `pane.tabState`
-    /// reads the tab's pin; `chat.archive` tags the pane's session and, archiving, closes its tab.
+    /// reads the header's state; `chat.archive` tags the pane's session and, archiving, closes its tab.
     func respondToHeader(_ request: AgentPaneRequest) async -> [String: Any] {
         switch request {
+        case .paneAction(Self.sideTabsAction, _, _):
+            guard newTab == nil, let shown = header?.sideTabs() else {
+                return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.action sideTabs")
+            }
+            return AgentPaneReply.success(["shown": shown])
+        case .preview(let url, let toggle):
+            guard newTab == nil, let header else {
+                return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.action preview")
+            }
+            header.preview(url, toggle)
+            return AgentPaneReply.success()
+        case .setQuickActions(let list):
+            guard newTab == nil, let header, await header.saveQuickActions(list) else {
+                return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.setQuickActions")
+            }
+            return AgentPaneReply.success()
         case .paneAction(let id, let cwd, let toggle):
             guard newTab == nil, Self.headerActions.contains(id), let header else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.action")
@@ -46,7 +81,7 @@ extension AgentPaneModel {
             guard let header else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.tabState")
             }
-            return AgentPaneReply.success(header.tabState())
+            return AgentPaneReply.success(header.tabState().reply)
         case .archive(let archived):
             return await archive(archived)
         case .sideChat(let fork):

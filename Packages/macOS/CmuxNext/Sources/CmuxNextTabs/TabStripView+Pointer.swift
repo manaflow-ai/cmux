@@ -256,7 +256,7 @@ extension TabStripView {
         guard pressedNewTab else { return newTabHoldOpenedMenu }
         pressedNewTab = false
         newTabButton.isPressed = false
-        if !newTabHoldOpenedMenu, isInNewTabButton(point) { model.send(.newTab(after: nil, opensWorkspace: modifiers.contains(.option))) }
+        if !newTabHoldOpenedMenu, isInNewTabButton(point) { model.send(.newTab(after: nil, sameKind: modifiers.contains(.option))) }
         return true
     }
 
