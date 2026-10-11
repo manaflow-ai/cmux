@@ -290,11 +290,14 @@ const postScrollAnchor = (sessionId: string, anchor: ScrollAnchor | null) =>
   void callNative("chat.scrollAnchor", { sessionId, rowId: anchor?.rowId ?? null, offset: anchor?.offset ?? 0 }).catch(
     () => undefined,
   );
+/// A host that does not answer `chat.scrollAnchor.get` (the gallery, an older app) never holds up the chat.
+const SCROLL_ANCHOR_READ_MS = 250;
 /// Where chat `sessionId` rested when it was last shown; undefined when nothing is kept.
 const fetchScrollAnchor = async (sessionId: string): Promise<(ScrollAnchor & { sessionId: string }) | undefined> => {
-  const anchor = await callNative<{ rowId?: unknown; offset?: unknown } | null>("chat.scrollAnchor.get", {
-    sessionId,
-  }).catch(() => null);
+  const anchor = await Promise.race([
+    callNative<{ rowId?: unknown; offset?: unknown } | null>("chat.scrollAnchor.get", { sessionId }).catch(() => null),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), SCROLL_ANCHOR_READ_MS)),
+  ]);
   return typeof anchor?.rowId === "string" && typeof anchor.offset === "number"
     ? { sessionId, rowId: anchor.rowId, offset: anchor.offset }
     : undefined;
