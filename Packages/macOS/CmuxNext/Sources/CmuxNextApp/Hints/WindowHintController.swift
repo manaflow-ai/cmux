@@ -117,7 +117,12 @@ final class WindowHintController {
         case .pick(let picked):
             let hint = current.hints.first { $0.target.point == picked }
             cancel()
-            if let hint { Self.click(at: hint.target.center, in: home, menu: event.modifierFlags.contains(.shift)) }
+            let menu = event.modifierFlags.contains(.shift)
+            if let page = hint?.target.page {
+                page.click(menu: menu)
+            } else if let hint {
+                Self.click(at: hint.target.center, in: home, menu: menu)
+            }
         }
         return true
     }

@@ -16,6 +16,8 @@ enum WindowHintTargets {
         var rect: CGRect
         var role: String
         var title: String
+        /// A web page element: clicked inside its page, not with a window mouse event.
+        var page: PageElement?
 
         var center: NSPoint { NSPoint(x: rect.midX, y: rect.midY) }
         /// The session's key for this target (its labels are per point).
@@ -123,7 +125,8 @@ enum WindowHintTargets {
             let rect = CGRect(x: min(near.x, far.x), y: min(near.y, far.y), width: abs(far.x - near.x),
                               height: abs(far.y - near.y)).intersection(clip)
             guard rect.width >= 4, rect.height >= 4 else { return nil }
-            return Target(rect: rect, role: "web", title: element.text ?? "")
+            return Target(rect: rect, role: "web", title: element.text ?? "",
+                          page: PageElement(webView: page, x: element.x, y: element.y))
         }
     }
 
@@ -162,4 +165,44 @@ private final class PageCollection {
         self.continuation = nil
         continuation.resume(returning: answers.compactMap { $0 }.flatMap { $0 })
     }
+}
+
+/// One first-party page element hint mode labels, clicked inside its page:
+/// a web view drops the first click of a window that is not key, and a
+/// page element needs no mouse position. Equal by identity.
+@MainActor
+final class PageElement: Equatable {
+    private weak var webView: WKWebView?
+    /// CSS pixels in the page's viewport.
+    private let x: Double, y: Double
+
+    init(webView: WKWebView, x: Double, y: Double) {
+        self.webView = webView
+        self.x = x
+        self.y = y
+    }
+
+    nonisolated static func == (lhs: PageElement, rhs: PageElement) -> Bool { lhs === rhs }
+
+    /// Focuses and clicks the element at the point, as a click does; `menu`
+    /// asks it for its context menu instead. The page takes the keyboard.
+    func click(menu: Bool) {
+        guard let webView else { return }
+        if !menu { webView.window?.makeFirstResponder(webView) }
+        // task-owner: fire-and-forget page click; nothing waits on it.
+        Task { _ = try? await webView.callAsyncJavaScript(Self.clickScript, arguments: ["x": x, "y": y, "menu": menu],
+                                                          in: nil, contentWorld: .defaultClient) }
+    }
+
+    private static let clickScript = """
+        const hit = document.elementFromPoint(x, y);
+        if (!hit) return false;
+        const element = hit.closest('a,button,input,select,textarea,summary,label,[role],[onclick],[tabindex],[contenteditable]') || hit;
+        if (menu) {
+          return element.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 2 }));
+        }
+        if (typeof element.focus === 'function') element.focus();
+        element.click();
+        return true;
+        """
 }
