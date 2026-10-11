@@ -12711,6 +12711,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             workspace.setPanelCustomTitle(panelId: betaPanelId, title: betaTitle)
             var gammaPanelId: UUID?
             var deltaPanelId: UUID?
+            var actionLaneReapply: (() -> Void)?
             if fourTabSetup {
                 tabManager.newSurface()
                 guard let createdGammaPanelId = workspace.focusedPanelId,
@@ -12771,7 +12772,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // layout it is meant to cover.
                 // Panel-title persistence also triggers the config file watcher
                 // after its coalescing delay, so wait until that refresh settles.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                actionLaneReapply = {
                     workspace.applySurfaceTabBarButtons(
                         buttons,
                         sourcePath: nil,
@@ -12798,7 +12799,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     .flatMap(RightSidebarMode.init(rawValue:)) ?? .files
                 fileExplorerState.setVisible(true)
             }
-            self.writeBonsplitTabDragUITestData([
+            let readyData = [
                 "ready": "1",
                 "sidebarVisible": startWithHiddenSidebar ? "0" : "1",
                 "rightSidebarVisible": context.fileExplorerState?.isVisible == true ? "1" : "0",
@@ -12813,12 +12814,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "betaPanelId": betaPanelId.uuidString,
                 "gammaPanelId": gammaPanelId?.uuidString ?? "",
                 "deltaPanelId": deltaPanelId?.uuidString ?? "",
-            ])
-            self.startBonsplitTabDragUITestRecorder(
-                workspaceId: workspace.id,
-                alphaPanelId: alphaPanelId,
-                betaPanelId: betaPanelId
-            )
+            ]
+            let finishSetup = { [weak self] in
+                guard let self else { return }
+                self.writeBonsplitTabDragUITestData(readyData)
+                self.startBonsplitTabDragUITestRecorder(
+                    workspaceId: workspace.id,
+                    alphaPanelId: alphaPanelId,
+                    betaPanelId: betaPanelId
+                )
+            }
+            if let actionLaneReapply {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    actionLaneReapply()
+                    finishSetup()
+                }
+            } else {
+                finishSetup()
+            }
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
