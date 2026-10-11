@@ -7982,7 +7982,9 @@ Other error codes: `agent_transfer.unavailable` (no acpmux or host),
 `agent_transfer.outside_roots`, `agent_transfer.unknown_tab`,
 `agent_transfer.unknown_receive`, `agent_transfer.unknown_transfer`,
 `agent_transfer.unguarded`, `agent_transfer.limit` (8 calls at once, 16
-receives and 16 moves remembered for 24 h), `agent_transfer.timeout`, and
+receives and 16 moves remembered for 24 h), `agent_transfer.timeout`,
+`agent_session.team_vm_blocked` and `agent_session.host_unverified` (the
+machine kind rule of `agent-session-start`, below), and
 `agent_transfer.refused` (acpmux refused; the error text carries acpmux's
 message, such as `transfer.exists` or `transfer.incomplete`). Pages carry at
 most 4 MiB of data (base64).
@@ -8000,7 +8002,22 @@ canonical, and `cwd` must be under the roots on every host; otherwise
 `agent_transfer.outside_roots`. It sends `_acpmux/transfer_receive
 {manifest, guard}` and answers `{receive_id, session_id}`. An acpmux that
 does not answer `guarded:true` is refused (`agent_transfer.unguarded`). The
-daemon keeps the receive's folder in memory for its finish.
+daemon keeps the receive's folder in memory for its finish; at most 16
+receives are kept, checked before acpmux makes one.
+
+Machine kind: receive and finish read this machine's kind at each call, as
+`agent-session-start` does, and answer `agent_session.team_vm_blocked` on a
+team VM and `agent_session.host_unverified` on a Cloud VM of unknown kind
+(or a daemon never told its kind). A chat under peer control keeps its
+permission policy and mode and runs its queue at once, so it lands only on
+a Mac, an SSH host or a personal (owner) Cloud VM; under web control
+acpmux also requires a policy and mode that ask.
+
+A receive id is not tied to the connection that made it: another trusted
+local connection of the same user may write, finish or abort it (the pump
+may reconnect). That grants nothing new: the folder comes from the daemon's
+own record of the receive, never from the frame, and acpmux checks it again
+against the guard it stored with the receive.
 
 ### agent-transfer-write
 
@@ -8008,11 +8025,20 @@ daemon keeps the receive's folder in memory for its finish.
 page (`data` base64, at most 4 MiB decoded; `path` a relative bundle path)
 of a receive this daemon guarded, and answers `{next}`.
 
+### agent-transfer-receive-abort
+
+`{id, cmd:"agent-transfer-receive-abort", receive_id}` forgets a receive
+this daemon guarded and answers `{dropped:true}`; later writes and finishes
+of it are `agent_transfer.unknown_receive`. acpmux has no target-side abort,
+so nothing is sent to it: it sweeps the receive's files after 24 h.
+
 ### agent-transfer-finish
 
 `{id, cmd:"agent-transfer-finish", receive_id, name?}` imports the chat in the
 receive's own folder (sent as `cwd`; the client cannot name another) and
-answers `{session}` (acpmux's session summary). Its queue then runs here.
+answers `{session}` (acpmux's session summary). Its queue then runs here. A
+finish that fails for good (anything but a timeout, an unreachable or busy
+acpmux, or `transfer.incomplete`) also forgets the receive.
 
 ### agent-transfer-begin
 
@@ -8020,14 +8046,20 @@ answers `{session}` (acpmux's session summary). Its queue then runs here.
 an agent tab of this store (the session comes from the tab's store record,
 as `agent-session-attach`; any other surface is `agent_transfer.unknown_tab`)
 and answers `{transfer_id, manifest}`. The bundle's `manifest.json` is served
-without the absolute `source` paths of its native files, and the manifest
-lists its stripped size.
+without the absolute `source` paths of its native files, and its
+`session.json` without the source machine's launch settings (`sessionEnv`,
+`harnessArgv`, `harnessRoots`, `preset`, `tags`); its `cwd` stays, since the
+target's import needs a folder and its finish replaces it. These names
+compare case-insensitively, and the manifest lists the scrubbed sizes. The
+event logs still carry the source machine's paths; the guarded finish never
+runs them.
 
 ### agent-transfer-read
 
 `{id, cmd:"agent-transfer-read", transfer_id, path, offset, limit?}` pages a
 bundle file of a move begun through this daemon (`limit` 1 to 4 MiB, default
-1 MiB) and answers `{data, next, eof}`.
+1 MiB) and answers `{data, next, eof}`. Only a path the begin manifest lists
+is served, exactly as listed; any other is `agent_transfer.bad_request`.
 
 ### agent-transfer-commit
 
@@ -8039,6 +8071,7 @@ up to 4 KiB) is recorded in the chat's log. Answers `{committed:true}`.
 
 `{id, cmd:"agent-transfer-abort", surface, transfer_id}` gives the chat back
 as it was, only when the target does not have it. Answers `{aborted:true}`.
+The daemon forgets the move even when acpmux refuses the abort.
 
 ## File system (fs-v1)
 

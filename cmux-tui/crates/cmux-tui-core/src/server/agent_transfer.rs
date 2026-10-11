@@ -18,13 +18,23 @@
 //! - `agent-transfer-write {receive_id, path, offset, data}`: one page.
 //! - `agent-transfer-finish {receive_id, name?}`: imports the chat in the
 //!   receive's own folder (`cwd` is never taken here).
+//! - `agent-transfer-receive-abort {receive_id}`: forgets the receive (acpmux
+//!   has no target-side abort; it sweeps the receive's files after 24 h).
+//!
+//! Machine kind: receive and finish read `agent-session-start`'s host gate
+//! at each call and refuse on a team VM and on a Cloud VM of unknown kind
+//! (hq-84). A peer-control chat keeps its policy and mode and runs its queue
+//! at once, so it may only land on a Mac or a personal Cloud VM.
 //!
 //! Source verbs (the chat leaves here), by tab, never by session id:
 //! - `agent-transfer-begin {surface, interrupt?}` answers `{transfer_id,
 //!   manifest}`. The bundle's `manifest.json` is served without its absolute
-//!   `source` paths (the manifest's size for it is the stripped size).
+//!   `source` paths, and its `session.json` without the source machine's
+//!   launch settings (env, argv, harness roots, preset, tags; its `cwd`
+//!   stays, the target's finish replaces it); the manifest lists their
+//!   scrubbed sizes.
 //! - `agent-transfer-read {transfer_id, path, offset, limit?}` pages a bundle
-//!   file of a move begun through this daemon.
+//!   file the begin manifest of a move begun through this daemon lists.
 //! - `agent-transfer-commit {surface, transfer_id, to}` and
 //!   `agent-transfer-abort {surface, transfer_id}`.
 //!
@@ -76,6 +86,20 @@ const BEGIN_TIMEOUT: Duration = Duration::from_secs(30);
 const FINISH_TIMEOUT: Duration = Duration::from_secs(60);
 const THREAD_STACK_BYTES: usize = 256 * 1024;
 const MANIFEST: &str = "manifest.json";
+const SESSION: &str = "session.json";
+/// `session.json` keys (acpmux `SessionMeta`, camelCase and old aliases)
+/// that carry the source machine's launch settings.
+const SESSION_LAUNCH_KEYS: &[&str] = &[
+    "sessionEnv",
+    "session_env",
+    "harnessArgv",
+    "harness_argv",
+    "agent_argv",
+    "harnessRoots",
+    "harness_roots",
+    "preset",
+    "tags",
+];
 
 /// Frame params refused on every verb (the guard is the daemon's own).
 const FORBIDDEN_PARAMS: &[&str] =
@@ -107,10 +131,15 @@ struct Receive {
     touched: Instant,
 }
 
+/// A move's listed bundle paths, each with the scrubbed bytes served for it
+/// (none: read from acpmux).
+type BundleFiles = HashMap<String, Option<Arc<Vec<u8>>>>;
+
 /// A move out begun through this daemon.
 struct Move {
-    /// `manifest.json` without its `source` paths, when the bundle has one.
-    manifest: Option<Arc<Vec<u8>>>,
+    /// Every bundle path its begin manifest listed, with the scrubbed bytes
+    /// served for `manifest.json` and `session.json`.
+    files: BundleFiles,
     touched: Instant,
 }
 
@@ -130,12 +159,13 @@ impl AgentTransfers {
         Some(receive.cwd.clone())
     }
 
-    /// The move, when this daemon began it; `None` for any other id.
-    fn moving(&self, transfer_id: &str) -> Option<Option<Arc<Vec<u8>>>> {
+    /// The scrubbed bytes of `path` (or none: read it from acpmux) when
+    /// this daemon began the move and its manifest lists `path`.
+    fn listed(&self, transfer_id: &str, path: &str) -> Result<Option<Arc<Vec<u8>>>, Refusal> {
         let mut moves = lock(&self.moves);
-        let entry = moves.get_mut(transfer_id)?;
+        let entry = moves.get_mut(transfer_id).ok_or(Refusal::UnknownTransfer)?;
         entry.touched = Instant::now();
-        Some(entry.manifest.clone())
+        entry.files.get(path).cloned().ok_or(Refusal::BadRequest)
     }
 
     fn full<T>(map: &mut HashMap<String, T>, cap: usize, touched: impl Fn(&T) -> Instant) -> bool {
@@ -186,6 +216,12 @@ struct FinishParams {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct ReceiveAbortParams {
+    receive_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct BeginParams {
     surface: SurfaceId,
     #[serde(default)]
@@ -221,6 +257,7 @@ enum Verb {
     Receive(ReceiveParams),
     Write(WriteParams),
     Finish(FinishParams),
+    ReceiveAbort(ReceiveAbortParams),
     Begin(BeginParams),
     Read(ReadParams),
     Commit(CommitParams),
@@ -240,6 +277,7 @@ impl Verb {
             "agent-transfer-receive" => Self::Receive(from_value(params).ok()?),
             "agent-transfer-write" => Self::Write(from_value(params).ok()?),
             "agent-transfer-finish" => Self::Finish(from_value(params).ok()?),
+            "agent-transfer-receive-abort" => Self::ReceiveAbort(from_value(params).ok()?),
             "agent-transfer-begin" => Self::Begin(from_value(params).ok()?),
             "agent-transfer-read" => Self::Read(from_value(params).ok()?),
             "agent-transfer-commit" => Self::Commit(from_value(params).ok()?),
@@ -263,6 +301,10 @@ enum Refusal {
     Limit,
     Timeout,
     Refused,
+    /// `agent-session-start`'s code: this daemon runs on a team VM.
+    TeamVmBlocked,
+    /// `agent-session-start`'s code: a Cloud VM of unknown kind.
+    HostUnverified,
 }
 
 impl Refusal {
@@ -279,6 +321,8 @@ impl Refusal {
             Self::Limit => "agent_transfer.limit",
             Self::Timeout => "agent_transfer.timeout",
             Self::Refused => "agent_transfer.refused",
+            Self::TeamVmBlocked => "agent_session.team_vm_blocked",
+            Self::HostUnverified => "agent_session.host_unverified",
         }
     }
 
@@ -295,7 +339,34 @@ impl Refusal {
             Self::Limit => "too many chat moves at once",
             Self::Timeout => "acpmux did not answer in time",
             Self::Refused => "acpmux refused the request",
+            Self::TeamVmBlocked => "agent chats cannot be moved onto a team VM",
+            Self::HostUnverified => {
+                "this machine cannot tell whether it is a team VM, so it takes no moved chat"
+            }
         }
+    }
+}
+
+/// `agent-session-start`'s machine kind gate, read again at each call.
+fn host_gate(mux: &Mux) -> Result<(), Refusal> {
+    use super::agent_session_attach::Refusal as Start;
+    match mux.agent_host_gate() {
+        Ok(()) => Ok(()),
+        Err(Start::TeamVmBlocked) => Err(Refusal::TeamVmBlocked),
+        Err(_) => Err(Refusal::HostUnverified),
+    }
+}
+
+/// Whether a finish outcome ends its receive: a success, or a failure no
+/// retry changes (anything but a timeout, a busy or gone acpmux, or pages
+/// still missing, `transfer.incomplete`).
+fn ends_receive(outcome: &Result<Value, Failure>) -> bool {
+    match outcome {
+        Ok(_) => true,
+        Err(Failure::Refusal(refusal)) => {
+            !matches!(refusal, Refusal::Timeout | Refusal::Unavailable | Refusal::Limit)
+        }
+        Err(Failure::Acpmux(message)) => !message.starts_with("transfer.incomplete"),
     }
 }
 
@@ -382,14 +453,43 @@ pub(super) fn try_handle(
 
 /// A verb with everything the daemon decides filled in.
 enum Prepared {
-    Receive { manifest: Map<String, Value>, guard: Value, cwd: String },
-    Write { receive_id: String, path: String, offset: u64, data: String },
-    Finish { receive_id: String, cwd: String, name: Option<String> },
-    Begin { session: String, interrupt: bool },
-    Read { transfer_id: String, path: String, offset: u64, limit: u64 },
-    ReadStripped { manifest: Arc<Vec<u8>>, offset: u64, limit: u64 },
-    Commit { session: String, transfer_id: String, to: Value },
-    Abort { session: String, transfer_id: String },
+    Receive {
+        manifest: Map<String, Value>,
+        guard: Value,
+        cwd: String,
+    },
+    Write {
+        receive_id: String,
+        path: String,
+        offset: u64,
+        data: String,
+    },
+    Finish {
+        receive_id: String,
+        cwd: String,
+        name: Option<String>,
+    },
+    Begin {
+        session: String,
+        interrupt: bool,
+    },
+    Read {
+        transfer_id: String,
+        path: String,
+        offset: u64,
+        limit: u64,
+    },
+    /// Answered by the daemon itself (a scrubbed page, a dropped receive).
+    Answer(Value),
+    Commit {
+        session: String,
+        transfer_id: String,
+        to: Value,
+    },
+    Abort {
+        session: String,
+        transfer_id: String,
+    },
 }
 
 fn prepare(mux: &Mux, verb: Verb) -> Result<Prepared, Failure> {
@@ -397,7 +497,13 @@ fn prepare(mux: &Mux, verb: Verb) -> Result<Prepared, Failure> {
     Ok(match verb {
         Verb::Receive(ReceiveParams { manifest, cwd }) => {
             let host = transfers.host().ok_or(Refusal::Unavailable)?;
+            host_gate(mux)?;
             let (guard, cwd) = guard_for(&host, &cwd)?;
+            // Before acpmux makes a receive, so a refused one leaves nothing
+            // there (calls racing past this overshoot by at most MAX_CALLS).
+            if AgentTransfers::full(&mut lock(&transfers.receives), MAX_RECEIVES, |r| r.touched) {
+                return Err(Refusal::Limit.into());
+            }
             Prepared::Receive { manifest, guard, cwd }
         }
         Verb::Write(WriteParams { receive_id, path, offset, data }) => {
@@ -412,7 +518,20 @@ fn prepare(mux: &Mux, verb: Verb) -> Result<Prepared, Failure> {
                 return Err(Refusal::BadRequest.into());
             }
             let cwd = transfers.receive_cwd(&receive_id).ok_or(Refusal::UnknownReceive)?;
+            if let Err(refusal) = host_gate(mux) {
+                // A team VM stays one: the receive can never finish here.
+                if refusal == Refusal::TeamVmBlocked {
+                    lock(&transfers.receives).remove(&receive_id);
+                }
+                return Err(refusal.into());
+            }
             Prepared::Finish { receive_id, cwd, name }
+        }
+        Verb::ReceiveAbort(ReceiveAbortParams { receive_id }) => {
+            // acpmux has no target-side abort: it sweeps the receive's files
+            // after 24 h, and without this entry no write or finish reaches it.
+            lock(&transfers.receives).remove(&receive_id).ok_or(Refusal::UnknownReceive)?;
+            Prepared::Answer(json!({"dropped": true}))
         }
         Verb::Begin(BeginParams { surface, interrupt }) => {
             let session = tab_session(mux, surface).ok_or(Refusal::UnknownTab)?;
@@ -426,12 +545,9 @@ fn prepare(mux: &Mux, verb: Verb) -> Result<Prepared, Failure> {
             if !is_bundle_path(&path) || !(1..=MAX_PAGE_BYTES as u64).contains(&limit) {
                 return Err(Refusal::BadRequest.into());
             }
-            let stripped = transfers.moving(&transfer_id).ok_or(Refusal::UnknownTransfer)?;
-            match stripped {
-                Some(manifest) if path == MANIFEST => {
-                    Prepared::ReadStripped { manifest, offset, limit }
-                }
-                _ => Prepared::Read { transfer_id, path, offset, limit },
+            match transfers.listed(&transfer_id, &path)? {
+                Some(bytes) => Prepared::Answer(page_of(&bytes, offset, limit)),
+                None => Prepared::Read { transfer_id, path, offset, limit },
             }
         }
         Verb::Commit(CommitParams { surface, transfer_id, to }) => {
@@ -530,8 +646,8 @@ fn is_chat_name(name: &str) -> bool {
 // MARK: Calls
 
 fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
-    if let Prepared::ReadStripped { manifest, offset, limit } = &prepared {
-        return Ok(page_of(manifest, *offset, *limit));
+    if let Prepared::Answer(answer) = prepared {
+        return Ok(answer);
     }
     let link = AcpmuxLink::connect(socket, |_| {}).map_err(|_| Refusal::Unavailable)?;
     let call = |method: &str, params: Value, timeout: Duration| -> Result<Value, Failure> {
@@ -546,11 +662,8 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             let (Some(receive_id), true) = (receive_id, answer["guarded"] == json!(true)) else {
                 return Err(Refusal::Unguarded.into());
             };
-            let mut receives = lock(&transfers.receives);
-            if AgentTransfers::full(&mut receives, MAX_RECEIVES, |r| r.touched) {
-                return Err(Refusal::Limit.into());
-            }
-            receives.insert(receive_id.to_owned(), Receive { cwd, touched: Instant::now() });
+            let entry = Receive { cwd, touched: Instant::now() };
+            lock(&transfers.receives).insert(receive_id.to_owned(), entry);
             Ok(json!({"receive_id": receive_id, "session_id": answer["sessionId"]}))
         }
         Prepared::Write { receive_id, path, offset, data } => {
@@ -564,9 +677,11 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             if let Some(name) = name {
                 params["name"] = json!(name);
             }
-            let session = call("_acpmux/transfer_finish", params, FINISH_TIMEOUT)?;
-            lock(&transfers.receives).remove(&receive_id);
-            Ok(json!({"session": session}))
+            let finished = call("_acpmux/transfer_finish", params, FINISH_TIMEOUT);
+            if ends_receive(&finished) {
+                lock(&transfers.receives).remove(&receive_id);
+            }
+            Ok(json!({"session": finished?}))
         }
         Prepared::Begin { session, interrupt } => {
             let params = json!({"sessionId": session, "interrupt": interrupt});
@@ -576,8 +691,8 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
                 .filter(|id| is_plain_id(id))
                 .ok_or(Refusal::Refused)?
                 .to_owned();
-            let stripped = match strip_bundle_manifest(&call, &transfer_id, &mut manifest) {
-                Ok(stripped) => stripped,
+            let files = match scrub_bundle(&call, &transfer_id, &mut manifest) {
+                Ok(files) => files,
                 Err(failure) => {
                     // The chat must not stay frozen for a move nobody can read.
                     let params = json!({"sessionId": session, "transferId": transfer_id});
@@ -585,7 +700,7 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
                     return Err(failure);
                 }
             };
-            let entry = Move { manifest: stripped.map(Arc::new), touched: Instant::now() };
+            let entry = Move { files, touched: Instant::now() };
             lock(&transfers.moves).insert(transfer_id.clone(), entry);
             Ok(json!({"transfer_id": transfer_id, "manifest": manifest}))
         }
@@ -595,7 +710,7 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             let page = call("_acpmux/transfer_read", params, CALL_TIMEOUT)?;
             Ok(json!({"data": page["data"], "next": page["next"], "eof": page["eof"]}))
         }
-        Prepared::ReadStripped { .. } => Err(Refusal::BadRequest.into()),
+        Prepared::Answer(answer) => Ok(answer),
         Prepared::Commit { session, transfer_id, to } => {
             let params = json!({"sessionId": session, "transferId": transfer_id, "to": to});
             call("_acpmux/transfer_commit", params, CALL_TIMEOUT)?;
@@ -604,45 +719,77 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
         }
         Prepared::Abort { session, transfer_id } => {
             let params = json!({"sessionId": session, "transferId": transfer_id});
-            call("_acpmux/transfer_abort", params, CALL_TIMEOUT)?;
+            let aborted = call("_acpmux/transfer_abort", params, CALL_TIMEOUT);
+            // Forgotten either way: a move acpmux will not abort committed
+            // or was never this chat's, and no read of it should go on.
             lock(&transfers.moves).remove(&transfer_id);
+            aborted?;
             Ok(json!({"aborted": true}))
         }
     }
 }
 
-/// Reads the bundle's `manifest.json` (acpmux `hub/transfer.rs` export),
-/// drops every absolute `source` path of its native files (the target's
-/// import does not use them), and sets the stripped size in `manifest`.
-/// `None` when the bundle has no `manifest.json`.
-fn strip_bundle_manifest(
+/// Every path the begin `manifest` lists, with scrubbed copies of the
+/// bundle's `manifest.json` (no absolute `source` paths of native files) and
+/// `session.json` (no launch settings: [`SESSION_LAUNCH_KEYS`]; its `cwd`
+/// stays, as the target's import needs a folder and its finish replaces
+/// it). Names compare case-insensitively (a case-insensitive disk serves
+/// `Session.json` for `session.json`), and the manifest lists the scrubbed
+/// sizes. The import uses neither removed part.
+fn scrub_bundle(
     call: &impl Fn(&str, Value, Duration) -> Result<Value, Failure>,
     transfer_id: &str,
     manifest: &mut Value,
-) -> Result<Option<Vec<u8>>, Failure> {
-    let files = manifest["files"].as_array_mut().ok_or(Refusal::Refused)?;
-    let Some(entry) = files.iter_mut().find(|file| file["path"] == json!(MANIFEST)) else {
-        return Ok(None);
-    };
-    let size = entry["size"].as_u64().filter(|size| *size <= MAX_PAGE_BYTES as u64);
-    let size = size.ok_or(Refusal::Refused)?;
+) -> Result<BundleFiles, Failure> {
+    let entries = manifest["files"].as_array_mut().ok_or(Refusal::Refused)?;
+    let mut files = HashMap::new();
+    for entry in entries.iter_mut() {
+        let path = entry["path"].as_str().filter(|path| is_bundle_path(path));
+        let path = path.ok_or(Refusal::Refused)?.to_owned();
+        let scrubbed = if path.eq_ignore_ascii_case(MANIFEST) || path.eq_ignore_ascii_case(SESSION)
+        {
+            let bytes = scrubbed_file(call, transfer_id, &path, entry["size"].as_u64())?;
+            entry["size"] = json!(bytes.len());
+            Some(Arc::new(bytes))
+        } else {
+            None
+        };
+        files.insert(path, scrubbed);
+    }
+    Ok(files)
+}
+
+/// One bundle JSON file read whole from acpmux and scrubbed.
+fn scrubbed_file(
+    call: &impl Fn(&str, Value, Duration) -> Result<Value, Failure>,
+    transfer_id: &str,
+    path: &str,
+    size: Option<u64>,
+) -> Result<Vec<u8>, Failure> {
+    let size = size.filter(|size| *size <= MAX_PAGE_BYTES as u64).ok_or(Refusal::Refused)?;
     let params =
-        json!({"transferId": transfer_id, "path": MANIFEST, "offset": 0, "limit": size.max(1)});
+        json!({"transferId": transfer_id, "path": path, "offset": 0, "limit": size.max(1)});
     let page = call("_acpmux/transfer_read", params, CALL_TIMEOUT)?;
     let bytes = page["data"]
         .as_str()
         .and_then(|data| BASE64.decode(data).ok())
         .filter(|bytes| bytes.len() as u64 == size)
         .ok_or(Refusal::Refused)?;
-    let mut bundle: Value = serde_json::from_slice(&bytes).map_err(|_| Refusal::Refused)?;
-    if let Some(native) = bundle.get_mut("native").and_then(Value::as_array_mut) {
-        for file in native.iter_mut().filter_map(Value::as_object_mut) {
-            file.remove("source");
+    let mut value: Value = serde_json::from_slice(&bytes).map_err(|_| Refusal::Refused)?;
+    if path.eq_ignore_ascii_case(MANIFEST) {
+        if let Some(native) = value.get_mut("native").and_then(Value::as_array_mut) {
+            for file in native.iter_mut().filter_map(Value::as_object_mut) {
+                file.remove("source");
+            }
         }
+    } else if let Some(meta) = value.as_object_mut() {
+        for key in SESSION_LAUNCH_KEYS {
+            meta.remove(*key);
+        }
+    } else {
+        return Err(Refusal::Refused.into());
     }
-    let stripped = serde_json::to_vec_pretty(&bundle).map_err(|_| Refusal::Refused)?;
-    entry["size"] = json!(stripped.len());
-    Ok(Some(stripped))
+    Ok(serde_json::to_vec_pretty(&value).map_err(|_| Refusal::Refused)?)
 }
 
 /// A `transfer_read` page of `bytes`, as acpmux answers one.
