@@ -164,9 +164,8 @@ enum KeyboardShortcutSettings {
         case focusUp
         case focusDown
         case focusPreviousPane
-        case focusNextPane
-        case splitRight
-        case splitDown, toggleSplitZoom, newPaneAutoLayout
+        case focusNextPane, focusPaneByNumber
+        case splitRight, splitDown, toggleSplitZoom, newPaneAutoLayout
         case increaseWorkspaceTerminalFontSize
         case decreaseWorkspaceTerminalFontSize
         case resetWorkspaceTerminalFontSize
@@ -330,6 +329,7 @@ enum KeyboardShortcutSettings {
             case .focusDown: return String(localized: "shortcut.focusPaneDown.label", defaultValue: "Focus Pane Down")
             case .focusPreviousPane: return String(localized: "shortcut.focusPreviousPane.label", defaultValue: "Focus Previous Pane")
             case .focusNextPane: return String(localized: "shortcut.focusNextPane.label", defaultValue: "Focus Next Pane")
+            case .focusPaneByNumber: return String(localized: "shortcut.focusPaneByNumber.label", defaultValue: "Focus Pane 1…9")
             case .splitRight: return String(localized: "shortcut.splitRight.label", defaultValue: "Split Right")
             case .splitDown: return String(localized: "shortcut.splitDown.label", defaultValue: "Split Down")
             case .newPaneAutoLayout: return String(localized: "shortcut.newPaneAutoLayout.label", defaultValue: "New Pane (Auto Layout)")
@@ -569,8 +569,8 @@ enum KeyboardShortcutSettings {
             // now that ⌘[ / ⌘] reach global focus history.
             case .focusPreviousPane, .focusNextPane:
                 return .unbound
-            case .splitRight:
-                return StoredShortcut(key: "d", command: true, shift: false, option: false, control: false)
+            case .focusPaneByNumber: return StoredShortcut(key: "1", command: true, shift: false, option: false, control: true)
+            case .splitRight: return StoredShortcut(key: "d", command: true, shift: false, option: false, control: false)
             case .splitDown: return StoredShortcut(key: "d", command: true, shift: true, option: false, control: false)
             case .newPaneAutoLayout: return StoredShortcut(key: "n", command: true, shift: false, option: false, control: true)
             case .toggleSplitZoom: return StoredShortcut(key: "\r", command: true, shift: true, option: false, control: false)
@@ -854,7 +854,7 @@ enum KeyboardShortcutSettings {
                 )
             case .globalSearch:
                 return .accepted(shortcut)
-            case .selectSurfaceByNumber, .selectWorkspaceByNumber:
+            case .selectSurfaceByNumber, .selectWorkspaceByNumber, .focusPaneByNumber:
                 return resolvedNumberedDigitShortcut(shortcut)
             default:
                 return .accepted(shortcut)

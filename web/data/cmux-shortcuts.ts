@@ -480,6 +480,7 @@ export const shortcutCategories: ShortcutCategory[] = [
           ja: "デフォルトでは未割り当て。Ghostty の goto_split:next のキーバインドでも循環できます（Focus Forward が同じキーを使っていない場合）",
         },
       },
+      { id: "focusPaneByNumber", combos: [["⌃", "⌘", "1…9"]], description: { en: "Focus pane 1…9", ja: "ペイン1…9にフォーカス" } },
       { id: "splitRight", combos: [["⌘", "D"]], description: { en: "Split right", ja: "右に分割" } },
       { id: "splitDown", combos: [["⌘", "⇧", "D"]], description: { en: "Split down", ja: "下に分割" } },
       {

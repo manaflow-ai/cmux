@@ -133,6 +133,7 @@ extension ShortcutAction {
         case .focusDown: return ShortcutStroke(key: "↓", command: true, option: true)
         case .focusPreviousPane: return nil
         case .focusNextPane: return nil
+        case .focusPaneByNumber: return ShortcutStroke(key: "1", command: true, control: true)
         case .splitRight: return ShortcutStroke(key: "d", command: true)
         case .splitDown: return ShortcutStroke(key: "d", command: true, shift: true)
         case .newPaneAutoLayout: return ShortcutStroke(key: "n", command: true, control: true)

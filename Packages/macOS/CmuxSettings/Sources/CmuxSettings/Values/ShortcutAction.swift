@@ -129,6 +129,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case focusDown
     case focusPreviousPane
     case focusNextPane
+    /// Focuses pane 1…9 in spatial order; 9 picks the last pane.
+    case focusPaneByNumber
     case splitRight
     case splitDown
     case newPaneAutoLayout
@@ -257,7 +259,7 @@ extension ShortcutAction {
     /// range. All other actions match a single concrete keystroke.
     public var usesNumberedDigitMatching: Bool {
         switch self {
-        case .selectSurfaceByNumber, .selectWorkspaceByNumber:
+        case .selectSurfaceByNumber, .selectWorkspaceByNumber, .focusPaneByNumber:
             return true
         default:
             return false

@@ -4956,7 +4956,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         false
     }
 
-
     @discardableResult
     private func saveSessionSnapshotUsingCachedProcessDetectedIndexes(
         includeScrollback: Bool,
@@ -16112,6 +16111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if handlePaneNumberShortcut(event) { return true }
         // Pane focus navigation (defaults to Cmd+Option+Arrow, but can be customized to letter/number keys).
         if matchConfiguredDirectionalShortcut(
             event: event,
@@ -17885,7 +17885,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
-    private func tabManagerForNumberedShortcut(event: NSEvent) -> TabManager? {
+    func tabManagerForNumberedShortcut(event: NSEvent) -> TabManager? {
         preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
     }
 

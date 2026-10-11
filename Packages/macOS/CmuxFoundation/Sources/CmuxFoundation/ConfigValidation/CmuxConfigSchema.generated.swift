@@ -2587,6 +2587,7 @@ enum CmuxEmbeddedConfigSchema {
               "focusDown",
               "focusPreviousPane",
               "focusNextPane",
+              "focusPaneByNumber",
               "splitRight",
               "splitDown",
               "newPaneAutoLayout",

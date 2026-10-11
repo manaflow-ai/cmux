@@ -121,6 +121,8 @@ extension ShortcutAction {
             return String(localized: "shortcut.focusPreviousPane.label", defaultValue: "Focus Previous Pane")
         case .focusNextPane:
             return String(localized: "shortcut.focusNextPane.label", defaultValue: "Focus Next Pane")
+        case .focusPaneByNumber:
+            return String(localized: "shortcut.focusPaneByNumber.label", defaultValue: "Focus Pane 1…9")
         case .splitRight: return "Split Right"
         case .splitDown: return "Split Down"
         case .newPaneAutoLayout:
