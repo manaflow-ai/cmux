@@ -57,13 +57,16 @@ enum PaletteText {
         return field
     }
 
-    /// The height a text field settles on: its intrinsic height up to whole backing pixels. Its
-    /// own layout sets that height back, and each change asks its superview for another layout
-    /// pass; a superview that sets any other height from `layout()` loops the window until
-    /// AppKit throws "more Layout Window passes than there are views in the window" (cx-wcej).
+    /// A text field's height for a frame set from `layout()`: its cell's height without bounds,
+    /// up to whole backing pixels. Not `intrinsicContentSize`, which for a truncating label
+    /// depends on the field's current frame: at some scales a row set 14 points, read back 13,
+    /// set 13, read 14, and each change asked for another pass until AppKit threw "more Layout
+    /// Window passes than there are views in the window" (cx-wcej).
     static func height(_ field: NSTextField) -> CGFloat {
+        let unbounded = NSRect(x: 0, y: 0, width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+        let natural = field.cell?.cellSize(forBounds: unbounded).height ?? field.intrinsicContentSize.height
         let scale = field.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
-        return ceil(field.intrinsicContentSize.height * scale) / scale
+        return ceil(natural * scale) / scale
     }
 
     /// Width that shows the whole string. `intrinsicContentSize` of a
