@@ -76,7 +76,11 @@ function type(field: HTMLTextAreaElement, value: string) {
   field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
 }
 
-type Commit = { commit: (message: string) => Promise<unknown>; draftCommit: () => Promise<string> };
+type Commit = {
+  commit: (message: string) => Promise<unknown>;
+  draftCommit: () => Promise<string>;
+  pullRequest?: () => Promise<unknown>;
+};
 
 async function open(scopeLabel: string, git: Commit) {
   const reads: string[] = [];
@@ -145,5 +149,32 @@ test("A refused commit says why inline and keeps the message; other scopes have 
     expect(other.message()).toBeNull();
   } finally {
     await act(async () => other.root.unmount());
+  }
+});
+
+test("Create PR pushes and opens the pull request, then links it in the bar; a refusal says why", async () => {
+  let asks = 0;
+  const view = await open("Staged", {
+    draftCommit: async () => "",
+    commit: async () => undefined,
+    pullRequest: async () => {
+      asks += 1;
+      if (asks === 2) throw new Error("Install the GitHub CLI (gh) to open a pull request.");
+      return { url: "https://github.com/o/r/pull/7", number: 7 };
+    },
+  });
+  try {
+    await act(async () => button(view.container, "Create PR")!.click());
+    await settle();
+    const link = view.container.querySelector<HTMLAnchorElement>(".acpmux-commit-bar output a");
+    expect(link?.textContent).toBe("Pull request #7");
+    expect(link?.getAttribute("href")).toBe("https://github.com/o/r/pull/7");
+    await act(async () => button(view.container, "Create PR")!.click());
+    await settle();
+    expect(view.container.querySelector(".acpmux-commit-bar [role=alert]")?.textContent).toBe(
+      "Install the GitHub CLI (gh) to open a pull request.",
+    );
+  } finally {
+    await act(async () => view.root.unmount());
   }
 });
