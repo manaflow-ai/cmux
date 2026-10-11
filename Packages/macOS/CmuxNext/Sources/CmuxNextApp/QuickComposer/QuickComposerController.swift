@@ -39,6 +39,9 @@ final class QuickComposerController {
     private let pushState: (AgentPaneFloatingState, AgentPaneView) -> Void
     /// What the user is looking at in cmux, for Include focused tab (`FloatingChatContext`).
     private let context: @MainActor () async -> AgentPaneQuickContext?
+    /// Where the held chat's session is kept, so a quit does not lose it (`heldSessionKey`).
+    private let defaults: UserDefaults
+    static let heldSessionKey = "quickComposer.floatingChatSession"
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.quickComposer")
 
     init(
@@ -48,7 +51,8 @@ final class QuickComposerController {
         startInBackground: @escaping @MainActor (AgentPaneQuickStart) async -> Bool,
         floating: @escaping () -> Bool = { QuickComposerTunables.floatingChat.value },
         pushState: @escaping (AgentPaneFloatingState, AgentPaneView) -> Void = { AgentPaneFloatingState.push($0, to: $1) },
-        context: @escaping @MainActor () async -> AgentPaneQuickContext? = { nil }
+        context: @escaping @MainActor () async -> AgentPaneQuickContext? = { nil },
+        defaults: UserDefaults = .standard
     ) {
         self.makeChat = makeChat
         self.makeWindow = makeWindow
@@ -57,6 +61,7 @@ final class QuickComposerController {
         self.floating = floating
         self.pushState = pushState
         self.context = context
+        self.defaults = defaults
     }
 
     var isShown: Bool { window?.isVisible == true }

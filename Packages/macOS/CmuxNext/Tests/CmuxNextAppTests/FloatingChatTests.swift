@@ -56,13 +56,29 @@ struct FloatingChatTests {
         /// What the user is looking at in cmux, for Include focused tab.
         var focused: AgentPaneQuickContext?
         var controller: QuickComposerController?
+        /// This launch's user defaults; a relaunch passes the same suite.
+        let suite: String
+        let defaults: UserDefaults
+
+        /// The first launch on a suite owns it and removes it when done.
+        let ownsSuite: Bool
+
+        init(suite: String, ownsSuite: Bool) {
+            self.suite = suite
+            self.ownsSuite = ownsSuite
+            defaults = UserDefaults(suiteName: suite) ?? .standard
+        }
+
+        deinit {
+            if ownsSuite { defaults.removePersistentDomain(forName: suite) }
+        }
     }
 
-    static func rig(floating: Bool) throws -> (Rig, QuickComposerController) {
+    static func rig(floating: Bool, suite: String? = nil) throws -> (Rig, QuickComposerController) {
         let page = FileManager.default.temporaryDirectory.appending(path: "floating-chat-\(UUID().uuidString)/index.html")
         try FileManager.default.createDirectory(at: page.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("<html></html>".utf8).write(to: page)
-        let rig = Rig()
+        let rig = Rig(suite: suite ?? "floating-chat-\(UUID().uuidString)", ownsSuite: suite == nil)
         let controller = QuickComposerController(
             makeChat: { session in
                 rig.made.append(session)
@@ -79,7 +95,8 @@ struct FloatingChatTests {
             },
             floating: { floating },
             pushState: { state, _ in rig.pushed.append(state) },
-            context: { rig.focused })
+            context: { rig.focused },
+            defaults: rig.defaults)
         rig.controller = controller
         return (rig, controller)
     }
@@ -153,6 +170,45 @@ struct FloatingChatTests {
         #expect(!rig.window.isVisible)
         #expect(controller.chat == nil)
         #expect(rig.window.held.isEmpty)
+    }
+
+    @Test func aChatTheFloatingChatHeldWhenCmuxQuitComesBackToItOnTheNextSummon() async throws {
+        let (rig, controller) = try Self.rig(floating: true)
+        // The first launch's rig owns the suite: kept alive to the end.
+        defer { withExtendedLifetime(rig) {} }
+        controller.show()
+        let chat = try #require(controller.chat)
+        _ = await chat.model.respond(to: Self.started("session-quit"))
+
+        // Quit with it held (shown or put away), then summon it after the next launch.
+        let (relaunch, next) = try Self.rig(floating: true, suite: rig.suite)
+        next.show()
+        #expect(relaunch.made == ["session-quit"], "the next summon started an empty chat")
+        #expect(next.chat?.model.sessionId == "session-quit")
+        #expect(relaunch.window.held == [true], "the chat came back as a composer, not the floating chat")
+
+        // Moved to a tab, the chat is no longer the panel's: the launch after that starts empty.
+        _ = await next.chat?.model.respond(to: AgentPaneRequest(body: ["method": "quick.openInWindow", "params": ["sessionId": "session-quit"]]))
+        let (third, last) = try Self.rig(floating: true, suite: rig.suite)
+        last.show()
+        #expect(third.made == [nil])
+        #expect(third.window.held.isEmpty)
+    }
+
+    @Test func aHiddenFloatingChatSummonedOnAnotherScreenOpensWhereItWasLeftThere() {
+        let laptop = CGRect(x: 0, y: 0, width: 1512, height: 944)
+        let monitor = CGRect(x: 1512, y: 0, width: 2560, height: 1415)
+        let left = CGRect(x: 1000, y: 100, width: 400, height: 700)
+        let composer = CGRect(x: 2452, y: 841, width: 680, height: 220)
+
+        // Summoned on the screen it was left on: it stays put.
+        #expect(FloatingChatFrames.summoned(current: left, onDisplay: "1", toDisplay: "1", saved: left, near: composer, in: laptop) == nil)
+        // On the other screen: the frame it was left at there.
+        let there = CGRect(x: 3600, y: 300, width: 420, height: 900)
+        #expect(FloatingChatFrames.summoned(current: left, onDisplay: "1", toDisplay: "2", saved: there, near: composer, in: monitor) == there)
+        // Never placed there: the default column, its top where the composer's would be.
+        #expect(FloatingChatFrames.summoned(current: left, onDisplay: "1", toDisplay: "2", saved: nil, near: composer, in: monitor)
+            == CGRect(x: 2572, y: 441, width: 440, height: 620))
     }
 
     @Test func theFloatingChatComesBackWhereItWasLeftOnEachScreen() throws {
