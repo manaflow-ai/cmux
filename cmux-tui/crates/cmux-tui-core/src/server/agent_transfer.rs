@@ -401,8 +401,7 @@ fn prepare(mux: &Mux, verb: Verb) -> Result<Prepared, Failure> {
             Prepared::Receive { manifest, guard, cwd }
         }
         Verb::Write(WriteParams { receive_id, path, offset, data }) => {
-            if !is_bundle_path(&path) || !page_data_len(&data).is_some_and(|n| n <= MAX_PAGE_BYTES)
-            {
+            if !is_bundle_path(&path) || page_data_len(&data).is_none_or(|n| n > MAX_PAGE_BYTES) {
                 return Err(Refusal::BadRequest.into());
             }
             transfers.receive_cwd(&receive_id).ok_or(Refusal::UnknownReceive)?;
