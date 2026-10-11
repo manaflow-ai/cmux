@@ -5,9 +5,7 @@ describe("gallery browse URL state", () => {
   test("reads the shareable contact-sheet controls", () => {
     expect(
       readBrowse(
-        new URLSearchParams(
-          "browse-filter=transcript&browse-kind=motion&browse-mode=variants&browse-cycle=1",
-        ),
+        new URLSearchParams("browse-filter=transcript&browse-kind=motion&browse-mode=variants&browse-cycle=1"),
       ),
     ).toEqual({ filter: "transcript", kind: "motion", mode: "variants", cycle: true });
   });

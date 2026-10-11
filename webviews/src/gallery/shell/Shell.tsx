@@ -369,7 +369,13 @@ function BrowseEntryView({ address, states }: { address: Address; states: readon
             go(
               {
                 ...address,
-                search: { ...next, view: search.view, compare: search.compare, tune: search.tune, browse: search.browse },
+                search: {
+                  ...next,
+                  view: search.view,
+                  compare: search.compare,
+                  tune: search.tune,
+                  browse: search.browse,
+                },
               },
               true,
             )
@@ -449,7 +455,13 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
               go(
                 {
                   ...address,
-                  search: { ...next, view: search.view, compare: search.compare, tune: search.tune, browse: search.browse },
+                  search: {
+                    ...next,
+                    view: search.view,
+                    compare: search.compare,
+                    tune: search.tune,
+                    browse: search.browse,
+                  },
                 },
                 true,
               )

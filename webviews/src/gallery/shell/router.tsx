@@ -38,7 +38,7 @@ function stringifySearch(search: Record<string, unknown>): string {
         ? [...writeCompare(value as CompareState)]
         : key === "browse"
           ? []
-        : [[key, typeof value === "string" ? value : String(value)]],
+          : [[key, typeof value === "string" ? value : String(value)]],
     ),
   );
   const params = writeEnv(readEnv(new URLSearchParams(flat)));
@@ -63,7 +63,13 @@ export function validateShellSearch(raw: Record<string, unknown>): ShellSearch {
     raw.compare && typeof raw.compare === "object"
       ? readCompare(writeCompare(raw.compare as CompareState))
       : readCompare(params);
-  return { ...readEnv(params), view, compare, tune: writeTunes(readTunes(strings.tune ?? "")), browse: readBrowse(params) };
+  return {
+    ...readEnv(params),
+    view,
+    compare,
+    tune: writeTunes(readTunes(strings.tune ?? "")),
+    browse: readBrowse(params),
+  };
 }
 
 /** The entry's first variant, once every entry file has loaded or failed (each loads on its own). */
