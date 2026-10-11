@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "2304aafc2ea0c866da63b1459d38e771c9ca3f8c655dc06fed821ca8d3c6e703";
+inline constexpr std::string_view kProtocolIrSha256 = "0a08a875e173efa536624add3aca585497509e759536a0ad1843beadd1574ff8";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -519,6 +519,7 @@ struct EmptyEvent;
 struct FrameEvent;
 struct FrontendProjectionChangedEvent;
 struct GraphicsStatusEvent;
+struct HistoryChangedEvent;
 struct LayoutChangedEvent;
 struct MachineUsageChangedEvent;
 struct NotificationEvent;
@@ -2544,6 +2545,12 @@ struct GuestUrlSubscribeResult {
     friend bool operator==(const GuestUrlSubscribeResult&, const GuestUrlSubscribeResult&) = default;
 };
 
+struct HistoryChangedEvent {
+    std::vector<std::string> kinds{};
+    std::uint64_t revision{};
+    friend bool operator==(const HistoryChangedEvent&, const HistoryChangedEvent&) = default;
+};
+
 struct HistorySearchRange {
     std::uint32_t end{};
     std::uint32_t start{};
@@ -2930,6 +2937,7 @@ struct Tab {
     std::optional<Size> size{};
     std::optional<bool> supports_clear_history_key_fallback{};
     Id surface{};
+    Field<std::string> terminal_host_fallback{};
     Field<std::string> terminal_id{};
     Field<std::string> terminal_incarnation{};
     Field<std::string> terminal_resource_id{};
@@ -8170,6 +8178,12 @@ template <>
 struct Codec<GraphicsStatusEvent> {
     static Result<Json> encode(const GraphicsStatusEvent& value);
     static Result<GraphicsStatusEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<HistoryChangedEvent> {
+    static Result<Json> encode(const HistoryChangedEvent& value);
+    static Result<HistoryChangedEvent> decode(const Json& value);
 };
 
 template <>

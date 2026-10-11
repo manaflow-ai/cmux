@@ -1,4 +1,4 @@
-import React from "react";
+import React, { type ReactNode } from "react";
 import { Counts } from "../changes/Counts";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -14,7 +14,8 @@ const ROW_ICON = rowIconSize(12);
 /// follow when there are any.
 /// Pull requests and sources are links, so they open, copy and open in a new tab as links do;
 /// an output opens the changes view at that file. Following a link calls `onFollow`. A chat
-/// with images or renders offers its gallery under Outputs (GalleryDialog.tsx).
+/// with images or renders offers its gallery under Outputs (GalleryDialog.tsx). A chat whose
+/// subagents acpmux reports shows their Lineage (subagents/Lineage.tsx) in the Subagents place.
 export function SummaryPopover({
   summary,
   galleryCount = 0,
@@ -23,6 +24,7 @@ export function SummaryPopover({
   onOpenOutput,
   onOpenGallery,
   onFollow,
+  lineage,
 }: {
   summary: SessionSummary;
   galleryCount?: number;
@@ -31,6 +33,7 @@ export function SummaryPopover({
   onOpenOutput?: (path: string) => void;
   onOpenGallery?: () => void;
   onFollow?: () => void;
+  lineage?: ReactNode;
 }) {
   const t = useT();
   return (
@@ -69,16 +72,18 @@ export function SummaryPopover({
           )
         }
       />
-      <section className="acpmux-summary-section" aria-label={t("summary.subagents")}>
-        <h3 className="acpmux-summary-title">{t("summary.subagents")}</h3>
-        <ul className="acpmux-summary-list">
-          {summary.subagents.length > 0 ? (
-            <SubagentStack subagents={summary.subagents} />
-          ) : (
-            <li className="acpmux-summary-row acpmux-summary-none">{t("summary.none")}</li>
-          )}
-        </ul>
-      </section>
+      {lineage ?? (
+        <section className="acpmux-summary-section" aria-label={t("summary.subagents")}>
+          <h3 className="acpmux-summary-title">{t("summary.subagents")}</h3>
+          <ul className="acpmux-summary-list">
+            {summary.subagents.length > 0 ? (
+              <SubagentStack subagents={summary.subagents} />
+            ) : (
+              <li className="acpmux-summary-row acpmux-summary-none">{t("summary.none")}</li>
+            )}
+          </ul>
+        </section>
+      )}
       <SummarySection
         title={t("summary.sources")}
         fixed

@@ -60,6 +60,19 @@ struct PaneArrival: Equatable {
         return [pane: arrival]
     }
 
+    /// A close (an unsplit): panes only went away, and every pane left grows
+    /// over the space they gave up from where it was, nothing moving across.
+    /// It then springs like a split in reverse instead of snapping. A strip
+    /// column closed mid-strip slides its neighbors along, so it still snaps.
+    static func closing(_ previous: [PaneID: CGRect], from old: ScreenGeometry, to new: ScreenGeometry, offset: CGFloat) -> Bool {
+        let before = shown(previous, in: old, offset: offset), after = shown(new.panes, in: new, offset: offset)
+        guard !after.isEmpty, after.count < before.count else { return false }
+        return after.allSatisfy { pane, rect in
+            guard let was = before[pane] else { return false }
+            return rect.insetBy(dx: -1, dy: -1).contains(was)
+        }
+    }
+
     /// A pane opening a new docked column where no one pane gave up the
     /// space (the strip reflows its columns around it): it grows in from the
     /// screen edge the column docks to, and the strip springs aside with it.

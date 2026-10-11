@@ -130,4 +130,6 @@ final class CertificateDetailsView: NSView, NSTableViewDataSource, NSTableViewDe
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) { showValue() }
+
+    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? { ThemedTableRowView() }
 }

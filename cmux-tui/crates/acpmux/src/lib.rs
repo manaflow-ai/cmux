@@ -29,6 +29,7 @@ pub mod cua_v2;
 pub mod daemon;
 pub mod deliver;
 pub mod harness_admin;
+pub mod harness_health;
 pub mod hub;
 pub mod live_models;
 pub mod login_env;
@@ -36,6 +37,7 @@ pub mod native;
 pub mod peer;
 #[cfg(not(unix))]
 mod platform;
+pub mod probe_cleanup;
 pub mod protected_folders;
 pub mod question_answer;
 pub mod registry;

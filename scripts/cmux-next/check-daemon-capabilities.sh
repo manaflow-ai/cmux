@@ -13,6 +13,11 @@
 #                              binary serves one (move it to `optional`)
 # Capabilities the binary serves that the app does not use are fine.
 #
+# Before it starts a daemon it runs check-app-capability-references.py, which
+# finds every capability the app's Swift code references (not only the lists)
+# and fails when one is neither defined by the daemon source nor declared as
+# unserved, or is a daemon capability missing from the lists.
+#
 # It starts the binary as an isolated daemon (temporary HOME, TMPDIR and
 # CMUX_TUI_STATE_DIR, `server ensure` with the app's reap grace), sends a raw `identify` over its
 # socket, and stops it (`server stop --end-terminals`).
@@ -39,6 +44,18 @@ done
 [[ -n "$binary" ]] || binary="$("$script_dir/pin-cmux-tui.sh" path)"
 [[ -x "$binary" ]] || { echo "check-daemon-capabilities: $binary is not an executable cmux-tui (scripts/cmux-next/pin-cmux-tui.sh fetch)" >&2; exit 2; }
 [[ -f "$capabilities" ]] || { echo "check-daemon-capabilities: $capabilities is missing" >&2; exit 2; }
+
+# The list above is written by hand. check-app-capability-references.py reads
+# the app's Swift sources and the daemon's Rust sources (no build, about 3 s)
+# and fails when the app gates on a capability the daemon source never defines,
+# or references a daemon capability the list leaves out (so this identify
+# check would not cover it). Release builds check a pinned binary below; the
+# source check still reads this tree.
+if [[ -d "$repo_root/Packages/macOS/CmuxNext/Sources" && -d "$repo_root/cmux-tui/crates/cmux-tui-core" ]]; then
+  python3 -I "$script_dir/check-app-capability-references.py" --repo "$repo_root"
+else
+  echo "check-daemon-capabilities: note: no app or cmux-tui-core source under $repo_root; skipped check-app-capability-references.py"
+fi
 
 # A short private root: the daemon's socket path must fit sun_path (104 bytes).
 root="$(mktemp -d /tmp/cdc.XXXXXX)"

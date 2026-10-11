@@ -3681,6 +3681,9 @@ mod left_dock_undock;
 #[path = "cli/lone_width.rs"]
 mod lone_width;
 #[cfg(unix)]
+#[path = "cli/new_terminal_cwd.rs"]
+mod new_terminal_cwd;
+#[cfg(unix)]
 #[path = "cli/settings_owner.rs"]
 mod settings_owner;
 #[cfg(unix)]
@@ -3817,3 +3820,7 @@ fn state_cli_tab_groups_and_caller_workspace_through_a_real_daemon() {
     state_cli(&server, None, &["tab", "group", "agents", "ungroup"]);
     assert_eq!(state_cli(&server, None, &["tab", "group", "list"]), serde_json::json!([]));
 }
+
+#[cfg(unix)]
+#[path = "cli/history.rs"]
+mod history;

@@ -848,6 +848,12 @@ impl Hub {
         }).await;
         child.kill().await;
         drain.abort();
+        // The probe's session leaves no transcript behind (it listed as an empty chat).
+        let folder = cwd.clone();
+        let _ = tokio::task::spawn_blocking(move || {
+            crate::probe_cleanup::remove_probe_transcripts(&folder)
+        })
+        .await;
         result.map_err(|_| anyhow::anyhow!("model probe timed out"))?
     }
 

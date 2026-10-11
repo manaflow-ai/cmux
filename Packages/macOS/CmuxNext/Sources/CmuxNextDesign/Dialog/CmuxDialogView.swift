@@ -266,7 +266,7 @@ public final class CmuxDialogView: NSView {
             register(popup, id: id)
             return captioned(caption, popup, width: width)
         case .check(let id, let title, let on):
-            let check = NSButton(checkboxWithTitle: title, target: nil, action: nil)
+            let check = ThemedCheckbox(checkboxWithTitle: title, target: nil, action: nil)
             check.state = on ? .on : .off
             check.font = Typography.body
             check.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.field.\(id)")

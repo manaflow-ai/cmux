@@ -76,6 +76,20 @@ extension StateResourceClient {
         try await stateMutation("closed.reopen", ["closed": .string(id)], as: ReopenedItem.self)
     }
 
+    /// Deletes closed group `id` for good (Delete Permanently, `closed.delete`):
+    /// it cannot be reopened, and its terminal archives go with it.
+    public func deleteClosed(_ id: String) async throws {
+        try await stateMutation("closed.delete", ["closed": .string(id)])
+    }
+
+    /// Deletes every closed group, or every group closed at or after
+    /// `sinceMs` (Clear Recently Closed, `closed.delete {all}`).
+    public func deleteAllClosed(sinceMs: UInt64?) async throws {
+        var params: [String: JSONValue] = ["all": .bool(true)]
+        if let sinceMs { params["since_ms"] = .string(String(sinceMs)) }
+        try await stateMutation("closed.delete", params)
+    }
+
     // MARK: Workspaces
 
     /// What `workspace.create` made (`CreatedPath`).

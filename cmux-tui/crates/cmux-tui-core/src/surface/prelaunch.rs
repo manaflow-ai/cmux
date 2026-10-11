@@ -104,7 +104,7 @@ impl Surface {
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 impl PrelaunchedHost {
     /// The caller's tab id (`split-client-keys-v1`) for the tab that adopts
     /// this host; the host's environment carries only the terminal id, so

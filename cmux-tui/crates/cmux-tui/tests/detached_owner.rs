@@ -218,28 +218,54 @@ impl SlowRestore {
     }
 }
 
-/// One identify exchange on the session socket, or None when nothing answers.
-fn identify(socket: &std::path::Path) -> Option<serde_json::Value> {
-    use std::io::{BufRead, BufReader, Write};
-    let mut stream = std::os::unix::net::UnixStream::connect(socket).ok()?;
-    stream.set_read_timeout(Some(std::time::Duration::from_secs(2))).ok()?;
-    writeln!(stream, "{}", serde_json::json!({"id": 1, "cmd": "identify"})).ok()?;
-    let mut line = String::new();
-    BufReader::new(stream).read_line(&mut line).ok()?;
-    let response: serde_json::Value = serde_json::from_str(&line).ok()?;
-    (response["ok"] == true).then(|| response["data"].clone())
+/// A client connected to the session socket with one identify request sent.
+struct PendingIdentify(std::io::BufReader<std::os::unix::net::UnixStream>);
+
+impl PendingIdentify {
+    fn send(socket: &std::path::Path) -> Option<Self> {
+        use std::io::Write;
+        let mut stream = std::os::unix::net::UnixStream::connect(socket).ok()?;
+        writeln!(stream, "{}", serde_json::json!({"id": 1, "cmd": "identify"})).ok()?;
+        Some(Self(std::io::BufReader::new(stream)))
+    }
+
+    /// The identify response, or None when none came within `wait`.
+    fn response(&mut self, wait: std::time::Duration) -> Option<serde_json::Value> {
+        use std::io::BufRead;
+        self.0.get_ref().set_read_timeout(Some(wait)).ok()?;
+        let mut line = String::new();
+        self.0.read_line(&mut line).ok()?;
+        serde_json::from_str(&line).ok()
+    }
 }
 
-/// Waits (bounded) for the owner to answer on its socket while it restores.
-fn restoring_identity(fixture: &EnsureFixture) -> Option<serde_json::Value> {
+/// Waits (bounded) until the owner holds its socket while it restores: a
+/// client connects, and its identify is held (no answer yet) instead of
+/// refused. Returns that held client.
+fn held_while_restoring(fixture: &EnsureFixture) -> Option<PendingIdentify> {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     while std::time::Instant::now() < deadline {
-        if let Some(identity) = identify(&fixture.socket) {
-            return Some(identity);
+        if let Some(mut client) = PendingIdentify::send(&fixture.socket) {
+            return match client.response(std::time::Duration::from_secs(1)) {
+                None => Some(client),
+                Some(_) => None,
+            };
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
     None
+}
+
+/// The pid of the owner process serving this fixture's socket (its argv
+/// names the fixture's unique socket path).
+fn owner_pid(fixture: &EnsureFixture) -> Option<u32> {
+    let output = Command::new("ps").args(["-axo", "pid=,command="]).output().ok()?;
+    let socket = fixture.socket.to_string_lossy().into_owned();
+    String::from_utf8_lossy(&output.stdout).lines().find_map(|line| {
+        let line = line.trim_start();
+        let (pid, command) = line.split_once(' ')?;
+        (command.contains("--headless") && command.contains(&socket)).then(|| pid.parse().ok())?
+    })
 }
 
 /// A running `server ensure`, killed on drop if the test ends before it
@@ -262,58 +288,105 @@ impl Drop for EnsureRun {
 }
 
 fn spawn_ensure(fixture: &EnsureFixture) -> EnsureRun {
+    spawn_ensure_with(fixture, &[])
+}
+
+fn spawn_ensure_with(fixture: &EnsureFixture, args: &[&str]) -> EnsureRun {
     let mut command = fixture.command("ensure");
+    command.args(args);
     command.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
     EnsureRun(Some(command.spawn().unwrap()))
 }
 
 /// cx-n3bs: an owner whose restore outlasts the 10 s contact bound is not
 /// killed, and a second ensure during that restore waits for the same owner
-/// instead of starting another. The owner answers on its socket for the
-/// whole restore (`lifecycle_ready: false`, `restoring: true`).
+/// instead of starting another. The owner holds its socket for the whole
+/// restore, and a client that connected during the restore is served by the
+/// restored session (a full identity), not refused.
 #[test]
 fn ensure_waits_for_a_restoring_owner_and_never_starts_a_second() {
     let fixture = EnsureFixture::new("restoring");
     let restore = SlowRestore::hold(&fixture);
     let started_at = std::time::Instant::now();
-    let first = spawn_ensure(&fixture);
+    let first = spawn_ensure_with(&fixture, &["--restore-progress"]);
 
-    let during = restoring_identity(&fixture);
-    let second = spawn_ensure(&fixture);
+    let held = held_while_restoring(&fixture);
+    let second = spawn_ensure_with(&fixture, &["--restore-progress"]);
     // Keep the restore going well past the 10 s contact bound of both
     // ensures, measured from their spawns.
     let hold = std::time::Duration::from_secs(14);
     std::thread::sleep(hold.saturating_sub(started_at.elapsed()));
     drop(restore);
 
-    let first = parse_success("ensure", &first.output());
-    let second = parse_success("ensure", &second.output());
+    let (first, first_progress) = progress_and_result(&first.output());
+    let (second, second_progress) = progress_and_result(&second.output());
     assert_eq!(first["status"], "started", "{first}");
     assert_eq!(second["status"], "running", "{second}");
     let pid = first["pid"].as_u64().expect("owner pid");
     assert_eq!(second["pid"].as_u64(), Some(pid), "the second ensure found another owner");
 
-    let during = during.expect("the owner did not answer on its socket while it restored");
-    assert_eq!(during["lifecycle_ready"], false, "{during}");
-    assert_eq!(during["restoring"], true, "{during}");
-    assert_eq!(during["session"], fixture.session.as_str(), "{during}");
-    assert_eq!(during["pid"].as_u64(), Some(pid), "{during}");
+    let mut held = held.expect("the owner did not hold its socket while it restored");
+    let identity = held
+        .response(std::time::Duration::from_secs(10))
+        .expect("the client held during the restore got no answer after it");
+    assert_eq!(identity["ok"], true, "{identity}");
+    let data = &identity["data"];
+    assert_eq!(data["app"], "cmux-tui", "{identity}");
+    assert_eq!(data["session"], fixture.session.as_str(), "{identity}");
+    assert_eq!(data["pid"].as_u64(), Some(pid), "{identity}");
+    assert!(data["generation"].as_str().is_some_and(|g| !g.is_empty()), "{identity}");
+
+    // `--restore-progress`: both ensures reported the restoring owner while they
+    // waited (the app bounds its wait by these lines), each line before the
+    // result line. The spawner knows its owner's pid; the second ensure sees
+    // only a live socket that holds its identify, so its pid may be null.
+    for (name, lines) in [("first", &first_progress), ("second", &second_progress)] {
+        assert!(!lines.is_empty(), "the {name} ensure reported no restore progress");
+        for line in lines {
+            assert_eq!(line["progress"], "restoring", "{line}");
+            assert_eq!(line["session"], fixture.session.as_str(), "{line}");
+            if name == "first" {
+                assert_eq!(line["pid"].as_u64(), Some(pid), "{line}");
+            } else {
+                assert!(line["pid"].is_null() || line["pid"].as_u64() == Some(pid), "{line}");
+            }
+        }
+    }
 }
 
-/// cx-n3bs: an owner that answered "restoring" and then died ends the ensure
-/// that started it at once (server.unavailable), not after the 120 s restore
-/// bound.
+/// `server ensure --restore-progress` output: the progress lines, then the result as
+/// the last line.
+fn progress_and_result(output: &Output) -> (serde_json::Value, Vec<serde_json::Value>) {
+    assert!(
+        output.status.success(),
+        "server ensure failed: {:?}\nstdout: {}\nstderr: {}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+    let mut lines = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    let result = lines.pop().expect("a result line");
+    (result, lines)
+}
+
+/// cx-n3bs: an owner that held its socket while restoring and then died ends
+/// the ensure that started it at once (server.unavailable), not after the
+/// 120 s restore bound.
 #[test]
 fn ensure_fails_fast_when_its_restoring_owner_dies() {
     let fixture = EnsureFixture::new("restoredeath");
     let restore = SlowRestore::hold(&fixture);
     let ensure = spawn_ensure(&fixture);
-    let during = restoring_identity(&fixture)
-        .expect("the owner did not answer on its socket while it restored");
-    let pid = during["pid"].as_u64().expect("restoring owner pid");
+    let _held = held_while_restoring(&fixture)
+        .expect("the owner did not hold its socket while it restored");
+    let pid = owner_pid(&fixture).expect("restoring owner pid");
     let killed_at = std::time::Instant::now();
-    // SAFETY: signals the owner this test's ensure spawned (pid from its own
-    // socket identity).
+    // SAFETY: signals the owner this test's ensure spawned (its argv names
+    // this fixture's unique socket path).
     assert_eq!(unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) }, 0);
     let output = ensure.output();
     let waited = killed_at.elapsed();
