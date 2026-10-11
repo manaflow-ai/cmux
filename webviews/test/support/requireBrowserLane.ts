@@ -28,9 +28,10 @@ async function unlaunchableEngines(): Promise<string[]> {
 /**
  * Keep module-level engine probes and hooks inside the callback as well as tests.
  *
- * In CI an engine that cannot launch fails the file before it registers anything. The suites skip
- * themselves when their engine is missing, which is right on a laptop but let react-apps-check
- * report them as passing while it ran none of them.
+ * On GitHub Actions an engine that cannot launch fails the file before it registers anything. The
+ * suites skip themselves when their engine is missing, which is right on a laptop but let
+ * react-apps-check report them as passing while it ran none of them. Fleet cmux-ci steps run the
+ * same files without installing engines, so they keep the skip.
  */
 export async function requireBrowserLane(
   name: string,
@@ -47,11 +48,11 @@ export async function requireBrowserLane(
     skip(name);
     return;
   }
-  if (env.CI === "true") {
+  if (env.GITHUB_ACTIONS === "true") {
     const missing = await unlaunchable();
     if (missing.length > 0)
       throw new Error(
-        `${name}: CI cannot launch ${missing.join(" or ")}; install it (playwright install --with-deps --only-shell chromium webkit) rather than skipping the suite`,
+        `${name}: GitHub Actions cannot launch ${missing.join(" or ")}; install it (playwright install --with-deps --only-shell chromium webkit) rather than skipping the suite`,
       );
   }
   await register();
