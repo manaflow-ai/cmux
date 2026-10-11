@@ -27,8 +27,27 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         }
     }
 
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation?) {
+        AgentPaneLaunchTimings.shared.mark("diag.nav_start")
+    }
+
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation?) {
+        AgentPaneLaunchTimings.shared.mark("diag.nav_commit")
+    }
+
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
         AgentPaneLaunchTimings.shared.mark("agent_pane.page_loaded")
+        let dump = "JSON.stringify(performance.getEntries().map(e => [e.entryType + '.' + e.name.split('/').pop(), performance.timeOrigin + e.startTime, performance.timeOrigin + (e.responseEnd || e.startTime + e.duration)]).concat([['timeOrigin', performance.timeOrigin, performance.timeOrigin]]))"
+        webView.evaluateJavaScript(dump) { result, _ in
+            guard let text = result as? String, let data = text.data(using: .utf8),
+                  let rows = try? JSONSerialization.jsonObject(with: data) as? [[Any]] else { return }
+            for row in rows where row.count == 3 {
+                guard let name = row[0] as? String, let start = row[1] as? Double, let end = row[2] as? Double else { continue }
+                let clean = name.replacingOccurrences(of: "@", with: "_")
+                AgentPaneLaunchTimings.shared.mark("diag.js.\(clean).start@\(start)")
+                AgentPaneLaunchTimings.shared.mark("diag.js.\(clean).end@\(end)")
+            }
+        }
         view?.applyTheme()
         view?.applyShortcuts()
         view?.applyPreviewFeatures()
