@@ -76,7 +76,8 @@ await requireBrowserLane("row-focus.test.ts", async () => {
         // The same tint as a highlighted row, not the accent's selection tint.
         expect((await style(page, "pointed")).background).toBe(row.background);
         expect(row.background).not.toContain("196");
-        expect(row.shadow).toBe("none");
+        // The bar is off: no shadow, or one whose every length is zero.
+        expect(row.shadow === "none" || !/[1-9]/.test(row.shadow.replace(/rgba?\([^)]*\)/g, ""))).toBe(true);
         await page.close();
       });
 
