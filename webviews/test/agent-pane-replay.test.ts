@@ -8,6 +8,8 @@
 // - Back returns to the live chat.
 // - `]` and `[` jump between tool calls, the scrubber moves replay time either way, and the speed
 //   button plays it faster.
+// - Continue from here forks the chat through the last turn the replay has finished
+//   (`acp.session.fork`) and opens the fork.
 //
 // Real Chromium from Playwright; skipped where it is not installed (the hosted webviews job).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -38,15 +40,25 @@ await requireBrowserLane("agent-pane-replay.test.ts", async () => {
     updatedAt: events.at(-1)!.at,
   };
   const eventRequests: Record<string, unknown>[] = [];
+  const forkRequests: Record<string, unknown>[] = [];
+  const FORK = "forked-session";
 
   function answer(method: string, params: Record<string, any>): unknown {
     switch (method) {
       case "initialize":
-        return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [] } } };
+        return {
+          protocolVersion: 1,
+          _meta: { acpmux: { origin: "local", extensions: [], operations: ["acp.session.fork"] } },
+        };
       case "_acpmux/watch":
         return { sessions: [summary] };
       case "_acpmux/attach":
+        if (params.sessionId === FORK)
+          return { session: { ...summary, sessionId: FORK, title: "Forked chat" }, lastSeq: 0, events: [] };
         return { session: summary, lastSeq: events.length, events };
+      case "acp.session.fork":
+        forkRequests.push(params);
+        return { sessionId: FORK };
       case "_acpmux/events": {
         eventRequests.push(params);
         const after = Number(params.afterSeq ?? 0);
@@ -212,6 +224,37 @@ await requireBrowserLane("agent-pane-replay.test.ts", async () => {
         rewound: "0:00",
         speeds: ["2×", "4×", "8×", "16×"],
         fast: true,
+      });
+      await page.close();
+    });
+
+    test("continues from the replayed point as a new live chat", async () => {
+      const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+      await page.addInitScript(() => localStorage.setItem("cmux.experiments", '{"session-replay":"on"}'));
+      const { port } = vite!.httpServer!.address() as { port: number };
+      const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
+      await page.goto(
+        `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${REPLAY_SESSION}`,
+      );
+      await page.getByText("All 12 tests in api/client.test.ts pass.").waitFor();
+      await page.getByRole("button", { name: "Chat actions" }).click();
+      await page.getByRole("menuitem", { name: "Replay" }).click();
+      const replay = page.locator(".acpmux-replay");
+      await replay.getByRole("button", { name: "Pause" }).click();
+      const proceed = replay.getByRole("button", { name: "Continue from here" });
+      // Mid-turn nothing has finished yet.
+      await replay.getByRole("slider", { name: "Replay position" }).fill("9000");
+      const midTurn = await proceed.isDisabled();
+      // The turn ends (turn_result, seq 17) at the end of the replay.
+      await replay.getByRole("slider", { name: "Replay position" }).fill("17700");
+      await replay.getByText("All 12 tests in api/client.test.ts pass.").waitFor();
+      await proceed.click();
+      await page.locator(".acpmux-replay").waitFor({ state: "detached" });
+      await page.locator(".acpmux-composer-field").waitFor();
+
+      expect({ midTurn, forks: forkRequests }).toEqual({
+        midTurn: true,
+        forks: [{ sessionId: REPLAY_SESSION, throughSeq: 17 }],
       });
       await page.close();
     });
