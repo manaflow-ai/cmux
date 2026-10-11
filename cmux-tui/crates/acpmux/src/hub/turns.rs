@@ -268,6 +268,10 @@ impl Hub {
         {
             let mut m = session.meta.lock().unwrap();
             m.last_prompt = Some(short_text(&text, 200));
+            // The unsent draft went out, from whichever client sent it.
+            if m.composer_draft.as_deref().is_some_and(|d| d.trim() == text.trim()) {
+                m.composer_draft = None;
+            }
             if m.title.is_none() {
                 let first = text.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
                 if !first.is_empty() {
