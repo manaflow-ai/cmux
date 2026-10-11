@@ -11,6 +11,8 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
         didSet { (cell as? AddressFieldCell)?.editor.sink = sink }
     }
 
+    override class var tokenFont: NSFont { OmnibarStyle.font }
+
     override class var cellClass: AnyClass? {
         get { AddressFieldCell.self }
         set {}

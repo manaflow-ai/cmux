@@ -157,8 +157,7 @@ public final class AddressBarView: NSView {
         panel.onHover = { [weak self] row, pointer in self?.controller.send(.rowHover(row: row, pointer: pointer)) }
         density.update { [weak self] in
             guard let self else { return }
-            field.font = OmnibarStyle.font
-            field.setPlaceholder(Strings.omnibarPlaceholder)
+            field.setFontKeepingEdit(OmnibarStyle.font)
             field.restyle(controller.state.fieldText, style: OmnibarPresentation(controller.state).style)
             updateChrome()
         }
