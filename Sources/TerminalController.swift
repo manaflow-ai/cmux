@@ -1983,6 +1983,17 @@ class TerminalController {
                 "styles": CloudTreeStyle.presets.map(\.id),
                 "selected": selected,
             ])
+        case "debug.window_hints":
+            // Hint mode's labels while they show (`active`, what is typed, each label's target).
+            let payload: [String: Any] = v2MainSync {
+                guard let shown = WindowHintController.shared.shown else { return ["active": false] }
+                return [
+                    "active": true,
+                    "typed": shown.typed,
+                    "hints": shown.hints.map { ["label": $0.label, "role": $0.target.role, "title": $0.target.title] },
+                ]
+            }
+            return v2Ok(id: request.id, result: payload)
         case "debug.window.screenshot":
             let label = (request.params["label"] as? String) ?? ""
             let response = captureScreenshot(label)

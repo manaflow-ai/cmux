@@ -22,6 +22,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case toggleSidebar
     /// Gives the workspace sidebar the keyboard (arrows, Return), revealing it first.
     case focusSidebar
+    /// Labels the window's clickable controls; typing a label clicks it.
+    case showWindowHints
     case newTab
     case newBrowserWorkspace
     case newCloudWorkspace

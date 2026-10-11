@@ -280,6 +280,12 @@ export const shortcutCategories: ShortcutCategory[] = [
         description: { en: "Focus the workspace sidebar", ja: "ワークスペースサイドバーにフォーカス" },
         note: { en: "↑/↓ select workspaces; Return or Esc returns to the terminal", ja: "↑/↓でワークスペースを選択、ReturnまたはEscでターミナルに戻る" },
       },
+      {
+        id: "showWindowHints",
+        combos: [["⌘", "J"]],
+        description: { en: "Click by hint: label the window's controls", ja: "ヒントでクリック：ウィンドウのコントロールにラベルを表示" },
+        note: { en: "Type a label to click it, Shift+label to right-click; Esc cancels. Preview feature, off by default", ja: "ラベルを入力でクリック、Shift+ラベルで右クリック、Escでキャンセル。プレビュー機能（既定でオフ）" },
+      },
       { id: "focusRightSidebar", combos: [["⌘", "⇧", "E"]], description: { en: "Toggle right-sidebar focus", ja: "右サイドバーのフォーカスを切り替え" } },
       {
         id: "navigateRightSidebarRows",
