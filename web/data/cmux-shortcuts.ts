@@ -284,7 +284,7 @@ export const shortcutCategories: ShortcutCategory[] = [
         id: "showWindowHints",
         combos: [["⌘", "J"]],
         description: { en: "Click by hint: label the window's controls", ja: "ヒントでクリック：ウィンドウのコントロールにラベルを表示" },
-        note: { en: "Type a label to click it, Shift+label to right-click; Esc cancels. Preview feature, off by default", ja: "ラベルを入力でクリック、Shift+ラベルで右クリック、Escでキャンセル。プレビュー機能（既定でオフ）" },
+        note: { en: "Type a label to click it, Shift+label to right-click; Esc cancels. Preview feature, off by default: turn on Click by Hint in Settings > Beta Features or from the command palette", ja: "ラベルを入力でクリック、Shift+ラベルで右クリック、Escでキャンセル。プレビュー機能（既定でオフ）：設定 > ベータ機能、またはコマンドパレットで「Click by Hint」をオンにします" },
       },
       { id: "focusRightSidebar", combos: [["⌘", "⇧", "E"]], description: { en: "Toggle right-sidebar focus", ja: "右サイドバーのフォーカスを切り替え" } },
       {

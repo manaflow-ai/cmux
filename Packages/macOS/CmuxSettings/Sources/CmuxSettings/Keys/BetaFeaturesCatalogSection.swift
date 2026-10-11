@@ -34,6 +34,15 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "extensions.beta.enabled"
     )
 
+    /// Click by Hint: hint mode (Cmd-J labels every clickable control in the
+    /// window; typing a label clicks it) as an opt-in preview. Defaults off;
+    /// a remote rollout flag can turn it on even while this is off.
+    public let windowHints = DefaultsKey<Bool>(
+        id: "windowHints.beta.enabled",
+        defaultValue: false,
+        userDefaultsKey: "windowHints.beta.enabled"
+    )
+
     /// Custom sidebars: user/agent-authored sidebars (interpreted Swift or
     /// JSON) discovered from `~/.config/cmux/sidebars/` and selectable in the
     /// sidebar button's provider picker. Defaults on; while off, no custom

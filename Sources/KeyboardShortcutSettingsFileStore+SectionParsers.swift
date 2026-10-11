@@ -27,13 +27,8 @@ extension CmuxSettingsFileStore {
             sourcePath: sourcePath,
             snapshot: &snapshot
         )
-        parseBetaToggle(
-            root["extensions"] as? [String: Any],
-            nestedPath: ["beta", "enabled"],
-            setting: beta.extensions,
-            sourcePath: sourcePath,
-            snapshot: &snapshot
-        )
+        parseBetaToggle(root["extensions"] as? [String: Any], nestedPath: ["beta", "enabled"], setting: beta.extensions, sourcePath: sourcePath, snapshot: &snapshot)
+        parseBetaToggle(root["windowHints"] as? [String: Any], nestedPath: ["beta", "enabled"], setting: beta.windowHints, sourcePath: sourcePath, snapshot: &snapshot)
         parseBetaToggle(
             root["customSidebars"] as? [String: Any],
             nestedPath: ["beta", "enabled"],
