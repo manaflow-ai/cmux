@@ -20375,26 +20375,7 @@ mod tests {
 
         mux.run_journal_maintenance();
 
-        let registry = mux.workspace_registry.lock().unwrap();
-        assert_eq!(
-            registry
-                .connection
-                .query_row("PRAGMA auto_vacuum", [], |row| row.get::<_, i64>(0))
-                .unwrap(),
-            2
-        );
-        assert_eq!(
-            registry
-                .connection
-                .query_row(
-                    "SELECT value FROM meta WHERE key = 'journal_auto_vacuum_migrated'",
-                    [],
-                    |row| row.get::<_, String>(0)
-                )
-                .unwrap(),
-            "1"
-        );
-        drop(registry);
+        assert!(!mux.workspace_registry.lock().unwrap().migrate_journal_auto_vacuum().unwrap());
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
     }

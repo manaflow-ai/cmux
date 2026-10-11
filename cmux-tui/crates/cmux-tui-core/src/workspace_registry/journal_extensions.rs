@@ -2463,7 +2463,7 @@ impl WorkspaceRegistry {
 
 impl WorkspaceRegistry {
     pub(crate) fn migrate_journal_auto_vacuum(&self) -> anyhow::Result<bool> {
-        super::migrate_journal_auto_vacuum(&self.connection)
+        migrate_journal_auto_vacuum(&self.connection)
     }
 
     pub(crate) fn incremental_journal_vacuum(&self) -> anyhow::Result<()> {
