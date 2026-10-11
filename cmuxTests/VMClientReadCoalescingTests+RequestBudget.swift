@@ -25,9 +25,9 @@ extension VMClientReadCoalescingTests {
         }
 
         let stated = try #require(await CloudRefreshURLProtocol.budgetHeaders().first ?? nil)
-        let milliseconds = try #require(Int(stated))
-        #expect(milliseconds <= 12_000)
-        #expect(milliseconds > 10_000)
+        let statedBudget = try #require(Int(stated))
+        #expect(statedBudget <= 12_000)
+        #expect(statedBudget > 10_000)
     }
 
     @Test("A request with no caller budget states its own URLRequest timeout")
@@ -52,9 +52,9 @@ extension VMClientReadCoalescingTests {
         }
 
         let stated = try #require(await CloudRefreshURLProtocol.budgetHeaders().first ?? nil)
-        let milliseconds = try #require(Int(stated))
-        #expect(milliseconds > 5_000)
-        #expect(milliseconds <= 30_000)
+        let statedBudget = try #require(Int(stated))
+        #expect(statedBudget > 5_000)
+        #expect(statedBudget <= 30_000)
     }
 }
 
