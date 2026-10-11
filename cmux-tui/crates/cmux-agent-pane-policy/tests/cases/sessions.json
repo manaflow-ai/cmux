@@ -58,6 +58,41 @@
   "refused": true
  },
  {
+  "name": "queue_edit of another session's prompt",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/queue_edit",
+   "params": {
+    "sessionId": "b",
+    "promptId": "p",
+    "op": "send_now"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": true
+ },
+ {
+  "name": "queue_edit of the pane's own session",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/queue_edit",
+   "params": {
+    "sessionId": "a",
+    "promptId": "p",
+    "op": "move",
+    "index": 0
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": false
+ },
+ {
   "name": "attach is not scoped",
   "frame": {
    "jsonrpc": "2.0",
