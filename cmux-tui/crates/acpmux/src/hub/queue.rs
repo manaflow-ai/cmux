@@ -26,6 +26,10 @@ pub struct QueuedPrompt {
     pub(super) resume: bool,
     /// Send now into the running turn (`queue_edit.rs`): its waiting task steers it.
     pub(super) steer: bool,
+    /// Waited behind a turn that failed (`pause_queue`): it waits until the queue is resumed.
+    pub(super) held: bool,
+    /// Sent now (`put_next`): a turn that fails as it stops does not hold it.
+    pub(super) sent_now: bool,
 }
 
 /// A queued prompt and the rules it runs under.
@@ -95,7 +99,9 @@ impl Hub {
             }
             None => {
                 let turn_id = uuid::Uuid::now_v7().to_string();
-                let waiting = session.turn().is_some() || session.queued() > 0;
+                // Prompts a failed turn holds (`pause_queue`) do not hold up a new one.
+                let held = session.queue().iter().filter(|q| q.held).count() as u64;
+                let waiting = session.turn().is_some() || session.queued() > held;
                 let position = session.queued.fetch_add(1, Ordering::SeqCst) + 1;
                 let withdraw = waiting.then(|| {
                     let withdraw = self.enqueue(session, &p, position, &turn_id);
@@ -120,7 +126,7 @@ impl Hub {
         // A steer the agent cannot take goes next, and stops the turn that runs now.
         if p.interrupt {
             let running = session.turn().map(|t| t.turn_id);
-            if self.move_queued(session, p.prompt_id, 0)
+            if self.put_next(session, p.prompt_id)
                 && let Some(running) = running
             {
                 self.cancel_turn(session, &running).await;
@@ -175,7 +181,11 @@ impl Hub {
         turn_id: &str,
     ) -> Arc<Notify> {
         let withdraw = Arc::new(Notify::new());
-        session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(
+        let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Ahead of the prompts a failed turn holds: a prompt sent after the failure runs first.
+        let at = queue.iter().position(|q| q.held).unwrap_or(queue.len());
+        queue.insert(
+            at,
             QueuedPrompt {
                 prompt_id: p.prompt_id.to_owned(),
                 turn_id: turn_id.to_owned(),
@@ -191,8 +201,13 @@ impl Hub {
                 restored: false,
                 resume: false,
                 steer: false,
+                held: false,
+                sent_now: false,
             },
         );
+        let order: Vec<String> = queue.iter().map(|q| q.prompt_id.clone()).collect();
+        let ahead = at + 1 < queue.len();
+        drop(queue);
         // `prompt`, `control` and `trustGate` let a new daemon run it (`restore_queues`).
         self.append(
             session,
@@ -200,6 +215,14 @@ impl Hub {
             "queued",
             json!({"text": p.text, "client": p.client, "position": position, "promptId": p.prompt_id, "turnId": turn_id, "prompt": p.blocks, "control": p.control.as_str(), "trustGate": p.trust_gate}),
         );
+        if ahead {
+            self.append(
+                session,
+                "mux",
+                "queue_order",
+                json!({"promptId": p.prompt_id, "order": order}),
+            );
+        }
         withdraw
     }
 
@@ -231,13 +254,14 @@ impl Hub {
                 () = withdraw.notified() => return Wait::Withdrawn,
                 () = moved.as_mut() => continue,
             };
-            let head = session
-                .queue
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .first()
-                .is_none_or(|q| q.turn_id == turn_id);
-            if head && session.turn().is_none() {
+            // Prompts a failed turn holds wait wherever they are; the first other one is next. Read
+            // with the lock held: the turn that just ended may have held this one.
+            let (head, held) = {
+                let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let held = queue.iter().any(|q| q.turn_id == turn_id && q.held);
+                (queue.iter().find(|q| !q.held).is_none_or(|q| q.turn_id == turn_id), held)
+            };
+            if head && !held && session.turn().is_none() {
                 if !self.shutting_down() {
                     return Wait::Turn(guard);
                 }
@@ -253,6 +277,59 @@ impl Hub {
                 () = withdraw.notified() => return Wait::Withdrawn,
             }
         }
+    }
+
+    /// A failed turn holds the prompts that waited behind it: they were written for a turn that
+    /// went well. They wait until a client resumes them (`resume_queue`) or sends one now
+    /// (`put_next`); a prompt sent meanwhile runs ahead of them.
+    pub(super) fn pause_queue(&self, session: &Arc<Session>, turn_id: &str) {
+        let held: Vec<String> = {
+            let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            queue
+                .iter_mut()
+                .filter(|q| !q.held && !q.sent_now)
+                .map(|q| {
+                    q.held = true;
+                    q.prompt_id.clone()
+                })
+                .collect()
+        };
+        if !held.is_empty() {
+            self.append(session, "mux", "queue_paused", json!({"turnId": turn_id, "held": held}));
+        }
+    }
+
+    /// Runs the prompts a failed turn held (`_acpmux/queue_edit` `resume`). False when none was.
+    pub(super) fn resume_queue(&self, session: &Arc<Session>) -> bool {
+        let mut resumed = false;
+        for q in session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter_mut()
+        {
+            resumed |= std::mem::take(&mut q.held);
+        }
+        if resumed {
+            session.queue_moved.notify_waiters();
+            self.append(session, "mux", "queue_resumed", json!({"queued": session.queued()}));
+        }
+        resumed
+    }
+
+    /// Puts a waiting prompt sent now at the head of the queue; a failed turn no longer holds
+    /// it, nor does the turn it stops. False when it no longer waits.
+    pub(super) fn put_next(&self, session: &Arc<Session>, prompt_id: &str) -> bool {
+        let order: Vec<String> = {
+            let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let Some(from) = queue.iter().position(|q| q.prompt_id == prompt_id) else {
+                return false;
+            };
+            let mut q = queue.remove(from);
+            (q.held, q.sent_now) = (false, true);
+            queue.insert(0, q);
+            queue.iter().map(|q| q.prompt_id.clone()).collect()
+        };
+        session.queue_moved.notify_waiters();
+        let msg = json!({"promptId": prompt_id, "order": order, "next": true});
+        self.append(session, "mux", "queue_order", msg);
+        true
     }
 
     /// With the turn lock held, takes a queued prompt out of the queue for its turn, with what it
@@ -323,6 +400,7 @@ impl Hub {
             }
             let mut waiting: Vec<EventRecord> = Vec::new();
             let mut order: Vec<Value> = Vec::new();
+            let mut held: Vec<Value> = Vec::new();
             let scanned = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
                 let turn_id = e.msg.get("turnId");
                 match e.kind.as_str() {
@@ -339,7 +417,16 @@ impl Hub {
                             }
                         }
                     }
+                    "queue_paused" => {
+                        let ids = e.msg.get("held").and_then(Value::as_array);
+                        held.extend(ids.into_iter().flatten().cloned());
+                    }
+                    "queue_resumed" => held.clear(),
                     "queue_order" => {
+                        // Sent now (`put_next`): no longer held.
+                        if e.msg.get("next") == Some(&Value::Bool(true)) {
+                            held.retain(|id| Some(id) != e.msg.get("promptId"));
+                        }
                         order = e
                             .msg
                             .get("order")
@@ -387,6 +474,8 @@ impl Hub {
                     restored: true,
                     resume: true,
                     steer: false,
+                    held: held.iter().any(|id| id.as_str() == Some(&prompt_id)),
+                    sent_now: false,
                 });
                 session.queued.fetch_add(1, Ordering::SeqCst);
                 ledger.push_back((prompt_id, Arc::new(tokio::sync::watch::channel(None).0)));

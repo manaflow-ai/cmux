@@ -389,7 +389,10 @@ impl Hub {
                     "failover",
                     json!({"from": from, "to": to, "reason": e.message, "turnId": turn_id}),
                 );
+                // The turn goes on, on the fallback.
+                let turn = session.turn();
                 self.detach_child(session).await;
+                *session.turn.lock().unwrap() = turn;
                 session.meta.lock().unwrap().harness = to.clone();
                 self.save_meta(session);
                 let control = session.turn().map_or(control, |t| t.control);
@@ -458,7 +461,8 @@ impl Hub {
         turn_id: &str,
         turn_seq: u64,
     ) -> Result<Value, RpcError> {
-        *session.turn.lock().unwrap() = None;
+        // A model switch (`detach_child`) ended this turn already: its failure is not the queue's.
+        let detached = session.turn.lock().unwrap().take().is_none_or(|t| t.turn_id != turn_id);
         session.queue_moved.notify_waiters();
         // A turn Claude answered is in its store: a respawn resumes it.
         if result.is_ok() {
@@ -548,6 +552,9 @@ impl Hub {
                     json!({"error": e.message, "code": e.code, "turnId": turn_id, "turnSeq": turn_seq}),
                 );
                 self.note_model_refusal(session, &e.message);
+                if !detached {
+                    self.pause_queue(session, turn_id);
+                }
                 let mut msg = json!({"status": "failed", "error": e.message, "code": e.code, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id});
                 if let Some(o) = msg.as_object_mut() {
                     let agent_error =
