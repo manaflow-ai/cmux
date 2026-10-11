@@ -32,6 +32,8 @@ struct CloudTreeDevicesEmptyView: View {
                     .padding(.leading, scaled(textInset))
                     .padding(.trailing, scaled(style.rowGrid.trailingPadding))
                     .frame(height: scaled(style.rowHeight - (Self.emptyTitleLift - 2)))
+                    // Its smaller text still reads low in the shortened line.
+                    .offset(y: -scaled(2))
             }
             actionRow(
                 section.discoveryControl,
