@@ -359,7 +359,12 @@ pub(crate) async fn extract_client_slice(slice: &ClientSlice) -> Result<PathBuf,
             return Ok(path);
         }
         std::fs::create_dir_all(&slice.cache)?;
-        let partial = slice.cache.join(format!("{file_name}.{}.partial", std::process::id()));
+        // Concurrent bootstraps, in this process or another, each write their
+        // own file; the rename makes whichever finishes the shared copy.
+        static EXTRACTIONS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let extraction = EXTRACTIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let partial =
+            slice.cache.join(format!("{file_name}.{}-{extraction}.partial", std::process::id()));
         std::fs::write(&partial, &bytes)?;
         std::fs::rename(&partial, &path)?;
         prune_cache(&slice.cache, &file_name);
