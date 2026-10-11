@@ -5665,7 +5665,15 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             XCTFail("Expected mounted find text field")
             return
         }
-        window.makeFirstResponder(searchField)
+        let madeFirstResponder = window.makeFirstResponder(searchField)
+        let editor = searchField.currentEditor()
+        XCTAssertTrue(
+            madeFirstResponder && editor != nil && window.firstResponder === editor && window.isKeyWindow,
+            "Escape needs the find field editing in the key window: made=\(madeFirstResponder) editor=\(String(describing: editor)) " +
+                "firstResponder=\(String(describing: window.firstResponder)) isKey=\(window.isKeyWindow) " +
+                "keyWindow=\(String(describing: NSApp.keyWindow)) windows=\(NSApp.windows.map { "\(type(of: $0)) key=\($0.isKeyWindow) visible=\($0.isVisible)" }) " +
+                "hints=\(WindowHintController.shared.isActive) appActive=\(NSApp.isActive)"
+        )
 
         var escapeKeyUpCount = 0
         GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
@@ -5702,10 +5710,12 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         }
 
         NSApp.sendEvent(escapeKeyDown)
+        let afterKeyDown = "searchOpen=\(surface.searchState != nil) firstResponder=\(String(describing: window.firstResponder)) " +
+            "isKey=\(window.isKeyWindow) keyWindow=\(String(describing: NSApp.keyWindow)) hints=\(WindowHintController.shared.isActive)"
         NSApp.sendEvent(escapeKeyUp)
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
-        XCTAssertNil(surface.searchState, "Escape should dismiss find overlay when search text is empty")
+        XCTAssertNil(surface.searchState, "Escape should dismiss find overlay when search text is empty; after keyDown: \(afterKeyDown)")
         XCTAssertEqual(
             escapeKeyUpCount,
             0,
