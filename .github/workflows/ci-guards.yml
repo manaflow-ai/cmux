@@ -1083,7 +1083,8 @@ jobs:
 
       - name: Initialize Ghostty for Zig version guard
         if: ${{ matrix.group == 'release-tooling' }}
-        run: git submodule update --init --depth 1 ghostty
+        shell: bash
+        run: bash scripts/ci/init-submodule.sh ghostty
 
       - name: Validate Ghostty Zig version synchronization
         if: ${{ matrix.group == 'release-tooling' }}
