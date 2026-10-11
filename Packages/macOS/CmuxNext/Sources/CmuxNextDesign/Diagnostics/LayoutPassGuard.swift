@@ -25,14 +25,14 @@ import os
 /// One report per view class per launch. Reading: ``reports``,
 /// ``passesByClass``, ``maxPassesInOneTurn`` (`debug.layers`).
 ///
-/// With ``breaksLoops`` (release builds) the guard also ends the loop: past
-/// the limit, the view's further layouts in that turn are skipped and one
-/// layout is asked for on the next turn, so AppKit never reaches its own
-/// limit and the app keeps running. Skipping happens at the outermost
-/// override, so the looping override's own code does not run either. The
-/// limit is ``bound``, or fewer in a window with fewer views, where AppKit
-/// gives up sooner, but never under 4. Debug
-/// builds leave it off, so a loop still ends the app where it can be fixed.
+/// With ``breaksLoops`` (release builds) the guard also ends the loop before
+/// AppKit's limit (a pass per view in the window): past three quarters of the
+/// window's views, the view's further layouts in that turn are skipped and
+/// one layout is asked for on the next turn, so the app keeps running. A view
+/// that merely lays out often in a large window is never skipped. Skipping
+/// happens at the outermost override, so the looping override's own code
+/// does not run either. Debug builds leave it off, so a loop still ends the
+/// app where it can be fixed.
 @MainActor
 public final class LayoutPassGuard {
     public struct Report: Sendable, Equatable {
@@ -43,15 +43,16 @@ public final class LayoutPassGuard {
         /// Layout passes of the view in the turn when the bound was passed.
         public var passes: Int
         public var at: Date
-        /// The guard skipped the view's further layouts (``breaksLoops``).
+        /// The guard skips the view's layouts past its window's limit
+        /// (``breaksLoops``).
         public var broken = false
     }
 
     public static let shared = LayoutPassGuard()
 
     /// Layout calls of one view in one run-loop turn above which the turn
-    /// is a loop. Well below AppKit's own limit (one pass per view in the
-    /// window), well above a normal turn.
+    /// is reported as a loop (fewer in a small window). Well above a normal
+    /// turn.
     public static let bound = 16
 
     /// A loop was found (main thread, once per view class per launch).
@@ -64,9 +65,8 @@ public final class LayoutPassGuard {
     public private(set) var maxPassesInOneTurn = 0
     public private(set) var isInstalled = false
 
-    /// Per view this turn, at its window's frame; the weak reference tells a
-    /// reused address apart.
-    private var turnCounts: [ObjectIdentifier: (view: Weak, count: Int, broken: Bool, windowFrame: NSRect)] = [:]
+    /// Per view this turn, at its window's frame.
+    private var turnCounts: [ObjectIdentifier: Turn] = [:]
     /// Views broken since they last got through a turn without tripping: a
     /// view broken again is not asked to lay out once more, so a loop that
     /// persists settles instead of spinning every frame.
@@ -115,7 +115,7 @@ public final class LayoutPassGuard {
     private func endTurn() {
         inLayout.removeAll()
         guard !turnCounts.isEmpty else { return }
-        for (id, entry) in turnCounts where !entry.broken { looping[id] = nil }
+        for (id, turn) in turnCounts where !turn.broken { looping[id] = nil }
         turnCounts.removeAll(keepingCapacity: true)
     }
 
@@ -127,8 +127,8 @@ public final class LayoutPassGuard {
         let id = ObjectIdentifier(view)
         if inLayout.contains(id) { return .inner }
         wrapOverrides(of: Swift.type(of: view))
-        if breaksLoops, let entry = turnCounts[id], entry.broken, entry.view.object === view,
-           entry.windowFrame == (view.window?.frame ?? .zero) { return .skipped }
+        if breaksLoops, let turn = turnCounts[id], turn.broken, turn.view.object === view,
+           turn.windowFrame == (view.window?.frame ?? .zero) { return .skipped }
         inLayout.insert(id)
         return .outermost
     }
@@ -147,20 +147,33 @@ public final class LayoutPassGuard {
         }
     }
 
-    /// Layouts of one view in one turn past which the turn is a loop:
-    /// ``bound``, or two less than the window's view count when that is
-    /// lower (AppKit allows one pass per view, and the guard must act
-    /// first), but never under 4: a third layout in a turn is normal. The
-    /// walk stops past ``bound`` views.
-    private func limit(for view: NSView) -> Int {
-        guard let root = view.window?.contentView?.superview ?? view.window?.contentView else { return Self.bound }
+    /// One view's layouts in this turn; the weak reference tells a reused
+    /// address apart.
+    private struct Turn {
+        var view: Weak
+        var windowFrame: NSRect
         var count = 0
+        var broken = false
+        /// Set past the fourth layout (``limits(for:)``).
+        var limits: (report: Int, breaks: Int)?
+    }
+
+    /// Layouts of one view in one turn past which the turn is reported as a
+    /// loop, and past which it is broken: three quarters of the window's
+    /// views, short of AppKit's limit of a pass per view, and never under 4
+    /// (a third layout in a turn is normal). Reported at ``bound`` or there,
+    /// whichever is lower. The walk stops at 1024 views; a view in no window
+    /// is never broken.
+    private func limits(for view: NSView) -> (report: Int, breaks: Int) {
+        guard let root = view.window?.contentView?.superview ?? view.window?.contentView else { return (Self.bound, .max) }
+        var views = 0
         var stack = [root]
-        while let next = stack.popLast(), count <= Self.bound {
-            count += 1
+        while let next = stack.popLast(), views < 1024 {
+            views += 1
             stack.append(contentsOf: next.subviews)
         }
-        return min(Self.bound, max(4, count - 2))
+        let breaks = max(4, views * 3 / 4)
+        return (min(Self.bound, breaks), breaks)
     }
 
     private func record(_ view: NSView) {
@@ -173,14 +186,17 @@ public final class LayoutPassGuard {
         }
         let id = ObjectIdentifier(view)
         let windowFrame = view.window?.frame ?? .zero
-        var count = 1
-        if let entry = turnCounts[id], entry.view.object === view, entry.windowFrame == windowFrame { count = entry.count + 1 }
-        turnCounts[id] = (Weak(view), count, false, windowFrame)
+        var turn = turnCounts[id].flatMap { $0.view.object === view && $0.windowFrame == windowFrame ? $0 : nil }
+            ?? Turn(view: Weak(view), windowFrame: windowFrame)
+        turn.count += 1
+        let count = turn.count
         if count > maxPassesInOneTurn { maxPassesInOneTurn = count }
         // A normal turn lays a view out at most three times; only more walks the window.
-        guard count > 4, count == limit(for: view) + 1 else { return }
-        if breaksLoops { breakLoop(of: view, id: id, count: count) }
-        guard reportedClasses.insert(typeID).inserted else { return }
+        if count > 4, turn.limits == nil { turn.limits = limits(for: view) }
+        turnCounts[id] = turn
+        guard let limits = turn.limits else { return }
+        if breaksLoops, count == limits.breaks + 1 { breakLoop(of: view, id: id, count: count) }
+        guard count == limits.report + 1, reportedClasses.insert(typeID).inserted else { return }
         var ancestry: [String] = []
         var next = view.superview
         while let ancestor = next, ancestry.count < 8 {
@@ -198,7 +214,8 @@ public final class LayoutPassGuard {
     /// Skips `view`'s further layouts this turn and, unless it is still
     /// looping from an earlier break, asks for one layout on the next turn.
     private func breakLoop(of view: NSView, id: ObjectIdentifier, count: Int) {
-        turnCounts[id] = (Weak(view), count, true, view.window?.frame ?? .zero)
+        turnCounts[id]?.broken = true
+        Self.log.fault("layout loop broken: \(String(describing: Swift.type(of: view)), privacy: .public) after \(count) layouts in one turn")
         guard looping[id]?.object !== view else { return }
         looping = looping.filter { $0.value.object != nil }
         looping[id] = Weak(view)
