@@ -14,7 +14,9 @@
 //!   re-execs again);
 //! - the daemon is local: the socket peer has this process's uid and is the
 //!   process `identify` names (an SSH or relay forward has another peer);
-//!   never for `--machine` (remote) routes;
+//!   never for `--machine` (remote) routes; a tunnel socket to another
+//!   machine's daemon gets that daemon's build and, for an SSH route, the
+//!   exact `cmux remote ssh … --upgrade` command instead (cx-ytw1);
 //! - the path is absolute (never a PATH lookup), a regular file (not a
 //!   symlink), inside `<name>.app/Contents/Resources/bin/` of a cmux bundle
 //!   (an installed app or a tagged DerivedData product) of the same install
@@ -255,6 +257,41 @@ fn probe_socket(socket: PathBuf) -> Option<(PathBuf, DaemonBuild, Route)> {
     Some((socket, daemon, Route::Local { peer_uid, peer_pid }))
 }
 
+/// The line for a daemon of another build behind a tunnel socket.
+fn remote_skew(daemon: &DaemonBuild, own_build: &str, socket: &Path) -> String {
+    let m = &crate::localization::catalog().skew;
+    let text = match tunnel_ssh_destination(socket) {
+        Some(destination) => {
+            m.remote_build.replace("{fix}", &format!("cmux remote ssh {destination} --upgrade"))
+        }
+        None => m.remote_build_no_ssh.to_owned(),
+    };
+    text.replace("{daemon}", &daemon.build_id).replace("{own}", own_build)
+}
+
+/// `[USER@]HOST[:PORT]` of the SSH route the client runtime recorded next to
+/// `socket` (`remote_runtime::tunnel_route_record`). The record must be this
+/// user's and writable by nobody else, and the destination one plain word
+/// (no option, path, query or space), since it is printed as a command.
+fn tunnel_ssh_destination(socket: &Path) -> Option<String> {
+    let record = crate::remote_runtime::tunnel_route_record(socket);
+    let metadata = std::fs::symlink_metadata(&record).ok()?;
+    // SAFETY: geteuid has no preconditions.
+    let uid = unsafe { libc::geteuid() };
+    if !metadata.file_type().is_file() || metadata.uid() != uid || metadata.mode() & 0o022 != 0 {
+        return None;
+    }
+    let route = std::fs::read_to_string(&record).ok()?;
+    let destination = route.trim().strip_prefix("ssh://")?;
+    let plain = !destination.is_empty()
+        && !destination.starts_with('-')
+        && destination.len() <= 255
+        && destination.chars().all(|c| {
+            c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '@' | ':' | '[' | ']')
+        });
+    plain.then(|| destination.to_owned())
+}
+
 fn own_build_id() -> &'static str {
     cmux_remote::ssh_bootstrap::BUILD_IDENTITY
 }
@@ -300,6 +337,13 @@ fn reexec_with(
     let path = match vet(&daemon, route, &own) {
         Ok(path) => path,
         Err(Refusal::SameBuild | Refusal::LoopGuard) => return Err(None),
+        // The socket tunnels to a daemon on another machine (`cmux remote
+        // ssh`): its CLI is a remote path, never run. Name its build and,
+        // for an SSH route, the exact upgrade command (cx-ytw1).
+        Err(Refusal::NotTheDaemon) if daemon.build_id == own.build_id => return Err(None),
+        Err(Refusal::NotTheDaemon) => {
+            return Err(Some(remote_skew(&daemon, own.build_id, &socket)));
+        }
         Err(refusal) => {
             return Err(Some(
                 crate::localization::catalog()

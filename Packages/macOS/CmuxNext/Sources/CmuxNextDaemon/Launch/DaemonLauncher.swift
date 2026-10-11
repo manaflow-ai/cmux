@@ -352,8 +352,9 @@ public struct DaemonLauncher: Sendable {
         return {
             // A daemon exiting for a version handoff still answers `server
             // status` for a moment: start its successor only once it is gone.
-            if let exiting = handoff.takeExiting() {
+            if let exiting = handoff.exiting {
                 _ = await ProcessExit.exitEvent(pid: exiting, within: .seconds(60), clock: clock)
+                handoff.cancel(pid: exiting)
             }
             if let path = remembered.take() {
                 if DaemonSocketMemory.acceptsConnections(path) {

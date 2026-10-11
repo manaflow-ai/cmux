@@ -11,6 +11,9 @@ final class CEFDevToolsDivider: NSView {
 
     override var isFlipped: Bool { false }
     override var mouseDownCanMoveWindow: Bool { false }
+    /// The page and DevTools are their own windows and take key when used,
+    /// so the drag's first click often lands while cmux's window is not key.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func draw(_ dirtyRect: NSRect) {
         guard let devTools else { return }

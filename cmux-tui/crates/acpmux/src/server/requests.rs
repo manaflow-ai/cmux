@@ -124,12 +124,12 @@ async fn dispatch_request(
                 "personInstance": hub.person.instance(),
                 "extensions": [
                     method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
-                    method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL, method::MUX_QUEUE_REMOVE,
+                    method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT,
                     method::MUX_INFO, method::MUX_EVENTS, method::MUX_PERMISSION_RESPOND,
                     method::MUX_DRAFT_GET, method::MUX_DRAFT_SET,
                     method::MUX_SET_POLICY, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
                 ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "personHolds"], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds"], "trustGate": true}}
             }))
         }
         method::AUTHENTICATE => Ok(json!({})),
@@ -357,24 +357,18 @@ async fn dispatch_request(
                 .and_then(Value::as_str)
                 .filter(|p| !p.is_empty())
                 .map(str::to_owned);
-            let resend = mux_meta(&params)
-                .and_then(|m| m.get("resend"))
-                .and_then(Value::as_bool)
-                .unwrap_or(false);
-            let steer_only = mux_meta(&params)
-                .and_then(|m| m.get("steerOnly"))
-                .and_then(Value::as_bool)
-                .unwrap_or(false);
+            let flag = |k| mux_meta(&params).and_then(|m| m.get(k)).and_then(Value::as_bool);
             let notify = conn.clone();
             let opts = crate::hub::PromptOptions {
                 prompt_id,
                 on_accepted: Some(Box::new(move |v| {
                     notify.send(&Message::notification(method::MUX_PROMPT_ACCEPTED, v))
                 })),
-                resend,
+                resend: flag("resend") == Some(true),
                 control: super::remote_guard::control_of(conn.origin, &params),
                 trust_gate: super::trust_gate::gated(conn.origin, &params),
-                steer_only,
+                steer_only: flag("steerOnly") == Some(true),
+                interrupt: steer && flag("interrupt") == Some(true),
             };
             hub.prompt_with(&s, blocks, &conn.label(), steer, opts).await
         }
@@ -977,6 +971,12 @@ async fn dispatch_request(
             let purge = params.get("purge").and_then(Value::as_bool).unwrap_or(false);
             hub.kill(&s, purge).await?;
             Ok(json!({"sessionId": s.id, "purged": purge}))
+        }
+        method::MUX_QUEUE_EDIT => {
+            let s = hub.resolve(session_key(&params)?)?;
+            let control = super::remote_guard::control_of(conn.origin, &params);
+            hub.queue_edit(&s, &params, control, super::trust_gate::gated(conn.origin, &params))
+                .await
         }
         method::MUX_QUEUE_REMOVE => {
             let s = hub.resolve(session_key(&params)?)?;

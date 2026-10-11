@@ -585,6 +585,10 @@
       "scope": "git:read",
       "class": "read"
     },
+    "git.files.list": {
+      "scope": "git:read",
+      "class": "read"
+    },
     "git.files.search": {
       "scope": "git:read",
       "class": "read"
