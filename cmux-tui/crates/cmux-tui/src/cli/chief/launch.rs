@@ -19,7 +19,9 @@ use serde_json::{Value, json};
 use super::home::ChiefHome;
 use super::link::{Link, LinkError};
 use super::messages::messages;
-use crate::local_owner::{ENSURE_DEADLINE, EnsureError, Ensured, OwnerSpec, ensure_owner};
+use crate::local_owner::{
+    ENSURE_DEADLINE, EnsureError, Ensured, OwnerSpec, RestoreProgress, ensure_owner,
+};
 
 /// The app's Chief conversation create request (HomeChiefName.swift and
 /// optchat-chief daemon.rs): the same key and fields, so whoever creates it
@@ -46,7 +48,8 @@ pub(super) fn ensure(home: &ChiefHome) -> Result<PathBuf, String> {
         // through the home's brain.
         chief_tools_socket: Some(home.root.join("optchat/tools.sock")),
     };
-    match ensure_owner(&spec, Some(&session), Instant::now() + ENSURE_DEADLINE) {
+    let progress = RestoreProgress::silent();
+    match ensure_owner(&spec, Some(&session), Instant::now() + ENSURE_DEADLINE, &progress) {
         Ok(Ensured::Running(_)) => {}
         Ok(Ensured::Started(owner)) => {
             eprintln!(
