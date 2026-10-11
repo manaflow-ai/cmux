@@ -23,6 +23,12 @@ extension SidebarMapping {
         }
     }
 
+    /// The color key of the agent acting in `tab` (its session, else its
+    /// surface), the key every presence mark of that agent is colored by.
+    public func presenceColorKey(_ tab: TabModel) -> String? {
+        presence([tab]).first?.id
+    }
+
     /// The brand catalog's name for an adapter id, else the id capitalized.
     /// Every hook event names its adapter, so `?` only marks a broken feed.
     static func agentName(_ agent: String?) -> String {
