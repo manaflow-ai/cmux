@@ -166,6 +166,12 @@ def panes():
     time.sleep(0.5)  # test harness: the focus settles
     save_layout("panes-strip")
     record("panes", "close-mid-strip", lambda: action("closePane"))
+    # A zoom and an unzoom on a scrolled strip (its camera resets, then snaps back).
+    for _ in range(3):
+        action("newColumn")
+        time.sleep(0.8)  # test harness: one column at a time
+    record("panes", "zoom-strip", lambda: action("toggleSplitZoom"))
+    record("panes", "unzoom-strip", lambda: action("toggleSplitZoom"))
 
 
 def focus():
@@ -407,13 +413,14 @@ def sidebar():
 
 
 def palette():
-    # The palette opens over the window and closes again (its panel is a
-    # child window, so stills by window id back the recording up).
+    # The palette opens over the window and closes again. Tab search opens it
+    # over the active window (a child of it); a capture slot's app never
+    # activates, and the palette opened with no key window closes at once.
     save_layout("palette")
-    record("palette", "open", lambda: action("commandPalette"))
-    print("palette open:", json.dumps(rpc("debug.windows"))[:400], flush=True)
-    record("palette", "close", lambda: key("escape"))
-    print("palette closed:", json.dumps(rpc("debug.windows"))[:400], flush=True)
+    record("palette", "open", lambda: action("tab.search", focus=True))
+    print("palette open:", json.dumps(rpc("debug.palette.capture", {"path": os.path.join(opts.out, "palette", "open.png")}))[:200], flush=True)
+    record("palette", "close", lambda: rpc("debug.key", {"key": "escape", "target": "palette"}))
+    print("palette closed:", json.dumps(rpc("debug.palette.capture", {"path": os.path.join(opts.out, "palette", "closed.png")}))[:200], flush=True)
 
 
 SURFACES = {"tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts, "popups": popups, "hover": hover, "groups": groups, "drag": drag, "dock": dock, "newtab": newtab, "sidebar": sidebar, "palette": palette}

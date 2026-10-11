@@ -11,6 +11,9 @@ final class ScreenContentView: NSView {
     private(set) var layout: ScreenLayout
     /// The layout is one zoomed pane (`LayoutScreen.zoomed`).
     private(set) var zoomed = false
+    /// Where the panes a structural change carries showed (view x), set again
+    /// once `syncScroll` has moved the camera for the new layout (`settleCarried`).
+    var carriedShown: [PaneID: CGFloat] = [:]
     /// Frames before the rows' vertical offsets: what the springs target.
     private(set) var baseGeometry: ScreenGeometry
     /// `baseGeometry` at the presented row offsets (`shiftingRows`): what
@@ -128,6 +131,7 @@ final class ScreenContentView: NSView {
         let offset = scroll.value
         func shift(_ geometry: ScreenGeometry, _ pane: PaneID) -> CGFloat { geometry.scrolls(pane: pane) ? geometry.viewShift(offset: offset) : 0 }
         let drift = carried ? before.viewShift(offset: offset) - baseGeometry.viewShift(offset: offset) : 0
+        carriedShown = [:]
         let animateFrames = animate && (!structural || carried)
         // Under the zoomed pane, which every pane coming back waits beneath.
         let revealAnchor = revealing ? paneFrames.keys.compactMap { context.hosts[$0] }.first { $0.superview === self } : nil
@@ -137,7 +141,10 @@ final class ScreenContentView: NSView {
         let style = context.style
         for (pane, target) in baseGeometry.panes {
             if var existing = paneFrames[pane] {
-                if carried { existing.x.value += shift(before, pane) - shift(baseGeometry, pane) }
+                if carried {
+                    carriedShown[pane] = existing.x.value + shift(before, pane)
+                    existing.x.value += shift(before, pane) - shift(baseGeometry, pane)
+                }
                 existing.setTarget(target, alpha: 1)
                 if !animateFrames { existing.snap() }
                 paneFrames[pane] = existing
@@ -207,6 +214,20 @@ final class ScreenContentView: NSView {
         // focus after every update (ColumnScrollState.reduce).
         applyPresentation()
         return animate && hasMotion
+    }
+
+    /// The panes a structural change carried start where they showed before it, now that the
+    /// camera is where the new layout puts it: a zoom resets the scroll, an unzoom snaps it to
+    /// the focused column, and a close left of the focus moves the anchor along at once.
+    func settleCarried() {
+        guard !carriedShown.isEmpty else { return }
+        let shift = stripShift
+        for (pane, shown) in carriedShown {
+            guard var frame = paneFrames[pane] else { continue }
+            frame.x.value = shown - (geometry.scrolls(pane: pane) ? shift : 0)
+            paneFrames[pane] = frame
+        }
+        carriedShown = [:]
     }
 
     private var firstDividerView: NSView? {
