@@ -71,9 +71,15 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
         // link.open shows its workspace and tab, never another cmux build through the system.
         if let services, ChiefSubagentLinks.open(url, services: services) { return true }
         guard url.scheme == "http" || url.scheme == "https" else {
+            #if DEBUG
+            if TerminalLinkRecorder.records { TerminalLinkRecorder.record("system:\(url.absoluteString)"); return true }
+            #endif
             NSWorkspace.shared.open(url, configuration: NSWorkspace.OpenConfiguration())
             return true
         }
+        #if DEBUG
+        TerminalLinkRecorder.record("browser:\(url.absoluteString)")
+        #endif
         guard let pane = services?.windows.active?.focusedPane else {
             // No window: never hand a web link to the system, which may be
             // cmux itself as the default browser (a loop). It waits for one.

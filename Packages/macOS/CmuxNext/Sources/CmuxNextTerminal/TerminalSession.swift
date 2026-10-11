@@ -166,6 +166,12 @@ public final class TerminalSession {
         surfaceView.window?.makeFirstResponder(surfaceView)
     }
 
+    /// Activates `text` as a Cmd-click on a link Ghostty detected does (its `open_url` action).
+    @discardableResult
+    public func activateLink(_ text: String) -> Bool {
+        surfaceView.applyAction(.openURL(text))
+    }
+
     /// Sends text as if pasted (Ghostty applies bracketed paste when the
     /// program enabled it). The encoded bytes reach `io.write`.
     public func sendText(_ text: String) {
