@@ -88,7 +88,7 @@ describe("VM route answer deadlines", () => {
 
   test("a finished operation answers its value", async () => {
     const { answer, background } = await underDeadline("resume", Effect.succeed("running"));
-    expect(answer).toEqual({ _tag: "Right", right: "running" } as never);
+    expect(answer?._tag === "Right" ? answer.right : null).toBe("running");
     expect(background).toHaveLength(0);
   });
 
