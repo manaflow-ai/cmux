@@ -40,6 +40,7 @@ final class HistoryService {
         for (profile, entry) in cache.profileHistories { attach(entry.history, profile: profile) }
         cache.onProfileHistoryCreated = { [weak self] profile, history in self?.attach(history, profile: profile) }
         cache.onProfileHistoryDropped = { [weak self] profile in self?.forget(profile: profile) }
+        adoptDaemonHistoryOnFirstConnection()
     }
 
     // MARK: Pages
