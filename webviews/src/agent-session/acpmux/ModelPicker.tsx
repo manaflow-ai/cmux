@@ -214,6 +214,7 @@ export function ModelPicker(props: ModelPickerProps) {
   const unavailableText = t("picker.unavailable");
   const modelRowId = (id: string) => `${menuId}-model-${encodeURIComponent(id)}`;
   const [open, setOpen] = useState(false);
+  const [openHeight, setOpenHeight] = useState<number>();
   const [selectedHarness, setSelectedHarness] = useState(harness);
   const [activeHarness, setActiveHarness] = useState(0);
   const [query, setQuery] = useState("");
@@ -296,6 +297,15 @@ export function ModelPicker(props: ModelPickerProps) {
     if (catalogRefresh?.status && catalogRefresh.status !== "idle") setLocalRefreshStatus(undefined);
   }, [catalogRefresh?.date, catalogRefresh?.status]);
   const menuStyle = useUiAnchor(trigger, menu, open, { side: "above", align: "start" });
+  useLayoutEffect(() => {
+    if (!open) {
+      setOpenHeight(undefined);
+      return;
+    }
+    if (menuStyle.visibility !== "visible" || openHeight != null) return;
+    const node = menu.current;
+    if (node) setOpenHeight(Math.ceil(node.getBoundingClientRect().height));
+  }, [menuStyle.visibility, open, openHeight]);
   const close = useCallback(
     (focus = true) => {
       setOpen(false);
@@ -567,7 +577,7 @@ export function ModelPicker(props: ModelPickerProps) {
           className="ui-popup ui-picker-popup acpmux-mp z-[3] flex max-h-[min(380px,60vh)] w-[min(310px,calc(100vw-24px))] overflow-hidden rounded-[var(--ui-popup-radius,8px)] text-control text-fg"
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the popover is positioned by the shared anchor helper.
           aria-label={modelText}
-          style={menuStyle}
+          style={{ ...menuStyle, ...(openHeight == null ? {} : { height: openHeight }) }}
         >
           {/* The rail: Starred, then one icon per harness; hovering a tab shows its models. */}
           <ScrollArea
