@@ -101,11 +101,16 @@ export default componentEntry<Props>({
       play: async (ctx) => {
         const panelText = (selector: string) =>
           [...ctx.document.querySelectorAll(`.hc-thread ${selector}`)].map((node) => node.textContent?.trim() ?? "");
-        // 130 replies counted by the owner while the panel holds the first 100 of them.
-        await ctx.waitFor(() => panelText(".hc-replies-line").some((line) => line.includes("130")));
+        const scroller = { selector: ".hc-thread .hc-timeline" };
+        // The first page: 100 of the 130 replies, and the control for the rest.
         await ctx.waitFor(() => panelText(".hc-md").includes("Update 100.") && ctx.document.querySelector(".hc-thread-more"));
+        // The count is the owner's (every reply), not the loaded ones.
+        await ctx.scroll(scroller, "top");
+        await ctx.waitFor(() => panelText(".hc-replies-line").some((line) => line.includes("130")));
         await ctx.click({ selector: ".hc-thread-more" });
-        await ctx.waitFor(() => panelText(".hc-md").includes("Update 130.") && !ctx.document.querySelector(".hc-thread-more"));
+        await ctx.waitFor(() => !ctx.document.querySelector(".hc-thread-more"));
+        await ctx.scroll(scroller, "bottom");
+        await ctx.waitFor(() => panelText(".hc-md").includes("Update 130."));
       },
     },
     switcher: {
