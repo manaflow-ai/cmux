@@ -139,6 +139,39 @@ pub(super) async fn route(
             })
             .await
         }
+        // A chat's past turns from its harness's store (`cmux_chat_index::transcript`), for a
+        // chat with no ACP resume; read now, never kept.
+        "_acpmux/chat_transcript" => {
+            let service =
+                service.ok_or_else(|| RpcError::internal("the chat index is starting"))?;
+            let key = params
+                .get("key")
+                .and_then(Value::as_str)
+                .and_then(crate::chats::parse_key)
+                .ok_or_else(|| {
+                RpcError::invalid_params("key must be <harness>:<session id>")
+            })?;
+            blocking(move || {
+                let chat = service.get(&key).ok_or_else(|| {
+                    RpcError::not_found(format!("no chat {}", crate::chats::key_text(&key)))
+                })?;
+                let entry = &chat.entry;
+                let turns =
+                    cmux_chat_index::transcript::read_turns(entry.harness, &entry.source_path)
+                        .map_err(|e| {
+                            RpcError::invalid_params(format!("transcript.{}: {e}", e.code()))
+                                .with_data(json!({"reason": format!("transcript_{}", e.code())}))
+                        })?;
+                Ok(json!({
+                    "key": crate::chats::key_text(&key),
+                    "harness": entry.harness.id(),
+                    "title": entry.title,
+                    "cwd": entry.cwd,
+                    "turns": turns,
+                }))
+            })
+            .await
+        }
         "_acpmux/chat_roots_record" => {
             let service =
                 service.ok_or_else(|| RpcError::internal("the chat index is starting"))?;
