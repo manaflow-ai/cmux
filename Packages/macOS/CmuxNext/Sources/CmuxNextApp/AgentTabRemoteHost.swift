@@ -17,7 +17,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     var approvals: AgentPaneRemoteApprovals?
     /// The tab this app opened on that machine as the store lists it: its surface there, and its
     /// session once its first send started one. Never starts one.
-    var existing: (@Sendable () async throws -> (surface: UInt64, session: String?))?
+    var existing: (@Sendable () async throws -> (surface: UInt64, session: String?)?)?
     /// Starts a new chat in the machine's own acpmux (`agent-session-start`, policy `ask`) in the
     /// page's folder with the page's agent (nil: the tab's own) and answers the tab's surface there
     /// and the session (``AgentTabStore/startRemoteChat``). Called only by the page's first send.
@@ -28,7 +28,15 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
         var session = sessionId ?? self.session
         // The tab this run opened may have been provisional when this host was made: the store's
         // surface and the session come from the tab (also on a reconnect after the first send).
-        if let found = try await existing?() { (surface, session) = (found.surface, found.session ?? session) }
+        if let existing {
+            if let found = try await existing() {
+                (surface, session) = (found.surface, found.session ?? session)
+            } else if session != nil {
+                // A known chat whose tab the store does not list: never attach through a surface
+                // the store has not confirmed (the provisional one this host was made with).
+                throw AgentRemoteStartRefusal(code: "agent_session.unknown_tab", machine: machine)
+            }
+        }
         let route: AgentPaneRemoteRoute
         if let session {
             route = AgentPaneRemoteRoute(machine: machine, approvals: approvals) { [surface, session, endpoint] in

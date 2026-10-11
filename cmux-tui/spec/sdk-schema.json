@@ -1409,6 +1409,15 @@
      "nullable": true,
      "since": 9
     },
+    "terminal_host_fallback": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "description": "Why a terminal will end with something other than its shell although terminal hosts are on: `breakaway_denied` (Windows: the host runs inside the daemon's kill-on-close Job Object and ends when that job closes) or `host_start_failed` (no host; the daemon runs the terminal and it ends with the daemon). Null otherwise and for browser tabs. A string, not an enum: clients read an unknown value as a notice for another reason."
+    },
     "short_id": {
      "type": {
       "kind": "scalar",
@@ -7252,6 +7261,55 @@
    },
    "additional_properties": false
   },
+  "ConversationThreadSummary": {
+   "kind": "object",
+   "fields": {
+    "root": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "reply_count": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "last_reply_seq": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "last_reply_at": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "authors": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
   "ConversationImportMessage": {
    "kind": "object",
    "fields": {
@@ -7591,6 +7649,16 @@
      "nullable": false,
      "description": "Page source (page-tabs-v1): the id of one of the app's own pages; exclusive with the other sources.",
      "capability": "page-tabs-v1"
+    },
+    "route": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "What the page shows (page-tab-route-v1): a viewer's file or folder or a page's sub-view, 1 to 4096 bytes without control characters; only with page.",
+     "capability": "page-tab-route-v1"
     }
    },
    "additional_properties": false
@@ -15791,6 +15859,16 @@
       "default": null,
       "capability": "page-tabs-v1"
      },
+     "route": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "page-tab-route-v1"
+     },
      "pane": {
       "type": {
        "kind": "ref",
@@ -19734,6 +19812,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "threads": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "ConversationThreadSummary"
+       }
+      },
+      "presence": "optional",
+      "nullable": false
      }
     },
     "additional_properties": false
@@ -19790,6 +19879,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "threads": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "ConversationThreadSummary"
+       }
+      },
+      "presence": "optional",
+      "nullable": false
      }
     },
     "additional_properties": false
@@ -19797,6 +19897,94 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. limit is 1-500. See spec/commands.md."
+   ]
+  },
+  "conversation-thread": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "conversation-thread-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "root": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "after_seq": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": false
+     },
+     "limit": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint32"
+      },
+      "presence": "optional",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "root": {
+      "type": {
+       "kind": "ref",
+       "name": "ConversationMessage"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "replies": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "ConversationMessage"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "has_more": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "thread": {
+      "type": {
+       "kind": "ref",
+       "name": "ConversationThreadSummary"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. limit is 1-500 (default 50). A root that is unknown, in another conversation or a thread reply is unknown_message. See spec/commands.md."
    ]
   },
   "conversation-search": {
@@ -20960,6 +21148,57 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. limit is 1-200. Calls the cloud. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+   ]
+  },
+  "cloud-conversation-thread": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "conversation-thread-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "root": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "after_seq": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
+     "limit": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint32"
+      },
+      "presence": "optional",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. Needs cloud-conversations-v1 too. limit is 1-200. Calls the cloud. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
    ]
   },
   "cloud-conversation-op": {

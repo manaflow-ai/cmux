@@ -86,6 +86,8 @@ def test_current_forms_are_accepted(validator: ModuleType) -> None:
         "cmux browser tab_01ab press Enter",
         "cmux browser page scroll '#list' --dy 300",
         "cmux browser tab_01ab select '#size' m",
+        "cmux browser tab_01ab cookies clear --domain example.com",
+        "cmux browser page storage session set k v",
         "cmux browser tab_01ab wait '#done' --timeout-ms 10000",
         "cmux browser page screenshot --full-page --out shot.png",
         "cmux browser page tabs --all",

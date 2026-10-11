@@ -83,7 +83,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         WebKitContextHit.install(self, into: controller)
         WebKitMediaHandler.install(on: self, into: controller)
         WebKitPasskeyInstaller.install(self, into: controller)
-
+        WebKitNotificationBridge.install(on: self, into: controller)
         observeWebView()
         if configuration.zoom != 1 {
             setZoom(configuration.zoom)

@@ -226,6 +226,15 @@ pub struct HomeTextRun {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeThreadSummary {
+    pub root: MessageId,
+    pub reply_count: i64,
+    pub last_reply_seq: Option<i64>,
+    pub last_reply_at: Option<Timestamp>,
+    pub authors: Vec<ParticipantId>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Host {
     pub id: HostId,
     pub name: String,
@@ -893,11 +902,4 @@ pub struct TeamPolicyValues {
     pub agents_allowed_classes: Option<TeamPolicyValuesAgentsAllowedClasses>,
     #[serde(rename = "device.settings", default, skip_serializing_if = "Option::is_none")]
     pub device_settings: Option<TeamPolicyValuesDeviceSettings>,
-}
-
-wire_enum! {
-    TeamPolicyValuesGithubRepoScopeValue {
-        LinkingUserRepos = "linking_user_repos",
-        Installation = "installation",
-    }
 }

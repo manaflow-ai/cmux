@@ -4,7 +4,7 @@ use super::*;
 
 /// How long hosted input waits for a lost host connection to come back (a
 /// reconnect or an in-place replacement host, cx-6so.49) before it fails.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 ///
 /// The wait blocks its caller: one control connection's next request, or
 /// the TUI's input worker. It applies only while a host connection is lost,
@@ -13,7 +13,7 @@ const HOST_INPUT_RECONNECT_WAIT: Duration = Duration::from_secs(5);
 
 /// Whether a host send failed because the host connection is gone (the
 /// host died or its stream broke), not because the frame was refused.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn host_connection_lost(error: &std::io::Error) -> bool {
     matches!(
         error.kind(),
@@ -33,7 +33,7 @@ impl Surface {
                 "browser surface does not accept PTY bytes",
             ));
         };
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         if let Some(result) = Self::send_hosted_input(pty, MessageKind::Input, bytes) {
             return result;
         }
@@ -43,12 +43,12 @@ impl Surface {
                 writer.write_all(bytes)?;
                 writer.flush()
             }
-            #[cfg(unix)]
+            #[cfg(any(unix, windows))]
             PtyRuntime::Hosted(host) => host.send(MessageKind::Input, bytes),
             // A keep-on-exit terminal outlives its child, so typing into the
             // dead PTY is an expected interaction: drop the bytes silently
             // instead of failing every keystroke on the final screen.
-            #[cfg(unix)]
+            #[cfg(any(unix, windows))]
             PtyRuntime::ExitedHosted => Ok(()),
         }
     }
@@ -63,7 +63,7 @@ impl Surface {
     /// reader gives up or ends. A frame that failed with a lost connection never
     /// reached a live reader, so the retry cannot duplicate it. `None` when
     /// the runtime is not hosted (the caller writes locally).
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     fn send_hosted_input(
         pty: &PtySurface,
         kind: MessageKind,
@@ -127,7 +127,7 @@ impl Surface {
                 .write_all(bytes)
                 .and_then(|()| writer.flush())
                 .map_err(ConfirmedInputFailure::Indeterminate),
-            #[cfg(unix)]
+            #[cfg(any(unix, windows))]
             PtyRuntime::Hosted(host) => {
                 let receipt = host.begin_input_confirmed(bytes)?;
                 drop(runtime);
@@ -138,7 +138,7 @@ impl Surface {
             // with a known error instead of claiming the bytes arrived.
             // Unreceipted keystrokes to the final screen stay a silent no-op
             // (`write_bytes`).
-            #[cfg(unix)]
+            #[cfg(any(unix, windows))]
             PtyRuntime::ExitedHosted => Err(ConfirmedInputFailure::Known(std::io::Error::new(
                 std::io::ErrorKind::NotConnected,
                 "terminal has no live PTY owner for receipted input",
@@ -178,7 +178,7 @@ impl Surface {
         }
         // Keep-on-exit terminals accept and drop paste input the same way
         // as keystrokes: the final screen is read-only, not broken.
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         if let Some(result) = Self::send_hosted_input(pty, MessageKind::Paste, bytes) {
             return result;
         }

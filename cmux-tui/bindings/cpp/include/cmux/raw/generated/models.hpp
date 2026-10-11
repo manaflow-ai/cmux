@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "58dd2823a9334bd9d991179f015295882bc254df3608a6c29b1fd0eebc0a95ac";
+inline constexpr std::string_view kProtocolIrSha256 = "d7197176d6626400cd73cde71531657da3412e0ecfceb822df0e6b1bfb7fe9eb";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -60,6 +60,7 @@ struct ConversationSearchHit;
 struct ConversationSummary;
 struct ConversationTabRecord;
 struct ConversationTextRun;
+struct ConversationThreadSummary;
 struct CopyResult;
 enum class CursorStyle;
 struct DeadPane;
@@ -250,6 +251,7 @@ struct CloudConversationHistoryRequest;
 struct CloudConversationOpRequest;
 struct CloudConversationSnapshotRequest;
 struct CloudConversationSubscribeRequest;
+struct CloudConversationThreadRequest;
 struct CloudConversationUnsubscribeRequest;
 struct CloudInboxListRequest;
 struct CloudInboxSubscribeRequest;
@@ -284,6 +286,8 @@ struct ConversationSearchRequest;
 struct ConversationSearchResult;
 struct ConversationSnapshotRequest;
 struct ConversationSnapshotResult;
+struct ConversationThreadRequest;
+struct ConversationThreadResult;
 struct ConversationTypingRequest;
 struct CopyRequest;
 struct CreateBookmarkRequest;
@@ -826,6 +830,7 @@ struct ConversationTabRecord {
     std::optional<std::string> conversation{};
     std::optional<std::string> owner{};
     std::optional<std::string> page{};
+    std::optional<std::string> route{};
     friend bool operator==(const ConversationTabRecord&, const ConversationTabRecord&) = default;
 };
 
@@ -1463,6 +1468,14 @@ struct CloudConversationSubscribeRequest {
     friend bool operator==(const CloudConversationSubscribeRequest&, const CloudConversationSubscribeRequest&) = default;
 };
 
+struct CloudConversationThreadRequest {
+    Field<std::uint64_t> after_seq{};
+    std::string conversation{};
+    Field<std::uint32_t> limit{};
+    std::string root{};
+    friend bool operator==(const CloudConversationThreadRequest&, const CloudConversationThreadRequest&) = default;
+};
+
 struct CloudConversationUnsubscribeRequest {
     std::string conversation{};
     friend bool operator==(const CloudConversationUnsubscribeRequest&, const CloudConversationUnsubscribeRequest&) = default;
@@ -1836,8 +1849,18 @@ struct ConversationHistoryRequest {
     friend bool operator==(const ConversationHistoryRequest&, const ConversationHistoryRequest&) = default;
 };
 
+struct ConversationThreadSummary {
+    std::vector<std::string> authors{};
+    std::optional<std::string> last_reply_at{};
+    std::optional<std::uint64_t> last_reply_seq{};
+    std::uint64_t reply_count{};
+    std::string root{};
+    friend bool operator==(const ConversationThreadSummary&, const ConversationThreadSummary&) = default;
+};
+
 struct ConversationHistoryResult {
     std::vector<ConversationMessage> messages{};
+    std::optional<std::vector<ConversationThreadSummary>> threads{};
     friend bool operator==(const ConversationHistoryResult&, const ConversationHistoryResult&) = default;
 };
 
@@ -1921,7 +1944,24 @@ struct ConversationSnapshotRequest {
 struct ConversationSnapshotResult {
     ConversationSummary conversation{};
     std::vector<ConversationMessage> messages{};
+    std::optional<std::vector<ConversationThreadSummary>> threads{};
     friend bool operator==(const ConversationSnapshotResult&, const ConversationSnapshotResult&) = default;
+};
+
+struct ConversationThreadRequest {
+    std::optional<std::uint64_t> after_seq{};
+    std::string conversation{};
+    Field<std::uint32_t> limit{};
+    std::string root{};
+    friend bool operator==(const ConversationThreadRequest&, const ConversationThreadRequest&) = default;
+};
+
+struct ConversationThreadResult {
+    bool has_more{};
+    std::vector<ConversationMessage> replies{};
+    ConversationMessage root{};
+    ConversationThreadSummary thread{};
+    friend bool operator==(const ConversationThreadResult&, const ConversationThreadResult&) = default;
 };
 
 struct ConversationTypingEvent {
@@ -2937,6 +2977,7 @@ struct Tab {
     std::optional<Size> size{};
     std::optional<bool> supports_clear_history_key_fallback{};
     Id surface{};
+    Field<std::string> terminal_host_fallback{};
     Field<std::string> terminal_id{};
     Field<std::string> terminal_incarnation{};
     Field<std::string> terminal_resource_id{};
@@ -3230,6 +3271,7 @@ struct NewConversationTabRequest {
     Field<std::string> owner{};
     Field<std::string> page{};
     Field<Id> pane{};
+    Field<std::string> route{};
     Field<std::uint16_t> rows{};
     Field<std::string> transaction{};
     Field<Id> workspace{};
@@ -5426,6 +5468,12 @@ struct Codec<ConversationTextRun> {
 };
 
 template <>
+struct Codec<ConversationThreadSummary> {
+    static Result<Json> encode(const ConversationThreadSummary& value);
+    static Result<ConversationThreadSummary> decode(const Json& value);
+};
+
+template <>
 struct Codec<CopyResult> {
     static Result<Json> encode(const CopyResult& value);
     static Result<CopyResult> decode(const Json& value);
@@ -6566,6 +6614,12 @@ struct Codec<CloudConversationSubscribeRequest> {
 };
 
 template <>
+struct Codec<CloudConversationThreadRequest> {
+    static Result<Json> encode(const CloudConversationThreadRequest& value);
+    static Result<CloudConversationThreadRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<CloudConversationUnsubscribeRequest> {
     static Result<Json> encode(const CloudConversationUnsubscribeRequest& value);
     static Result<CloudConversationUnsubscribeRequest> decode(const Json& value);
@@ -6767,6 +6821,18 @@ template <>
 struct Codec<ConversationSnapshotResult> {
     static Result<Json> encode(const ConversationSnapshotResult& value);
     static Result<ConversationSnapshotResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationThreadRequest> {
+    static Result<Json> encode(const ConversationThreadRequest& value);
+    static Result<ConversationThreadRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationThreadResult> {
+    static Result<Json> encode(const ConversationThreadResult& value);
+    static Result<ConversationThreadResult> decode(const Json& value);
 };
 
 template <>

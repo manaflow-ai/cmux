@@ -155,12 +155,12 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         let renamed = self.group?.id != group.id || nameField.currentEditor() == nil
         self.group = group
         if renamed { nameField.stringValue = group.name }
-        for swatch in swatches { swatch.isChosen = swatch.color == group.colorToken }
+        for swatch in swatches { swatch.isChosen = .palette(swatch.color) == group.tint }
         saveRow?.title = group.isSaved ? Strings.editorUnsave : Strings.editorSave
     }
 
     private func pick(_ color: GroupColor) {
-        guard let group, group.colorToken != color else { return }
+        guard let group, group.tint != .palette(color) else { return }
         onCommand?(.setColor(group.id, color))
     }
 

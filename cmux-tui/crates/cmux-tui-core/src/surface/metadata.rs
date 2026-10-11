@@ -34,14 +34,14 @@ impl Surface {
     pub fn local_cwd(&self) -> Option<String> {
         let hosted = match self {
             Surface::Pty(pty) => {
-                #[cfg(unix)]
+                #[cfg(any(unix, windows))]
                 {
                     matches!(
                         &*pty.runtime.lock().unwrap(),
                         PtyRuntime::Hosted(_) | PtyRuntime::ExitedHosted
                     )
                 }
-                #[cfg(not(unix))]
+                #[cfg(not(any(unix, windows)))]
                 {
                     false
                 }
@@ -101,7 +101,7 @@ impl Surface {
         self.as_pty().and_then(|pty| pty.host_identity.clone())
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(crate) fn release_pending_terminal_host_binding(&self) {
         if let Some(pty) = self.as_pty() {
             pty.pending_host_binding.lock().unwrap().take();
@@ -125,7 +125,7 @@ impl Surface {
         // Send under the runtime lock, wait after releasing it: the
         // surface's reader takes that lock while it installs a reconnected
         // host, before it can read the reply from the new stream.
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         if let Some(pty) = self.as_pty() {
             let pending = match &*pty.runtime.lock().unwrap() {
                 PtyRuntime::Hosted(host) => Some(host.begin_renderer_grant(ttl)),
