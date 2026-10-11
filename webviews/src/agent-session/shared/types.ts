@@ -28,6 +28,8 @@ export type AgentSessionTheme = {
   accentSoft: string;
   /// Labels on the accent; the cmux-next pane sends it, others fall back to white.
   accentText?: string;
+  /// Glyphs on `accent` where it fills a control (Send); without it, `accentText`.
+  onAccent?: string;
   danger: string;
   /// Caution, softer than `danger` (ANSI yellow): the full-access mode chip.
   warning?: string;
