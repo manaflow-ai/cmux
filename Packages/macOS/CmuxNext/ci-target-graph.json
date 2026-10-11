@@ -212,6 +212,7 @@
         "CmuxNextHistory",
         "CmuxNextHome",
         "CmuxNextProcessEnvironment",
+        "CmuxNextTabs",
         "CmuxNextWakeups"
       ],
       "packages": [
