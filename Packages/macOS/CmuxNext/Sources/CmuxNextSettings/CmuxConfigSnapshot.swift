@@ -212,18 +212,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(BookmarksBarSetting.parse(root), \.browserShowBookmarksBar)
         snapshot.take(HomeKeepLocationSetting.parse(root), \.homeKeepLocation)
         snapshot.take(Self.parsePreviewFeatures(root), \.previewFeatures)
-        let (hibernation, hibernationDiagnostics) = BrowserHibernationSetting.parse(root)
-        snapshot.browserHibernation = hibernation
-        snapshot.diagnostics += hibernationDiagnostics
-        let (linkClicks, linkClickDiagnostics) = BrowserLinkClickSetting.parse(root)
-        snapshot.browserLinkClicks = linkClicks
-        snapshot.diagnostics += linkClickDiagnostics
-        let (linkRouting, linkRoutingDiagnostics) = TerminalLinkRouting.parse(root)
-        snapshot.terminalLinkRouting = linkRouting
-        snapshot.diagnostics += linkRoutingDiagnostics
-        let (remoteLocalhost, remoteLocalhostDiagnostics) = RemoteLocalhostSetting.parse(root)
-        snapshot.remoteLocalhost = remoteLocalhost
-        snapshot.diagnostics += remoteLocalhostDiagnostics
+        snapshot.take(BrowserHibernationSetting.parse(root), \.browserHibernation)
+        snapshot.take(BrowserLinkClickSetting.parse(root), \.browserLinkClicks)
+        snapshot.take(TerminalLinkRouting.parse(root), \.terminalLinkRouting)
+        snapshot.take(RemoteLocalhostSetting.parse(root), \.remoteLocalhost)
         let paneChrome = PaneChromeConfigParser.parse(root)
         snapshot.paneChrome = paneChrome.overrides
         snapshot.diagnostics += paneChrome.diagnostics

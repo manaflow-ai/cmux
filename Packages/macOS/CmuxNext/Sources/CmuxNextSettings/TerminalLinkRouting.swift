@@ -31,9 +31,10 @@ public nonisolated struct TerminalLinkRouting: Sendable, Hashable {
     static let rulesPath = ["browser", "urlsToAlwaysOpenExternally"]
 
     /// True when this http(s) link opens in a cmux browser tab, false when it
-    /// goes to the default browser: the setting is off, an external rule
-    /// matches, or the host list is set and misses the host.
-    public func opensInCmux(_ url: URL) -> Bool {
+    /// goes to the default browser: the setting is off (unless `explicit`, a
+    /// click that picked a cmux browser profile), an external rule matches,
+    /// the host is unusable, or the host list is set and misses the host.
+    public func opensInCmux(_ url: URL, explicit: Bool = false) -> Bool {
         guard opensInCmuxBrowser else { return false }
         if !externalRules.isEmpty, BrowserExternalURLPatternMatcher(patterns: externalRules).matches(url.absoluteString) {
             return false
@@ -90,6 +91,7 @@ public nonisolated struct TerminalLinkRouting: Sendable, Hashable {
         }
         for (path, field) in [(hostsPath, \TerminalLinkRouting.embeddedHosts), (rulesPath, \.externalRules)] {
             guard let value = browser[path[1]] else { continue }
+            // An array, as the Settings rows accept; classic's line text is only in its preferences.
             if let lines = lines(value) {
                 setting[keyPath: field] = lines
             } else {

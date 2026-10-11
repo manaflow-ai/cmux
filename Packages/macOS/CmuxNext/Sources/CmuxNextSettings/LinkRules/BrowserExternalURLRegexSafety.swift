@@ -2,8 +2,6 @@ import Foundation
 
 /// Rejects regex constructs that can make a synchronous URL decision unbounded.
 nonisolated struct BrowserExternalURLRegexSafety: Sendable {
-    /// Maximum URL text passed to the ICU matcher on the navigation path.
-    let maximumTargetLength = 16_384
     /// Maximum regex expression text accepted by the matcher.
     private let maximumExpressionLength = 8_192
     // Two quantifiers and one alternation cover normal URL rules (`https?`,

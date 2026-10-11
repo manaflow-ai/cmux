@@ -1,6 +1,8 @@
 import Foundation
 
 /// Normalizes URL rules and evaluates them with bounded, precompiled matchers.
+/// Ported from classic cmux (`CmuxSettings` `BrowserExternalURLPolicy`) so a
+/// classic `browser.urlsToAlwaysOpenExternally` rule matches the same URLs.
 nonisolated struct BrowserExternalURLPatternMatcher: Sendable {
     private let maximumTargetLength = 16_384
     /// Each wildcard receives an independent bounded slice so a costly rule
@@ -8,9 +10,9 @@ nonisolated struct BrowserExternalURLPatternMatcher: Sendable {
     private let maximumMatchOperationsPerPattern = 32_768
     /// The largest number of rules retained by one policy snapshot.
     private let maximumPatternCount = 256
-    /// The largest number of array elements inspected by one policy snapshot.
-    /// This keeps comment/duplicate-only legacy arrays from causing an
-    /// unbounded scan before the effective rule limit is reached.
+    /// The largest number of values inspected by one matcher. This keeps
+    /// comment/duplicate-only lists from causing an unbounded scan before
+    /// the effective rule limit is reached.
     private let maximumInputValueCount = 512
     /// The largest individual rule accepted for matching.
     private let maximumPatternLength = 4096
@@ -22,25 +24,10 @@ nonisolated struct BrowserExternalURLPatternMatcher: Sendable {
     private(set) var patterns: [String] = []
     private var compiledPatterns: [BrowserExternalURLCompiledPattern] = []
 
-    /// Builds a normalized matcher from line-oriented or array-backed values.
+    /// Builds a normalized matcher from rules, one per value or line.
     init(patterns: [String]) {
         self.patterns = normalizedPatterns(from: patterns)
         self.compiledPatterns = self.patterns.map(compile)
-    }
-
-    /// Builds a normalized matcher from a property-list value.
-    init(rawValue: Any?) {
-        if let values = rawValue as? [String] {
-            self.init(patterns: values)
-        } else if let values = rawValue as? NSArray {
-            let limitedValues = Array(values.prefix(512))
-            let strings = limitedValues.compactMap { $0 as? String }
-            self.init(patterns: strings.count == limitedValues.count ? strings : [])
-        } else if let value = rawValue as? String {
-            self.init(patterns: [value])
-        } else {
-            self.init(patterns: [])
-        }
     }
 
     /// Returns whether one of the precompiled rules matches `target`.
@@ -67,26 +54,6 @@ nonisolated struct BrowserExternalURLPatternMatcher: Sendable {
             }
         }
         return false
-    }
-
-    /// Converts a legacy array value to the newline text expected by Settings.
-    func legacyArrayStringValue(from rawValue: Any?) -> String? {
-        guard let values = arrayValues(from: rawValue) else { return nil }
-        return normalizedPatterns(from: values).joined(separator: "\n")
-    }
-
-    /// Extracts supported string representations from a UserDefaults value.
-    func stringValues(from rawValue: Any?) -> [String] {
-        if let values = rawValue as? [String] {
-            return values
-        }
-        if let values = rawValue as? NSArray {
-            return values.prefix(maximumInputValueCount).compactMap { $0 as? String }
-        }
-        if let value = rawValue as? String {
-            return [value]
-        }
-        return []
     }
 
     private func compile(_ pattern: String) -> BrowserExternalURLCompiledPattern {
@@ -266,17 +233,5 @@ nonisolated struct BrowserExternalURLPatternMatcher: Sendable {
             }
         }
         return result
-    }
-
-    private func arrayValues(from rawValue: Any?) -> [String]? {
-        if let values = rawValue as? [String] {
-            return values
-        }
-        guard let values = rawValue as? NSArray else {
-            return nil
-        }
-        let limitedValues = Array(values.prefix(maximumInputValueCount))
-        let strings = limitedValues.compactMap { $0 as? String }
-        return strings.count == limitedValues.count ? strings : nil
     }
 }

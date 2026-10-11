@@ -5,8 +5,9 @@ public import Foundation
 /// them (hq#1870 parity audit). Next ships under classic's bundle IDs, so the
 /// app's defaults are classic's preferences on the same channel.
 nonisolated enum ClassicPreferenceImport {
-    struct Entry: Sendable {
+    nonisolated struct Entry: Sendable {
         let next: [String]
+        /// The value one classic domain holds, nil when it holds none.
         let read: @Sendable (UserDefaults) -> JSONValue?
     }
 
@@ -37,19 +38,28 @@ nonisolated enum ClassicPreferenceImport {
 }
 
 extension SettingsController {
-    /// Writes each `ClassicPreferenceImport` value `defaults` holds to
-    /// `cmux.json`, once per key (`defaults` records it). A value `cmux.json`
-    /// already has wins, and a value equal to next's default isn't written.
-    /// Returns whether it wrote.
+    /// `importClassicPreferences(from:marker:)` from classic's preferences:
+    /// this channel's own (`marker`, the app's defaults) first, then the others.
     @discardableResult
-    public func importClassicPreferences(from defaults: UserDefaults) async throws -> Bool {
-        var done = Set(defaults.stringArray(forKey: ClassicPreferenceImport.importedKey) ?? [])
+    public func importClassicPreferences(marker: UserDefaults, bundleIdentifier: String? = Bundle.main.bundleIdentifier)
+        async throws -> Bool {
+        let others = ClassicShortcutImport.domains.filter { $0 != bundleIdentifier }.compactMap { UserDefaults(suiteName: $0) }
+        return try await importClassicPreferences(from: [marker] + others, marker: marker)
+    }
+
+    /// Writes each `ClassicPreferenceImport` value to `cmux.json` from the
+    /// first of `sources` that holds one, once per key (`marker` records it).
+    /// A value `cmux.json` already has wins, and a value equal to next's
+    /// default isn't written. Returns whether it wrote.
+    @discardableResult
+    public func importClassicPreferences(from sources: [UserDefaults], marker: UserDefaults) async throws -> Bool {
+        var done = Set(marker.stringArray(forKey: ClassicPreferenceImport.importedKey) ?? [])
         var edits: [(path: [String], value: JSONValue?)] = []
         for entry in ClassicPreferenceImport.entries {
             let id = entry.next.joined(separator: ".")
             guard !done.contains(id) else { continue }
             done.insert(id)
-            guard let value = entry.read(defaults), try await file.value(at: entry.next) == nil,
+            guard let value = entry.read(marker), try await file.value(at: entry.next) == nil,
                   let descriptor = SettingsSchema.all.first(where: { $0.path == entry.next }),
                   descriptor.accepts(value), value != descriptor.defaultValue else { continue }
             edits.append((entry.next, value))
@@ -58,7 +68,7 @@ extension SettingsController {
             try await file.apply(edits)
             await reloadAfterWrite()
         }
-        defaults.set(done.sorted(), forKey: ClassicPreferenceImport.importedKey)
+        marker.set(done.sorted(), forKey: ClassicPreferenceImport.importedKey)
         return !edits.isEmpty
     }
 }

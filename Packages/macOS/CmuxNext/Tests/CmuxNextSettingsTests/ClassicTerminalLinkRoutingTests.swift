@@ -48,41 +48,73 @@ import Testing
         #expect(settings.snapshot.diagnostics.isEmpty)
     }
 
+    /// Two classic preference domains: this channel's (next's own defaults, the import's marker) and stable's.
+    static func domains() throws -> (own: UserDefaults, stable: UserDefaults, names: [String]) {
+        let names = ["own", "stable"].map { "cn-classic-links-\($0)-\(UUID().uuidString)" }
+        return (try #require(UserDefaults(suiteName: names[0])), try #require(UserDefaults(suiteName: names[1])), names)
+    }
+
     @Test func classicPreferencesComeOverOnceOnTheUpdate() async throws {
         let (settings, home) = try Self.settings("{}")
         defer { try? FileManager.default.removeItem(at: home) }
-        let name = "cn-classic-links-\(UUID().uuidString)"
-        defer { UserDefaults().removePersistentDomain(forName: name) }
-        let defaults = try #require(UserDefaults(suiteName: name))
+        let (own, stable, names) = try Self.domains()
+        defer { names.forEach(UserDefaults().removePersistentDomain(forName:)) }
         // As classic's Settings window stored them: line text, one array from an older release.
-        defaults.set("*.corp.example\n\n  intranet.local  ", forKey: "browserHostWhitelist")
-        defaults.set(["*zoom.us*", "# a comment"], forKey: "browserExternalOpenPatterns")
+        own.set("*.corp.example\n\n  intranet.local  ", forKey: "browserHostWhitelist")
+        own.set(["*zoom.us*", "# a comment"], forKey: "browserExternalOpenPatterns")
+        stable.set("stable.example", forKey: "browserHostWhitelist")
         await settings.reload()
 
-        #expect(try await settings.importClassicPreferences(from: defaults))
+        #expect(try await settings.importClassicPreferences(from: [own, stable], marker: own))
         #expect(try Self.opensInCmux(settings, "https://wiki.corp.example/page"))
         #expect(try Self.opensInCmux(settings, "http://intranet.local/"))
         #expect(try !Self.opensInCmux(settings, "https://example.org/"))
+        #expect(try !Self.opensInCmux(settings, "https://stable.example/"))
         #expect(try !Self.opensInCmux(settings, "https://wiki.corp.example/?join=https://zoom.us/j/1"))
 
         // Removed in next, then the next launch: the classic value does not come back,
         // and turning terminal links off in classic later isn't read either.
         try await settings.setSetting(at: TerminalLinkRouting.hostsPath, to: nil, by: .user)
-        defaults.set(false, forKey: "browserOpenTerminalLinksInCmuxBrowser")
-        #expect(try await !settings.importClassicPreferences(from: defaults))
+        own.set(false, forKey: "browserOpenTerminalLinksInCmuxBrowser")
+        #expect(try await !settings.importClassicPreferences(from: [own, stable], marker: own))
         #expect(try Self.opensInCmux(settings, "https://example.org/"))
     }
 
-    @Test func classicLinksOffSendsEveryLinkOut() async throws {
+    /// Someone who set it up in classic stable and updates on another channel keeps it.
+    @Test func anotherChannelsClassicPreferencesComeOver() async throws {
         let (settings, home) = try Self.settings("{}")
         defer { try? FileManager.default.removeItem(at: home) }
-        let name = "cn-classic-links-\(UUID().uuidString)"
-        defer { UserDefaults().removePersistentDomain(forName: name) }
-        let defaults = try #require(UserDefaults(suiteName: name))
-        defaults.set(false, forKey: "browserOpenTerminalLinksInCmuxBrowser")
+        let (own, stable, names) = try Self.domains()
+        defer { names.forEach(UserDefaults().removePersistentDomain(forName:)) }
+        stable.set(false, forKey: "browserOpenTerminalLinksInCmuxBrowser")
+        stable.set("re:^https://bank\\.example/", forKey: "browserExternalOpenPatterns")
         await settings.reload()
 
-        #expect(try await settings.importClassicPreferences(from: defaults))
+        #expect(try await settings.importClassicPreferences(from: [own, stable], marker: own))
         #expect(try !Self.opensInCmux(settings, "https://example.com/"))
+        // Cmd-Option picks a cmux browser profile: the toggle doesn't apply, the rules do.
+        let routing = settings.snapshot.terminalLinkRouting
+        #expect(routing.opensInCmux(try #require(URL(string: "https://example.com/")), explicit: true))
+        #expect(!routing.opensInCmux(try #require(URL(string: "https://bank.example/login")), explicit: true))
+        // A link with no usable host goes out, as in classic.
+        #expect(!TerminalLinkRouting.fallback.opensInCmux(try #require(URL(string: "https://")), explicit: true))
+    }
+
+    /// The keys decide which links leave a browser agents drive, so only the person changes them,
+    /// and `cmux.json` takes the arrays the Settings rows write.
+    @Test func agentsCannotMoveLinksIntoCmuxAndTextValuesAreRefused() async throws {
+        let (settings, home) = try Self.settings("""
+        { "browser": { "hostsToOpenInEmbeddedBrowser": "a.example\\nb.example" } }
+        """)
+        defer { try? FileManager.default.removeItem(at: home) }
+        await settings.reload()
+        #expect(settings.snapshot.terminalLinkRouting.embeddedHosts.isEmpty)
+        #expect(settings.snapshot.diagnostics.contains { $0.path == "browser.hostsToOpenInEmbeddedBrowser" })
+
+        for path in [TerminalLinkRouting.openPath, TerminalLinkRouting.hostsPath, TerminalLinkRouting.rulesPath] {
+            await #expect(throws: SettingUserOnly.self) {
+                try await settings.setSetting(at: path, to: nil, by: .caller("mcp"))
+            }
+        }
     }
 }
