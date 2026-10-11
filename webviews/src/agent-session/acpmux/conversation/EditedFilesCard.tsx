@@ -18,7 +18,7 @@ import { turnCounts } from "../changes/turnCheckpoint";
 import { useT, type Translate } from "../i18n";
 import { plainEditLabels, type AcpmuxRow } from "../model";
 import { turnChanges, type EditedFile, type UndoStatus } from "../turnChanges/model";
-import { SessionRowsContext, isEditRow } from "../turnChanges/sessionRows";
+import { SessionEditsContext } from "../turnChanges/sessionRows";
 import { useEditedFilesSettings } from "../turnChanges/settings";
 import { applyUndo, cancelUndo, checkUndo, useUndoState, type UndoState } from "../turnChanges/undoStore";
 import { setCardOpen, useCardOpen } from "../turnChanges/openStore";
@@ -34,13 +34,14 @@ export function EditedFilesCard({
   onOpenDiff?: (rowId: string, path?: string, opener?: HTMLElement) => void;
 }) {
   const settings = useEditedFilesSettings();
-  const sessionRows = useContext(SessionRowsContext);
+  const sessionEdits = useContext(SessionEditsContext);
   // Session scope: the latest edited-files row draws one card for the session; earlier ones draw
   // their plain tool rows.
-  const latest = useMemo(() => sessionRows && [...sessionRows].reverse().find(isEditRow)?.id, [sessionRows]);
-  if (settings.show === "never" || (settings.scope === "session" && sessionRows && latest !== row.id))
+  const latest = sessionEdits?.at(-1)?.id;
+  const own = useMemo(() => [row], [row]);
+  if (settings.show === "never" || (settings.scope === "session" && sessionEdits && latest !== row.id))
     return <ToolRows row={row} />;
-  const rows = settings.scope === "session" && sessionRows ? sessionRows.filter(isEditRow) : [row];
+  const rows = settings.scope === "session" && sessionEdits ? sessionEdits : own;
   return <Card row={row} rows={rows} onOpenDiff={onOpenDiff} />;
 }
 

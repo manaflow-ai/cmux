@@ -59,26 +59,47 @@ export function popoverOffset(center: number, popoverHeight: number, viewportHei
   return Math.max(EDGE_MARGIN, Math.min(top, max));
 }
 
-export function minimapTurns(rows: readonly AcpmuxRow[], sessionId = ""): MinimapTurn[] {
+/// Each prompt's turn and the reply it previews, by row object: rows are immutable, so a long
+/// chat's snapshot hashes and previews only the turns that changed.
+const turnsByPrompt = new WeakMap<AcpmuxRow, { turn: MinimapTurn; sessionId: string; reply?: AcpmuxRow }>();
+
+/// The transcript's turns; `previous` again when every turn is the same.
+export function minimapTurns(rows: readonly AcpmuxRow[], sessionId = "", previous?: MinimapTurn[]): MinimapTurn[] {
   const turns: MinimapTurn[] = [];
-  let open: MinimapTurn | undefined;
-  for (let index = 0; index < rows.length; index += 1) {
-    const row = rows[index];
-    if (row.kind === "user") {
-      open = {
-        index,
-        id: row.id,
-        key: `${sessionId}#${row.id}#${hash(row.text ?? "")}`,
-        prompt: (row.text ?? "").replace(/\s+/g, " ").trim(),
-        reply: [],
+  let user: AcpmuxRow | undefined;
+  let userIndex = 0;
+  let reply: AcpmuxRow | undefined;
+  const close = () => {
+    if (!user) return;
+    const kept = turnsByPrompt.get(user);
+    if (kept && kept.sessionId === sessionId && kept.reply === reply && kept.turn.index === userIndex)
+      turns.push(kept.turn);
+    else {
+      const turn: MinimapTurn = {
+        index: userIndex,
+        id: user.id,
+        key: `${sessionId}#${user.id}#${hash(user.text ?? "")}`,
+        prompt: (user.text ?? "").replace(/\s+/g, " ").trim(),
+        reply: reply?.text ? replyPreview(reply.text) : [],
       };
-      turns.push(open);
-    } else if (open && row.kind === "assistant" && row.text) {
-      open.reply = replyPreview(row.text);
-      open = undefined;
+      turnsByPrompt.set(user, { turn, sessionId, reply });
+      turns.push(turn);
     }
+    user = undefined;
+    reply = undefined;
+  };
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index]!;
+    if (row.kind === "user") {
+      close();
+      user = row;
+      userIndex = index;
+    } else if (user && !reply && row.kind === "assistant" && row.text) reply = row;
   }
-  return turns;
+  close();
+  return previous && previous.length === turns.length && previous.every((turn, index) => turn === turns[index])
+    ? previous
+    : turns;
 }
 
 /// FNV-1a of `text`, as base 36.

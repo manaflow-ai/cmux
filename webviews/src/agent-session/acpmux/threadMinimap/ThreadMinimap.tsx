@@ -51,7 +51,12 @@ export function ThreadMinimap({
 }) {
   const t = useT();
   const bookmarks = useBookmarks();
-  const turns = useMemo(() => minimapTurns(rows, sessionId), [rows, sessionId]);
+  const lastTurns = useRef<MinimapTurn[] | undefined>(undefined);
+  const turns = useMemo(() => {
+    const next = minimapTurns(rows, sessionId, lastTurns.current);
+    lastTurns.current = next;
+    return next;
+  }, [rows, sessionId]);
   /// The tick under the pointer or keyboard focus.
   const [hovered, setHovered] = useState<number | undefined>(undefined);
   const [shown, setShown] = useState(false);

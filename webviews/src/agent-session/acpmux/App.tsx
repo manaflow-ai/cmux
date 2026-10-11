@@ -13,7 +13,6 @@ import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { applyAgentTheme } from "../shared/theme";
 import {
-  diffRows,
   layoutConversation,
   type RowHeights,
   paneHeader,
@@ -95,7 +94,7 @@ import { RevealedMarkdown } from "./conversation/RevealedMarkdown";
 import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
-import { SessionRowsContext } from "./turnChanges/sessionRows";
+import { SessionEditsContext, sessionEdits } from "./turnChanges/sessionRows";
 import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
 import { UserBubble } from "./conversation/UserBubble";
 import { editableKey, editableSeqs, editableTurns } from "./conversation/editPrompt";
@@ -950,13 +949,16 @@ export function VirtualTranscript({
   // Rows that arrive live (a reply, a tool call, a status line) enter once. The rows at the first
   // render, and many at once (a session switch, older history), are a load and do not.
   const knownRows = useRef<Set<string> | null>(null);
+  const knownFor = useRef<AcpmuxRow[] | null>(null);
   const enteringRows = useRef(new Set<string>());
   if (knownRows.current === null) knownRows.current = new Set(rows.map((row) => row.id));
-  else {
+  // Scroll frames render the same rows: only a new row list can bring new rows.
+  else if (knownFor.current !== rows) {
     const arrived = rows.filter((row) => !knownRows.current!.has(row.id));
     for (const row of arrived) knownRows.current.add(row.id);
     if (arrived.length <= LIVE_ROWS_PER_UPDATE) for (const row of arrived) enteringRows.current.add(row.id);
   }
+  knownFor.current = rows;
   const onEntered = useCallback((id: string) => void enteringRows.current.delete(id), []);
   const reportDrawn = useCallback<ReportDrawn>(
     (id, version, drawnHeight) => {
@@ -1878,6 +1880,13 @@ function AcpmuxPane() {
       subagentView ? childView(subagentView, snapshot.rows, snapshot.subagentViews, expanded, chatName) : undefined,
     [subagentView, snapshot.rows, snapshot.subagentViews, expanded, chatName],
   );
+  // The session's edit rows for the edited-files card, the same array while they are the same rows.
+  const lastEditRows = useRef<readonly AcpmuxRow[] | undefined>(undefined);
+  const editRows = useMemo(() => {
+    const edits = sessionEdits(snapshot.rows, lastEditRows.current);
+    lastEditRows.current = edits;
+    return edits;
+  }, [snapshot.rows]);
   // The chat's rows before turns fold their work, which Find searches (a closed fold included).
   const sourceRows = useMemo(() => {
     const groups = snapshot.permissionGroups;
@@ -2379,7 +2388,7 @@ function AcpmuxPane() {
     cancelOpenInWindow();
     void callNative(QUICK_MESSAGES.dismiss).catch(() => undefined);
   });
-  const rowsRef = useRef(new Map<string, AcpmuxRow>());
+  const rowsRef = useRef<readonly AcpmuxRow[]>([]);
   /// The newest snapshot, for host requests that read it (pane.context).
   const snapshotRef = useRef<AcpmuxSnapshot | undefined>(undefined);
   const archiveChatRef = useRef<(() => void) | undefined>(undefined);
@@ -2557,8 +2566,7 @@ function AcpmuxPane() {
       receive(next) {
         if (next.protocolVersion !== 1) return;
         harnessSwitch.reconcile(next);
-        const change = diffRows(rowsRef.current, next.rows);
-        rowsRef.current = new Map(next.rows.map((row) => [row.id, row]));
+        rowsRef.current = next.rows;
         snapshotRef.current = next;
         try {
           sessionStorage.setItem("cmux.acpmux.snapshot", JSON.stringify(next));
@@ -2566,7 +2574,6 @@ function AcpmuxPane() {
           // Painting remains live when storage is unavailable or full.
         }
         setSnapshot(next);
-        void change;
       },
       applyTheme(theme) {
         applyAgentTheme(theme as never);
@@ -2625,10 +2632,10 @@ function AcpmuxPane() {
     if (pageHost) void startHostEvents(pageHost).catch(() => undefined);
     window.cmuxAcpmuxDebug = createAcpmuxDebug({
       replaceRows(rows) {
-        rowsRef.current = new Map(rows.map((row) => [row.id, row]));
+        rowsRef.current = rows;
         setSnapshot((current) => ({ ...current, rows, connection: "debug", isWorking: false, canLoadOlder: false }));
       },
-      rowCount: () => rowsRef.current.size,
+      rowCount: () => rowsRef.current.length,
       sessionId: () => directClient.current?.selectedSession,
       automation: {
         snapshot: () => automationView.current!.snapshot,
@@ -2779,7 +2786,7 @@ function AcpmuxPane() {
           mock ? mockConfig : (host as AcpmuxHostConfig),
           (next) => {
             harnessSwitch.reconcile(next);
-            rowsRef.current = new Map(next.rows.map((row) => [row.id, row]));
+            rowsRef.current = next.rows;
             snapshotRef.current = next;
             // What each harness reports feeds the next switch's first frame (harnessProfiles.ts).
             const summary = next.summary;
@@ -3587,7 +3594,7 @@ function AcpmuxPane() {
         <ShellActionsContext.Provider value={shellActions}>
           <TurnActionsContext.Provider value={turnActions}>
             <TurnCountsContext.Provider value={turnCountsFor}>
-              <SessionRowsContext.Provider value={snapshot.rows}>
+              <SessionEditsContext.Provider value={editRows}>
                 <SubagentNavContext.Provider value={setSubagentView}>
                   <VirtualTranscript
                     rows={transcriptRows}
@@ -3616,7 +3623,7 @@ function AcpmuxPane() {
                     onToggleActivity={toggleActivity}
                   />
                 </SubagentNavContext.Provider>
-              </SessionRowsContext.Provider>
+              </SessionEditsContext.Provider>
             </TurnCountsContext.Provider>
           </TurnActionsContext.Provider>
         </ShellActionsContext.Provider>

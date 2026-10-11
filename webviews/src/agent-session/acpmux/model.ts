@@ -229,7 +229,6 @@ export type AcpmuxSnapshot = {
   liveChat?: { canFork: boolean; command?: string };
 };
 
-export type RowChange = { added: AcpmuxRow[]; updated: AcpmuxRow[]; removed: string[] };
 
 export type PreparedRow = {
   text: string;
@@ -291,19 +290,6 @@ export function markdownBlocks(source: string): Token[] {
   } catch {
     return [{ type: "text", raw: source, text: source } as Token];
   }
-}
-
-export function diffRows(previous: Map<string, AcpmuxRow>, next: AcpmuxRow[]): RowChange {
-  const nextById = new Map(next.map((row) => [row.id, row]));
-  const added: AcpmuxRow[] = [];
-  const updated: AcpmuxRow[] = [];
-  for (const row of next) {
-    const before = previous.get(row.id);
-    if (!before) added.push(row);
-    else if (before.version !== row.version) updated.push(row);
-  }
-  const removed = [...previous.keys()].filter((id) => !nextById.has(id));
-  return { added, updated, removed };
 }
 
 export function visibleRowRange(
