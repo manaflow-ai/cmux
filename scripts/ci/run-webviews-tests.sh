@@ -11,8 +11,8 @@
 # CMUX_WEB_TEST_JOBS: files run at once (default: CMUX_CI_CPU_BUDGET, the cores a fleet
 # worker granted the step, else the CPU count).
 #
-# Files that serve the agent pane from its dev server (vite.config.acpmux-pane.mjs) run one at a
-# time after the rest: three of them starting at once (agent-history, agent-pane-peer-chat,
+# Files that serve the agent pane or the gallery from a dev server (vite.config.acpmux-pane.mjs,
+# vite.config.gallery-dev.ts) run one at a time after the rest: three of them starting at once (agent-history, agent-pane-peer-chat,
 # chat-find) stall in the dependency optimizer's first bundle and never load the page, even with
 # a dependency cache each, while each passes alone and any two pass together.
 #
@@ -103,13 +103,13 @@ if [ "$count" -eq 0 ]; then
   echo "error: no webviews test files found under $PWD" >&2
   exit 1
 fi
-# A file that starts a Vite dev server (the agent pane's or the gallery's) runs alone: two servers
-# optimize dependencies into the same node_modules/.vite at once, and each loses files the other
-# wrote, so their first page never loads.
+# Two gallery dev servers at once (composer-mention, composer-send-stop) optimize dependencies
+# into the same node_modules/.vite, and each loses files the other wrote. `--null`, not `-Z`:
+# BSD grep reads -Z as decompress.
 dev_servers='vite\.config\.(acpmux-pane\.mjs|gallery-dev\.ts)'
-xargs -0 grep -lEZ -- "$dev_servers" < "$results/files" > "$results/serial" || true
+xargs -0 grep -lE --null -- "$dev_servers" < "$results/files" > "$results/serial" || true
 serial="$(tr -cd '\0' < "$results/serial" | wc -c | tr -d ' ')"
-xargs -0 grep -LEZ -- "$dev_servers" < "$results/files" > "$results/parallel" || true
+xargs -0 grep -LE --null -- "$dev_servers" < "$results/files" > "$results/parallel" || true
 echo "running $count webviews test files, $jobs at a time ($serial dev server files one at a time after), ${timeout_seconds}s each"
 : > "$results/summary"
 xargs -0 -P "$jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/parallel"
