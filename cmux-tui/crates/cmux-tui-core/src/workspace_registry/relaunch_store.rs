@@ -18,10 +18,11 @@
 //!   reverses the earlier rule that argv stayed in daemon memory only: losing
 //!   the command after every daemon restart left command tabs with nothing to
 //!   rerun. The risk that rule guarded against, argv carrying a credential, is
-//!   cut down by [`stored_argv`]: secret-named flags and their values,
-//!   `name=value` arguments with a secret name, known token prefixes and long
-//!   high-entropy values are dropped, and an argv over [`ARGV_CAP`] bytes is
-//!   not stored. The argv is only typed on the new prompt, never with a
+//!   cut down by [`stored_argv`]: an argv with a secret-named flag, a
+//!   `name=value` argument with a secret name, a known token prefix, a long
+//!   high-entropy value, a bearer token or URL password in a script, or a
+//!   control character is not stored at all (dropping arguments would change
+//!   what the command does), and neither is one over [`ARGV_CAP`] bytes. The argv is only typed on the new prompt, never with a
 //!   newline, so it never runs on its own. It is not copied into the closed
 //!   history: reopen never runs a command again, so it has no use there.
 //! - `env`: values of the named keys in [`ENV_KEYS`] only, minus any key that
@@ -144,45 +145,65 @@ impl RelaunchRecord {
     }
 }
 
-/// `argv` as a relaunch record keeps it: without a flag whose name names a
-/// secret ([`names_secret`]: `--token`, `--password`, `--client-secret`,
-/// `--api-key`, ...) and the value after it, without a `name=value` argument
-/// whose name names one (`api_key=...`, `--token=...`), and without a value
-/// that looks like a token ([`looks_like_credential`]). The program itself
-/// is kept. None for an empty argv or a result over [`ARGV_CAP`].
+/// `argv` as a relaunch record keeps it, whole or not at all: None when any
+/// argument looks like it carries a credential ([`carries_secret`]) or
+/// holds a control character, for an empty argv, and for one over
+/// [`ARGV_CAP`]. Dropping single arguments would change what the offered
+/// command does (`find <path> -delete` offered as `find -delete`); without
+/// an argv the marker names the program instead.
 pub(crate) fn stored_argv(argv: &[String]) -> Option<Vec<String>> {
-    let (program, arguments) = argv.split_first()?;
-    let mut kept = vec![program.clone()];
-    let mut arguments = arguments.iter().peekable();
-    while let Some(argument) = arguments.next() {
-        if let Some((name, value)) = argument.split_once('=') {
-            if names_secret(name.trim_start_matches('-')) || looks_like_credential(value) {
-                continue;
-            }
-        } else if argument.starts_with('-') && names_secret(argument.trim_start_matches('-')) {
-            arguments.next_if(|value| !value.starts_with('-'));
-            continue;
-        }
-        if looks_like_credential(argument) {
-            continue;
-        }
-        kept.push(argument.clone());
+    let (_, arguments) = argv.split_first()?;
+    if argv.iter().any(|argument| argument.chars().any(char::is_control))
+        || arguments.iter().any(|argument| carries_secret(argument))
+    {
+        return None;
     }
-    let size = serde_json::to_string(&kept).map_or(usize::MAX, |json| json.len());
-    (size <= ARGV_CAP).then_some(kept)
+    let size = serde_json::to_string(argv).map_or(usize::MAX, |json| json.len());
+    (size <= ARGV_CAP).then(|| argv.to_vec())
+}
+
+/// Whether an argument may carry a credential: a flag whose name names a
+/// secret ([`names_secret`]: `--token`, `--password`, `--api-key`, ...; its
+/// value is the next argument), a `name=value` with such a name or a
+/// token-like value, a token-like argument ([`looks_like_credential`]), or
+/// text with a secret in it (a script for `sh -c`): a secret word next to
+/// whitespace, an `Authorization`-style `Bearer`/`Basic` value, or a URL
+/// with a password (`scheme://user:pass@host`).
+fn carries_secret(argument: &str) -> bool {
+    if argument.starts_with('-') && names_secret(argument.trim_start_matches('-')) {
+        return true;
+    }
+    if let Some((name, value)) = argument.split_once('=')
+        && (names_secret(name.trim_start_matches('-')) || looks_like_credential(value))
+    {
+        return true;
+    }
+    if looks_like_credential(argument) {
+        return true;
+    }
+    if argument.split_whitespace().nth(1).is_some()
+        && (names_secret(argument)
+            || argument.split_whitespace().any(|word| word == "Bearer" || word == "Basic"))
+    {
+        return true;
+    }
+    argument.split("://").skip(1).any(|rest| {
+        let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+        authority.rsplit_once('@').is_some_and(|(user, _)| user.contains(':'))
+    })
 }
 
 /// Whether `value` looks like a token: a known token prefix
 /// ([`TOKEN_PREFIXES`]), or over 32 characters of token alphabet
-/// (`A-Za-z0-9+/=_.-`) mixing upper case, lower case and digits with at
-/// least 4 bits of entropy per character. Paths, URLs and hex digests (no
-/// upper case) are kept.
+/// (`A-Za-z0-9+=_.-`) mixing upper case, lower case and digits with at
+/// least 4 bits of entropy per character. Paths (with `/`), URLs and hex
+/// digests (no upper case) are not tokens.
 fn looks_like_credential(value: &str) -> bool {
     if TOKEN_PREFIXES.iter().any(|prefix| value.starts_with(prefix)) {
         return true;
     }
     if value.len() <= 32
-        || !value.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"+/=_.-".contains(&byte))
+        || !value.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"+=_.-".contains(&byte))
         || !value.bytes().any(|byte| byte.is_ascii_uppercase())
         || !value.bytes().any(|byte| byte.is_ascii_lowercase())
         || !value.bytes().any(|byte| byte.is_ascii_digit())

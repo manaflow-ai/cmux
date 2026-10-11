@@ -313,61 +313,126 @@ fn a_respawned_terminal_offers_its_agent_session_for_resume_without_running_it()
 
 /// c2. A command tab respawned by a later daemon (the daemon was killed,
 /// then the host died) offers its command line on the new prompt, typed,
-/// never run, without the arguments that look like credentials.
+/// never run. A command with an argument that looks like a credential is
+/// not stored at all: its tab only names the program.
 #[test]
 fn a_command_tab_offers_its_command_after_a_daemon_restart_without_secrets() {
     let _exclusive = exclusive_process_test();
     let mut harness = RecoveryHarness::start("respawn-argv");
     let entropy = "Zx9Qw2Lp7Rt4Vb8Nm3Kj6Hg1Fd5Sa0YcXeUiOo";
-    let created = request(
-        &harness.socket,
-        serde_json::json!({"id":1,"cmd":"run","new_workspace":true,"name":"argv","argv":[
-            "/bin/sh", "-c", "sleep 600", "cmuxargv",
-            "--password", "pw-hunter2", "--token=tok-hunter2", "api_key=key-hunter2",
-            "ghp_abcdefghijklmnopqrstuvwxyz0123456789", entropy,
-        ]}),
-    );
-    assert!(created["surface"].as_u64().is_some(), "{created}");
-    let terminal_id = tab_named(&harness, "argv")["terminal_id"]
-        .as_str()
-        .expect("tab has no terminal id")
-        .to_string();
-    let resolved = request(
-        &harness.socket,
-        serde_json::json!({"cmd":"resolve-terminal","terminal_id":terminal_id}),
-    );
-    let incarnation = resolved["terminal_incarnation"].as_str().unwrap_or_default().to_string();
-    let (_, record) = wait_for_host_records(&harness.host_root(), 1)
-        .into_iter()
-        .find(|(_, record)| record.terminal_id == terminal_id)
-        .expect("the terminal has no host record");
+    let tabs = [
+        ("argv", serde_json::json!(["/bin/sh", "-c", "echo ran-$((6*7)); sleep 600", "cmuxargv"])),
+        (
+            "secret",
+            serde_json::json!([
+                "/bin/sh",
+                "-c",
+                "sleep 600",
+                "cmuxsecret",
+                "--password",
+                "pw-hunter2"
+            ]),
+        ),
+        ("token", serde_json::json!(["/bin/sh", "-c", "sleep 600", "cmuxtoken", entropy])),
+        (
+            "bearer",
+            serde_json::json!([
+                "/bin/sh",
+                "-c",
+                "sleep 600; curl -H 'Authorization: Bearer hunter2'",
+                "cmuxbearer"
+            ]),
+        ),
+    ];
+    let mut terminals = Vec::new();
+    for (index, (name, argv)) in tabs.iter().enumerate() {
+        let created = request(
+            &harness.socket,
+            serde_json::json!({"id":index + 1,"cmd":"run","new_workspace":true,"name":name,"argv":argv}),
+        );
+        assert!(created["surface"].as_u64().is_some(), "{created}");
+        let terminal_id = tab_named(&harness, name)["terminal_id"]
+            .as_str()
+            .expect("tab has no terminal id")
+            .to_string();
+        let resolved = request(
+            &harness.socket,
+            serde_json::json!({"cmd":"resolve-terminal","terminal_id":terminal_id}),
+        );
+        let incarnation = resolved["terminal_incarnation"].as_str().unwrap_or_default().to_string();
+        terminals.push((*name, terminal_id, incarnation));
+    }
+    let records = wait_for_host_records(&harness.host_root(), tabs.len());
     harness.sigkill();
-    // SAFETY: the record PID is the harness-owned terminal host.
-    assert_eq!(unsafe { libc::kill(record.host_pid as libc::pid_t, libc::SIGKILL) }, 0);
+    for (_, terminal_id, _) in &terminals {
+        let (_, record) = records
+            .iter()
+            .find(|(_, record)| &record.terminal_id == terminal_id)
+            .expect("the terminal has no host record");
+        // SAFETY: the record PID is the harness-owned terminal host.
+        assert_eq!(unsafe { libc::kill(record.host_pid as libc::pid_t, libc::SIGKILL) }, 0);
+    }
     harness.restart();
 
-    wait_for_respawn(&harness, &terminal_id, &incarnation);
-    let surface = tab_named(&harness, "argv")["surface"].as_u64().expect("surface");
     // Whitespace dropped, as in c: the typed line can wrap at any column.
     let after_marker = |text: &str| {
         text.rsplit_once(MARKER)
             .map(|(_, tail)| tail.split_whitespace().collect::<String>())
             .unwrap_or_default()
     };
-    let command = "/bin/sh-c'sleep600'cmuxargv";
-    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
-    while !after_marker(&screen(&harness, surface)).contains(command) {
-        assert!(Instant::now() < deadline, "no command offer: {}", screen(&harness, surface));
-        std::thread::sleep(Duration::from_millis(50));
+    for (name, terminal_id, incarnation) in &terminals {
+        wait_for_respawn(&harness, terminal_id, incarnation);
+        let surface = tab_named(&harness, name)["surface"].as_u64().expect("surface");
+        if *name == "argv" {
+            let command = "/bin/sh-c'echoran-$((6*7));sleep600'cmuxargv";
+            let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+            while !after_marker(&screen(&harness, surface)).contains(command) {
+                assert!(
+                    Instant::now() < deadline,
+                    "no command offer: {}",
+                    screen(&harness, surface)
+                );
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            std::thread::sleep(Duration::from_secs(1));
+            let text = screen(&harness, surface);
+            assert!(
+                after_marker(&text).trim_end().ends_with(command),
+                "not on the prompt line: {text}"
+            );
+            assert!(!after_marker(&text).contains("ran-42"), "the offered command ran: {text}");
+            let lines = wait_for_respawn_lines(&harness, terminal_id, 1);
+            assert_eq!(lines.first().map(|line| line["prefilled"].clone()), Some("command".into()));
+        } else {
+            // The marker names the program instead: "(previous process ended; it ran sh)".
+            let named = "session restored (previous process ended; it ran sh)";
+            let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+            while !screen(&harness, surface).contains(named) {
+                assert!(
+                    Instant::now() < deadline,
+                    "{name}: no restore marker naming the program: {}",
+                    screen(&harness, surface)
+                );
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            std::thread::sleep(Duration::from_secs(1));
+            let text = screen(&harness, surface);
+            let tail = text
+                .rsplit_once(named)
+                .map(|(_, tail)| tail.split_whitespace().collect::<String>())
+                .unwrap_or_default();
+            assert!(
+                !tail.contains(&format!("cmux{name}")),
+                "{name}: a credential-like command was offered: {tail}"
+            );
+            for secret in ["hunter2", entropy] {
+                assert!(
+                    !tail.contains(secret),
+                    "{name}: a credential-like argument was offered: {tail}"
+                );
+            }
+        }
     }
-    std::thread::sleep(Duration::from_secs(1));
-    let text = screen(&harness, surface);
-    assert!(after_marker(&text).trim_end().ends_with(command), "not on the prompt line: {text}");
-    for secret in ["hunter2", "ghp_", entropy] {
-        assert!(!text.contains(secret), "a credential-like argument was offered: {text}");
-    }
-    let lines = wait_for_respawn_lines(&harness, &terminal_id, 1);
-    assert_eq!(lines.first().map(|line| line["prefilled"].clone()), Some("command".into()));
 }
 
 /// d. A real process end is never respawned: the terminal stays exited
