@@ -31,13 +31,20 @@ nonisolated struct PreviousRun: Codable, Equatable, Sendable {
         if let signal { return LaunchRecovery.requestedQuitSignals.contains(signal) }
         return quitting == true
     }
+
+    /// The run crashed: its fatal signal handler wrote the signal, or it
+    /// ended on an uncaught exception. A run that ended with no handler
+    /// running (`kill -9`, jetsam, power loss) did not crash; its next
+    /// launch restores the same way, without the restart notice.
+    var crashed: Bool { signal != nil || exception != nil }
 }
 
 /// How this launch follows the previous one. Pure: `AppRunMarker` supplies
 /// the inputs.
 nonisolated enum LaunchRecovery: Equatable, Sendable {
-    /// The previous run quit normally, or was asked to: a quit that had
-    /// begun, or a requested-quit signal recorded before `QuitSignal` ran.
+    /// The previous run quit normally, was asked to (a quit that had begun,
+    /// or a requested-quit signal recorded before `QuitSignal` ran), or was
+    /// killed with no handler running (`kill -9`, jetsam, power loss).
     case clean
     /// The previous run ended unexpectedly: restore everything and show the
     /// notice.
@@ -56,7 +63,7 @@ nonisolated enum LaunchRecovery: Equatable, Sendable {
     static let requestedQuitSignals: Set<Int32> = [SIGTERM, SIGINT, SIGHUP]
 
     static func decide(previous: PreviousRun?) -> LaunchRecovery {
-        guard let previous, !previous.endedAsAsked else { return .clean }
+        guard let previous, !previous.endedAsAsked, previous.crashed else { return .clean }
         if previous.recovery, !previous.survived { return .restartedSafely(previous) }
         return .restarted(previous)
     }
