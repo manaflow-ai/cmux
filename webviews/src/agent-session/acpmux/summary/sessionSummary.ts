@@ -128,6 +128,9 @@ function sources(all: readonly Tool[]): SummarySource[] {
   return [...seen.values()];
 }
 
+/// The chat's pull requests alone (the composer's PR bars, PullRequestDock.tsx).
+export const sessionPullRequests = (rows: readonly AcpmuxRow[]) => pullRequests(tools(rows));
+
 export function sessionSummary(rows: readonly AcpmuxRow[]): SessionSummary {
   const all = tools(rows);
   return {
