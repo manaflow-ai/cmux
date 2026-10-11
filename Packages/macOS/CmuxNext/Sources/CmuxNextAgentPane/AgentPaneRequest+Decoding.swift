@@ -219,6 +219,8 @@ extension AgentPaneRequest {
         case "quick.setOnTop": self = (params?["onTop"] as? Bool).map(AgentPaneRequest.quickSetOnTop) ?? .unsupported(method)
         case "quick.setCollapsed": self = (params?["collapsed"] as? Bool).map(AgentPaneRequest.quickSetCollapsed) ?? .unsupported(method)
         case "turn.undo": self = AgentPaneTurnUndo(params: params).map(AgentPaneRequest.turnUndo) ?? .invalidTurnUndo
+        case "git.stage", "git.unstage":
+            self = AgentPaneGitStage(method: method, params: params).map(AgentPaneRequest.gitStage) ?? .invalidGitStage
         case "git.githubRepository":
             if let cwd = params?["cwd"] as? String, cwd.hasPrefix("/"), !cwd.contains("\0") {
                 self = .githubRepository(cwd: cwd)
