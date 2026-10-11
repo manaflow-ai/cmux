@@ -212,7 +212,6 @@ impl Drop for Finishing<'_> {
 }
 
 impl AgentTransfers {
-
     /// The scrubbed bytes of `path` (or none: read it from acpmux) when
     /// this daemon began the move and its manifest lists `path`.
     fn listed(&self, transfer_id: &str, path: &str) -> Result<Option<Arc<Vec<u8>>>, Refusal> {
