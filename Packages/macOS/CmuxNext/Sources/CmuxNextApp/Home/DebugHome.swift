@@ -21,6 +21,11 @@ enum DebugHome {
                 .object(["seq": item.seq.map { .number(Double($0)) } ?? .null, "author": .string(item.author.rawValue),
                          "text": .string(item.plainText), "delivery": .string(String(describing: item.delivery))])
             })
+            // The running agent reply Home grows in its bubble (HomeStore.drafts).
+            if let draft = home.homeStore.drafts[ConversationID(summary.id)] {
+                row["draft"] = .object(["turn": .string(draft.turn.rawValue), "author": .string(draft.participant.rawValue),
+                                        "text": .string(draft.text)])
+            }
             if let session = home.sessions[summary.id] {
                 row["mirror_rev"] = session.mirror.map { .number(Double($0.rev)) } ?? .null
                 row["pending"] = .array(session.log.entries.map { entry in

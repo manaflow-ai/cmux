@@ -211,6 +211,7 @@
         "CmuxNextDaemon",
         "CmuxNextHistory",
         "CmuxNextHome",
+        "CmuxNextLayout",
         "CmuxNextProcessEnvironment",
         "CmuxNextTabs",
         "CmuxNextTasks",

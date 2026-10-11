@@ -137,6 +137,13 @@ void cmux_shim_set_zoom_level(int browser_id, double level) {
   if (CefRefPtr<CefBrowserHost> host = HostOf(browser_id)) host->SetZoomLevel(level);
 }
 
+int cmux_shim_print(int browser_id) {
+  CefRefPtr<CefBrowserHost> host = HostOf(browser_id);
+  if (!host) return 0;
+  host->Print();
+  return 1;
+}
+
 void cmux_shim_find(int browser_id, int find_id, const char* text, int forward, int match_case, int find_next) {
   // CEF reports its own identifier in OnFindResult; this build ignores the
   // caller's, so Swift matches results by browser and the latest request.

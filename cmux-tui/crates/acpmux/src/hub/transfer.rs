@@ -4,7 +4,7 @@ use super::*;
 
 /// True when `id` is a single plain path component, so it can name a
 /// directory under the sessions root (no separator, `.`, `..` or root).
-fn is_plain_id(id: &str) -> bool {
+pub(super) fn is_plain_id(id: &str) -> bool {
     let mut parts = Path::new(id).components();
     matches!(
         (parts.next(), parts.next()),
@@ -86,6 +86,17 @@ impl Hub {
         bundle: &Path,
         name: Option<String>,
     ) -> Result<Arc<Session>, RpcError> {
+        self.import_into(bundle, name, false).await
+    }
+
+    /// `import`; a `live` one (a chat moved here, `transfer_in.rs`) has its queue back before
+    /// any client sees it, so no new prompt runs ahead of it.
+    pub(super) async fn import_into(
+        self: &Arc<Self>,
+        bundle: &Path,
+        name: Option<String>,
+        live: bool,
+    ) -> Result<Arc<Session>, RpcError> {
         let meta_text = std::fs::read_to_string(bundle.join("session.json"))
             .map_err(|e| RpcError::invalid_params(format!("read session.json: {e}")))?;
         let mut meta: SessionMeta = serde_json::from_str(&meta_text)
@@ -148,6 +159,11 @@ impl Hub {
         let restored = crate::native::restore(bundle, &meta).unwrap_or_default();
         session.seq.store(last, Ordering::SeqCst);
         session.meta.lock().unwrap().last_seq = last;
+        if live {
+            self.restore_queue(&session);
+            // Its log holds the source's move (`transfer_out`), not one of this daemon's.
+            *session.moving.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        }
         self.sessions.lock().unwrap().insert(meta.id.clone(), session.clone());
         self.append(
             &session,

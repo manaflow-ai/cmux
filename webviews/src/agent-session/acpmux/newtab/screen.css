@@ -137,44 +137,92 @@
 /* The template dots, centered under every template, in the page's own flow after the scrolling
    screen (never over it: nxdog82, "Integrate a harness" ran under the dots in a short window). */
 .nt-templates {
+  --nt-template-slot: 24px;
   order: 1;
   flex: none;
   align-self: center;
+  position: relative;
   display: flex;
-  gap: 4px;
   margin: 0;
   border: 0;
   padding: 6px 0 12px;
   min-inline-size: 0;
 }
+/* Drawn like the sidebar's space dots (cx-l1jv): a slot per dot, a 20px chip inset 2px with the
+   item corner radius, the current template's chip in the selected-row fill, the dots at 70%, 90%
+   under the pointer and full for the current one. */
 .nt-template-dot {
-  width: 18px;
-  height: 18px;
-  border: 0;
-  padding: 0;
-  background: none;
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: var(--nt-template-slot);
+  height: var(--nt-template-slot);
   cursor: pointer;
 }
-.nt-template-dot::before {
+/* The chip and the dot draw only: a click lands on the radio itself (a click on the label would
+   reach it as a synthetic click, which Terminal ignores). */
+.nt-template-dot::before,
+.nt-templates-chip {
   content: "";
-  display: block;
-  width: 6px;
-  height: 6px;
-  margin: auto;
-  border-radius: 50%;
-  background: var(--agent-text);
-  opacity: 0.25;
+  position: absolute;
+  inset: 2px;
+  border-radius: 6px;
+  pointer-events: none;
 }
 .nt-template-dot:hover::before {
-  opacity: 0.55;
+  background: var(--agent-control-hover);
 }
-.nt-template-dot[aria-pressed="true"]::before {
+.nt-templates-chip {
+  inset: auto;
+  top: calc(6px + 2px);
+  left: 2px;
+  width: calc(var(--nt-template-slot) - 4px);
+  height: calc(var(--nt-template-slot) - 4px);
+  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 8%, transparent);
+  transform: translateX(calc(var(--nt-template-index) * var(--nt-template-slot)));
+  pointer-events: none;
+}
+.nt-template-dot::after {
+  content: "";
+  position: relative;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--agent-text);
+  opacity: 0.7;
+  pointer-events: none;
+}
+.nt-template-dot:hover::after {
   opacity: 0.9;
 }
-.nt-template-dot:focus-visible {
+.nt-template-dot:has(.nt-template-input:checked)::after {
+  opacity: 1;
+}
+.nt-template-input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.nt-template-dot:has(.nt-template-input:focus-visible)::before {
   outline: 1.5px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
-  outline-offset: 0;
-  border-radius: 50%;
+}
+/* The chip slides to the dot picked on the move token; hover eases in and clears at once (as rows do). */
+@media (prefers-reduced-motion: no-preference) {
+  .nt-templates-chip {
+    transition: transform var(--agent-motion-move, 0.19s) var(--agent-ease-out, ease-out);
+  }
+  .nt-template-dot::before,
+  .nt-template-dot::after {
+    transition:
+      background-color var(--agent-motion-hover-out, 0s) var(--agent-ease-out, ease-out),
+      opacity var(--agent-motion-hover-out, 0s) var(--agent-ease-out, ease-out);
+  }
+  .nt-template-dot:hover::before,
+  .nt-template-dot:hover::after {
+    transition-duration: var(--agent-motion-hover, 0.08s);
+  }
 }
 /* The host actions (ToolsRow): one quiet row under the field, text and a small glyph, the shortcut
    in the tooltip (board principle 5). */
@@ -186,9 +234,16 @@
 .nt-open-tab:focus-visible .nt-row-action{opacity:1}
 .nt-tools{display:flex;flex-wrap:wrap;gap:2px;margin-top:-2px}
 .nt-tool-host,.nt-card-host,.nt-row-host{display:contents}
+.nt-tool-host-with-menu{display:flex;align-items:center;gap:2px}
 .nt-tool{display:flex;align-items:center;gap:8px;height:28px;padding:0 10px;border:0;border-radius:8px;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:var(--text-detail);line-height:var(--text-detail--line-height);white-space:nowrap;cursor:default}
 .nt-tool:hover,.nt-tool:focus-visible{background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
 .nt-tool-icon{display:inline-grid;place-items:center;width:16px}
+.nt-tool-menu{display:flex;align-items:center}
+.nt-tool-menu-button{width:28px;height:30px;border:0;border-radius:8px;background:none;color:var(--acpmux-composer-dim);font-size:var(--text-title);cursor:pointer}
+.nt-tool-menu-button:hover,.nt-tool-menu-button[data-popup-open]{background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text)}
+.ui-popup.nt-tool-menu-popover{min-width:150px;padding:5px;border-radius:10px;background:var(--acpmux-composer-bg);box-shadow:0 8px 24px rgb(0 0 0/.3),inset 0 0 0 .5px var(--acpmux-composer-edge)}
+.ui-menu-item.nt-tool-menu-item{display:flex;align-items:center;width:100%;min-height:28px;padding:7px 9px;border:0;border-radius:6px;background:none;color:var(--agent-soft);font-family:system-ui;font-size:var(--text-control);line-height:var(--text-control--line-height);text-align:left;cursor:pointer}
+.ui-menu-item.nt-tool-menu-item[data-highlighted]{background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text)}
 /* Chats (cx-n0i9): one list under the field. The running and waiting chats lead it with their
    state; every chat on this computer follows, virtualized, newest first. The page scrolls only when
    the window is too short. Marks are muted at rest: color is for state, not for every row. */

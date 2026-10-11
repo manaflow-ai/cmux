@@ -87,7 +87,8 @@ enum WorkspaceCreation {
     @MainActor
     static func newTabPage(_ spawn: WorkspaceSpawn, _ key: WorkspaceKey, cwd: String?, on daemon: DaemonService,
                            repair: EmptyWorkspaceRepair, tabs: AgentTabStore) async throws -> String? {
-        guard spawn.opensNewTabPage || spawn.firstChat != nil, spawn.command == nil, tabs.canHost(on: daemon),
+        guard spawn.opensNewTabPage || spawn.firstChat != nil, spawn.command == nil,
+              tabs.opensFirstPage(on: daemon, chat: spawn.firstChat != nil),
               let connection = daemon.connection else { return nil }
         return try await createWithFirstTab(key, name: spawn.name, on: connection, repair: repair) { created in
             _ = try await tabs.openFirstPage(workspace: created.workspace, cwd: cwd, on: daemon, chat: spawn.firstChat)

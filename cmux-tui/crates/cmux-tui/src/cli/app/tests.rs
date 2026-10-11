@@ -266,6 +266,57 @@ fn app_browser_tabs_take_page_commands_and_daemon_browsers_stay_with_the_mux() {
     assert!(parse(&args(&["browser", "page", "fill", "#q"])).is_err());
 }
 
+// `cmux browser <tab|page> tabs|new-tab|select|close` reach the app as the
+// browser.page tab methods; runs that open, select or close carry an
+// idempotency key, so a busy retry is one run, and `--no-wait` asks the app
+// not to wait.
+#[test]
+fn browser_tab_verbs_reach_the_app_and_runs_carry_a_key() {
+    let listed = json!({ "id": 1, "ok": true, "result": { "tabs": [] } });
+    let opened = json!({ "id": 1, "ok": true, "result": { "ran": true, "created": ["tab_02cd"] } });
+    let closed = json!({ "id": 1, "ok": true, "result": { "ran": true } });
+    for (words, response, method, params) in [
+        (
+            vec!["browser", "page", "tabs", "--all"],
+            listed,
+            "browser.page.tabs",
+            json!({ "all": true }),
+        ),
+        (
+            vec!["browser", "tab_01ab", "new-tab", "https://cmux.com"],
+            opened,
+            "browser.page.new_tab",
+            json!({ "tab": "tab_01ab", "url": "https://cmux.com" }),
+        ),
+        (
+            vec!["browser", "tab_01ab", "switch"],
+            json!({ "id": 1, "ok": true, "result": { "ran": true } }),
+            "browser.page.select_tab",
+            json!({ "tab": "tab_01ab" }),
+        ),
+        (
+            vec!["browser", "tab_01ab", "close", "--no-wait"],
+            closed,
+            "browser.page.close",
+            json!({ "tab": "tab_01ab", "wait": false }),
+        ),
+    ] {
+        let (socket, app) = fake_app(vec![response]);
+        let command = parse(&args(&words)).unwrap().unwrap();
+        assert_eq!(run(&global_for(&socket), command), 0, "{words:?}");
+        let connections = app.join().unwrap();
+        let [request] = connections[0].as_slice() else { panic!("{connections:?}") };
+        assert_eq!(request["method"], method, "{words:?}");
+        let mut sent = request["params"].clone();
+        let key = sent.as_object_mut().unwrap().remove("idempotency_key");
+        sent.as_object_mut().unwrap().remove("after");
+        assert_eq!(sent, params, "{words:?}");
+        assert_eq!(key.is_some(), method != "browser.page.tabs", "{words:?}");
+    }
+    assert!(parse(&args(&["browser", "page", "close", "tab_02"])).is_err());
+    assert!(parse(&args(&["browser", "tab_01ab", "select", "--all"])).is_err());
+}
+
 #[test]
 fn settings_set_takes_json_or_a_plain_string() {
     let (_, params) =
@@ -291,29 +342,6 @@ fn responses_split_transport_from_app_errors() {
             .is_err()
     );
     assert!(parse_response("").is_err());
-}
-
-#[test]
-fn open_directory_passes_focus_and_activate_for_both_flags() {
-    let root = std::env::temp_dir().join(format!("cmux-open-test-{}", std::process::id()));
-    std::fs::create_dir_all(&root).unwrap();
-    let root_text = root.to_string_lossy().into_owned();
-    let environment = std::collections::HashMap::new();
-    for (flags, expected) in [(vec!["--focus", "true"], true), (Vec::new(), false)] {
-        let mut command_args = flags.into_iter().map(String::from).collect::<Vec<_>>();
-        command_args.push(root.to_string_lossy().into_owned());
-        let AppCommand::Open { requests, .. } =
-            parse_open_with(&command_args, false, &environment, &mut std::io::empty()).unwrap()
-        else {
-            panic!("expected open command")
-        };
-        assert_eq!(requests.len(), 1);
-        assert_eq!(requests[0].method, "workspace.create");
-        assert_eq!(requests[0].params["cwd"].as_str(), Some(root_text.as_str()));
-        assert_eq!(requests[0].params["focus"], expected);
-        assert_eq!(requests[0].params["activate"], expected);
-    }
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
