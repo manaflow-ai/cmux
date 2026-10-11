@@ -2,133 +2,133 @@
   "sourceLanguage": "en",
   "strings": {
     "pastChat.label": {
-      "comment": "Agent pane: the heading over a chat's past turns, shown read-only before the chat can resume here (cx-khns1)",
+      "comment": "Agent pane: the heading over a chat's past turns, shown read-only in a fresh chat that cannot resume it here (cx-khns1)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "سابقًا في هذه المحادثة (للقراءة فقط)"
+            "value": "من المحادثة الأصلية (للقراءة فقط)"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ranije u ovom razgovoru (samo za čitanje)"
+            "value": "Iz originalnog razgovora (samo za čitanje)"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tidligere i denne chat (skrivebeskyttet)"
+            "value": "Fra den oprindelige chat (skrivebeskyttet)"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Früher in diesem Chat (schreibgeschützt)"
+            "value": "Aus dem ursprünglichen Chat (schreibgeschützt)"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Earlier in this chat (read-only)"
+            "value": "From the original chat (read-only)"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Antes en este chat (solo lectura)"
+            "value": "Del chat original (solo lectura)"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Plus tôt dans cette discussion (lecture seule)"
+            "value": "De la discussion d’origine (lecture seule)"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "In precedenza in questa chat (sola lettura)"
+            "value": "Dalla chat originale (sola lettura)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このチャットの以前の内容（読み取り専用）"
+            "value": "元のチャットの内容（読み取り専用）"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មុននេះក្នុងការជជែកនេះ (សម្រាប់តែអាន)"
+            "value": "ពីការជជែកដើម (សម្រាប់តែអាន)"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 채팅의 이전 내용(읽기 전용)"
+            "value": "원래 채팅의 내용(읽기 전용)"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tidligere i denne chatten (skrivebeskyttet)"
+            "value": "Fra den opprinnelige chatten (skrivebeskyttet)"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wcześniej w tym czacie (tylko do odczytu)"
+            "value": "Z oryginalnego czatu (tylko do odczytu)"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Antes neste chat (somente leitura)"
+            "value": "Do chat original (somente leitura)"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ранее в этом чате (только чтение)"
+            "value": "Из исходного чата (только чтение)"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ก่อนหน้านี้ในแชตนี้ (อ่านอย่างเดียว)"
+            "value": "จากแชตเดิม (อ่านอย่างเดียว)"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu sohbette daha önce (salt okunur)"
+            "value": "Orijinal sohbetten (salt okunur)"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Раніше в цьому чаті (лише читання)"
+            "value": "З початкового чату (лише читання)"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Trước đó trong cuộc trò chuyện này (chỉ đọc)"
+            "value": "Từ cuộc trò chuyện gốc (chỉ đọc)"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此聊天的早前内容（只读）"
+            "value": "来自原聊天（只读）"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "此聊天的先前內容（唯讀）"
+            "value": "來自原聊天（唯讀）"
           }
         }
       }

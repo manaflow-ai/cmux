@@ -37,9 +37,9 @@ nonisolated enum AcpmuxStatusClient {
     }
 
     /// `_acpmux/chat_transcript`: the past turns of one device-wide chat, read from its own
-    /// transcript (cx-khns1).
+    /// transcript (cx-khns1). The page's handshake waits on it, so the deadline is `chat_open`'s.
     @concurrent static func chatTranscript(socketPath: String, key: String,
-                                           deadline: Duration = .seconds(5)) async throws -> [AgentPanePastTurn] {
+                                           deadline: Duration = .seconds(2)) async throws -> [AgentPanePastTurn] {
         let result = try await call(socketPath: socketPath, method: "_acpmux/chat_transcript", params: ["key": key], deadline: deadline)
         return AgentPanePastTurn.turns(result: result)
     }

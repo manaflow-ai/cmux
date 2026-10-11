@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { Markdown } from "./conversation/Markdown";
 import { useT } from "./i18n";
 
@@ -21,9 +22,12 @@ export function readPastTurns(value: unknown): PastTurn[] | undefined {
 
 export function PastChat({ turns, githubRepository }: { turns: PastTurn[]; githubRepository?: string }) {
   const t = useT();
+  const labelId = useId();
   return (
-    <section className="acpmux-past-chat" aria-label={t("pastChat.label")}>
-      <p className="acpmux-past-chat-label">{t("pastChat.label")}</p>
+    <section className="acpmux-past-chat" aria-labelledby={labelId}>
+      <p className="acpmux-past-chat-label" id={labelId}>
+        {t("pastChat.label")}
+      </p>
       {turns.map((turn, index) => (
         <div className="acpmux-past-chat-turn" key={index}>
           <div className="cv-user">
