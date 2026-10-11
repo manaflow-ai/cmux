@@ -3,7 +3,7 @@
 //! terminal and, after a loss or resync, reconnects or rehosts.
 
 use super::*;
-use std::os::unix::net::UnixStream;
+use crate::terminal_host_runtime::HostStream as UnixStream;
 
 mod output;
 mod reconnect;

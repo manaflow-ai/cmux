@@ -121,6 +121,18 @@ export const Message = Schema.Struct({
   reactions: Schema.Array(Reaction)
 }).annotate({ identifier: "HomeMessage" })
 
+/**
+ * Thread stats of one root, computed by the owner at read time (cx-59n8.6): every reply counts,
+ * a retracted one too; `authors` are the first 3 distinct reply authors by seq.
+ */
+export const ThreadSummary = Schema.Struct({
+  root: MessageId,
+  reply_count: Seq,
+  last_reply_seq: Schema.NullOr(Seq),
+  last_reply_at: Schema.NullOr(Timestamp),
+  authors: Schema.Array(ParticipantId).check(Schema.isMaxLength(3))
+}).annotate({ identifier: "HomeThreadSummary" })
+
 export const DeliveryState = Schema.Literals(["queued", "sent", "delivered", "bounced", "complained", "failed", "suppressed", "refused_env"]).annotate({ identifier: "HomeDeliveryState" })
 
 /** An invite as participants see it: no token hash. */

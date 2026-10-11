@@ -33,7 +33,7 @@ public struct Icon: View {
         Group {
             switch symbol.map(IconResolution.system) ?? IconPack.bundled.resolve(name, style: drawn, accent: accent) {
             case .drawing(let layers):
-                IconCanvas(layers: layers, grid: IconPack.bundled.grid, accentColor: accentColor ?? .accentColor)
+                IconCanvas(layers: layers, grid: IconPack.bundled.grid, accentColor: accentColor ?? .secondary)
             case .system(let symbol):
                 Image(systemName: symbol)
                     .resizable()
