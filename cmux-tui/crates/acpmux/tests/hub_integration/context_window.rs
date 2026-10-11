@@ -40,3 +40,20 @@ async fn a_claude_chats_usage_carries_its_models_context_window() {
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[tokio::test]
+async fn a_claude_chat_that_switched_models_uses_the_new_models_window() {
+    let root = std::env::temp_dir().join(format!("acpmux-context-{}", uuid::Uuid::now_v7()));
+    let claude = root.join("claude");
+    std::fs::create_dir_all(&claude).unwrap();
+    let (hub, mut c) = claude_setup(&claude, &[]).await;
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": "switched-probe"}]});
+    c.request(method::SESSION_PROMPT, prompt).await.unwrap();
+    // The model the main loop now runs (its messages name it), not the earlier 1M one still in
+    // Claude's cumulative modelUsage.
+    assert_eq!(usages(&hub, &id).last(), Some(&(4500, 200_000)), "{:?}", usages(&hub, &id));
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
