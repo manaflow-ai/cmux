@@ -2744,7 +2744,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Duplicate Workspace without Browser Tabs",
+      "title" : "Duplicate Workspace Without Browser Tabs",
       "title_key" : "action.workspace.duplicateTerminalsOnly",
       "title_table" : "WorkspaceActions"
     },
@@ -17681,7 +17681,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Create checkpoint",
+      "title" : "Create Checkpoint",
       "title_key" : "action.agentPane.createCheckpoint",
       "title_table" : "ActionCatalog"
     },
@@ -17806,7 +17806,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Commit changes…",
+      "title" : "Commit Changes…",
       "title_key" : "action.agentPane.git.commit",
       "title_table" : "Localizable"
     },
@@ -17833,7 +17833,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Push branch",
+      "title" : "Push Branch",
       "title_key" : "action.agentPane.git.push",
       "title_table" : "Localizable"
     },
@@ -17959,7 +17959,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Allow once",
+      "title" : "Allow Once",
       "title_key" : "action.agentPane.permission.allowOnce",
       "title_table" : "ActionCatalog"
     },
@@ -17992,7 +17992,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Allow for this chat",
+      "title" : "Allow for This Chat",
       "title_key" : "action.agentPane.permission.allowChat",
       "title_table" : "ActionCatalog"
     },
@@ -18058,7 +18058,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Expand permission details",
+      "title" : "Expand Permission Details",
       "title_key" : "action.agentPane.permission.expand",
       "title_table" : "ActionCatalog"
     },
@@ -18085,7 +18085,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Check and retry permission",
+      "title" : "Check and Retry Permission",
       "title_key" : "action.agentPane.permission.retry",
       "title_table" : "ActionCatalog"
     },
@@ -18112,7 +18112,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Revoke chat permission",
+      "title" : "Revoke Chat Permission",
       "title_key" : "action.agentPane.permission.revoke",
       "title_table" : "ActionCatalog"
     },
@@ -18139,7 +18139,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Refresh permissions",
+      "title" : "Refresh Permissions",
       "title_key" : "action.agentPane.permission.refresh",
       "title_table" : "ActionCatalog"
     },
