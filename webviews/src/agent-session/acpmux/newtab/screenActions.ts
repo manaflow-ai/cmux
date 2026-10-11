@@ -26,7 +26,12 @@ export function newTabScreenActions(deps: {
       // The project picked on the page, else the folder the tab inherited.
       const folder = picked ?? cwd;
       const params: Record<string, unknown> = { harness, ...(folder ? { cwd: folder } : {}) };
-      ignore(callNative("chat.new", params).then(() => (text ? callNative("chat.send", { text }) : undefined)));
+      // The prompt goes in the same turn as the switch, inside the Enter's gesture: the switch
+      // queues it, and a folder trust refusal then holds it with that gesture (holdPrompt), so
+      // Trust sends it. Sending after `chat.new` settled lost it: the switch had stopped on the
+      // refusal with nothing queued ("Not sent").
+      ignore(callNative("chat.new", params));
+      if (text) ignore(callNative("chat.send", { text }));
     },
     onOpen: (url) => {
       if (url.startsWith("file://"))
