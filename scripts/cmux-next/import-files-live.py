@@ -8,9 +8,9 @@ person-only action as a palette run; `debug.dialog` picks the browser and
 presses Choose Files…; `debug.key` types into the cmux picker. Files are
 synthetic exports in a scratch folder (no real passwords):
 
-  1. the browser dialog lists Google Chrome, Microsoft Edge, Brave, Firefox and Safari;
-  2. Microsoft Edge's steps name its export pages (edge://settings/passwords,
-     edge://favorites);
+  1. picking Microsoft Edge shows its steps, naming its export pages
+     (edge://settings/passwords, edge://favorites);
+  2. picking Safari shows Safari's steps;
   3. a bookmarks HTML file picked there lands in the bookmark bar's Imported folder;
   4. a passwords CSV picked through Safari's steps is imported (the counts toast).
 
@@ -157,14 +157,15 @@ try:
     result = import_through("edge", "bookmarks.html")
     if isinstance(result, tuple):
         shown, steps = result
-        check(all(n in json.dumps(shown) for n in ["Google Chrome", "Microsoft Edge", "Brave", "Firefox", "Safari"]),
-              f"the browser dialog lists Chrome, Edge, Brave, Firefox and Safari ({shown})")
+        check("Microsoft Edge" in steps.get("title", ""), f"the steps name the picked browser ({steps.get('title')})")
         lines = " ".join(steps.get("lines", []))
         check("edge://settings/passwords" in lines and "edge://favorites" in lines,
               f"Microsoft Edge's steps name its export pages ({steps.get('lines')})")
     check(wait_for(lambda: "https://edge-export.example.com/" in bookmark_urls(), "the bookmark lands") is not None,
           f"the picked bookmarks HTML is imported ({bookmark_urls()})")
-    import_through("safari", "passwords.csv")
+    result = import_through("safari", "passwords.csv")
+    if isinstance(result, tuple):
+        check("Safari" in result[1].get("title", ""), f"Safari's steps name Safari ({result[1].get('title')})")
     imported = wait_for(lambda: next((t for t in toasts() if "Imported: 2" in t), None), "the passwords toast", 30)
     check(imported is not None, f"the picked passwords CSV is imported ({toasts()})")
     check("not-a-real-password" not in json.dumps(rpc("debug.toast")), "no password shows in a toast")
