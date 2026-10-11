@@ -65,6 +65,16 @@ async fn an_agent_gone_without_an_answer_is_lost() {
 }
 
 #[tokio::test]
+async fn an_agent_gone_before_any_prompt_shows_nothing() {
+    let env = BTreeMap::from([("FAKE_EXIT_AFTER_NEW".to_owned(), "1".to_owned())]);
+    let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let id = new_session(&mut c, "unprompted").await;
+    let s = settled(&hub, &mut c, &id, |s| s["status"] == "disconnected").await;
+    assert!(s["lastTurn"].is_null(), "{s}");
+    assert_eq!(s["indicator"], Value::Null, "{s}");
+}
+
+#[tokio::test]
 async fn an_agent_gone_after_its_answer_is_done() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     let id = new_session(&mut c, "answered").await;
