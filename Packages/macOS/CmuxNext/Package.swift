@@ -800,7 +800,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextAppTests",
-            dependencies: ["CmuxNextWakeups", "CmuxNextAgentCursor", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextCrashReporting", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
+            dependencies: ["CmuxNextWakeups", "CmuxNextAgentCursor", "CmuxNextTabs", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextCrashReporting", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
                            "CmuxNextDaemon", "CmuxNextHome", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                            .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                            .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion")],
