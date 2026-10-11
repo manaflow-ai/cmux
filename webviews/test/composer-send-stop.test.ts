@@ -2,10 +2,8 @@
 // bridge, and the host snapshot then restores Send. Exercise the fixture in a real Chromium page
 // so the play cannot pass by only checking the static working screenshot.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
-import fs from "node:fs";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
-import { galleryFiles } from "../scripts/gallery/entries";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("composer-send-stop.test.ts", async () => {
@@ -23,6 +21,9 @@ await requireBrowserLane("composer-send-stop.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
 
+  const stageURL = () =>
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=agent-pane.composer&variant=working-stop`;
+
   beforeAll(async () => {
     vite = await createServer({
       configFile: path.join(webviews, "vite.config.gallery-dev.ts"),
@@ -30,24 +31,24 @@ await requireBrowserLane("composer-send-stop.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    // The stage's whole module graph compiled and its dependencies bundled before the page asks
-    // for them. Cold, beside the parallel test batch, that took longer than the page's wait, and an
-    // optimizer run finishing mid-load reloads the stage; the page's wait now covers the play alone.
-    const frame = path.join(webviews, "src/gallery/frame");
-    const files = [
-      ...fs
-        .readdirSync(frame)
-        .filter((name) => /\.tsx?$/.test(name))
-        .map((name) => path.join(frame, name)),
-      ...galleryFiles(),
-    ];
-    await Promise.all(files.map((file) => vite!.warmupRequest(`/${path.relative(webviews, file)}`)));
-    const client = vite.environments.client;
-    await client.waitForRequestsIdle();
-    const optimizer = client.depsOptimizer;
-    await optimizer?.scanProcessing;
-    await Promise.all(Object.values(optimizer?.metadata.discovered ?? {}).map((dependency) => dependency.processing));
     browser = await chromium.launch({ headless: true });
+    // One throwaway load of the same stage first. Cold, beside the parallel test batch, compiling
+    // the stage (every gallery entry file, then the dependency optimizer, which reloads the page
+    // when it finishes mid-load) took longer than the checked page's wait. This load waits it out
+    // and loads every module the stage uses, its lazy imports included; the checked page below
+    // then measures the play alone.
+    const warm = await browser.newPage({ viewport: { width: 760, height: 560 } });
+    await warm.goto(stageURL());
+    for (;;) {
+      try {
+        await warm.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 0 });
+        break;
+      } catch (error) {
+        // An optimizer reload destroys the page's context; wait for the reloaded stage.
+        if (!/context was destroyed|navigat/i.test(String(error))) throw error;
+      }
+    }
+    await warm.close();
   });
   afterAll(async () => {
     await browser?.close();
@@ -56,8 +57,7 @@ await requireBrowserLane("composer-send-stop.test.ts", async () => {
 
   test("stops a running turn and restores Send after the host snapshot", async () => {
     const page: Page = await browser!.newPage({ viewport: { width: 760, height: 560 } });
-    const port = (vite!.httpServer!.address() as { port: number }).port;
-    await page.goto(`http://127.0.0.1:${port}/gallery/frame.html?entry=agent-pane.composer&variant=working-stop`);
+    await page.goto(stageURL());
     await page.waitForFunction(() => {
       const ready = document.documentElement.dataset.galleryReady;
       return ready === "1" || ready === "error";
