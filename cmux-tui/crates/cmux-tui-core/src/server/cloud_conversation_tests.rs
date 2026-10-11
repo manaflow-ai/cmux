@@ -440,6 +440,24 @@ fn thread_read_and_root_stats_pass_through_the_proxy() {
     assert_eq!(history["ok"], true, "{history}");
     assert_eq!(history["data"]["threads"], json!([summary]), "{history}");
 
+    // The Worker's 400 body (`{_tag, code, message}` at top level) is a
+    // clear owner refusal, never a transport error.
+    backend.reply(
+        "/v1/read",
+        400,
+        json!({"_tag":"HomeReadError","code":"unknown_message",
+        "message":"not a thread root"}),
+    );
+    let refused = reply(
+        &mux,
+        client,
+        json!({"id":5,"cmd":"cloud-conversation-thread","conversation":CONV,"root":"msg_02"}),
+    );
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(refused["error_code"], "cloud_conversation_rejected", "{refused}");
+    assert_eq!(refused["reason"], "unknown_message", "{refused}");
+    assert_eq!(refused["retryable"], false, "{refused}");
+
     let bad = run(
         &mux,
         client,
