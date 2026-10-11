@@ -4804,9 +4804,18 @@ WARM_ADMISSION_FIRST = WARM_ADMISSION.replace("fromJSON(needs.admission-placemen
                                               "fromJSON(needs.admission-placement.outputs.runner)[0]") + "[0]"
 
 
+# An overflow run's compile alone may take a free 12vcpu slot the picker names
+# (simple_pool_picker._borrow_large_for_admission); its consumers stay on
+# pr_retry_runner, the same image and Xcode.
+OVERFLOW_ADMISSION = ("(github.run_attempt == 1 && !contains(inputs.pr_owned_jobs, ' admission ') && "
+                      "inputs.pr_admission_runner && fromJSON(inputs.pr_admission_runner) || inputs.pr_retry_runner)")
+OVERFLOW_ADMISSION_FIRST = OVERFLOW_ADMISSION.replace("fromJSON(inputs.pr_admission_runner)",
+                                                      "fromJSON(inputs.pr_admission_runner)[0]")
+
+
 def admission_route(runs_on: str) -> str:
     """Compile admission's runs-on without its warm labels: the route its consumers restate."""
-    return runs_on.replace(WARM_ADMISSION + " || ", "")
+    return runs_on.replace(WARM_ADMISSION + " || ", "").replace(OVERFLOW_ADMISSION, "inputs.pr_retry_runner")
 PRODUCT_XCODE_OUTPUT = "${{ needs.macos-compile-admission.outputs.xcode_app }}"
 # A consumer may take the label late-placement chose in this attempt once admission
 # finished (scripts/ci/late_placement.py). That label is derived from the
@@ -4843,7 +4852,7 @@ def product_consumer_route_violations(workflow: dict) -> list[str]:
     producer = workflow["jobs"]["macos-compile-admission"]
     violations = []
     if (producer["env"].get("CMUX_PRODUCT_RUNNER") or "").replace(WARM_ADMISSION_FIRST, WARM_ADMISSION) \
-            != producer["runs-on"]:
+            .replace(OVERFLOW_ADMISSION_FIRST, OVERFLOW_ADMISSION) != producer["runs-on"]:
         violations.append("macos-compile-admission: CMUX_PRODUCT_RUNNER does not restate runs-on")
     outputs = producer.get("outputs", {})
     if outputs.get("runner") != "${{ env.CMUX_PRODUCT_RUNNER }}":
@@ -4912,7 +4921,8 @@ def test_product_consumer_guard_follows_a_new_admission_route() -> None:
     for key in ("CMUX_PRODUCT_RUNNER", "CMUX_CI_XCODE_APP"):
         assert pull_request in producer["env"][key], key
         producer["env"][key] = producer["env"][key].replace(pull_request, new_route, 1)
-    producer["runs-on"] = producer["env"]["CMUX_PRODUCT_RUNNER"].replace(WARM_ADMISSION_FIRST, WARM_ADMISSION)
+    producer["runs-on"] = producer["env"]["CMUX_PRODUCT_RUNNER"].replace(WARM_ADMISSION_FIRST, WARM_ADMISSION) \
+        .replace(OVERFLOW_ADMISSION_FIRST, OVERFLOW_ADMISSION)
     violations = product_consumer_route_violations(workflow)
     assert [line.split(":", 1)[0] for line in violations] == ["tests-build-and-lag"], violations
 
