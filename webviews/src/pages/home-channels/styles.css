@@ -899,6 +899,11 @@ body,
   padding: 8px;
   overflow: hidden;
 }
+/* The search's Return key wrapper (ui/KeyboardScope) adds no box. */
+.hc-emoji-search-keys {
+  display: contents;
+}
+
 .hc-emoji-search,
 .hc-link-field {
   box-sizing: border-box;
