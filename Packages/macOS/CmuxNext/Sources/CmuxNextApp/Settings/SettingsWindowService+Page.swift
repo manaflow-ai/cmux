@@ -10,7 +10,10 @@ import CmuxNextSettingsWindow
 /// `cmux.app.action.run`, the same path as the palette and the CLI.
 extension SettingsWindowService {
     func pageHostLists() -> JSONValue {
-        [
+        // The app scope is not observable; reading the store's generation makes the page's
+        // host-lists watch re-send the Ghostty config preview after a config edit.
+        _ = ThemeStore.shared.generation
+        return [
             "rooms": rooms.map { .array($0.map(Self.listRow)) } ?? .null,
             "machines": .array(machines.map(Self.listRow)),
             "browser_profiles": .array(browserProfiles.map { profile in
@@ -32,10 +35,9 @@ extension SettingsWindowService {
                 "current": .object(Dictionary(uniqueKeysWithValues: themeLevels.map { level in
                     (level.rawValue, theme(at: level).map(JSONValue.string) ?? .null)
                 })),
-                // The Ghostty config's own theme, for the preview of "Use Ghostty Config", while
-                // appearance.theme is unset (null while it names a theme). Read from the store, which
-                // is observable, so the page's host-lists watch re-sends it after a config edit.
-                "config": services.settings?.snapshot.appTheme == nil ? Self.themeJSON(ThemeStore.shared.input) : .null,
+                // The Ghostty config's own theme, for the preview of "Use Ghostty Config": the app
+                // scope's colors while appearance.theme is unset (null while it names a theme).
+                "config": services.settings?.snapshot.appTheme == nil ? Self.themeJSON(ThemeScope.app.input) : .null,
             ],
             "terminal": ["ghostty_config": .string(ghosttyConfigPath), "shell_integration": shellIntegration.map(JSONValue.string) ?? .null],
             // R92: the Ghostty lines cmux does not apply (the socket's `ghostty.diagnostics` list).

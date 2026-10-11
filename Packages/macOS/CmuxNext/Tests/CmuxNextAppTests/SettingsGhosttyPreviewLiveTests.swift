@@ -3,6 +3,7 @@ import CmuxTheme
 @testable import CmuxNextApp
 import CmuxNextDesign
 import Observation
+import os
 import Testing
 
 /// Settings' "Use Ghostty Config" preview follows a Ghostty config edit without a restart
@@ -16,17 +17,10 @@ struct SettingsGhosttyPreviewLiveTests {
         let original = ThemeStore.shared.input
         defer { ThemeStore.shared.apply(original) }
 
-        let changed = Flag()
-        withObservationTracking { _ = services.settingsWindow.pageHostLists() } onChange: { changed.set() }
+        let changed = OSAllocatedUnfairLock(initialState: false)
+        withObservationTracking { _ = services.settingsWindow.pageHostLists() } onChange: { changed.withLock { $0 = true } }
         ThemeStore.shared.apply(ThemeInput(background: ThemeRGB(hex: 0x203040), foreground: ThemeRGB(hex: 0xF0E0D0)))
-        #expect(changed.value)
+        #expect(changed.withLock { $0 })
     }
 }
 
-/// Set from observation's change callback.
-private nonisolated final class Flag: @unchecked Sendable {
-    private let lock = NSLock()
-    private var isSet = false
-    var value: Bool { lock.withLock { isSet } }
-    func set() { lock.withLock { isSet = true } }
-}
