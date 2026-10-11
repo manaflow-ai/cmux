@@ -7,7 +7,7 @@ import QuartzCore
 /// <version> is ready", the Automatic Updates checkbox and one full-width
 /// Restart to Update button (one click installs and relaunches; disabled,
 /// Installing…, once taken). Hovering the card or its button shows the
-/// release notes popover (``SidebarUpdateNotesView``). Hidden without a
+/// update's highlights popover (the React surface, cx-urd.61.2). Hidden without a
 /// staged update.
 final class SidebarUpdateCardView: NSView {
     var onInstall: (() -> Void)?
@@ -23,8 +23,30 @@ final class SidebarUpdateCardView: NSView {
     let releaseNotesButton = SidebarUpdateButton()
     let checkbox = SidebarUpdateCheckbox()
     let button = SidebarUpdateButton()
-    let notesView = SidebarUpdateNotesView()
+    /// The staged update's highlights (the React ready surface; set by the sidebar).
+    var highlights: (any SidebarSurfaceIsland)? {
+        didSet {
+            popover = nil
+            oldValue?.view.removeFromSuperview()
+            parkHighlights()
+        }
+    }
+
+    /// The highlights page waits inside the card, transparent and click-
+    /// through, so it loads and reports its height while the card shows; the
+    /// popover takes it while open and gives it back when it closes.
+    func parkHighlights() {
+        guard let highlights, highlights.view.superview !== parking else { return }
+        if parking.superview == nil { addSubview(parking, positioned: .below, relativeTo: nil) }
+        parking.frame = NSRect(x: 0, y: 0, width: Self.popoverWidth, height: max(1, highlights.contentHeight))
+        highlights.view.removeFromSuperview()
+        highlights.view.frame = parking.bounds
+        highlights.view.autoresizingMask = [.width, .height]
+        parking.addSubview(highlights.view)
+    }
     var popover: NSPopover?
+    /// The highlights page's place while the popover is closed.
+    let parking = SidebarIslandParking()
     /// Set by the hover owner (`PointerHover`, cx-3wu5).
     private(set) var isHovered = false
     private var pointerHover: PointerHover?
@@ -47,11 +69,6 @@ final class SidebarUpdateCardView: NSView {
         [titleLabel, detailLabel, checkbox, releaseNotesButton, button].forEach(addSubview)
         button.onPress = { [weak self] in self?.onInstall?() }
         checkbox.onToggle = { [weak self] on in self?.onAutomaticUpdates?(on) }
-        notesView.onOpenLink = { [weak self] url in
-            self?.hideNotes()
-            self?.onOpenLink?(url)
-        }
-        notesView.onPointerExit = { [weak self] in self?.pointerLeftNotes() }
         setAccessibilityElement(false)
         isHidden = true
         pointerHover = PointerHover(self) { [weak self] hovering in self?.setHovered(hovering) }
@@ -90,7 +107,6 @@ final class SidebarUpdateCardView: NSView {
         checkbox.configure(title: card.automaticUpdatesTitle, isOn: card.automaticUpdates)
         button.configure(title: card.buttonTitle, enabled: card.isEnabled,
                          help: [card.notes.headline, card.notes.keepsRunning].joined(separator: " "))
-        notesView.configure(card.notes)
         needsLayout = true
         needsDisplay = true
     }
@@ -158,7 +174,6 @@ final class SidebarUpdateCardView: NSView {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true
-        notesView.applyColors()
     }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
