@@ -165,9 +165,15 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
                       data-highlighted={enabled[active] === item ? "" : undefined}
                       onClick={() => run(item)}
                     >
-                      <span className="ui-menu-label" title={typeof item.label === "string" ? item.label : undefined}>
-                        {item.label}
-                      </span>
+                      {/* A text label truncates with its full text as a tooltip; a composed label
+                          (text plus a shortcut) keeps its own flex layout. */}
+                      {typeof item.label === "string" ? (
+                        <span className="ui-menu-label" title={item.label}>
+                          {item.label}
+                        </span>
+                      ) : (
+                        item.label
+                      )}
                     </button>
                   </div>
                 ))}

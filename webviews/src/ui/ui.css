@@ -112,8 +112,14 @@
 
 .ui-context-menu {
   position: fixed;
+  box-sizing: border-box;
   min-width: 180px;
   max-width: min(360px, calc(100vw - 8px));
+}
+
+.ui-context-menu .ui-menu-item {
+  box-sizing: border-box;
+  width: 100%;
 }
 
 /* A long label (a link, a path) ends in an ellipsis instead of widening the menu. */

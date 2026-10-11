@@ -112,8 +112,12 @@ const edgeOpen: Play = async (ctx) => {
 /** A link-length label ends in an ellipsis; the menu stays at most 360 px wide. */
 const longLabelOpen: Play = async (ctx) => {
   await open(ctx);
-  const width = ctx.find({ role: "menu" }).getBoundingClientRect().width;
+  const menu = ctx.find({ role: "menu" });
+  const width = menu.getBoundingClientRect().width;
   if (width > 360) throw new Error(`the menu grew to ${width}px for one long label`);
+  if (menu.scrollWidth > menu.clientWidth) throw new Error("the menu scrolls sideways instead of truncating");
+  const label = menu.querySelector<HTMLElement>(".ui-menu-label");
+  if (!label || label.scrollWidth <= label.clientWidth) throw new Error("the long label is not truncated");
 };
 
 const disabledItem: Play = async (ctx) => {
