@@ -11,11 +11,14 @@ import Testing
 struct PaletteGroupColorBallsTests {
     @Test func groupColorCommandsDrawTheThemeColor() async throws {
         let items = await RegistryPaletteProvider(registry: .standard(), includeUnbound: true).items()
-        let tokens = ThemeScope.app.tokens
+        // The tokens the row drew in, read in its own theme scope, so the expected color never
+        // comes from a different theme than the one the ball was resolved in.
+        var tokens = ThemeScope.app.tokens
         func drawn(_ id: String) throws -> [ThemeRGB] {
             let item = try #require(items.first { $0.id == "action:\(id)" })
             let cell = PaletteRowCell(frame: NSRect(x: 0, y: 0, width: 400, height: 28))
             cell.configure(PaletteRow(item: item, highlights: [], score: 0), isSelected: false)
+            tokens = cell.themeScope.tokens
             return cell.swatch.isHidden ? [] : cell.swatch.colors
         }
         for color in [GroupColor.red, .green, .orange] {
