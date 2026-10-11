@@ -84,7 +84,11 @@ impl<'a> RestoreProgress<'a> {
         let now = Instant::now();
         let first = self.first.get().unwrap_or(now);
         self.first.set(Some(first));
-        if self.last.get().is_some_and(|last| now.duration_since(last) < PROGRESS_INTERVAL) {
+        // A few ms of slack: a wait slice that ends just short of the
+        // interval must not skip every other report.
+        let slack = Duration::from_millis(50);
+        if self.last.get().is_some_and(|last| now.duration_since(last) + slack < PROGRESS_INTERVAL)
+        {
             return;
         }
         self.last.set(Some(now));
@@ -444,7 +448,7 @@ fn wait_for_spawned_owner(
             return Err(EnsureError::RestoreTimeout);
         }
         // Silent for the first slice: a quick owner start is not a restore.
-        if started.elapsed() >= PROGRESS_INTERVAL {
+        if started.elapsed() + Duration::from_millis(50) >= PROGRESS_INTERVAL {
             progress.restoring(Some(u64::from(pid)));
         }
     }
@@ -466,7 +470,8 @@ fn wait_readable(pipe: &std::fs::File, deadline: Instant) -> bool {
     use std::os::fd::AsRawFd;
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
-        let timeout = i32::try_from(remaining.as_millis()).unwrap_or(i32::MAX);
+        // Round up: a rounded-down wait ends before `deadline`.
+        let timeout = i32::try_from(remaining.as_nanos().div_ceil(1_000_000)).unwrap_or(i32::MAX);
         let mut poll = libc::pollfd { fd: pipe.as_raw_fd(), events: libc::POLLIN, revents: 0 };
         // SAFETY: one valid pollfd for the lifetime of the call.
         match unsafe { libc::poll(&mut poll, 1, timeout) } {

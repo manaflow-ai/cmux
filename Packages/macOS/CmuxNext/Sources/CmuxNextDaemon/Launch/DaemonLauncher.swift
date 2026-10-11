@@ -356,7 +356,11 @@ public struct DaemonLauncher: Sendable {
               let parsed = try? JSONDecoder().decode(EnsureResult.self, from: Data(last.utf8)) else {
             // The owner is alive but still restoring after the daemon's own
             // bound: a typed error, so the window says so plainly.
-            if let failure = try? JSONDecoder().decode(EnsureFailure.self, from: result.stderr),
+            let errorLine = String(decoding: result.stderr, as: UTF8.self)
+                .split(whereSeparator: \.isNewline)
+                .last { $0.trimmingCharacters(in: .whitespaces).hasPrefix("{") }
+            if let errorLine,
+               let failure = try? JSONDecoder().decode(EnsureFailure.self, from: Data(errorLine.utf8)),
                failure.code == "server.restore_timeout" {
                 throw DaemonError.sessionRestoreTimedOut(failure.message ?? "")
             }

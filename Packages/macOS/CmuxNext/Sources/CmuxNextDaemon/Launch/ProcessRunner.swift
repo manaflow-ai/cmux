@@ -140,16 +140,20 @@ final class ProcessBox: @unchecked Sendable {
 }
 
 /// Counts writes to a child's stdout file (`ProcessRunner.run(progressIdle:)`).
-/// The file descriptor stays owned by the caller; cancelling the watch does
-/// not close it.
+/// The watch has its own duplicate of the descriptor, closed by the cancel
+/// handler, so the caller may close its file at any time.
 final class StdoutProgress: Sendable {
     private let writes = Mutex<Int>(0)
     private let source = Mutex<(any DispatchSourceFileSystemObject)?>(nil)
+    private let queue = DispatchQueue(label: "com.cmuxterm.next.process-progress")
 
     init(watching fd: Int32) {
-        let watch = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .extend],
-                                                              queue: DispatchQueue.global(qos: .utility))
+        let watched = fcntl(fd, F_DUPFD_CLOEXEC, 0)
+        guard watched >= 0 else { return }
+        let watch = DispatchSource.makeFileSystemObjectSource(fileDescriptor: watched, eventMask: [.write, .extend],
+                                                              queue: queue)
         watch.setEventHandler { [weak self] in self?.writes.withLock { $0 += 1 } }
+        watch.setCancelHandler { close(watched) }
         watch.activate()
         source.withLock { $0 = watch }
     }
