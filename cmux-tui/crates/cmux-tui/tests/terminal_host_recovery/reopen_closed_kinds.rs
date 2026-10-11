@@ -59,7 +59,8 @@ impl AppConnection {
     fn tab_by_id(&mut self, tab_id: &str) -> serde_json::Value {
         let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
         loop {
-            if let Some(tab) = self.tabs().into_iter().find(|tab| tab["tab_resource_id"] == tab_id) {
+            if let Some(tab) = self.tabs().into_iter().find(|tab| tab["tab_resource_id"] == tab_id)
+            {
                 return tab;
             }
             assert!(Instant::now() < deadline, "no tab {tab_id} after the reopen");
@@ -85,7 +86,12 @@ fn start(tag: &str) -> (RecoveryHarness, AppConnection, u64) {
 
 /// Close `surface` as Cmd-W does, then reopen the newest closed group as
 /// Cmd-Shift-T does; returns the reopened tab as the tree lists it.
-fn close_and_reopen(harness: &RecoveryHarness, app: &mut AppConnection, surface: u64, key: &str) -> serde_json::Value {
+fn close_and_reopen(
+    harness: &RecoveryHarness,
+    app: &mut AppConnection,
+    surface: u64,
+    key: &str,
+) -> serde_json::Value {
     app.send(serde_json::json!({"cmd":"close-tabs","surfaces":[surface],"end_terminals":false}));
     let closed = resource_request(
         &harness.socket,
@@ -94,7 +100,8 @@ fn close_and_reopen(harness: &RecoveryHarness, app: &mut AppConnection, surface:
         serde_json::json!({"machine":"current","session":"current"}),
         None,
     );
-    let id = closed[0]["id"].as_str().unwrap_or_else(|| panic!("the close was not recorded: {closed}"));
+    let id =
+        closed[0]["id"].as_str().unwrap_or_else(|| panic!("the close was not recorded: {closed}"));
     let reopened = resource_request(
         &harness.socket,
         &format!("{key}-reopen"),
@@ -102,7 +109,8 @@ fn close_and_reopen(harness: &RecoveryHarness, app: &mut AppConnection, surface:
         serde_json::json!({"machine":"current","session":"current","closed":id}),
         Some(&format!("{key}-reopen")),
     );
-    let tab_id = reopened["value"]["tab_ids"][0].as_str().expect("the reopen returned no tab").to_string();
+    let tab_id =
+        reopened["value"]["tab_ids"][0].as_str().expect("the reopen returned no tab").to_string();
     app.tab_by_id(&tab_id)
 }
 
@@ -110,7 +118,8 @@ fn close_and_reopen(harness: &RecoveryHarness, app: &mut AppConnection, surface:
 fn a_closed_terminal_tab_reopens_as_a_terminal() {
     let _exclusive = exclusive_process_test();
     let (harness, mut app, pane) = start("reopen-terminal");
-    let surface = app.send(serde_json::json!({"cmd":"new-tab","pane":pane}))["surface"].as_u64().unwrap();
+    let surface =
+        app.send(serde_json::json!({"cmd":"new-tab","pane":pane}))["surface"].as_u64().unwrap();
     let kind = app.tab(surface)["kind"].clone();
     let back = close_and_reopen(&harness, &mut app, surface, "terminal");
     assert_eq!(back["kind"], kind, "{back}");
@@ -134,8 +143,10 @@ fn a_closed_browser_tab_reopens_on_its_url() {
 fn a_closed_agent_chat_tab_reopens_on_its_session() {
     let _exclusive = exclusive_process_test();
     let (harness, mut app, pane) = start("reopen-agent");
-    let source = serde_json::json!({"host":"install:reopen-kinds","session":"ses-reopen","harness":"codex"});
-    let created = app.send(serde_json::json!({"cmd":"new-conversation-tab","pane":pane,"agent_session":source}));
+    let source =
+        serde_json::json!({"host":"install:reopen-kinds","session":"ses-reopen","harness":"codex"});
+    let created = app
+        .send(serde_json::json!({"cmd":"new-conversation-tab","pane":pane,"agent_session":source}));
     let surface = created["surface"].as_u64().expect("no agent surface");
     let back = close_and_reopen(&harness, &mut app, surface, "agent");
     assert_eq!(back["kind"], "conversation", "{back}");
@@ -146,7 +157,8 @@ fn a_closed_agent_chat_tab_reopens_on_its_session() {
 fn a_closed_page_tab_reopens_on_its_page() {
     let _exclusive = exclusive_process_test();
     let (harness, mut app, pane) = start("reopen-page");
-    let created = app.send(serde_json::json!({"cmd":"new-conversation-tab","pane":pane,"page":"settings"}));
+    let created =
+        app.send(serde_json::json!({"cmd":"new-conversation-tab","pane":pane,"page":"settings"}));
     let surface = created["surface"].as_u64().expect("no page surface");
     let back = close_and_reopen(&harness, &mut app, surface, "page");
     assert_eq!(back["kind"], "conversation", "{back}");
@@ -166,5 +178,9 @@ fn a_closed_viewer_tab_reopens_on_its_file() {
     let surface = created["surface"].as_u64().expect("no viewer surface");
     let back = close_and_reopen(&harness, &mut app, surface, "viewer");
     assert_eq!(back["kind"], "conversation", "{back}");
-    assert_eq!(back["conversation"], serde_json::json!({"page":"markdown","route":route}), "{back}");
+    assert_eq!(
+        back["conversation"],
+        serde_json::json!({"page":"markdown","route":route}),
+        "{back}"
+    );
 }
