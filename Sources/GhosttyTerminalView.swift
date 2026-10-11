@@ -6754,9 +6754,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// If cmux could not copy a native terminal selection, forward the same
     /// semantic key only while an alternate-screen application owns the view.
     /// A primary-screen shell with no selection remains a harmless no-op.
-    static func shouldForwardMenuCopyToAlternateScreen(
+    static func shouldForwardMenuCopyToTerminalApplication(
         copiedNativeSelection: Bool,
-        isAlternateScreenActive: Bool
+        isAlternateScreenActive: Bool,
+        isMouseCaptured: Bool
     ) -> Bool {
         !copiedNativeSelection && isAlternateScreenActive
     }
@@ -6775,9 +6776,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             copied = copyCurrentGhosttySelectionToClipboard(surface: surface)
         }
 
-        guard Self.shouldForwardMenuCopyToAlternateScreen(
+        guard Self.shouldForwardMenuCopyToTerminalApplication(
             copiedNativeSelection: copied,
-            isAlternateScreenActive: terminalSurface?.isAlternateScreenActive() == true
+            isAlternateScreenActive: terminalSurface?.isAlternateScreenActive() == true,
+            isMouseCaptured: ghostty_surface_mouse_captured(surface)
         ) else {
             return
         }
