@@ -63,6 +63,12 @@ pub(super) enum Wait<'a> {
     Steer,
 }
 
+/// What a prompt, or a change to the queue or the draft, gets while the chat is being moved to
+/// another daemon (`transfer_out.rs`).
+pub(super) fn moving_error() -> RpcError {
+    RpcError::new(-32000, "transfer.moving: this chat is being moved to another daemon")
+}
+
 /// What a withdrawn prompt's `session/prompt` answers: no turn ran.
 pub(super) fn withdrawn_reply(prompt_id: &str, turn_id: &str) -> Value {
     json!({
@@ -98,10 +104,7 @@ impl Hub {
                 }
             }
             // A chat being moved takes no prompt: its new daemon does (`transfer_out.rs`).
-            None if session.moving().is_some() => {
-                let e = "transfer.moving: this chat is being moved to another daemon";
-                return Err(Err(RpcError::new(-32000, e)));
-            }
+            None if session.moving().is_some() => return Err(Err(moving_error())),
             None => {
                 let turn_id = uuid::Uuid::now_v7().to_string();
                 // Prompts a failed turn holds (`pause_queue`) do not hold up a new one.
@@ -121,6 +124,10 @@ impl Hub {
         let Some(withdraw) = withdraw else {
             let guard = session.turn_lock.lock().await;
             session.queued.fetch_sub(1, Ordering::SeqCst);
+            // A move began while it waited for the lock (`transfer_out.rs`): it runs nowhere.
+            if session.moving().is_some() {
+                return Err(Err(moving_error()));
+            }
             let run = PromptRun {
                 blocks: p.blocks.to_vec(),
                 control: p.control,
@@ -365,6 +372,18 @@ impl Hub {
             json!({"promptId": prompt_id, "turnId": turn_id, "queued": session.queued()}),
         );
         Ok(run)
+    }
+
+    /// `_acpmux/queue_remove`: `remove_queued`, refused while the chat is being moved.
+    pub fn withdraw_queued(
+        &self,
+        session: &Arc<Session>,
+        prompt_id: &str,
+    ) -> Result<bool, RpcError> {
+        if session.moving().is_some() {
+            return Err(moving_error());
+        }
+        Ok(self.remove_queued(session, prompt_id))
     }
 
     /// Takes a waiting prompt out of the queue before its turn starts; its `session/prompt` then

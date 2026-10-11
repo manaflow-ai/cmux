@@ -29,11 +29,32 @@ pub(super) async fn run(
     let moved = match moved {
         Ok(moved) => moved,
         Err(e) => {
-            let abort = json!({"sessionId": id, "transferId": transfer_id});
-            if let Err(e2) = src.request("_acpmux/transfer_abort", abort).await {
-                eprintln!("acpmux: the move failed and the chat stays frozen here: {e2}");
+            // A finish whose answer was lost may have landed, and the target runs the queue
+            // then: the source commits. Only a target that lacks the chat lets it come back.
+            let there = dst.request(method::MUX_INFO, json!({"sessionId": id})).await;
+            let lacks = match &there {
+                Ok(there) => there["status"] == "closed",
+                Err(lookup) => {
+                    let m = lookup.to_string().to_lowercase();
+                    m.contains("no session") || m.contains("not found")
+                }
+            };
+            match there {
+                Ok(there) if !lacks => there,
+                _ if lacks => {
+                    let abort = json!({"sessionId": id, "transferId": transfer_id});
+                    if let Err(e2) = src.request("_acpmux/transfer_abort", abort).await {
+                        eprintln!("acpmux: the move failed and the chat stays frozen here: {e2}");
+                    }
+                    return Err(e);
+                }
+                _ => {
+                    eprintln!(
+                        "acpmux: the move failed and the target cannot say whether it took the chat; it stays frozen here until the move is retried or aborted"
+                    );
+                    return Err(e);
+                }
             }
-            return Err(e);
         }
     };
     let to_meta = json!({"sessionId": moved["sessionId"], "socket": to});

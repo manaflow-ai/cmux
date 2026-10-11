@@ -982,7 +982,7 @@ async fn dispatch_request(
             let s = hub.resolve(session_key(&params)?)?;
             let prompt_id = str_param(&params, "promptId")
                 .ok_or_else(|| RpcError::invalid_params("promptId is required"))?;
-            let removed = hub.remove_queued(&s, prompt_id);
+            let removed = hub.withdraw_queued(&s, prompt_id)?;
             Ok(json!({"sessionId": s.id, "promptId": prompt_id, "removed": removed}))
         }
         method::MUX_PERMISSION_GROUPS => {

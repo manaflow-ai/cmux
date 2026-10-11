@@ -758,6 +758,9 @@ impl Hub {
                 Self::MAX_COMPOSER_DRAFT_CHARS
             ));
         }
+        if session.moving().is_some() {
+            return Err(super::queue::moving_error().message);
+        }
         let draft = (!text.trim().is_empty()).then(|| text.to_owned());
         {
             let mut meta = session.meta.lock().unwrap_or_else(|poisoned| poisoned.into_inner());

@@ -49,11 +49,11 @@ pub(super) async fn route(
     m: &str,
     params: Value,
 ) -> Result<Value, RpcError> {
-    // Moving a chat to another daemon (`hub/transfer_out.rs`): a bundle holds the whole chat, so
-    // only the local socket and peers move one.
+    // Moving a chat to another daemon (`hub/transfer_out.rs`): a bundle holds the whole chat and
+    // runs its queue with the rules it was sent under, so only the local socket moves one.
     if m.starts_with("_acpmux/transfer_") {
-        if !matches!(conn.origin, Origin::Local | Origin::Peer) {
-            return Err(RpcError::method_not_found(&format!("{m} (local socket and peers only)")));
+        if conn.origin != Origin::Local {
+            return Err(RpcError::method_not_found(&format!("{m} (local socket only)")));
         }
         return hub.transfer_request(m, &params).await;
     }

@@ -8,13 +8,20 @@
 //!   draft and agent store), in `cwd` when its folder has another path here, and its queue runs
 //!   here at once, held prompts still held. Answers the session summary.
 
-use super::transfer_out::{MAX_PAGE, TRANSFER_SCHEMA, inside, transfers_dir};
+use super::transfer_out::{
+    MAX_BUNDLE, MAX_FILES, MAX_PAGE, TRANSFER_SCHEMA, inside, transfers_dir,
+};
 use super::*;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 
 fn transfer_error(what: &str, message: impl std::fmt::Display) -> RpcError {
     RpcError::new(-32000, format!("transfer.{what}: {message}"))
+}
+
+/// A chat that moved from here to another daemon: closed, its move committed.
+fn moved_away(session: &Session) -> bool {
+    session.status() == SessionStatus::Closed && session.moving().is_some()
 }
 
 /// A receive's directory: its manifest, and the bundle as it arrives.
@@ -53,7 +60,8 @@ impl Hub {
         if !super::transfer::is_plain_id(id) {
             return Err(RpcError::invalid_params(format!("transfer: bad session id {id:?}")));
         }
-        if self.sessions.lock().unwrap().contains_key(id) {
+        // A chat that moved away from here may come back (`finish` replaces its closed copy).
+        if self.sessions.lock().unwrap().get(id).is_some_and(|s| !moved_away(s)) {
             return Err(transfer_error("exists", format!("chat {id} is here already")));
         }
         let harness = manifest["session"]["harness"].as_str().unwrap_or("");
@@ -62,9 +70,15 @@ impl Hub {
             return Err(e.with_data(json!({"harness": harness})));
         }
         let files = manifest["files"].as_array().cloned().unwrap_or_default();
+        let mut total = 0u64;
         for f in &files {
             inside(Path::new("/"), f["path"].as_str().unwrap_or(""))?;
+            total = total.saturating_add(f["size"].as_u64().unwrap_or(u64::MAX));
         }
+        if files.len() > MAX_FILES || total > MAX_BUNDLE {
+            return Err(transfer_error("size", format!("{} files, {total} bytes", files.len())));
+        }
+        self.sweep();
         let receive_id = uuid::Uuid::now_v7().to_string();
         let dir = transfers_dir().join(format!("in-{receive_id}"));
         let made = std::fs::create_dir_all(dir.join("bundle")).and_then(|()| {
@@ -127,7 +141,13 @@ impl Hub {
             });
             edited.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
         }
-        let session = self.import(&bundle, text("name").map(str::to_owned)).await?;
+        // Back where it once moved from: its closed copy gives way.
+        let id = manifest["sessionId"].as_str().unwrap_or("");
+        let old = self.sessions.lock().unwrap().get(id).cloned();
+        if let Some(old) = old.filter(|s| moved_away(s)) {
+            self.kill(&old, true).await?;
+        }
+        let session = self.import_into(&bundle, text("name").map(str::to_owned), true).await?;
         let from = params.get("from").cloned().unwrap_or(Value::Null);
         let transfer_id = manifest["transferId"].clone();
         self.append(
@@ -136,8 +156,7 @@ impl Hub {
             "transferred_in",
             json!({"transferId": transfer_id, "from": from}),
         );
-        // Its queue runs here now; the source withdraws it when the move commits.
-        self.restore_queue(&session);
+        // Its queue (back since the import) runs here now; the source withdraws it on commit.
         self.resume_queues();
         let _ = std::fs::remove_dir_all(&dir);
         Ok(self.session_summary(&session))

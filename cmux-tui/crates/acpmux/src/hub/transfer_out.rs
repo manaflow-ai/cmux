@@ -16,7 +16,13 @@
 //!
 //! The move is in the log (`transfer_out`, `transfer_aborted`, `transferred`), so a daemon that
 //! restarts mid-move keeps the chat frozen (`queue.rs` `restore_queue`) until it commits or
-//! aborts: each queued prompt runs once, on one daemon.
+//! aborts: each queued prompt runs once, on one daemon. While it is frozen its queue and draft
+//! do not change either. A client aborts only a move the target does not have: one whose
+//! `transfer_finish` answer was lost is committed once the target shows the chat.
+//!
+//! Only the local socket moves a chat: a bundle holds the whole chat, and its queue runs on the
+//! target under the rules it was sent with. A remote daemon takes one through its own guarded
+//! entry, not this one.
 
 use super::*;
 use base64::Engine;
@@ -30,6 +36,12 @@ pub(super) const MAX_PAGE: u64 = 4 << 20;
 pub(super) fn transfers_dir() -> PathBuf {
     crate::config::home().join("transfers")
 }
+
+/// The most a move carries (its files' declared sizes), and the most files.
+pub(super) const MAX_BUNDLE: u64 = 4 << 30;
+pub(super) const MAX_FILES: usize = 10_000;
+/// A move left that long without its commit, abort or finish is swept.
+const STALE: std::time::Duration = std::time::Duration::from_secs(24 * 3600);
 
 /// `rel` as a path under `root`, or an error for anything that could leave it.
 pub(super) fn inside(root: &Path, rel: &str) -> Result<PathBuf, RpcError> {
@@ -59,6 +71,21 @@ pub(super) fn bundle_files(root: &Path) -> std::io::Result<Vec<(String, u64)>> {
     }
     files.sort();
     Ok(files)
+}
+
+/// Removes moves left behind: a receive never finished, a bundle no chat here is in.
+pub(super) fn sweep_transfers(moving: &[String]) {
+    let Ok(entries) = std::fs::read_dir(transfers_dir()) else { return };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let old = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .is_ok_and(|t| t.elapsed().is_ok_and(|age| age > STALE));
+        if old && !moving.contains(&name) {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
 }
 
 fn transfer_error(what: &str, message: impl std::fmt::Display) -> RpcError {
@@ -110,6 +137,7 @@ impl Hub {
             return Err(transfer_error("closed", "this chat is closed"));
         }
         let transfer_id = uuid::Uuid::now_v7().to_string();
+        self.sweep();
         {
             let mut moving = session.moving.lock().unwrap();
             if let Some(other) = moving.as_ref() {
@@ -182,8 +210,18 @@ impl Hub {
         Ok(json!({"data": BASE64.encode(&data), "next": next, "eof": next == len}))
     }
 
+    /// `sweep_transfers`, keeping every move a chat here is in.
+    pub(super) fn sweep(&self) {
+        let moving: Vec<String> = self.sessions().iter().filter_map(|s| s.moving()).collect();
+        sweep_transfers(&moving);
+    }
+
     /// The bundle directory of a move this daemon began.
     fn transfer_bundle(&self, transfer_id: &str) -> Result<PathBuf, RpcError> {
+        // A receive (`in-…`) is not a move out.
+        if transfer_id.starts_with("in-") {
+            return Err(RpcError::not_found(format!("transfer.unknown: no move {transfer_id:?}")));
+        }
         let dir = inside(&transfers_dir(), transfer_id)?;
         let mut entries = std::fs::read_dir(&dir).map_err(|_| {
             RpcError::not_found(format!("transfer.unknown: no move {transfer_id:?} here"))
@@ -215,7 +253,7 @@ impl Hub {
         for q in session.queue() {
             self.remove_queued(session, &q.prompt_id);
         }
-        let _ = self.set_composer_draft(session, "");
+        session.meta.lock().unwrap_or_else(|e| e.into_inner()).composer_draft = None;
         self.append(session, "mux", "transferred", json!({"transferId": transfer_id, "to": to}));
         self.kill(session, false).await?;
         let _ = std::fs::remove_dir_all(transfers_dir().join(transfer_id));

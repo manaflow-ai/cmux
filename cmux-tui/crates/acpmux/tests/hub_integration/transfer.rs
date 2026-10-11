@@ -143,6 +143,12 @@ async fn a_chat_being_moved_takes_no_prompt_and_an_aborted_move_gives_it_back() 
         .unwrap();
     let refused = src.request(method::SESSION_PROMPT, prompt(&id, "p-late", "late")).await;
     assert!(refused.as_ref().is_err_and(|e| e.contains("transfer.moving")), "{refused:?}");
+    // Its queue and draft move as they are.
+    let edit = json!({"sessionId": id, "promptId": "p-a", "op": "update", "text": "changed"});
+    let edited = src.request("_acpmux/queue_edit", edit).await;
+    assert!(edited.as_ref().is_err_and(|e| e.contains("transfer.moving")), "{edited:?}");
+    let draft = src.request(method::MUX_DRAFT_SET, json!({"sessionId": id, "text": "later"})).await;
+    assert!(draft.as_ref().is_err_and(|e| e.contains("transfer.moving")), "{draft:?}");
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(texts(&mut src, &id, "user_message").await, ["hi", "until-cancel"]);
 
