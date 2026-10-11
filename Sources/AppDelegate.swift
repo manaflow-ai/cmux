@@ -2930,6 +2930,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let displayAsAbsolutePath = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_DISPLAY_AS_ABSOLUTE_PATH"] == "1"
         // The printed path must not exist under the cwd (it may elsewhere, such as the git root).
         let skipFixtureFile = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_SKIP_FIXTURE_FILE"] == "1"
+        // Moves the shell itself into the fixture: links resolve against the
+        // cwd the shell reports, which outranks the panel directory set below.
+        let changeShellDirectory = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_CD_FIXTURE"] == "1"
         if let rawOpenSupportedFiles = env["CMUX_UI_TEST_OPEN_SUPPORTED_FILES_IN_CMUX"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !rawOpenSupportedFiles.isEmpty {
@@ -3003,7 +3006,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             displayToken = "\(baseDisplayToken)\(displaySuffix)"
             let blockLine = "\(linePrefix)\(displayToken)"
             let shellBlockLine = singleQuotedShellLiteral(blockLine)
-            shellCommand = "clear\r\(mouseReportingCommand)for i in $(seq 1 48); do printf '%s\\n' '\(shellBlockLine)'; done\r"
+            let changeDirectoryCommand = changeShellDirectory
+                ? "cd '\(singleQuotedShellLiteral(fixtureDirectory))'\r"
+                : ""
+            shellCommand = "\(changeDirectoryCommand)clear\r\(mouseReportingCommand)for i in $(seq 1 48); do printf '%s\\n' '\(shellBlockLine)'; done\r"
         case "alt_screen_log":
             displayToken = "\(baseDisplayToken)\(displaySuffix)"
             let blockLine = "\(linePrefix)\(displayToken)"
