@@ -183,6 +183,10 @@ await requireBrowserLane("agent-pane-pr-dock.test.ts", async () => {
 
     await page.getByRole("button", { name: "Dismiss pull request #43" }).click();
     expect((await bars(page)).map((bar) => bar[0])).toEqual(["#42", "#41"]);
+    // Focus moves to the bar now in its place, not the page.
+    expect(await page.evaluate(() => document.activeElement?.getAttribute("aria-label"))).toBe(
+      "Dismiss pull request #42",
+    );
     // Dismissed for this chat: a reload keeps it hidden.
     await page.reload();
     await page.getByText("Three PRs open, the first merged.").waitFor();

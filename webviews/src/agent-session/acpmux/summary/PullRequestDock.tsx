@@ -3,7 +3,7 @@
 // title and state. The chat folder's pull request, which the header chip follows live, shows its
 // live state and title. The newest two show and the rest wait behind Show more; a dismissed bar
 // stays hidden for this chat (the page's storage, so a reload keeps it hidden).
-import { useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
@@ -51,25 +51,42 @@ function shown(pr: SummaryPullRequest, live: HeaderPullRequest | undefined): { s
 export function PullRequestDock({ rows, sessionId }: { rows: readonly AcpmuxRow[]; sessionId?: string }) {
   const t = useT();
   const { pullRequest: live } = useHeaderState();
-  const all = useMemo(() => sessionPullRequests(rows), [rows]);
+  // Every streamed chunk is a new rows array: parse again only when a tool call changed.
+  const parsed = useRef<{ key: string; prs: SummaryPullRequest[] }>(undefined);
+  const key = rows.flatMap((row) => (row.kind === "activity" ? [`${row.id}:${row.version}`] : [])).join(",");
+  if (parsed.current?.key !== key) parsed.current = { key, prs: sessionPullRequests(rows) };
+  const all = parsed.current.prs;
   const [dismissed, setDismissed] = useState(() => readDismissed(sessionId));
   const [expanded, setExpanded] = useState(false);
+  const dock = useRef<HTMLElement>(null);
+  // The place of the bar just dismissed: focus moves to the bar now there, or the composer.
+  const [refocus, setRefocus] = useState<number>();
+  useEffect(() => {
+    if (refocus === undefined) return;
+    setRefocus(undefined);
+    const buttons = dock.current?.querySelectorAll<HTMLElement>(".acpmux-pr-dock__dismiss");
+    const next = buttons?.[Math.min(refocus, buttons.length - 1)];
+    (
+      next ?? document.querySelector<HTMLElement>(".acpmux-composer [contenteditable], .acpmux-composer textarea")
+    )?.focus();
+  }, [refocus]);
   const prs = all.filter((pr) => !dismissed.includes(pr.url)).reverse();
   if (prs.length === 0) return null;
   const visible = expanded ? prs : prs.slice(0, SHOWN);
-  const dismiss = (url: string) => {
+  const dismiss = (url: string, index: number) => {
     const next = [...dismissed, url];
     setDismissed(next);
     writeDismissed(sessionId, next);
+    setRefocus(index);
   };
   return (
-    <section className="acpmux-pr-dock" aria-label={t("prDock.label")}>
-      {visible.map((pr) => {
+    <section ref={dock} className="acpmux-pr-dock" aria-label={t("prDock.label")}>
+      {visible.map((pr, index) => {
         const { state, title } = shown(pr, live);
         const badge = BADGES[state];
         return (
           <div key={pr.url} className="acpmux-pr-dock__row">
-            <a className="acpmux-pr-dock__bar" href={pr.url} data-state={state}>
+            <a className="acpmux-pr-dock__bar" href={pr.url} data-state={state} title={title || undefined}>
               <Icon name="git.pullrequest" size={13} />
               <span className="acpmux-pr-dock__number">#{pr.number}</span>
               <span className="acpmux-pr-dock__repo">{pr.repo.split("/").pop()}</span>
@@ -81,7 +98,7 @@ export function PullRequestDock({ rows, sessionId }: { rows: readonly AcpmuxRow[
               className="cv-iconbtn cv-iconbtn--compact acpmux-pr-dock__dismiss"
               aria-label={t("prDock.dismiss", { number: pr.number })}
               title={t("prDock.dismiss", { number: pr.number })}
-              onClick={() => dismiss(pr.url)}
+              onClick={() => dismiss(pr.url, index)}
             >
               <Close size={12} />
             </button>
@@ -89,7 +106,12 @@ export function PullRequestDock({ rows, sessionId }: { rows: readonly AcpmuxRow[
         );
       })}
       {prs.length > SHOWN && (
-        <button type="button" className="acpmux-pr-dock__more" onClick={() => setExpanded(!expanded)}>
+        <button
+          type="button"
+          className="acpmux-pr-dock__more"
+          aria-expanded={expanded}
+          onClick={() => setExpanded(!expanded)}
+        >
           {expanded ? t("prDock.less") : t("prDock.more", { count: prs.length - SHOWN })}
         </button>
       )}
