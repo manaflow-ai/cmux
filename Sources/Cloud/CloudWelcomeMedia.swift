@@ -30,7 +30,7 @@ struct CloudWelcomeSlide: Identifiable, Equatable {
             title: String(localized: "cloud.welcome.slide.keepsRunning.title", defaultValue: "Runs while you’re away"),
             caption: String(
                 localized: "cloud.welcome.slide.keepsRunning.caption",
-                defaultValue: "Agents and terminals keep running after you close your laptop."
+                defaultValue: "Agents and terminals keep running after you close your laptop. Use the cmux CLI to connect local agents to your Cloud machines."
             )
         ),
         CloudWelcomeSlide(
