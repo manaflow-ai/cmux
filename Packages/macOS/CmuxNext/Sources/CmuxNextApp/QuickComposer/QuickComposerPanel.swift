@@ -35,7 +35,7 @@ final class QuickComposerPanel: NSPanel, QuickComposerWindow, NSWindowDelegate {
         hidesOnDeactivate = false
         becomesKeyOnlyIfNeeded = false
         isMovableByWindowBackground = true
-        animationBehavior = .utilityWindow
+        animationBehavior = Motion.animatesMovement ? .utilityWindow : .none
         isReleasedWhenClosed = false
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
         setAccessibilityIdentifier("cmux.quickComposer")
