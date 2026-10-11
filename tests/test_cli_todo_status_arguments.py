@@ -71,13 +71,17 @@ class TodoStatusArgumentTests(unittest.TestCase):
         return [call for call in self.server.calls  # type: ignore[attr-defined]
                 if call[0].startswith(("workspace.todo.", "workspace.status."))]
 
-    def assert_rejected(self, args: list[str], message: str) -> None:
+    def assert_rejected(self, args: list[str], message: str, *, before_resolving: bool = True) -> None:
         with self.subTest(args=args):
             result = self.run_cli(*args)
             output = result.stdout + result.stderr
             self.assertNotEqual(result.returncode, 0, f"{args} should fail:\n{output}")
             self.assertIn(message, output, f"{args}:\n{output}")
-            self.assertEqual(self.requests(), [], f"{args} sent a request:\n{output}")
+            # Argument checks run before anything is sent, so not even the
+            # caller's workspace is looked up. An item selector is parsed later,
+            # after that lookup, and must still send no todo or status request.
+            sent = self.server.calls if before_resolving else self.requests()  # type: ignore[attr-defined]
+            self.assertEqual(sent, [], f"{args} sent a request:\n{output}")
 
     def assert_sends(self, args: list[str], method: str, expected: dict) -> None:
         with self.subTest(args=args):
@@ -155,7 +159,7 @@ class TodoStatusArgumentTests(unittest.TestCase):
         self.assert_sends(["todo", "add", "-5C limit"], "workspace.todo.add", {"text": "-5C limit"})
         self.assert_sends(["todo", "add", "-", "buy", "milk"], "workspace.todo.add", {"text": "- buy milk"})
         self.assert_sends(["todo", "edit", "1", "-draft"], "workspace.todo.edit", {"index": 0, "text": "-draft"})
-        self.assert_rejected(["todo", "check", "-1"], "Invalid todo item: -1")
+        self.assert_rejected(["todo", "check", "-1"], "Invalid todo item: -1", before_resolving=False)
 
     def test_text_after_terminator_is_literal(self) -> None:
         self.assert_sends(["todo", "add", "--", "--json"], "workspace.todo.add", {"text": "--json"})
