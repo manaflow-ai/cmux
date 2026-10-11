@@ -64,7 +64,7 @@ def page_html(engine, name):
     return f"""<!doctype html><title>{name.upper()} {engine} {RUN}</title>
 <body style="margin:0"><div style="height:{6000 if name == 'b' else 400}px">{name.upper()} {engine}</div>
 <script>{act}
-setInterval(() => navigator.sendBeacon('/report', JSON.stringify({{engine: '{engine}', path: location.pathname, scrollY: scrollY}})), 250);
+setInterval(() => navigator.sendBeacon('/report', JSON.stringify({{engine: '{engine}', path: location.pathname, scrollY: scrollY, chromium: /Chrome\\//.test(navigator.userAgent)}})), 250);
 </script>"""
 
 
@@ -151,7 +151,8 @@ def to_workspace():
 
 def at(engine, path, scrolled=None):
     report = reports.get(engine) or {}
-    if report.get("path") != path:
+    # The engine that rendered the page, not just the one asked for.
+    if report.get("path") != path or report.get("chromium") != (engine == "chromium"):
         return None
     if scrolled is not None and abs((report.get("scrollY") or 0) - scrolled) > 50:
         return None
