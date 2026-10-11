@@ -105,7 +105,9 @@ pub(crate) fn create_conversation_tabs_schema(transaction: &Transaction<'_>) -> 
 /// `page_tabs.route`, added to databases created before it (`page-tab-route-v1`).
 fn add_page_route(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     let present = transaction
-        .query_row("SELECT 1 FROM pragma_table_info('page_tabs') WHERE name = 'route'", [], |_| Ok(()))
+        .query_row("SELECT 1 FROM pragma_table_info('page_tabs') WHERE name = 'route'", [], |_| {
+            Ok(())
+        })
         .optional()?
         .is_some();
     if !present {
