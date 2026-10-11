@@ -24,5 +24,10 @@ test("tab close keeps pointer hover and keyboard focus reveal behavior", () => {
   expect(css).toMatch(/\.proto-tab:hover \.proto-tab-close,/);
   expect(css).toMatch(/\.proto-tab:focus-within \.proto-tab-close,/);
   expect(css).toMatch(/\.proto-tab-close:focus-visible\s*\{/);
-  expect(rule(".proto-tab-close")).toMatch(/opacity:\s*0/);
+  const close = rule(".proto-tab-close");
+  expect(close).toMatch(/opacity:\s*0/);
+  expect(close).toMatch(/pointer-events:\s*none/);
+  const revealed = css.slice(css.indexOf(".proto-tab:hover .proto-tab-close,"), css.indexOf(".proto-tab-close:hover,"));
+  expect(revealed).toMatch(/opacity:\s*1/);
+  expect(revealed).toMatch(/pointer-events:\s*auto/);
 });

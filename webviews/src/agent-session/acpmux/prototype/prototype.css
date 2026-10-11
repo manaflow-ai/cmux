@@ -519,11 +519,13 @@ body {
   background: none;
   color: var(--agent-muted);
   opacity: 0;
+  pointer-events: none;
 }
 .proto-tab:hover .proto-tab-close,
 .proto-tab:focus-within .proto-tab-close,
 .proto-tab-close:focus-visible {
   opacity: 1;
+  pointer-events: auto;
 }
 .proto-tab-close:hover,
 .proto-tab-close:focus-visible {
