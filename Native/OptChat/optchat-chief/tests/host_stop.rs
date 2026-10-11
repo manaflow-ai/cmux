@@ -202,6 +202,7 @@ fn a_sigterm_while_acpmux_starts_still_stops_it() {
     let path = std::ffi::CString::new(barrier.to_str().unwrap()).unwrap();
     // SAFETY: a valid NUL-terminated path.
     assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0, "mkfifo");
+    let stderr = dir.path().join("host.stderr");
     let mut host = Command::new(env!("CARGO_BIN_EXE_optchat-chief"))
         .args(["host", "--daemon-socket"])
         .arg(dir.path().join("missing.sock"))
@@ -216,9 +217,11 @@ fn a_sigterm_while_acpmux_starts_still_stops_it() {
         .env("OPTCHAT_INSPECTOR", "0")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stderr(std::fs::File::create(&stderr).unwrap())
         .spawn()
         .unwrap();
+    // Whatever happens below, nothing of this test stays running.
+    let mut guard = Leftovers(vec![host.id() as i32]);
     let forked = acpmux_home.join("forked");
     wait_for("the host starting acpmux", Duration::from_secs(30), || {
         std::fs::read_to_string(&forked).is_ok_and(|p| !p.is_empty())
@@ -228,8 +231,15 @@ fn a_sigterm_while_acpmux_starts_still_stops_it() {
         .trim()
         .parse()
         .unwrap();
+    guard.0.push(acpmux);
     // SAFETY: the pid is our own child.
     unsafe { libc::kill(host.id() as i32, libc::SIGTERM) };
+    // The host's stop watcher has taken the signal (it logs before it stops)
+    // while acpmux still waits: the stop comes inside the start, every time.
+    wait_for("the host taking the stop signal", Duration::from_secs(10), || {
+        std::fs::read_to_string(&stderr)
+            .is_ok_and(|log| log.contains("stopping before the brain runs"))
+    });
     // The daemon goes on: it listens, so the host's start completes.
     std::fs::write(&barrier, "go").unwrap();
     let mut status = None;
@@ -237,6 +247,8 @@ fn a_sigterm_while_acpmux_starts_still_stops_it() {
         status = host.try_wait().unwrap();
         status.is_some()
     });
+    // Reaped: its pid is no longer this test's to kill.
+    guard.0.retain(|&pid| pid != host.id() as i32);
     let calls = std::fs::read_to_string(acpmux_home.join("calls")).unwrap_or_default();
     let ended = {
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -245,14 +257,24 @@ fn a_sigterm_while_acpmux_starts_still_stops_it() {
         }
         !alive(acpmux)
     };
-    if !ended {
-        // SAFETY: the fake daemon this test started; nothing else is left behind.
-        unsafe { libc::kill(acpmux, libc::SIGKILL) };
-    }
+    drop(guard);
     assert_eq!(status.unwrap().code(), Some(0), "a stop on request exits 0");
     assert_eq!(
         calls, "shutdown\n",
         "the host shuts down the acpmux it was starting"
     );
     assert!(ended, "no acpmux of this host is left running");
+}
+
+/// Kills the given pids (this test's host and fake acpmux) when dropped, also
+/// when an assertion fails.
+struct Leftovers(Vec<i32>);
+
+impl Drop for Leftovers {
+    fn drop(&mut self) {
+        for &pid in &self.0 {
+            // SAFETY: pids this test started; a dead one returns ESRCH.
+            unsafe { libc::kill(pid, libc::SIGKILL) };
+        }
+    }
 }
