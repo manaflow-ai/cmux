@@ -5056,10 +5056,14 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func restorableDisplayURLForCurrentErrorPage(liveURL: URL?) -> URL? {
+        // An SSH loopback service commits on an ephemeral local listener. The
+        // omnibar, its edit buffer, reload and session history all read the
+        // live URL here, so they show the service origin instead of that port.
         Self.restorableDisplayURL(
-            liveURL: liveURL,
+            liveURL: liveURL.map { cloudAccess.displayURL($0) ?? $0 },
             currentURL: currentURL,
             activeErrorPageDisplayURL: navigationDelegate?.activeErrorPageDisplayURL
+                .map { cloudAccess.displayURL($0) ?? $0 }
         )
     }
 
