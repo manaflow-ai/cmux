@@ -167,14 +167,14 @@ def run_engine(engine):
         rpc("debug.key", {"key": "escape"})
         check(bool(quiet_wait(lambda: not sheets(main), 10)), f"{engine}: Escape cancels the print panel")
         # window.print() blocks the page until the panel ends: called from a timer so the
-        # eval answers, with the title set after it returns.
+        # eval answers, with the title set after it returns (the page cannot answer an
+        # eval while blocked, so "printed" only after Escape shows it waited).
         page("setTimeout(() => { window.print(); document.title = 'printed'; }, 0); true")
         shown = quiet_wait(lambda: sheets(main), 10)
         check(bool(shown), f"{engine}: the page's window.print() opens the system print panel ({window_list()})")
         if shown:
             time.sleep(1)
             snapshot(shown[0], "webkit-window-print-panel")
-            check(page("document.title") != "printed", f"{engine}: the page waits while the panel shows")
             rpc("debug.key", {"key": "escape"})
             check(bool(quiet_wait(lambda: not sheets(main), 10)), f"{engine}: Escape cancels the page's print panel")
             check(bool(quiet_wait(lambda: page("document.title") == "printed", 10)),

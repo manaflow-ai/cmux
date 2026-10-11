@@ -52,7 +52,7 @@ private final class PrintEnded: NSObject {
 
     @objc(printOperationDidRun:success:contextInfo:)
     func printOperationDidRun(_ operation: NSPrintOperation, success: Bool, contextInfo: UnsafeMutableRawPointer?) {
-        if let contextInfo { Unmanaged<PrintEnded>.fromOpaque(contextInfo).release() }
         done()
+        if let contextInfo { Unmanaged<PrintEnded>.fromOpaque(contextInfo).release() }
     }
 }
