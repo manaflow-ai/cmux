@@ -231,40 +231,14 @@ const globalForFreestyle = globalThis as typeof globalThis & {
  */
 /** Exported for the publication provider, which shares this account-wide client. */
 export function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS, signal?: AbortSignal): Freestyle {
-  const baseUrl = process.env.FREESTYLE_API_URL?.trim() || undefined;
-  const apiKey = process.env.FREESTYLE_API_KEY?.trim();
-  const stackAccessToken = process.env.FREESTYLE_STACK_ACCESS_TOKEN?.trim();
-  const teamId = process.env.FREESTYLE_TEAM_ID?.trim();
-  const credentialKind = apiKey ? "api-key" : stackAccessToken && teamId ? "stack" : "missing";
-  const cacheKey = `${baseUrl ?? "https://api.freestyle.sh"}|${credentialKind}|${timeoutMs}`;
+  // A bounded read's own client: its requests end when the route answers, so
+  // it belongs to that read and is never cached.
+  if (signal) return buildFreestyleClient(timeoutMs, signal);
+  const cacheKey = `${freestyleApiBaseUrl() ?? "https://api.freestyle.sh"}|${freestyleCredentialKind()}|${timeoutMs}`;
   const clients = globalForFreestyle.__cmuxFreestyleClients ??= new Map<string, Freestyle>();
-  const cached = signal ? undefined : clients.get(cacheKey);
+  const cached = clients.get(cacheKey);
   if (cached) return cached;
-
-  const longFetch = freestyleRequestFetch({
-    timeoutMs,
-    // A bounded read's own client: its requests end when the route answers.
-    ...(signal ? { signal } : {}),
-    record: process.env.NODE_ENV === "development" ? (event) => {
-      const traceId = currentVmRequestContext()?.traceId;
-      console.info("cmux.vm.freestyle.request", JSON.stringify({
-        ...event, traceId: traceId && /^[0-9a-f]{32}$/.test(traceId) ? traceId : undefined,
-      }));
-    } : undefined,
-  });
-  const client = apiKey
-    ? new Freestyle({ apiKey, baseUrl, fetch: longFetch })
-    : stackAccessToken && teamId
-      ? new Freestyle({ stackAccessToken, teamId, baseUrl, fetch: longFetch })
-      : null;
-  if (!client) {
-    throw new ProviderError(
-      "freestyle",
-      "freestyle requires FREESTYLE_API_KEY (or FREESTYLE_STACK_ACCESS_TOKEN + FREESTYLE_TEAM_ID)",
-    );
-  }
-  // A signal-bound client belongs to one read and is never cached.
-  if (signal) return client;
+  const client = buildFreestyleClient(timeoutMs);
   // Exec accepts a caller-selected timeout; bound the account-wide wrapper
   // cache so arbitrary timeout values cannot retain clients indefinitely.
   if (clients.size >= FREESTYLE_CLIENT_CACHE_LIMIT) {
@@ -273,6 +247,38 @@ export function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS, signal?: AbortSi
   }
   clients.set(cacheKey, client);
   return client;
+}
+
+function freestyleApiBaseUrl(): string | undefined {
+  return process.env.FREESTYLE_API_URL?.trim() || undefined;
+}
+
+function freestyleCredentialKind(): "api-key" | "stack" | "missing" {
+  if (process.env.FREESTYLE_API_KEY?.trim()) return "api-key";
+  return process.env.FREESTYLE_STACK_ACCESS_TOKEN?.trim() && process.env.FREESTYLE_TEAM_ID?.trim() ? "stack" : "missing";
+}
+
+function buildFreestyleClient(timeoutMs: number, signal?: AbortSignal): Freestyle {
+  const baseUrl = freestyleApiBaseUrl();
+  const apiKey = process.env.FREESTYLE_API_KEY?.trim();
+  const stackAccessToken = process.env.FREESTYLE_STACK_ACCESS_TOKEN?.trim();
+  const teamId = process.env.FREESTYLE_TEAM_ID?.trim();
+  const longFetch = freestyleRequestFetch({
+    timeoutMs,
+    ...(signal ? { signal } : {}),
+    record: process.env.NODE_ENV === "development" ? (event) => {
+      const traceId = currentVmRequestContext()?.traceId;
+      console.info("cmux.vm.freestyle.request", JSON.stringify({
+        ...event, traceId: traceId && /^[0-9a-f]{32}$/.test(traceId) ? traceId : undefined,
+      }));
+    } : undefined,
+  });
+  if (apiKey) return new Freestyle({ apiKey, baseUrl, fetch: longFetch });
+  if (stackAccessToken && teamId) return new Freestyle({ stackAccessToken, teamId, baseUrl, fetch: longFetch });
+  throw new ProviderError(
+    "freestyle",
+    "freestyle requires FREESTYLE_API_KEY (or FREESTYLE_STACK_ACCESS_TOKEN + FREESTYLE_TEAM_ID)",
+  );
 }
 
 /**
