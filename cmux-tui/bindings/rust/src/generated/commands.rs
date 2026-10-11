@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 58dd2823a9334bd9d991179f015295882bc254df3608a6c29b1fd0eebc0a95ac.
+// cmux-tui mux protocol 12, IR 5c72f96c138593bac34336745c47ef75439438b6684844c1017403ae1263882d.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1961,6 +1961,8 @@ pub struct NewConversationTabRequest {
     pub page: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub pane: Optional<T::Id>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub route: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
     /// Client transaction id (1 to 128 printable ASCII), echoed on the created tab's tab-added delta and in the result.
@@ -4192,6 +4194,9 @@ impl CmuxClient {
         }
         if !request.page.is_missing() {
             self.require_capability_field("new-conversation-tab", "page-tabs-v1")?;
+        }
+        if !request.route.is_missing() {
+            self.require_capability_field("new-conversation-tab", "page-tab-route-v1")?;
         }
         if !request.transaction.is_missing() {
             self.require_capability_field("new-conversation-tab", "conversation-tab-transaction-v1")?;

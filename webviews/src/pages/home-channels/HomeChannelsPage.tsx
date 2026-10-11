@@ -4,9 +4,10 @@
 // my last message) and whether the switcher shows.
 import { useMemo, useState, useSyncExternalStore } from "react";
 import type { Strings } from "../shared/i18n";
+import { AddChannel } from "./AddChannel";
 import { Avatar } from "./Avatar";
 import { Composer } from "./Composer";
-import { conversationName, lastEditable, others, railSections, timelineRows, withDraft } from "./model";
+import { channelIds, conversationName, lastEditable, others, railSections, timelineRows, withDraft } from "./model";
 import { Rail } from "./Rail";
 import type { HomeChannelsStore } from "./store";
 import { Switcher } from "./Switcher";
@@ -18,6 +19,7 @@ import { useHomeKeys } from "./useHomeKeys";
 export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore; strings: Strings }) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [switcher, setSwitcher] = useState(false);
+  const [addChannel, setAddChannel] = useState<Element | null>(null);
   // One inline editor at a time, in the surface it was opened from (the thread root shows in both).
   const [editing, setEditing] = useState<{ id: string; surface: "main" | "thread" } | undefined>();
   const { t, format } = strings;
@@ -34,11 +36,19 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
     return map;
   }, [snap.conversations, snap.me]);
   const mentionable = useMemo(() => others(open, me), [open, me]);
+  // Everyone the Home knows but me, agents first: the members a new channel can have.
+  const everyone = useMemo(
+    () =>
+      [...people.values()]
+        .filter((p) => p.id !== me)
+        .sort((a, b) => Number(b.chief) - Number(a.chief) || Number(b.kind === "agent") - Number(a.kind === "agent")),
+    [people, me],
+  );
   const online = snap.connection === "online";
   useHomeKeys({
     openSwitcher: () => setSwitcher(true),
     move: (delta, unreadOnly) => {
-      const { channels, direct } = railSections(snap.conversations.values());
+      const { channels, direct } = railSections(snap.conversations.values(), me);
       const order = [...channels, ...direct];
       const n = order.length;
       const start = order.findIndex((c) => c.id === snap.selected);
@@ -60,7 +70,9 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
     },
   });
   const name = open ? conversationName(open, me) : "";
-  const place = open?.kind === "group" ? `#${name}` : name;
+  const channels = useMemo(() => channelIds(snap.conversations.values(), me), [snap.conversations, me]);
+  const channel = open ? channels.has(open.id) : false;
+  const place = channel ? `#${name}` : name;
   // The draft's author shows the growing reply; a "typing" line for it would repeat that.
   const typingNames = snap.typing
     .filter((id) => id !== me && id !== snap.draft?.participant)
@@ -84,11 +96,12 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
           void store.select(id);
         }}
         onOpenSwitcher={() => setSwitcher(true)}
+        onAddChannel={online && everyone.length > 0 ? (anchor) => setAddChannel(anchor) : undefined}
       />
       <section className="hc-main" aria-label={place}>
         <header className="hc-main-header">
           <h1 className="hc-main-title">
-            {open?.kind === "group" && (
+            {channel && (
               <span className="hc-hash" aria-hidden="true">
                 #
               </span>
@@ -100,7 +113,7 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
               {t(snap.connection === "connecting" ? "connection.connecting" : "connection.offline")}
             </output>
           )}
-          {open && open.kind === "group" && (
+          {open && channel && (
             <span className="hc-members" title={format("header.members", String(open.participants.length))}>
               <span className="hc-members-faces" aria-hidden="true">
                 {open.participants.slice(0, 3).map((p) => (
@@ -172,6 +185,15 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
           onSend={(text) => store.send(text, snap.thread)}
           onReact={(message, value) => void store.react(message, value)}
           {...editActions("thread")}
+        />
+      )}
+      {addChannel && (
+        <AddChannel
+          anchor={addChannel}
+          people={everyone}
+          strings={strings}
+          onCreate={(title, participants) => store.createChannel(title, participants)}
+          onClose={() => setAddChannel(null)}
         />
       )}
       {switcher && (

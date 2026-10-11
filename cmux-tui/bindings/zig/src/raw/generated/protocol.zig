@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "58dd2823a9334bd9d991179f015295882bc254df3608a6c29b1fd0eebc0a95ac";
+pub const ir_sha256 = "5c72f96c138593bac34336745c47ef75439438b6684844c1017403ae1263882d";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -522,12 +522,15 @@ pub const ConversationTabRecord = struct {
     owner: ?[]const u8 = null,
     /// Page source (page-tabs-v1): the id of one of the app's own pages; exclusive with the other sources.
     page: ?[]const u8 = null,
+    /// What the page shows (page-tab-route-v1): a viewer's file or folder or a page's sub-view, 1 to 4096 bytes without control characters; only with page.
+    route: ?[]const u8 = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "agent_session",
         "conversation",
         "owner",
         "page",
+        "route",
     };
 };
 
@@ -1990,6 +1993,8 @@ pub const Tab = struct {
     size: wire.Nullable(Size),
     supports_clear_history_key_fallback: ?bool = null,
     surface: Id,
+    /// Why a terminal will end with something other than its shell although terminal hosts are on: `breakaway_denied` (Windows: the host runs inside the daemon's kill-on-close Job Object and ends when that job closes) or `host_start_failed` (no host; the daemon runs the terminal and it ends with the daemon). Null otherwise and for browser tabs. A string, not an enum: clients read an unknown value as a notice for another reason.
+    terminal_host_fallback: wire.Field([]const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     terminal_incarnation: wire.Field([]const u8) = .absent,
     terminal_resource_id: wire.Field([]const u8) = .absent,
@@ -6029,6 +6034,7 @@ pub const NewConversationTabRequest = struct {
     owner: wire.Field([]const u8) = .absent,
     page: wire.Field([]const u8) = .absent,
     pane: wire.Field(Id) = .absent,
+    route: wire.Field([]const u8) = .absent,
     rows: wire.Field(u16) = .absent,
     /// Client transaction id (1 to 128 printable ASCII), echoed on the created tab's tab-added delta and in the result.
     transaction: wire.Field([]const u8) = .absent,
@@ -6060,6 +6066,7 @@ pub fn newConversationTab(client: anytype, request: NewConversationTabRequest) !
             .fields = &.{
                 .{ .name = "agent_session", .since = null, .capability = "agent-session-tabs-v1" },
                 .{ .name = "page", .since = null, .capability = "page-tabs-v1" },
+                .{ .name = "route", .since = null, .capability = "page-tab-route-v1" },
                 .{ .name = "transaction", .since = null, .capability = "conversation-tab-transaction-v1" },
             },
         },

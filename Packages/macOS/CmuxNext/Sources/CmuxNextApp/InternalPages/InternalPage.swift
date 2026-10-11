@@ -61,6 +61,15 @@ protocol InternalPageProvider: AnyObject {
     /// The page history of tab `key` (``PageHistory``), for a page with
     /// sub-views. Default: none.
     func history(for key: String) -> (any PageHistory)?
+    /// What tab `key` shows (a viewer's file or folder), kept as its store
+    /// tab's route (`page-tab-route-v1`) so a reopened or relaunched tab
+    /// shows it again (reopen-closed.md 3.0). Default: nil.
+    func route(for key: String) -> String?
+    /// A store tab came back with `route` (Reopen Closed, relaunch): tab
+    /// `key` shows it, set up before its first view. The route comes from the
+    /// daemon, so a provider treats it like an open it did not choose (an
+    /// agent's open). Default: nothing.
+    func restore(_ route: String, for key: String)
 }
 
 extension InternalPageProvider {
@@ -68,4 +77,6 @@ extension InternalPageProvider {
     func tabClosed(_ key: String) {}
     func title(for key: String) -> String { title }
     func history(for key: String) -> (any PageHistory)? { nil }
+    func route(for key: String) -> String? { nil }
+    func restore(_ route: String, for key: String) {}
 }

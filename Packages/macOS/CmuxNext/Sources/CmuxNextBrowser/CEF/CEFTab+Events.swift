@@ -48,8 +48,7 @@ extension CEFTab {
         case .loadError(_, let code, let text, let url, let chromiumInterstitial):
             clearTitleBeforeCommit()
             guard let navigation else { return }
-            var error = Self.loadError(code: code, text: text, url: url)
-            error.engineShowsPage = chromiumInterstitial
+            let error = Self.loadError(code: code, text: text, url: url, chromiumInterstitial: chromiumInterstitial)
             machine.apply(.failed(navigation, error))
             if !error.isBenignInterruption, let failing = error.failingURL, PageBackground.isRealPage(failing) {
                 // The failed address is the tab's document now (Chrome's
@@ -106,12 +105,13 @@ extension CEFTab {
     /// Chromium net error codes; -3 (ERR_ABORTED) is a cancelled load (Stop,
     /// a replacing navigation, a download, a rerouted URL). Every other
     /// main-frame failure shows cmux's error page or certificate warning
-    /// (`ChromiumNetError`), over the error page Chromium commits under it.
-    static func loadError(code: Int, text: String, url: String) -> BrowserLoadError {
+    /// (`ChromiumNetError`), over the error page Chromium commits under it,
+    /// unless `chromiumInterstitial` (Chromium's own certificate page shows).
+    static func loadError(code: Int, text: String, url: String, chromiumInterstitial: Bool = false) -> BrowserLoadError {
         if code == -3 {
             return BrowserLoadError(domain: NSURLErrorDomain, code: NSURLErrorCancelled, message: text, failingURL: URL(string: url))
         }
-        return ChromiumNetError(code: code, text: text).loadError(failingURL: URL(string: url))
+        return ChromiumNetError(code: code, text: text).loadError(failingURL: URL(string: url), engineShowsPage: chromiumInterstitial)
     }
 
     private func loadFavicon(_ url: URL?) {

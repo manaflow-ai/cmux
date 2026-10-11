@@ -14,9 +14,9 @@ use terminal_records::{
     commit_terminal_transition, is_template_terminal, template_terminal_launch_spec,
     terminal_create_fingerprint, terminal_launch_spec, terminal_lifecycle_name,
 };
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod terminal_host_records;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use terminal_host_records::{
     acknowledge_exact_terminal_host_exit, cleanup_terminal_host_record,
     terminal_host_record_liveness, terminate_discovered_terminal_host_in,
@@ -139,9 +139,9 @@ mod guards;
 use guards::CLIENT_FOCUS_MEMORY_LIMIT;
 use guards::ClientFocusRecord;
 use guards::ConfigReloadState;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(crate) use guards::PendingTerminalHostBinding;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use guards::PendingTerminalHostRelease;
 use guards::PendingWorkspaceSurface;
 pub(crate) use guards::ResourceWaitWake;
@@ -254,6 +254,7 @@ mod screen_changed;
 pub(crate) mod screen_groups;
 mod signaled_mutex;
 pub(crate) use signaled_mutex::SignaledMutex;
+mod new_terminal_cwd;
 mod session_paths;
 pub(crate) mod settings;
 mod shell_history_feed;
@@ -391,7 +392,7 @@ use crate::terminal_host::TerminalId;
 #[cfg(test)]
 use crate::terminal_host_protocol::TerminalExit;
 use crate::terminal_host_runtime::TerminalHostIdentity;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use crate::terminal_host_runtime::TerminalHostLiveness;
 use crate::workspace_registry::{
     AgentHookPendingFailure, FrontendProjection, ProjectionCommit,
@@ -716,7 +717,7 @@ pub struct Mux {
     /// Parallel terminal host launches and reaps (`terminal_work`).
     terminal_work: terminal_work::TerminalWorkPool,
     /// Hosts launched ahead of their creation, by reserved terminal id.
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     prelaunched_terminals: Mutex<HashMap<String, terminal_work::PrelaunchedTerminal>>,
     #[cfg(unix)]
     pub(crate) image_pastes: crate::image_paste::ImagePasteStore,
@@ -743,7 +744,7 @@ struct RestoredResourceState {
     contents: Vec<RestoredResourceContent>,
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 struct RestoredTerminalBinding {
     public_id: TerminalPublicId,
     placements: Vec<(SurfaceId, TabResourceIdentity)>,
@@ -882,16 +883,6 @@ impl Mux {
             });
         }
         Ok(())
-    }
-
-    /// Working directory of a pane's active surface, if reported.
-    fn pane_cwd(&self, pane: PaneId) -> Option<String> {
-        let surface = {
-            let state = self.state.lock().unwrap();
-            let active = state.panes.get(&pane)?.active_surface()?;
-            state.surfaces.get(&active).cloned()
-        };
-        surface.and_then(|surface| surface.local_cwd())
     }
 
     fn workspace_key_for_pane(&self, pane: PaneId) -> Option<String> {

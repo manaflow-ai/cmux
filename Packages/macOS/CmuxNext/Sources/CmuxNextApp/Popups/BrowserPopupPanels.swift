@@ -144,9 +144,10 @@ final class BrowserPopupPanels {
             // A panel has no tab to select, no chrome for notices or an
             // omnibar to take focus, one store, and no page shortcuts.
             break
-        case .openURL, .adoptTab, .download, .openLocalFile:
-            // A download joins the App's list through the opener's tab, and a
-            // handed-off file opens in the opener's pane.
+        case .openURL, .adoptTab, .download, .openLocalFile, .webNotification:
+            // A download joins the App's list through the opener's tab, a
+            // handed-off file opens in the opener's pane, and a notification
+            // is the opener tab's.
             return false
         }
         return true
