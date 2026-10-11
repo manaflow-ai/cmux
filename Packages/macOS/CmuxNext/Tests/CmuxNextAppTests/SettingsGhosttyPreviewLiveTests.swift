@@ -2,6 +2,7 @@ import AppKit
 import CmuxTheme
 @testable import CmuxNextApp
 import CmuxNextDesign
+import CmuxNextSettings
 import Observation
 import os
 import Testing
@@ -21,6 +22,21 @@ struct SettingsGhosttyPreviewLiveTests {
         withObservationTracking { _ = services.settingsWindow.pageHostLists() } onChange: { changed.withLock { $0 = true } }
         ThemeStore.shared.apply(ThemeInput(background: ThemeRGB(hex: 0x203040), foreground: ThemeRGB(hex: 0xF0E0D0)))
         #expect(changed.withLock { $0 })
+    }
+
+    /// An edit only to a color no chrome token reads (`selection-foreground`) still reaches the
+    /// preview.
+    @Test @MainActor func anEditTokensIgnoreStillReachesThePreview() {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let original = ThemeStore.shared.input
+        defer { ThemeStore.shared.apply(original) }
+
+        var edited = original
+        edited.selectionForeground = ThemeRGB(hex: 0xFF0000)
+        ThemeStore.shared.apply(edited)
+        let config = services.settingsWindow.pageHostLists()["theme"]?["config"]
+        #expect(config?["selectionForeground"] == .string("#ff0000"))
     }
 }
 
