@@ -81,7 +81,8 @@ def main() -> int:
     except cmuxError as error:
         shown = {"error": str(error)}
     hints = shown.get("hints") or []
-    check("cmd+j labels the window's controls", shown.get("active") is True and len(hints) > 1, f"count={len(hints)}")
+    check("cmd+j labels the window's controls", shown.get("active") is True and len(hints) > 1,
+          f"count={len(hints)}" if hints else str(shown))
     row = next((h for h in hints if "hintzebra" in (h.get("title") or "")), None)
     check("the renamed workspace's row has a label", row is not None,
           "" if row else str([(h.get("label"), h.get("role"), h.get("title")) for h in hints][:40]))
