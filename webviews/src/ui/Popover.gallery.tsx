@@ -32,7 +32,13 @@ function GalleryPopover({ side = "bottom", anchorMode = "element", alignRight = 
   return (
     <div
       className="popover-gallery"
-      style={{ alignItems: "center", display: "flex", justifyContent: alignRight ? "flex-end" : "flex-start", minHeight: 260, padding: 32 }}
+      style={{
+        alignItems: "center",
+        display: "flex",
+        justifyContent: alignRight ? "flex-end" : "flex-start",
+        minHeight: 260,
+        padding: 32,
+      }}
     >
       <button
         ref={setTrigger}
@@ -93,7 +99,10 @@ const escapeFocus: Play = async (ctx) => {
   await ctx.press("Escape");
   await ctx.waitFor(() => {
     const trigger = ctx.find({ role: "button", name: "Open popover" });
-    return ctx.document.querySelector('[role="dialog"][aria-label="Popover demo"]') === null && ctx.document.activeElement === trigger;
+    return (
+      ctx.document.querySelector('[role="dialog"][aria-label="Popover demo"]') === null &&
+      ctx.document.activeElement === trigger
+    );
   });
 };
 
