@@ -159,7 +159,13 @@ export default componentEntry<Props>({
     "agent-session/acpmux/ComposerPickers.tsx#Picker",
   ],
   load: async () => GalleryComposerPickers,
-  styles: () => Promise.all([import("./styles.css"), import("./composerControls.css"), import("./modelPicker.css")]),
+  styles: () =>
+    Promise.all([
+      import("./styles.css"),
+      import("./composerControls.css"),
+      import("./modelPicker.css"),
+      import("./ComposerPickers.gallery.css"),
+    ]),
   variants: {
     closed: { props: {} },
     "model-menu": { props: {}, play: openModel },
