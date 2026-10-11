@@ -9,7 +9,7 @@ import { FileHeader, type FileActions, type FileView } from "./FileHeader";
 import { HunkActions } from "./HunkActions";
 import { HunkStage } from "./HunkStage";
 import { ReviewThread } from "./ReviewThread";
-import { showsLine, type ReviewThread as Thread } from "./reviewThreads";
+import { showsLine, threadId, type AddressState, type ReviewThread as Thread } from "./reviewThreads";
 import { useT } from "../i18n";
 import { intralineMode } from "./intraline";
 import { hunkAnchor, type FocusAfter, type HunkAnchor, type HunkReview } from "./hunkReview";
@@ -35,7 +35,7 @@ export function EditBlock({
   review,
   focusAfter,
   threads,
-  onAddressThread,
+  address,
 }: {
   file: TurnFile;
   edit: DiffEdit;
@@ -51,8 +51,8 @@ export function EditBlock({
   /// The file's pull request review threads (Branch scope): each under its line, or above the
   /// diff when this edit does not show that line.
   threads?: readonly Thread[];
-  /// Address on an open thread (ReviewThread.tsx).
-  onAddressThread?: (prompt: string) => Promise<unknown>;
+  /// Address on an open thread (ReviewThread.tsx): each thread's state, by `threadId`, and its press.
+  address?: { states: ReadonlyMap<string, AddressState>; run: (thread: Thread) => void };
 }) {
   const t = useT();
   // A language the bundle can't highlight shows as plain text; Pierre throws for it otherwise.
@@ -72,6 +72,11 @@ export function EditBlock({
   // A git scope's hunks stage one by one; a new or deleted file stages whole, from its header, and
   // a patch the host cut short has a last hunk the App's own read would not match.
   const staging = !reviewing && on.stageHunk !== undefined && !file.created && !file.deleted && !file.patchTruncated;
+  const addressOf = (thread: Thread) =>
+    address && {
+      state: address.states.get(threadId(thread)) ?? { state: "idle" as const },
+      run: () => address.run(thread),
+    };
   const [placed, unplaced] = useMemo(() => {
     const on = (threads ?? []).filter((thread) => edit.numbered && showsLine(edit, thread));
     return [on, (threads ?? []).filter((thread) => !on.includes(thread))];
@@ -125,8 +130,8 @@ export function EditBlock({
       )}
       {!view.collapsed && unplaced.length > 0 && (
         <div className="acpmux-review-unplaced">
-          {unplaced.map((thread, at) => (
-            <ReviewThread key={at} thread={thread} onAddress={onAddressThread} />
+          {unplaced.map((thread) => (
+            <ReviewThread key={threadId(thread)} thread={thread} address={addressOf(thread)} />
           ))}
         </div>
       )}
@@ -139,7 +144,9 @@ export function EditBlock({
             lineAnnotations={annotations}
             renderAnnotation={(annotation) => {
               if (annotation.metadata?.thread)
-                return <ReviewThread thread={annotation.metadata.thread} onAddress={onAddressThread} />;
+                return (
+                  <ReviewThread thread={annotation.metadata.thread} address={addressOf(annotation.metadata.thread)} />
+                );
               const anchor = annotation.metadata?.anchor;
               const hunk = edit.hunks.find((_, hunkIndex) => hunkKey(file, index, hunkIndex) === anchor?.key);
               if (staging && on.stageHunk && anchor && hunk) {

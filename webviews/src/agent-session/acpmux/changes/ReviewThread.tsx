@@ -1,30 +1,20 @@
 // A pull request review thread in the Branch scope (cx-ncc.77.2): its comments, each with its
 // author and a link to it on GitHub. A resolved thread folds to one line the reader can open. An
 // open one offers Address (cx-ncc.77.3), which sends the agent a prompt to address it.
-import React, { useState } from "react";
+import React from "react";
 import { useT } from "../i18n";
-import { addressPrompt, type ReviewThread as Thread } from "./reviewThreads";
-
-type Sending = { state: "idle" | "sending" | "sent" } | { state: "failed"; message?: string };
+import type { AddressState, ReviewThread as Thread } from "./reviewThreads";
 
 export function ReviewThread({
   thread,
-  onAddress,
+  address,
 }: {
   thread: Thread;
-  onAddress?: (prompt: string) => Promise<unknown>;
+  /// Address's state for this thread and its press; the view keeps the state, so a reload of
+  /// the scope still shows a sent thread as sent.
+  address?: { state: AddressState; run: () => void };
 }) {
   const t = useT();
-  const [sending, setSending] = useState<Sending>({ state: "idle" });
-  const address = () => {
-    if (!onAddress || sending.state === "sending") return;
-    setSending({ state: "sending" });
-    onAddress(addressPrompt(thread)).then(
-      () => setSending({ state: "sent" }),
-      (error: unknown) =>
-        setSending({ state: "failed", message: error instanceof Error && error.message ? error.message : undefined }),
-    );
-  };
   const comments = (
     <ol className="acpmux-review-comments">
       {thread.comments.map((comment, index) => (
@@ -62,22 +52,34 @@ export function ReviewThread({
             </div>
           )}
           {comments}
-          {onAddress && (
+          {address && (
             <div className="acpmux-review-actions">
-              {sending.state === "sent" ? (
-                <output>{t("review.sent")}</output>
-              ) : (
-                <button
-                  type="button"
-                  className="acpmux-review-address"
-                  aria-label={t("review.addressAt", { where })}
-                  disabled={sending.state === "sending"}
-                  onClick={address}
-                >
-                  {t("review.address")}
-                </button>
+              {/* One button throughout, so focus stays on it while it sends and once sent. */}
+              <button
+                type="button"
+                className="acpmux-review-address"
+                data-state={address.state.state}
+                aria-label={
+                  address.state.state === "sent"
+                    ? t("review.sent")
+                    : address.state.state === "sending"
+                      ? t("review.sending")
+                      : t("review.addressAt", { where })
+                }
+                aria-disabled={address.state.state === "sending" || address.state.state === "sent" ? true : undefined}
+                onClick={() => {
+                  if (address.state.state === "idle" || address.state.state === "failed") address.run();
+                }}
+              >
+                {address.state.state === "sent"
+                  ? t("review.sent")
+                  : address.state.state === "sending"
+                    ? t("review.sending")
+                    : t("review.address")}
+              </button>
+              {address.state.state === "failed" && (
+                <output role="alert">{t("prompt.notSent", { reason: address.state.message })}</output>
               )}
-              {sending.state === "failed" && <output role="alert">{sending.message ?? t("review.sendFailed")}</output>}
             </div>
           )}
         </>

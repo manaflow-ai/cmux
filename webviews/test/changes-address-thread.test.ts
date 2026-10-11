@@ -1,6 +1,7 @@
 // Address a review comment (cx-ncc.77.3): one click on a review thread's Address sends the agent
 // a prompt to address it. The gallery's `agent-pane.diff-panel` `address-thread` play fails unless
-// the prompt names the file, the line and each comment, and the thread then says it was sent.
+// the prompt names the file and line with each comment attributed outside its quote, exactly one
+// prompt is sent, and the thread says it was sent, still after a reload.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";

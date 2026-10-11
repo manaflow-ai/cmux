@@ -165,5 +165,6 @@ button.acpmux-edited-file:focus-visible{outline:1.5px solid var(--agent-muted);o
 .acpmux-review-address:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)))}
 .acpmux-review-address:active{background:var(--acpmux-step-pressed-on-page)}
 .acpmux-review-address:focus-visible{outline:2px solid var(--agent-accent);outline-offset:1px}
-.acpmux-review-address:disabled{opacity:.6}
+.acpmux-review-address[data-state=sending],.acpmux-review-address[data-state=sent]{background:none;color:var(--agent-muted)}
 .acpmux-review-actions output[role=alert]{color:var(--acpmux-del)}
+.acpmux-review-address[aria-disabled=true]:hover,.acpmux-review-address[aria-disabled=true]:active{background:none}
