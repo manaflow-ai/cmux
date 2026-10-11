@@ -271,7 +271,8 @@ fn conversation_thread_reads_the_whole_thread_and_pages_carry_root_stats() {
     assert_eq!(ids(&next["replies"]), vec![r3["id"].as_str().unwrap()]);
     assert_eq!(next["has_more"], false, "{next}");
     // A message with no replies is a root with an empty thread.
-    let empty = home.request("conversation-thread", json!({"conversation": conversation, "root": plain_id}));
+    let empty = home
+        .request("conversation-thread", json!({"conversation": conversation, "root": plain_id}));
     assert_eq!(ids(&empty["replies"]), Vec::<String>::new());
     assert_eq!(
         empty["thread"],
@@ -280,7 +281,8 @@ fn conversation_thread_reads_the_whole_thread_and_pages_carry_root_stats() {
     );
 
     // Snapshot and history carry the stats of the roots in their page only.
-    let snapshot = home.request("conversation-snapshot", json!({"conversation": conversation, "tail": 10}));
+    let snapshot =
+        home.request("conversation-snapshot", json!({"conversation": conversation, "tail": 10}));
     assert_eq!(snapshot["threads"], json!([summary]), "{snapshot}");
     let history = home.request(
         "conversation-history",
@@ -296,8 +298,13 @@ fn conversation_thread_reads_the_whole_thread_and_pages_carry_root_stats() {
     // A reply, an unknown id and a root of another conversation are not roots here.
     let other = create(&mut home, "thread-other");
     let foreign = sent(&mut home, None, &other, "foreign", None);
-    for root in [r1["id"].as_str().unwrap(), "msg_00000000000000000000000000", foreign["id"].as_str().unwrap()] {
-        let refused = home.reply("conversation-thread", json!({"conversation": conversation, "root": root}));
+    for root in [
+        r1["id"].as_str().unwrap(),
+        "msg_00000000000000000000000000",
+        foreign["id"].as_str().unwrap(),
+    ] {
+        let refused =
+            home.reply("conversation-thread", json!({"conversation": conversation, "root": root}));
         assert_eq!(refused["ok"], false, "{root}: {refused}");
         assert!(refused.to_string().contains("unknown_message"), "{root}: {refused}");
     }

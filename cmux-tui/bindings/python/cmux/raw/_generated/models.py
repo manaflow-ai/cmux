@@ -645,6 +645,16 @@ class ConversationTextRun:
 
 
 @dataclass(frozen=True)
+class ConversationThreadSummary:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationThreadSummary'
+    authors: List[str]
+    last_reply_at: Union[str, None]
+    last_reply_seq: Union[int, None]
+    reply_count: int
+    root: str
+
+
+@dataclass(frozen=True)
 class CopyResult:
     __cmux_schema_path__: ClassVar[str] = 'types/CopyResult'
     mode: Literal['screen', 'selection', 'scrollback']
@@ -2272,6 +2282,15 @@ class CloudConversationSubscribeRequest:
 
 
 @dataclass(frozen=True)
+class CloudConversationThreadRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-conversation-thread/request'
+    conversation: str
+    root: str
+    after_seq: Union[int, None, MissingType] = field(default=MISSING)
+    limit: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class CloudConversationUnsubscribeRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/cloud-conversation-unsubscribe/request'
     conversation: str
@@ -2487,6 +2506,7 @@ class ConversationHistoryRequest:
 class ConversationHistoryResult:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-history/result'
     messages: List[ConversationMessage]
+    threads: Union[List[ConversationThreadSummary], MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2561,6 +2581,25 @@ class ConversationSnapshotResult:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-snapshot/result'
     conversation: ConversationSummary
     messages: List[ConversationMessage]
+    threads: Union[List[ConversationThreadSummary], MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ConversationThreadRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-thread/request'
+    conversation: str
+    root: str
+    after_seq: Union[int, MissingType] = field(default=MISSING)
+    limit: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ConversationThreadResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-thread/result'
+    has_more: bool
+    replies: List[ConversationMessage]
+    root: ConversationMessage
+    thread: ConversationThreadSummary
 
 
 @dataclass(frozen=True)
@@ -5197,6 +5236,7 @@ __all__ = [
     'ConversationSummary',
     'ConversationTabRecord',
     'ConversationTextRun',
+    'ConversationThreadSummary',
     'CopyResult',
     'DeadPane',
     'DeclarativeLayoutLeaf',
@@ -5368,6 +5408,7 @@ __all__ = [
     'CloudConversationOpRequest',
     'CloudConversationSnapshotRequest',
     'CloudConversationSubscribeRequest',
+    'CloudConversationThreadRequest',
     'CloudConversationUnsubscribeRequest',
     'CloudInboxListRequest',
     'CloudInboxSubscribeRequest',
@@ -5405,6 +5446,8 @@ __all__ = [
     'ConversationSearchResult',
     'ConversationSnapshotRequest',
     'ConversationSnapshotResult',
+    'ConversationThreadRequest',
+    'ConversationThreadResult',
     'ConversationTypingRequest',
     'CopyRequest',
     'CreateBookmarkRequest',

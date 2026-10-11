@@ -397,14 +397,21 @@ fn the_mux_commands_never_take_a_chief_from_the_request() {
 fn thread_read_and_root_stats_pass_through_the_proxy() {
     let (mux, client, backend) = cloud_mux();
     let identity = run(&mux, client, json!({"cmd":"identify"})).unwrap();
-    assert!(identity["capabilities"].as_array().unwrap().iter().any(|v| v == "conversation-thread-v1"));
+    assert!(
+        identity["capabilities"].as_array().unwrap().iter().any(|v| v == "conversation-thread-v1")
+    );
     sign_in(&mux, client);
     let root = json!({"id":"msg_01","seq":1,"author":ME,"parts":[]});
-    let reply_message = json!({"id":"msg_02","seq":2,"author":ME,"parts":[],"thread_root":"msg_01"});
+    let reply_message =
+        json!({"id":"msg_02","seq":2,"author":ME,"parts":[],"thread_root":"msg_01"});
     let summary = json!({"root":"msg_01","reply_count":1,"last_reply_seq":2,
                          "last_reply_at":"2026-10-11T00:00:00.000Z","authors":[ME]});
     let value = json!({"root":root,"replies":[reply_message],"has_more":false,"thread":summary});
-    backend.reply("/v1/read", 200, json!({"ok":true,"op":"conversation.thread","value":value,"revision":""}));
+    backend.reply(
+        "/v1/read",
+        200,
+        json!({"ok":true,"op":"conversation.thread","value":value,"revision":""}),
+    );
     let thread = reply(
         &mux,
         client,
@@ -419,8 +426,12 @@ fn thread_read_and_root_stats_pass_through_the_proxy() {
                "params":{"conversation":CONV,"root":"msg_01","after_seq":0,"limit":20}})
     );
 
-    backend.reply("/v1/read", 200, json!({"ok":true,"op":"conversation.history",
-        "value":{"messages":[root],"has_more":false,"threads":[summary]},"revision":""}));
+    backend.reply(
+        "/v1/read",
+        200,
+        json!({"ok":true,"op":"conversation.history",
+        "value":{"messages":[root],"has_more":false,"threads":[summary]},"revision":""}),
+    );
     let history = reply(
         &mux,
         client,

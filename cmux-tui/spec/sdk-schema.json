@@ -7261,6 +7261,55 @@
    },
    "additional_properties": false
   },
+  "ConversationThreadSummary": {
+   "kind": "object",
+   "fields": {
+    "root": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "reply_count": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "last_reply_seq": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "last_reply_at": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "authors": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
   "ConversationImportMessage": {
    "kind": "object",
    "fields": {
@@ -19743,6 +19792,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "threads": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "ConversationThreadSummary"
+       }
+      },
+      "presence": "optional",
+      "nullable": false
      }
     },
     "additional_properties": false
@@ -19799,6 +19859,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "threads": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "ConversationThreadSummary"
+       }
+      },
+      "presence": "optional",
+      "nullable": false
      }
     },
     "additional_properties": false
@@ -19806,6 +19877,94 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. limit is 1-500. See spec/commands.md."
+   ]
+  },
+  "conversation-thread": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "conversation-thread-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "root": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "after_seq": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": false
+     },
+     "limit": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint32"
+      },
+      "presence": "optional",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "root": {
+      "type": {
+       "kind": "ref",
+       "name": "ConversationMessage"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "replies": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "ConversationMessage"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "has_more": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "thread": {
+      "type": {
+       "kind": "ref",
+       "name": "ConversationThreadSummary"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. limit is 1-500 (default 50). A root that is unknown, in another conversation or a thread reply is unknown_message. See spec/commands.md."
    ]
   },
   "conversation-search": {
@@ -20969,6 +21128,57 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. limit is 1-200. Calls the cloud. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+   ]
+  },
+  "cloud-conversation-thread": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "conversation-thread-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "root": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "after_seq": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
+     "limit": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint32"
+      },
+      "presence": "optional",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. Needs cloud-conversations-v1 too. limit is 1-200. Calls the cloud. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
    ]
   },
   "cloud-conversation-op": {
