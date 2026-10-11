@@ -298,6 +298,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 DebugNowPlaying.register(on: control.service?.router, services: services)
                 DebugCEFDevToolsLayout.register(on: control.service?.router, services: services)
                 DebugBrowserExternal.register(on: control.service?.router, services: services)
+                DebugTerminalLinks.register(on: control.service?.router, services: services)
                 if let router = control.service?.router {
                     BrowserPageService(engine: AppBrowserPageEngine(services: services)).install(on: router)
                     services.apps.attach(router: router)

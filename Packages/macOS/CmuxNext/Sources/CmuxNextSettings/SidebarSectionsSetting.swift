@@ -15,6 +15,7 @@ public nonisolated enum SidebarSectionsSetting {
     /// Minimal mode (cx-w1r5): rows draw only icon, name and marks; section
     /// headers become thin lines.
     public static let minimalPath = ["sidebar", "minimal"]
+    public static let densityPath = ["sidebar", "density"]
     public static let showProjectsPath = ["sidebar", "showProjects"]
     public static let groupByPath = ["sidebar", "groupBy"]
     public static let showChatsPath = ["sidebar", "showChats"]
@@ -36,6 +37,20 @@ public nonisolated enum SidebarSectionsSetting {
                                                    "Workspace rows show only their icon, name and unread mark, and section titles become thin lines."),
                           kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.minimal),
                           keywords: ["sidebar", "minimal", "compact", "dense", "rows", "simple", "clean"])
+    }
+
+    static func densityDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(densityPath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.density", "Sidebar Density"),
+                          help: SettingsText.keyed("settings.sidebar.density.help",
+                                                   "Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."),
+                          kind: .choice(SidebarDensity.allCases.map { density in
+                              SettingChoice(density.rawValue, density == .compact
+                                  ? SettingsText.keyed("settings.choice.compact", "Compact")
+                                  : SettingsText.keyed("settings.choice.expanded", "Expanded"))
+                          }),
+                          default: .string(SidebarSectionsPreferences.defaults.density.rawValue),
+                          keywords: ["sidebar", "density", "expanded", "compact", "rows", "preview", "two lines", "t3", "codex"])
     }
 
     static func minimalModeDescriptor(group: SettingText) -> SettingDescriptor {
@@ -154,6 +169,14 @@ public nonisolated enum SidebarSectionsSetting {
             } else {
                 let choices = SidebarGroupBy.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.groupBy", message: "expected one of " + choices))
+            }
+        }
+        if let value = root.value(at: densityPath) {
+            if let text = value.stringValue, let density = SidebarDensity(rawValue: text) {
+                result.density = density
+            } else {
+                let choices = SidebarDensity.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.density", message: "expected one of " + choices))
             }
         }
         if let value = root.value(at: showChatsPath) {

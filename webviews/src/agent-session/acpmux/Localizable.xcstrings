@@ -113501,6 +113501,402 @@
           }
         }
       }
+    },
+    "floating.focusedTab": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focused tab"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "علامة التبويب النشطة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fokusirana kartica"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fokuseret fane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fokussierter Tab"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pestaña enfocada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Onglet actif"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scheda attiva"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "フォーカス中のタブ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងដែលកំពុងផ្តោត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "포커스된 탭"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fokusert fane"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktywna karta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aba em foco"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Активная вкладка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แท็บที่โฟกัสอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odaktaki sekme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Активна вкладка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thẻ đang chọn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "当前标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "目前分頁"
+          }
+        }
+      }
+    },
+    "floating.includeContext": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Include focused tab"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تضمين علامة التبويب النشطة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uključi fokusiranu karticu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Medtag fokuseret fane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fokussierten Tab einbeziehen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Incluir pestaña enfocada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inclure l’onglet actif"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Includi scheda attiva"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "フォーカス中のタブを含める"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រួមបញ្ចូលផ្ទាំងដែលកំពុងផ្តោត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "포커스된 탭 포함"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta med fokusert fane"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dołącz aktywną kartę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Incluir aba em foco"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Включить активную вкладку"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "รวมแท็บที่โฟกัสอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odaktaki sekmeyi ekle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Додати активну вкладку"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bao gồm thẻ đang chọn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "包含当前标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "包含目前分頁"
+          }
+        }
+      }
+    },
+    "floating.key.include": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "include tab"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تضمين علامة التبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "uključi karticu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "medtag fane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab einbeziehen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "incluir pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "inclure l’onglet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "includi scheda"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "タブを含める"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រួមបញ្ចូលផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "탭 포함"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ta med fane"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "dołącz kartę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "incluir aba"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "включить вкладку"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "รวมแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "sekmeyi ekle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "додати вкладку"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "bao gồm thẻ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "包含标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "包含分頁"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
