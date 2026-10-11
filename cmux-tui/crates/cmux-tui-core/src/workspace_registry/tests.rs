@@ -94,6 +94,44 @@ fn journal_lists_are_bounded_by_the_resource_catalog() {
     assert_eq!(segments[0].start_sequence, 1);
 }
 
+#[test]
+fn existing_registry_migrates_to_incremental_journal_vacuum_once() {
+    let root = temp_root("journal-auto-vacuum-migration");
+    let database = {
+        let registry = WorkspaceRegistry::open(&root, "journal-auto-vacuum").unwrap();
+        let database = registry.session_journal_database_path().unwrap();
+        registry
+            .connection
+            .execute("DELETE FROM meta WHERE key = ?1", [JOURNAL_AUTO_VACUUM_META_KEY])
+            .unwrap();
+        database
+    };
+
+    // Model a registry written before journal maintenance opted into
+    // incremental auto-vacuum.
+    let legacy = Connection::open(&database).unwrap();
+    legacy.execute_batch("PRAGMA auto_vacuum=NONE; VACUUM;").unwrap();
+    drop(legacy);
+
+    let reopened = WorkspaceRegistry::open(&root, "journal-auto-vacuum").unwrap();
+    let mode = reopened
+        .connection
+        .query_row("PRAGMA auto_vacuum", [], |row| row.get::<_, i64>(0))
+        .unwrap();
+    assert_eq!(mode, 0, "legacy migration must not rewrite the registry during open");
+    assert!(meta_value(&reopened.connection, JOURNAL_AUTO_VACUUM_META_KEY).unwrap().is_none());
+    assert!(reopened.migrate_journal_auto_vacuum().unwrap());
+    let mode = reopened
+        .connection
+        .query_row("PRAGMA auto_vacuum", [], |row| row.get::<_, i64>(0))
+        .unwrap();
+    assert_eq!(mode, 2);
+    assert_eq!(required_meta(&reopened.connection, JOURNAL_AUTO_VACUUM_META_KEY).unwrap(), "1");
+    assert!(!reopened.migrate_journal_auto_vacuum().unwrap());
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[cfg(windows)]
 #[test]
 fn registry_opens_and_persists_under_a_long_windows_state_root() {
