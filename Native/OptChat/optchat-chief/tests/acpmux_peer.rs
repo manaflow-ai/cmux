@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+mod real_python;
+
 /// A newline JSON-RPC server on `socket` that answers `initialize` and
 /// `_acpmux/sessions` and appends every byte it reads to `received`.
 const SERVER: &str = r#"
@@ -52,17 +54,9 @@ impl Drop for Server {
     }
 }
 
-/// The interpreter that runs the server, symlinks resolved (its process's executable).
+/// The interpreter that runs the server: its own process image.
 fn python() -> PathBuf {
-    let out = Command::new("python3")
-        .args([
-            "-I",
-            "-c",
-            "import os, sys; print(os.path.realpath(sys.executable))",
-        ])
-        .output()
-        .expect("python3");
-    PathBuf::from(String::from_utf8(out.stdout).unwrap().trim())
+    real_python::image()
 }
 
 fn serve(dir: &Path, socket: &Path) -> Server {

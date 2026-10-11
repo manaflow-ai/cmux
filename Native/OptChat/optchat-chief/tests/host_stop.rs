@@ -8,19 +8,14 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+mod real_python;
+
 /// A fake `acpmux`: `daemon run` listens on $ACPMUX_SOCKET and writes its pid;
 /// `daemon shutdown` records the call and ends it. The host speaks only to a
-/// socket whose server process runs `ACPMUX_BIN` (cx-ggai), so the fake is a
-/// copy of the Python interpreter (a `--copies` venv) that runs the script
-/// `daemon` from its working folder, `$ACPMUX_HOME` (where the host starts it).
+/// socket whose server process runs `ACPMUX_BIN` (cx-ggai), so the fake is the
+/// Python interpreter's own image, which runs the script `daemon` from its
+/// working folder, `$ACPMUX_HOME` (where the host starts it).
 fn fake_acpmux(dir: &Path) -> std::path::PathBuf {
-    let venv = dir.join("venv");
-    let made = Command::new("python3")
-        .args(["-m", "venv", "--copies", "--without-pip"])
-        .arg(&venv)
-        .status()
-        .unwrap();
-    assert!(made.success(), "python3 -m venv --copies: {made}");
     let home = dir.join("acpmux");
     std::fs::create_dir_all(&home).unwrap();
     std::fs::write(
@@ -39,7 +34,7 @@ elif sys.argv[1:2] == ["shutdown"]:
 "#,
     )
     .unwrap();
-    venv.join("bin").join("python3")
+    real_python::image()
 }
 
 /// Running, not a zombie: an orphan whose new parent has not reaped it yet
