@@ -90,6 +90,7 @@ struct RightSidebarPanelView: View {
     @State private var modeBarDrag = RightSidebarModeBarDragController()
     @State private var modeBarWidthReport = RightSidebarModeBarWidthReport()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Namespace private var modeBarSelectionNamespace
     @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     private let alwaysShowShortcutHints = ShortcutHintDebugSettings().alwaysShowHints
     private let closeShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintX
@@ -240,7 +241,8 @@ struct RightSidebarPanelView: View {
                                 alwaysShowShortcutHints: alwaysShowShortcutHints,
                                 modifierPressed: modeShortcutHintMonitor.isModifierPressed,
                                 modifierHoldHintsEnabled: showModifierHoldHints
-                            )
+                            ),
+                            selectionNamespace: modeBarSelectionNamespace
                         ) {
                             let mode = item.mode
                             if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
