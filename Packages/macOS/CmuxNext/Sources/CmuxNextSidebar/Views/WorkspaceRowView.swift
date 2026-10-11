@@ -44,9 +44,12 @@ final class WorkspaceRowView: SidebarRowView {
 
     /// Progress under the row (`SidebarWorkspace.progress`): a track and a
     /// fill; an indeterminate one fills the whole track, dimmed.
-    private let progressTrack = CALayer()
-    private let progressFill = CALayer()
-    private var progress: SidebarProgress?
+    let progressTrack = CALayer()
+    let progressFill = CALayer()
+    private(set) var progress: SidebarProgress?
+    /// Classic's status block under the name (`WorkspaceRowContent.status`).
+    let statusBlock = WorkspaceStatusView()
+    private(set) var statusHeight: CGFloat = 0
     private var hasSubtitle = false
     private var grouped = false
     private var iconKind: WorkspaceIcon?
@@ -80,7 +83,7 @@ final class WorkspaceRowView: SidebarRowView {
         mutedMark.imageScaling = .scaleProportionallyDown
         mutedMark.isHidden = true
         mutedMark.setAccessibilityElement(false)
-        [icon, title, subtitle, activity, agentMark, mutedMark, badge, presenceDots, closeButton, moreButton, disclosureButton, tabCount, prBadge, placeholderBar]
+        [icon, title, subtitle, activity, agentMark, mutedMark, badge, presenceDots, closeButton, moreButton, disclosureButton, tabCount, prBadge, placeholderBar, statusBlock]
             .forEach(addSubview)
         disclosureButton.isHidden = true
         tabCount.isHidden = true
@@ -187,6 +190,9 @@ final class WorkspaceRowView: SidebarRowView {
         badgeText = shown.badge
         prBadge.stringValue = shown.badge ?? ""
         progress = shown.progress
+        statusBlock.isHidden = shown.status == nil || isShowingPlaceholder
+        statusBlock.configure(shown.status ?? SidebarWorkspaceStatus(), reservesBar: shown.progress != nil)
+        statusHeight = statusBlock.isHidden ? 0 : SidebarLayoutMetrics.standard.statusHeight(shown)
         // The workspace hover card shows the cwd (and CPU and memory).
         toolTip = nil
         // A placeholder says nothing; its section header says it connects.
@@ -253,7 +259,10 @@ final class WorkspaceRowView: SidebarRowView {
 
     override func layout() {
         super.layout()
-        let b = layoutBounds
+        let full = layoutBounds
+        // The name lines and the trailing cluster center in the head; the
+        // status block, when shown, fills the rest below it.
+        let b = NSRect(x: full.minX, y: full.minY, width: full.width, height: full.height - statusHeight)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
@@ -371,26 +380,8 @@ final class WorkspaceRowView: SidebarRowView {
             title.frame = NSRect(x: textX + inset, y: (b.height - th) / 2, width: titleWidth, height: th)
             subtitle.isHidden = true
         }
-        layoutProgress(x: textX, width: max(0, b.width - Metrics.space3 - textX), bottom: b.maxY)
+        layoutStatus(x: textX, width: max(0, b.width - Metrics.space3 - textX), head: b.maxY, bottom: full.maxY)
         needsDisplay = true
-    }
-
-    private func layoutProgress(x: CGFloat, width: CGFloat, bottom: CGFloat) {
-        guard let progress else {
-            progressTrack.isHidden = true
-            return
-        }
-        let height: CGFloat = 2
-        progressTrack.isHidden = false
-        progressTrack.frame = CGRect(x: x, y: isFlipped ? bottom - height - 1 : 1, width: width, height: height)
-        progressTrack.cornerRadius = height / 2
-        progressFill.frame = CGRect(x: 0, y: 0, width: width * (progress.value ?? 1), height: height)
-        progressFill.cornerRadius = height / 2
-        performWithTheme {
-            progressTrack.backgroundColor = Palette.textTertiary.withAlphaComponent(0.25).cgColor
-            let color = progress.isError ? Palette.danger : Palette.accent
-            progressFill.backgroundColor = (progress.value == nil ? color.withAlphaComponent(0.4) : color).cgColor
-        }
     }
 }
 

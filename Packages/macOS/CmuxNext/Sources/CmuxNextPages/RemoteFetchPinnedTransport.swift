@@ -1,7 +1,7 @@
 import Foundation
 import Network
 
-/// HTTP/1.0 over TLS to one checked address (Network.framework): the connection goes to the IP
+/// HTTP/1.1 over TLS to one checked address (Network.framework): the connection goes to the IP
 /// the fetch checked, never to a name, so no second DNS answer can change the target (a DNS
 /// rebinding). TLS uses the URL's host as the server name (SNI) and verifies the certificate
 /// against that name with the system trust. No proxy (a proxy would resolve the name again), no
@@ -52,11 +52,11 @@ public nonisolated struct PinnedTLSTransport: RemoteFetchTransport {
         }
     }
 
-    /// The request bytes: `GET <target> HTTP/1.0` and the request's headers only (with
-    /// `Connection: close` and `Accept-Encoding: identity` the server may not chunk or compress).
-    /// The reply is read by ``RemoteFetchReplyReader`` (CFHTTPMessage).
+    /// The request bytes: `GET <target> HTTP/1.1` and the request's headers only (`Host` and
+    /// `Connection: close` among them, so the server ends the connection after one reply). The
+    /// reply, chunked or compressed or not, is read by ``RemoteFetchReplyReader``.
     static func encode(_ request: RemoteFetchRequest) -> Data {
-        var text = "GET \(request.target) HTTP/1.0\r\n"
+        var text = "GET \(request.target) HTTP/1.1\r\n"
         for name in request.headers.keys.sorted() {
             guard let value = request.headers[name], !value.contains("\r"), !value.contains("\n") else { continue }
             text += "\(name): \(value)\r\n"

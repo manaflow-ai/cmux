@@ -10,22 +10,31 @@ export interface HeaderState {
   readonly sideTabs: boolean;
   /// App action ids (`splitRight`, `splitBrowserRight`).
   readonly lit: readonly string[];
+  /// The "..." menu offers Move to Floating Chat (Start Agent's floating chat is on, cx-b9qi).
+  readonly floatingChat: boolean;
   /// Rises with each change the App sees: a `pane.tabState` reply that arrives after a newer push is dropped.
   readonly version: number;
 }
 
-let current: HeaderState = { pinned: false, sideTabs: false, lit: [], version: 0 };
+let current: HeaderState = { pinned: false, sideTabs: false, lit: [], floatingChat: false, version: 0 };
 const listeners = new Set<() => void>();
 
 /// The App's state (a `pane.tabState` reply or a `headerState` push); fields it leaves out keep their value.
 export function setHeaderState(value: unknown): void {
-  const raw = (value ?? {}) as { pinned?: unknown; sideTabs?: unknown; lit?: unknown; version?: unknown };
+  const raw = (value ?? {}) as {
+    pinned?: unknown;
+    sideTabs?: unknown;
+    lit?: unknown;
+    floatingChat?: unknown;
+    version?: unknown;
+  };
   const version = typeof raw.version === "number" ? raw.version : current.version;
   if (version < current.version) return;
   const next: HeaderState = {
     pinned: typeof raw.pinned === "boolean" ? raw.pinned : current.pinned,
     sideTabs: typeof raw.sideTabs === "boolean" ? raw.sideTabs : current.sideTabs,
     lit: Array.isArray(raw.lit) ? raw.lit.filter((id): id is string => typeof id === "string") : current.lit,
+    floatingChat: typeof raw.floatingChat === "boolean" ? raw.floatingChat : current.floatingChat,
     version,
   };
   if (JSON.stringify(next) === JSON.stringify(current)) return;

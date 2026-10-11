@@ -305,7 +305,7 @@ const RESIZE_UNCONFIRMED_RECOVERY_AFTER_MS = 30 * 60 * 1000;
 const PREVIEW_ENDPOINT_LEASE_TTL_MS = 12 * 60 * 60 * 1000;
 const PREVIEW_LEASE_PRUNE_BATCH = 5_000;
 
-type ExistingVmAccessInput = {
+export type ExistingVmAccessInput = {
   readonly userId: string;
   readonly billingTeamId?: string | null;
   readonly teamIds?: readonly string[];
@@ -4957,7 +4957,8 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
 /// free access window is preserved but unreachable until the caller upgrades.
 /// List/status/rename/delete deliberately keep using requireUserVm so the
 /// machine stays visible and disposable while locked.
-function requireAccessibleUserVm(input: ExistingVmAccessInput) {
+/** The caller's access check of an existing machine (exec, attach, files; also acpmuxPersonKey.ts). */
+export function requireAccessibleUserVm(input: ExistingVmAccessInput) {
   return Effect.gen(function* () {
     let vm = yield* requireUserVm(input);
     if (input.callerPlanId === "go") {
