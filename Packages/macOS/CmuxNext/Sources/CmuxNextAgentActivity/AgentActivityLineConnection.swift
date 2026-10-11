@@ -58,6 +58,7 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
             }
             let reader = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
             reader.setEventHandler { [weak self] in self?.readable() }
+            reader.setCancelHandler { Darwin.close(fd) }
             source = reader
             reader.resume()
             write(send)
@@ -129,12 +130,17 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
     private func finish() {
         guard !closed else { return }
         closed = true
-        source?.cancel()
-        source = nil
-        if descriptor >= 0 {
+        // The read source closes the descriptor in its cancel handler, after
+        // the source let go of it: closing here could close a descriptor
+        // number that another connection already reused. Without a source
+        // (a refused or failed start) this closes it.
+        if let source {
+            source.cancel()
+            self.source = nil
+        } else if descriptor >= 0 {
             Darwin.close(descriptor)
-            descriptor = -1
         }
+        descriptor = -1
         let callback = onClose
         onClose = nil
         onLine = nil
