@@ -323,7 +323,19 @@ def hover():
     rpc("debug.tunables", {"action": "set", "key": "motion.fade.hoverOut", "value": None})
 
 
-SURFACES = {"tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts, "popups": popups, "hover": hover, "groups": groups, "drag": drag}
+def dock():
+    # A tab moved into a new dock column (the chat dock's path: a lone chat
+    # moves into a left dock when it opens a tool), then the column undocks.
+    save_layout("dock")
+    for _ in range(2):
+        action("newSurface")
+        time.sleep(0.5)  # test harness: one tab at a time
+    for edge in ("left", "right"):
+        record("dock", "dock-" + edge, lambda: rpc("action.run", {"action": "tab.moveToNewDockColumn", "args": {"edge": edge}}))
+        record("dock", "undock-" + edge, lambda: action("column.undock"))
+
+
+SURFACES = {"tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts, "popups": popups, "hover": hover, "groups": groups, "drag": drag, "dock": dock}
 
 
 def main():
