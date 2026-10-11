@@ -60,7 +60,7 @@ export default agentPaneEntry({
   ],
   variants: {
     "long-chat": {
-      note: "A long conversation with one overview tick per prompt and a viewport run of lit turns. The narrow gallery width stays above the minimap's 28 px gutter threshold.",
+      note: "A long conversation with one overview tick per prompt, a viewport run of lit turns, and the turn being read as a longer accent tick. The narrow gallery width stays above the minimap's 28 px gutter threshold.",
       snapshot: chat(rows, { title: "Thread minimap review" }),
       play: async (ctx) => {
         // The PR diff runner also replays removed base widths, where the product intentionally

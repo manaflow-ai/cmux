@@ -84,7 +84,13 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         case "_acpmux/permission_respond":
             guard names(params["sessionId"]), let permission = params["permissionId"] as? String,
                   let option = params["optionId"] as? String else { return refuse(id, method) }
-            run(id) { client in try await client.permission(id: permission, option: option); return Data("{}".utf8) }
+            // The decision proof the host added (never the page): acpmux on that machine decides.
+            let decision = (params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
+            let nonce = decision?["decisionNonce"] as? String, proof = decision?["personDecision"] as? String
+            run(id) { client in
+                try await client.permission(id: permission, option: option, decisionNonce: nonce, personDecision: proof)
+                return Data("{}".utf8)
+            }
         default:
             refuse(id, method)
         }

@@ -61,11 +61,23 @@ pub(super) async fn handle_request(
     }
     // Only the person allows or widens what runs without asking
     // (`hub/person.rs`): one check, before the request runs or reaches a peer.
-    hub.person_check(conn.is_person(), m, &params).await?;
+    let verdict = hub.person_check(conn.is_person(), m, &params).await?;
     let resolved = super::session_key(&params).ok().and_then(|key| hub.resolve(key).ok());
     super::trust_gate::check(hub, conn.origin, m, &params, resolved.as_ref()).await?; // the folder-trust gate
     let key = super::session_key(&params).ok().map(str::to_owned);
-    let mut reply = dispatch_request(hub, conn, m, params, resolved).await;
+    let mut reply = if verdict == crate::hub::person::PersonVerdict::PeerOnly {
+        // The check saw a peer's prompt: only the peer decides it. If the
+        // name no longer names a peer's session (renamed, killed, a new
+        // local session with that prefix), refuse; never handle it here.
+        match super::peer_forward::forward(hub, conn, m, &params).await {
+            Some(reply) => reply,
+            None => Err(crate::hub::person::person_required(
+                "answering a prompt whose session moved between this check and its forward",
+            )),
+        }
+    } else {
+        dispatch_request(hub, conn, m, params, resolved).await
+    };
     super::remote_guard::after(hub, conn.origin, m, key.as_deref(), &mut reply);
     reply
 }
@@ -117,7 +129,7 @@ async fn dispatch_request(
                     method::MUX_DRAFT_GET, method::MUX_DRAFT_SET,
                     method::MUX_SET_POLICY, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
                 ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt"], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds"], "trustGate": true}}
             }))
         }
         method::AUTHENTICATE => Ok(json!({})),
@@ -131,6 +143,37 @@ async fn dispatch_request(
                     "the person proof does not answer this connection's challenge (it must be the second request, after initialize)",
                 )
                 .with_data(json!({"reason": crate::hub::person::PROOF_REFUSED})))
+            }
+        }
+        method::MUX_PERSON_HOLDS => {
+            // The unix socket only: the app reaches a daemon it started over
+            // its own exec channel (`acp stdio`), never over a WebSocket.
+            if conn.origin != Origin::Local {
+                return Err(RpcError::invalid_params(
+                    "_acpmux/person_holds is accepted only over the local unix socket",
+                ));
+            }
+            // A few answers per connection. Not a security bound (a new
+            // connection gets 8 more): the answers are an HMAC over
+            // caller-chosen nonces that is valid only in its own domain, so
+            // they never serve as a decision or connection proof.
+            let calls = conn.holds_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if calls >= crate::hub::person::HOLDS_PER_CONNECTION {
+                return Err(RpcError::new(
+                    -32000,
+                    "this connection asked _acpmux/person_holds too often: open a new connection",
+                )
+                .with_data(json!({"reason": crate::hub::person::HOLDS_LIMIT})));
+            }
+            let nonce = str_param(&params, "nonce")
+                .filter(|n| crate::hub::person::valid_key(n))
+                .ok_or_else(|| {
+                    RpcError::invalid_params("nonce must be 64 lowercase hex characters")
+                })?;
+            match hub.person.holds(nonce) {
+                Some(proof) => Ok(json!({"instance": hub.person.instance(), "proof": proof})),
+                None => Err(RpcError::new(-32000, "this daemon holds no person key")
+                    .with_data(json!({"reason": crate::hub::person::NO_KEY}))),
             }
         }
         method::MUX_PERSON_ENROLL => {
@@ -963,13 +1006,12 @@ async fn dispatch_request(
             let answers = params.get("answers").cloned();
             let answered_by = crate::hub::person::answered_by(&params)?;
             let control = super::remote_guard::control_of(conn.origin, &params);
-            // An allow that is not the person's connection counted on its
-            // decision proof (`hub/person.rs`): the answer spends its nonce.
-            let nonce = mux_meta(&params)
-                .and_then(|m| m.get(crate::hub::person::DECISION_NONCE_FIELD))
-                .and_then(Value::as_str)
-                .filter(|_| option.is_some() && !conn.is_person());
-            hub.respond_permission(&s, pid, option, answers, answered_by, nonce, control).await?;
+            // Who answers, for the person rule under the prompt's lock
+            // (`hub/person.rs`): an allow that is not the person's counts
+            // only on its decision proof, which the answer spends.
+            let answerer = crate::hub::person::Answerer::of(conn.is_person(), &params);
+            hub.respond_permission(&s, pid, option, answers, answered_by, answerer, control)
+                .await?;
             Ok(json!({}))
         }
         method::MUX_SET_POLICY => {

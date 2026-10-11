@@ -29,6 +29,10 @@ final class TerminalLinkWatch {
     private var directory: String?
     private var stopped = false
 
+    // cx-qxxu: released with its terminal, which Cmd-T's New Tab page can withdraw while its
+    // action runs; a main-actor deinit's hop traps there (cx-t7hu).
+    nonisolated deinit {}
+
     init(store: DaemonStore, surface: SurfaceID, io: DaemonTerminalIO, session: TerminalSession) {
         self.store = store
         self.surface = surface

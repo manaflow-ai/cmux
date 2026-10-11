@@ -1051,3 +1051,94 @@ fn the_key_reaches_the_daemon_only_after_it_is_not_dumpable() {
     let _ = child.wait();
     let _ = std::fs::remove_dir_all(&home);
 }
+
+/// cx-0q7o slice 2b review: a relayed allow for a prompt of THIS daemon,
+/// from a connection that is not the person, counts only with the person's
+/// proof for that prompt's own nonce. Proof fields with another nonce, or
+/// the right nonce with a proof that is not the person's, are refused, and
+/// the prompt stays pending (the person rule under the prompt's lock).
+#[tokio::test]
+async fn a_local_allow_with_a_wrong_nonce_or_a_wrong_proof_is_refused_and_stays_pending() {
+    let d = Daemon::start("lock", Some(KEY));
+    let mut relay = Rpc::connect(&d.socket).await;
+    let id = new_session(&mut relay, &d).await;
+    let rid = relay.send("session/prompt", prompt(&id, "ask: write")).await;
+    let pending = relay.note("_acpmux/permission_pending", |_| true).await;
+    let pid = pending["permissionId"].as_str().unwrap().to_owned();
+    let nonce = pending["decisionNonce"].as_str().unwrap().to_owned();
+    let instance = pending["personInstance"].as_str().unwrap().to_owned();
+
+    // (a) A nonce that is not this prompt's, with a proof that matches it.
+    let other_nonce = "0".repeat(64);
+    let for_other = decision_proof(KEY, &instance, &id, &pid, "yes", &other_nonce);
+    let r = relay
+        .call("_acpmux/permission_respond", decided(&id, &pid, "yes", &other_nonce, &for_other))
+        .await;
+    assert_eq!(reason(&r), REASON, "{r}");
+    assert_eq!(pending_ids(&mut relay, &id).await, vec![pid.clone()]);
+    // (b) This prompt's nonce, with a proof that is not the person's.
+    let forged = "ab".repeat(32);
+    let r =
+        relay.call("_acpmux/permission_respond", decided(&id, &pid, "yes", &nonce, &forged)).await;
+    assert_eq!(reason(&r), REASON, "{r}");
+    assert_eq!(pending_ids(&mut relay, &id).await, vec![pid.clone()]);
+    // The refused tries spent nothing: the person's proof for this nonce counts.
+    let good = decision_proof(KEY, &instance, &id, &pid, "yes", &nonce);
+    relay.ok("_acpmux/permission_respond", decided(&id, &pid, "yes", &nonce, &good)).await;
+    assert_eq!(turn_said(&mut relay, rid).await, "chose yes");
+}
+
+/// The answer to `_acpmux/person_holds` (cx-0q7o slice 2c), as
+/// `hub/person.rs` defines it: lowercase hex HMAC-SHA256(key,
+/// "acpmux-person-holds-v1" 0 instance 0 nonce). Its own domain: it is never
+/// a decision proof or a connection proof.
+fn holds_proof(key: &str, instance: &str, nonce: &str) -> String {
+    use cmux_local_auth::frontend_proof::{hex, hmac_sha256, unhex};
+    let key = unhex::<32>(key).unwrap();
+    let mut message = b"acpmux-person-holds-v1".to_vec();
+    for part in [instance, nonce] {
+        message.push(0);
+        message.extend_from_slice(part.as_bytes());
+    }
+    hex(&hmac_sha256(&key, &message))
+}
+
+/// cx-0q7o slice 2c: the app checks that a daemon it started holds ITS key,
+/// over a fresh nonce of its own, before it relays any allow there. Whatever
+/// answers on the socket path without the key cannot answer this. A daemon
+/// without a key refuses; a malformed nonce is invalid; one connection gets
+/// a few answers only.
+#[tokio::test]
+async fn a_keyed_daemon_proves_it_holds_the_key_over_the_apps_nonce() {
+    let d = Daemon::start("holds", Some(KEY));
+    let mut app = Rpc::connect(&d.socket).await;
+    let init = app.call("initialize", json!({"protocolVersion": 1})).await;
+    let instance = init["result"]["_meta"]["acpmux"]["personInstance"].as_str().unwrap().to_owned();
+    let nonce = "3c".repeat(32);
+    let r = app.call("_acpmux/person_holds", json!({"nonce": nonce})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(r["result"]["instance"], json!(instance), "{r}");
+    assert_eq!(r["result"]["proof"], json!(holds_proof(KEY, &instance, &nonce)), "{r}");
+    assert_ne!(r["result"]["proof"], json!(holds_proof(&"7".repeat(64), &instance, &nonce)));
+    assert_ne!(
+        r["result"]["proof"],
+        json!(decision_proof(KEY, &instance, &nonce, "", "", "")),
+        "the holds answer shares a domain with decision proofs"
+    );
+    let bad = app.call("_acpmux/person_holds", json!({"nonce": "short"})).await;
+    assert_eq!(bad["error"]["code"], json!(-32602), "{bad}");
+    for _ in 0..6 {
+        let again = app.call("_acpmux/person_holds", json!({"nonce": "4d".repeat(32)})).await;
+        assert!(again.get("error").is_none(), "{again}");
+    }
+    let limited = app.call("_acpmux/person_holds", json!({"nonce": "5e".repeat(32)})).await;
+    assert_eq!(reason(&limited), "person.holds_limit", "{limited}");
+    let mut fresh = Rpc::connect(&d.socket).await;
+    let r = fresh.call("_acpmux/person_holds", json!({"nonce": nonce})).await;
+    assert!(r.get("error").is_none(), "a new connection answers again: {r}");
+
+    let plain = Daemon::start("noholds", None);
+    let mut c = Rpc::connect(&plain.socket).await;
+    let r = c.call("_acpmux/person_holds", json!({"nonce": nonce})).await;
+    assert_eq!(reason(&r), "person.no_key", "{r}");
+}
