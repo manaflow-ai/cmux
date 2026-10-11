@@ -9,7 +9,7 @@ import { FreestyleProvider } from "../services/vms/drivers/freestyle";
 import { ProviderError, ProviderGuestUnresponsiveError } from "../services/vms/drivers/types";
 import { VmOperationDeadlineError, VmProviderOperationError, type VmWorkflowError } from "../services/vms/errors";
 import { vmWorkflowErrorResponse } from "../services/vms/routeHelpers";
-import { VM_ROUTE_DEADLINES, vmClientTimeoutMsFromRequest, withVmAnswerDeadline, withVmRouteDeadline, type VmRouteDeadlineOperation } from "../services/vms/routeDeadline";
+import { VM_CREATE_RESERVE_AFTER_ANSWER_MS, VM_ROUTE_DEADLINES, vmClientTimeoutMsFromRequest, vmRouteDeadlinePlan, withVmAnswerDeadline, withVmRouteDeadline, type VmRouteDeadlineOperation } from "../services/vms/routeDeadline";
 
 // Production 2026-10-11: pause, exec and scp-endpoint each waited 2-4 minutes
 // on a Freestyle background request that then failed 502, long after the
@@ -117,7 +117,9 @@ describe("remaining VM routes", () => {
     ["attach", 955_000, true],
     ["sessionList", 55_000, false],
     ["sessionOpen", 955_000, true],
-    ["create", 595_000, true],
+    // A create answers early enough to keep its whole provider deadline:
+    // "in progress" is then true (it ends running, or failed and refunded).
+    ["create", 25_000, true],
   ];
   test.each(expected)("%s answers at %i ms (mutating %p) when the provider never answers", async (operation, budgetMs, mutating) => {
     const { answer, virtualMs, background } = await underDeadline(operation, Effect.never, 0, undefined, 1_000);
@@ -130,6 +132,38 @@ describe("remaining VM routes", () => {
     // leaves time for it; a budget that reaches maxDuration leaves none.
     const continues = VM_ROUTE_DEADLINES[operation].maxDurationMs - 5_000 - budgetMs > 0;
     expect(background).toHaveLength(continues ? 1 : 0);
+  });
+
+  test("a create answered in progress keeps its whole provider deadline before maxDuration", () => {
+    for (const elapsedMs of [0, 1_000, 24_000, 40_000]) {
+      for (const clientTimeoutMs of [undefined, 15_000, 120_000, 960_000]) {
+        const plan = vmRouteDeadlinePlan("create", { elapsedMs, clientTimeoutMs });
+        expect(plan.continueForMs).toBeGreaterThanOrEqual(VM_CREATE_RESERVE_AFTER_ANSWER_MS - Math.max(0, elapsedMs - 25_000));
+        expect(elapsedMs + plan.answerWithinMs + plan.continueForMs).toBeLessThanOrEqual(VM_ROUTE_DEADLINES.create.maxDurationMs - 5_000);
+      }
+    }
+    // Inside the first 25 s the reserve is whole.
+    expect(vmRouteDeadlinePlan("create", { elapsedMs: 2_000 }).continueForMs).toBeGreaterThanOrEqual(VM_CREATE_RESERVE_AFTER_ANSWER_MS);
+  });
+
+  test("a create without an Idempotency-Key ignores a shorter stated budget", async () => {
+    const keyed = await underDeadline("create", Effect.never, 0, 15_000, 1_000);
+    expect(keyed.virtualMs).toBeLessThanOrEqual(10_000);
+    const background: Promise<unknown>[] = [];
+    const unkeyed = await Effect.runPromise(Effect.gen(function* () {
+      const fiber = yield* Effect.fork(withVmRouteDeadline(Effect.never as Effect.Effect<string, VmWorkflowError>, {
+        operation: "create", elapsedMs: 0, clientTimeoutMs: 15_000, ignoreClientBudget: true,
+        continueInBackground: (work) => { background.push(work); },
+      }).pipe(Effect.either));
+      let virtualMs = 0;
+      while (Option.isNone(yield* Fiber.poll(fiber)) && virtualMs < 60_000) {
+        yield* TestClock.adjust(1_000);
+        virtualMs += 1_000;
+        yield* Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve)));
+      }
+      return virtualMs;
+    }).pipe(Effect.provide(TestContext.TestContext)));
+    expect(unkeyed).toBeGreaterThanOrEqual(25_000);
   });
 
   test("a create whose provider hangs into a gateway 502 answers in progress, not an outage", async () => {

@@ -54,3 +54,30 @@ struct CloudRequestBudgetTests {
         #expect(inner != nil)
     }
 }
+
+@Suite
+struct CloudRequestBudgetSocketParamTests {
+    @Test("the socket budget param is stripped and read in seconds")
+    func stripsAndReads() {
+        let split = CloudRequestBudget.socketClientBudget(from: ["id": "vm-1", "cloud_client_timeout_ms": 20_000])
+        #expect(split.seconds == 20)
+        #expect(split.params["cloud_client_timeout_ms"] == nil)
+        #expect(split.params["id"] as? String == "vm-1")
+    }
+
+    @Test("an invalid socket budget param is stripped and ignored")
+    func invalidIgnored() {
+        for raw: Any in ["soon", -5, 0] {
+            let split = CloudRequestBudget.socketClientBudget(from: ["cloud_client_timeout_ms": raw])
+            #expect(split.seconds == nil)
+            #expect(split.params.isEmpty)
+        }
+    }
+
+    @Test("params without a budget pass through")
+    func passThrough() {
+        let split = CloudRequestBudget.socketClientBudget(from: ["id": "vm-1"])
+        #expect(split.seconds == nil)
+        #expect(split.params["id"] as? String == "vm-1")
+    }
+}
