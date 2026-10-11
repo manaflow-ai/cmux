@@ -148,7 +148,8 @@ final class AgentChatSplitToggles {
             opened.lastIndex { $0.id == id }.flatMap { splits[$0] } != nil
         }
         return AgentPaneHeaderState(pinned: store.tab(id: chat)?.pinned ?? false,
-                                    sideTabs: Self.sideTabs(of: chat, in: store) == .shown, lit: lit)
+                                    sideTabs: Self.sideTabs(of: chat, in: store) == .shown, lit: lit,
+                                    floatingChat: QuickComposerTunables.floatingChat.value)
     }
 
     /// [+] New tab, which becomes Hide tabs in the same spot (cx-qom0, ChatGPT's right column). On a
