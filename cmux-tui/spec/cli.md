@@ -143,9 +143,15 @@ The shared `--session` and `--socket` routing options can also precede the
 scope, for example `cmux --session agents daemon start --socket /path/to.sock`.
 Detached startup is deferred until cmux has explicit supervisor ownership,
 readiness, log, PID/state, crash, and stop contracts.
-The local socket accepts ordinary protocol clients while the owner finishes
-startup. Its `identify` response reports `lifecycle_ready`; lifecycle commands
-fail fast while this field is `false` and can be retried after the owner is ready.
+The owner binds its local socket before it restores its session (registry,
+terminal host adoption). While it restores, `identify` reports
+`lifecycle_ready: false` and `restoring: true`, and every other request fails
+with `server.restoring`; ordinary protocol clients are accepted once the
+restore ends, while `identify` still reports `lifecycle_ready` until the owner
+finishes startup. Lifecycle commands fail fast while this field is `false` and
+can be retried after the owner is ready. `server ensure` waits for a restoring
+owner (up to 2 minutes, then `server.restore_timeout`) instead of starting
+another.
 `daemon stop` first reads the process identity, then sends the existing PID and
 generation-fenced graceful shutdown operation. An absent server is success,
 and stopping never deletes the durable topology. `session <name>|current stop`

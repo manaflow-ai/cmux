@@ -20829,6 +20829,399 @@
           }
         }
       }
+    },
+    "agentPane.remoteApprovals.failure.notOwner": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "approvals from cmux work only on a Cloud machine that you alone own"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "approvals from cmux work only on a Cloud machine that you alone own"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "approvals from cmux work only on a Cloud machine that you alone own"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "approvals from cmux work only on a Cloud machine that you alone own"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "approvals from cmux work only on a Cloud machine that you alone own"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "approvals from cmux work only on a Cloud machine that you alone own"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "approvals from cmux work only on a Cloud machine that you alone own"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "approvals from cmux work only on a Cloud machine that you alone own"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "approvals from cmux work only on a Cloud machine that you alone own"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "approvals from cmux work only on a Cloud machine that you alone own"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "approvals from cmux work only on a Cloud machine that you alone own"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "approvals from cmux work only on a Cloud machine that you alone own"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "approvals from cmux work only on a Cloud machine that you alone own"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "approvals from cmux work only on a Cloud machine that you alone own"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "approvals from cmux work only on a Cloud machine that you alone own"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "approvals from cmux work only on a Cloud machine that you alone own"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "approvals from cmux work only on a Cloud machine that you alone own"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "approvals from cmux work only on a Cloud machine that you alone own"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "approvals from cmux work only on a Cloud machine that you alone own"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "approvals from cmux work only on a Cloud machine that you alone own"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "approvals from cmux work only on a Cloud machine that you alone own"
+          }
+        }
+      }
+    },
+    "agentPane.remoteApprovals.failure.notRunning": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the machine is not running"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the machine is not running"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the machine is not running"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the machine is not running"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the machine is not running"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the machine is not running"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the machine is not running"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the machine is not running"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the machine is not running"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the machine is not running"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the machine is not running"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the machine is not running"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the machine is not running"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the machine is not running"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the machine is not running"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the machine is not running"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the machine is not running"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the machine is not running"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the machine is not running"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the machine is not running"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the machine is not running"
+          }
+        }
+      }
+    },
+    "agentPane.remoteApprovals.failure.tooOld": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the agent daemon there is too old for approvals from cmux. Update the machine, then try again"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the agent daemon there is too old for approvals from cmux. Update the machine, then try again"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the agent daemon there is too old for approvals from cmux. Update the machine, then try again"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the agent daemon there is too old for approvals from cmux. Update the machine, then try again"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the agent daemon there is too old for approvals from cmux. Update the machine, then try again"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the agent daemon there is too old for approvals from cmux. Update the machine, then try again"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the agent daemon there is too old for approvals from cmux. Update the machine, then try again"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the agent daemon there is too old for approvals from cmux. Update the machine, then try again"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the agent daemon there is too old for approvals from cmux. Update the machine, then try again"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the agent daemon there is too old for approvals from cmux. Update the machine, then try again"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the agent daemon there is too old for approvals from cmux. Update the machine, then try again"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the agent daemon there is too old for approvals from cmux. Update the machine, then try again"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the agent daemon there is too old for approvals from cmux. Update the machine, then try again"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the agent daemon there is too old for approvals from cmux. Update the machine, then try again"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the agent daemon there is too old for approvals from cmux. Update the machine, then try again"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the agent daemon there is too old for approvals from cmux. Update the machine, then try again"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the agent daemon there is too old for approvals from cmux. Update the machine, then try again"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the agent daemon there is too old for approvals from cmux. Update the machine, then try again"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the agent daemon there is too old for approvals from cmux. Update the machine, then try again"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the agent daemon there is too old for approvals from cmux. Update the machine, then try again"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "the agent daemon there is too old for approvals from cmux. Update the machine, then try again"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
