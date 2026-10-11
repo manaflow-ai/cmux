@@ -6,10 +6,12 @@
 A local server serves a slow file (Range requests honoured, as a real server's)
 and a file whose first response breaks off partway. In a WebKit tab and in a
 Chromium tab:
-  1. the slow download can pause (no bytes arrive while paused), resume, and
-     lands whole;
+  1. the slow download can pause (no bytes arrive while paused), resume with
+     a Range request, and lands whole;
   2. the broken download fails, offers Retry, and a retry lands whole in its
-     place in the list.
+     place in the list;
+  3. (Chromium) a download Chromium resumes by itself after the connection
+     breaks continues in its row and file, with no automatic-downloads question.
 `debug.downloads` (DEBUG builds) lists the App's downloads list and runs the
 Downloads menu's Pause, Resume and Retry on a row, as a click there does.
 
@@ -65,6 +67,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             count = served.get(path, 0)
             if not ranged:
                 served[path] = count + 1
+        # A resumable file breaks off once and then serves its rest to a Range request.
+        broken_once = path.startswith("/resumable-") and count == 0 and not ranged
         if path.startswith("/broken-") and ranged:
             # No partial resume of the broken file (Chromium resumes an
             # interrupted download by itself): it fails for good.
@@ -83,7 +87,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Range", f"bytes {start}-{SIZE - 1}/{SIZE}")
         self.end_headers()
         slow = path.startswith("/slow-")
-        broken = path.startswith("/broken-") and count == 0
+        broken = (path.startswith("/broken-") and count == 0) or broken_once
         offset = start
         try:
             while offset < SIZE:
@@ -210,6 +214,8 @@ try:
             if done:
                 written.append(done.get("destination"))
                 check(done.get("status") == "finished" and landed(done), f"{engine}: the resumed download lands whole ({done})")
+                ranges = [r for _, p, r in requests if p == f"/{slow}" and r]
+                check(bool(ranges), f"{engine}: Resume asks for the rest, not the whole file again ({ranges})")
 
         broken = f"broken-{engine}-{RUN}.bin"
         rpc("action.run", {"action": f"openBrowser.{engine}", "args": {"url": f"{ORIGIN}/{broken}"}, "focus": True})
@@ -227,6 +233,19 @@ try:
                 check(retried.get("status") == "finished" and landed(retried), f"{engine}: the retry lands whole ({retried})")
                 rows = [d for d in downloads() if d.get("filename", "").startswith(f"broken-{engine}-{RUN}")]
                 check(len(rows) == 1, f"{engine}: the retry takes the failed row's place ({rows})")
+    # Chromium resumes an interrupted download by itself: it continues in its row,
+    # into its file, with no automatic-downloads question.
+    resumable = f"resumable-chromium-{RUN}.bin"
+    rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": f"{ORIGIN}/{resumable}"}, "focus": True})
+    done = wait_for(lambda: (r := row(resumable)) and r.get("status") != "inProgress" and r, "chromium: the resumable download ends", 60)
+    if done:
+        written.append(done.get("destination"))
+        rows = [d for d in downloads() if d.get("filename", "").startswith(f"resumable-chromium-{RUN}")]
+        resumed = [r for _, p, r in requests if p == f"/{resumable}" and r]
+        check(done.get("status") == "finished" and landed(done) and len(rows) == 1 and resumed,
+              f"chromium: Chromium's own resume lands whole in one row ({rows}, ranges {resumed})")
+        prompts = rpc("debug.browser.prompts").get("prompts") or []
+        check(not any("automaticDownloads" in p.get("kind", "") for p in prompts), f"chromium: its resume asks nothing ({prompts})")
 finally:
     rpc("action.run", {"action": "quitEndSessions"})
     try:
