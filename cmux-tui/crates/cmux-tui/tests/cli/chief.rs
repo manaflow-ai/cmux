@@ -768,3 +768,32 @@ fn a_dead_end_runs_the_daemons_cli_only_when_every_check_passes() {
     assert!(!stderr(&output).contains("running the daemon's CLI"), "{}", stderr(&output));
     let _ = fs::remove_dir_all(&dir);
 }
+
+/// cx-rhf2: a `cmux.protocol/2` request on a v1 line connection (bound as
+/// an agent, so its client numbers its ids as v1 does) gets an explicit
+/// refusal under the id it sent. Before, the refusal said `"id":"invalid"`
+/// and the client waited for its own id until it timed out.
+#[test]
+fn a_v2_request_on_a_bound_v1_connection_is_answered_under_its_id() {
+    let (server, _home, conversation, token) = chief_daemon("chief-v2-on-v1");
+    let mut brain = bound_brain(&server.socket, &token);
+    typing(&mut brain, &conversation, true);
+    let params = json!({"conversation": conversation, "turn": "turn:optchat:1", "segment": 0,
+                        "seq": 1, "kind": "talk", "text": "Tests at the", "fresh": true, "done": false});
+    for id in [json!(7), json!("rhf2-draft")] {
+        let frame = json!({"protocol": "cmux.protocol/2", "type": "request", "id": id,
+            "operation": "conversation.draft", "params": params});
+        writeln!(brain.writer, "{frame}").unwrap();
+        let answer = loop {
+            let line = brain.line();
+            if line.get("event").is_none() {
+                break line;
+            }
+        };
+        assert_eq!(answer["id"], id, "{answer}");
+        assert_eq!(answer["protocol"], "cmux.protocol/2", "{answer}");
+        assert_eq!(answer["type"], "response", "{answer}");
+        assert_eq!(answer["ok"], false, "{answer}");
+        assert_eq!(answer["error"]["code"], "validation.invalid", "{answer}");
+    }
+}
