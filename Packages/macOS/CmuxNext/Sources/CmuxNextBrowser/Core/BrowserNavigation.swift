@@ -19,17 +19,16 @@ public nonisolated struct BrowserLoadError: Error, Hashable, Sendable {
     public var code: Int
     public var message: String
     public var failingURL: URL?
-    /// The engine draws its own page for this failure (Chromium's net error
-    /// page or one of its interstitials), so the pane shows no cmux error
-    /// view over it. cmux's view is only for failures no engine page covers.
-    public var engineShowsPage: Bool
+    /// The engine draws its own page for this failure, so the pane shows no
+    /// cmux view over it: only Chromium's certificate interstitial, after
+    /// Proceed on a named host left the decision to it (HSTS).
+    public var engineShowsPage = false
 
-    public init(domain: String, code: Int, message: String, failingURL: URL? = nil, engineShowsPage: Bool = false) {
+    public init(domain: String, code: Int, message: String, failingURL: URL? = nil) {
         self.domain = domain
         self.code = code
         self.message = message
         self.failingURL = failingURL
-        self.engineShowsPage = engineShowsPage
     }
 
     public init(_ error: any Error) {
@@ -43,9 +42,10 @@ public nonisolated struct BrowserLoadError: Error, Hashable, Sendable {
     }
 
     /// A TLS certificate the system does not trust (the interstitial with
-    /// Go Back and Proceed).
+    /// Go Back and Proceed): WebKit's URL errors, Chromium's ERR_CERT_* codes.
     public var isCertificateError: Bool {
-        domain == NSURLErrorDomain && [
+        if domain == ChromiumNetError.domain { return ChromiumNetError.certificateCodes.contains(code) }
+        return domain == NSURLErrorDomain && [
             NSURLErrorServerCertificateUntrusted, NSURLErrorServerCertificateHasBadDate,
             NSURLErrorServerCertificateHasUnknownRoot, NSURLErrorServerCertificateNotYetValid,
         ].contains(code)

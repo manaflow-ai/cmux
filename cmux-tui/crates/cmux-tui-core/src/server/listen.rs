@@ -26,6 +26,10 @@ pub struct PendingServer {
 }
 
 impl PendingServer {
+    pub(super) fn from_parts(path: PathBuf, mux: Arc<Mux>, shutdown: Arc<AtomicBool>) -> Self {
+        Self { path: Some(path), mux, shutdown }
+    }
+
     /// Publish lifecycle readiness and transfer socket cleanup to the caller.
     pub fn mark_ready(mut self) -> anyhow::Result<PathBuf> {
         self.mux.mark_server_lifecycle_ready();
@@ -308,16 +312,64 @@ impl SocketStartLock {
 }
 
 /// How long a server start may wait for a concurrent starter of the same
-/// socket. Holders keep the lock only across probe, unlink, and bind, so a
-/// healthy contender clears in milliseconds; the bound exists to surface a
-/// wedged holder as an error instead of a hang.
-const START_LOCK_DEADLINE: Duration = Duration::from_secs(10);
+/// socket. Holders keep the lock only across probe, unlink, and bind (an
+/// owner binds before it restores its session, and `server ensure` holds it
+/// only across one probe and the spawn), so a healthy contender clears in
+/// milliseconds; the bound exists to surface a wedged holder as an error
+/// instead of a hang.
+pub const START_LOCK_DEADLINE: Duration = Duration::from_secs(10);
 
-/// Bind the socket and accept protocol clients before lifecycle readiness.
-pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PendingServer> {
+/// A session socket this process bound, before any session serves it.
+/// Dropping it closes the listener and removes the socket file.
+pub struct BoundSocket {
+    // Declared first: the listener closes before the file is removed.
+    listener: transport::Listener,
+    file: SocketFile,
+}
+
+/// Removes the socket file on drop unless ownership moved on (`release`).
+struct SocketFile {
+    path: PathBuf,
+    owned: bool,
+}
+
+impl SocketFile {
+    fn release(mut self) -> PathBuf {
+        self.owned = false;
+        std::mem::take(&mut self.path)
+    }
+}
+
+impl Drop for SocketFile {
+    fn drop(&mut self) {
+        if self.owned {
+            cleanup(&self.path);
+        }
+    }
+}
+
+impl BoundSocket {
+    pub fn path(&self) -> &Path {
+        &self.file.path
+    }
+
+    /// The listener and the socket path, whose cleanup the caller takes.
+    pub(super) fn into_parts(self) -> (PathBuf, transport::Listener) {
+        let Self { listener, file } = self;
+        (file.release(), listener)
+    }
+}
+
+/// Bind the session socket under the start lock, refusing a live socket and
+/// removing a stale one. An owner calls this before it restores its session,
+/// so the socket names the one process that owns the session for the whole
+/// restore: a second owner finds it live and exits before it touches the
+/// registry or a terminal host, and `server ensure` sees a restoring owner
+/// instead of an absent one (cx-n3bs).
+pub fn bind_session_socket(session: &str, path: Option<PathBuf>) -> anyhow::Result<BoundSocket> {
     let (path, is_derived) = match path {
         Some(path) => (path, false),
-        None => (try_default_socket_path(&mux.session)?, true),
+        None => (try_default_socket_path(session)?, true),
     };
     // Refuse a path longer than sun_path before creating its parent or lock.
     cmux_unix_socket::check_path(&path)?;
@@ -338,20 +390,40 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
     }
     let listener = transport::listen(&path)?;
     drop(start_lock);
-    if let Err(error) = platform::restrict_file(&path) {
-        cleanup(&path);
-        return Err(error.into());
-    }
-    // The settings owner (settings-v1) reads the settings file and starts its
-    // watcher once this daemon owns the socket, before any client connects.
-    mux.start_default_settings_owner();
-    let active_connections = mux.connection_stats().clone();
-    let render_service = Arc::new(RenderService::new());
-    let shutdown = Arc::new(AtomicBool::new(false));
-    let server_shutdown = shutdown.clone();
-    let server_mux = mux.clone();
+    let bound = BoundSocket { listener, file: SocketFile { path, owned: true } };
+    platform::restrict_file(bound.path())?;
+    Ok(bound)
+}
 
-    let server = std::thread::Builder::new().name("mux-server".into()).spawn(move || {
+/// The session a bound socket's accept loop hands connections to, once the
+/// owner has one.
+#[derive(Clone)]
+pub(super) struct ServedSession {
+    pub(super) mux: Arc<Mux>,
+    pub(super) render_service: Arc<RenderService>,
+}
+
+impl ServedSession {
+    /// Serve one accepted connection on its own thread (bounded by the
+    /// session's connection permits).
+    pub(super) fn serve(&self, stream: Box<dyn transport::Stream>) {
+        let Some(permit) = claim_connection(self.mux.connection_stats()) else { return };
+        let mux = self.mux.clone();
+        let render_service = self.render_service.clone();
+        let _ = std::thread::Builder::new().name("mux-conn".into()).spawn(move || {
+            handle_connection_with_permit(mux, stream, render_service, Some(permit));
+        });
+    }
+}
+
+/// Start the accept loop for `listener`. Every accepted connection goes to
+/// `slot`: served by the session once it is attached, parked until then.
+pub(super) fn spawn_accept_loop(
+    listener: transport::Listener,
+    slot: Arc<super::restoring::SessionSlot>,
+    shutdown: Arc<AtomicBool>,
+) -> std::io::Result<()> {
+    std::thread::Builder::new().name("mux-server".into()).spawn(move || {
         // Resource exhaustion (EMFILE, ENFILE, ENOBUFS) persists across
         // accepts, and an immediate retry ran this thread at 100% CPU until
         // descriptors freed up. Space those retries; per-connection errors
@@ -364,7 +436,7 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
                     stream
                 }
                 Err(error) => {
-                    if server_shutdown.load(Ordering::Acquire) {
+                    if shutdown.load(Ordering::Acquire) {
                         break;
                     }
                     if crate::backoff::accept_error_needs_backoff(&error) {
@@ -373,22 +445,26 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
                     continue;
                 }
             };
-            if server_shutdown.load(Ordering::Acquire) {
+            if shutdown.load(Ordering::Acquire) {
                 break;
             }
-            let Some(permit) = claim_connection(&active_connections) else { continue };
-            let mux = server_mux.clone();
-            let render_service = render_service.clone();
-            let _ = std::thread::Builder::new().name("mux-conn".into()).spawn(move || {
-                handle_connection_with_permit(mux, stream, render_service, Some(permit));
-            });
+            if let Some((session, stream)) = slot.route(stream) {
+                session.serve(stream);
+            }
         }
-    });
-    if let Err(error) = server {
-        cleanup(&path);
-        return Err(error.into());
-    }
-    Ok(PendingServer { path: Some(path), mux, shutdown })
+    })?;
+    Ok(())
+}
+
+/// Bind the socket and accept protocol clients before lifecycle readiness.
+pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PendingServer> {
+    let bound = bind_session_socket(&mux.session, path)?;
+    serve_bound(mux, bound)
+}
+
+/// Serve `mux` on a socket bound earlier, before lifecycle readiness.
+pub fn serve_bound(mux: Arc<Mux>, bound: BoundSocket) -> anyhow::Result<PendingServer> {
+    Ok(bound.serve_restoring()?.attach(mux))
 }
 
 /// Bind the socket and serve connections on background threads.

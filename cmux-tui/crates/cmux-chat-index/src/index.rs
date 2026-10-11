@@ -160,7 +160,12 @@ impl ChatIndex {
             b.entry
                 .updated_ms
                 .cmp(&a.entry.updated_ms)
-                .then_with(|| a.entry.key().cmp(&b.entry.key()))
+                // Ties: the key text (`<harness id>:<session id>`) ascending, the order
+                // clients keep (AcpmuxChatsStore), not the enum's declaration order.
+                .then_with(|| {
+                    let text = |e: &ChatEntry| format!("{}:{}", e.harness.id(), e.session_id);
+                    text(&a.entry).cmp(&text(&b.entry))
+                })
         });
         chats
     }
@@ -191,9 +196,9 @@ impl ChatIndex {
         for slot in &self.slots {
             let account = (slot.root.accounts.len() == 1).then(|| slot.root.accounts[0].clone());
             let root_id = slot.root.id();
-            // The Chief's own harness sessions are never person chats (cx-eb0m).
-            for entry in
-                slot.scan.entries.iter().filter(|entry| !crate::scan::is_chief_session(entry))
+            // Only person chats: not the Chief's sessions (cx-eb0m), acpmux's harness probes, or a
+            // session with no user message (Lawrence 2026-10-11).
+            for entry in slot.scan.entries.iter().filter(|entry| crate::scan::is_person_chat(entry))
             {
                 let chat = merged.entry(entry.key()).or_insert_with(|| IndexedChat {
                     entry: entry.clone(),
