@@ -169,6 +169,19 @@ On `feat-cmux-next-browser-tabs` (browser group 2):
   [URL] | select | close [--no-wait]`, the old `cmux browser tab list|new|switch|close`
   (by tab id; the old index form is gone).
 
+On `feat-cmux-next-browser-input` (browser group 4):
+
+- `browser.page.press|hover|scroll|scroll_into_view|select|check|uncheck` and the CLI verbs
+  `press KEY [--selector S]`, `hover`, `scroll [SELECTOR] [--dx N] [--dy N]`,
+  `scroll-into-view`, `select SELECTOR VALUE`, `check`, `uncheck`: page scripts like
+  `click`, with the old app's events and errors (`not_checkable`, `disabled`,
+  `not_changed`). `press` is the old app's page-world fallback for every key, with its key table
+  (`BrowserPressKey`: names, punctuation codes, legacy keyCode, location; unknown names pass
+  through); the old app replayed mapped keys as trusted native
+  events, which needs engine input support (not done; temporary until browser step e routes
+  `press` to the host's `input.key`). `select` with words is this verb; bare `select` is the
+  tab verb. Selector actions do not retry for an element that has not appeared yet.
+
 On `feat-cmux-next-mcp` (PR into `feat-cmux-next-acpmux`):
 
 - `cmux mcp serve` and `cmux mcp tools [--json]`: MCP tools from the v2 catalog and the
@@ -253,15 +266,36 @@ On `feat-cmux-next-browser-wait` (browser group 1):
   its temporary directory and returns `path`, as the old app did, with `png_base64` only
   under 4 MiB (the control socket drops answers over 8 MiB); the CLI copies it for `--out`.
 
+On `feat-cmux-next-browser-storage` (browser group 3):
+
+- `browser.page.cookies.get|set|clear` and `cmux browser <tab_…|page> cookies
+  [get|set NAME VALUE|clear]`: the old CLI's fields (`hostOnly`, `httpOnly`,
+  `session_only`, `expires` in Unix seconds) and filters. `get` and `clear` match `name`,
+  `value`, `path`, `secure`, `httpOnly` and `expires` exactly and `url` as the cookies a
+  request there carries (RFC 6265 domain, path, secure and expiry); `get` matches
+  `domain` as a substring, `clear` as that domain and its subdomains. `set` takes one
+  cookie or `cookies: […]`, its domain from `domain`, else `url`'s host, else the tab's
+  page; HttpOnly goes through a parsed `Set-Cookie` header on WebKit (the old #10530). The
+  store is the person's profile, so, as the driver's `cookies.clear`: `clear` needs a scope
+  and stays on the tab's site (its host, parent domains and subdomains; `invalid_state`
+  without an http(s) page), `all` and an already expired `set` are `invalid_params`. A
+  filter of the wrong type, or a url without a host, is `invalid_params`, never ignored.
+  A hibernated tab is `unavailable`: its engine store is reached through its page. Cookies come from the tab's
+  profile store (`BrowserTab.cookies|setCookie|deleteCookie`: `WKHTTPCookieStore`, or
+  Chromium's `Network` domain).
+- `browser.page.storage.get|set|clear` and `cmux browser … storage [local|session] [get
+  [KEY]|set KEY VALUE|clear]` (`type` or the old `storage` param), run in the page;
+  storage the page cannot reach is `invalid_state`.
+
 ## Remaining
 
 1. App windows get typed ids (`win_<32 hex>`); today they are bare lowercase UUIDs.
 2. Nightly and release apps both use daemon session `cmux-app` when untagged
    (`DaemonLauncher.sessionName`); give each channel its own session.
 3. acpmux CLI output is English only; the rest of `cmux` is English and Japanese.
-4. Browser cookies, storage, tab verbs, the remaining input verbs and downloads have no
-   new-CLI equivalent yet (the compat layer had partial ones). Waits and screenshots are
-   done (below). Workspace status/log/progress are done. A screenshot of an app tab no
+4. Browser downloads and the remaining input verbs have no new-CLI equivalent yet (the
+   compat layer had partial ones). Waits, screenshots, tab verbs, cookies and storage
+   are done (below). Workspace status/log/progress are done. A screenshot of an app tab no
    window shows fails with `unavailable`; the old app rendered it offscreen.
 5. `Resources/Localizable.xcstrings` (987 `cli.*` keys plus legacy app keys) is probably
    unused by the cmux-next app; prove it and remove it from the Resources phase.

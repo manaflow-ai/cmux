@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '58dd2823a9334bd9d991179f015295882bc254df3608a6c29b1fd0eebc0a95ac'
+IR_SHA256 = '5c72f96c138593bac34336745c47ef75439438b6684844c1017403ae1263882d'
 
 
 @dataclass(frozen=True)
@@ -1847,6 +1847,7 @@ COMMANDS = {
             'owner': CommandFieldMetadata(None, None),
             'page': CommandFieldMetadata(None, 'page-tabs-v1'),
             'pane': CommandFieldMetadata(None, None),
+            'route': CommandFieldMetadata(None, 'page-tab-route-v1'),
             'rows': CommandFieldMetadata(None, None),
             'transaction': CommandFieldMetadata(None, 'conversation-tab-transaction-v1'),
             'workspace': CommandFieldMetadata(None, None),

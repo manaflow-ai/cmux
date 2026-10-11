@@ -23,6 +23,7 @@ mod lease;
 mod listener;
 mod process;
 mod pty_readiness;
+mod spawned_host;
 mod waker;
 pub(crate) use crate::terminal_loss_log::remove_signals as remove_terminal_loss_signals;
 pub(crate) use barrier_sync::{barrier_sync, barrier_sync_dir};
@@ -32,7 +33,18 @@ pub(crate) use process::{
     kill_process_group, process_definitely_absent as process_definitely_gone,
 };
 pub(crate) use pty_readiness::wait_for_pty_readable_or_forced_drain;
+pub(crate) use spawned_host::SpawnedHostProcess;
 pub(crate) use waker::AcceptWaker;
+
+/// The host process's bootstrap streams: its private stdin and stdout pipes.
+pub(crate) fn host_bootstrap_streams(
+    _args: &[String],
+) -> std_io::Result<(Box<dyn std_io::Read>, Box<dyn std_io::Write>)> {
+    Ok((Box::new(std_io::stdin().lock()), Box::new(std_io::stdout().lock())))
+}
+
+/// Unix hosts hand their PTY to a replacement host (`pty_custody.rs`).
+pub(crate) const SUPPORTS_PTY_CUSTODY: bool = true;
 
 /// The PTY master descriptor the reader polls.
 pub(crate) type PtyPollHandle = std::os::fd::RawFd;

@@ -5252,6 +5252,9 @@ fn exclusive_process_test() -> std::sync::MutexGuard<'static, ()> {
 #[path = "terminal_host_recovery/close_path.rs"]
 mod close_path;
 
+#[path = "terminal_host_recovery/reopen_closed_kinds.rs"]
+mod reopen_closed_kinds;
+
 #[path = "terminal_host_recovery/host_orphan.rs"]
 mod host_orphan;
 

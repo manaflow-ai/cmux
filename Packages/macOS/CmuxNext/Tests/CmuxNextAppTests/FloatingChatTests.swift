@@ -53,6 +53,8 @@ struct FloatingChatTests {
         var pushed: [AgentPaneFloatingState] = []
         /// The session each made chat was bound to (nil: a new chat).
         var made: [String?] = []
+        /// What the user is looking at in cmux, for Include focused tab.
+        var focused: AgentPaneQuickContext?
         var controller: QuickComposerController?
     }
 
@@ -76,7 +78,8 @@ struct FloatingChatTests {
                 return true
             },
             floating: { floating },
-            pushState: { state, _ in rig.pushed.append(state) })
+            pushState: { state, _ in rig.pushed.append(state) },
+            context: { rig.focused })
         rig.controller = controller
         return (rig, controller)
     }
@@ -311,6 +314,27 @@ struct FloatingChatTests {
         controller.toggle()
         #expect(rig.window.isVisible)
         #expect(!rig.window.collapsed)
+    }
+
+    /// Include focused tab (⌘⇧I or the header's button): the page asks for what the user is looking at
+    /// in cmux and attaches it to the next prompt only, as a chip the user sees and can remove.
+    @Test func includeFocusedTabHandsThePageWhatTheUserIsLookingAt() async throws {
+        let (rig, controller) = try Self.rig(floating: true)
+        controller.show()
+        let chat = try #require(controller.chat)
+        _ = await chat.model.respond(to: Self.started("session-14"))
+
+        rig.focused = AgentPaneQuickContext(name: "zsh · ~/src/app (selection)", text: "error: no such module 'Upload'")
+        let reply = await chat.model.respond(to: Self.request("quick.context", [:]))
+        let value = try #require(reply["value"] as? [String: Any])
+        #expect(value["name"] as? String == "zsh · ~/src/app (selection)")
+        #expect(value["text"] as? String == "error: no such module 'Upload'")
+
+        // Nothing to include (an empty pane, no main window): the page hears there is none.
+        rig.focused = nil
+        let none = await chat.model.respond(to: Self.request("quick.context", [:]))
+        #expect(none["ok"] as? Bool == true)
+        #expect(none["value"] is NSNull)
     }
 }
 

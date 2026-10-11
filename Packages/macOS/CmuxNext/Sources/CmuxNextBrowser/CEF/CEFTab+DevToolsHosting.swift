@@ -39,7 +39,7 @@ extension CEFTab {
             }
             if !frames.grab.isEmpty { rects.append(frames.grab) }
             if let header = sidePanel.headerFrame { rects.append(header) }
-            host.hostView.occlusionRects = Self.local(rects, in: pageFrame)
+            host.hostView.occlusionRects = CEFHostView.outermost(Self.local(rects, in: pageFrame))
         }
         if let views = devToolsController.views {
             views.host.occlusionRects = frames.grab.isEmpty ? [] : Self.local([frames.grab], in: views.host.frame)
@@ -52,7 +52,7 @@ extension CEFTab {
     /// cuts the same holes, so it shows the page as the screen does
     /// (`debug.window_snapshot`).
     public var pageWindowHoles: [CGRect] {
-        guard host.visibleTab === self, host.hostView.superview === container else { return occlusionRects }
+        guard host.visibleTab === self, host.hostView.superview === container else { return CEFHostView.outermost(occlusionRects) }
         let frame = host.hostView.frame
         return host.hostView.occlusionRects.map { $0.offsetBy(dx: frame.minX, dy: frame.minY) }
     }

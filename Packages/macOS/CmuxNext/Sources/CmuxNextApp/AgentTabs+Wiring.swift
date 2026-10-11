@@ -81,6 +81,7 @@ extension AgentTabStore {
                                  environment: ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
                                  linkScheme: services.linkScheme, settings: services.settings)
         tabs.launchImages = AgentPaneLaunchImages(beside: services.environment.sidebarSnapshotFile)
+        tabs.unsentDrafts = AgentUnsentDrafts(beside: services.environment.sidebarSnapshotFile)
         // The Chief home's acpmux: the Chief host's subagent tabs attach there.
         let chief = ChiefHomeAcpmux(home: ChiefHome.resolve(tag: services.environment.tag))
         (tabs.chiefHost, tabs.chiefPaneHost) = (chief.host, chief.paneHost)
@@ -139,6 +140,14 @@ extension AgentTabStore {
                   let workspace = services.machines.daemon(forPane: pane).store.workspace(containing: pane.handle) else { return nil }
             let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
             return tabs.lazy.compactMap(\.cwd).first { $0.hasPrefix("/") }
+        }
+        tabs.remoteFolders = { [weak services] key in
+            guard let services, let (tab, _) = services.locateTab(key) else { return [] }
+            let store = services.machines.daemon(forTab: tab).store
+            var folders: [String] = []
+            for folder in store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).compactMap(\.cwd)
+                where folder.hasPrefix("/") && !folders.contains(folder) { folders.append(folder) }
+            return folders
         }
         tabs.remoteHost = { [weak services, weak tabs] key in
             guard let services, let tabs, let (tab, _) = services.locateTab(key), let record = tab.agentSession else { return nil }

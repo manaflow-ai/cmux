@@ -9,6 +9,8 @@ final class ScreenContentView: NSView {
     let context: LayoutViewContext
 
     private(set) var layout: ScreenLayout
+    /// The layout is one zoomed pane (`LayoutScreen.zoomed`).
+    private(set) var zoomed = false
     /// Frames before the rows' vertical offsets: what the springs target.
     private(set) var baseGeometry: ScreenGeometry
     /// `baseGeometry` at the presented row offsets (`shiftingRows`): what
@@ -90,14 +92,16 @@ final class ScreenContentView: NSView {
     /// Applies a new layout. Returns true if springs need frames.
     ///
     /// A split or a new dock column grows in from its edge (`PaneArrival`, cx-f6i7;
-    /// a dock moves the strip's origin, so strip frames start where they show); other structural changes snap.
+    /// a dock moves the strip's origin, so strip frames start where they show), and the panes
+    /// left by a close grow over its space; other structural changes snap.
     /// Ratio and width changes (equalize, width presets, another client's
     /// divider drag) keep their spring. The strip scroll (including the
     /// spring back after the last column closes) is `syncScroll`'s.
     @discardableResult
-    func update(layout: ScreenLayout, animated: Bool) -> Bool {
+    func update(layout: ScreenLayout, zoomed: Bool = false, animated: Bool) -> Bool {
         let structural = !self.layout.hasSameStructure(as: layout)
         self.layout = layout
+        self.zoomed = zoomed
         // The release's intent is in this layout (or was refused).
         if activeDrag == nil { rowDragPreview = nil }
         return reconcile(animated: animated, structural: structural)
@@ -111,8 +115,13 @@ final class ScreenContentView: NSView {
         geometry = baseGeometry.shiftingRows(rowOffsets)
         let animate = animated && !context.reduceMotion && bounds.width > 0
         let arrivals = animate && structural ? PaneArrival.split(paneFrames.mapValues(\.targetRect), from: before, to: baseGeometry, offset: scroll.value) : [:]
-        let drift = arrivals.isEmpty ? 0 : before.viewShift(offset: scroll.value) - baseGeometry.viewShift(offset: scroll.value)
-        let animateFrames = animate && (!structural || !arrivals.isEmpty)
+        // Only panes that are gone: a zoom (its other panes stay open) and a pane moved to another screen snap.
+        let closing = animate && structural && arrivals.isEmpty && !zoomed
+            && paneFrames.keys.allSatisfy { baseGeometry.panes[$0] != nil || !context.livePanes.contains($0) }
+            && PaneArrival.closing(paneFrames.mapValues(\.targetRect), from: before, to: baseGeometry, offset: scroll.value)
+        // Strip springs run in strip coordinates: a moved strip origin (a dock that came or went) carries them along.
+        let drift = arrivals.isEmpty && !closing ? 0 : before.viewShift(offset: scroll.value) - baseGeometry.viewShift(offset: scroll.value)
+        let animateFrames = animate && (!structural || !arrivals.isEmpty || closing)
         if structural { (arriving, newDockColumns) = (Set(arrivals.keys), PaneArrival.newDocks(arrivals, from: before, to: baseGeometry)) }
 
         // Panes.
