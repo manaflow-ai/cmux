@@ -604,12 +604,18 @@ fn identify_names_the_daemon_build_and_its_cli() {
 /// answer that lacks the session journal and names `cli_path` as its CLI.
 /// The test process is the socket's peer, so its pid is the daemon's.
 fn skew_daemon(dir: &std::path::Path, cli_path: &std::path::Path) -> PathBuf {
+    skew_daemon_as(dir, cli_path, std::process::id())
+}
+
+/// [`skew_daemon`] whose `identify` names process `pid`: another pid than the
+/// socket's peer is a daemon behind a tunnel (`cmux remote ssh`).
+fn skew_daemon_as(dir: &std::path::Path, cli_path: &std::path::Path, pid: u32) -> PathBuf {
     let socket = dir.join("skew.sock");
     let listener = UnixListener::bind(&socket).unwrap();
     let identity = json!({
         "app": "cmux-tui", "protocol": cmux_tui_core::server::PROTOCOL_VERSION,
         "capabilities": ["daemon-build-v1"], "build_id": "skew-test-other-build",
-        "cli_path": cli_path.to_str().unwrap(), "pid": std::process::id(),
+        "cli_path": cli_path.to_str().unwrap(), "pid": pid,
     });
     std::thread::spawn(move || {
         for stream in listener.incoming() {
@@ -766,5 +772,85 @@ fn a_dead_end_runs_the_daemons_cli_only_when_every_check_passes() {
     let output = journal_list(&cli, &skew_daemon(&guard_dir, &good), Some("skew-test-other-build"));
     assert!(!String::from_utf8_lossy(&output.stdout).contains("REEXECED"), "{}", stderr(&output));
     assert!(!stderr(&output).contains("running the daemon's CLI"), "{}", stderr(&output));
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// cx-rhf2: a `cmux.protocol/2` request on a v1 line connection (bound as
+/// an agent, so its client numbers its ids as v1 does) gets an explicit
+/// refusal under the id it sent. Before, the refusal said `"id":"invalid"`
+/// and the client waited for its own id until it timed out.
+#[test]
+fn a_v2_request_on_a_bound_v1_connection_is_answered_under_its_id() {
+    let (server, _home, conversation, token) = chief_daemon("chief-v2-on-v1");
+    let mut brain = bound_brain(&server.socket, &token);
+    typing(&mut brain, &conversation, true);
+    let params = json!({"conversation": conversation, "turn": "turn:optchat:1", "segment": 0,
+                        "seq": 1, "kind": "talk", "text": "Tests at the", "fresh": true, "done": false});
+    for id in [json!(7), json!("rhf2-draft")] {
+        let frame = json!({"protocol": "cmux.protocol/2", "type": "request", "id": id,
+            "operation": "conversation.draft", "params": params});
+        writeln!(brain.writer, "{frame}").unwrap();
+        let answer = loop {
+            let line = brain.line();
+            if line.get("event").is_none() {
+                break line;
+            }
+        };
+        assert_eq!(answer["id"], id, "{answer}");
+        assert_eq!(answer["protocol"], "cmux.protocol/2", "{answer}");
+        assert_eq!(answer["type"], "response", "{answer}");
+        assert_eq!(answer["ok"], false, "{answer}");
+        assert_eq!(answer["error"]["code"], "validation.invalid", "{answer}");
+    }
+}
+
+/// cx-ytw1: a socket that tunnels to another machine's daemon of another
+/// build never runs that daemon's (remote) CLI. The dead end names the remote
+/// build and, when the client runtime recorded an SSH route, the exact
+/// `cmux remote ssh … --upgrade`; a record another user could write, or a
+/// destination that is not one plain word, is never printed as a command.
+#[test]
+fn a_tunnel_to_another_build_names_the_remote_build_and_the_ssh_upgrade() {
+    let dir = unique_temp_dir("skew-tunnel");
+    fs::create_dir_all(&dir).unwrap();
+    let cli = bundled_cli(&dir, "cmux DEV skewtunnel");
+    let stderr = |o: &Output| String::from_utf8_lossy(&o.stderr).into_owned();
+    // A remote CLI path that would pass every local check if it were run.
+    let remote_cli = dir.join("cmux DEV remote.app/Contents/Resources/bin/cmux");
+    fake_daemon_cli(&remote_cli, 0o755);
+    let tunnel = |name: &str, record: Option<(&str, u32)>| {
+        let case = dir.join(name);
+        fs::create_dir_all(&case).unwrap();
+        // identify comes through the tunnel: the daemon's pid is not the peer's.
+        let socket = skew_daemon_as(&case, &remote_cli, std::process::id().wrapping_add(7919));
+        if let Some((route, mode)) = record {
+            let path = case.join("skew.sock.route");
+            fs::write(&path, route).unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(mode)).unwrap();
+        }
+        journal_list(&cli, &socket, None)
+    };
+
+    let ssh = tunnel("ssh", Some(("ssh://alice@build-host:2222", 0o600)));
+    let text = stderr(&ssh);
+    assert!(!String::from_utf8_lossy(&ssh.stdout).contains("REEXECED"), "{text}");
+    assert!(text.contains("another machine that runs build skew-test-other-build"), "{text}");
+    assert!(text.contains("fix: cmux remote ssh alice@build-host:2222 --upgrade"), "{text}");
+    assert!(!text.contains("daemon stop --socket"), "{text}");
+    assert!(!text.contains("running the daemon's CLI"), "{text}");
+
+    for (name, record) in [
+        ("no-record", None),
+        ("writable", Some(("ssh://alice@build-host", 0o666))),
+        ("option", Some(("ssh://-oProxyCommand=evil", 0o600))),
+        ("spaces", Some(("ssh://host; rm -rf ~", 0o600))),
+    ] {
+        let output = tunnel(name, record);
+        let text = stderr(&output);
+        assert!(!String::from_utf8_lossy(&output.stdout).contains("REEXECED"), "{name}: {text}");
+        assert!(text.contains("runs build skew-test-other-build"), "{name}: {text}");
+        assert!(text.contains("install build"), "{name}: {text}");
+        assert!(!text.contains("cmux remote ssh"), "{name}: {text}");
+    }
     let _ = fs::remove_dir_all(&dir);
 }

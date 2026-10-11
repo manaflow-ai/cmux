@@ -589,6 +589,7 @@ impl Hub {
             control: if r.web { crate::hub::Control::Web } else { crate::hub::Control::Local },
             trust_gate: false,
             steer_only: false,
+            interrupt: false,
         };
         let (hub, session) = (self.clone(), target.clone());
         let run =

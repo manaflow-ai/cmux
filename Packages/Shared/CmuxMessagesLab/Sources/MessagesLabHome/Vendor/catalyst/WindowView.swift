@@ -499,7 +499,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     /// Layer-time begin of an action that happened at engine time `t`.
     func beginTime(_ t: Double) -> CFTimeInterval { Animate.now(layer) - (clock() - t) }
 
-    private func element(for action: Action, me: ID) -> SpringElement {
+    private func element(for action: Action, me: ID, old: AppState? = nil) -> SpringElement {
         switch action {
         case .send: return Springs.send
         // An outgoing message from outside the field (another device, a
@@ -507,6 +507,10 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         case let .receive(m) where m.senderId == me: return Springs.insert
         // A received photo or video: its own curve (Messages, lossless send-typed-media take).
         case let .receive(m) where m.parts.contains(where: Springs.isMedia): return Springs.receiveMedia
+        // The first inline reply to the last message: its root becomes a thread (RowBuilder) and the rows above
+        // make room later than a plain receive (Messages, typing-unfocused-take1).
+        case let .receive(m) where m.replyTo != nil && old?.conversation.messages.last?.id == m.replyTo?.messageId:
+            return Springs.receiveThreadRoot
         case .receive: return Springs.receive
         case let .typing(_, on): return on ? Springs.typing : Springs.receive
         case let .status(_, s):
@@ -610,7 +614,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         RowCell.inPaging = paging
         defer { RowCell.inPaging = false }
         let send: Bool = { if case .send = action { return true }; return false }()
-        let el = element(for: action, me: state.me)
+        let el = element(for: action, me: state.me, old: old)
 
         CATransaction.begin()
         phaseMark = MallocCounter.mainAllocations
@@ -795,7 +799,9 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         switch action {
         case .send, .receive:
             idx.append(max(0, old.conversation.messages.count - 1))
-            if let m = msgs.last, let r = m.replyTo, let i = index(r.messageId) { idx.append(i) }
+            // A reply re-derives its root and the message above it: a root's first reply moves the root into its
+            // own thread (RowBuilder: the gap above the root, and the tail of the bubble above).
+            if let m = msgs.last, let r = m.replyTo, let i = index(r.messageId) { idx.append(i); idx.append(max(0, i - 1)) }
         case .typing: idx.append(max(0, msgs.count - 1))
         case let .status(id, _): if let i = index(id) { idx.append(i) }
         case let .cmuxSetAttachment(id, _): if let i = index(id) { idx.append(i) }  // cmux
@@ -957,6 +963,16 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             }
         }
         for pending in pendingNew { deltas.updateValue(0, forKey: pending) }
+        // The first inline reply to the last message (transcript.receiveThreadRoot): Messages first closes the gap
+        // above the new thread root (the rows above drop by Springs.threadRootDip) and then opens the change-of-thread
+        // gap, one curve from the first frame (lossless typing-unfocused-take1: 881 -> 888 -> 859.5 pt).
+        if el.name == "transcript.receiveThreadRoot", case let .receive(m) = action, let r = m.replyTo,
+           let rootIndex = model.index["part:\(r.messageId):\(r.partIndex)"] {
+            for i in band where i < rootIndex {
+                guard let key = model.rows[checked: i]?.spec.key, let d = deltas[key], d > 0.01 else { continue } // checked
+                deltas.updateValue(d + Springs.threadRootDip, forKey: key)
+            }
+        }
         // Container motion: the displacement most rows share moves the transcript layer's
         // sublayer transform once (one additive spring, not one per row); a row adds only its
         // difference from it. Window-space result per row: unchanged (shared + own = d).
@@ -1048,9 +1064,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
                     if p.outgoing || Springs.isMedia(p.part) {
                         ledger.add(key, .content, "opacity", from: 0, to: 1, el, begin: begin)
                     } else if p.connectorRoot != nil {
-                        // `.receiptNew` is the cell's bitmap layer (the bubble and its text). A tiled long
-                        // text draws outside it: the whole content fades.
-                        ledger.add(key, TiledBubble.applies(r.spec) ? .content : .receiptNew, "opacity", from: 0, to: 1, Springs.receivedThreadFade, begin: begin)
+                        // `.bubble`: the bitmap, or a long text's tiled body (the connector stays outside both).
+                        ledger.add(key, .bubble, "opacity", from: 0, to: 1, Springs.receivedThreadFade, begin: begin)
                     } else {
                         ledger.add(key, .content, "opacity", from: 0, to: 1, Springs.receivedTextFade, begin: begin)
                     }
@@ -1423,6 +1438,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             case .connector: target = cell.connector
             case .connectorLine: target = cell.connectorLine
             case .fillGradient: target = cell.fillGradient
+            case .bubble: target = cell.tiled?.container ?? cell.bitmap
             }
             if e.target == .connectorLine, e.keyPath == "bounds.size.height" {
                 // Relative to the stroke's current model height.
