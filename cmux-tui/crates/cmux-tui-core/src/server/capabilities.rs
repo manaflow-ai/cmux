@@ -4,7 +4,7 @@
 use super::*;
 
 /// `identify`'s capabilities: the static set plus `cloud-conversations-v1`
-/// when the binary installed a cloud transport, `history-search-v1` when it
+/// and `cloud-lease-app-only-v1` when the binary installed a cloud transport, `history-search-v1` when it
 /// installed the search index,
 /// `terminal-reaper-active-v1` while the unplaced-terminal reaper runs, and
 /// `daemon-build-v1` when the binary installed its build identity.
@@ -13,6 +13,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     capabilities.push(activity::CAPABILITY);
     if mux.cloud_conversations().is_some() {
         capabilities.push(cloud_conversations::CAPABILITY);
+        capabilities.push(cloud_conversations::APP_ONLY_LEASE_CAPABILITY);
     }
     if mux.history_search().is_some() {
         capabilities.push(history_search::HISTORY_SEARCH_CAPABILITY);
@@ -26,6 +27,10 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     #[cfg(unix)]
     if mux.serves_agent_session_start() {
         capabilities.push(AGENT_SESSION_START_CAPABILITY);
+    }
+    #[cfg(unix)]
+    if mux.serves_agent_transfer() {
+        capabilities.push(agent_transfer::AGENT_TRANSFER_CAPABILITY);
     }
     if mux.terminal_reaper_running() {
         capabilities.push(TERMINAL_REAPER_ACTIVE_CAPABILITY);

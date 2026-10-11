@@ -184,7 +184,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   overflow-y: auto;
   font: 14px/22px ui-monospace, SFMono-Regular, Menlo, monospace;
   color: var(--agent-text);
-  caret-color: var(--acpmux-shell-accent);
+  caret-color: var(--acpmux-shell-accent); /* caret-color: the shell mode's accent marks the mode */
 }
 .acpmux-shell-field::placeholder {
   color: var(--acpmux-composer-placeholder, var(--agent-muted));

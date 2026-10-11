@@ -23,8 +23,30 @@ nonisolated enum BrowserFileImportStrings {
         String(format: t("import.files.notAnExport", "“%@” is not a password CSV or bookmarks HTML file."), name)
     }
 
-    /// The passwords and bookmarks steps of `source`, each one line.
+    static func unreadable(_ name: String) -> String {
+        String(format: t("import.files.unreadable", "“%@” couldn’t be read."), name)
+    }
+    static func historyImported(_ count: Int) -> String {
+        String(format: t("import.files.historyImported", "Pages of history imported: %lld."), count)
+    }
+
+    /// The passwords, bookmarks and history steps of `source`, each one line.
     static func steps(_ source: BrowserExportSource) -> [String] {
+        exportSteps(source) + historySteps(source)
+    }
+
+    private static func historySteps(_ source: BrowserExportSource) -> [String] {
+        if source.family == .safari {
+            return [t("import.files.safari.archive",
+                      "Or everything at once (Safari 18 or later): choose File > Export Browsing Data to File…, then choose the zip file.")]
+        }
+        guard let takeout = source.history else { return [] }
+        return [String(format: t("import.files.chromium.history",
+                                 "History: export %1$@ at %2$@ (Google Takeout), then choose the zip or its History.json file."),
+                       source.name, takeout)]
+    }
+
+    private static func exportSteps(_ source: BrowserExportSource) -> [String] {
         switch source.family {
         case .chromium:
             [String(format: t("import.files.chromium.passwords",

@@ -1,9 +1,11 @@
 // Pure derivations of the channels Home: the rail sections, the timeline rows (day lines, author
 // heads, thread summaries) and a thread's replies. Everything here is a view over the owner's
 // messages; nothing is stored. Threads come from the owner's thread root, else from the inline
-// reply target (the owner keeps no thread index yet; cx-59n8 tracks the backend request).
+// reply target. A root's count comes from the owner's stats (HomeThreadStats, every reply that is
+// not retracted) plus the loaded replies the stats did not count yet; without stats, from the
+// loaded window. A retracted reply never counts (it shows as deleted in the thread).
 import type { HomeDraft } from "./drafts";
-import type { HomeConversation, HomeMessage, HomePart } from "./types";
+import type { HomeConversation, HomeMessage, HomePart, HomeThreadStats } from "./types";
 
 /** Messages closer than this from the same author share one head. */
 const GROUP_GAP_MS = 5 * 60 * 1000;
@@ -102,7 +104,6 @@ const dayKey = (at: number) => {
   return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
 };
 
-/** Thread summaries by root id over the loaded window (one pass). */
 /** What showed as new when the conversation opened (HomeSnapshot.unseen). */
 export interface Unseen {
   after: number;
@@ -112,24 +113,47 @@ export interface Unseen {
 const isUnseen = (message: HomeMessage, unseen: Unseen | undefined, me: string | undefined) =>
   unseen !== undefined && message.seq > unseen.after && message.seq <= unseen.through && message.author !== me;
 
+/** Thread summaries by root id (one pass over the loaded window). With the owner's stats of a
+ * root, the count is the owner's plus the loaded replies after its last counted seq, so a reply
+ * is never counted twice and replies outside the window still count. */
 export function threadSummaries(
   messages: readonly HomeMessage[],
   unseen?: Unseen,
   me?: string,
   seen: ReadonlySet<string> = new Set(),
+  owner: ReadonlyMap<string, HomeThreadStats> = new Map(),
 ): Map<string, ThreadSummary> {
   const summaries = new Map<string, ThreadSummary>();
+  for (const [root, stats] of owner) {
+    if (stats.replyCount > 0)
+      summaries.set(root, {
+        count: stats.replyCount,
+        lastAt: stats.lastReplyAt ?? 0,
+        authors: [...stats.authors],
+        unread: 0,
+      });
+  }
   for (const message of messages) {
     const root = threadOf(message);
-    if (!root) continue;
+    if (!root || message.retracted) continue;
+    const stats = owner.get(root);
+    const counted = stats !== undefined && message.seq <= (stats.lastReplySeq ?? 0);
     const summary = summaries.get(root) ?? { count: 0, lastAt: 0, authors: [], unread: 0 };
-    summary.count += 1;
+    if (!counted) summary.count += 1;
     if (!seen.has(root) && isUnseen(message, unseen, me)) summary.unread += 1;
     summary.lastAt = Math.max(summary.lastAt, message.createdAt);
     if (!summary.authors.includes(message.author)) summary.authors.push(message.author);
     summaries.set(root, summary);
   }
   return summaries;
+}
+
+/** A thread's reply count: the owner's stats plus the loaded replies after them, else the loaded
+ * replies; retracted replies never count. */
+export function replyCount(replies: readonly HomeMessage[], stats: HomeThreadStats | undefined): number {
+  const live = replies.filter((reply) => !reply.retracted);
+  if (!stats) return live.length;
+  return stats.replyCount + live.filter((reply) => reply.seq > (stats.lastReplySeq ?? 0)).length;
 }
 
 /** Top-level messages with day lines, author heads and a "New" line before the first message that
@@ -139,8 +163,9 @@ export function timelineRows(
   unseen?: Unseen,
   me?: string,
   seenThreads?: ReadonlySet<string>,
+  owner?: ReadonlyMap<string, HomeThreadStats>,
 ): TimelineRow[] {
-  const summaries = threadSummaries(messages, unseen, me, seenThreads);
+  const summaries = threadSummaries(messages, unseen, me, seenThreads, owner);
   const rows: TimelineRow[] = [];
   let previous: HomeMessage | undefined;
   let marked = false;

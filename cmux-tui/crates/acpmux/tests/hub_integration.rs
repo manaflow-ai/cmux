@@ -1489,3 +1489,5 @@ mod claude_failover;
 mod fork_through;
 #[path = "hub_integration/transfer.rs"]
 mod transfer;
+#[path = "hub_integration/transfer_guard.rs"]
+mod transfer_guard;

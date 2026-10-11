@@ -38,6 +38,7 @@ import {
   StopIcon,
 } from "./ComposerPickers";
 import { FileSearch } from "./FileSearch";
+import { MentionMenu, mentionQuery, mentionResults, mentionText, useMentionSearch } from "./MentionMenu";
 import { Close, FileDoc } from "./conversation/icons";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { openChipMenu } from "./composerChipMenu";
@@ -252,6 +253,9 @@ export function Composer({
   const [caret, setCaret] = useState(0);
   const [active, setActive] = useState(0);
   const [dismissed, setDismissed] = useState<string | undefined>();
+  // The @ file picker (MentionMenu.tsx): its highlight, and the prompt text Esc closed it on.
+  const [mentionActive, setMentionActive] = useState(0);
+  const [mentionDismissed, setMentionDismissed] = useState<string | undefined>();
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [attachError, setAttachError] = useState<string | undefined>();
   const [dropping, setDropping] = useState(false);
@@ -428,6 +432,13 @@ export function Composer({
   const matches = useMemo(() => (open ? matchCommands(commands ?? [], query ?? "") : []), [commands, open, query]);
 
   useEffect(() => setActive(0), [query]);
+  // Typing @ at a word start lists the chat's files that match what follows (cx-ncc.68).
+  const mentionAt =
+    !open && searchFiles && mentionDismissed !== text ? mentionQuery(text, markdownOffset(text, caret)) : undefined;
+  const mentionState = useMentionSearch(searchFiles, mentionAt?.query);
+  const mentionFiles = mentionResults(mentionState);
+  const mentionSelected = Math.min(mentionActive, Math.max(mentionFiles.length - 1, 0));
+  useEffect(() => setMentionActive(0), [mentionAt?.query]);
   // A live command update can shrink the list under the selection.
   const selected = Math.min(active, Math.max(matches.length - 1, 0));
   useLayoutEffect(() => {
@@ -462,6 +473,17 @@ export function Composer({
   const unwrapped = () => {
     const plus = plusDraft.current;
     return plus && plus.written === text ? plus.original : text;
+  };
+  /// Writes `@path ` over the `@word` being typed.
+  const pickMention = (path: string) => {
+    if (!mentionAt) return;
+    const { markdown, shown } = mentionText(path);
+    // Markdown doesn't show trailing whitespace, so what follows an end-of-prompt caret is dropped.
+    const after = text.slice(markdownOffset(text, caret)).replace(/^\s+$/, "");
+    const at = caret - 1 - mentionAt.query.length + shown.length;
+    pendingCaret.current = at;
+    edit(text.slice(0, mentionAt.start) + markdown + after, at);
+    field.current?.focus();
   };
   /// Sends the draft; false when there was nothing to send or the host refused it.
   const submit = (event: { preventDefault(): void }): boolean => {
@@ -644,6 +666,32 @@ export function Composer({
       send(false, true);
       return;
     }
+    // The @ picker owns arrows (and Ctrl-N/P), Return and Tab while it lists files, and Esc.
+    if (mentionAt) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        setMentionDismissed(text);
+        return;
+      }
+      const control = event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
+      const step =
+        (event.key === "ArrowDown" && plain) || (control && event.key === "n")
+          ? 1
+          : (event.key === "ArrowUp" && plain) || (control && event.key === "p")
+            ? -1
+            : 0;
+      if (step && mentionFiles.length > 0) {
+        event.preventDefault();
+        setMentionActive((mentionSelected + step + mentionFiles.length) % mentionFiles.length);
+        return;
+      }
+      if ((event.key === "Enter" || event.key === "Tab") && plain && mentionFiles[mentionSelected]) {
+        event.preventDefault();
+        pickMention(mentionFiles[mentionSelected].path);
+        return;
+      }
+    }
     // ↑ on an empty prompt goes to the queue's last prompt (ComposerQueue.tsx has its keys).
     if (event.key === "ArrowUp" && plain && !open && !text.trim() && snapshot.queue.length) {
       const rows = form.current?.querySelectorAll<HTMLElement>(".acpmux-queued");
@@ -722,6 +770,7 @@ export function Composer({
     plusDraft.current = undefined;
     if (original !== text) edit(original, original.length);
     else if (open) setDismissed(text);
+    else if (mentionAt) setMentionDismissed(text);
   };
   // The prompt's context menu: the edit items, then Attach Files… and Insert Mention. Cut and Copy
   // need a selection in the field, read when the menu opens.
@@ -877,6 +926,9 @@ export function Composer({
             onPick={pick}
           />
         )}
+        {mentionAt && (
+          <MentionMenu state={mentionState} active={mentionSelected} onHover={setMentionActive} onPick={pickMention} />
+        )}
         {(attachments.length > 0 || attachError || dropping) && (
           <fieldset className="acpmux-attachments" aria-label={t(COMPOSER_LABELS.attachments)}>
             {attachments.map((attachment) => (
@@ -909,10 +961,15 @@ export function Composer({
               role: "combobox",
               "aria-label": t(COMPOSER_LABELS.prompt),
               "aria-multiline": "true",
-              "aria-expanded": String(open),
-              "aria-controls": open ? "acpmux-slash-menu" : undefined,
+              "aria-expanded": String(open || Boolean(mentionAt)),
+              "aria-controls": open ? "acpmux-slash-menu" : mentionAt ? "acpmux-mention-menu" : undefined,
               "aria-autocomplete": "list",
-              "aria-activedescendant": open && matches.length > 0 ? `acpmux-slash-${selected}` : undefined,
+              "aria-activedescendant":
+                open && matches.length > 0
+                  ? `acpmux-slash-${selected}`
+                  : mentionAt && mentionFiles.length > 0
+                    ? `acpmux-mention-${mentionSelected}`
+                    : undefined,
             }}
             onBeforeInput={(data, state) => {
               // `!` first: shell mode, in place. A pasted `!cmd` keeps what follows the `!`.

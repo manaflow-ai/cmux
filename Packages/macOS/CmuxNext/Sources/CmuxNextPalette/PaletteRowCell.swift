@@ -57,6 +57,12 @@ final class PaletteTableRowView: NSTableRowView {
     private let fill = CALayer()
     private var fadesNextFill = false
 
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        // A fade asked for before the row was reused belongs to its old row.
+        fadesNextFill = false
+    }
+
     var isPaletteSelected = false {
         didSet { if isPaletteSelected != oldValue { needsDisplay = true } }
     }

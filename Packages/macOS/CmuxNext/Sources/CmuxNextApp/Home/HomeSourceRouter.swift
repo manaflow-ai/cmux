@@ -98,6 +98,14 @@ nonisolated final class HomeSourceRouter: HomeSource {
         try await source(for: conversation).history(of: conversation, before: beforeSeq, limit: limit)
     }
 
+    func historyPage(of conversation: ConversationID, before beforeSeq: Seq, limit: Int) async throws -> HistoryPage {
+        try await source(for: conversation).historyPage(of: conversation, before: beforeSeq, limit: limit)
+    }
+
+    func thread(of conversation: ConversationID, root: MessageID, after afterSeq: Seq, limit: Int) async throws -> ThreadPage {
+        try await source(for: conversation).thread(of: conversation, root: root, after: afterSeq, limit: limit)
+    }
+
     /// Ops on a conversation go to its owner. Ops that create or invite name
     /// no conversation and only the cloud has them, except `createGroup` of
     /// local participants only (none, or the Chief and the local user): a
