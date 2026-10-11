@@ -7,6 +7,21 @@ use super::*;
 use std::sync::atomic::Ordering;
 
 impl Hub {
+    /// Whether the session runs Claude Code, and its profile env plus its
+    /// preset's (`agent_tools::left_out`, where Claude keeps its store).
+    pub(super) async fn harness_env(
+        &self,
+        meta: &SessionMeta,
+    ) -> (bool, std::collections::BTreeMap<String, String>) {
+        let cfg = self.config.read().await;
+        let profile = cfg.profile(&meta.harness);
+        let mut env = profile.map(|p| p.env.clone()).unwrap_or_default();
+        if let Some(preset) = meta.preset.as_ref().and_then(|n| cfg.presets.get(n)) {
+            env.extend(preset.env.clone());
+        }
+        (profile.is_some_and(|p| p.kind == crate::config::HarnessKind::ClaudeStdio), env)
+    }
+
     pub async fn fork(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -16,16 +31,7 @@ impl Hub {
         through: Option<u64>,
     ) -> Result<Arc<Session>, RpcError> {
         let parent_meta = session.meta();
-        // The profile env plus the preset's, for `agent_tools::left_out`.
-        let (is_claude, fork_env) = {
-            let cfg = self.config.read().await;
-            let profile = cfg.profile(&parent_meta.harness);
-            let mut env = profile.map(|p| p.env.clone()).unwrap_or_default();
-            if let Some(preset) = parent_meta.preset.as_ref().and_then(|n| cfg.presets.get(n)) {
-                env.extend(preset.env.clone());
-            }
-            (profile.is_some_and(|p| p.kind == crate::config::HarnessKind::ClaudeStdio), env)
-        };
+        let (is_claude, fork_env) = self.harness_env(&parent_meta).await;
         let sid = parent_meta
             .agent_session_id
             .clone()

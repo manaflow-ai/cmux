@@ -5,6 +5,7 @@
 //! `adoption` (resuming a harness's own session), `models_view` (the picker's model lists).
 
 mod adoption;
+mod aside;
 mod catalog_reload;
 mod cursor_ext;
 mod fork;
