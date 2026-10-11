@@ -679,7 +679,7 @@ async fn admin_connection(
                     Ok(next) => {
                         let view = next.view();
                         *upstream.write().await = Some(next);
-                        serde_json::json!({"upstream": view})
+                        serde_json::json!({"upstream": view, "pid": std::process::id()})
                     }
                     Err(error) => serde_json::json!({"error": error.to_string()}),
                 }
