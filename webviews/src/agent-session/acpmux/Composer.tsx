@@ -236,6 +236,13 @@ export function Composer({
   const [findingFiles, setFindingFiles] = useState(false);
   // A new folder (another chat) closes the palette, so no row from the last one stays pickable.
   useEffect(() => setFindingFiles(false), [searchFiles]);
+  // Search Files… (Cmd-P in the app, cx-ncc.69) opens the same search the + menu does.
+  useEffect(() => {
+    if (!searchFiles) return;
+    const open = () => setFindingFiles(true);
+    window.addEventListener("cmux-acpmux-searchFiles", open);
+    return () => window.removeEventListener("cmux-acpmux-searchFiles", open);
+  }, [searchFiles]);
   // Search files sits over the transcript, so it mounts in the composer's parent (the pane's
   // main column), not inside the composer the slash menu anchors to.
   const form = useRef<HTMLFormElement>(null);

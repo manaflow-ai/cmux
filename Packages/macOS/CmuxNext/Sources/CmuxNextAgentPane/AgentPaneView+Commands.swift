@@ -14,6 +14,12 @@ extension AgentPaneView {
         if webView.window?.firstResponder !== webView { webView.window?.makeFirstResponder(webView) }
         deliver([.command("openModelPicker")], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"openModelPicker\");"])
     }
+    /// Search Files… (Cmd-P, cx-ncc.69): the page takes the keyboard, then opens the composer's
+    /// file search over the chat folder; a pick mentions the file in the prompt.
+    public func showFileSearch() {
+        if webView.window?.firstResponder !== webView { webView.window?.makeFirstResponder(webView) }
+        deliver([.command("searchFiles")], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"searchFiles\");"])
+    }
     /// Palette and page buttons enter the same inline checkpoint review.
     public func showCreateCheckpoint() {
         guard model.checkpointAvailable else { return }
