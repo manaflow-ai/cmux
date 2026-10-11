@@ -77,8 +77,10 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private var reportedRead: Seq = 0
     private var stopped = false
     /// Return was pressed while only the cache knew this conversation: the
-    /// send goes once the owner confirms it (`refresh`).
+    /// send goes once the owner confirms it (`refresh`), in the thread that
+    /// was open at the Return (`deferredThreadRoot`, nil: the conversation).
     private var sendWhenConfirmed = false
+    private var deferredThreadRoot: MessageID?
     /// Rebuilds and applied (changed) updates, for tests.
     private(set) var rebuilds = 0
     private(set) var appliedUpdates = 0
@@ -119,7 +121,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
         if sendWhenConfirmed, homeStore.isConfirmed(conversation) {
             sendWhenConfirmed = false
             sendNotice = nil
-            send()
+            _ = send(root: .some(deferredThreadRoot))
+            deferredThreadRoot = nil
         }
         apply(items: homeStore.transcript(for: conversation), summary: homeStore.summary(conversation),
               typing: homeStore.typing[conversation] ?? [], hasOlder: homeStore.hasOlderMessages(in: conversation),
@@ -270,22 +273,35 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// at the reconnect, or fails "Not Delivered" at the deadline, never
     /// silently). Else why nothing was sent; the text stays in the field.
     @discardableResult
-    func send() -> String? {
+    func send() -> String? { send(root: nil) }
+
+    /// `deferred`: the thread a held send was made in (`refresh`); nil reads the open view.
+    private func send(root deferred: MessageID??) -> String? {
         guard let store = controller.store else { return noteSend("refused: transcript_not_ready") }
         let draft = store.state.ui.draft
         let text = draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
         let attachments = draft.attachments.compactMap { drafts[$0.id] }
         guard !text.isEmpty || !attachments.isEmpty else { return noteSend("refused: empty_draft") }
         // The open thread or reply view: the send is a reply in that thread (HomeStore's root id).
-        let threadRef = draft.replyTo ?? store.state.ui.openThread
-        let threadRoot = threadRef.flatMap { item($0.messageId)?.messageID }
-        if threadRef != nil, threadRoot == nil { return noteSend("refused: thread_root_unknown") }
+        let threadRoot: MessageID?
+        if let deferred {
+            threadRoot = deferred
+        } else if let resolved = self.threadRoot(of: draft.replyTo ?? store.state.ui.openThread) {
+            threadRoot = resolved
+        } else {
+            // The root has no message id yet (my send still going) or is not loaded: the view
+            // closes with a notice; the text stays, and the next Return sends to the conversation.
+            controller.dispatch(.closeThread)
+            sendNotice = CmuxStrings.threadRootNotReady
+            return noteSend("refused: thread_root_unknown")
+        }
         // Only the cache knows this conversation so far: the owner has not
         // answered since launch, and a Chief home made again at the same path
         // has other conversations (cx-ebm.55). The text stays; Home shows the
         // owner's conversation (and carries the text there) once it answers.
         if homeStore.isCacheOnly(conversation) {
             sendWhenConfirmed = true
+            deferredThreadRoot = threadRoot
             let chief = homeStore.summary(conversation)?.participants.contains(where: \.isChief) == true
             sendNotice = chief ? CmuxStrings.waitingForChief : CmuxStrings.waitingToConnect
             return noteSend("waiting_for_owner: sends once the owner confirms this conversation")
@@ -419,10 +435,22 @@ final class HomeProjection: @preconcurrency ChatIntents {
         shown.first { HomeMapping.id($0, aliases: aliases) == message }
     }
 
+    /// The HomeStore root of the thread a send from the view at `ref` replies in:
+    /// `.some(nil)` with no view open; nil when the root has no message id yet. A reply
+    /// names its own root (its root may be out of the window or retracted, so the
+    /// view's ref can be the reply itself).
+    private func threadRoot(of ref: PartRef?) -> MessageID?? {
+        guard let ref else { return .some(nil) }
+        let found = item(ref.messageId)
+            ?? homeStore.transcript(for: conversation).first { HomeMapping.id($0, aliases: aliases) == ref.messageId }
+        return found.flatMap { $0.threadRoot ?? $0.messageID }.map { Optional.some($0) }
+    }
+
     func pickAttachments() { onPickAttachments() }
     func takeAttachments(from pasteboard: NSPasteboard) -> Bool { onAttachmentPasteboard(pasteboard) }
     func acceptsAttachments(from pasteboard: NSPasteboard) -> Bool { acceptsAttachmentDrag(pasteboard) }
     func draftChanged() {
+        if sendNotice == CmuxStrings.threadRootNotReady { sendNotice = nil }  // the user moved on
         homeStore.setDraft(controller.store?.state.ui.draft.text ?? "", for: conversation)
         onDraftTextChange()
     }
