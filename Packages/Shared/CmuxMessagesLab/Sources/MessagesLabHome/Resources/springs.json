@@ -1010,5 +1010,123 @@
    "method": "delay +1.3 ms: the fit's curve time was Messages' first send frame + 14.3 ms on two 1-line and two 2-line drafts; with the send phase (Springs.sendPhase, -4.0 / +6.6 ms) the same frames are 1.3 ms later on average in the curve."
   },
   "os": "macOS 27, after a draft that shrinks the field (Springs.Bubble); 1-line drafts use bubble.opacity"
+ },
+ "received.textFade": {
+  "event": "received text, not a thread reply (opacity in)",
+  "unit": "opacity",
+  "from": 0.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0,
+    "duration": 0.273,
+    "curve": [
+     0.427,
+     0.031,
+     0.572,
+     0.813
+    ],
+    "delta": 1.0
+   }
+  ],
+  "residual": {
+   "rmsPercent": 0.54
+  },
+  "fit": {
+   "method": "lossless send-typed-take1 (thread reply, +5.46 s), send-typed-media-take1 (text, +9.75 s), typing-unfocused-take1 (thread reply, inactive, +10.15 s): per frame, mean |frame - first| / |last - first| over each object's own box (typing bubble, new bubble without the typing box, connector box above and left of the new bubble), cubic-bezier fit (tools/evidence/ANIMATIONS.md section 3). Time 0 = Messages' first changed frame of the arrival; ours: the receive commit.",
+   "takes": [
+    "send-typed-media-take1"
+   ],
+   "note": "Messages cross-fades the typing bubble out and the text bubble in over the same 0.27 s from the arrival's first frame (the earlier fit waited 0.2 s)"
+  }
+ },
+ "typing.outOnReceive": {
+  "event": "the typing bubble when a text that is not a thread reply arrives (opacity out)",
+  "unit": "opacity",
+  "from": 0.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0,
+    "duration": 0.273,
+    "curve": [
+     0.427,
+     0.031,
+     0.572,
+     0.813
+    ],
+    "delta": 1.0
+   }
+  ],
+  "residual": {
+   "rmsPercent": 1.59
+  },
+  "fit": {
+   "method": "lossless send-typed-take1 (thread reply, +5.46 s), send-typed-media-take1 (text, +9.75 s), typing-unfocused-take1 (thread reply, inactive, +10.15 s): per frame, mean |frame - first| / |last - first| over each object's own box (typing bubble, new bubble without the typing box, connector box above and left of the new bubble), cubic-bezier fit (tools/evidence/ANIMATIONS.md section 3). Time 0 = Messages' first changed frame of the arrival; ours: the receive commit.",
+   "takes": [
+    "send-typed-media-take1",
+    "send-typed-take1"
+   ],
+   "note": "the same curve as received.textFade: the typing bubble's tail circle (left of and below the bubble, not covered by the new bubble or the connector) fades the same in both takes, the text (rms 2 %) and the thread reply (within 1 frame); a thread-only fit on the whole typing box (0.215 s) mixed in the connector and ended 50 ms early"
+  }
+ },
+ "connector.drawOnReceive": {
+  "event": "a received thread reply's connector (strokeEnd, at full opacity from the first frame)",
+  "unit": "opacity",
+  "from": 0.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0,
+    "duration": 0.2784,
+    "curve": [
+     0.0,
+     0.166,
+     0.245,
+     0.0
+    ],
+    "delta": 1.0
+   }
+  ],
+  "residual": {
+   "rmsPercent": 1.14
+  },
+  "fit": {
+   "method": "lossless send-typed-take1 (thread reply, +5.46 s), send-typed-media-take1 (text, +9.75 s), typing-unfocused-take1 (thread reply, inactive, +10.15 s): per frame, mean |frame - first| / |last - first| over each object's own box (typing bubble, new bubble without the typing box, connector box above and left of the new bubble), cubic-bezier fit (tools/evidence/ANIMATIONS.md section 3). Time 0 = Messages' first changed frame of the arrival; ours: the receive commit.",
+   "takes": [
+    "send-typed-take1"
+   ],
+   "note": "Messages draws the connector from the root before the reply bubble shows; ours drew it under the bubble's delayed fade (invisible for 0.2 s)"
+  }
+ },
+ "received.threadFade": {
+  "event": "a received thread reply's bubble (opacity in, after the connector)",
+  "unit": "opacity",
+  "from": 0.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.267,
+    "duration": 0.276,
+    "curve": [
+     0.3,
+     0.0,
+     0.24,
+     0.9
+    ],
+    "delta": 1.0
+   }
+  ],
+  "residual": {
+   "rmsPercent": 1.1
+  },
+  "fit": {
+   "method": "lossless send-typed-take1 (thread reply, +5.46 s), send-typed-media-take1 (text, +9.75 s), typing-unfocused-take1 (thread reply, inactive, +10.15 s): per frame, mean |frame - first| / |last - first| over each object's own box (typing bubble, new bubble without the typing box, connector box above and left of the new bubble), cubic-bezier fit (tools/evidence/ANIMATIONS.md section 3). Time 0 = Messages' first changed frame of the arrival; ours: the receive commit.",
+   "takes": [
+    "send-typed-take1",
+    "typing-unfocused-take1"
+   ],
+   "note": "the mean of the two takes' fits (send-typed: 0.258 s, 0.263 s, [0.331, 0, 0.228, 0.828], rms 1.11 %; typing-unfocused: 0.276 s, 0.290 s, [0.272, 0.005, 0.251, 0.970], rms 0.81 %)"
+  }
  }
 }
