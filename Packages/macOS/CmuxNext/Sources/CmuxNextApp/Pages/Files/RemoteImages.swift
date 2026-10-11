@@ -13,7 +13,7 @@ final class GuardedRemoteImages: RemoteImageFetching {
 
     init(resolver: any RemoteAddressResolving = SystemRemoteResolver(), transport: any RemoteFetchTransport = PinnedTLSTransport()) {
         fetcher = GuardedRemoteFetch(maximumBytes: RemoteImagePolicy.maximumBytes, timeout: RemoteImagePolicy.timeout,
-                                     accept: "image/*", resolver: resolver, transport: transport)
+                                     accept: GuardedRemoteFetch.imageAccept, resolver: resolver, transport: transport)
     }
 
     func fetch(_ url: URL) async -> PageResource? {
