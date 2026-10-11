@@ -61,6 +61,10 @@ async fn a_fork_through_the_latest_turn_opens_a_new_session_and_an_earlier_turn_
     assert_ne!(fid, id);
     let forked = hub.resolve(&fid).unwrap();
     assert_eq!(forked.meta().parent_id.as_deref(), Some(id.as_str()));
+    // The session list names where the fork branched, for the pane's < 1/2 > arrows (cx-ncc.61).
+    let listed = hub.session_summary(&forked);
+    assert_eq!(listed["parentId"], id.as_str());
+    assert_eq!(listed["forkSeq"], results[1]);
     let prompts =
         hub.events(&fid, 0, 1000).unwrap().into_iter().filter(|e| e.kind == "user_message").count();
     assert_eq!(prompts, 2, "the fork holds both turns");
