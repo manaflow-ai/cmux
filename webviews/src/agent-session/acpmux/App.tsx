@@ -1350,6 +1350,8 @@ function AcpmuxPane() {
     () => applySwitch(clientSnapshot, switchView, catalog),
     [clientSnapshot, switchView, catalog],
   );
+  // Another chat ends the replay: coming back to this one opens it live.
+  if (replaying && snapshot.sessionId !== replaying) setReplaying(undefined);
   // Repository context follows the selected session, connection origin and cwd. A reconnect
   // handshake for an existing session deliberately omits cwd, so key this lookup from the live
   // snapshot instead of clearing a valid repository while the daemon is being replaced.
