@@ -82,23 +82,32 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
     }
 
     private func makeWindow(availableSize: CGSize?, sliderShowsFeatureList: Bool, sliderListUsesDots: Bool) -> NSWindow {
-        let rootView = CloudWelcomeAccountView(
-            accountFlow: AppDelegate.shared?.auth?.accountFlow,
-            availableSize: availableSize,
-            sliderShowsFeatureList: sliderShowsFeatureList,
-            sliderListUsesDots: sliderListUsesDots,
-            onNotNow: { [weak self] in self?.dismiss() },
-            onNext: { [weak self] step in self?.perform(step) }
-        )
-        // A cmux-owned SwiftUI root: its text follows cmux's text size setting.
-        .cmuxFontMagnificationEnvironment()
-        let hosting = NSHostingView(rootView: rootView)
+        func rootView(scrollHeight: CGFloat?) -> some View {
+            CloudWelcomeAccountView(
+                accountFlow: AppDelegate.shared?.auth?.accountFlow,
+                availableSize: availableSize,
+                scrollHeight: scrollHeight,
+                sliderShowsFeatureList: sliderShowsFeatureList,
+                sliderListUsesDots: sliderListUsesDots,
+                onNotNow: { [weak self] in self?.dismiss() },
+                onNext: { [weak self] step in self?.perform(step) }
+            )
+            // A cmux-owned SwiftUI root: its text follows cmux's text size setting.
+            .cmuxFontMagnificationEnvironment()
+        }
+        let hosting = NSHostingView(rootView: rootView(scrollHeight: nil))
         // The content clears the traffic lights with its own top padding, so it
         // needs no titlebar safe area. Tracking it also loops in the app: the
         // hosting view keeps invalidating its safe area and constraints until
         // AppKit aborts (too many Update Constraints passes, 2026-10-04).
         hosting.safeAreaRegions = []
-        let size = hosting.fittingSize
+        var size = hosting.fittingSize
+        // Too tall for the screen (large text on a short display): cap the
+        // window and scroll the top, so the buttons stay on screen.
+        if let room = availableSize.map({ $0.height - CloudWelcomeLayout.screenMargin }), size.height > room {
+            hosting.rootView = rootView(scrollHeight: room)
+            size.height = room
+        }
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.titled, .closable, .fullSizeContentView],
@@ -179,6 +188,7 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
 private struct CloudWelcomeAccountView: View {
     let accountFlow: HostAccountFlow?
     let availableSize: CGSize?
+    let scrollHeight: CGFloat?
     let sliderShowsFeatureList: Bool
     let sliderListUsesDots: Bool
     let onNotNow: () -> Void
@@ -195,7 +205,8 @@ private struct CloudWelcomeAccountView: View {
             onNext: onNext,
             sliderShowsFeatureList: sliderShowsFeatureList,
             sliderListUsesDots: sliderListUsesDots,
-            availableSize: availableSize
+            availableSize: availableSize,
+            scrollHeight: scrollHeight
         )
         .task {
             // The plan decides between Upgrade and Enable; ask once on show.

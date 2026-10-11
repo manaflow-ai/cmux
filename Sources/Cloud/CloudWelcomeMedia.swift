@@ -630,14 +630,18 @@ struct CloudWelcomeMediaCarousel: View {
             if url.pathExtension.lowercased() == "gif" {
                 let view = NSImageView()
                 view.image = NSImage(contentsOf: url)
-                view.animates = true
+                // A GIF cannot be paused frame-accurately; it stays still with
+                // Reduce Motion or a pause instead.
+                view.animates = !reduceMotion && !playback.isPaused
                 view.imageScaling = .scaleProportionallyUpOrDown
                 return view
             }
             return MovieView(url: url, playback: playback, reduceMotion: reduceMotion)
         }
 
-        func updateNSView(_ nsView: NSView, context: Context) {}
+        func updateNSView(_ nsView: NSView, context: Context) {
+            (nsView as? NSImageView)?.animates = !reduceMotion && !playback.isPaused
+        }
 
         final class MovieView: NSView {
             private let player = AVQueuePlayer()
@@ -761,8 +765,8 @@ extension CloudWelcomeMediaCarousel {
         private(set) var index = 0
         private(set) var isPaused = false
         private(set) var movieFailed = false
-        /// Reduce Motion is on: clips hold their first frame until the viewer
-        /// presses Play, and nothing moves on by itself.
+        /// Reduce Motion is on: clips hold still (a new slide on its first
+        /// frame) until the viewer presses Play, and nothing moves on by itself.
         private(set) var reducesMotion = false
         /// The viewer's last Play (true) or Pause (false) on this slide; either
         /// outranks Reduce Motion. Picking a slide clears a Pause.

@@ -39,6 +39,9 @@ struct CloudWelcomeView: View {
     /// The screen room the window may take (its visible frame); nil means
     /// unconstrained, as in the lab.
     var availableSize: CGSize?
+    /// Set when the whole welcome would be taller than the screen: the window
+    /// takes this height, the footer stays put, and the rest scrolls above it.
+    var scrollHeight: CGFloat?
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var magnificationPercent
 
     var body: some View {
@@ -49,6 +52,27 @@ struct CloudWelcomeView: View {
             available: availableSize
         )
         return VStack(spacing: 0) {
+            if scrollHeight != nil {
+                ScrollView(.vertical) {
+                    introduction(hasMedia: hasMedia, layout: layout)
+                }
+                .frame(maxHeight: .infinity)
+            } else {
+                introduction(hasMedia: hasMedia, layout: layout)
+            }
+            panel(hasMedia: hasMedia)
+                .padding(.horizontal, 32)
+                .padding(.bottom, 24)
+        }
+        .frame(width: hasMedia ? layout.windowWidth : CloudWelcomeLayout.stackedWindowWidth, height: scrollHeight)
+        .background(windowBackground)
+        .accessibilityIdentifier("CloudWelcomeWindow")
+    }
+
+    /// The title and the clips (or the hero without them).
+    @ViewBuilder
+    private func introduction(hasMedia: Bool, layout: CloudWelcomeLayout) -> some View {
+        VStack(spacing: 0) {
             CloudWelcomeHeader()
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.horizontal, 32)
@@ -67,13 +91,7 @@ struct CloudWelcomeView: View {
             } else {
                 CloudWelcomeHero()
             }
-            panel(hasMedia: hasMedia)
-                .padding(.horizontal, 32)
-                .padding(.bottom, 24)
         }
-        .frame(width: hasMedia ? layout.windowWidth : CloudWelcomeLayout.stackedWindowWidth)
-        .background(windowBackground)
-        .accessibilityIdentifier("CloudWelcomeWindow")
     }
 
     /// On macOS 26 the window hosts this view inside an NSGlassEffectView (the
@@ -220,8 +238,8 @@ struct CloudWelcomeView: View {
 /// The welcome's size for the room it has. The feature list sits beside the
 /// clip only while its titles keep a readable column at the current cmux text
 /// size; short of that the clip shrinks to a floor, then the list gives way to
-/// the stacked layout (clip, dots and caption). The clip also shrinks so the
-/// window fits the screen's height.
+/// the stacked layout (clip, dots and caption). The clip also shrinks toward
+/// the screen's height; past its floor the window controller scrolls the top.
 struct CloudWelcomeLayout: Equatable {
     var showsFeatureList: Bool
     var windowWidth: CGFloat
