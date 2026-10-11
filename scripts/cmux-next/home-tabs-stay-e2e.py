@@ -4,7 +4,9 @@ cmux-next build.
 
 Move Tab to New Workspace and Move Tab to New Window, run on Home's tab through the control
 socket as the palette and CLI run them, are refused, and no workspace or window appears. A tab
-of another workspace still moves to a new workspace. The script attaches to an app already
+of another workspace still moves to a new workspace. Merge Workspace into… (cx-zjtn.4) refuses
+Home as either side, and the App Store (a page item, not a workspace) as either side: Home keeps
+its tabs and every workspace stays. The script attaches to an app already
 running (a capture slot's `capture-host launch`, or a tagged build) on Home, through its debug
 socket. It never launches or quits the app.
 
@@ -59,9 +61,26 @@ def daemon_socket():
     return os.path.join(temp, f"cmux-tui-{os.getuid()}", session)
 
 
+def home_workspace():
+    return ((rpc("debug.home") or {}).get("home_workspace") or {}).get("workspace")
+
+
+def home_tabs():
+    """Home's tabs, read from the daemon (workspaces carry the app's id as `key`)."""
+    workspace = home_workspace()
+    if not workspace:
+        return []
+    snapshot = line_json(daemon_socket(), {"id": 1, "cmd": "list-workspaces"}, 30)
+    for entry in (snapshot.get("data") or {}).get("workspaces") or []:
+        if entry.get("key") == workspace:
+            return [tab.get("tab_resource_id") for screen in entry.get("screens") or []
+                    for pane in screen.get("panes") or [] for tab in pane.get("tabs") or [] if tab.get("tab_resource_id")]
+    return []
+
+
 def home_tab():
     """The first tab of Home's workspace, read from the daemon (workspaces carry the app's id as `key`)."""
-    workspace = ((rpc("debug.home") or {}).get("home_workspace") or {}).get("workspace")
+    workspace = home_workspace()
     if not workspace:
         return None
     snapshot = line_json(daemon_socket(), {"id": 1, "cmd": "list-workspaces"}, 30)
@@ -143,6 +162,7 @@ def main():
 
     rpc("action.run", {"action": "workspace.selectFirst"})
     other = wait(lambda: not selected()[0].startswith("itm_") and focused_tab(), 15)
+    other_workspace = selected()[0]
     rpc("action.run", {"action": "newSurface"})
     wait(lambda: focused_tab() and focused_tab() != other, 15)
     tab = focused_tab()
@@ -151,6 +171,34 @@ def main():
     row("Move Tab to New Workspace on another workspace's tab", "runs; one more workspace",
         f"reply={json.dumps(reply)[:240]} workspaces {before} -> {after}", "error" not in (reply or {}) and after == before + 1)
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "home-tabs-stay.png")})
+    merges(other_workspace)
+
+
+def merge(source, into):
+    """Merge Workspace into… with `source` as the target and `into` as the argument."""
+    reply = rpc("action.run", {"action": "workspace.mergeInto", "target": f"workspace:{source}",
+                               "args": {"into": f"workspace:{into}"}})
+    time.sleep(4)  # test harness: a merge that ran has landed by now
+    return reply
+
+
+def merges(other):
+    """Merge Workspace into… never takes Home's tabs away or gives Home a workspace's, and the App
+    Store, a page item, is no workspace to merge from or into."""
+    home = home_workspace()
+    print("merge workspaces: Home", home, "other", other, flush=True)
+    for check, source, into in [
+        ("Merge Home into another workspace", home, other),
+        ("Merge a workspace into Home", other, home),
+        ("Merge the App Store into a workspace", "itm_app_store", other),
+        ("Merge a workspace into the App Store", other, "itm_app_store"),
+    ]:
+        tabs, count = home_tabs(), workspaces()
+        reply = merge(source, into)
+        after_tabs, after = home_tabs(), workspaces()
+        row(check, "refused; Home keeps its tabs; no workspace closes",
+            f"reply={json.dumps(reply)[:200]} Home tabs {len(tabs)} -> {len(after_tabs)}; workspaces {count} -> {after}",
+            "error" in (reply or {}) and after_tabs == tabs and after == count)
 
 
 main()
