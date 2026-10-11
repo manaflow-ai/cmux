@@ -7,7 +7,7 @@
 // borders draw lines (appearance.borders lines), as by default.
 import type { DiffViewerAppearance, DiffViewerTheme } from "../../appearance";
 import type { GhosttyTheme } from "./ghostty";
-import { appThemeVariables, type AppTheme } from "../../theme/appTheme";
+import { appThemeVariables, type AppAccent, type AppTheme } from "../../theme/appTheme";
 import {
   css,
   deriveTokens,
@@ -20,7 +20,7 @@ import {
   type ThemeTokens,
 } from "./tokens";
 
-export function themeInput(theme: GhosttyTheme): ThemeInput {
+export function themeInput(theme: GhosttyTheme, accent: AppAccent = "neutral"): ThemeInput {
   const color = (hex: string | null | undefined) => (hex ? parseHex(hex) : null);
   // ThemeBridge passes the entries Ghostty reports; a theme always reports 16 (its own or the
   // defaults under them), so a gap takes Ghostty's default color.
@@ -32,10 +32,12 @@ export function themeInput(theme: GhosttyTheme): ThemeInput {
     selectionBackground: color(theme.selectionBackground) ?? undefined,
     selectionForeground: color(theme.selectionForeground) ?? undefined,
     backgroundOpacity: 1,
+    accent,
   };
 }
 
-export const themeTokens = (theme: GhosttyTheme): ThemeTokens => deriveTokens(themeInput(theme));
+export const themeTokens = (theme: GhosttyTheme, accent: AppAccent = "neutral"): ThemeTokens =>
+  deriveTokens(themeInput(theme, accent));
 
 /** WebTheme(tokens).payload: `{variables, colorScheme, scrollers}`; with `app`, also the app
  * theme's `--cmux-app-*` tokens (WebTheme sends them from CmuxTheme's AppTheme, the same contract). */

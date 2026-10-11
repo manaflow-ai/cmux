@@ -31,6 +31,8 @@ public final class ThemeStore {
     /// The app theme when `appearance.appTheme` names one; nil follows each scope's terminal
     /// theme (`ThemeTokens.app`). Web pages read it through `WebTheme`.
     public private(set) var appTheme: AppTheme?
+    /// `appearance.accent`: every scope derives its tokens with it (`ThemeInput.accent`).
+    public private(set) var accent: ThemeAccent = .neutral
 
     @ObservationIgnored private let publishesGlobally: Bool
     @ObservationIgnored private let responders = NSHashTable<AnyObject>.weakObjects()
@@ -56,6 +58,8 @@ public final class ThemeStore {
     /// derived tokens did not change (no invalidation happens then).
     @discardableResult
     public func apply(_ input: ThemeInput) -> Bool {
+        var input = input
+        input.accent = accent
         self.input = input
         let derived = ThemeTokens.derive(from: input)
         guard derived != tokens else { return false }
@@ -82,6 +86,15 @@ public final class ThemeStore {
         generation += 1
         if publishesGlobally { repaintAll() }
         return true
+    }
+
+    /// Sets where the accent comes from and re-derives every scope's tokens with it. Returns
+    /// false when the tokens did not change.
+    @discardableResult
+    public func setAccent(_ accent: ThemeAccent) -> Bool {
+        guard accent != self.accent else { return false }
+        self.accent = accent
+        return apply(input)
     }
 
     /// Repaints every window and responder as a theme change does, for a
