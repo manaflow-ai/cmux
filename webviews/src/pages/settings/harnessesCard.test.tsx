@@ -126,3 +126,43 @@ test("an outdated harness shows both versions and an Update; one that needs sudo
   expect(card(page.container)!.querySelector('[data-harness-action="updateAll"]')).toBeNull();
   page.unmount();
 });
+
+test("Update Automatically turns auto-update on for one harness; a failed auto-update says why", async () => {
+  const page = await renderPage({ path: "/settings/agents" });
+  await settle();
+  const element = card(page.container)!;
+  // Only a harness whose update needs no sudo offers it.
+  expect(element.querySelector('[data-harness="claude"] [data-harness-auto]')).toBeNull();
+  const box = element.querySelector<HTMLInputElement>('[data-harness="codex"] input[data-harness-auto]')!;
+  expect(box.checked).toBe(false);
+  await act(async () => box.click());
+  await settle();
+  expect(page.provider.harnessRuns.at(-1)).toEqual({ action: "autoUpdate", id: "codex", on: true });
+  await act(async () =>
+    page.provider.setHarnesses({
+      loading: false,
+      problem: null,
+      harnesses: [
+        {
+          id: "codex",
+          name: null,
+          kind: "acp",
+          source: "path",
+          problem: null,
+          version: "0.3.1",
+          latest: "0.4.0",
+          outdated: true,
+          auth: "signedIn",
+          update: { command: "npm install -g @openai/codex@latest", elevated: false },
+          autoUpdate: true,
+          lastAutoUpdate: { ok: false, detail: "npm ERR! network timeout" },
+        },
+      ],
+    }),
+  );
+  await settle();
+  const row = card(page.container)!.querySelector<HTMLElement>('[data-harness="codex"]')!;
+  expect(row.querySelector<HTMLInputElement>("input[data-harness-auto]")!.checked).toBe(true);
+  expect(row.querySelector("[data-harness-auto-failed]")!.textContent).toContain("npm ERR! network timeout");
+  page.unmount();
+});

@@ -231,6 +231,10 @@ export type HarnessRow = {
   auth?: "signedIn" | "signedOut" | "unknown";
   /** How to update it; `elevated`: needs sudo, so the page shows `command` and never runs it. */
   update?: { command: string; elevated: boolean } | null;
+  /** acpmux runs its update on its own when a check finds it outdated (off by default). */
+  autoUpdate?: boolean;
+  /** What auto-update last did for it. */
+  lastAutoUpdate?: { ok: boolean; detail: string } | null;
 };
 
 /** The Harnesses part: acpmux's harnesses (the host reads `_acpmux/harnesses`). */
@@ -244,8 +248,10 @@ export type HarnessesState = {
 /** One Harnesses gesture: Sign in and Check open a terminal tab with `harness login`; Update
  * (one `id`) and Update all type the harness's own update command into a terminal tab. */
 export type HarnessesRun = {
-  action: "refresh" | "signIn" | "check" | "registry" | "update" | "updateAll";
+  action: "refresh" | "signIn" | "check" | "registry" | "update" | "updateAll" | "autoUpdate";
   id?: string;
+  /** With `autoUpdate`: turn it on or off for `id`. */
+  on?: boolean;
   /** With `refresh`: the daemon checks every harness again (after an update). */
   recheck?: boolean;
 };
