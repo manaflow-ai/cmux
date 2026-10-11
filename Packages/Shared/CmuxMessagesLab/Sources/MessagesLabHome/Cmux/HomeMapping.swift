@@ -28,8 +28,37 @@ enum HomeMapping {
     /// A link card's fetched preview (`LinkPreviews.cached`), nil: the domain card.
     typealias Links = (String) -> LinkMetadata?
 
+    /// A thread root's MessagesLab id and part owners, by its owner message id; nil when the
+    /// root is not among the mapped items (a reply then shows as a plain message).
+    typealias Roots = (MessageID) -> (id: ID, owners: [Int])?
+
+    /// The thread roots among `items` (`roots`), for `message(_:roots:)`.
+    static func roots(in items: [TranscriptItem], aliases: [IdempotencyKey: ID], summary: ConversationSummary?,
+                      media: Media = { _ in nil }, links: Links = { _ in nil }) -> Roots {
+        let roots = Set(items.compactMap { $0.threadRoot ?? $0.replyTo?.message })
+        guard !roots.isEmpty else { return { _ in nil } }
+        var found: [MessageID: (id: ID, owners: [Int])] = [:]
+        for item in items {
+            guard let mid = item.messageID, roots.contains(mid) else { continue }
+            found.updateValue((id(item, aliases: aliases), projectedParts(item, summary: summary, media: media, links: links).owners), forKey: mid)
+        }
+        let byID = found
+        return { byID.value(for: $0) }
+    }
+
+    /// A thread reply's root as MessagesLab's `replyTo` (HomeStore `threadRoot`, the part from
+    /// `replyTo` when it names the root): MessagesLab lays it out and animates its arrival as a
+    /// thread reply (connector, the root's 32 pt thread gap). nil for a message that is no reply,
+    /// or whose root is not among the mapped items.
+    static func replyTo(_ item: TranscriptItem, roots: Roots) -> PartRef? {
+        guard let root = item.threadRoot ?? item.replyTo?.message, root != item.messageID, let r = roots(root) else { return nil }
+        let homePart = item.replyTo?.message == root ? (item.replyTo?.partIndex ?? 0) : 0
+        return PartRef(messageId: r.id, partIndex: projectedIndex(homePart, r.owners))
+    }
+
     static func message(_ item: TranscriptItem, aliases: [IdempotencyKey: ID], me: ParticipantID,
-                        summary: ConversationSummary?, media: Media = { _ in nil }, links: Links = { _ in nil }) -> Message {
+                        summary: ConversationSummary?, media: Media = { _ in nil }, links: Links = { _ in nil },
+                        roots: Roots = { _ in nil }) -> Message {
         let (parts, owners) = projectedParts(item, summary: summary, media: media, links: links)
         let messageID = id(item, aliases: aliases)
         // A person's text shows as typed, and so does a part with mentions (their offsets index
@@ -38,7 +67,7 @@ enum HomeMapping {
         let mentions = item.parts.contains { if case let .text(_, m) = $0 { return !m.isEmpty } else { return false } }
         let format: MessageFormat = isAgent(item.author, summary) && !mentions ? .markdown : .plain
         return Message(id: messageID, senderId: item.author.rawValue, sentAt: Instant.format(item.createdAt),
-                parts: parts, replyTo: nil, status: status(item, me: me, summary: summary), edits: nil,
+                parts: parts, replyTo: replyTo(item, roots: roots), status: status(item, me: me, summary: summary), edits: nil,
                 retractedAt: item.isRetracted ? Instant.format(item.editedAt ?? item.createdAt) : nil,
                 reactions: item.reactions.map { reaction($0, partIndex: projectedIndex($0.partIndex, owners)) }, format: format)
     }

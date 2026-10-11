@@ -9,7 +9,9 @@ import Foundation
 ///
 /// - older messages before the first shown one: `.prependPage`
 /// - a new message: `.receive` (theirs: the receive transition; mine from
-///   another client, Chief or the CLI: MessagesLab's external insert)
+///   another client, Chief or the CLI: MessagesLab's external insert); a
+///   thread reply carries its root as `replyTo` (HomeMapping.replyTo), so it
+///   arrives as MessagesLab's thread reply
 /// - a send this view started is already in the projection (`aliases`): its
 ///   echo only updates the status
 /// - status (delivered, read, not delivered): `.status`, the newest change only
@@ -39,7 +41,8 @@ struct HomeDiff: Equatable {
         let newKeys = Set(new.map(\.key))
         if old.contains(where: { !newKeys.contains($0.key) }) { d.rebuild = true; return d }
         func id(_ i: TranscriptItem) -> ID { HomeMapping.id(i, aliases: aliases) }
-        func msg(_ i: TranscriptItem) -> Message { HomeMapping.message(i, aliases: aliases, me: me, summary: newSummary, media: media, links: links) }
+        let roots = HomeMapping.roots(in: new, aliases: aliases, summary: newSummary, media: media, links: links)
+        func msg(_ i: TranscriptItem) -> Message { HomeMapping.message(i, aliases: aliases, me: me, summary: newSummary, media: media, links: links, roots: roots) }
 
         // Older page: the new messages before the first shown one.
         var head = 0
