@@ -66,14 +66,18 @@ const menuItem = (label: string) =>
     (item) => item.textContent === label,
   );
 
-async function open(scopeLabel: string, stage: (paths: string[], unstage: boolean) => Promise<unknown>) {
+async function open(
+  scopeLabel: string,
+  stage: (paths: string[], unstage: boolean) => Promise<unknown>,
+  listed: unknown = changes,
+) {
   const reads: string[] = [];
   const container = dom.window.document.getElementById("root")!;
   const root = createRoot(container);
   const source = {
     diff: async (scope: string) => {
       reads.push(scope);
-      return changes;
+      return listed;
     },
     stage,
   };
@@ -115,6 +119,26 @@ test("Staged unstages instead, and a refusal shows inline", async () => {
     const notice = view.container.querySelector('.acpmux-diff-notice[role="alert"]');
     expect(notice?.textContent).toBe("That folder is outside this chat's folders.");
     expect(view.reads).toEqual(["staged"]);
+  } finally {
+    await act(async () => view.root.unmount());
+  }
+});
+
+/// A rename is two paths in the index: unstaging only the new name would leave the old name's
+/// deletion staged.
+test("a rename unstages both of its paths", async () => {
+  const asked: string[][] = [];
+  const renamed = {
+    root: "/repo",
+    files: [{ path: "a.txt", previous_path: "old.txt", status: "renamed", additions: 1, deletions: 1, patch }],
+  };
+  const view = await open("Staged", async (paths) => void asked.push(paths), renamed);
+  try {
+    await act(async () => view.more()!.click());
+    await settle();
+    await act(async () => menuItem("Unstage")!.click());
+    await settle();
+    expect(asked).toEqual([["a.txt", "old.txt"]]);
   } finally {
     await act(async () => view.root.unmount());
   }

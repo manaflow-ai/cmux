@@ -21,7 +21,7 @@ public nonisolated struct AgentPaneGitStage: Equatable, Sendable {
     static let timeout: Duration = .seconds(20)
 
     /// Nil unless `method` is `git.stage` or `git.unstage`, `cwd` is absolute, and `paths` holds 1
-    /// to ``maximumPaths`` relative paths without `..` segments or NUL.
+    /// to ``maximumPaths`` relative paths without NUL or `.`, `..` or empty segments.
     public init?(method: String, params: [String: Any]?) {
         let action: Action
         switch method {
@@ -37,89 +37,31 @@ public nonisolated struct AgentPaneGitStage: Equatable, Sendable {
         self.paths = paths
     }
 
-    /// A path that names something under its folder: relative, no `..` segment, no NUL.
+    /// A path that names something under the repository's top and never the top itself: relative,
+    /// no NUL, no `.`, `..` or empty segment (so not `.`, `a/.` or `a//b`).
     static func isInside(_ path: String) -> Bool {
-        !path.isEmpty && !path.hasPrefix("/") && !path.contains("\0")
-            && !path.split(separator: "/", omittingEmptySubsequences: false).contains("..")
+        !path.hasPrefix("/") && !path.contains("\0")
+            && path.split(separator: "/", omittingEmptySubsequences: false).allSatisfy { !["", ".", ".."].contains($0) }
     }
 
-    /// git's arguments. Literal pathspecs from the repository's top after `--`: a file named like
-    /// an option or a glob is that file, and a chat in a subfolder names files as `git.diff` does.
-    var arguments: [String] {
+    /// git's arguments in `folder`, the chat's folder resolved. Literal pathspecs from the
+    /// repository's top after `--`: a file named like an option or a glob is that file, and a chat
+    /// in a subfolder names files as `git.diff` does.
+    func arguments(in folder: String) -> [String] {
         let pathspecs = paths.map { ":(top,literal)" + $0 }
         switch action {
-        case .stage: return ["-C", cwd, "add", "--"] + pathspecs
-        case .unstage: return ["-C", cwd, "restore", "--staged", "--"] + pathspecs
+        case .stage: return ["-C", folder, "add", "--"] + pathspecs
+        case .unstage: return ["-C", folder, "restore", "--staged", "--"] + pathspecs
         }
     }
 
-    /// Runs the request when `cwd` is inside one of `roots`. Nil on success, else git's message or
-    /// why it did not run.
-    static func run(_ request: AgentPaneGitStage, roots: [String]) async -> String? {
-        guard AgentPaneGitProcess.isInside(request.cwd, roots: roots) else { return outsideMessage }
-        return await AgentPaneGitProcess.run(request.arguments, timeout: timeout)
-    }
-}
-
-/// One `git` run for the pane's writes: `/usr/bin/git` with a plain environment, no prompt for
-/// credentials, and a deadline.
-nonisolated enum AgentPaneGitProcess {
-    /// Whether `cwd` is one of `roots` or inside one, after resolving links; `/` is never a root.
-    static func isInside(_ cwd: String, roots: [String]) -> Bool {
-        let canonicalRoots = roots.compactMap(AcpmuxPathPolicy.canonical).filter { $0 != "/" }
-        guard let folder = AcpmuxPathPolicy.canonical(cwd) else { return false }
-        return canonicalRoots.contains { AcpmuxPathPolicy.contains(root: $0, path: folder) }
-    }
-
-    /// Nil when git exits 0, else the first line git printed (`git commit` says "nothing to
-    /// commit" on its output, not its errors), or why it did not run.
-    static func run(_ arguments: [String], input: Data? = nil, timeout: Duration) async -> String? {
-        await Task.detached(priority: .userInitiated) {
-            runSync(arguments, input: input, timeout: timeout)
-        }.value
-    }
-
-    /// The process, for the deadline's queue.
-    private final class Held: @unchecked Sendable {
-        let process = Process()
-    }
-
-    private static func runSync(_ arguments: [String], input: Data?, timeout: Duration) -> String? {
-        let held = Held(), process = held.process
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = arguments
-        process.environment = environment()
-        let output = Pipe(), stdin = Pipe()
-        process.standardError = output
-        process.standardOutput = output
-        process.standardInput = input == nil ? FileHandle.nullDevice : stdin
-        do { try process.run() } catch { return error.localizedDescription }
-        if let input {
-            // git may exit before it reads (a hook refused, nothing staged): a failed write, not SIGPIPE.
-            _ = fcntl(stdin.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
-            try? stdin.fileHandleForWriting.write(contentsOf: input)
-            try? stdin.fileHandleForWriting.close()
+    /// Runs the request where ``AgentPaneGitProcess/place(_:roots:home:)`` allows. Nil on success,
+    /// else git's message or why it did not run.
+    @concurrent static func run(_ request: AgentPaneGitStage, roots: [String], home: String = NSHomeDirectory()) async -> String? {
+        switch await AgentPaneGitProcess.place(request.cwd, roots: roots, home: home) {
+        case .refused(let message): return message
+        case .folder(let folder): return await AgentPaneGitProcess.run(request.arguments(in: folder), timeout: timeout)
         }
-        let seconds = Double(timeout.components.seconds) + Double(timeout.components.attoseconds) / 1e18
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + seconds) {
-            if held.process.isRunning { held.process.terminate() }
-        }
-        // concurrency-allow: runSync runs only inside the detached task; git's output here is small.
-        let message = output.fileHandleForReading.readDataToEndOfFile()
-        // concurrency-allow: runSync runs only inside the detached task, bounded by the deadline above.
-        process.waitUntilExit()
-        guard process.terminationStatus != 0 else { return nil }
-        let text = String(decoding: message, as: UTF8.self)
-        let line = text.split(separator: "\n").lazy.map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty }
-        return line ?? "git exited \(process.terminationStatus)"
-    }
-
-    /// The user's own git settings (HOME) and none of the App's environment; never a terminal
-    /// prompt for credentials.
-    static func environment() -> [String: String] {
-        var environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"]
-        if let home = ProcessInfo.processInfo.environment["HOME"] { environment["HOME"] = home }
-        return environment
     }
 }
 
@@ -142,9 +84,12 @@ extension AgentPaneGitStage {
     }
 
     /// `git.stage` / `git.unstage` (nil: params that break the contract): spends `model`'s GRANT
-    /// credit, then runs git in the chat's folder.
+    /// credit, then runs git in the chat's folder, for a chat on this Mac only.
     @MainActor static func reply(to request: AgentPaneGitStage?, in model: AgentPaneModel) async -> [String: Any] {
         guard let request else { return AgentPaneReply.failure(code: "native.invalid_request", message: invalidMessage) }
+        guard model.gitWritesHere?() == true else {
+            return AgentPaneReply.failure(code: "git.remote", message: AgentPaneGitProcess.remoteMessage)
+        }
         guard model.transport.gestures.consume() else {
             return AgentPaneReply.failure(code: AgentPaneTransportError.gestureRequired.rawValue,
                                           message: needsGestureMessage, details: nil, retryable: nil, origin: "native")

@@ -25,6 +25,7 @@ struct AgentPaneGitCommitTests {
         try git(repo, "add", "a.txt")
         let model = AgentPaneModel(host: NoHost())
         model.workspaceRoots = { [repo] }
+        model.gitWritesHere = { true }
         return (model, repo)
     }
 
@@ -88,7 +89,7 @@ struct AgentPaneGitCommitTests {
         #expect(empty["ok"] as? Bool == false)
         let error = empty["error"] as? [String: Any]
         #expect(error?["code"] as? String == "git.failed", "\(empty)")
-        #expect((error?["userMessage"] as? String)?.isEmpty == false, "\(empty)")
+        #expect(error?["userMessage"] as? String == "Nothing is staged to commit.", "\(empty)")
         #expect(try Self.lastMessage(repo) == "one")
     }
 }

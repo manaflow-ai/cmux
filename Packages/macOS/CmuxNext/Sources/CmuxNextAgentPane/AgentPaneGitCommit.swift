@@ -26,12 +26,18 @@ public nonisolated struct AgentPaneGitCommit: Equatable, Sendable {
         self.message = message
     }
 
-    /// Runs the request when `cwd` is inside one of `roots`. Nil on success, else git's message or
-    /// why it did not run.
-    static func run(_ request: AgentPaneGitCommit, roots: [String]) async -> String? {
-        guard AgentPaneGitProcess.isInside(request.cwd, roots: roots) else { return AgentPaneGitStage.outsideMessage }
-        return await AgentPaneGitProcess.run(["-C", request.cwd, "commit", "-F", "-"], input: Data(request.message.utf8),
-                                             timeout: timeout)
+    /// Runs the request where ``AgentPaneGitProcess/place(_:roots:home:)`` allows. Nil on success,
+    /// else git's message or why it did not run.
+    @concurrent static func run(_ request: AgentPaneGitCommit, roots: [String], home: String = NSHomeDirectory()) async -> String? {
+        switch await AgentPaneGitProcess.place(request.cwd, roots: roots, home: home) {
+        case .refused(let message): return message
+        case .folder(let folder):
+            // git commit would say so after a status listing; say only this.
+            let staged = await AgentPaneGitProcess.output(["-C", folder, "diff", "--cached", "--quiet"], timeout: timeout)
+            if staged.status == 0 { return nothingStagedMessage }
+            return await AgentPaneGitProcess.run(["-C", folder, "commit", "-F", "-"], input: Data(request.message.utf8),
+                                                 timeout: timeout)
+        }
     }
 }
 
@@ -47,10 +53,18 @@ extension AgentPaneGitCommit {
         String(localized: "agentPane.error.gitCommitInvalid", defaultValue: "The app refused the commit request.", bundle: .module)
     }
 
+    /// Nothing is staged in the chat's repository.
+    nonisolated static var nothingStagedMessage: String {
+        String(localized: "agentPane.error.gitNothingStaged", defaultValue: "Nothing is staged to commit.", bundle: .module)
+    }
+
     /// `git.commit` (nil: params that break the contract): spends `model`'s GRANT credit, then
-    /// commits in the chat's folder.
+    /// commits in the chat's folder, for a chat on this Mac only.
     @MainActor static func reply(to request: AgentPaneGitCommit?, in model: AgentPaneModel) async -> [String: Any] {
         guard let request else { return AgentPaneReply.failure(code: "native.invalid_request", message: invalidMessage) }
+        guard model.gitWritesHere?() == true else {
+            return AgentPaneReply.failure(code: "git.remote", message: AgentPaneGitProcess.remoteMessage)
+        }
         guard model.transport.gestures.consume() else {
             return AgentPaneReply.failure(code: AgentPaneTransportError.gestureRequired.rawValue,
                                           message: needsGestureMessage, details: nil, retryable: nil, origin: "native")

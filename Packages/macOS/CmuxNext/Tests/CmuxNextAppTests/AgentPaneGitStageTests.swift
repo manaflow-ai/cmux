@@ -1,4 +1,4 @@
-import CmuxNextAgentPane
+@testable import CmuxNextAgentPane
 import Foundation
 import Testing
 
@@ -23,6 +23,7 @@ struct AgentPaneGitStageTests {
         try "new\n".write(toFile: repo + "/b.txt", atomically: true, encoding: .utf8)
         let model = AgentPaneModel(host: NoHost())
         model.workspaceRoots = { [repo] }
+        model.gitWritesHere = { true }
         return (model, repo)
     }
 
@@ -80,5 +81,48 @@ struct AgentPaneGitStageTests {
             #expect(reply["ok"] as? Bool == false, "\(path)")
         }
         #expect(try Self.staged(repo).isEmpty)
+    }
+
+    /// A chat whose session runs on another machine shows that machine's repository: staging
+    /// here would change a same-named folder on this Mac instead.
+    @Test func aChatOnAnotherMachineStagesNothing() async throws {
+        let (model, repo) = try Self.rig()
+        model.gitWritesHere = { false }
+        model.transport.gestures.record()
+        let reply = await model.respond(to: Self.request("git.stage", repo, ["a.txt"]))
+        #expect(reply["ok"] as? Bool == false)
+        #expect(try Self.staged(repo).isEmpty)
+    }
+
+    /// Paths name files from the repository's top, as git.diff lists them, even for a chat in a
+    /// subfolder; `.` and empty segments, which would name the whole repository, are refused.
+    @Test func aSubfolderChatStagesByTopPathButNeverTheWholeRepository() async throws {
+        let (model, repo) = try Self.rig()
+        try FileManager.default.createDirectory(atPath: repo + "/sub", withIntermediateDirectories: true)
+        model.workspaceRoots = { [repo + "/sub"] }
+        for path in [".", "./", "sub/.", "a.txt/", "x//a.txt"] {
+            model.transport.gestures.record()
+            let reply = await model.respond(to: Self.request("git.stage", repo + "/sub", [path]))
+            #expect(reply["ok"] as? Bool == false, "\(path)")
+        }
+        #expect(try Self.staged(repo).isEmpty)
+        model.transport.gestures.record()
+        let reply = await model.respond(to: Self.request("git.stage", repo + "/sub", ["a.txt"]))
+        #expect(reply["ok"] as? Bool == true, "\(reply)")
+        #expect(try Self.staged(repo) == ["a.txt"])
+    }
+
+    /// A chat folder inside a repository that holds the home folder (a dotfiles repository):
+    /// one request would reach every file under home, so nothing runs.
+    @Test func aRepositoryHoldingTheHomeFolderIsRefused() async throws {
+        let (_, repo) = try Self.rig()
+        let folder = repo + "/Projects/x"
+        try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        let request = try #require(AgentPaneGitStage(method: "git.stage", params: ["cwd": folder, "paths": ["a.txt"]]))
+        let refusal = await AgentPaneGitStage.run(request, roots: [folder], home: repo)
+        #expect(refusal != nil)
+        #expect(try Self.staged(repo).isEmpty)
+        let staged = await AgentPaneGitStage.run(request, roots: [folder], home: "/var/empty/elsewhere")
+        #expect(staged == nil, "\(staged ?? "")")
     }
 }
