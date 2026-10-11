@@ -158,6 +158,7 @@ nonisolated enum RefusalStrings {
     static var tabArgumentRequired: String { text("handlers.refusal.tabArgumentRequired", "a tab argument is required") }
     static var tabAtEdge: String { text("handlers.refusal.tabAtEdge", "the tab is already at the edge") }
     static var screenHasNoOtherPane: String { text("handlers.refusal.screenHasNoOtherPane", "the screen has no other pane") }
+    static var noPaneWithNumber: String { text("handlers.refusal.noPaneWithNumber", "the screen has no pane with that number") }
     static func noPaneInDirectionOfTab(_ direction: String) -> String { format("handlers.refusal.noPaneInDirectionOfTab", "no pane %@ of the tab", direction) }
     static var sessionLocalCannotRename: String { text("handlers.refusal.sessionLocalCannotRename", "session-local tabs cannot be renamed") }
     static var sessionLocalHasNoName: String { text("handlers.refusal.sessionLocalHasNoName", "session-local tabs have no name") }
@@ -173,7 +174,7 @@ nonisolated enum RefusalStrings {
     static var wakeNotHibernated: String { text("handlers.refusal.wakeNotHibernated", "This tab is not hibernated.") }
     static var terminalCannotReload: String { text("handlers.refusal.terminalCannotReload", "terminal tabs cannot reload; use Reconnect Pane") }
     static var fullWidthTabUnported: String { text("handlers.refusal.fullWidthTabUnported", "needs full-width tab support in the cmux-next tab strip") }
-    static var audioMuteUnported: String { text("handlers.refusal.audioMuteUnported", "needs audio mute support in the cmux-next browser") }
+    static var audioMuteNeedsPage: String { text("handlers.refusal.audioMuteNeedsPage", "only a loaded browser tab can be muted") }
     static func noColumnShown(_ id: String) -> String { format("handlers.refusal.noColumnShown", "no column %@ is shown", id) }
     static var addSecondColumnFirst: String { text("handlers.refusal.addSecondColumnFirst", "Add a second column first") }
     static var columnAlreadyHasWidth: String { text("handlers.refusal.columnAlreadyHasWidth", "the column already has that width") }

@@ -23,6 +23,22 @@ nonisolated enum TabSettingsSchema {
         )
     }
 
+    /// `tabs.newTabPosition`: where Cmd-T and the strip's + put the new tab (cx-d0d.58).
+    static func newTabPosition(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(
+            NewTabPosition.configPath, section: .general, group: group,
+            title: SettingsText.keyed("settings.tabs.newTabPosition", "New Tab Position"),
+            help: SettingsText.keyed("settings.tabs.newTabPosition.help",
+                                    "Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab."),
+            kind: .choice([
+                SettingChoice(NewTabPosition.end.rawValue, SettingsText.keyed("settings.choice.newTabPositionEnd", "At the End")),
+                SettingChoice(NewTabPosition.afterCurrent.rawValue, SettingsText.keyed("settings.choice.newTabPositionAfterCurrent", "After the Current Tab")),
+            ]),
+            default: .string(NewTabPosition.fallback.rawValue),
+            keywords: ["new tab", "cmd-t", "position", "order", "right", "end", "after", "insert"]
+        )
+    }
+
     /// `tabs.newTabTemplate`: which New Tab page template shows (the page's dots also set it).
     static func newTabTemplate(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(
@@ -68,6 +84,45 @@ nonisolated enum TabSettingsSchema {
             default: .bool(CmdWClosesPinnedTabsSetting.fallback),
             keywords: ["pin", "pinned", "close", "cmd-w", "tab", "keep"]
         )
+    }
+
+    /// `tabs.swapCmdTAndCmdN`: Cmd-T opens a workspace and Cmd-N a tab.
+    static func swapCmdTAndCmdN(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(
+            SwapCmdTAndCmdNSetting.configPath, section: .general, group: group,
+            title: SettingsText.keyed("settings.tabs.swapCmdTAndCmdN", "Swap Cmd-T and Cmd-N"),
+            help: SettingsText.keyed("settings.tabs.swapCmdTAndCmdN.help",
+                                     "When on, Cmd-T opens a workspace in the current group and Cmd-N opens a tab. When off, Cmd-T opens a tab, or a workspace when an agent chat or a pane without tabs is focused."),
+            kind: .toggle,
+            default: .bool(SwapCmdTAndCmdNSetting.fallback),
+            keywords: ["cmd-t", "cmd-n", "swap", "new tab", "new workspace", "shortcut", "keyboard"]
+        )
+    }
+
+    /// `tabs.tabBar.<kind>`: whether a pane of that kind shows its tab bar.
+    static func paneTabBars(group: SettingText) -> [SettingDescriptor] {
+        func title(_ kind: PaneTabBarKind) -> SettingText {
+            switch kind {
+            case .terminal: SettingsText.keyed("settings.tabs.tabBar.terminal", "Tab Bar in Terminal Panes")
+            case .browser: SettingsText.keyed("settings.tabs.tabBar.browser", "Tab Bar in Browser Panes")
+            case .agent: SettingsText.keyed("settings.tabs.tabBar.agent", "Tab Bar in Agent Chats")
+            }
+        }
+        return PaneTabBarKind.allCases.map { kind in
+            SettingDescriptor(
+                kind.settingsPath, section: .general, group: group,
+                title: title(kind),
+                help: SettingsText.keyed("settings.tabs.tabBar.help",
+                                         "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette."),
+                kind: .choice([
+                    SettingChoice(PaneTabBarMode.auto.rawValue, SettingsText.keyed("settings.choice.tabBarAuto", "Automatic")),
+                    SettingChoice(PaneTabBarMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
+                    SettingChoice(PaneTabBarMode.never.rawValue, SettingsText.keyed("settings.choice.never", "Never")),
+                ]),
+                default: .string(PaneTabBarMode.auto.rawValue),
+                keywords: ["tab bar", "tabs", "strip", "horizontal", "show", "hide", kind.rawValue, "pane"]
+            )
+        }
     }
 
     /// `app.warnBeforeClosingTab` and `app.warnBeforeClosingAgentSession`,

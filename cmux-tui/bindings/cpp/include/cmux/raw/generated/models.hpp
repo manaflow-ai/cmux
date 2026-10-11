@@ -14,10 +14,11 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "75394848d3241e2b0559cc934560400998cb3fbb669669e6c7230011823db804";
+inline constexpr std::string_view kProtocolIrSha256 = "7cda926ffafebba7a9c62e5204c4b650cfde03f270bcda615aae3328ba10a406";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
+enum class AgentPresenceActivity;
 struct AgentRecord;
 enum class AgentReportSource;
 struct AgentSessionSource;
@@ -486,6 +487,7 @@ struct WaitForRequest;
 struct ZoomPaneRequest;
 struct ActivityChangedEvent;
 struct AgentChangedEvent;
+struct AgentPresenceChangedEvent;
 struct BellEvent;
 struct BookmarksChangedEvent;
 struct BrowserStateEvent;
@@ -658,6 +660,28 @@ struct AgentChangedEvent {
     Id surface{};
     std::uint64_t updated_at_ms{};
     friend bool operator==(const AgentChangedEvent&, const AgentChangedEvent&) = default;
+};
+
+enum class AgentPresenceActivity {
+    thinking,
+    editing,
+    reading,
+    running,
+    browsing,
+    computer_use,
+    waiting,
+};
+
+struct AgentPresenceChangedEvent {
+    std::optional<AgentPresenceActivity> activity{};
+    std::optional<std::string> agent{};
+    std::optional<std::uint64_t> line{};
+    std::optional<std::string> path{};
+    std::optional<std::string> session{};
+    Id surface{};
+    std::optional<std::string> tool{};
+    std::optional<std::uint64_t> updated_at_ms{};
+    friend bool operator==(const AgentPresenceChangedEvent&, const AgentPresenceChangedEvent&) = default;
 };
 
 struct AgentRecord {
@@ -5094,6 +5118,12 @@ struct Codec<ActivitySubscribeResult> {
 };
 
 template <>
+struct Codec<AgentPresenceActivity> {
+    static Result<Json> encode(const AgentPresenceActivity& value);
+    static Result<AgentPresenceActivity> decode(const Json& value);
+};
+
+template <>
 struct Codec<AgentRecord> {
     static Result<Json> encode(const AgentRecord& value);
     static Result<AgentRecord> decode(const Json& value);
@@ -7899,6 +7929,12 @@ template <>
 struct Codec<AgentChangedEvent> {
     static Result<Json> encode(const AgentChangedEvent& value);
     static Result<AgentChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentPresenceChangedEvent> {
+    static Result<Json> encode(const AgentPresenceChangedEvent& value);
+    static Result<AgentPresenceChangedEvent> decode(const Json& value);
 };
 
 template <>

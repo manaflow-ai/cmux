@@ -453,7 +453,7 @@ impl Brain {
             "tell",
             json!({"id": id, "spawn": spawn, "from": "chief", "steered": steered, "message": self.trace.text(message)}),
         );
-        Ok(if steered {
+        let answer = if steered {
             format!(
                 "sent to {id}; it reads it between its tool calls, and its report answers it as a \"[{id}] ...\" message"
             )
@@ -461,7 +461,8 @@ impl Brain {
             format!(
                 "sent to {id}; it reads it after its current step, and its report comes back as a \"[{id}] ...\" message"
             )
-        })
+        };
+        Ok(answer)
     }
 
     /// After a reconnect: subagents that finished or vanished meanwhile.
@@ -545,6 +546,15 @@ impl Brain {
             self.save();
             (self.log)(&format!("subagent {id}: a slot is free, starting it"));
         }
+    }
+
+    /// `text` with every mention of this Chief's subagents written as its link
+    /// (`workspaces::link_subagents`): the user's reply shows them as links
+    /// whether or not the model wrote one.
+    pub(super) fn link_subagents(&self, text: &str) -> String {
+        crate::workspaces::link_subagents(text, &self.settings.parent, |id| {
+            self.state.sub(id).and_then(|(_, s)| s.session_id.clone())
+        })
     }
 
     /// chief.stop {name}: subagent `name` stops as with chief.stop (its

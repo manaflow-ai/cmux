@@ -86,7 +86,7 @@ newer=$(printf 'f%.0s' {1..40})
 # probe <event> -> sets out, status, took, state (tree_state), reason
 probe() {
   local event="$1" publisher=""
-  [[ "$event" == pull_request ]] || publisher="$sha"
+  [[ "$event" == pull_request || "${CMUX_TUI_DEV_DAILY:-}" == 1 ]] || publisher="$sha"
   : > "$TMP/gh-output"
   local started; started=$(date +%s)
   status=0
@@ -235,5 +235,18 @@ mv "$TMP/cdn/cmux-tui/tree/$published_key" "$TMP/unpublished"
 expect "pull request, no cmux-tui change, nothing published" pull_request skipped "changes no cmux-tui"
 mv "$TMP/unpublished" "$TMP/cdn/cmux-tui/tree/$published_key"
 unset CMUX_TUI_TREE_BASE_FALLBACK
+
+# A scheduled DEV snapshot remains buildable after the source branch moves.
+# The CLI must start one publisher for its exact tree, then reuse that run.
+sha=$(git -C "$TMP/src" rev-parse HEAD)
+set_head "$newer"
+set_runs "$none"
+: > "$TMP/posts.log"
+export CMUX_TUI_TREE_DISPATCH=1 CMUX_TUI_DEV_DAILY=1
+expect "scheduled dev, cold exact tree" workflow_dispatch deferred
+[[ "$(posts dispatches)" == 1 && "$(posts git/refs)" == 1 ]] || fail "dev snapshot needs exactly one publisher"
+grep -q "cmux-tui-pin-${sha:0:12}.*$sha" "$TMP/posts.log" || fail "dev publisher must pin the snapshot SHA"
+expect "scheduled dev, second probe" workflow_dispatch deferred
+[[ "$(posts dispatches)" == 1 ]] || fail "dev second probe dispatched a duplicate"
 
 printf 'pin-cmux-tui probe tests: ok\n'

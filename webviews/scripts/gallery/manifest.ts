@@ -33,6 +33,8 @@ import { loadEntries } from "./entries";
 export const SAMPLE_THEMES = [
   "Apple System Colors",
   "Apple System Colors Light",
+  "Rose Pine",
+  "Rose Pine Moon",
   "Dracula",
   "Nord",
   "Solarized Dark Higher Contrast",

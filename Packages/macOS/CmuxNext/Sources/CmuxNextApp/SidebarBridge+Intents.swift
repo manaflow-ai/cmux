@@ -99,6 +99,8 @@ extension SidebarBridge {
             services.windows.switchProfile(ProfileID(rawValue: profile.rawValue), in: state)
         case .newProfile:
             services.registry.perform("space.new", invocation: ActionInvocation())
+        case .openHistory:
+            if let pane = services.windows.controller(for: state.id)?.focusedPane { AgentHistoryPage.open(in: pane) }
         case .reorderProfile(let profile, let index):
             model.apply(intent)
             let id = ProfileID(rawValue: profile.rawValue)

@@ -8366,6 +8366,18 @@
     }
    },
    "additional_properties": false
+  },
+  "AgentPresenceActivity": {
+   "kind": "enum",
+   "values": [
+    "thinking",
+    "editing",
+    "reading",
+    "running",
+    "browsing",
+    "computer_use",
+    "waiting"
+   ]
   }
  },
  "commands": {
@@ -25690,6 +25702,99 @@
       },
       "presence": "optional",
       "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "agent-presence-changed": {
+   "since": 12,
+   "capability": "agent-presence-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "agent-presence-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "activity": {
+      "type": {
+       "kind": "ref",
+       "name": "AgentPresenceActivity"
+      },
+      "presence": "required",
+      "nullable": true,
+      "description": "What the agent is doing now; null clears the surface's presence and every other field is then null."
+     },
+     "agent": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": true,
+      "description": "Adapter identity (claude, codex, ...)."
+     },
+     "session": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": true,
+      "description": "The agent's portable session id, a stable identity for colour."
+     },
+     "tool": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": true,
+      "description": "The native tool name of the current or last tool call."
+     },
+     "path": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": true,
+      "description": "The file the tool call targets, when the tool input names one."
+     },
+     "line": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": true,
+      "description": "The 1-based line the tool call targets, when the tool input names one."
+     },
+     "updated_at_ms": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": true,
+      "description": "When the hook observed the event; null on clear."
      }
     },
     "additional_properties": false

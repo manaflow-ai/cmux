@@ -12,6 +12,7 @@ pub(super) enum OperationOwner {
     Auxiliary,
     State,
     Git,
+    Credential,
     Connection,
     /// Settings (the settings file): the config owner (resource_router/config.rs).
     Config,
@@ -24,6 +25,9 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::SessionList
         | ResourceOperation::SessionOpen
         | ResourceOperation::SessionGet => OperationOwner::Machine,
+        ResourceOperation::CredentialVerify
+        | ResourceOperation::CredentialMint
+        | ResourceOperation::CredentialRotate => OperationOwner::Credential,
         ResourceOperation::SessionCreationResolve
         | ResourceOperation::SessionReloadConfig
         | ResourceOperation::SessionTerminalDefaultsUpdate

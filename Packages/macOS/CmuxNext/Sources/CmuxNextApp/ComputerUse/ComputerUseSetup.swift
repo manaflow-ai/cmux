@@ -90,7 +90,7 @@ final class ComputerUseSetup {
          configuration: @escaping @MainActor () -> AgentActivitySocketSource.Configuration?,
          read: @escaping @Sendable (AgentActivitySocketSource.Configuration) async -> Read = { await ComputerUseSetup.socketRead($0) },
          resolveHelper: @escaping @Sendable (URL?) async -> URL? = ComputerUseSetup.signedHelper,
-         openURL: @escaping @MainActor (URL) -> Void = { NSWorkspace.shared.open($0) },
+         openURL: @escaping @MainActor (URL) -> Void = { NSWorkspace.shared.openInBackground($0) },
          enableSetting: @escaping @MainActor () -> Void = {},
          notifications: NotificationCenter = .default,
          distributed: NotificationCenter = DistributedNotificationCenter.default(),
@@ -106,12 +106,16 @@ final class ComputerUseSetup {
         self.clock = clock
     }
 
-    isolated deinit {
-        observation?.cancel()
-        reading?.cancel()
-        for observer in observers {
-            notifications.removeObserver(observer)
-            distributed.removeObserver(observer)
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            observation?.cancel()
+            reading?.cancel()
+            for observer in observers {
+                notifications.removeObserver(observer)
+                distributed.removeObserver(observer)
+            }
         }
     }
 

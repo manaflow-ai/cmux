@@ -404,6 +404,9 @@ impl Mux {
                 agent: agent.agent.as_deref().map(Arc::from),
                 updated_at_ms: agent.updated_at_ms,
             });
+            if matches!(agent.state, AgentState::Idle | AgentState::Done) {
+                self.clear_agent_presence(&agent.terminal_id, agent.surface);
+            }
             if origin == AgentReportOrigin::Direct {
                 // The roster only folds journal events, so a direct report
                 // records its intent in the log; the fold recognizes the

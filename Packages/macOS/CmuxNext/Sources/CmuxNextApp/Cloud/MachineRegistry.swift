@@ -26,6 +26,10 @@ final class MachineRegistry {
     /// a Cloud machine is not reachable with `cloud` off, an SSH machine
     /// not with `remoteHosts` off, so no path opens work on it.
     @ObservationIgnored var isFeatureDisabled: (ActionFeature) -> Bool = { _ in false }
+    /// A machine left the registry (forgotten, deleted, unpaired): its
+    /// connections that live outside its session close (cx-2cob slice 2:
+    /// the forwarding connection and the browser runtimes on it).
+    @ObservationIgnored var onDaemonRemoved: (@MainActor (DaemonService) -> Void)?
 
     init(local: DaemonService) {
         self.local = local
@@ -143,7 +147,9 @@ final class MachineRegistry {
 
     func remove(_ machineID: String) -> CloudMachineSession? {
         guard let index = cloud.firstIndex(where: { $0.machineID == machineID }) else { return nil }
-        return cloud.remove(at: index)
+        let removed = cloud.remove(at: index)
+        onDaemonRemoved?(removed.daemon)
+        return removed
     }
 
     // MARK: SSH sessions (SSHService only)
@@ -155,7 +161,9 @@ final class MachineRegistry {
 
     func removeSSH(_ machineID: String) -> SSHMachineSession? {
         guard let index = ssh.firstIndex(where: { $0.machineID == machineID }) else { return nil }
-        return ssh.remove(at: index)
+        let removed = ssh.remove(at: index)
+        onDaemonRemoved?(removed.daemon)
+        return removed
     }
 
     // MARK: Servers (ServerReachService only)
@@ -167,6 +175,8 @@ final class MachineRegistry {
 
     func removeServer(_ machineID: String) -> ServerMachineSession? {
         guard let index = servers.firstIndex(where: { $0.machineID == machineID }) else { return nil }
-        return servers.remove(at: index)
+        let removed = servers.remove(at: index)
+        onDaemonRemoved?(removed.daemon)
+        return removed
     }
 }

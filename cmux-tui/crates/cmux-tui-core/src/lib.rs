@@ -42,6 +42,7 @@ mod journal_ingress;
 mod journal_kernel;
 mod journal_plugin;
 mod journal_reducers;
+pub mod launch_credential;
 use cmux_tui_util::machine_name;
 mod model;
 mod mux;
@@ -125,8 +126,8 @@ pub use model::{
 };
 pub(crate) use mux::BatchCloseTarget;
 pub use mux::{
-    AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, CellPixelUpdate,
-    CellPixelUpdateFailure, ColumnDockError, ColumnDockOutcome, ConfigReloadError,
+    AgentActivity, AgentPresence, AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane,
+    CellPixelUpdate, CellPixelUpdateFailure, ColumnDockError, ColumnDockOutcome, ConfigReloadError,
     DiagnosticReporter, Direction, GraphicsStatus, LayoutLeafSpec, LayoutRatioError, LayoutSpec,
     LayoutUndoError, LayoutUndoResult, MachineUsage, Mux, MuxEvent, NotificationEvent,
     NotificationLevel, NotificationSource, ProviderWorkspaceAuthority,

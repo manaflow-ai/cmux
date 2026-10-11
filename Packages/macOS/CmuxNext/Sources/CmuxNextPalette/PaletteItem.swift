@@ -1,5 +1,6 @@
 public import CmuxNextActions
 public import CmuxNextDesign
+public import CoreGraphics
 
 /// One row of palette results.
 public struct PaletteItem: Identifiable {
@@ -15,6 +16,8 @@ public struct PaletteItem: Identifiable {
     /// mark in the symbol's place, tinted like the symbol. Nil, or a brand without a mark,
     /// draws `symbol`.
     public var brand: String?
+    /// A page's favicon (Search Tabs' browser rows), drawn as is in the symbol's place.
+    public var image: CGImage?
     /// Shortcut keycaps shown at the right edge, one badge per entry.
     public var keycaps: [String]?
     public var section: PaletteSection

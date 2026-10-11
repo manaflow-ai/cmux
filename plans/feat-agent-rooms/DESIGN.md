@@ -153,7 +153,8 @@ TypeScript broker stays the reference for the envelope and states.
 | `cmux agent message` / `cmux agent inbox` | implemented | `cmux-tui` `cli/agent_message.rs` |
 | ACP delivery: the CLI prompts each acpmux recipient with the message id as the prompt id (acpmux runs an id once), sending older queued messages first (a failed one is not retried) | implemented | `acpmux` `deliver.rs` |
 | Hook delivery to terminal agents: Claude and Codex `UserPromptSubmit` add queued messages as context, Codex `Stop` continues the turn with them; at least once (list, print, mark delivered) | implemented | `cmux-tui` `bin/cmux-tui-hook.rs`, `agent_hook_install.rs` |
-| Native delivery: Codex app-server `turn/start` / `turn/steer`, Claude Code peer socket (cmux #16417) | proposed | |
+| Native delivery to Codex: the CLI hands a Codex terminal agent its queued messages through the shared app-server daemon (`turn/start` when idle, `turn/steer` when running), only for a thread the daemon already loaded | implemented | `cmux-tui` `cli/codex_app_server.rs` |
+| Native delivery to Claude Code through its peer socket: not built. The socket's message format is not documented (only its path and auth line are), so Claude stays on hooks | not planned | |
 | `cmux agent list` from acpmux sessions and terminal agents (cmux #16417) | proposed | |
 
 Choices in the port, compared with the TypeScript broker:

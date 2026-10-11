@@ -7,22 +7,22 @@
     },
     {
       "path": "include/cmux/raw/generated/events.hpp",
-      "sha256": "79d6bbf91719d4f090310f4f020b3fa5874647095957219fd4a6e21cf20a5936",
-      "size": 2573
+      "sha256": "6d8dc7e9b0fcb4e691a907fbcf9f8901882397d1edec51027484cbde86869854",
+      "size": 2600
     },
     {
       "path": "include/cmux/raw/generated/models.hpp",
-      "sha256": "7920c6baed61d2ba1e1bdc93d74b1e9a7a2f0ea505c047f1778da3b923a83384",
-      "size": 263759
+      "sha256": "41101303220f0afd16a47bae5e0286f3ba6ecb4052cd85e81709f205e60f0934",
+      "size": 264823
     },
     {
       "path": "src/raw/generated/protocol.cpp",
-      "sha256": "06249379fdbbeb69968c0cae587fa9321e4879da0646fe8260ecd82b7919e3da",
-      "size": 1685198
+      "sha256": "5939cd454b1969740f43001dacbf41170908ae2773fcd03f87aceadacb1d4e36",
+      "size": 1693801
     }
   ],
   "format": 1,
-  "ir_sha256": "75394848d3241e2b0559cc934560400998cb3fbb669669e6c7230011823db804",
+  "ir_sha256": "7cda926ffafebba7a9c62e5204c4b650cfde03f270bcda615aae3328ba10a406",
   "language": "cpp",
   "mux_protocol": 12,
   "schema_version": 2

@@ -192,7 +192,8 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAppPermissions",
       "targets": [
         "CmuxNextApps",
-        "CmuxNextDesign"
+        "CmuxNextDesign",
+        "CmuxNextIcons"
       ],
       "packages": []
     },
@@ -201,6 +202,7 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests",
       "targets": [
         "CmuxNextActions",
+        "CmuxNextAgentCursor",
         "CmuxNextApp",
         "CmuxNextCopyMode",
         "CmuxNextCrashReporting",
@@ -261,6 +263,7 @@
       "targets": [
         "CmuxNextCompat",
         "CmuxNextDesign",
+        "CmuxNextIcons",
         "CmuxNextWakeups"
       ],
       "packages": []
@@ -612,6 +615,7 @@
         "CCmuxAppFFI",
         "CmuxNextCompat",
         "CmuxNextDesign",
+        "CmuxNextIcons",
         "CmuxNextWakeups"
       ],
       "packages": []
