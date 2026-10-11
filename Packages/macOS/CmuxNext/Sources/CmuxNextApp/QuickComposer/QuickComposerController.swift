@@ -78,8 +78,8 @@ final class QuickComposerController {
     }
 
     func show() {
-        // The chat the floating chat held when cmux quit comes back to it.
-        if chat == nil, let held = defaults.string(forKey: Self.heldSessionKey) {
+        // The chat the floating chat held when cmux quit comes back to it (kept while the floating chat is off).
+        if chat == nil, floating(), let held = defaults.string(forKey: Self.heldSessionKey) {
             if moveToFloatingChat(session: held) { return }
             defaults.removeObject(forKey: Self.heldSessionKey)
         }
@@ -133,6 +133,11 @@ final class QuickComposerController {
     /// this build has no agent page.
     func moveToFloatingChat(session: String) -> Bool {
         guard floating() else { return false }
+        // The chat it held when cmux quit, not shown since, goes to a tab first, as a held chat does.
+        if chat == nil, let held = defaults.string(forKey: Self.heldSessionKey), held != session {
+            guard openInWindow(held) else { return false }
+            defaults.removeObject(forKey: Self.heldSessionKey)
+        }
         if holdsChat, let held = chat, held.model.sessionId != session {
             openChatInWindow(session: held.model.sessionId)
             // Nowhere to open it: the held chat comes back and the tab stays.
@@ -205,6 +210,12 @@ final class QuickComposerController {
             setCollapsed: { [weak self] collapsed in self?.setCollapsed(collapsed) },
             floatingState: { [weak self] in self?.floatingState ?? AgentPaneFloatingState() },
             context: { [weak self] in await self?.context() })
+        // A held chat that moves to another session (a fork, Continue In) is the one a quit keeps.
+        let started = chat.model.onSessionChange
+        chat.model.onSessionChange = { [weak self] session in
+            started?(session)
+            if let self, self.holdsChat { self.defaults.set(session, forKey: Self.heldSessionKey) }
+        }
         self.chat = chat
         return chat
     }
