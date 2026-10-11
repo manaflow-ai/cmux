@@ -19,6 +19,20 @@ struct HermesAgentHookConfigTests {
         #expect(HermesAgentHookConfig.uninstalling(from: installed) == "")
     }
 
+    @Test("Keeps cmux hooks gated to a terminal surface after install and reinstall")
+    func gatesHooksToCmuxSurface() {
+        let existing = "hooks:\n  pre_tool_call:\n    - command: \"echo user\"\n      timeout: 10\n"
+        let events = [
+            HermesAgentHookConfig.Event(name: "pre_tool_call", command: "cmux hooks feed --source hermes-agent", timeout: 120),
+            HermesAgentHookConfig.Event(name: "on_session_end", command: "cmux hooks hermes-agent stop"),
+        ]
+        let installed = HermesAgentHookConfig.installing(events: events, in: existing)
+        let guarded = installed.components(separatedBy: "requires_env: [\"CMUX_SURFACE_ID\"]").count - 1
+        #expect(guarded == events.count)
+        #expect(HermesAgentHookConfig.installing(events: events, in: installed) == installed)
+        #expect(HermesAgentHookConfig.uninstalling(from: installed) == existing)
+    }
+
     @Test("Coalesces multiple cmux hooks for the same missing Hermes event")
     func coalescesMultipleHooksForSameMissingEvent() {
         let events = [
