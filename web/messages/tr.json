@@ -30,6 +30,11 @@
       "message": "Bu makine bir Cloud güncellemesinden önce oluşturuldu ve bağlanılamıyor.",
       "action": "Yeni bir makine oluşturun, dosyalarınızı cmux vm pull ve cmux vm push ile aktarın, ardından bunu silin."
     },
+    "guestUnresponsive": {
+      "title": "Makine yanıt vermiyor",
+      "message": "Bu makine zamanında yanıt vermediği için istek tamamlanamadı.",
+      "action": "Makineyi yeniden başlatın: cmux vm pause, ardından cmux vm resume çalıştırın ve tekrar deneyin."
+    },
     "networkRuleCapacity": {
       "title": "Ağ kuralları kapasitede",
       "message": "Ağ politikanız kaydedildi ancak uygulanmadı: cmux Cloud ağ kuralı kapasitesine ulaştı.",

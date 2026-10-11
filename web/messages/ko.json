@@ -30,6 +30,11 @@
       "message": "이 머신은 Cloud 업데이트 이전에 만들어져 연결할 수 없습니다.",
       "action": "새 머신을 만들고 cmux vm pull과 cmux vm push로 파일을 옮긴 다음 이 머신을 삭제하세요."
     },
+    "guestUnresponsive": {
+      "title": "머신이 응답하지 않음",
+      "message": "이 머신이 제시간에 응답하지 않아 요청을 완료할 수 없습니다.",
+      "action": "cmux vm pause를 실행한 다음 cmux vm resume을 실행해 머신을 다시 시작하고 다시 시도하세요."
+    },
     "networkRuleCapacity": {
       "title": "네트워크 규칙 한도 도달",
       "message": "네트워크 정책은 저장되었지만 적용되지 않았습니다. cmux Cloud의 네트워크 규칙 한도에 도달했습니다.",

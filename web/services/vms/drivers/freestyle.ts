@@ -20,6 +20,7 @@ import { freestyleRequestFetch } from "./freestyleRequestTiming";
 import { currentVmRequestContext } from "../requestContext";
 import {
   ProviderError,
+  ProviderGuestUnresponsiveError,
   ProviderMachineRecreateRequiredError,
   ProviderNetworkFullError,
   ProviderTlsRuleLimitError,
@@ -183,6 +184,12 @@ const SNAPSHOT_TIMEOUT_MS = VM_PROVIDER_CREATE_TIMEOUT_MS;
 const SNAPSHOT_LIST_PAGE = 100;
 const SNAPSHOT_LIST_MAX = 1_000;
 const EXEC_DEFAULT_TIMEOUT_MS = 30_000;
+/**
+ * The SCP setup command (start sshd, authorize a key, read the host key)
+ * finishes in well under a second on a healthy guest. Its exec is bounded
+ * well inside the route's answer budget (SCP_ANSWER_BUDGET_MS).
+ */
+const SCP_PREPARE_EXEC_TIMEOUT_MS = 20_000;
 /** Cloud machines are durable boxes; only an explicit pause/stop should put one to sleep. */
 export const FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS = -1;
 /** The exec API rejects timeoutMs above 300000 (5 minutes per exec). */
@@ -1032,12 +1039,23 @@ export class FreestyleProvider implements VMProvider {
       const data = await vm.data();
       const host = freestylePortAddress(data, vmId);
       const expires = new Date(Date.now() + SCP_KEY_TTL_SECONDS * 1000);
-      const result = await this.execResult(vm, scpPrepareCommand(key, expires));
-      if (!result || result.exitCode !== 0) {
-        throw new ProviderError("freestyle", `SCP preparation failed in ${vmId}: ${(result?.stderr || "SSH server unavailable").slice(0, 500)}`);
+      let result: Awaited<ReturnType<Vm["exec"]>>;
+      try {
+        result = await this.deps.client(SCP_PREPARE_EXEC_TIMEOUT_MS + EXEC_OVERHEAD_TIMEOUT_MS).vms.ref(vmId)
+          .exec({ command: scpPrepareCommand(key, expires), timeoutMs: SCP_PREPARE_EXEC_TIMEOUT_MS, linuxUser: GUEST_LINUX_USER });
+      } catch (err) {
+        // The command never ran or its answer was lost: nothing is known about sshd.
+        throw new ProviderGuestUnresponsiveError("freestyle", `SCP preparation in ${vmId}: the machine did not answer the setup command`, err);
+      }
+      if (result.statusCode === null || result.statusCode === undefined || result.statusCode === 124) {
+        throw new ProviderGuestUnresponsiveError("freestyle", `SCP preparation in ${vmId}: the setup command did not exit within ${SCP_PREPARE_EXEC_TIMEOUT_MS / 1000}s`);
+      }
+      if (result.statusCode !== 0) {
+        const detail = (result.stderr ?? "").trim() || `exit ${result.statusCode} with no error output`;
+        throw new ProviderError("freestyle", `SCP preparation failed in ${vmId}: ${detail.slice(0, 500)}`);
       }
       let hostPublicKey: string;
-      try { hostPublicKey = parseSshPublicKey(result.stdout); }
+      try { hostPublicKey = parseSshPublicKey(result.stdout ?? ""); }
       catch { throw new ProviderError("freestyle", "SCP preparation returned an invalid guest host key."); }
       return { host, port: 22, username: "cmux", hostPublicKey, expiresAtUnix: Math.floor(expires.getTime() / 1000) };
     });

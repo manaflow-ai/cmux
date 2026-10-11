@@ -30,6 +30,11 @@
       "message": "Diese Maschine wurde vor einem Cloud-Update erstellt und kann nicht verbunden werden.",
       "action": "Erstelle eine neue Maschine, kopiere deine Dateien mit cmux vm pull und cmux vm push hinüber und lösche dann diese."
     },
+    "guestUnresponsive": {
+      "title": "Maschine antwortet nicht",
+      "message": "Diese Maschine hat nicht rechtzeitig geantwortet, daher konnte die Anfrage nicht abgeschlossen werden.",
+      "action": "Starte die Maschine neu: Führe cmux vm pause und dann cmux vm resume aus und versuche es erneut."
+    },
     "networkRuleCapacity": {
       "title": "Netzwerkregeln ausgeschöpft",
       "message": "Ihre Netzwerkrichtlinie wurde gespeichert, aber nicht angewendet: cmux Cloud hat seine Kapazität für Netzwerkregeln erreicht.",

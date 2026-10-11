@@ -17,7 +17,7 @@ import * as Option from "effect/Option";
 import { eq } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { cloudVms } from "../../db/schema";
-import { hasProviderTlsRuleLimitCause, type CreateOptions } from "./drivers/types";
+import { hasProviderTlsRuleLimitCause, ProviderGuestUnresponsiveError, type CreateOptions } from "./drivers/types";
 import * as Layer from "effect/Layer";
 import type {
   AttachEndpoint,
@@ -5044,7 +5044,24 @@ export function openAttachEndpoint(input: OpenAttachEndpointInput) {
   });
 }
 
+/**
+ * How long the SCP setup route has to answer, from the request's start. The
+ * Mac client's URLRequest gives up after 60 s without a response byte, so a
+ * later answer (a provider exec poll that hung for 4 minutes, production
+ * 2026-10-11) reaches nobody. 45 s leaves room for the response to arrive.
+ */
+export const SCP_ANSWER_BUDGET_MS = 45_000;
+/** A dispatched setup always gets this long, even when lookup or resume spent the budget. */
+const SCP_PREPARE_MIN_WINDOW_MS = 25_000;
+
+/** What remains of the SCP answer budget after `elapsedMs` of it went to auth and lookup. */
+export function scpAnswerBudgetMs(elapsedMs: number): number {
+  return Math.max(0, SCP_ANSWER_BUDGET_MS - elapsedMs);
+}
+
 export function prepareScpEndpoint(input: {
+  /** Milliseconds from now within which the route must answer; defaults to SCP_ANSWER_BUDGET_MS. */
+  readonly answerWithinMs?: number;
   readonly publicKey: string;
   readonly userId: string;
   readonly billingTeamId?: string | null;
@@ -5055,21 +5072,39 @@ export function prepareScpEndpoint(input: {
   readonly modelPlane?: VmModelPlaneRevoker;
 }) {
   return Effect.gen(function* () {
+    const deadlineAtMs = (yield* Clock.currentTimeMillis) + (input.answerWithinMs ?? SCP_ANSWER_BUDGET_MS);
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireAccessibleUserVm(input);
     if (!providers.prepareSCP) return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "prepareSCP" }));
     if (vm.status === "destroyed") return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
+    // Lookup and resume are never cut short (see execVm); the deadline governs the guest setup.
     yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "scp", {
       forceProviderProbe: true, maxActiveVms: input.maxActiveVms, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane,
     });
+    const setupStartedAtMs = yield* Clock.currentTimeMillis;
+    const setupWindowMs = Math.max(SCP_PREPARE_MIN_WINDOW_MS, deadlineAtMs - setupStartedAtMs);
+    // A provider that has not answered by now will not answer the client: the
+    // guest exec channel is stuck, so the answer names the machine, not an
+    // outage. Only the setup call is bounded; a resume after a failed attempt
+    // is never interrupted midway.
+    const setup = providers.prepareSCP(vm.provider, input.providerVmId, input.publicKey).pipe(
+      Effect.timeoutFail({
+        duration: setupWindowMs,
+        onTimeout: () => new VmProviderOperationError({
+          provider: vm.provider,
+          operation: "prepareSCP",
+          cause: new ProviderGuestUnresponsiveError(vm.provider, `SCP preparation in ${input.providerVmId}: no answer within ${Math.round(setupWindowMs / 1000)}s`),
+        }),
+      }),
+    );
     const endpoint = yield* withResumeOnSuspendedAfterFailure(
       repo,
       providers,
       vm,
       input.providerVmId,
       "scp",
-      providers.prepareSCP(vm.provider, input.providerVmId, input.publicKey),
+      setup,
       input.maxActiveVms,
       input.callerPlanId,
     );

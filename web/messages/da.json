@@ -30,6 +30,11 @@
       "message": "Denne maskine blev oprettet før en Cloud-opdatering og kan ikke tilknyttes.",
       "action": "Opret en ny maskine, kopiér dine filer over med cmux vm pull og cmux vm push, og slet så denne."
     },
+    "guestUnresponsive": {
+      "title": "Maskinen svarer ikke",
+      "message": "Maskinen svarede ikke i tide, så anmodningen kunne ikke gennemføres.",
+      "action": "Genstart maskinen: kør cmux vm pause og derefter cmux vm resume, og prøv igen."
+    },
     "networkRuleCapacity": {
       "title": "Netværksregler har nået kapaciteten",
       "message": "Din netværkspolitik er gemt, men blev ikke anvendt: cmux Cloud har nået sin kapacitet for netværksregler.",

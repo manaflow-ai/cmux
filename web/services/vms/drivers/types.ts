@@ -686,6 +686,19 @@ export class ProviderMachineRecreateRequiredError extends ProviderError {
 }
 
 /**
+ * A guest command the server needed never ran or never exited: the provider's
+ * exec channel failed, or the command outlived its timeout. Nothing about the
+ * service the command would have checked is known, so routes name the machine
+ * as unresponsive and give a restart action, never a generic outage.
+ */
+export class ProviderGuestUnresponsiveError extends ProviderError {
+  constructor(provider: ProviderId, message: string, cause?: unknown) {
+    super(provider, message, cause);
+    this.name = "ProviderGuestUnresponsiveError";
+  }
+}
+
+/**
  * The owner's private network has no free address for another member. It
  * stays full until machines are deleted or computers are revoked, so routes
  * answer with a non-retryable cleanup action, never a retryable outage.

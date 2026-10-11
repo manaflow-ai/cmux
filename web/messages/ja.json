@@ -171,6 +171,11 @@
       "message": "このマシンは Cloud の更新前に作成されたため、接続できません。",
       "action": "新しいマシンを作成し、cmux vm pull と cmux vm push でファイルを移してから、このマシンを削除してください。"
     },
+    "guestUnresponsive": {
+      "title": "マシンが応答しません",
+      "message": "このマシンが時間内に応答しなかったため、リクエストを完了できませんでした。",
+      "action": "cmux vm pause を実行してから cmux vm resume を実行してマシンを再起動し、もう一度お試しください。"
+    },
     "networkRuleCapacity": {
       "title": "ネットワークルールの上限に達しました",
       "message": "ネットワークポリシーは保存されましたが、適用されませんでした。cmux Cloud のネットワークルールが上限に達しています。",

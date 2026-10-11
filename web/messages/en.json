@@ -171,6 +171,11 @@
       "message": "This machine was created before a Cloud update and can't be attached.",
       "action": "Create a new machine, copy your files over with cmux vm pull and cmux vm push, then delete this one."
     },
+    "guestUnresponsive": {
+      "title": "Machine not responding",
+      "message": "This machine did not respond in time, so the request could not finish.",
+      "action": "Restart the machine: run cmux vm pause, then cmux vm resume, and try again."
+    },
     "networkRuleCapacity": {
       "title": "Network rules at capacity",
       "message": "Your network policy is saved but was not applied: cmux Cloud has reached its network rule capacity.",
