@@ -17,7 +17,9 @@
 //!   folder are kept per receive in memory.
 //! - `agent-transfer-write {receive_id, path, offset, data}`: one page.
 //! - `agent-transfer-finish {receive_id, name?}`: imports the chat in the
-//!   receive's own folder (`cwd` is never taken here).
+//!   receive's own folder (`cwd` is never taken here). While the call runs
+//!   (from the moment acpmux is reached until it returns, on every path) a
+//!   receive-abort of it answers that the landing cannot be told yet.
 //! - `agent-transfer-receive-abort {receive_id}`: forgets the receive and has
 //!   acpmux forget its move (`_acpmux/transfer_forget` with the transfer and
 //!   session ids of the receive's own manifest): acpmux drops the receive's
@@ -32,8 +34,12 @@
 //! at once, so it may only land on a Mac or a personal Cloud VM.
 //!
 //! Source verbs (the chat leaves here), by tab, never by session id:
+//! - `agent-transfer-source {surface}` answers `{session}`, the session the
+//!   tab's store record names, read here without reaching acpmux (attaching
+//!   would mark the chat seen), so a pump can tell the tab still shows the
+//!   chat its recorded move took.
 //! - `agent-transfer-begin {surface, interrupt?}` answers `{transfer_id,
-//!   manifest}`. The bundle's `manifest.json` is served without its absolute
+//!   source_session, manifest}` (`source_session` as `agent-transfer-source`). The bundle's `manifest.json` is served without its absolute
 //!   `source` paths, and its `session.json` without the source machine's
 //!   launch settings (env, argv, harness roots, preset, tags; its `cwd`
 //!   stays, the target's finish replaces it); the manifest lists their
@@ -60,8 +66,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
-use base64::Engine as _;
-use base64::engine::general_purpose::STANDARD as BASE64;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
@@ -71,6 +75,9 @@ use super::responses::send_response_with_details;
 use super::{MessageWriter, Response, SurfaceId};
 use crate::mux::Mux;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
+
+mod bundle;
+use bundle::{is_bundle_path, page_data_len, page_of, scrub_bundle};
 
 pub const AGENT_TRANSFER_CAPABILITY: &str = "agent-transfer-v1";
 
@@ -97,21 +104,6 @@ const BEGIN_TIMEOUT: Duration = Duration::from_secs(30);
 /// A finish imports the chat (and may replace a moved-away copy).
 const FINISH_TIMEOUT: Duration = Duration::from_secs(60);
 const THREAD_STACK_BYTES: usize = 256 * 1024;
-const MANIFEST: &str = "manifest.json";
-const SESSION: &str = "session.json";
-/// `session.json` keys (acpmux `SessionMeta`, camelCase and old aliases)
-/// that carry the source machine's launch settings.
-const SESSION_LAUNCH_KEYS: &[&str] = &[
-    "sessionEnv",
-    "session_env",
-    "harnessArgv",
-    "harness_argv",
-    "agent_argv",
-    "harnessRoots",
-    "harness_roots",
-    "preset",
-    "tags",
-];
 
 /// Frame params refused on every verb (the guard is the daemon's own).
 const FORBIDDEN_PARAMS: &[&str] =
@@ -196,6 +188,30 @@ impl AgentTransfers {
             receive.finishing = finishing;
         }
     }
+}
+
+/// Held while a finish call runs: the receive answers "cannot say yet" to a
+/// receive-abort until it drops, on every path (an answer, an error, a
+/// panic). A finish that settled the receive leaves nothing to clear.
+struct Finishing<'a> {
+    transfers: &'a AgentTransfers,
+    receive_id: &'a str,
+}
+
+impl<'a> Finishing<'a> {
+    fn start(transfers: &'a AgentTransfers, receive_id: &'a str) -> Self {
+        transfers.set_finishing(receive_id, true);
+        Self { transfers, receive_id }
+    }
+}
+
+impl Drop for Finishing<'_> {
+    fn drop(&mut self) {
+        self.transfers.set_finishing(self.receive_id, false);
+    }
+}
+
+impl AgentTransfers {
 
     /// The scrubbed bytes of `path` (or none: read it from acpmux) when
     /// this daemon began the move and its manifest lists `path`.
@@ -307,6 +323,12 @@ struct ReceiveAbortParams {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct SourceParams {
+    surface: SurfaceId,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct BeginParams {
     surface: SurfaceId,
     #[serde(default)]
@@ -347,6 +369,7 @@ enum Verb {
     Read(ReadParams),
     Commit(CommitParams),
     Abort(AbortParams),
+    Source(SourceParams),
 }
 
 impl Verb {
@@ -367,6 +390,7 @@ impl Verb {
             "agent-transfer-read" => Self::Read(from_value(params).ok()?),
             "agent-transfer-commit" => Self::Commit(from_value(params).ok()?),
             "agent-transfer-abort" => Self::Abort(from_value(params).ok()?),
+            "agent-transfer-source" => Self::Source(from_value(params).ok()?),
             _ => return None,
         })
     }
@@ -521,16 +545,21 @@ pub(super) fn try_handle(
     let Some(socket) = mux.control_clients.agent_sessions.socket() else {
         return Some(reply(writer, id, Err(Refusal::Unavailable.into())));
     };
-    // Checks that need no acpmux answer here, before a worker or a link.
-    let prepared = match prepare(mux, verb) {
-        Ok(prepared) => prepared,
-        Err(failure) => return Some(reply(writer, id, Err(failure))),
-    };
+    // The call slot first: a prepared receive-abort has already taken its
+    // receive, which a refusal here would lose.
     let transfers = &mux.agent_transfers;
     if transfers.calls.fetch_add(1, Ordering::AcqRel) >= MAX_CALLS {
         transfers.calls.fetch_sub(1, Ordering::AcqRel);
         return Some(reply(writer, id, Err(Refusal::Limit.into())));
     }
+    // Checks that need no acpmux answer here, before a worker or a link.
+    let prepared = match prepare(mux, verb) {
+        Ok(prepared) => prepared,
+        Err(failure) => {
+            transfers.calls.fetch_sub(1, Ordering::AcqRel);
+            return Some(reply(writer, id, Err(failure)));
+        }
+    };
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
     let worker_id = id.clone();
@@ -642,7 +671,6 @@ fn prepare(mux: &Mux, verb: Verb) -> Result<Prepared, Failure> {
                 }
                 return Err(refusal.into());
             }
-            transfers.set_finishing(&receive_id, true);
             Prepared::Finish { receive_id, cwd, name }
         }
         Verb::ReceiveAbort(ReceiveAbortParams { receive_id }) => {
@@ -673,6 +701,11 @@ fn prepare(mux: &Mux, verb: Verb) -> Result<Prepared, Failure> {
                 return Err(Refusal::BadRequest.into());
             }
             Prepared::Commit { session, transfer_id, to }
+        }
+        Verb::Source(SourceParams { surface }) => {
+            // The tab's own store record, read without reaching acpmux.
+            let session = tab_session(mux, surface).ok_or(Refusal::UnknownTab)?;
+            Prepared::Answer(json!({"session": session}))
         }
         Verb::Abort(AbortParams { surface, transfer_id }) => {
             let session = tab_session(mux, surface).ok_or(Refusal::UnknownTab)?;
@@ -732,22 +765,6 @@ fn guard_for(host: &AgentTransferHost, cwd: &str) -> Result<(Value, String), Fai
     Ok((guard, text(&folder)?))
 }
 
-/// A bundle file path: relative plain components only.
-fn is_bundle_path(path: &str) -> bool {
-    !path.is_empty()
-        && path.len() <= MAX_PATH_BYTES
-        && Path::new(path).components().all(|c| matches!(c, Component::Normal(_)))
-}
-
-/// The bytes padded base64 `data` decodes to (acpmux checks the alphabet).
-fn page_data_len(data: &str) -> Option<usize> {
-    if !data.len().is_multiple_of(4) {
-        return None;
-    }
-    let padding = data.bytes().rev().take(2).filter(|b| *b == b'=').count();
-    Some(data.len() / 4 * 3 - padding)
-}
-
 /// An acpmux receive or transfer id (a UUID): 1 to 128 of `[A-Za-z0-9_-]`.
 fn is_plain_id(id: &str) -> bool {
     (1..=128).contains(&id.len())
@@ -802,15 +819,18 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             if let Some(name) = name {
                 params["name"] = json!(name);
             }
+            // Only once acpmux is reached: a finish that never ran leaves
+            // the receive askable.
+            let finishing = Finishing::start(transfers, &receive_id);
             let finished = call("_acpmux/transfer_finish", params, FINISH_TIMEOUT);
             if ends_receive(&finished) {
                 transfers.settle(&receive_id);
-            } else {
-                transfers.set_finishing(&receive_id, false);
             }
+            drop(finishing);
             Ok(json!({"session": finished?}))
         }
         Prepared::Begin { session, interrupt } => {
+            let source_session = session.clone();
             let params = json!({"sessionId": session, "interrupt": interrupt});
             let mut manifest = call("_acpmux/transfer_begin", params, BEGIN_TIMEOUT)?;
             let transfer_id = manifest["transferId"]
@@ -829,7 +849,8 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             };
             let entry = Move { files, touched: Instant::now() };
             lock(&transfers.moves).insert(transfer_id.clone(), entry);
-            Ok(json!({"transfer_id": transfer_id, "manifest": manifest}))
+            Ok(json!({"transfer_id": transfer_id, "source_session": source_session,
+                       "manifest": manifest}))
         }
         Prepared::Read { transfer_id, path, offset, limit } => {
             let params =
@@ -867,78 +888,6 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             Ok(json!({"aborted": true}))
         }
     }
-}
-
-/// Every path the begin `manifest` lists, with scrubbed copies of the
-/// bundle's `manifest.json` (no absolute `source` paths of native files) and
-/// `session.json` (no launch settings: [`SESSION_LAUNCH_KEYS`]; its `cwd`
-/// stays, as the target's import needs a folder and its finish replaces
-/// it). Names compare case-insensitively (a case-insensitive disk serves
-/// `Session.json` for `session.json`), and the manifest lists the scrubbed
-/// sizes. The import uses neither removed part.
-fn scrub_bundle(
-    call: &impl Fn(&str, Value, Duration) -> Result<Value, Failure>,
-    transfer_id: &str,
-    manifest: &mut Value,
-) -> Result<BundleFiles, Failure> {
-    let entries = manifest["files"].as_array_mut().ok_or(Refusal::Refused)?;
-    let mut files = HashMap::new();
-    for entry in entries.iter_mut() {
-        let path = entry["path"].as_str().filter(|path| is_bundle_path(path));
-        let path = path.ok_or(Refusal::Refused)?.to_owned();
-        let scrubbed = if path.eq_ignore_ascii_case(MANIFEST) || path.eq_ignore_ascii_case(SESSION)
-        {
-            let bytes = scrubbed_file(call, transfer_id, &path, entry["size"].as_u64())?;
-            entry["size"] = json!(bytes.len());
-            Some(Arc::new(bytes))
-        } else {
-            None
-        };
-        files.insert(path, scrubbed);
-    }
-    Ok(files)
-}
-
-/// One bundle JSON file read whole from acpmux and scrubbed.
-fn scrubbed_file(
-    call: &impl Fn(&str, Value, Duration) -> Result<Value, Failure>,
-    transfer_id: &str,
-    path: &str,
-    size: Option<u64>,
-) -> Result<Vec<u8>, Failure> {
-    let size = size.filter(|size| *size <= MAX_PAGE_BYTES as u64).ok_or(Refusal::Refused)?;
-    let params =
-        json!({"transferId": transfer_id, "path": path, "offset": 0, "limit": size.max(1)});
-    let page = call("_acpmux/transfer_read", params, CALL_TIMEOUT)?;
-    let bytes = page["data"]
-        .as_str()
-        .and_then(|data| BASE64.decode(data).ok())
-        .filter(|bytes| bytes.len() as u64 == size)
-        .ok_or(Refusal::Refused)?;
-    let mut value: Value = serde_json::from_slice(&bytes).map_err(|_| Refusal::Refused)?;
-    if path.eq_ignore_ascii_case(MANIFEST) {
-        if let Some(native) = value.get_mut("native").and_then(Value::as_array_mut) {
-            for file in native.iter_mut().filter_map(Value::as_object_mut) {
-                file.remove("source");
-            }
-        }
-    } else if let Some(meta) = value.as_object_mut() {
-        for key in SESSION_LAUNCH_KEYS {
-            meta.remove(*key);
-        }
-    } else {
-        return Err(Refusal::Refused.into());
-    }
-    Ok(serde_json::to_vec_pretty(&value).map_err(|_| Refusal::Refused)?)
-}
-
-/// A `transfer_read` page of `bytes`, as acpmux answers one.
-fn page_of(bytes: &[u8], offset: u64, limit: u64) -> Value {
-    let len = bytes.len() as u64;
-    let start = offset.min(len);
-    let end = start.saturating_add(limit).min(len);
-    let data = BASE64.encode(&bytes[start as usize..end as usize]);
-    json!({"data": data, "next": end, "eof": end == len})
 }
 
 fn reply(writer: &MessageWriter, id: Option<Value>, result: Result<Value, Failure>) -> bool {

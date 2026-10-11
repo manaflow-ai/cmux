@@ -35,7 +35,8 @@
 //!
 //! The pump commits or aborts only a move whose id its own record holds, and
 //! only while the tab still shows the chat the record names (the source's
-//! `agent-session-attach` answer). Any other move the chat is in (a begin
+//! `agent-transfer-source` read of the tab's store record, which does not
+//! attach the chat). Any other move the chat is in (a begin
 //! whose answer was lost, another client's move) is left alone: the source
 //! refuses the begin as `transfer.moving` with that move's id, and the pump
 //! answers `move_unresolved` with it and `retry_after_seconds` (the source's
@@ -262,7 +263,7 @@ fn fresh(args: &Args, records: &Records) -> Result<Moved, Failed> {
         .ok_or_else(|| Failed::bad_answer("the source's begin named no move"))?;
     let mut record = Record {
         transfer_id: transfer_id.to_owned(),
-        source_session_id: begun["manifest"]["sessionId"].as_str().map(str::to_owned),
+        source_session_id: begun["source_session"].as_str().map(str::to_owned),
         to_socket: args.to.clone(),
         cwd: args.cwd.clone(),
         ..Record::default()
@@ -458,12 +459,13 @@ fn commit(
 }
 
 /// Whether the tab still shows the chat `record`'s move took (the source's
-/// `agent-session-attach` answer); false when that cannot be told.
+/// `agent-transfer-source` read, which never attaches it); false when that
+/// cannot be told.
 fn same_chat(args: &Args, record: &Record) -> bool {
     let Some(pinned) = record.source_session_id.as_deref() else { return false };
-    let params = json!({"surface": args.surface, "limit": 1});
-    call_once(&args.from, "agent-session-attach", params, CALL_TIMEOUT)
-        .is_ok_and(|answer| answer["session"]["sessionId"].as_str() == Some(pinned))
+    let params = json!({"surface": args.surface});
+    call_once(&args.from, "agent-transfer-source", params, CALL_TIMEOUT)
+        .is_ok_and(|answer| answer["session"].as_str() == Some(pinned))
 }
 
 /// The chat is frozen in a move this command did not record.

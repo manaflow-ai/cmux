@@ -8142,7 +8142,8 @@ acpmux, or `transfer.incomplete`) also forgets the receive.
 `{id, cmd:"agent-transfer-begin", surface, interrupt?}` freezes the chat of
 an agent tab of this store (the session comes from the tab's store record,
 as `agent-session-attach`; any other surface is `agent_transfer.unknown_tab`)
-and answers `{transfer_id, manifest}`. The bundle's `manifest.json` is served
+and answers `{transfer_id, source_session, manifest}` (`source_session` as
+`agent-transfer-source`). The bundle's `manifest.json` is served
 without the absolute `source` paths of its native files, and its
 `session.json` without the source machine's launch settings (`sessionEnv`,
 `harnessArgv`, `harnessRoots`, `preset`, `tags`); its `cwd` stays, since the
@@ -8155,6 +8156,14 @@ A begin of a chat that is already in a move is `agent_transfer.refused`
 (acpmux's `transfer.moving`) with `error_details: {transfer_id}`, the id of
 that move, so a pump that lost its begin answer can commit or abort the move
 it began. Only that refusal carries details.
+
+### agent-transfer-source
+
+`{id, cmd:"agent-transfer-source", surface}` answers `{session}`, the session
+an agent tab of this store is bound to, read from the tab's store record
+without reaching acpmux; any other surface is `agent_transfer.unknown_tab`.
+Unlike `agent-session-attach` it does not mark the chat seen or touch its
+log, so a pump can tell the tab still shows the chat its recorded move took.
 
 ### agent-transfer-read
 
