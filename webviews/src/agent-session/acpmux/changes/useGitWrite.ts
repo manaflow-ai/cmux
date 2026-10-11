@@ -153,7 +153,11 @@ export function useGitWrite(
         phase: "failed",
         op: "push",
         failure,
-        text: current?.detached ? translate("git.push.detachedHead") : current ? translate("git.push.nothing") : translate("git.statusFailed"),
+        text: current?.detached
+          ? translate("git.push.detachedHead")
+          : current
+            ? translate("git.push.nothing")
+            : translate("git.statusFailed"),
         canRetry: false,
         canRefresh: !current,
       });
