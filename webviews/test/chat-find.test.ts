@@ -148,5 +148,42 @@ await requireBrowserLane("chat-find.test.ts", async () => {
       expect((await state(page)).open).toBe(false);
       await page.close();
     });
+
+    // Codex desktop app parity (cx-ncc.70): Find reads the work too. The seeded turn has ended, so
+    // its commands and edits sit in a closed "Worked for" fold; a match there opens what holds it
+    // and scrolls it into view.
+    test("finds command output and edit diffs inside a closed Worked for fold", async () => {
+      if (!installed) return;
+      const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+      await openChat(page);
+      // Only in the test command's output, and only in the edit of upload.test.ts.
+      for (const needle of ["1504.40ms", "failNext(2, 503)"]) {
+        expect(await page.evaluate(() => document.querySelector(".acpmux-scroll")?.textContent ?? "")).not.toContain(
+          needle,
+        );
+        await page.evaluate((text) => window.cmuxAcpmuxActions?.["chat.find"]?.({ text }), needle);
+        await page.waitForSelector(".acpmux-find__field");
+        await page.fill(".acpmux-find__field", needle);
+        await page
+          .waitForFunction(
+            (text) =>
+              [
+                ...((CSS as unknown as { highlights: Map<string, Set<Range>> }).highlights.get("acpmux-find-active") ??
+                  []),
+              ]
+                .map(String)
+                .some((range) => range.toLowerCase() === text.toLowerCase()),
+            needle,
+            { timeout: 10_000 },
+          )
+          .catch(() => undefined);
+        const found = await state(page);
+        expect(found.count, needle).toBe("1 of 1");
+        expect(found.active, needle).toEqual([needle]);
+        expect(found.inView, needle).toBe(true);
+        await page.keyboard.press("Escape");
+      }
+      await page.close();
+    });
   });
 });
