@@ -166,6 +166,12 @@ pub fn classify_path(kind: AdapterKind, root: &Path, path: &Path) -> PathRole {
     if parts.is_empty() {
         return PathRole::Ignore;
     }
+    // SQLite's shared-memory index changes when a reader (this index
+    // included) opens or reads a WAL database; it never holds chat data.
+    // Treating it as a store change made every scan trigger the next one.
+    if parts.last().is_some_and(|name| name.ends_with("-shm")) {
+        return PathRole::Ignore;
+    }
     match kind {
         AdapterKind::ClaudeCode => claude::classify(&parts),
         AdapterKind::Codex => codex::classify(&parts),
