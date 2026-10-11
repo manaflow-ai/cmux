@@ -128,6 +128,7 @@ import { copyRow } from "./header/copyRow";
 import { sideChatRow } from "./header/sideChatRow";
 import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
+import { type HarnessHealth, HarnessHealthNotice } from "./HarnessHealthNotice";
 import { HostError } from "./HostError";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { SUBAGENTS } from "./subagents/subagentFold";
@@ -152,7 +153,7 @@ import type { PermissionDecision } from "./permissions/protocol";
 import { checkpointStrings } from "./checkpoints/strings";
 import { QUICK_MESSAGES, readSurface, useEscapeToDismiss, type PaneSurface } from "./paneSurface";
 import { QuickSurface } from "./QuickSurface";
-import { floatingStatus, type QuickFloating } from "./FloatingChat";
+import { contextAttachment, floatingStatus, type QuickFloating } from "./FloatingChat";
 import { setFloatingState, useFloatingState } from "./floatingState";
 import { FailedPrompt } from "./FailedPrompt";
 import { ReplayScreen } from "./replay/ReplayScreen";
@@ -283,6 +284,26 @@ const removeQueued = (promptId: string) =>
 const editQueued = (promptId: string, edit: QueueEdit) =>
   callNative<{ ok?: boolean } | null>("chat.queue.edit", { promptId, ...edit }).then((result) => result?.ok === true);
 
+/// Hands the host a new chat's typed text, kept with its tab across a relaunch (cx-z5vd).
+const postUnsentDraft = (text: string) => void callNative("chat.unsentDraft", { text }).catch(() => undefined);
+/// Where chat `sessionId` rests, kept by its tab so a relaunch reopens it there (cx-6bgzj).
+const postScrollAnchor = (sessionId: string, anchor: ScrollAnchor | null) =>
+  void callNative("chat.scrollAnchor", { sessionId, rowId: anchor?.rowId ?? null, offset: anchor?.offset ?? 0 }).catch(
+    () => undefined,
+  );
+/// A host that does not answer `chat.scrollAnchor.get` (the gallery, an older app) never holds up the chat.
+const SCROLL_ANCHOR_READ_MS = 250;
+/// Where chat `sessionId` rested when it was last shown; undefined when nothing is kept.
+const fetchScrollAnchor = async (sessionId: string): Promise<(ScrollAnchor & { sessionId: string }) | undefined> => {
+  const anchor = await Promise.race([
+    callNative<{ rowId?: unknown; offset?: unknown } | null>("chat.scrollAnchor.get", { sessionId }).catch(() => null),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), SCROLL_ANCHOR_READ_MS)),
+  ]);
+  return typeof anchor?.rowId === "string" && typeof anchor.offset === "number"
+    ? { sessionId, rowId: anchor.rowId, offset: anchor.offset }
+    : undefined;
+};
+
 /// Asks the host to show the Quick Composer's chat in a window.
 const postOpenInWindow = (sessionId: string) =>
   void callNative(QUICK_MESSAGES.openInWindow, { sessionId }).catch(() => undefined);
@@ -319,6 +340,7 @@ const trustSource: TrustSource = {
 const changesSource: ChangesSource = {
   diff: (scope) => callNative("git.diff", { scope, include_patch: true }),
   status: () => callNative("git.status", {}),
+  stage: (paths, unstage) => callNative("git.stage", { paths, unstage }),
 };
 /// A turn's checkpoint pair, diffed on the session host (`git.checkpoint.diff`).
 const checkpointDiff: CheckpointDiff = (from, to) =>
@@ -717,6 +739,11 @@ const MAX_SCROLL_LEAD_VIEWPORTS = 4;
 const JUMP_LATEST_DISTANCE = 80;
 /// A smooth jump lands on the latest message once this has passed, even if a streaming reply grew past it.
 const JUMP_LATEST_SETTLE_MS = 600;
+/// A scroll that rests this long is where the chat reopens (cx-6bgzj), reported once, not per frame.
+export const SCROLL_ANCHOR_SETTLE_MS = 400;
+/// Where a chat's transcript rests: the row at the top of the view and how far into it; null is the
+/// latest message, which a reopened chat follows anyway.
+export type ScrollAnchor = { rowId: string; offset: number };
 
 /// Jump to latest: a glass circle centered above the composer, shown while the reader is scrolled up
 /// from the latest message (ChatGPT and Codex style). Its dots say a reply is streaming below. It stays
@@ -772,9 +799,15 @@ export function VirtualTranscript({
   working = false,
   jumpButton = false,
   focusComposer,
+  openAt,
+  onAnchor,
 }: {
   rows: AcpmuxRow[];
   sessionId?: string;
+  /// Where the transcript opens instead of the latest message, when that row is loaded.
+  openAt?: ScrollAnchor;
+  /// Where it rests after each settled scroll (null at the latest message).
+  onAnchor?: (anchor: ScrollAnchor | null) => void;
   /// A reply is streaming: Jump to latest shows its dots while the reader is scrolled up.
   working?: boolean;
   /// Draw Jump to latest: the chat's own stage only, which positions it above the composer.
@@ -1151,14 +1184,18 @@ export function VirtualTranscript({
     // Runs on height too: rows that fit and then overflow on a height-only shrink keep the same memoized layout.
     if (!didOpenAtLatest.current && node && layout.totalHeight > node.clientHeight) {
       const latest = Math.max(0, layout.totalHeight - node.clientHeight);
-      node.scrollTop = latest;
-      setScroll({ top: latest, delta: 0 });
-      setFollowing(true);
+      // A chat reopened where the reader left it (cx-6bgzj), else at the latest message.
+      const at = openAt ? rows.findIndex((row) => row.id === openAt.rowId) : -1;
+      const top = at < 0 ? latest : Math.min(latest, layout.tops[at] + openAt!.offset);
+      node.scrollTop = top;
+      setScroll({ top, delta: 0 });
+      setFollowing(top >= latest - 1);
       didOpenAtLatest.current = true;
     }
     previousLayout.current = layout;
     previousRows.current = rows;
     if (node) scrolledTo.current = scrollPosition(node, layout.totalHeight);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
   }, [layout, rows, range.first, height]);
   // Commit before this frame paints; deferring to the next animation frame left the edge blank.
   // The page picks adaptive rendering; the host supplies the display interval and applies it.
@@ -1196,6 +1233,25 @@ export function VirtualTranscript({
     if (box.top < view.top || box.bottom > view.bottom) node.scrollTop += box.top - view.top - node.clientHeight / 3;
   });
   useEffect(() => clearFindHighlights, []);
+  // Where the view rests, once a scroll settles; the latest message is null.
+  const reportedAnchor = useRef<string | undefined>(undefined);
+  const anchorTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const latestLayout = useRef({ layout, rows });
+  latestLayout.current = { layout, rows };
+  useEffect(() => () => clearTimeout(anchorTimer.current), []);
+  const reportAnchor = () => {
+    const node = ref.current;
+    if (!node || !onAnchor) return;
+    const { layout: placed, rows: shown } = latestLayout.current;
+    const index = visibleLayoutRange(placed, node.scrollTop, 0, 0).first;
+    const row = shown[index];
+    const anchor: ScrollAnchor | null =
+      scrolledTo.current.atLatest || !row ? null : { rowId: row.id, offset: node.scrollTop - placed.tops[index] };
+    const key = JSON.stringify(anchor);
+    if (key === reportedAnchor.current) return;
+    reportedAnchor.current = key;
+    onAnchor(anchor);
+  };
   const onScroll = (event: React.UIEvent<HTMLDivElement>) => {
     pacing.scrolled();
     const next = event.currentTarget.scrollTop;
@@ -1204,6 +1260,10 @@ export function VirtualTranscript({
       setScroll((current) => ({ top: next, delta: next - current.top }));
       setFollowing(scrolledTo.current.atLatest);
     });
+    if (onAnchor) {
+      clearTimeout(anchorTimer.current);
+      anchorTimer.current = setTimeout(reportAnchor, SCROLL_ANCHOR_SETTLE_MS);
+    }
   };
   // Jump to latest (the button, ChatGPT and Codex style): a smooth scroll to the latest message, then a
   // landing on it, so a reply that grew meanwhile is followed again.
@@ -1461,6 +1521,7 @@ function AcpmuxPane() {
   const [chatMoves, setChatMoves] = useState<ChatMove[]>([]);
   /// This Mac's name, from the handshake.
   const [machineName, setMachineName] = useState<string | undefined>();
+  const [scrollAnchor, setScrollAnchor] = useState<(ScrollAnchor & { sessionId: string }) | undefined>();
   const [githubRepository, setGithubRepository] = useState<string | undefined>();
   /// What the direct client (or the host) last reported; `snapshot` draws a pending harness or
   /// model switch over it (harnessSwitch.ts).
@@ -1544,6 +1605,47 @@ function AcpmuxPane() {
   const forkable = canFork(snapshot);
   const forkSeq = latestForkSeq(snapshot.rows);
   const loginCommand = catalog.find((entry) => entry.id === (snapshot.summary?.harness ?? ""))?.auth?.login;
+  // The chat's agent CLI health (cx-ny85), from this Mac's acpmux through the host; a chat on
+  // another machine or in the cloud gets none (its CLI is not this Mac's).
+  const [harnessHealth, setHarnessHealth] = useState<HarnessHealth>();
+  const healthHarness = snapshot.summary?.harness;
+  const healthLocal = !snapshot.summary?.peer && snapshot.summary?.hostKind !== "cloud";
+  // After its Log In or Update ran in a terminal tab, coming back to the chat checks again.
+  const healthStale = useRef(false);
+  const [healthRecheck, setHealthRecheck] = useState(0);
+  const healthRechecked = useRef(0);
+  useEffect(() => {
+    const recheck = () => {
+      if (!healthStale.current || document.visibilityState === "hidden") return;
+      healthStale.current = false;
+      setHealthRecheck((count) => count + 1);
+    };
+    window.addEventListener("focus", recheck);
+    document.addEventListener("visibilitychange", recheck);
+    return () => {
+      window.removeEventListener("focus", recheck);
+      document.removeEventListener("visibilitychange", recheck);
+    };
+  }, []);
+  useEffect(() => {
+    if (!connected || !healthHarness || !healthLocal) {
+      setHarnessHealth(undefined);
+      return;
+    }
+    let live = true;
+    // Only the fetch a recheck started asks acpmux to check again.
+    const refresh = healthRecheck !== healthRechecked.current;
+    healthRechecked.current = healthRecheck;
+    void callNative<{ health?: HarnessHealth | null } | null>("harness.health", {
+      id: healthHarness,
+      ...(refresh ? { refresh: true } : {}),
+    })
+      .then((reply) => live && setHarnessHealth(reply?.health ?? undefined))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [connected, healthHarness, healthLocal, healthRecheck]);
   // A new chat centers its composer under the hero.
   const handoff = snapshot.handoff?.record;
   const reviewing =
@@ -2359,6 +2461,12 @@ function AcpmuxPane() {
           setSnapshot(emptySnapshot());
         if (!reconnect) setSurface(readSurface(host.surface));
         setMachineName(typeof host.machineName === "string" && host.machineName ? host.machineName : undefined);
+        // Before the transcript's rows arrive: it opens where the reader left it (cx-6bgzj).
+        if (!reconnect && host.sessionId) {
+          const anchor = await fetchScrollAnchor(host.sessionId);
+          if (cancelled) return;
+          setScrollAnchor(anchor);
+        }
         // Reconnect handshakes for an existing session do not carry its cwd. Keep the current
         // repository until the snapshot effect observes a new session/origin/cwd; a fresh ready
         // handshake has no prior context and must clear it when the host has no GitHub origin.
@@ -2653,6 +2761,8 @@ function AcpmuxPane() {
           "git.diff": ({ scope }) => client.gitDiff(String(scope)),
           "git.status": () => client.gitStatus(),
           "git.checkpoint.diff": ({ from, to }) => client.gitCheckpointDiff(String(from), String(to)),
+          "git.stage": ({ paths, unstage }) =>
+            client.gitStage(Array.isArray(paths) ? paths.map(String) : [], unstage === true),
           // What the agent works on, for a terminal or browser opened from this chat (#16620).
           "pane.context": async () => (snapshotRef.current ? paneContext(snapshotRef.current) : { urls: [] }),
         };
@@ -3148,6 +3258,16 @@ function AcpmuxPane() {
                   find={quick ? undefined : find}
                   sessionId={childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId}
                   canLoadOlder={!childRows && snapshot.canLoadOlder}
+                  openAt={
+                    !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
+                      ? scrollAnchor
+                      : undefined
+                  }
+                  onAnchor={
+                    quick || childRows || !shownSessionId
+                      ? undefined
+                      : (anchor) => postScrollAnchor(shownSessionId, anchor)
+                  }
                   expanded={expanded}
                   registry={registry}
                   githubRepository={githubRepository}
@@ -3236,6 +3356,18 @@ function AcpmuxPane() {
       {harnessCard ?? (
         <SwitchNotice switching={snapshot.switching} onRetry={() => void callNative("chat.harness.retry")} />
       )}
+      {!harnessCard && (
+        <HarnessHealthNotice
+          health={harnessHealth}
+          harness={healthHarness}
+          name={catalog.find((entry) => entry.id === healthHarness)?.name ?? healthHarness ?? ""}
+          {...(snapshot.summary?.cwd ? { cwd: snapshot.summary.cwd } : {})}
+          open={(params) => {
+            healthStale.current = true;
+            void callNative("tab.open", params).catch(() => undefined);
+          }}
+        />
+      )}
       {folderNeeded && !snapshot.sessionId && (
         <MissingFolder
           reason={folderNeeded.reason}
@@ -3320,6 +3452,7 @@ function AcpmuxPane() {
           sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
           chips={ComposerChips}
           draft={draft}
+          onUnsentDraft={quick ? undefined : postUnsentDraft}
           onCmuxCommand={(command, args) => {
             if (command.action === "btw") {
               const question = args?.trim();
@@ -3511,6 +3644,14 @@ function AcpmuxPane() {
         moveToTab: () => {
           if (snapshot.sessionId) postOpenInWindow(snapshot.sessionId);
         },
+        includeContext: () =>
+          void callNative(QUICK_MESSAGES.context)
+            .then((value) => {
+              const chip = contextAttachment(value, t("floating.focusedTab"));
+              if (chip) composerHandle.current?.attach(chip);
+              composerHandle.current?.focus();
+            })
+            .catch(() => undefined),
       }
     : undefined;
   if (quick)

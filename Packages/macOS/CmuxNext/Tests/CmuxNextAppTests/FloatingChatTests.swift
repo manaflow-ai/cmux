@@ -53,14 +53,33 @@ struct FloatingChatTests {
         var pushed: [AgentPaneFloatingState] = []
         /// The session each made chat was bound to (nil: a new chat).
         var made: [String?] = []
-        var controller: QuickComposerController?
+        /// What the user is looking at in cmux, for Include focused tab.
+        var focused: AgentPaneQuickContext?
+        /// Weak: the controller's closures hold the rig, and the rig's deinit clears its defaults.
+        weak var controller: QuickComposerController?
+        /// This launch's user defaults; a relaunch passes the same suite.
+        let suite: String
+        let defaults: UserDefaults
+
+        /// The first launch on a suite owns it and removes it when done.
+        let ownsSuite: Bool
+
+        init(suite: String, ownsSuite: Bool) {
+            self.suite = suite
+            self.ownsSuite = ownsSuite
+            defaults = UserDefaults(suiteName: suite) ?? .standard
+        }
+
+        deinit {
+            if ownsSuite { UserDefaults.standard.removePersistentDomain(forName: suite) }
+        }
     }
 
-    static func rig(floating: Bool) throws -> (Rig, QuickComposerController) {
+    static func rig(floating: Bool, suite: String? = nil) throws -> (Rig, QuickComposerController) {
         let page = FileManager.default.temporaryDirectory.appending(path: "floating-chat-\(UUID().uuidString)/index.html")
         try FileManager.default.createDirectory(at: page.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("<html></html>".utf8).write(to: page)
-        let rig = Rig()
+        let rig = Rig(suite: suite ?? "floating-chat-\(UUID().uuidString)", ownsSuite: suite == nil)
         let controller = QuickComposerController(
             makeChat: { session in
                 rig.made.append(session)
@@ -76,7 +95,9 @@ struct FloatingChatTests {
                 return true
             },
             floating: { floating },
-            pushState: { state, _ in rig.pushed.append(state) })
+            pushState: { state, _ in rig.pushed.append(state) },
+            context: { rig.focused },
+            defaults: rig.defaults)
         rig.controller = controller
         return (rig, controller)
     }
@@ -150,6 +171,22 @@ struct FloatingChatTests {
         #expect(!rig.window.isVisible)
         #expect(controller.chat == nil)
         #expect(rig.window.held.isEmpty)
+    }
+
+    @Test func aHiddenFloatingChatSummonedOnAnotherScreenOpensWhereItWasLeftThere() {
+        let laptop = CGRect(x: 0, y: 0, width: 1512, height: 944)
+        let monitor = CGRect(x: 1512, y: 0, width: 2560, height: 1415)
+        let left = CGRect(x: 1000, y: 100, width: 400, height: 700)
+        let composer = CGRect(x: 2452, y: 841, width: 680, height: 220)
+
+        // Summoned on the screen it was left on: it stays put.
+        #expect(FloatingChatFrames.summoned(onDisplay: "1", toDisplay: "1", saved: left, near: composer, in: laptop) == nil)
+        // On the other screen: the frame it was left at there.
+        let there = CGRect(x: 3600, y: 300, width: 420, height: 900)
+        #expect(FloatingChatFrames.summoned(onDisplay: "1", toDisplay: "2", saved: there, near: composer, in: monitor) == there)
+        // Never placed there: the default column, its top where the composer's would be.
+        #expect(FloatingChatFrames.summoned(onDisplay: "1", toDisplay: "2", saved: nil, near: composer, in: monitor)
+            == CGRect(x: 2572, y: 441, width: 440, height: 620))
     }
 
     @Test func theFloatingChatComesBackWhereItWasLeftOnEachScreen() throws {
@@ -311,6 +348,27 @@ struct FloatingChatTests {
         controller.toggle()
         #expect(rig.window.isVisible)
         #expect(!rig.window.collapsed)
+    }
+
+    /// Include focused tab (⌘⇧I or the header's button): the page asks for what the user is looking at
+    /// in cmux and attaches it to the next prompt only, as a chip the user sees and can remove.
+    @Test func includeFocusedTabHandsThePageWhatTheUserIsLookingAt() async throws {
+        let (rig, controller) = try Self.rig(floating: true)
+        controller.show()
+        let chat = try #require(controller.chat)
+        _ = await chat.model.respond(to: Self.started("session-14"))
+
+        rig.focused = AgentPaneQuickContext(name: "zsh · ~/src/app (selection)", text: "error: no such module 'Upload'")
+        let reply = await chat.model.respond(to: Self.request("quick.context", [:]))
+        let value = try #require(reply["value"] as? [String: Any])
+        #expect(value["name"] as? String == "zsh · ~/src/app (selection)")
+        #expect(value["text"] as? String == "error: no such module 'Upload'")
+
+        // Nothing to include (an empty pane, no main window): the page hears there is none.
+        rig.focused = nil
+        let none = await chat.model.respond(to: Self.request("quick.context", [:]))
+        #expect(none["ok"] as? Bool == true)
+        #expect(none["value"] is NSNull)
     }
 }
 

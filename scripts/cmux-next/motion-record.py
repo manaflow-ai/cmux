@@ -138,6 +138,9 @@ def tabs():
 
 
 def panes():
+    # A fresh workspace: a clean profile opens on Home, where no pane has focus.
+    action("workspace.newAtBottom")
+    time.sleep(1.0)  # test harness: the workspace settles
     save_layout("panes")
     record("panes", "split-right", lambda: action("splitRight"))
     record("panes", "split-down", lambda: action("splitDown"))
@@ -145,12 +148,33 @@ def panes():
     record("panes", "equalize", lambda: action("equalizeSplits"))
     record("panes", "zoom", lambda: action("toggleSplitZoom"))
     record("panes", "unzoom", lambda: action("toggleSplitZoom"))
+    # Departures: a pane moved to another workspace and a strip column closed
+    # mid-strip.
+    action("splitRight")
+    time.sleep(0.8)  # test harness: the split settles
+    record("panes", "move-away", lambda: action("pane.moveToNewWorkspace"))
+    print("after move-away:", json.dumps(rpc("debug.windows"))[:300], flush=True)
+    action("workspace.newAtBottom")
+    time.sleep(1.0)  # test harness: the workspace settles
+    for _ in range(2):
+        action("newColumn")
+        time.sleep(0.8)  # test harness: one column at a time
+    action("focusLeft")
+    time.sleep(0.5)  # test harness: the focus settles
+    save_layout("panes-strip")
+    record("panes", "close-mid-strip", lambda: action("closePane"))
+    # A zoom and an unzoom on a scrolled strip (its camera resets, then snaps back).
+    for _ in range(3):
+        action("newColumn")
+        time.sleep(0.8)  # test harness: one column at a time
+    record("panes", "zoom-strip", lambda: action("toggleSplitZoom"))
+    record("panes", "unzoom-strip", lambda: action("toggleSplitZoom"))
 
 
 def focus():
     # Focus moves between split panes in a fresh workspace (a restored
     # session's columns would fill the screen), then between strip columns.
-    action("newWorkspace")
+    action("workspace.newAtBottom")
     time.sleep(1.0)  # test harness: the workspace settles
     action("splitRight")
     time.sleep(0.8)  # test harness: the split settles
@@ -165,7 +189,7 @@ def focus():
 
 def groups():
     # A tab group of two tabs collapses into its chip and expands again.
-    action("newWorkspace")
+    action("workspace.newAtBottom")
     time.sleep(1.0)  # test harness: the workspace settles
     for _ in range(3):
         action("newSurface")
@@ -185,7 +209,7 @@ def groups():
 
 def drag():
     # A tab lifted, carried past two tabs and dropped, at pointer pace.
-    action("newWorkspace")
+    action("workspace.newAtBottom")
     time.sleep(1.0)  # test harness: the workspace settles
     for _ in range(3):
         action("newSurface")
@@ -336,7 +360,7 @@ def hover():
     # hover fill clearing at once (the default) and over 120 ms
     # (`motion.fade.hoverOut`; absent on builds before cx-f6i7's hover pass).
     for _ in range(5):
-        action("newWorkspace")
+        action("workspace.newAtBottom")
         time.sleep(0.3)  # test harness: one workspace at a time
     for _ in range(4):
         action("newTab")
@@ -363,7 +387,61 @@ def dock():
         record("dock", "undock-" + edge, lambda: action("column.undock"))
 
 
-SURFACES = {"tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts, "popups": popups, "hover": hover, "groups": groups, "drag": drag, "dock": dock, "newtab": newtab}
+def sidebar():
+    # Workspace rows open and close their slots: a new one at the end, one
+    # closed in the middle (rows below close the gap), the last one closed.
+    for _ in range(3):
+        action("workspace.newAtBottom")
+        time.sleep(0.4)  # test harness: one workspace at a time
+    save_layout("sidebar")
+    record("sidebar", "insert", lambda: action("workspace.newAtBottom"))
+    # The second workspace row is selected with a click (no action selects it by place).
+    rows = ((rpc("debug.sidebar_rows") or {}).get("windows") or [{}])[0].get("rows") or []
+    workspaces = [r for r in rows if str(r.get("key", "")).startswith("workspace")]
+    print("workspace rows:", len(workspaces), flush=True)
+    if len(workspaces) > 2:
+        f = workspaces[1]["window_frame"]
+        rpc("debug.mouse", {"action": "click", "x": f["x"] + 40, "y": f["y"] + f["height"] / 2})
+        time.sleep(0.4)  # test harness: the selection settles
+    record("sidebar", "remove-middle", lambda: action("closeWorkspace", args={"confirm": True}))
+    action("workspace.selectLast")
+    time.sleep(0.3)  # test harness: the selection settles
+    record("sidebar", "remove-last", lambda: action("closeWorkspace", args={"confirm": True}))
+
+
+def palette():
+    # The palette opens over the window and closes again. Tab search opens it
+    # over the active window (a child of it); a capture slot's app never
+    # activates, and the palette opened with no key window closes at once.
+    save_layout("palette")
+    record("palette", "open", lambda: action("tab.search", focus=True))
+    print("palette open:", json.dumps(rpc("debug.palette.capture", {"path": os.path.join(opts.out, "palette", "open.png")}))[:200], flush=True)
+    record("palette", "close", lambda: rpc("debug.key", {"key": "escape", "target": "palette"}))
+    print("palette closed:", json.dumps(rpc("debug.palette.capture", {"path": os.path.join(opts.out, "palette", "closed.png")}))[:200], flush=True)
+
+def hovercard():
+    # A tab hover card shows after the pointer rests on a tab, then moves to
+    # the next tab (a retarget: one tab's thumbnail replaces the other's).
+    for _ in range(2):
+        action("newSurface")
+        time.sleep(0.5)  # test harness: one tab at a time
+    save_layout("hovercard")
+    pill = first_pill()
+    if not pill:
+        print("hovercard: skipped, pane_chrome reports no tab pill", flush=True)
+        return
+    left, top, width, height = pill
+    y = opts.window_height - (top + height / 2)
+    first, second = (left + width / 2, y), (left + width * 1.5, y)
+    rpc("debug.pointer_hover", {"point": list(first)})
+    record("hovercard", "show", lambda: time.sleep(0.05), seconds=2.5)  # test harness: the card's show delay
+    record("hovercard", "retarget", lambda: rpc("debug.pointer_hover", {"point": list(second)}))
+    print("hover cards:", json.dumps(rpc("debug.hover_cards"))[:300], flush=True)
+    record("hovercard", "hide", lambda: rpc("debug.pointer_hover", {"point": None}))
+
+
+
+SURFACES = {"tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts, "popups": popups, "hover": hover, "groups": groups, "drag": drag, "dock": dock, "newtab": newtab, "sidebar": sidebar, "palette": palette, "hovercard": hovercard}
 
 
 def main():

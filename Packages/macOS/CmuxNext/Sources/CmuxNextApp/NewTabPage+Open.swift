@@ -77,19 +77,21 @@ extension NewTabPage {
     /// The page chose a terminal or browser: open it, then close the page,
     /// which held nothing yet (the open-beside rule's one replace case). The
     /// page closes only once the new tab exists, so a refused or failed open
-    /// leaves it, and what was typed, in place.
+    /// leaves it, and what was typed, in place. A chat that has a session
+    /// (`keep`: its Log In, Update or Open in Terminal) stays; the new tab opens beside it.
     /// A static of the page, not the pane, so PaneController stays one
     /// responsibility (the godfile limit counts its extensions).
-    static func replace(_ key: String, with request: AgentPaneOpenTab, cwd: String?, in pane: PaneController) {
+    static func replace(_ key: String, with request: AgentPaneOpenTab, cwd: String?, in pane: PaneController, keep: Bool = false) {
         let services = pane.services
         services.keyRouter.newTabInputCoordinator.cancel(in: pane.view.window)
         openingPanes.remove(ObjectIdentifier(pane))
         // The page closes one frame after the new tab shows, so the frame that builds the
         // terminal surface does not also pay for the page (R81: 17.8 ms frames at 120 Hz).
         let close: @MainActor (SurfaceID) -> Void = { [weak pane] _ in
+            guard !keep else { return }
             closeFrame.scheduleFrame { BenchSpans.measure("newTab.closePage") { pane?.close([StripTabID(key)]) } }
         }
-        let closePage = NewTabSlot.placing(replacing: key, services: services, then: close) ?? close // the page's slot
+        let closePage = keep ? close : NewTabSlot.placing(replacing: key, services: services, then: close) ?? close // the page's slot
         switch request.kind {
         case .terminal where !request.run:
             // `!` on the screen: type, never run; keys typed while the
@@ -115,7 +117,7 @@ extension NewTabPage {
                 pane.newBrowserTab(url: url, engine: engine, then: closePage)
             } else {
                 // A refused tab (a Chromium page without Chromium) keeps the page.
-                if pane.newBrowserTab(url: url, engine: engine) { pane.close([StripTabID(key)]) }
+                if pane.newBrowserTab(url: url, engine: engine), !keep { pane.close([StripTabID(key)]) }
             }
         case .agent:
             return

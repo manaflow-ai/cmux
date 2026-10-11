@@ -1,4 +1,4 @@
-// A changed file's More menu: Copy path, Open file in a tab,
+// A changed file's More menu: Stage or Unstage in a git scope, Copy path, Open file in a tab,
 // and Collapse file (Expand file when folded). Shared Base UI owns the menu's
 // arrows, typeahead, Escape and focus restoration.
 import { More } from "../changeIcons";
@@ -12,6 +12,7 @@ export function FileMenu({
   collapsed,
   onToggleCollapsed,
   onOpenInTab,
+  stage,
 }: {
   path: string;
   name: string;
@@ -19,9 +20,12 @@ export function FileMenu({
   onToggleCollapsed: () => void;
   /// Absent for a file with nothing on disk to open, such as a deleted one.
   onOpenInTab?: () => void;
+  /// Stage or Unstage (cx-tcwj), where the scope's files can be.
+  stage?: { label: string; run: () => void };
 }) {
   const t = useT();
   const items = [
+    ...(stage ? [{ label: stage.label, run: stage.run }] : []),
     // Clipboard fallback runs after the menu has closed; it must not steal focus from a field the
     // user chooses while an async clipboard write is pending.
     { label: t("changes.copyPath"), run: () => copyText(path) },

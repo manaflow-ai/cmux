@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "0a08a875e173efa536624add3aca585497509e759536a0ad1843beadd1574ff8";
+pub const ir_sha256 = "d7197176d6626400cd73cde71531657da3412e0ecfceb822df0e6b1bfb7fe9eb";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -522,12 +522,15 @@ pub const ConversationTabRecord = struct {
     owner: ?[]const u8 = null,
     /// Page source (page-tabs-v1): the id of one of the app's own pages; exclusive with the other sources.
     page: ?[]const u8 = null,
+    /// What the page shows (page-tab-route-v1): a viewer's file or folder or a page's sub-view, 1 to 4096 bytes without control characters; only with page.
+    route: ?[]const u8 = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "agent_session",
         "conversation",
         "owner",
         "page",
+        "route",
     };
 };
 
@@ -541,6 +544,14 @@ pub const ConversationTextRun = struct {
         "link",
         "mention",
     };
+};
+
+pub const ConversationThreadSummary = struct {
+    authors: []const []const u8,
+    last_reply_at: wire.Nullable([]const u8),
+    last_reply_seq: wire.Nullable(u64),
+    reply_count: u64,
+    root: []const u8,
 };
 
 pub const CopyResultMode = enum {
@@ -3751,6 +3762,28 @@ pub fn cloudConversationSubscribe(client: anytype, request: CloudConversationSub
     );
 }
 
+pub const CloudConversationThreadRequest = struct {
+    after_seq: wire.Field(u64) = .absent,
+    conversation: []const u8,
+    limit: wire.Field(u32) = .absent,
+    root: []const u8,
+};
+
+pub const CloudConversationThreadResult = JsonValue;
+
+pub fn cloudConversationThread(client: anytype, request: CloudConversationThreadRequest) !wire.Decoded(CloudConversationThreadResult) {
+    return client.callTyped(
+        CloudConversationThreadResult,
+        .{
+            .name = "cloud-conversation-thread",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "conversation-thread-v1",
+        },
+        request,
+    );
+}
+
 pub const CloudConversationUnsubscribeRequest = struct {
     conversation: []const u8,
 };
@@ -4113,6 +4146,11 @@ pub const ConversationHistoryRequest = struct {
 
 pub const ConversationHistoryResult = struct {
     messages: []const ConversationMessage,
+    threads: ?[]const ConversationThreadSummary = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "threads",
+    };
 };
 
 pub fn conversationHistory(client: anytype, request: ConversationHistoryRequest) !wire.Decoded(ConversationHistoryResult) {
@@ -4235,6 +4273,11 @@ pub const ConversationSnapshotRequest = struct {
 pub const ConversationSnapshotResult = struct {
     conversation: ConversationSummary,
     messages: []const ConversationMessage,
+    threads: ?[]const ConversationThreadSummary = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "threads",
+    };
 };
 
 pub fn conversationSnapshot(client: anytype, request: ConversationSnapshotRequest) !wire.Decoded(ConversationSnapshotResult) {
@@ -4245,6 +4288,37 @@ pub fn conversationSnapshot(client: anytype, request: ConversationSnapshotReques
             .authority = "local-admin",
             .since = 12,
             .capability = "local-conversations-v1",
+        },
+        request,
+    );
+}
+
+pub const ConversationThreadRequest = struct {
+    after_seq: ?u64 = null,
+    conversation: []const u8,
+    limit: wire.Field(u32) = .absent,
+    root: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "after_seq",
+    };
+};
+
+pub const ConversationThreadResult = struct {
+    has_more: bool,
+    replies: []const ConversationMessage,
+    root: ConversationMessage,
+    thread: ConversationThreadSummary,
+};
+
+pub fn conversationThread(client: anytype, request: ConversationThreadRequest) !wire.Decoded(ConversationThreadResult) {
+    return client.callTyped(
+        ConversationThreadResult,
+        .{
+            .name = "conversation-thread",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "conversation-thread-v1",
         },
         request,
     );
@@ -6031,6 +6105,7 @@ pub const NewConversationTabRequest = struct {
     owner: wire.Field([]const u8) = .absent,
     page: wire.Field([]const u8) = .absent,
     pane: wire.Field(Id) = .absent,
+    route: wire.Field([]const u8) = .absent,
     rows: wire.Field(u16) = .absent,
     /// Client transaction id (1 to 128 printable ASCII), echoed on the created tab's tab-added delta and in the result.
     transaction: wire.Field([]const u8) = .absent,
@@ -6062,6 +6137,7 @@ pub fn newConversationTab(client: anytype, request: NewConversationTabRequest) !
             .fields = &.{
                 .{ .name = "agent_session", .since = null, .capability = "agent-session-tabs-v1" },
                 .{ .name = "page", .since = null, .capability = "page-tabs-v1" },
+                .{ .name = "route", .since = null, .capability = "page-tab-route-v1" },
                 .{ .name = "transaction", .since = null, .capability = "conversation-tab-transaction-v1" },
             },
         },
@@ -9939,7 +10015,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 249;
+pub const command_count: usize = 251;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -9978,6 +10054,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "cloud-conversation-op", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-conversation-snapshot", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-conversation-subscribe", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
+    .{ .name = "cloud-conversation-thread", .authority = "local-admin", .since = 12, .capability = "conversation-thread-v1", .stream = null },
     .{ .name = "cloud-conversation-unsubscribe", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-inbox-list", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-inbox-subscribe", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
@@ -10000,6 +10077,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "conversation-op", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "conversation-search", .authority = "local-admin", .since = 12, .capability = "conversation-search-v1", .stream = null },
     .{ .name = "conversation-snapshot", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
+    .{ .name = "conversation-thread", .authority = "local-admin", .since = 12, .capability = "conversation-thread-v1", .stream = null },
     .{ .name = "conversation-typing", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "copy", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "create-bookmark", .authority = "control", .since = 12, .capability = "bookmarks-v1", .stream = null },

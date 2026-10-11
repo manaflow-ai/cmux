@@ -94,6 +94,11 @@ public final class TabModel: Identifiable {
         kind == .conversation ? snapshot.conversation?.page : nil
     }
 
+    /// What a page tab shows (`page-tab-route-v1`); nil for none or any other tab.
+    public var pageRoute: String? {
+        kind == .conversation ? snapshot.conversation?.route : nil
+    }
+
     init(_ s: TabSnapshot) {
         id = Self.identity(s)
         snapshot = s
