@@ -90,9 +90,9 @@ final class AgentTurnStateFeed {
     /// One decoded line of the watch (decoded off the main actor).
     nonisolated enum Message: Sendable {
         /// The watch result: every session's state and the turns that start seen.
-        case page(AgentTurnStates, settled: [Settled])
-        /// One `_acpmux/session_changed`: the session's new state (nil: none, or purged).
-        case change(session: String, state: AgentTurnState?)
+        case page(AgentTurnStates, settled: [Settled], lastMessages: [String: String])
+        /// One `_acpmux/session_changed`: the session's new state (nil: none, or purged) and last message.
+        case change(session: String, state: AgentTurnState?, lastMessage: String?)
 
         nonisolated struct Settled: Sendable {
             let session: String
@@ -104,10 +104,11 @@ final class AgentTurnStateFeed {
             if (message["id"] as? NSNumber)?.intValue == 2, let result = message["result"] as? [String: Any] {
                 var states = AgentTurnStates()
                 states.reset(result)
-                self = .page(states, settled: AgentTurnStates.settledTurns(result).map { Settled(session: $0.session, turn: $0.turn) })
+                self = .page(states, settled: AgentTurnStates.settledTurns(result).map { Settled(session: $0.session, turn: $0.turn) },
+                             lastMessages: AgentTurnStates.lastMessages(result))
             } else if message["method"] as? String == "_acpmux/session_changed", let params = message["params"] as? [String: Any],
                       let change = AgentTurnStates.change(params) {
-                self = .change(session: change.session, state: change.state)
+                self = .change(session: change.session, state: change.state, lastMessage: change.lastMessage)
             } else {
                 return nil
             }
@@ -116,16 +117,18 @@ final class AgentTurnStateFeed {
 
     private func handle(_ message: Message) {
         switch message {
-        case .page(let states, let settled):
+        case .page(let states, let settled, let lastMessages):
             backoff.reset()
             for turn in settled {
                 ProgramStatusSeenStore.shared.markTurnSeen(session: turn.session, turn: turn.turn)
             }
             if turns.states != states { turns.states = states }
-        case .change(let session, let state):
+            if turns.lastMessages != lastMessages { turns.lastMessages = lastMessages }
+        case .change(let session, let state, let lastMessage):
             // Most session records leave the indicator as it was: write (and so redraw the
             // tabs and rows that observe the store) only when the state differs.
             if turns.states[session] != state { turns.states.set(session, state) }
+            if turns.lastMessages[session] != lastMessage { turns.lastMessages[session] = lastMessage }
         }
     }
 
@@ -134,6 +137,7 @@ final class AgentTurnStateFeed {
         subscription = nil
         // A closed watch knows nothing: no stale working dots until it reconnects.
         turns.states.clear()
+        turns.lastMessages = [:]
         logger.info("agent turn states: watch closed")
         reconnect?.cancel()
         reconnect = Task { [weak self] in
