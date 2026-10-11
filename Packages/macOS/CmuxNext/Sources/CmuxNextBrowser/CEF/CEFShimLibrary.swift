@@ -57,6 +57,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let stop: @convention(c) (Int32) -> Void
     let setFocus: @convention(c) (Int32, Int32) -> Void
     let setZoomLevel: @convention(c) (Int32, Double) -> Void
+    /// Chromium's print preview over the page; 0 when the browser is gone.
+    let printPage: @convention(c) (Int32) -> Int32
     let find: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, Int32, Int32, Int32) -> Void
     let stopFinding: @convention(c) (Int32, Int32) -> Void
     let close: @convention(c) (Int32) -> Void
@@ -256,6 +258,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         stop = try r("cmux_shim_stop")
         setFocus = try r("cmux_shim_set_focus")
         setZoomLevel = try r("cmux_shim_set_zoom_level")
+        printPage = try r("cmux_shim_print")
         find = try r("cmux_shim_find")
         stopFinding = try r("cmux_shim_stop_finding")
         close = try r("cmux_shim_close")

@@ -75,6 +75,9 @@ manifest "$run_sha" "$src/assets/tree" "${names[@]}" > "$cdn/$run_sha/manifest.j
 # The Windows daemon's own commit prefix: cmux-tui-windows/<sha>/ (served from $cdn/windows/).
 mkdir -p "$cdn/windows/$run_sha"
 manifest "$run_sha" "$src/assets/tree" "${windows_names[@]}" > "$cdn/windows/$run_sha/manifest.json"
+# This run published its commit, so the commit prefixes serve its build.
+for n in "${names[@]}"; do cp "$src/assets/tree/$n" "$cdn/$run_sha/$n"; done
+for n in "${windows_names[@]}"; do cp "$src/assets/tree/$n" "$cdn/windows/$run_sha/$n"; done
 manifest "$other" "$cdn/$other" "${names[@]}" > "$cdn/$other/manifest.json"
 # v2: a partial publication by the other commit (source.json only). v1: nothing.
 printf '{"key": "%s", "commit": "%s"}\n' "$v2" "$other" > "$cdn/tree/$v2/source.json"
