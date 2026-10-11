@@ -12,10 +12,11 @@ const MENTION_DEBOUNCE_MS = 80;
 
 /// The `@word` before the caret: where its `@` starts in the markdown and the word typed so far
 /// (backslash escapes undone), or undefined when the caret is not in one. An `@` inside a word (an
-/// email address) or inside an inline code span is not a mention.
+/// email address) or inside an inline code span is not a mention. The prompt's markdown writes a
+/// space after an escaped character as an entity (`\_\_init\_\_.py&#x20;`), which ends the word too.
 export function mentionQuery(markdown: string, at: number): { start: number; query: string } | undefined {
   const before = markdown.slice(0, at);
-  const found = /(^|\s|&#x20;|&#32;|&nbsp;)@((?:\\.|[^\s\\@])*)$/i.exec(before);
+  const found = /(^|\s|&#x20;|&#32;|&nbsp;)@((?:\\.|(?!&#x20;|&#32;|&nbsp;)[^\s\\@])*)$/i.exec(before);
   if (!found) return undefined;
   const start = before.length - found[2]!.length - 1;
   // An odd number of backticks before it: inside a code span.
