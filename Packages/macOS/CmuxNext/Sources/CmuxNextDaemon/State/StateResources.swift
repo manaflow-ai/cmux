@@ -21,9 +21,11 @@ public struct ClosedItem: Sendable, Hashable, Identifiable, Decodable {
         public var url: String?
         public var browserProfileID: String?
         public var pinned: Bool
+        /// The page a closed page tab showed (`page-tabs-v1`); its `url` is then `about:blank`.
+        public var page: String?
 
         enum CodingKeys: String, CodingKey {
-            case kind, name, cwd, url, pinned
+            case kind, name, cwd, url, pinned, page
             case browserProfileID = "browser_profile_id"
         }
 
@@ -45,6 +47,7 @@ public struct ClosedItem: Sendable, Hashable, Identifiable, Decodable {
             url = try c.decodeIfPresent(String.self, forKey: .url)
             browserProfileID = try c.decodeIfPresent(String.self, forKey: .browserProfileID)
             pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
+            page = try c.decodeIfPresent(String.self, forKey: .page)
         }
     }
 
