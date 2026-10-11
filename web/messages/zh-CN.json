@@ -35,6 +35,11 @@
       "message": "这台机器未能及时响应，因此请求无法完成。",
       "action": "先暂停机器，再继续运行，然后重试。在 Mac 应用中，先选择“暂停机器”，再选择“继续运行机器”。在终端中，先运行 cmux vm pause '<machine>'，再运行 cmux vm resume '<machine>'。"
     },
+    "providerTimeout": {
+      "title": "云服务提供商响应缓慢",
+      "message": "云服务提供商未能及时响应。",
+      "action": "请稍后重试。"
+    },
     "networkRuleCapacity": {
       "title": "网络规则已达上限",
       "message": "网络策略已保存，但未应用：cmux Cloud 的网络规则已达上限。",

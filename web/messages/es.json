@@ -35,6 +35,11 @@
       "message": "Esta máquina no respondió a tiempo, así que la solicitud no pudo completarse.",
       "action": "Pausa la máquina, luego reanúdala y vuelve a intentarlo. En la app de Mac, elige Pausar máquina y luego Reanudar máquina. En una terminal, ejecuta cmux vm pause '<machine>' y luego cmux vm resume '<machine>'."
     },
+    "providerTimeout": {
+      "title": "El proveedor de la nube va lento",
+      "message": "El proveedor de la nube no respondió a tiempo.",
+      "action": "Vuelve a intentarlo en un momento."
+    },
     "networkRuleCapacity": {
       "title": "Reglas de red al límite",
       "message": "Tu política de red se guardó, pero no se aplicó: cmux Cloud alcanzó su capacidad de reglas de red.",

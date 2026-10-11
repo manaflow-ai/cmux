@@ -33,6 +33,7 @@ import {
   type VmCreateInProgressError,
   type VmResourcePoolExceededError,
   type VmModelPlaneError,
+  type VmOperationDeadlineError,
   type VmOperationUnsupportedError,
   type VmProviderOperationError,
   type VmSnapshotNotFoundError,
@@ -64,6 +65,7 @@ import {
   vmCreateCleanupPendingCopy,
   vmGuestInstallCopy,
   vmRecreateRequiredCopy,
+  vmProviderTimeoutCopy,
   vmGuestUnresponsiveCopy,
   vmNetworkRuleCapacityCopy,
   vmRequestLocale,
@@ -1146,7 +1148,28 @@ export const vmWorkflowErrorResponders = {
   VmCreateCreditsInsufficientError: () => null,
   // Only account deletion raises this, and that route owns the answer.
   VmAccountDeletionIdentityRevocationError: () => null,
+  VmOperationDeadlineError: (error, context) => vmOperationDeadlineResponse(error, context.locale),
 } as const satisfies VmWorkflowErrorResponders;
+
+/**
+ * A read's answer deadline passed (routeDeadline.ts): a retryable provider
+ * timeout, not the generic outage.
+ */
+async function vmOperationDeadlineResponse(error: VmOperationDeadlineError, locale: Locale): Promise<Response> {
+  const copy = await vmProviderTimeoutCopy(locale);
+  return vmErrorResponse({
+    error: "vm_provider_timeout",
+    status: 504,
+    message: copy.message,
+    action: copy.action,
+    phase: vmPhaseForOperation(error.operation),
+    retryable: true,
+    retryAfterSeconds: 5,
+    displayTitle: copy.title,
+    displayMessage: copy.message,
+    details: { operation: error.operation, retryable: true, waitedMs: error.waitedMs },
+  });
+}
 
 /** Answer one typed workflow error: route overrides first, then the shared table. */
 export async function respondVmWorkflowError(

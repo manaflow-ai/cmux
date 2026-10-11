@@ -176,6 +176,11 @@
       "message": "This machine did not respond in time, so the request could not finish.",
       "action": "Pause the machine, then resume it, and try again. In the Mac app, choose Pause machine, then Resume machine. In a terminal, run cmux vm pause '<machine>', then cmux vm resume '<machine>'."
     },
+    "providerTimeout": {
+      "title": "Cloud provider is slow",
+      "message": "The cloud provider did not answer in time.",
+      "action": "Try again in a moment."
+    },
     "networkRuleCapacity": {
       "title": "Network rules at capacity",
       "message": "Your network policy is saved but was not applied: cmux Cloud has reached its network rule capacity.",

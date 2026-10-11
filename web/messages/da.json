@@ -35,6 +35,11 @@
       "message": "Maskinen svarede ikke i tide, så anmodningen kunne ikke gennemføres.",
       "action": "Sæt maskinen på pause, genoptag den, og prøv igen. I Mac-appen skal du vælge Sæt maskine på pause og derefter Genoptag maskine. I en terminal skal du køre cmux vm pause '<machine>' og derefter cmux vm resume '<machine>'."
     },
+    "providerTimeout": {
+      "title": "Cloududbyderen er langsom",
+      "message": "Cloududbyderen svarede ikke i tide.",
+      "action": "Prøv igen om et øjeblik."
+    },
     "networkRuleCapacity": {
       "title": "Netværksregler har nået kapaciteten",
       "message": "Din netværkspolitik er gemt, men blev ikke anvendt: cmux Cloud har nået sin kapacitet for netværksregler.",

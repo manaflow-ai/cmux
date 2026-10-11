@@ -269,6 +269,17 @@ export class VmModelPlaneError extends Data.TaggedError("VmModelPlaneError")<{
   readonly cause: unknown;
 }> {}
 
+/**
+ * The route's answer deadline passed while the provider had not answered
+ * (routeDeadline.ts). A read answers a retryable provider timeout.
+ * `mutating` is reserved for mutations, which a later stage bounds.
+ */
+export class VmOperationDeadlineError extends Data.TaggedError("VmOperationDeadlineError")<{
+  readonly operation: string;
+  readonly mutating: boolean;
+  readonly waitedMs: number;
+}> {}
+
 export type VmWorkflowError =
   | VmMemoryPlanError
   | VmResizePlanLimitError
@@ -306,7 +317,8 @@ export type VmWorkflowError =
   | VmAccessGrantRevokedError
   | VmAccessGrantMutationBusyError
   | VmAccountDeletionIdentityRevocationError
-  | VmModelPlaneError;
+  | VmModelPlaneError
+  | VmOperationDeadlineError;
 
 export function isVmPrivateNetworkUnavailableError(
   err: unknown,
@@ -467,6 +479,7 @@ const vmWorkflowErrorTagRecord = {
   VmAccessGrantMutationBusyError: true,
   VmAccountDeletionIdentityRevocationError: true,
   VmModelPlaneError: true,
+  VmOperationDeadlineError: true,
 } as const satisfies Record<VmWorkflowError["_tag"], true>;
 
 const vmWorkflowErrorTags: ReadonlySet<string> = new Set(Object.keys(vmWorkflowErrorTagRecord));
