@@ -180,18 +180,4 @@ final class CEFTabContentView: NSView {
         }
         tab?.applyOcclusion()
     }
-
-    /// Shows `image` over the page area (nil removes it).
-    func showSnapshot(_ image: CGImage?) {
-        if let image {
-            let page = tab?.devToolsController.frames(in: bounds).page ?? bounds
-            snapshotView.image = NSImage(cgImage: image, size: page.size)
-            snapshotView.frame = page
-            if snapshotView.superview == nil { addSubview(snapshotView) }
-            snapshotView.isHidden = false
-        } else {
-            snapshotView.isHidden = true
-            snapshotView.image = nil
-        }
-    }
 }

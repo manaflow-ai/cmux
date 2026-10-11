@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "a8d165659e8607a7f94576bdeb04eca2a456618099082713cba92919e304f2f1";
+inline constexpr std::string_view kProtocolIrSha256 = "d0a42dd548cef14d5af8234261f78079a10780e9a690f24c76e0110d85c41616";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -270,6 +270,8 @@ struct ConversationBindRequest;
 struct ConversationBindResult;
 struct ConversationCreateRequest;
 struct ConversationCreateResult;
+struct ConversationDraftRequest;
+struct ConversationDraftResult;
 struct ConversationHistoryRequest;
 struct ConversationHistoryResult;
 struct ConversationImportRequest;
@@ -1725,6 +1727,8 @@ struct ConversationReaction {
 };
 
 struct ConversationMessage {
+    std::optional<std::vector<std::string>> answers{};
+    std::optional<std::vector<std::string>> answers_pending{};
     std::string author{};
     std::string client_msg_id{};
     std::string conversation{};
@@ -1736,6 +1740,7 @@ struct ConversationMessage {
     std::optional<ConversationPartRef> reply_to{};
     std::optional<std::string> retracted_at{};
     std::uint64_t seq{};
+    std::optional<std::string> thread_root{};
     friend bool operator==(const ConversationMessage&, const ConversationMessage&) = default;
 };
 
@@ -1792,6 +1797,25 @@ struct ConversationCreateResult {
     ConversationSummary conversation{};
     bool replayed{};
     friend bool operator==(const ConversationCreateResult&, const ConversationCreateResult&) = default;
+};
+
+struct ConversationDraftRequest {
+    std::string conversation{};
+    bool done{};
+    bool fresh{};
+    Field<std::string> harness{};
+    std::string kind{};
+    std::uint64_t segment{};
+    std::uint64_t seq{};
+    std::string text{};
+    Field<bool> truncated{};
+    std::string turn{};
+    friend bool operator==(const ConversationDraftRequest&, const ConversationDraftRequest&) = default;
+};
+
+struct ConversationDraftResult {
+    bool published{};
+    friend bool operator==(const ConversationDraftResult&, const ConversationDraftResult&) = default;
 };
 
 struct ConversationHistoryRequest {
@@ -2556,7 +2580,9 @@ struct IdentifyRequest {
 
 struct IdentifyResult {
     Field<std::string> build_commit{};
+    Field<std::string> build_id{};
     std::optional<std::vector<std::string>> capabilities{};
+    Field<std::string> cli_path{};
     std::string generation{};
     Field<std::string> ghostty_commit{};
     Field<std::string> launch_snapshot_path{};
@@ -6629,6 +6655,18 @@ template <>
 struct Codec<ConversationCreateResult> {
     static Result<Json> encode(const ConversationCreateResult& value);
     static Result<ConversationCreateResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationDraftRequest> {
+    static Result<Json> encode(const ConversationDraftRequest& value);
+    static Result<ConversationDraftRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationDraftResult> {
+    static Result<Json> encode(const ConversationDraftResult& value);
+    static Result<ConversationDraftResult> decode(const Json& value);
 };
 
 template <>

@@ -544,9 +544,12 @@ class ConversationMessage:
     parts: List[ConversationPart]
     reactions: List[ConversationReaction]
     seq: int
+    answers: Union[List[str], MissingType] = field(default=MISSING)
+    answers_pending: Union[List[str], MissingType] = field(default=MISSING)
     edited_at: Union[str, MissingType] = field(default=MISSING)
     reply_to: Union[ConversationPartRef, MissingType] = field(default=MISSING)
     retracted_at: Union[str, MissingType] = field(default=MISSING)
+    thread_root: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -841,7 +844,9 @@ class IdentifyResult:
     version: str
     workspace_revision: int
     build_commit: Union[str, None, MissingType] = field(default=MISSING)
+    build_id: Union[str, None, MissingType] = field(default=MISSING)
     capabilities: Union[List[str], MissingType] = field(default=MISSING)
+    cli_path: Union[str, None, MissingType] = field(default=MISSING)
     ghostty_commit: Union[str, None, MissingType] = field(default=MISSING)
     launch_snapshot_path: Union[str, None, MissingType] = field(default=MISSING)
     lifecycle_ready: Union[bool, MissingType] = field(default=MISSING)
@@ -2446,6 +2451,27 @@ class ConversationCreateResult:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-create/result'
     conversation: ConversationSummary
     replayed: bool
+
+
+@dataclass(frozen=True)
+class ConversationDraftRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-draft/request'
+    conversation: str
+    done: bool
+    fresh: bool
+    kind: str
+    segment: int
+    seq: int
+    text: str
+    turn: str
+    harness: Union[str, None, MissingType] = field(default=MISSING)
+    truncated: Union[bool, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ConversationDraftResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-draft/result'
+    published: bool
 
 
 @dataclass(frozen=True)
@@ -5332,6 +5358,8 @@ __all__ = [
     'ConversationBindResult',
     'ConversationCreateRequest',
     'ConversationCreateResult',
+    'ConversationDraftRequest',
+    'ConversationDraftResult',
     'ConversationHistoryRequest',
     'ConversationHistoryResult',
     'ConversationImportRequest',

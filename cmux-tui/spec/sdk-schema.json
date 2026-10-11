@@ -1997,6 +1997,26 @@
      "nullable": true,
      "since": 12,
      "capability": "launch-snapshot-v1"
+    },
+    "build_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "capability": "daemon-build-v1"
+    },
+    "cli_path": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "capability": "daemon-build-v1"
     }
    },
    "additional_properties": false
@@ -7160,6 +7180,36 @@
      "type": {
       "kind": "ref",
       "name": "ConversationPartRef"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "answers": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "answers_pending": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "thread_root": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
      },
      "presence": "optional",
      "nullable": false
@@ -20004,6 +20054,115 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. Ephemeral: never stored. See spec/commands.md."
+   ]
+  },
+  "conversation-draft": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "conversation-draft-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "turn": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "segment": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "seq": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "kind": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "text": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "fresh": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "done": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "truncated": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
+     "harness": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "published": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only; the connection's bound agent participant publishes. Ephemeral: never stored, only on conversation.events. See spec/commands.md."
    ]
   },
   "conversation-bind": {

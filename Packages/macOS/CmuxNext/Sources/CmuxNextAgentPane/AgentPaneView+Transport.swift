@@ -25,6 +25,7 @@ extension AgentPaneView {
         let pacer = AgentPaneFramePacer(view: self)
         transportPacer = pacer
         model.transport.pacer = pacer
+        model.transport.onOtherInstall = { [weak self] other in self?.showOtherInstallNotice(other) }
         model.transport.deliver = { [weak self] event, done in
             guard let self else { return done() }
             if let pageEvents = self.pageEvents {

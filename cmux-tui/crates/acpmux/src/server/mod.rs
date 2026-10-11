@@ -821,7 +821,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 ));
             }
         }
-        if rec.dir == "mux" && rec.kind == "permission_request" {
+        if rec.dir == "mux" && is_permission_ask(&rec.kind) {
             conn.send(&Message::notification(
                 method::MUX_PERMISSION_PENDING,
                 permission_pending(&ev.session_id, rec, "attach"),
@@ -877,6 +877,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             | "turn_result" => rec.kind.as_str(),
             "queued" | "dequeued" | "queue_removed" => "queue",
             "permission_auto" => "permission_resolved",
+            "permission_reissued" => "permission_request",
             _ => return,
         };
         if let Ok(s) = hub.resolve(&ev.session_id) {
@@ -886,7 +887,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             ));
         }
         // A watcher that is not attached still learns a permission is waiting.
-        if rec.kind == "permission_request" && !attached {
+        if is_permission_ask(&rec.kind) && !attached {
             conn.send(&Message::notification(
                 method::MUX_PERMISSION_PENDING,
                 permission_pending(&ev.session_id, rec, "watch"),
@@ -895,6 +896,16 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     }
 }
 
+/// A record that asks a client to answer a prompt: a new one, or one the
+/// next daemon adopted with a new decision nonce (`hub/hosts.rs`).
+fn is_permission_ask(kind: &str) -> bool {
+    matches!(kind, "permission_request" | "permission_reissued")
+}
+
+/// The `_acpmux/permission_pending` notification. The record's
+/// `decisionNonce` and `personInstance` (the daemon run that asks, also for a
+/// peer's session) are what a relayed allow's decision proof covers
+/// (`hub/person.rs`, cx-0q7o).
 fn permission_pending(session_id: &str, rec: &EventRecord, via: &str) -> Value {
     let mut p = rec.msg.clone();
     p["sessionId"] = Value::String(session_id.to_owned());

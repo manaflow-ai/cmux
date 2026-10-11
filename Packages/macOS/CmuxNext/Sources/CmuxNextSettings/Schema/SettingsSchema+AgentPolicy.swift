@@ -46,7 +46,7 @@ extension SettingsSchema {
         "tabs.plusButton",
         "tabs.barPosition", "tabs.barOrder",
         "navigation.historyScope", "navigation.history.scope",
-        "sidebar.minimalMode",
+        "sidebar.minimalMode", "sidebar.minimal",
         "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps",
         "sidebar.side",
         "sidebar.spacesPosition", "sidebar.spacesVisibility",
@@ -169,6 +169,8 @@ extension SettingsSchema {
         "history.terminalCommands": .privacy,
         "feed.mirrorNotifications.agents": .privacy,
         "feed.mirrorNotifications.terminal": .privacy,
+        // An agent must not turn on sending its own prompts to the phone (cx-aocz).
+        "feed.agentPermissionPrompts": .privacy,
         "feed.github.enabled": .network,
         "feed.github.pollIntervalSeconds": .network,
         "browser.remoteLocalhost": .network,

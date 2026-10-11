@@ -589,12 +589,25 @@ impl Hub {
         // so its answers are checked like a new ask's.
         super::questions::normalize(&mut request);
         let (tx, rx) = oneshot::channel();
-        session
-            .permissions
-            .lock()
-            .unwrap()
-            .pending
-            .insert(permission_id.clone(), PendingPermission { request, reply: tx });
+        let decision_nonce = super::person::new_nonce();
+        session.permissions.lock().unwrap().pending.insert(
+            permission_id.clone(),
+            PendingPermission {
+                request: request.clone(),
+                reply: tx,
+                decision_nonce: decision_nonce.clone(),
+            },
+        );
+        // The prompt's new nonce under this daemon run, for a relayed allow
+        // (`person.rs`): clients get it as `_acpmux/permission_pending`.
+        self.append(
+            session,
+            "mux",
+            "permission_reissued",
+            json!({"permissionId": permission_id, "decisionNonce": decision_nonce,
+                   "personInstance": self.person.instance(), "request": request,
+                   "agentRequestId": agent_request_id.clone()}),
+        );
         self.set_status(session, SessionStatus::Waiting);
         let hub = self.clone();
         let s = session.clone();
@@ -706,6 +719,7 @@ impl Hub {
             socket: crate::agent_host::socket_path(&hosts, &session.id),
             hosts_dir: hosts,
             buffer_cap: crate::agent_host::DEFAULT_BUFFER_CAP,
+            router_owner_fifo: crate::daemon::router_owner_path(),
         };
         let launcher = crate::agent_host::link::HostLauncher::current().map_err(internal)?;
         let record = crate::agent_host::link::spawn(&launcher, &spec).await.map_err(internal)?;

@@ -121,7 +121,10 @@ mod admission;
 #[cfg(unix)]
 mod agent_session_attach;
 #[cfg(unix)]
-pub use agent_session_attach::AGENT_SESSION_ATTACH_CAPABILITY;
+pub use agent_session_attach::{
+    AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_START_CAPABILITY, AcpmuxStarter, AgentStartHost,
+    AgentStartHostSource,
+};
 mod app_trust;
 pub use app_trust::{FrontendKey, frontend_proof, install_frontend_key, read_frontend_key};
 mod client_hello;
@@ -227,6 +230,8 @@ mod terminal_resources;
 mod terminal_snapshot;
 use terminal_snapshot::{attach_overflow_json, handle_attach_send_error, report_attach_overflow};
 mod capabilities;
+mod daemon_build;
+pub use daemon_build::{DAEMON_BUILD_CAPABILITY, DaemonBuild, install_daemon_build};
 mod socket_path;
 #[cfg(test)]
 use socket_path::default_socket_path_in_runtime_dir;
@@ -1602,6 +1607,7 @@ enum Command {
     HistorySearch(history_search::HistorySearchParams),
     ConversationOp(conversations::OpParams),
     ConversationTyping(conversations::TypingParams),
+    ConversationDraft(conversations::DraftParams),
     ConversationBind(conversations::BindParams),
     ConversationAgentToken(conversations::AgentTokenParams),
     /// Cloud conversations proxy (`cloud-conversations-v1`,
@@ -3466,6 +3472,7 @@ fn handle_command_with_cancellation(
         Command::HistorySearch(params) => history_search::search(mux, client, params),
         Command::ConversationOp(params) => conversations::op(mux, client, params),
         Command::ConversationTyping(params) => conversations::typing(mux, client, params),
+        Command::ConversationDraft(params) => conversations::draft(mux, client, params),
         Command::ConversationBind(params) => conversations::bind(mux, client, params),
         Command::ConversationAgentToken(params) => conversations::agent_token(mux, client, params),
         Command::CloudSessionSet(params) => cloud_conversations::session_set(mux, client, params),

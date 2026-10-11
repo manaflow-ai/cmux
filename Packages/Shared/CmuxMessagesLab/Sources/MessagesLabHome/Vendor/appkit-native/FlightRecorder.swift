@@ -89,7 +89,7 @@ final class FlightRecorder: NSObject {
         let name: String
         switch a {
         case .send: name = "send"; lastSend = CACurrentMediaTime()
-        case let .status(id, s): name = "status \(id) \(s)"
+        case let .status(id, s): name = "status \(id) " + FlightRecorder.describe(s)
         case let .receive(m): name = "receive \(m.id) from \(m.senderId)"
         case let .typing(who, on): name = "typing \(who) \(on)"
         case .setDraft: return
@@ -102,6 +102,18 @@ final class FlightRecorder: NSObject {
         }
         event(name)
         kick()
+    }
+
+    /// The text `String(describing:)` gives a status, without its reflection (about 0.1 ms on the
+    /// receipt's frame, rig take 511).
+    static func describe(_ s: DeliveryStatus) -> String {
+        switch s {
+        case .sending: return "sending"
+        case .sent: return "sent"
+        case let .delivered(at): return "delivered(at: \"\(at)\")"
+        case let .read(at): return "read(at: \"\(at)\")"
+        case let .failed(reason): return "failed(reason: \(reason.map { "Optional(\"\($0)\")" } ?? "nil"))"
+        }
     }
 
     func event(_ s: String) {

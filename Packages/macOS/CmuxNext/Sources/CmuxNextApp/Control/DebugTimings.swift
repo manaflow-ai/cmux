@@ -30,11 +30,6 @@ enum DebugTimings {
         return Double(seconds) * 1_000 + Double(attoseconds) / 1e15
     }
 
-    /// Milliseconds since the process started (kernel start time).
-    nonisolated static var sinceProcessStart: Double {
-        Date().timeIntervalSince(processStart) * 1_000
-    }
-
     private nonisolated static let processStart: Date = {
         var info = kinfo_proc()
         var size = MemoryLayout<kinfo_proc>.stride

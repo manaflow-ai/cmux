@@ -234,9 +234,6 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         onQueued?(queued)
     }
 
-    /// Calls `hook` with the page queue's length after every enqueue (an event, not a poll).
-    func observeQueued(_ hook: (@Sendable (Int) -> Void)?) { state.withLock { $0.onQueued = hook } }
-
     var queuedFrames: Int { state.withLock { $0.inbox.count } }
 
     /// Queues a frame the host made (a refusal) as if the daemon had sent it.
