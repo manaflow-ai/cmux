@@ -9,8 +9,9 @@ than there are views in the window" and the app died. The script walks `appearan
 down, across the whole range up, and back down, once holding each step for a second and once
 without a pause, and checks after every step that the app still answers. The loop depended on
 font metrics at each scale, so it did not trap on every walk; `--walks` repeats the walk. A
-passing run is not proof that a build is free of it; a failing run is. It resets the scale at
-the end.
+passing run is not proof that a build is free of it; a failing run is. Each step writes
+`app.uiScale` to the build's settings file, so run it only against a disposable tagged build
+whose settings file is its own (a capture slot's); it resets the scale when it exits.
 
 It attaches to an app already running (a capture slot's `capture-host launch`, or a tagged
 build) through its debug socket. It never launches or quits the app.
@@ -60,6 +61,14 @@ def main():
         sys.exit("refusing: only a tagged debug socket (/tmp/cmux-debug-<tag>[-capslot<N>].sock)")
     if not alive():
         sys.exit("FAIL the app does not answer on the socket")
+    try:
+        walk_scales()
+    finally:
+        rpc("action.run", {"action": "appearance.uiScale.reset"})
+    print("PASS", flush=True)
+
+
+def walk_scales():
     steps = (("appearance.uiScale.decrease", 4), ("appearance.uiScale.increase", 14), ("appearance.uiScale.decrease", 14))
     for walk in range(1, opts.walks + 1):
         rpc("action.run", {"action": "appearance.uiScale.reset"})
@@ -76,8 +85,6 @@ def main():
                         code = reply["error"].get("code") if isinstance(reply["error"], dict) else reply["error"]
                         print(f"note walk {walk} {action} step {step}: {code}", flush=True)
             print(f"ok walk {walk} gap={gap}", flush=True)
-    rpc("action.run", {"action": "appearance.uiScale.reset"})
-    print("PASS", flush=True)
 
 
 main()
