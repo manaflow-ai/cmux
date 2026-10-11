@@ -87,6 +87,19 @@ struct HeaderSplitOrderTests {
             toggles.toggle(id, cwd: id == "splitRight" ? nil : cwd, url: url, chat: chat, store: store, actions: actions)
         }
 
+        /// The user's own split (Cmd-D), at the right end of the row.
+        func userOpens(_ kind: TabKind) {
+            panes.append((PaneID(rawValue: next), SurfaceID(rawValue: next), kind))
+            next += 1
+            publish()
+        }
+
+        /// The user closes the tab at `index` (left to right) from the tab itself.
+        func userCloses(_ index: Int) {
+            panes.remove(at: index)
+            publish()
+        }
+
         /// The tab at `from` (left to right) dragged to `to`, as the user moves a pane.
         func move(_ from: Int, to: Int) {
             panes.insert(panes.remove(at: from), at: to)
@@ -109,6 +122,20 @@ struct HeaderSplitOrderTests {
         #expect(row.invocations["splitRight"]?.opensTerminal == true)
         row.click("splitBrowserRight", toggles: toggles)
         #expect(row.invocations["splitBrowserRight"]?.opensTerminal == false)
+    }
+
+    /// A split the user closed is forgotten: the button never claims, and later closes, a terminal
+    /// the user opened themselves.
+    @Test func aButtonNeverClosesTheUsersOwnTerminal() {
+        let row = Row(), toggles = AgentChatSplitToggles()
+        row.click("splitRight", toggles: toggles)
+        row.userCloses(1)
+        row.click("splitRight", toggles: toggles)
+        row.userOpens(.pty)
+        let mine = row.tabs[2]
+        row.click("splitRight", toggles: toggles)
+        #expect(row.tabs == [row.chat, mine])
+        #expect(toggles.headerState(chat: row.chat, store: row.store).lit == [])
     }
 
     @Test func eachButtonClosesItsOwnPaneAndReopensAtTheEnd() {
