@@ -22,6 +22,11 @@
      the neutral focus token; the alpha is applied here so every first-party surface shares it. */
   --cmux-focus-ring-width: 1.5px;
   --cmux-focus-ring-color: color-mix(in srgb, var(--cmux-app-focus-ring, var(--cmux-focus-ring, currentColor)) 48%, transparent);
+  /* The highlighted row of a menu, list or palette (keyboard or pointer): a tint one step past
+     hover (the text at about 6%), never a ring and never the accent's selection tint. The left
+     bar in the theme accent is an option, 0 (off) by default. */
+  --cmux-row-focus: color-mix(in srgb, var(--cmux-text, currentColor) 10%, transparent);
+  --cmux-row-focus-bar: 0px;
   overscroll-behavior: none;
 }
 
@@ -109,12 +114,25 @@ input[type="submit"] {
    rules. Mouse focus is removed above; keyboard focus gets a thin theme-toned ring with no glow.
    A borderless field inside a box that shows focus itself (`data-focus-ring="none"`, the New Tab
    field) is left out: a text field is :focus-visible on every focus, so the ring drew a rectangle
-   inside the box. */
-:focus-visible:not([data-focus-ring="none"]) {
+   inside the box. Rows of menus, lists and palettes, and the containers that hold their active
+   row, show focus as the row tint below instead. */
+:focus-visible:not([data-focus-ring="none"], [data-focus-ring="row"], [role="menu"], [role="listbox"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"]) {
   outline-width: var(--cmux-focus-ring-width) !important;
   outline-style: solid !important;
   outline-color: var(--cmux-focus-ring-color) !important;
   box-shadow: none !important;
+}
+
+/* A keyboard-focused row: the row tint, and the accent bar when it is on. Zero specificity, so a
+   surface's own highlight rule still decides its color. */
+:where([data-focus-ring="row"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"]):focus-visible {
+  outline: none;
+  background-color: var(--cmux-row-focus);
+  box-shadow: inset var(--cmux-row-focus-bar) 0 0 var(--cmux-accent, currentColor);
+}
+
+:where([role="menu"], [role="listbox"]):focus-visible {
+  outline: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

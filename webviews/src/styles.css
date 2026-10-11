@@ -298,7 +298,6 @@ body {
 #jump-search-button:focus-visible,
 .base-picker-button:focus-visible,
 .toolbar-icon:focus-visible,
-.menu-item:focus-visible,
 .file-entry:focus-visible {
   outline: 2px solid color-mix(in lab, var(--cmux-diff-fg) 36%, transparent);
   outline-offset: 1px;
@@ -1674,8 +1673,7 @@ svg[data-icon-fill] {
 }
 .source-pill-button:focus-visible,
 .toolbar-round-button:focus-visible,
-.diff-pill-button:focus-visible,
-.toolbar-menu-item:focus-visible {
+.diff-pill-button:focus-visible {
   outline: 2px solid color-mix(in lab, var(--cmux-diff-accent) 70%, transparent);
   outline-offset: 1px;
 }
@@ -1715,6 +1713,13 @@ svg[data-icon-fill] {
   background: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
   color: var(--cmux-diff-fg);
   outline: none;
+}
+/* Keyboard focus on a menu row is the row tint (desktop.css), with the optional accent bar. */
+.menu-item:focus-visible,
+.toolbar-menu-item:focus-visible {
+  outline: none;
+  background: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
+  box-shadow: inset var(--cmux-row-focus-bar, 0px) 0 0 var(--cmux-diff-accent);
 }
 .toolbar-menu-item[aria-disabled="true"] {
   color: color-mix(in lab, var(--cmux-diff-fg) 38%, var(--cmux-diff-bg));

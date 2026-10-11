@@ -238,6 +238,7 @@ export function AllChatsList({
         <button
           type="button"
           className="nt-all-row"
+          data-focus-ring="row"
           data-untitled={row.title ? undefined : true}
           data-selected={selection.selected.includes(row.key) ? true : undefined}
           title={row.cwd ? `${title}\n${row.cwd}` : title}
@@ -306,6 +307,7 @@ export function AllChatsList({
               <button
                 type="button"
                 className="nt-all-row"
+                data-focus-ring="row"
                 data-state={chat.state}
                 onClick={() => onOpenActive?.(chat.id)}
               >
