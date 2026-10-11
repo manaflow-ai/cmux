@@ -1,6 +1,7 @@
 // An opened shell call: a "Shell" card with the command line, its output
 // and, when the command failed, its exit code.
 import { useT } from "../i18n";
+import { menuPartRef } from "./menuParts";
 
 export function ShellBlock({
   id,
@@ -15,7 +16,7 @@ export function ShellBlock({
 }) {
   const t = useT();
   return (
-    <div className="cv-shell" id={id}>
+    <div className="cv-shell" id={id} ref={menuPartRef({ command, output })}>
       <div className="cv-shell__label">{t("shell.label")}</div>
       <pre className="cv-shell__body selectable">
         {command && <span className="cv-shell__command">$ {command}</span>}

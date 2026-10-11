@@ -367,16 +367,17 @@
   color: var(--muted-text);
 }
 
-.theme-chip {
+.theme-ball {
   flex-shrink: 0;
-  width: 28px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
 }
 
-.theme-chip-empty {
+.theme-ball-empty {
   display: inline-block;
+  box-sizing: border-box;
   border: 1px dashed var(--border-strong);
-  border-radius: 4px;
+  border-radius: 50%;
 }
 
 .theme-popover {
