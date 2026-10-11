@@ -1,0 +1,104 @@
+.dialog-gallery-stage {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-height: 340px;
+  padding: 28px;
+  color: var(--cmux-text, CanvasText);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+}
+
+.dialog-gallery-copy {
+  display: grid;
+  gap: 4px;
+  color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
+  font-size: 13px;
+}
+
+.dialog-gallery-copy strong {
+  color: var(--cmux-text, CanvasText);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.dialog-gallery-trigger,
+.dialog-gallery-outside {
+  width: fit-content;
+  min-height: 30px;
+  padding: 0 11px;
+  border: 1px solid var(--cmux-separator, color-mix(in srgb, CanvasText 16%, transparent));
+  border-radius: 7px;
+  background: var(--cmux-elevated-background, Canvas);
+  color: var(--cmux-text, CanvasText);
+}
+
+.dialog-gallery-outside {
+  color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
+}
+
+.dialog-gallery-dialog {
+  padding: 22px;
+  border: 1px solid var(--cmux-separator, color-mix(in srgb, CanvasText 16%, transparent));
+  border-radius: 12px;
+  background: var(--cmux-elevated-background, Canvas);
+  color: var(--cmux-text, CanvasText);
+  box-shadow: 0 16px 44px color-mix(in srgb, black 28%, transparent);
+}
+
+.dialog-gallery-content {
+  display: grid;
+  gap: 18px;
+}
+
+.dialog-gallery-content h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.dialog-gallery-content p {
+  margin: 6px 0 0;
+  color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
+  font-size: 13px;
+}
+
+.dialog-gallery-label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.dialog-gallery-label input {
+  min-height: 32px;
+  padding: 0 9px;
+  border: 1px solid var(--cmux-separator, color-mix(in srgb, CanvasText 16%, transparent));
+  border-radius: 6px;
+  background: var(--cmux-background, Canvas);
+  color: var(--cmux-text, CanvasText);
+  font: inherit;
+}
+
+.dialog-gallery-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.dialog-gallery-actions .ui-button {
+  min-height: 30px;
+  padding: 0 11px;
+  border-radius: 6px;
+}
+
+.dialog-gallery-primary {
+  background: var(--cmux-accent, Highlight);
+  color: Canvas;
+}
+
+.dialog-gallery-receipt {
+  min-height: 18px;
+  color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
+  font-size: 12px;
+}
