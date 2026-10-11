@@ -61,7 +61,12 @@ export default componentEntry<Props>({
   title: "Composer location menu keeps its side",
   area: "Agent pane",
   covers: ["agent-session/acpmux/ComposerContext.tsx#ComposerContext"],
-  styles: () => Promise.all([import("./styles.css"), import("./composerLocation.css")]),
+  // The location menu's own rules load first, so they must win over styles.css's .acpmux-menu
+  // placement by specificity, not by load order (the pane's bundle and a cold dev page differ).
+  styles: async () => {
+    await import("./composerLocation.css");
+    await import("./styles.css");
+  },
   load: async () => Placed,
   widths: { narrow: 400, normal: 620, wide: 760 },
   height: 560,
