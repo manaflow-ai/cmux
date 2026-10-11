@@ -28,6 +28,13 @@ public enum CEFDevToolsDebug {
         report["page_frame"] = topLeft(frames.page)
         report["window_number"] = window.windowNumber
         report["content_height"] = Double(height)
+        // The view a click at the grab's center reaches, and its superviews up to the content view.
+        let center = container.convert(CGPoint(x: frames.grab.midX, y: frames.grab.midY), to: nil)
+        if let frameView = window.contentView?.superview, let hit = frameView.hitTest(frameView.convert(center, from: nil)) {
+            report["grab_hit"] = sequence(first: hit, next: \.superview).prefix(6).map { String(describing: type(of: $0)) }
+        }
+        report["divider_frame"] = topLeft(divider.frame)
+        report["container_subviews"] = container.subviews.map { String(describing: type(of: $0)) }
         report["window_frame"] = [window.frame.minX, window.frame.minY, window.frame.width, window.frame.height].map { Double($0) }
         return report
     }
