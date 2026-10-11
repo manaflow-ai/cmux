@@ -15,8 +15,10 @@
    cmux-next for session.transfer.pull of that terminal: it must open in
    cmux-next in the same folder, and classic must have closed it.
 
-Never reads or writes the person's classic data: every classic path is the
-scratch directory. GUI host only (a fleet mini). Quits both apps by the PIDs
+Step 1 reads classic data only from the scratch directory. Step 2 launches
+the classic app with the real HOME, so it loads and saves that host's classic
+session, and it can attach to a classic already listening on /tmp/cmux.sock:
+run it on a fleet mini, never on a person's Mac. GUI host only. Quits both apps by the PIDs
 it started and stops the tag's daemons at the end.
 """
 import argparse, json, os, plistlib, re, socket, sqlite3, subprocess, sys, tempfile, time
@@ -150,7 +152,7 @@ snapshot = {"version": 1, "createdAt": time.time() - 978307200, "windows": [{"ta
      "layout": {"type": "split", "split": {"orientation": "horizontal", "dividerPosition": 0.5,
                                            "first": {"type": "pane", "pane": {"panelIds": ["p1"]}},
                                            "second": {"type": "pane", "pane": {"panelIds": ["p2"]}}}},
-     "panels": [terminal("p1", "dev", PROJ),
+     "panels": [terminal("p1", "dev", PROJ), terminal("p0", "logs", OLD),
                 terminal("p2", "claude chat", PROJ, agent={"kind": "claude", "sessionId": CLAUDE_LIVE, "workingDirectory": PROJ})],
      "statusEntries": [], "logEntries": []},
     {"stableId": "ws-box", "processTitle": "codex", "isPinned": False, "currentDirectory": BOX,
@@ -218,6 +220,8 @@ try:
         print(f"     opened: {name!r} kind={tab.get('kind')} cwd={tab.get('cwd')} agent={tab.get('agent')} session={tab.get('agent_session')}")
     check(any(name == "api server" and same_dir(tab.get("cwd"), PROJ) for name, tab in new),
           "the workspace opens in its folder")
+    check(any(name == "api server" and same_dir(tab.get("cwd"), OLD) for name, tab in new),
+          "each classic terminal opens as a tab in its own folder")
     for session, name in ((CLAUDE_LIVE, "claude chat"), (CODEX, "codex chat")):
         check(any(n == name for n, _ in new), f"agent chat {name} opens as its own workspace")
         # An adopted chat is a conversation tab; its topology agent_session is the

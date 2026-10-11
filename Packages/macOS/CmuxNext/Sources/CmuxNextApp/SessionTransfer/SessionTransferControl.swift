@@ -9,7 +9,8 @@ enum SessionTransferControl {
     static func methods(services: AppServices) -> [ControlMethod] {
         [
             .snapshot("session.transfer.list") { call in
-                let sessions = call.snapshot.topology.workspaces.flatMap { workspace in
+                // The local daemon's workspaces only: `complete` closes on it.
+                let sessions = call.snapshot.topology.workspaces.filter { $0.machine == nil }.flatMap { workspace in
                     workspace.screens.flatMap(\.panes).flatMap { pane in
                         pane.tabs.compactMap { tab -> JSONValue? in
                             // Local terminals only: a cmux-next agent chat knows its acpmux
@@ -48,7 +49,9 @@ enum SessionTransferControl {
                 }
             }.withDeadline(.fixed(.seconds(60))),
             .async("session.transfer.pull") { [transfer = services.sessionTransfer] call in
-                let source = call.params["source"]?.stringValue
+                guard let source = call.params["source"]?.stringValue else {
+                    throw ControlError.invalidParams("source is required: a peer socket path or tag from session.transfer.peers")
+                }
                 let ids = Set(call.params["ids"]?.arrayValue?.compactMap(\.stringValue) ?? [])
                 do {
                     return try await transfer.pull(source: source, ids: ids)
@@ -83,6 +86,7 @@ private nonisolated func controlError(_ error: Error) -> ControlError {
     case SessionTransferService.Failure.peerRefused: "access_denied"
     case SessionTransferService.Failure.unavailable: "unavailable"
     case SessionTransferService.Failure.missingAgentID: "invalid_params"
+    case SessionTransferService.Failure.agentNotOpened: "unavailable"
     default: "internal_error"
     }
     return ControlError(code: code, message: SessionTransferService.message(for: error))

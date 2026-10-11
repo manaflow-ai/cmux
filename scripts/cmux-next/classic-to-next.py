@@ -389,7 +389,7 @@ def main() -> int:
     parser.add_argument("--commands", action="store_true", help="print the cmux-next commands for the selection; run nothing")
     parser.add_argument("--apply", action="store_true", help="reopen the selection in the running cmux-next")
     parser.add_argument("--select", default="", help="comma-separated row ids (w1,a2); 'all' for every row")
-    parser.add_argument("--socket", help="cmux-next control socket (default: CMUX_SOCKET_PATH, else discovered)")
+    parser.add_argument("--socket", help="cmux-next control socket (default: the first one that answers as cmux-next)")
     opts = parser.parse_args()
 
     workspaces, agents = Inventory(opts).build()
@@ -437,6 +437,8 @@ def main() -> int:
         print("no running cmux-next found: start it, or pass --socket", file=sys.stderr)
         return 2
     next_app = Next(socket or "<cmux-next socket>")
+    if opts.apply:
+        print(f"cmux-next socket: {socket}", flush=True)
     failures = 0
     for row_id in ids:
         row = rows[row_id]

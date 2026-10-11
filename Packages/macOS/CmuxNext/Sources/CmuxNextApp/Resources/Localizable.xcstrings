@@ -7613,6 +7613,137 @@
           }
         }
       }
+    },
+    "sessionTransfer.error.agentNotOpened": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent chat did not open in cmux-next, so the source was left as it was."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تُفتح محادثة الوكيل في cmux-next، لذا تُرك المصدر كما هو."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent chat se nije otvorio u cmux-next, pa je izvor ostao nepromijenjen."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentchatten blev ikke åbnet i cmux-next, så kilden blev ikke ændret."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Agent-Chat wurde in cmux-next nicht geöffnet, daher blieb die Quelle unverändert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El chat del agente no se abrió en cmux-next, así que el origen se dejó como estaba."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La discussion d’agent ne s’est pas ouverte dans cmux-next ; la source est donc restée inchangée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La chat dell’agente non si è aperta in cmux-next, quindi l’origine è rimasta invariata."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントチャットが cmux-next で開かなかったため、移動元はそのままにしました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែករបស់ភ្នាក់ងារមិនបានបើកក្នុង cmux-next ទេ ដូច្នេះប្រភពត្រូវបានទុកដដែល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 채팅이 cmux-next에서 열리지 않아 원본을 그대로 두었습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentchatten ble ikke åpnet i cmux-next, så kilden ble ikke endret."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czat agenta nie otworzył się w cmux-next, więc źródło pozostało bez zmian."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O chat do agente não abriu no cmux-next, então a origem ficou como estava."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат агента не открылся в cmux-next, поэтому источник оставлен без изменений."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชตเอเจนต์ไม่ได้เปิดใน cmux-next จึงปล่อยต้นทางไว้ตามเดิม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan sohbeti cmux-next’te açılmadı, bu yüzden kaynak olduğu gibi bırakıldı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат агента не відкрився в cmux-next, тому джерело залишено без змін."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện của tác nhân không mở trong cmux-next nên nguồn được giữ nguyên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能体聊天未在 cmux-next 中打开，因此来源保持不变。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式聊天未在 cmux-next 中開啟，因此來源保持不變。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

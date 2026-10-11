@@ -86,13 +86,14 @@ final class SessionTransferService {
 
     init(services: AppServices) { self.services = services }
 
-    /// Moves the selected sessions (all of them when `ids` is empty) from the
-    /// peers matching `source` (a socket path or tag; any when nil). One
-    /// item's failure never stops the others; each is reported.
-    func pull(source: String? = nil, ids: Set<String> = []) async throws -> TransferJSONValue {
-        let peers = try await discover()
+    /// Moves the selected sessions (all of them when `ids` is empty) from the one
+    /// peer named by `source` (its socket path or tag). A move opens a new shell
+    /// in the same folder and ends the source's process. One item's failure
+    /// never stops the others; each is reported.
+    func pull(source: String, ids: Set<String> = []) async throws -> TransferJSONValue {
+        let peers = try await discover(only: source)
         let selected = peers.flatMap { peer -> [(SessionTransferPeer, SessionTransferItem)] in
-            guard source == nil || source == peer.path || source == peer.tag else { return [] }
+            guard source == peer.path || source == peer.tag else { return [] }
             return peer.items.filter { ids.isEmpty || ids.contains($0.id) }.map { (peer, $0) }
         }
         guard !selected.isEmpty else { throw Failure.noSessions }
@@ -120,16 +121,19 @@ final class SessionTransferService {
     /// Throws ``Failure/peerRefused`` when no peer has sessions and at least
     /// one refused the connection (classic's default `cmuxOnly` socket mode
     /// admits only its own terminals).
-    nonisolated func discover() async throws -> [SessionTransferPeer] {
+    /// With `only` (a socket path or tag), a refusal by that peer throws.
+    nonisolated func discover(only source: String? = nil) async throws -> [SessionTransferPeer] {
         let current = await MainActor.run { services?.environment.launch }
+        let ownPID = Int(ProcessInfo.processInfo.processIdentifier)
         let paths = ControlSocketPath.shared.peerSocketPaths().filter { $0 != current?.socketPath }
         var peers: [SessionTransferPeer] = []
         var refused = false
-        for path in paths where FileManager.default.fileExists(atPath: path) {
+        for path in paths where Self.isOwnedSocket(path) {
             let identify: TransferJSONValue
             do {
                 identify = try await ControlPeerClient.request(path: path, method: "system.identify")
             } catch ControlPeerClient.Failure.refused {
+                if source == path { throw Failure.peerRefused }
                 refused = true
                 continue
             } catch {
@@ -137,7 +141,7 @@ final class SessionTransferService {
             }
             // Classic answers without `pid` and `tag` (its bundle id carries the tag);
             // shipped classic nightlies answer only `socket_path`, `focused` and `caller`.
-            guard let fields = identify.objectValue else { continue }
+            guard let fields = identify.objectValue, fields["pid"]?.intValue != ownPID else { continue }
             let app = fields["app"]?.stringValue ?? "cmux"
             let build = fields["build"]?.stringValue ?? fields["version"]?.stringValue ?? ""
             let tag = fields["tag"]?.stringValue ?? ControlSocketPath.shared.bundleTag(fields["bundle_identifier"]?.stringValue)
@@ -155,6 +159,14 @@ final class SessionTransferService {
         }
         if peers.isEmpty, refused { throw Failure.peerRefused }
         return peers
+    }
+
+    /// A peer socket must be a socket this user owns: `/tmp` is shared, and a
+    /// peer chooses the commands its sessions reopen with.
+    private nonisolated static func isOwnedSocket(_ path: String) -> Bool {
+        var info = stat()
+        guard lstat(path, &info) == 0 else { return false }
+        return (info.st_mode & S_IFMT) == S_IFSOCK && info.st_uid == getuid()
     }
 
     private func move(_ item: SessionTransferItem, from peer: SessionTransferPeer) async throws {
@@ -187,7 +199,7 @@ final class SessionTransferService {
         }
         let id = try await create(items[0], workspaceName: name)
         guard items.count > 1 else { return ["workspace": .string(id)] }
-        guard let services, let daemon = services.machines.daemon(forWorkspace: id), let connection = daemon.connection,
+        guard let services, let connection = services.daemon.connection,
               let pane = try await firstPane(of: id, connection: connection) else { throw Failure.unavailable }
         for item in items.dropFirst() {
             try await connection.newTab(in: pane, options: SpawnOptions(cwd: item.cwd, command: item.command,
@@ -206,11 +218,16 @@ final class SessionTransferService {
             guard let session = item.agentSessionID, let harness = item.agentHarness else { throw Failure.missingAgentID }
             var spawn = WorkspaceSpawn(cwd: item.cwd, name: name)
             spawn.firstChat = AgentPaneSeed(cwd: item.cwd, adopt: AgentPaneAdopt(harness: harness, agentSessionId: session))
-            return try await services.windows.createWorkspace(spawn, into: target)
+            let id = try await services.windows.createWorkspace(spawn, into: target)
+            // createWorkspace falls back to a plain terminal when no agent can be
+            // hosted yet; only an opened conversation tab counts, so a source chat
+            // is never closed for a shell.
+            guard try await hasConversationTab(id) else { throw Failure.agentNotOpened }
+            return id
         case .terminal:
-            let command = item.command ?? item.sshTarget.map { "exec ssh \(Self.shellQuote($0))" }
+            let command = item.command ?? item.sshTarget.map { "exec ssh -- \(Self.shellQuote($0))" }
             let id = try await services.windows.createWorkspace(WorkspaceSpawn(cwd: item.cwd, name: name, command: command), into: target)
-            if !item.title.isEmpty, let daemon = services.machines.daemon(forWorkspace: id), let connection = daemon.connection,
+            if !item.title.isEmpty, let connection = services.daemon.connection,
                let workspace = try? await connection.listWorkspaces(),
                let screen = workspace.workspaces.first(where: { $0.key?.rawValue == id })?.screens.first,
                let surface = screen.layout.paneIDs.compactMap({ paneID in screen.panes.first(where: { $0.id == paneID }) }).flatMap(\.tabs).first?.surface {
@@ -218,6 +235,19 @@ final class SessionTransferService {
             }
             return id
         }
+    }
+
+    private func hasConversationTab(_ workspace: String) async throws -> Bool {
+        guard let connection = services?.daemon.connection else { throw Failure.unavailable }
+        for _ in 0..<20 {
+            let listed = try await connection.listWorkspaces()
+            if let found = listed.workspaces.first(where: { $0.key?.rawValue == workspace }),
+               found.screens.flatMap(\.panes).flatMap(\.tabs).contains(where: { $0.conversation != nil }) {
+                return true
+            }
+            try await Task.sleep(for: .milliseconds(250))  // the tree mirrors the create asynchronously
+        }
+        return false
     }
 
     private func firstPane(of workspace: String, connection: DaemonConnection) async throws -> CmuxNextDaemon.PaneID? {
@@ -287,15 +317,17 @@ final class SessionTransferService {
         let session = harness.flatMap { harness in
             [binding?["command"]?.stringValue, binding?["launch_command"]?.stringValue]
                 .lazy.compactMap { Self.agentSessionID(harness: harness, command: $0) }.first
-        } ?? binding?["checkpoint_id"]?.stringValue
+        }
         let isAgent = harness != nil && session != nil
         let command = object["initial_command"]?.stringValue ?? binding?["command"]?.stringValue
+        // Only an SSH command is replayed; a classic terminal's other launch
+        // command may be one-shot (a deploy), so it reopens as a shell.
         let cwd = object["requested_working_directory"]?.stringValue ?? binding?["cwd"]?.stringValue ?? fallbackCWD
         let sshTarget = object["ssh_target"]?.stringValue ?? Self.sshTarget(from: command)
         let title = object["title"]?.stringValue ?? ""
         return SessionTransferItem(sourceSurface: sourceSurface, workspace: workspace,
                                    kind: isAgent ? SessionTransferItem.Kind.agent : SessionTransferItem.Kind.terminal, title: title, cwd: cwd,
-                                   sshTarget: sshTarget, command: isAgent ? nil : command,
+                                   sshTarget: sshTarget, command: nil,
                                    agentHarness: isAgent ? harness : nil,
                                    agentSessionID: isAgent ? session : nil)
     }
@@ -342,6 +374,8 @@ final class SessionTransferService {
             String(localized: "sessionTransfer.error.noSessions", defaultValue: "No sessions are available to move from another cmux build.", bundle: .module)
         case Failure.missingAgentID:
             String(localized: "sessionTransfer.error.missingAgentID", defaultValue: "The selected agent has no resumable session id.", bundle: .module)
+        case Failure.agentNotOpened:
+            String(localized: "sessionTransfer.error.agentNotOpened", defaultValue: "The agent chat did not open in cmux-next, so the source was left as it was.", bundle: .module)
         case Failure.unavailable:
             String(localized: "sessionTransfer.error.unavailable", defaultValue: "Session transfer is unavailable while cmux is starting.", bundle: .module)
         case Failure.peerRefused:
@@ -357,7 +391,7 @@ final class SessionTransferService {
         }
     }
 
-    nonisolated enum Failure: Error { case noSessions, missingAgentID, unavailable, invalidSurfaces, peerRefused }
+    nonisolated enum Failure: Error { case noSessions, missingAgentID, unavailable, invalidSurfaces, peerRefused, agentNotOpened }
 }
 
 private extension CmuxNextSettings.JSONValue {

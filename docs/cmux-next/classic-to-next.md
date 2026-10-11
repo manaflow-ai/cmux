@@ -88,18 +88,26 @@ The layout isn't recreated: a split workspace comes over as tabs in one pane.
 
 ## 5. Move live classic sessions (optional)
 
-When classic is still running, cmux-next can take its open terminals directly
-and classic closes each one only after cmux-next has opened it:
+When classic is still running, cmux-next can take its open terminals and chats
+directly. A move opens a new shell (or the agent chat, resumed) in cmux-next in
+the same folder, then classic closes its tab, which **ends the process running
+there**: unsaved editor buffers, running jobs and scrollback are lost. Agree on
+each item with the person before moving it; when in doubt, use steps 2-4, which
+leave classic untouched.
+
+Talk to the cmux-next socket with one JSON line per request:
 
 ```sh
-# list sibling builds and their movable sessions
+# sibling builds, each with its socket and movable sessions
 printf '%s\n' '{"id":1,"method":"session.transfer.peers","params":{}}' | nc -U <cmux-next socket>
-# move them all, or pass "ids": [surface ids] and "source": <classic socket>
-printf '%s\n' '{"id":1,"method":"session.transfer.pull","params":{}}' | nc -U <cmux-next socket>
+# move from one build: "source" is a socket from the list, "ids" its sessions (all when omitted)
+printf '%s\n' '{"id":1,"method":"session.transfer.pull","params":{"source":"/tmp/cmux.sock","ids":["<surface id>"]}}' | nc -U <cmux-next socket>
 ```
 
-On a tagged dev build, `cmux --app-socket <socket> app call session.transfer.pull '{}'`
-does the same. The reply lists `moved` and `failed` items.
+On a tagged dev build, `cmux --app-socket <socket> app call session.transfer.pull '{...}'`
+does the same. The reply lists `moved` and `failed` items. An agent chat moves
+only when cmux-next opened it; otherwise it's reported as failed and classic
+keeps it. A terminal's launch command isn't run again, except an SSH command.
 
 Classic's default socket mode (`cmuxOnly`) admits only processes started in
 classic's own terminals, so the pull fails with `access_denied`. Ask the person
