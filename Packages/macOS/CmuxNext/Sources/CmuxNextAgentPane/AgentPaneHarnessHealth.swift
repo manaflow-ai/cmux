@@ -11,6 +11,7 @@ public enum AgentPaneHarnessHealth {
     /// The page's reply. A chat on another machine (`remote`) runs that machine's CLI, not this Mac's.
     static func respond(_ id: String, refresh: Bool, remote: Bool) async -> [String: Any] {
         guard !remote, let provider else { return AgentPaneReply.success() }
-        return AgentPaneReply.success(["health": await provider(id, refresh) ?? NSNull()])
+        guard let row = await provider(id, refresh) else { return AgentPaneReply.success(["health": NSNull()]) }
+        return AgentPaneReply.success(["health": row])
     }
 }
