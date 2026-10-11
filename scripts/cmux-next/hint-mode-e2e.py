@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Live check of hint mode (cx-zjtn.1) on a running tagged cmux-next DEBUG build.
 
-Hint mode drives the window from the keyboard, like Vimium: Cmd-J (`hints.show`) gives every
+Hint mode drives the window from the keyboard, like Vimium: `hints.show` gives every
 clickable control in the window a one or two letter label, and typing a label clicks that
-control. It is a preview feature (`labs.previewFeatures`) until it is styled: off, the action is
-unavailable and Cmd-J does nothing.
+control. Its key is the leader chord Cmd-J F (Vimium's `f`). It is a preview feature
+(`labs.previewFeatures`) until it is styled: off, the action is unavailable and Cmd-J F does nothing.
 
 The script attaches to an app already running (a capture slot's `capture-host launch`, or a
 tagged build) through its debug socket. It sets `labs.previewFeatures` with `settings.set` (and
@@ -82,7 +82,9 @@ def hints():
 
 
 def cmd_j():
+    """The leader chord Cmd-J F."""
     print("Cmd-J:", rpc("debug.key", {"key": "j", "modifiers": ["command"]}), flush=True)
+    print("F:", rpc("debug.key", {"key": "f", "modifiers": []}), flush=True)
 
 
 def new_workspace():
@@ -107,17 +109,19 @@ def checks():
     ran = rpc("action.run", {"action": "hints.show", "origin": "script"})
     cmd_j()
     time.sleep(0.5)  # test harness: hint mode would have started
-    row("Hint mode is off without preview features", "hints.show unavailable; Cmd-J shows no labels",
-        f"hints.show {json.dumps(ran.get('error') if isinstance(ran, dict) else ran)[:160]}; debug.hints {json.dumps(hints())[:160]}",
-        isinstance(ran, dict) and "error" in ran and not hints().get("active"))
+    off = hints()
+    rpc("debug.key", {"key": "Escape", "modifiers": []})
+    row("Hint mode is off without preview features", "hints.show unavailable; Cmd-J F shows no labels",
+        f"hints.show {json.dumps(ran.get('error') if isinstance(ran, dict) else ran)[:160]}; debug.hints {json.dumps(off)[:160]}",
+        isinstance(ran, dict) and "error" in ran and not off.get("active"))
 
-    # On: Cmd-J labels the window's controls.
+    # On: Cmd-J F labels the window's controls.
     rpc("settings.set", {"path": "labs.previewFeatures", "value": True})
     time.sleep(0.5)  # test harness: the settings snapshot reloads
     cmd_j()
     shown = wait(lambda: (lambda h: h if h.get("active") and h.get("hints") else None)(hints()), 5) or hints()
     labels = [h.get("label") for h in shown.get("hints") or []]
-    row("Cmd-J labels the window's controls", "at least 5 labels, unique and prefix-free, 1-2 letters",
+    row("Cmd-J F labels the window's controls", "at least 5 labels, unique and prefix-free, 1-2 letters",
         f"{len(labels)} labels {labels[:12]}", len(labels) >= 5 and prefix_free(labels) and all(1 <= len(l) <= 2 for l in labels))
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "hint-mode.png")})
 
