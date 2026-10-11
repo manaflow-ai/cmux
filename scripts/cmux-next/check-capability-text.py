@@ -37,6 +37,10 @@ ALLOWED = [
     ("cmux-tui/crates/cmux-server-core/src/reexec.rs", "cmux, so update the app"),
     # Saved state written by a newer cmux: no installed build can open it.
     ("cmux-tui/crates/cmux-tui/src/localization/startup.rs", "saved_state_requires_newer"),
+    # A remote host's cmux-tui is older than this client's remote-link
+    # protocol: no local CLI can serve that host, so updating its cmux-tui is
+    # the fix (a remote route never re-execs; cx-ytw1).
+    ("cmux-tui/crates/cmux-tui/src/localization/remote_client.rs", "remote_link_unknown_option"),
 ]
 
 

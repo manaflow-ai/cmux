@@ -102,6 +102,8 @@ const fn access(operation: Op) -> Access {
         | Op::GitCheckpointPin
         | Op::GitCheckpointUnpin
         | Op::SessionJournalHookPut
+        // It tells whether a path exists and is a folder (cx-9aps).
+        | Op::WorkspaceAgentStartGet
         // The user's folders (project-list-v1): read and edited by the app, never a page.
         | Op::ProjectList
         | Op::ProjectObserve
@@ -213,6 +215,13 @@ const fn access(operation: Op) -> Access {
         | Op::ClosedDelete
         | Op::ClosedReopen
         | Op::WindowRecordList
+        | Op::SettingsSchema
+        | Op::SettingsList
+        | Op::SettingsGet
+        | Op::SettingsSnapshot
+        | Op::SettingsSet
+        | Op::SettingsReset
+        | Op::SettingsResetAll
         | Op::WindowRecordPut
         | Op::WindowRecordDelete
         | Op::SidebarLayoutGet
@@ -272,6 +281,10 @@ const fn access(operation: Op) -> Access {
         | Op::WorkspaceStatusClear
         | Op::WorkspaceStatusList
         | Op::WorkspaceStatusSet
+        // A page never sees, mints or rotates launch credentials.
+        | Op::CredentialVerify
+        | Op::CredentialMint
+        | Op::CredentialRotate
         // A page never controls the Chief.
         | Op::ChiefEngineGet
         | Op::ChiefEngineSet

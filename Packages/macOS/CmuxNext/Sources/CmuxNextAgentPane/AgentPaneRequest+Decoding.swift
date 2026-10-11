@@ -2,6 +2,17 @@ import CmuxNextDictation
 import Foundation
 
 extension AgentPaneRequest {
+    /// `pane.action {id: "preview"}`: its `url` comes from transcript text, so only a local page
+    /// (``Foundation/URL/isAgentPanePreview``, as the preview card's `browser.open`) reaches the App.
+    private static func preview(_ params: [String: Any]?, method: String) -> AgentPaneRequest {
+        let toggle = params?["mode"] as? String == "toggle"
+        guard let raw = params?["url"] else { return .preview(url: nil, toggle: toggle) }
+        guard let text = raw as? String, text.count <= maximumOpenTabText, URL(string: text)?.isAgentPanePreview == true else {
+            return .unsupported(method)
+        }
+        return .preview(url: text, toggle: toggle)
+    }
+
     /// Decodes a `WKScriptMessage.body` (a dictionary once bridged).
     public init(body: Any) {
         guard let object = body as? [String: Any], let method = object["method"] as? String else {
@@ -96,6 +107,8 @@ extension AgentPaneRequest {
             else { self = .unsupported(method) }
         case "newTab.touched":
             self = .touched
+        case "newTab.context":
+            self = .newTabContext
         case "newTab.remember":
             // One input (R86): only the agent pick is remembered.
             if let agent = params?["agent"] as? String, !agent.isEmpty, agent.count <= 128 {
@@ -125,10 +138,17 @@ extension AgentPaneRequest {
         case "project.browse": self = .browseProject
         case "workspace.chooseFolder": self = .chooseFolder
         case "chat.folder.choose": self = .chooseChatFolder
+        case "workspace.useFolder":
+            // Any text: a path that is not an existing absolute folder is refused by the host
+            // (`transport.path_invalid`), so the page never takes it for an older host.
+            if let cwd = params?["cwd"] as? String, cwd.utf8.count <= Self.maximumOpenTabText {
+                self = .useFolder(cwd, confirm: params?["confirm"] as? Bool == true)
+            } else {
+                self = .unsupported(method)
+            }
         case "project.list":
             let query = (params?["query"] as? String).map { String($0.prefix(512)) }
             self = .listProjects(query)
-        case "onboarding.importAndSync": self = .importAndSync
         case "chats.open":
             if let key = params?["key"] as? String, key.contains(":"), key.count <= 512 { self = .openChat(key) }
             else { self = .unsupported(method) }
@@ -140,13 +160,18 @@ extension AgentPaneRequest {
             if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128 { self = .appAction(id) }
             else { self = .unsupported(method) }
         case "pane.action":
-            if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128 {
+            if params?["id"] as? String == AgentPaneModel.previewAction {
+                self = Self.preview(params, method: method)
+            } else if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128 {
                 let cwd = (params?["cwd"] as? String).flatMap { $0.hasPrefix("/") ? String($0.prefix(Self.maximumOpenTabText)) : nil }
                 self = .paneAction(id, cwd: cwd, toggle: params?["mode"] as? String == "toggle")
             } else {
                 self = .unsupported(method)
             }
         case "pane.tabState": self = .tabState
+        case "pane.setQuickActions":
+            if let list = AgentPaneQuickAction.list(params?["quickActions"]) { self = .setQuickActions(list) }
+            else { self = .unsupported(method) }
         case "chat.sideChat":
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .sideChat(id) } else { self = .unsupported(method) }
         case "chat.archive":

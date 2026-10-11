@@ -32,6 +32,9 @@ use crate::terminal_host_runtime::TerminalHostLiveness;
 pub use open_guard::RegistryQuarantined;
 use open_guard::preflight_unsupported_schema;
 
+mod detached_terminals;
+pub(crate) use detached_terminals::DETACHED_TERMINAL_WORKSPACE_KEY;
+use detached_terminals::require_live_workspace;
 mod effect_store;
 pub(crate) mod feed_local_store;
 mod idle_policy_store;
@@ -2340,6 +2343,22 @@ impl std::fmt::Debug for WorkspaceRegistry {
 }
 
 impl WorkspaceRegistry {
+    /// The registry id stored for `session_name` under the state root `root`,
+    /// read without the session's locks (its owner may be running). `None`:
+    /// no registry exists there, so no owner of that state dir is running.
+    pub fn stored_registry_id(root: &Path, session_name: &str) -> anyhow::Result<Option<String>> {
+        let root = platform::normalize_filesystem_path(root.to_path_buf());
+        let db_path = platform::normalize_filesystem_path(
+            persistent_session_state_dir(&root, session_name).join(WORKSPACE_REGISTRY_FILE),
+        );
+        if !db_path.is_file() {
+            return Ok(None);
+        }
+        let connection = open_registry_database_read_only(&db_path)?;
+        connection.busy_timeout(std::time::Duration::from_millis(500))?;
+        meta_value(&connection, "registry_id")
+    }
+
     pub fn in_memory(session_name: &str) -> anyhow::Result<Self> {
         let connection = Connection::open_in_memory()?;
         Self::initialize(
@@ -4531,20 +4550,6 @@ fn validate_terminal_transition(
     }
     if existing.on_exit != desired.on_exit {
         anyhow::bail!("terminal on-exit policy is fixed at reservation");
-    }
-    Ok(())
-}
-
-fn require_live_workspace(connection: &Connection, workspace_key: &str) -> anyhow::Result<()> {
-    let live = connection
-        .query_row(
-            "SELECT 1 FROM workspaces WHERE workspace_key = ?1 AND tombstoned = 0",
-            [workspace_key],
-            |_| Ok(()),
-        )
-        .optional()?;
-    if live.is_none() {
-        anyhow::bail!("terminal workspace is missing or closed: {workspace_key}");
     }
     Ok(())
 }

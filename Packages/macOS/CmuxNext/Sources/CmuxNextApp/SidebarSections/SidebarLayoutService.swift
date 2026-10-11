@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextSidebar
 import Foundation
@@ -58,9 +59,13 @@ final class SidebarLayoutService {
         self.recentsOffered = recentsOffered
     }
 
-    isolated deinit {
-        observation?.cancel()
-        legacyObservation?.cancel()
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            observation?.cancel()
+            legacyObservation?.cancel()
+        }
     }
 
     /// Follows the owner: fetch when it becomes reachable and after each
@@ -69,7 +74,7 @@ final class SidebarLayoutService {
         guard let remote, observation == nil else { return }
         // task-owner: the service (cancelled in deinit); event-driven (Observation)
         observation = Task { [weak self] in
-            for await (available, _) in Observations({ (remote.isAvailable, remote.changeToken) }) {
+            for await (available, _) in ObservationStream({ (remote.isAvailable, remote.changeToken) }) {
                 guard let self, available else { continue }
                 self.refresh()
                 self.resendInterrupted()
@@ -78,7 +83,7 @@ final class SidebarLayoutService {
         // task-owner: the service (cancelled in deinit); event-driven (Observation).
         // A session tree that loads, or a legacy pin that changes, re-runs the one-time pin move.
         legacyObservation = Task { [weak self] in
-            for await _ in Observations({ remote.legacyPins }) { self?.migrateIfNeeded() }
+            for await _ in ObservationStream({ remote.legacyPins }) { self?.migrateIfNeeded() }
         }
     }
 

@@ -17,7 +17,15 @@
 //! are JSON files next to the socket, written atomically, with a liveness
 //! lock file the host holds for its whole life.
 
+#[cfg(unix)]
 pub mod host;
+/// Windows port: the agent host process comes in a later landing.
+#[cfg(not(unix))]
+pub mod host {
+    pub fn main() -> anyhow::Result<()> {
+        Err(crate::platform::unsupported("the agent host"))
+    }
+}
 pub mod link;
 pub mod sweep;
 mod wait;
@@ -165,6 +173,10 @@ pub struct SpawnSpec {
     pub socket: PathBuf,
     /// Bytes of unacknowledged entries before back-pressure.
     pub buffer_cap: usize,
+    /// The local router's owner FIFO of the daemon's home; the host holds
+    /// a write end for its whole life (`daemon::router_owner_fifo`).
+    #[serde(default)]
+    pub router_owner_fifo: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -233,6 +245,7 @@ fn live_path(dir: &Path, session_id: &str, nonce: &str) -> PathBuf {
 
 /// Socket for one host: next to the record when the path is short enough for
 /// `sun_path`, else in the private per-user directory acpmux already uses.
+#[cfg(unix)]
 pub fn socket_path(dir: &Path, session_id: &str) -> PathBuf {
     let preferred = dir.join(format!("{session_id}.sock"));
     if preferred.as_os_str().len() < 100 {
@@ -247,8 +260,15 @@ pub fn socket_path(dir: &Path, session_id: &str) -> PathBuf {
     let uid = unsafe { libc::getuid() };
     PathBuf::from(format!("/tmp/acpmux-{uid}")).join(format!("{hash:016x}-{session_id}.sock"))
 }
+/// Windows port: host sockets are `cmux::local_socket` paths there, with
+/// their own length rule (a later landing).
+#[cfg(not(unix))]
+pub fn socket_path(dir: &Path, session_id: &str) -> PathBuf {
+    dir.join(format!("{session_id}.sock"))
+}
 
 /// Create `dir` mode 0700 and check that only this user can enter it.
+#[cfg(unix)]
 pub fn ensure_private_dir(dir: &Path) -> Result<()> {
     use std::os::unix::fs::{DirBuilderExt, MetadataExt};
     std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
@@ -259,6 +279,13 @@ pub fn ensure_private_dir(dir: &Path) -> Result<()> {
         bail!("{} is not a private directory", dir.display());
     }
     Ok(())
+}
+/// Windows port: an owner-only ACL there (`cmux::local_socket::private_directory`,
+/// a later landing). Until then no private directory is made, so nothing
+/// that needs one is written.
+#[cfg(not(unix))]
+pub fn ensure_private_dir(_dir: &Path) -> Result<()> {
+    Err(crate::platform::unsupported("private directories"))
 }
 
 /// Random lowercase hex.
@@ -347,6 +374,7 @@ pub enum Liveness {
 
 /// Probe the lock the host holds for its whole life. `Dead` is proof tied
 /// to this incarnation even when the PID has been reused.
+#[cfg(unix)]
 pub fn liveness(dir: &Path, session_id: &str, start_nonce: &str) -> Liveness {
     use std::os::fd::AsRawFd;
     let path = live_path(dir, session_id, start_nonce);
@@ -371,6 +399,12 @@ pub fn liveness(dir: &Path, session_id: &str, start_nonce: &str) -> Liveness {
         }
     }
 }
+/// Windows port: the host's liveness lock is `LockFileEx` there (a later
+/// landing); no host runs yet, so nothing is proven.
+#[cfg(not(unix))]
+pub fn liveness(_dir: &Path, _session_id: &str, _start_nonce: &str) -> Liveness {
+    Liveness::Unknown
+}
 
 /// End a host without speaking its protocol: the path for a host this build
 /// cannot adopt, frozen across versions. Signals only the host, and only with
@@ -381,6 +415,7 @@ pub fn liveness(dir: &Path, session_id: &str, start_nonce: &str) -> Liveness {
 /// `TERM_GRACE` it is killed; the dropped lock is the death proof.
 /// `Ok(true)` when no such host runs any more. Blocks up to about twice
 /// `TERM_GRACE`: call it off the async runtime.
+#[cfg(unix)]
 pub fn terminate_unadoptable(
     dir: &Path,
     session_id: &str,
@@ -412,12 +447,45 @@ pub fn terminate_unadoptable(
     }
     Ok(dead_within(TERM_GRACE))
 }
+/// Windows port: hosts come in a later landing.
+#[cfg(not(unix))]
+pub fn terminate_unadoptable(
+    _dir: &Path,
+    _session_id: &str,
+    _start_nonce: Option<&str>,
+    _host_pid: Option<u32>,
+) -> Result<bool> {
+    Err(crate::platform::unsupported("agent hosts"))
+}
 
 /// Remove a dead host's record, lock and socket.
 pub fn remove_artifacts(dir: &Path, record: &HostRecord) {
     let _ = std::fs::remove_file(record_path(dir, &record.session_id));
     let _ = std::fs::remove_file(live_path(dir, &record.session_id, &record.start_nonce));
     let _ = std::fs::remove_file(&record.socket);
+}
+
+/// Whether the record file at `path` names the host incarnation `nonce`. A
+/// record that exists but cannot be read counts as this host's (never end
+/// or delete on a doubt); a missing one does not.
+pub fn names_this_host(path: &Path, nonce: &str) -> bool {
+    match std::fs::read(path) {
+        Ok(bytes) => serde_json::from_slice::<HostRecord>(&bytes)
+            .ok()
+            .is_none_or(|record| record.start_nonce == nonce),
+        Err(e) => e.kind() != std::io::ErrorKind::NotFound,
+    }
+}
+
+/// A host's own exit: its lock, and its record and socket only while the
+/// record still names it (a newer host of the same session owns them then).
+pub fn remove_own_artifacts(dir: &Path, record: &HostRecord) {
+    let _ = std::fs::remove_file(live_path(dir, &record.session_id, &record.start_nonce));
+    let path = record_path(dir, &record.session_id);
+    if names_this_host(&path, &record.start_nonce) && path.exists() {
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&record.socket);
+    }
 }
 
 /// Hosts of pooled sessions (hidden sessions nobody took yet,
@@ -467,6 +535,7 @@ pub fn remove_promoted(dir: &Path, record: &HostRecord) {
 }
 
 /// Write `value` to `path` through a temporary file and a rename.
+#[cfg(unix)]
 pub fn write_record_atomic(path: &Path, record: &HostRecord) -> Result<()> {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
@@ -487,6 +556,11 @@ pub fn write_record_atomic(path: &Path, record: &HostRecord) -> Result<()> {
         let _ = std::fs::remove_file(&tmp);
     }
     written
+}
+/// Windows port: host records are owner-only files there (a later landing).
+#[cfg(not(unix))]
+pub fn write_record_atomic(_path: &Path, _record: &HostRecord) -> Result<()> {
+    Err(crate::platform::unsupported("agent host records"))
 }
 
 pub async fn write_frame<W: AsyncWriteExt + Unpin, T: Serialize>(

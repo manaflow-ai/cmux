@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 public import CmuxNextPages
 public import CmuxNextSettings
@@ -19,7 +20,7 @@ public final class AgentPaneView: NSView {
     public let webView: WKWebView
     /// Opens a link the user clicked in the transcript. Defaults to the
     /// system handler; the App can route it to a cmux browser tab.
-    public var openURL: (URL) -> Void = { NSWorkspace.shared.open($0) }
+    public var openURL: (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }
 
     public let source: AgentPaneSource
     public var customization = AgentPaneCustomization() {
@@ -37,6 +38,8 @@ public final class AgentPaneView: NSView {
     }
     /// The newest device chats for the New Tab cards.
     public var deviceChats: [AgentPaneDeviceChat] = [] { didSet { if deviceChats != oldValue { AgentPaneDeviceChat.push(deviceChats, to: self) } } }
+    /// The newest recently closed items for the New Tab page's Recently Closed section.
+    public var recentlyClosed: [AgentPaneClosedItem] = [] { didSet { if recentlyClosed != oldValue { AgentPaneClosedItem.push(recentlyClosed, to: self) } } }
     public var editedFiles = AgentPaneEditedFilesSetting.fallback {
         didSet { if editedFiles != oldValue { applyEditedFiles() } }
     }
@@ -45,6 +48,8 @@ public final class AgentPaneView: NSView {
     var crashReloads = PageCrashReloads()
     /// Shown instead of reloading once the page keeps crashing.
     var crashNotice: NSView?
+    /// The line that says the chat runs on another cmux install's acpmux (cx-fcaq).
+    var otherInstallNotice: NSTextField?
     /// Owns the inspector export panel and its in-flight state.
     let logExport = AgentPaneLogExport()
     /// On the shared page host (`cmux-page://cmux.agent/`, the `agent.pageHost` tunable): the page
@@ -133,6 +138,11 @@ public final class AgentPaneView: NSView {
                 WKUserScript(source: WebTheme.bootstrapScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
             inputReadiness = PageInputReadiness(configuration: configuration)
             webView = AgentPaneWKWebView(frame: .zero, configuration: configuration)
+            #if DEBUG
+            // Automation launches (capture slots) keep a covered window's page drawing, as
+            // PageWebView does: WebKit hid the covered New Tab page, so it never drew (cx-zjtn.6).
+            if PageWebView.rendersWhenCovered(ProcessInfo.processInfo.environment) { PageWebView.keepRenderingWhenCovered(webView) }
+            #endif
             page = nil
             pageEvents = nil
             dictation = AgentPaneDictation(evaluate: { [weak webView] script in webView?.evaluateJavaScript(script, completionHandler: nil) })
@@ -206,7 +216,7 @@ public final class AgentPaneView: NSView {
 
     private func observeMotion() {
         motionObservation = Task { [weak self] in
-            for await _ in Observations({ Motion.speed }) {
+            for await _ in ObservationStream({ Motion.speed }) {
                 guard let self else { return }
                 self.applyTheme()
             }
@@ -226,7 +236,7 @@ public final class AgentPaneView: NSView {
         guard page == nil else { return }
         applyZoom()
         uiScaleObservation = Task { [weak self] in
-            for await _ in Observations({ DesignSettings.shared.uiScale }) {
+            for await _ in ObservationStream({ DesignSettings.shared.uiScale }) {
                 guard let self else { return }
                 self.applyZoom()
             }
@@ -242,8 +252,12 @@ public final class AgentPaneView: NSView {
         }
     }
 
-    deinit {
-        uiScaleObservation?.cancel()
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            uiScaleObservation?.cancel()
+        }
     }
 
     @available(*, unavailable)
@@ -302,6 +316,7 @@ public final class AgentPaneView: NSView {
         gestureMonitor = nil
         if let connection = model.transport.connection { model.transport.close(connection: connection) }
         model.transport.deliver = nil
+        model.transport.onOtherInstall = nil
         transportPacer?.stop()
         removeContextMenu()
         if let page {
@@ -359,6 +374,7 @@ public final class AgentPaneView: NSView {
         let surface = surfaceKind
         webView.underPageBackgroundColor = AgentPaneTheme.underPageColor(tokens, surface: surface).nsColor
         themeCrashNotice(tokens)
+        otherInstallNotice?.textColor = tokens.textSecondary.nsColor
         themeLoadingState(tokens)
         page?.themeSurface = surface
         deliver(AgentPageEvent.theme(tokens, surface: surface).map { [$0] } ?? [],

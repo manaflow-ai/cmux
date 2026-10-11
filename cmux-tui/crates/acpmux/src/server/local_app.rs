@@ -88,6 +88,7 @@ impl LocalAppAuth {
 /// directory): remove any file a previous launch left (never following a
 /// link), then create it with `O_EXCL`, `O_NOFOLLOW` and mode 0600. Returns
 /// the token as hex.
+#[cfg(unix)]
 pub(crate) fn create_secret(path: &Path) -> anyhow::Result<String> {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
@@ -115,6 +116,12 @@ pub(crate) fn create_secret(path: &Path) -> anyhow::Result<String> {
     f.write_all(token.as_bytes())?;
     f.sync_all()?;
     Ok(token)
+}
+/// Windows port: the token file is created owner-only with an ACL there (a
+/// later landing).
+#[cfg(not(unix))]
+pub(crate) fn create_secret(_path: &Path) -> anyhow::Result<String> {
+    Err(crate::platform::unsupported("the acpmux token files"))
 }
 
 /// `frame` without the token field, so the token never reaches the

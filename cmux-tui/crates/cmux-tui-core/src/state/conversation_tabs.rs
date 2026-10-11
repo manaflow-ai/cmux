@@ -283,6 +283,12 @@ impl Mux {
         &self,
         surface: &Surface,
     ) -> Result<(), ResourceError> {
+        if self.remote_terminal_id(surface).is_some() {
+            return Err(ResourceError::validation_invalid(
+                Some("browser"),
+                "a remote-terminal tab is not a browser page",
+            ));
+        }
         match self.conversation_tab_of(surface) {
             Some(_) => Err(ResourceError::validation_invalid(
                 Some("browser"),
@@ -297,6 +303,10 @@ impl Mux {
         anyhow::ensure!(
             self.conversation_tab_of(surface).is_none(),
             "bad request: a conversation tab is not a browser page"
+        );
+        anyhow::ensure!(
+            self.remote_terminal_id(surface).is_none(),
+            "bad request: a remote-terminal tab is not a browser page"
         );
         Ok(())
     }

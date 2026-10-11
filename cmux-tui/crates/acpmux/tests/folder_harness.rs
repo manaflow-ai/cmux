@@ -2,6 +2,9 @@
 //! protocol handler: session/new starts a folder profile only when its folder
 //! is trusted, the user enabled these bytes, and the chat folder is inside it.
 
+// Unix only until the Windows port runs the daemon (cmux::local_socket).
+#![cfg(unix)]
+
 use acpmux::config::folder_profiles::{self, FolderGate};
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;

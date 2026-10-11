@@ -68,10 +68,13 @@ pub enum Reject {
     /// The answer misses an item, names an unknown option, chooses too many,
     /// or types Other where the item does not allow it.
     InvalidAnswer,
+    /// `thread_root` names no message of this conversation, or a message
+    /// that is itself in a thread (a thread has one level).
+    InvalidThreadRoot,
 }
 
 impl Reject {
-    pub const ALL: [Self; 25] = [
+    pub const ALL: [Self; 26] = [
         Self::NotParticipant,
         Self::NotAuthor,
         Self::UnknownMessage,
@@ -97,6 +100,7 @@ impl Reject {
         Self::HumanOnly,
         Self::QuestionClosed,
         Self::InvalidAnswer,
+        Self::InvalidThreadRoot,
     ];
 
     pub fn code(self) -> &'static str {
@@ -126,6 +130,7 @@ impl Reject {
             Self::HumanOnly => "human_only",
             Self::QuestionClosed => "question_closed",
             Self::InvalidAnswer => "invalid_answer",
+            Self::InvalidThreadRoot => "invalid_thread_root",
         }
     }
 }
@@ -149,7 +154,8 @@ pub struct Commit {
 
 /// One op and the stored rows it needs. The host loads `target` for ops that
 /// name a message ([`Op::target_message_id`]), `reply_target` for a send with
-/// `reply_to` ([`Op::reply_to`]), and the conversation's last message.
+/// `reply_to` ([`Op::reply_to`]), `thread_target` for a send with
+/// `thread_root` ([`Op::thread_root`]), and the conversation's last message.
 #[derive(Debug, Clone, Copy)]
 pub struct OpRequest<'a> {
     pub actor: &'a str,
@@ -161,6 +167,7 @@ pub struct OpRequest<'a> {
     pub new_message_id: &'a str,
     pub target: Option<&'a Message>,
     pub reply_target: Option<&'a Message>,
+    pub thread_target: Option<&'a Message>,
     pub last_message: Option<&'a Message>,
 }
 
@@ -233,7 +240,14 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
     next.rev = head.rev + 1;
     let now = request.now;
     let (message, change) = match request.op {
-        Op::MessageSend { client_msg_id, parts, reply_to, answers, answers_pending } => {
+        Op::MessageSend {
+            client_msg_id,
+            parts,
+            reply_to,
+            answers,
+            answers_pending,
+            thread_root,
+        } => {
             if client_msg_id != request.idempotency_key || !valid_token(client_msg_id) {
                 return Err(Reject::InvalidClientMsgId);
             }
@@ -261,6 +275,16 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
                     return Err(Reject::InvalidPartIndex);
                 }
             }
+            if let Some(thread_root) = thread_root {
+                request
+                    .thread_target
+                    .filter(|root| {
+                        root.id == *thread_root
+                            && root.conversation == head.id
+                            && root.thread_root.is_none()
+                    })
+                    .ok_or(Reject::InvalidThreadRoot)?;
+            }
             next.last_seq = head.last_seq + 1;
             next.updated_at = now.to_string();
             // The loop guard counts text only; a work card neither counts nor resets it.
@@ -283,6 +307,7 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
                 reply_to: reply_to.clone(),
                 answers: answers.clone(),
                 answers_pending: answers_pending.clone(),
+                thread_root: thread_root.clone(),
                 created_at: now.to_string(),
                 edited_at: None,
                 retracted_at: None,

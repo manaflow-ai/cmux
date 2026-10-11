@@ -23,6 +23,8 @@ extension SidebarBridge {
             let before = model.sections
             placePersonal(ids, at: position, in: before, edit: rows.add(intent)) // pending until the store holds it (cx-odqn)
         case .move(let ids, let group):
+            // The drag's rule for every path: a group holds one machine row's workspaces.
+            guard SidebarEdits.canMove(ids, toGroup: group, in: model.sections) else { resync(); return true }
             groupFlow.move(ids, into: group, intent)
         case .createGroup(let group, let name, let color, let ids, _, let collapsed):
             groupFlow.create(group, name: name, color: color, ids, collapsed: collapsed, room: state.profileID, intent)

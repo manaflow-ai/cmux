@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// The bookmarks bar under a browser pane's toolbar (bookmarks.md section 3):
 /// the Bookmarks Bar's children left to right, folders as menus, an overflow
@@ -36,10 +37,11 @@ public final class BookmarksBarView: NSView {
             button.title = ""
             addSubview(button)
         }
-        overflow.image = NSImage(systemSymbolName: "chevron.right.2", accessibilityDescription: BookmarkStrings.moreBookmarks)
+        overflow.image = NSImage.icon(.overflowMore, size: 14)
+        overflow.image?.accessibilityDescription = BookmarkStrings.moreBookmarks
         overflow.toolTip = BookmarkStrings.moreBookmarks
         overflow.action = #selector(showOverflow)
-        otherButton.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
+        otherButton.image = NSImage.icon(.folder, size: 14)
         otherButton.title = BookmarkStrings.otherBookmarks
         otherButton.action = #selector(showOther)
         emptyLabel.stringValue = BookmarkStrings.barEmptyHint

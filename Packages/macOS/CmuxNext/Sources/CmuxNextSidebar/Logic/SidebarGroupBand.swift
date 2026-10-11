@@ -44,8 +44,8 @@ nonisolated struct SidebarGroupBand: Sendable {
         return Hit(anchor: anchor, fraction: (y - row.y) / row.height)
     }
 
-    /// The first color no group in `sections` uses yet, so a new group
-    /// stands apart; never blue or grey.
+    /// The first color of the theme order no group in `sections` uses yet,
+    /// so a new group stands apart; never blue or grey.
     static func newGroupColor(in sections: [SidebarSection]) -> GroupColor {
         // The app's own pick follows the no-blue rule (GroupColor.automatic); when every
         // palette color is taken, the least-used one repeats.
@@ -54,7 +54,6 @@ nonisolated struct SidebarGroupBand: Sendable {
             return nil
         }
         if let free = GroupColor.automatic(used: Set(used.map(\.rawValue))) { return free }
-        let palette = GroupColor.allCases.filter { $0 != .grey && $0 != .blue }
-        return palette.min { a, b in used.count(where: { $0 == a }) < used.count(where: { $0 == b }) } ?? .purple
+        return GroupColor.automaticOrder.min { a, b in used.count(where: { $0 == a }) < used.count(where: { $0 == b }) } ?? .red
     }
 }

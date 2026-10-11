@@ -5252,5 +5252,32 @@
         ]
       }
     }
+  },
+  "settings.appearance.accent": {
+    "source": "Accent",
+    "identityLocales": {
+      "fr": "Accent is the standard French word for an accent color; a translated entry is still required."
+    }
+  },
+  "settings.choice.accent.neutral": {
+    "source": "Neutral",
+    "identityLocales": {
+      "de": "Same spelling as the English color or UI word in this locale; a translated entry is still required."
+    }
+  },
+  "settings.choice.accent.magenta": {
+    "source": "Magenta",
+    "identityLocales": {
+      "de": "Same spelling as the English color or UI word in this locale; a translated entry is still required.",
+      "fr": "Same spelling as the English color or UI word in this locale; a translated entry is still required.",
+      "es": "Same spelling as the English color or UI word in this locale; a translated entry is still required."
+    }
+  },
+  "settings.choice.accent.cyan": {
+    "source": "Cyan",
+    "identityLocales": {
+      "de": "Same spelling as the English color or UI word in this locale; a translated entry is still required.",
+      "fr": "Same spelling as the English color or UI word in this locale; a translated entry is still required."
+    }
   }
 }

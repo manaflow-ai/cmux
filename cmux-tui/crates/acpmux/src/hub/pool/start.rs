@@ -59,6 +59,7 @@ impl Hub {
             socket: agent_host::socket_path(&dir, &session_id),
             hosts_dir: dir,
             buffer_cap: agent_host::DEFAULT_BUFFER_CAP,
+            router_owner_fifo: crate::daemon::router_owner_path(),
         };
         // No host starts once `stop_pool` began: it could not end it.
         if self.pool.stopping.load(Ordering::SeqCst) {
@@ -116,7 +117,10 @@ impl Hub {
             } else {
                 Some(
                     child
-                        .request(method::SESSION_NEW, self.acp_params(draft, &spec.spawn, None))
+                        .request(
+                            method::SESSION_NEW,
+                            self.acp_params(&session_id, draft, &spec.spawn, None),
+                        )
                         .await?,
                 )
             };

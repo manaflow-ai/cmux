@@ -5,6 +5,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextTerminal
 import CmuxNextTerminalFind
+import CmuxNextCompat
 
 // Find (the terminal's find bar over Ghostty search, the browser's find bar, the chat's) and input
 // sent through the daemon.
@@ -136,7 +137,7 @@ extension TerminalHandlers {
     /// Opens `directory` in Finder, or in `app` (a bundle id, app name, or path).
     private static func open(_ directory: URL, with app: String?, _ ctx: AppActionContext) {
         guard let app, !app.isEmpty else {
-            NSWorkspace.shared.open(directory)
+            NSWorkspace.shared.openInBackground(directory)
             return
         }
         let workspace = NSWorkspace.shared

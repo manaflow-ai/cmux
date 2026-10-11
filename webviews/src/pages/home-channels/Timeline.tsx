@@ -78,8 +78,10 @@ export function Timeline({
                 style={{ transform: `translateY(${item.start}px)` }}
               >
                 {row.kind === "day" ? (
-                  <div className="hc-day" role="separator">
+                  <div className="hc-day">
+                    <hr />
                     <span>{dayLabel(row.at, strings, dayFormat)}</span>
+                    <hr />
                   </div>
                 ) : (
                   <MessageRow

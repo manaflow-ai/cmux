@@ -99,8 +99,15 @@ async fn dispatch_request(
                 // `local`: the unix socket or the proven local app
                 // (`local_app.rs`), which the session pool serves.
                 "origin": match conn.origin { Origin::Web => "remote", Origin::Peer => "peer", _ => "local" },
-                // This connection presented this launch's person key (`hub/person.rs`).
+                // This connection is the person (`hub/person.rs`): never yet,
+                // as the proof comes after this reply.
                 "person": conn.is_person(),
+                // The challenge a local connection proves the person key against.
+                "personChallenge": if conn.challengeable() {
+                    json!({"nonce": conn.nonce, "connection": conn.id})
+                } else {
+                    Value::Null
+                },
                 "extensions": [
                     method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
                     method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL, method::MUX_QUEUE_REMOVE,
@@ -108,10 +115,22 @@ async fn dispatch_request(
                     method::MUX_DRAFT_GET, method::MUX_DRAFT_SET,
                     method::MUX_SET_POLICY, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
                 ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets"], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge"], "trustGate": true}}
             }))
         }
         method::AUTHENTICATE => Ok(json!({})),
+        // Decided in order in `Conn::bind_person`; this only reports it.
+        method::MUX_PERSON_PROVE => {
+            if conn.is_person() {
+                Ok(json!({"person": true}))
+            } else {
+                Err(RpcError::new(
+                    -32000,
+                    "the person proof does not answer this connection's challenge (it must be the second request, after initialize)",
+                )
+                .with_data(json!({"reason": crate::hub::person::PROOF_REFUSED})))
+            }
+        }
         method::MUX_PERSON_ENROLL => {
             // The unix socket only: a WebSocket peer has no audit token.
             if conn.origin != Origin::Local {
@@ -942,7 +961,13 @@ async fn dispatch_request(
             let answers = params.get("answers").cloned();
             let answered_by = crate::hub::person::answered_by(&params)?;
             let control = super::remote_guard::control_of(conn.origin, &params);
-            hub.respond_permission(&s, pid, option, answers, answered_by, control).await?;
+            // An allow that is not the person's connection counted on its
+            // decision proof (`hub/person.rs`): the answer spends its nonce.
+            let nonce = mux_meta(&params)
+                .and_then(|m| m.get(crate::hub::person::DECISION_NONCE_FIELD))
+                .and_then(Value::as_str)
+                .filter(|_| option.is_some() && !conn.is_person());
+            hub.respond_permission(&s, pid, option, answers, answered_by, nonce, control).await?;
             Ok(json!({}))
         }
         method::MUX_SET_POLICY => {

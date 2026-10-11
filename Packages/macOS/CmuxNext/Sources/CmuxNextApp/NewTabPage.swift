@@ -36,8 +36,6 @@ struct NewTabPageHandler {
     var browseProject: () async -> String? = { nil }
     /// Returns recent projects, optionally filtered by the picker's query.
     var listProjects: (String?) async -> [String] = { _ in [] }
-    /// Opens the existing onboarding import and project/history sync flow.
-    var importAndSync: () -> Void = {}
     /// Runs a host-owned action advertised by the omnibar.
     var action: (String) -> Void = { _ in }
 
@@ -107,7 +105,8 @@ enum NewTabPage {
                 let browser = tab.kind == .browser
                 tabs.append(AgentPaneOmnibar.Tab(
                     id: tab.id, kind: browser ? .browser : .terminal, title: tab.displayTitle,
-                    detail: browser ? tab.url.map(Self.displayURL) : tab.cwd.map(abbreviated), workspace: workspace.displayName
+                    detail: browser ? tab.url.map(Self.displayURL) : tab.cwd.map(abbreviated), workspace: workspace.displayName,
+                    icon: browser ? AppServices.dataURL(services.tabFavicon(tab)) : nil
                 ))
             }
             if workspace.id != current {
@@ -118,10 +117,10 @@ enum NewTabPage {
             }
         }
         let history = services.cache.history(for: .default).entries.prefix(AgentPaneOmnibar.maximumEntries).map {
-            AgentPaneOmnibar.Page(url: $0.url.absoluteString, title: $0.title)
+            AgentPaneOmnibar.Page(url: $0.url.absoluteString, title: $0.title, icon: AppServices.dataURL(services.siteFavicon($0.url, profile: .default)))
         }
         let commands = services.history.commands.entries().prefix(AgentPaneOmnibar.maximumEntries).compactMap(\.title)
-        let actionIDs: Set<String> = ["palette.welcomeChecklist", "palette.openCmuxSettingsFile", "keybindings.open"]
+        let actionIDs: Set<String> = ["palette.openCmuxSettingsFile", "keybindings.open"]
         let actions = services.registry.descriptors.filter { actionIDs.contains($0.id.rawValue) }.map {
             AgentPaneOmnibar.Action(id: $0.id.rawValue, title: $0.title, keywords: $0.keywords)
         }
@@ -202,7 +201,7 @@ enum NewTabPage {
             becameChat: { [weak services] in services?.newTabKinds.record(.agent, folder: cwd) },
             browseProject: { [weak services] in
                 guard let services else { return nil }
-                return await AppOnboardingServices(owner: services.onboarding).chooseFolder()?.path
+                return await NewTabPage.chooseFolder(in: services.windows.active?.window)?.path
             },
             listProjects: { [weak services] query in
                 guard let services else { return [] }
@@ -211,7 +210,6 @@ enum NewTabPage {
                     RecentProjectScan.live().complete(query: query ?? "", hints: hints, limit: AgentPaneOmnibar.maximumEntries)
                 }.value
             },
-            importAndSync: { [weak services] in services?.onboarding.show(step: .projects) },
             action: { [weak services] id in
                 guard let services else { return }
                 _ = services.registry.perform(ActionID(rawValue: id), invocation: ActionInvocation(origin: .user))
@@ -227,6 +225,8 @@ enum NewTabPage {
         switch target {
         case .tab: PaletteSourcesBridge.TabSource(services: services).selectTab(id: id)
         case .workspace: PaletteSourcesBridge.WorkspaceSource(services: services).selectWorkspace(id: id)
+        case .here: break // only a split's page lists tabs to move (NewTabPage.split)
+        case .closed: NewTabClosed.reopen(id, services: services)
         }
     }
 
@@ -267,23 +267,20 @@ extension PaneController {
     /// New Tab Page: an agent tab showing the new tab page, where the store
     /// places a new tab, with the selected tab's kind selected and folder inherited
     /// (``NewTabPage/open(in:seed:)``).
-    func newTabPage(seed: AgentPaneSeedSource? = nil) { NewTabPage.open(in: self, seed: seed) }
+    /// `then` gets the new tab's id once the store made it.
+    func newTabPage(seed: AgentPaneSeedSource? = nil, then: (@MainActor (String) -> Void)? = nil) { NewTabPage.open(in: self, seed: seed, then: then) }
 
-    /// Focus Location Bar: a browser tab's address bar; the omnibar of a new tab
-    /// page already showing (cx-e2aa; its field when it shows none); anywhere
-    /// else a new tab page, whose field takes the keyboard. ⌃L stays the
+    /// Focus Location Bar: a browser tab's address bar; on a New Tab page its own (React) field;
+    /// anywhere else a new New Tab page, whose field takes the keyboard (cx-e2aa; Lawrence
+    /// 2026-10-10: the New Tab page is React only, no native omnibar row). ⌃L stays the
     /// terminal's (clear screen).
     func focusLocation(_ invocation: ActionInvocation) {
-        let newTabKey = currentTabKey.flatMap { services.agentTabs.isNewTabPage($0) ? $0 : nil }
-        var showsBrowser = false
-        if case .browser = currentContent { showsBrowser = true }
-        switch NewTabPage.locationTarget(showsBrowser: showsBrowser, showsNewTabPage: newTabKey != nil) {
-        case .browserAddressBar: _ = services.registry.perform("focusBrowserAddressBar", invocation: invocation)
-        case .newTabOmnibar:
-            services.windowController(showing: self)?.focus.send(.focusPane(paneKey, source: .intent))
-            if let key = newTabKey, let view = services.agentTabs.view(for: key), !NewTabOmnibar.focus(in: view) { view.focusLocation() }
-        case .openNewTabWithOmnibar: NewTabPage.open(in: self, seed: nil, omnibar: true)
+        if case .browser = currentContent {
+            _ = services.registry.perform("focusBrowserAddressBar", invocation: invocation)
+            return
         }
+        // `open` focuses the field of a New Tab page already showing, else opens one.
+        NewTabPage.open(in: self, seed: nil)
     }
 }
 
@@ -297,28 +294,26 @@ extension NewTabPage {
     /// turn, with no hop: the spare waited at this pane's content size, so its adoption changes
     /// no size and WebKit shows the page at its final layout; the strip shows the tab now at full
     /// width; and the turn's one commit puts the tab and the page on screen in the same frame.
-    static func open(in pane: PaneController, seed: AgentPaneSeedSource?, omnibar: Bool = false) {
+    static func open(in pane: PaneController, seed: AgentPaneSeedSource?, then: (@MainActor (String) -> Void)? = nil) {
         let start = ContinuousClock.now
         let services = pane.services
         let openingKey = ObjectIdentifier(pane)
-        if let key = pane.currentTabKey, services.agentTabs.isNewTabPage(key) {
+        if let key = pane.currentTabKey, services.agentTabs.isNewTabPage(key), AgentHistoryPage.title(key, services) == nil {
             openingPanes.remove(openingKey)
             services.windowController(showing: pane)?.focus.send(.focusPane(pane.paneKey, source: .intent))
             services.agentTabs.view(for: key)?.focusLocation()
             return
         }
         guard openingPanes.insert(openingKey).inserted else { return }
-        // Cmd-L (`omnibar`): the omnibar row is native and takes the keyboard in this turn, so no
-        // key waits for the page; any other open buffers keys until the page's field is ready.
-        let inputToken = omnibar ? nil : services.keyRouter.newTabInputCoordinator.begin(for: pane)
-        guard omnibar || inputToken != nil else {
+        // Keys typed before the page's field is ready wait for it (NewTabInputBuffer).
+        let inputToken = services.keyRouter.newTabInputCoordinator.begin(for: pane)
+        guard inputToken != nil else {
             openingPanes.remove(openingKey)
             return
         }
         let cwd = pane.selectedTab?.cwd
         var page = Self.page(services, selected: pane.selectedTab)
         page.inputToken = inputToken
-        if omnibar { page.focusesField = false }
         var handler = Self.handler(services, cwd: cwd) { [weak pane] key, request in
             if let pane { BenchSpans.measure("newTab.replace") { Self.replace(key, with: request, cwd: request.cwd ?? cwd, in: pane) } }
         }
@@ -330,7 +325,7 @@ extension NewTabPage {
             ? BenchSpans.measure("newTab.take", { services.newTabSpares.take(for: pane.view.window, size: pane.view.contentHost.bounds.size) })
             : nil
         // The tab shows at once (a store intent); the store's tab replaces it when it answers.
-        guard BenchSpans.measure("newTab.open", { pane.openAgentTab(seed: seed, newTab: (page, handler), spare: spare?.view) }) else {
+        guard BenchSpans.measure("newTab.open", { pane.openAgentTab(seed: seed, newTab: (page, handler), spare: spare?.view, then: then) }) else {
             openingPanes.remove(openingKey)
             services.keyRouter.newTabInputCoordinator.cancel(in: pane.view.window)
             return
@@ -338,9 +333,8 @@ extension NewTabPage {
         openingPanes.remove(openingKey)
         // The adopted page is alive: show it this frame and give it the keyboard now, so the
         // first key typed after the open reaches its field (fleet test: it went to the old responder).
-        if spare != nil || omnibar, services.presentation.showNow(pane) {
+        if spare != nil, services.presentation.showNow(pane) {
             services.windowController(showing: pane)?.focus.send(.focusPane(pane.paneKey, source: .intent))
-            if omnibar, let key = pane.currentTabKey, let view = services.agentTabs.existingView(key) { _ = NewTabOmnibar.focus(in: view) }
         }
         BenchSpans.measure("newTab.strip") { pane.view.stripView.sync(fromModel: true, animating: false) }
         services.newTabSpares.record(.init(spare: spare != nil, crossWindow: spare?.crossWindow == true,
@@ -359,9 +353,10 @@ extension NewTabPage {
         openingPanes.remove(ObjectIdentifier(pane))
         // The page closes one frame after the new tab shows, so the frame that builds the
         // terminal surface does not also pay for the page (R81: 17.8 ms frames at 120 Hz).
-        let closePage: @MainActor (SurfaceID) -> Void = { [weak pane] _ in
+        let close: @MainActor (SurfaceID) -> Void = { [weak pane] _ in
             closeFrame.scheduleFrame { BenchSpans.measure("newTab.closePage") { pane?.close([StripTabID(key)]) } }
         }
+        let closePage = NewTabSlot.placing(replacing: key, services: services, then: close) ?? close // the page's slot
         switch request.kind {
         case .terminal where !request.run:
             // `!` on the screen: type, never run; keys typed while the

@@ -4,6 +4,7 @@
 use super::*;
 use std::ffi::OsString;
 use std::sync::Arc;
+#[cfg(unix)]
 use tokio::net::UnixStream;
 use tokio::sync::{Mutex, mpsc, oneshot};
 
@@ -29,6 +30,7 @@ pub async fn spawn(launcher: &HostLauncher, spec: &SpawnSpec) -> Result<HostReco
 }
 
 /// [`spawn`] with the bootstrap deadline given by the caller.
+#[cfg(unix)]
 pub async fn spawn_within(
     launcher: &HostLauncher,
     spec: &SpawnSpec,
@@ -75,6 +77,16 @@ pub async fn spawn_within(
         Some(BootstrapReply::SpawnFailed { message }) => Err(anyhow!(message)),
         None => Err(anyhow!("agent host exited before it was ready")),
     }
+}
+/// Windows port: agent hosts start through CreateProcess there (a later
+/// landing).
+#[cfg(not(unix))]
+pub async fn spawn_within(
+    _launcher: &HostLauncher,
+    _spec: &SpawnSpec,
+    _budget: std::time::Duration,
+) -> Result<HostRecord> {
+    Err(crate::platform::unsupported("agent hosts"))
 }
 
 /// What the host said when it was adopted.
@@ -133,6 +145,7 @@ pub async fn connect(record: HostRecord, resume_after: u64) -> Result<Connect> {
         .map_err(|_| anyhow!("agent host did not answer hello within {HELLO_BUDGET:?}"))?
 }
 
+#[cfg(unix)]
 async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect> {
     let stream = UnixStream::connect(&record.socket)
         .await
@@ -246,6 +259,12 @@ async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect>
         }),
         adopted,
     ))
+}
+/// Windows port: the host socket is `cmux::local_socket` there (a later
+/// landing).
+#[cfg(not(unix))]
+async fn connect_inner(_record: HostRecord, _resume_after: u64) -> Result<Connect> {
+    Err(crate::platform::unsupported("agent hosts"))
 }
 
 impl Link {

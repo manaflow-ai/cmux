@@ -301,6 +301,18 @@ on:
         description: "Same-tree mode: the cmux-next run that probed the tree"
         required: false
         default: ""
+      dev_daily:
+        description: "Build the Release cmux NEXT DEV artifact for the scheduled dev channel"
+        required: false
+        default: false
+        type: boolean
+      dev_daily_sha:
+        description: "Expected feat-cmux-next SHA for the scheduled dev channel"
+        required: false
+        default: ""
+
+run-name: >-
+  ${{ inputs.dev_daily == true && format('cmux NEXT DEV daily · {0}', inputs.dev_daily_sha || github.sha) || format('cmux-next · {0}', github.sha) }}
 
 permissions:
   contents: read
@@ -449,6 +461,8 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          DEV_DAILY: ${{ inputs.dev_daily || false }}
+          DEV_DAILY_SHA: ${{ inputs.dev_daily_sha }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -464,8 +478,52 @@ jobs:
             : > "$changed"
           fi
           echo "changed files: $(wc -l < "$changed"); labels: ${labels:-none}"
-          python3 scripts/ci/cmux_next_route.py --event "$EVENT_NAME" --changed-files "$changed" \
-            --labels "$labels" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+          if [[ "$EVENT_NAME" == workflow_dispatch && "$DEV_DAILY" == true ]]; then
+            # The dispatcher (main's cmux-next-dev-daily-dispatch.yml) asks for
+            # the feat-cmux-next tip it saw. A merge that lands before this run
+            # starts moves github.sha: fail without building, and the next tick
+            # asks for the new tip. No snapshot ref: creating a ref at a
+            # feat-cmux-next commit needs the workflows permission (HTTP 403).
+            [[ "$GITHUB_REF" == refs/heads/feat-cmux-next ]] || {
+              echo "error: dev_daily runs on refs/heads/feat-cmux-next, got $GITHUB_REF" >&2
+              exit 1
+            }
+            [[ "$DEV_DAILY_SHA" == "$GITHUB_SHA" ]] || {
+              echo "error: dev_daily asked for $DEV_DAILY_SHA but feat-cmux-next moved to $GITHUB_SHA; the next dispatcher tick takes the new tip" >&2
+              exit 1
+            }
+            {
+              echo 'native=false'
+              echo 'swift_canary=false'
+              echo 'swift_canary_targets='
+              echo 'macos=true'
+              echo 'scheme=true'
+              echo 'generated=false'
+              echo 'swift=false'
+              echo 'daemon=false'
+              echo 'full=false'
+              echo 'swift_filter='
+              echo 'swift_targets='
+            } >> "$GITHUB_OUTPUT"
+            {
+              echo '### cmux-next tiers'
+              echo
+              echo '| tier | runs |'
+              echo '| --- | --- |'
+              echo '| generated | false |'
+              echo '| native | false |'
+              echo '| swift_canary | false |'
+              echo '| scheme | true |'
+              echo '| swift | false |'
+              echo '| daemon | false |'
+              echo '| full | false |'
+              echo
+              echo '- scheduled dev-daily dispatch: the exact feat-cmux-next SHA builds the Release cmux NEXT DEV artifact in the scheme job.'
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            python3 scripts/ci/cmux_next_route.py --event "$EVENT_NAME" --changed-files "$changed" \
+              --labels "$labels" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+          fi
           # Whether this pull request changes the cmux-tui it would test against.
           # One that does not is never failed for an unpublished merge tree
           # (the probe steps below, CMUX_TUI_TREE_BASE_FALLBACK).
@@ -506,6 +564,8 @@ jobs:
           SHA: ${{ github.sha }}
           STATUS_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           BRANCH: ${{ github.ref_name }}
+          DEV_DAILY: ${{ inputs.dev_daily || false }}
+          DEV_DAILY_SHA: ${{ inputs.dev_daily_sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
@@ -520,6 +580,8 @@ jobs:
           tiers = [tier for tier, on in (("daemon", env["DAEMON"]), ("scheme", env["SCHEME"])) if on == "true"]
           marker = {"version": 1, "key": env["KEY"], "sha": env["SHA"], "status_sha": env["STATUS_SHA"],
                     "tiers": tiers, "run_id": int(env["GITHUB_RUN_ID"])}
+          if env["DEV_DAILY"] == "true":
+              marker.update(dev_daily=True, dev_daily_sha=env["DEV_DAILY_SHA"])
           if env["EVENT_NAME"] == "pull_request":
               marker.update(origin="pull_request", pr=int(env["PR_NUMBER"]), head_ref=env["HEAD_REF"],
                             head_repo=env["HEAD_REPO"], base_ref=env["BASE_REF"])
@@ -673,7 +735,7 @@ jobs:
           retention-days: 1
 
   checks:
-    if: ${{ !((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || (github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next')) && (inputs.same_tree_sha == '' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/'))) }}
+    if: ${{ inputs.dev_daily != true && (!((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || (github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next')) && (inputs.same_tree_sha == '' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/')))) }}
     name: cmux-next checks (god files, concurrency, crash safety, l10n)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
@@ -1051,7 +1113,7 @@ jobs:
   # restore them by the same key instead of running bun and Vite+ themselves; a push to
   # feat-cmux-next fills the cache every pull request can read.
   web-bundles:
-    if: ${{ !((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || (github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next')) && (inputs.same_tree_sha == '' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/'))) }}
+    if: ${{ inputs.dev_daily != true && (!((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || (github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next')) && (inputs.same_tree_sha == '' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/')))) }}
     name: cmux-next web bundles (source-keyed cache)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
@@ -1118,6 +1180,7 @@ jobs:
           KEY: ${{ needs.path_route.outputs.tree_key }}
           STATUS_SHA: ${{ inputs.same_tree_status_sha }}
           TIERS: ${{ inputs.same_tree_tiers }}
+          DEV_DAILY: ${{ inputs.dev_daily == true && 'true' || 'false' }}
           GH_TOKEN: ${{ github.token }}
           TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
@@ -1127,7 +1190,12 @@ jobs:
             for tier in ${TIERS//,/ }; do
               case "$tier" in
                 daemon) context="cmux-next daemon tests (same-tree)" ;;
-                scheme) context="cmux app scheme compile (Debug) (same-tree)" ;;
+                scheme)
+                  if [[ "$DEV_DAILY" == true ]]; then
+                    context="cmux NEXT DEV Release compile (same-tree)"
+                  else
+                    context="cmux app scheme compile (Debug) (same-tree)"
+                  fi ;;
                 *) continue ;;
               esac
               scripts_status="$(python3 -c 'import json,sys; print(json.dumps({"state": "failure", "context": sys.argv[1], "target_url": sys.argv[2], "description": "same-tree cmux-tui unavailable"}))' "$context" "$TARGET_URL")"
@@ -2056,7 +2124,7 @@ jobs:
     # This run's own tier on a published tree (path routing's probe), or
     # same-tree mode after the artifacts workflow published it.
     if: ${{ !(github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') && (!cancelled() && ((inputs.same_tree_sha == '' && needs.path_route.outputs.scheme == 'true' && needs.push-head-preflight.outputs.current == 'true' && needs.path_route.outputs.tree_state == 'ready' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/'))) || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready' && contains(inputs.same_tree_tiers, 'scheme')))) }}
-    name: cmux app scheme compile (Debug)
+    name: ${{ inputs.dev_daily == true && 'cmux NEXT DEV Release compile' || 'cmux app scheme compile (Debug)' }}
     # A push's Mac job waits for the same job of the running push run and is
     # never cancelled once it runs; a newer push replaces only the waiting one
     # (see the workflow concurrency comment).
@@ -2087,6 +2155,18 @@ jobs:
       # published tree when its own is not ready (path routing's probe).
       CMUX_TUI_TREE_KEY: ${{ inputs.same_tree_sha == '' && needs.path_route.outputs.tree_fetch_key || '' }}
     steps:
+      # A dev_daily run (direct or same-tree) builds only the SHA the
+      # dispatcher asked for. A merge that moved feat-cmux-next first must
+      # fail here: an empty success would read as that tip being published.
+      - name: Require the requested DEV daily commit
+        if: inputs.dev_daily == true
+        env:
+          DEV_DAILY_SHA: ${{ inputs.dev_daily_sha }}
+        run: |
+          [[ "$DEV_DAILY_SHA" == "$GITHUB_SHA" ]] || {
+            echo "error: dev_daily asked for $DEV_DAILY_SHA but this run checked out $GITHUB_SHA; the next dispatcher tick takes the new tip" >&2
+            exit 1
+          }
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
         run: |
@@ -2178,6 +2258,7 @@ jobs:
         run: scripts/cmux-next/build-web-bundles.sh
 
       - name: Compile the cmux scheme
+        if: inputs.dev_daily != true
         run: |
           set -euo pipefail
           if [[ "$CMUX_NEXT_RUNNER" == glaeda-* ]]; then
@@ -2203,7 +2284,7 @@ jobs:
       # replace the existing PR artifact.
       - name: Compile the cmux NEXT DEV Release app
         id: compile-cmux-next-dev-release
-        if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current == 'true'
+        if: (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current == 'true') || (github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && github.ref == 'refs/heads/feat-cmux-next' && inputs.dev_daily_sha == github.sha && (needs.push-head-preflight.outputs.current == 'true' || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready')))
         env:
           CMUX_NEXT_CONFIGURATION: Release
           CMUX_NEXT_PRODUCT_NAME: cmux NEXT DEV
@@ -2227,7 +2308,7 @@ jobs:
         if: steps.compile-cmux-next-dev-release.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cmux-next-dev-daily-unsigned-${{ github.sha }}
+          name: cmux-next-dev-daily-unsigned-${{ inputs.dev_daily_sha || github.sha }}
           path: ${{ steps.compile-cmux-next-dev-release.outputs.archive }}
           if-no-files-found: error
           retention-days: 2
@@ -2239,6 +2320,7 @@ jobs:
       # catches a launch that blocks (a daemon wait on the main path, a sync
       # read), not run-to-run noise.
       - name: Launch-time budget
+        if: inputs.dev_daily != true
         timeout-minutes: 5
         run: |
           set -euo pipefail
@@ -2303,7 +2385,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           STATUS_SHA: ${{ inputs.same_tree_status_sha }}
           JOB_STATUS: ${{ job.status }}
-          CONTEXT: cmux app scheme compile (Debug) (same-tree)
+          CONTEXT: ${{ inputs.dev_daily == true && 'cmux NEXT DEV Release compile (same-tree)' || 'cmux app scheme compile (Debug) (same-tree)' }}
           TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
@@ -2318,7 +2400,7 @@ jobs:
     needs: [checks, generated-files, swift-canary, swift-test, daemon-test, release-compile, cmux-scheme-compile]
     # Also a same-tree mode run for a feat-cmux-next push: the tree jobs of a
     # push whose tree was published after its run probed it run there.
-    if: ${{ failure() && (github.event_name == 'push' || inputs.same_tree_origin == 'push') && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' }}
+    if: ${{ failure() && inputs.dev_daily != true && (github.event_name == 'push' || inputs.same_tree_origin == 'push') && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' }}
     name: cmux-next push attribution
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds a pull-requests write token; ephemeral Blacksmith VM, reads no variable
     timeout-minutes: 10

@@ -18,11 +18,44 @@
 //!     daemon reads the key, closes the descriptor and never takes another
 //!     key while it runs. A signed daemon ignores the descriptor (a same-uid
 //!     process could restart the daemon with its own key).
-//! - A connection presents the key in an `initialize` that is its FIRST
-//!   request (`_meta.acpmux.personKey`; stripped before any handler, log or reply).
-//!   A unix socket connection or a proven LocalApp connection that presents
-//!   the current key is the person for its whole life. Web and Peer
-//!   connections never are.
+//! - The key never crosses a socket after enrollment (cx-fcaq): whatever
+//!   listens on the socket path could be a squatter. Each unix socket or
+//!   proven LocalApp connection gets a random nonce. Its FIRST request must
+//!   be `initialize`, whose result carries `_meta.acpmux.personChallenge`
+//!   `{nonce, connection}`. Its SECOND request may be
+//!   `_acpmux/person_prove {proof}` with `proof` = lowercase hex
+//!   HMAC-SHA256(key, "acpmux-person-v1" 0 transport 0 nonce 0 connection
+//!   id), where transport is `unix` or `app` as the client knows it
+//!   ([`person_proof`]), compared in constant time. A match makes the
+//!   connection the person for its whole life. The proof is bound to the
+//!   nonce and the connection id, so a proof captured anywhere else (a
+//!   squatter that relayed the challenge, another connection) proves
+//!   nothing. A `personKey` field is stripped and never read. Web and Peer
+//!   connections are never the person.
+//! - The app checks the server peer before it enrolls or proves (the code
+//!   signature of the bundled acpmux, or in DEV its executable path), and
+//!   makes a new key for each daemon it starts or enrolls, so a key from a
+//!   daemon that went away proves nothing to the next one.
+//!
+//! - A relayed allow (cx-0q7o, #13742 D16): a prompt can be answered from
+//!   another machine's app through a connection that is never the person (a
+//!   peer daemon, the remote cmux-tui server). Each pending prompt has a new
+//!   random `decisionNonce` and each daemon run a random `personInstance`;
+//!   both are in `_acpmux/permission_pending`. `permission_respond` with an
+//!   allow then counts only with `_meta.acpmux.decisionNonce` and
+//!   `personDecision` = lowercase hex HMAC-SHA256(key,
+//!   "acpmux-person-decision-v1" 0 instance 0 session 0 permission 0 option
+//!   0 nonce) ([`decision_proof`]), for the prompt that is pending with that
+//!   nonce. A nonce counts once: the answer that counts spends it under
+//!   the prompt's lock, together with taking the prompt (so a refused answer
+//!   spends nothing, and of two racing answers one counts), and a bounded
+//!   store of spent nonces ([`SPENT_LIMIT`] entries, [`SPENT_TTL`]) refuses
+//!   it again. A prompt the next daemon adopts gets a new nonce under the
+//!   new run (`permission_reissued`, also a `permission_pending`). A restarted daemon has a new instance, so an old proof proves
+//!   nothing. A proof never covers question answers, a group's allow, a
+//!   policy, a rule or a mode: those widen and stay the person's own.
+//!   A keyed daemon is not dumpable (`daemon.rs`), so an agent it starts
+//!   cannot read the key from its memory.
 //!
 //! [`Hub::person_check`] is the one check, run for every request before it
 //! is handled or forwarded. Without the person, a client may read prompts and
@@ -57,8 +90,12 @@
 
 use super::*;
 
-/// Where the first `initialize` carries the key (`_meta.acpmux`).
+/// The old place of the key in `initialize` (`_meta.acpmux`): stripped, never read.
 pub const KEY_FIELD: &str = "personKey";
+/// The challenge in a local connection's `initialize` result (`_meta.acpmux`).
+pub const CHALLENGE_FIELD: &str = "personChallenge";
+/// `error.data.reason` of a `_acpmux/person_prove` that proves nothing.
+pub const PROOF_REFUSED: &str = "person.proof_refused";
 /// `error.data.reason` of a refused allow or grant.
 pub const REASON: &str = "permission.person_required";
 /// `error.data.reason` of `_acpmux/person_enroll` on a daemon that cannot
@@ -112,15 +149,81 @@ pub fn answered_by(params: &Value) -> Result<Option<Value>, RpcError> {
 /// are refused. Shared with the remote guard's Web rule.
 pub(crate) const ASKING_POLICIES: &[&str] = &["ask", "deny-all"];
 
+/// `_meta.acpmux` field of a relayed allow: the prompt's decision nonce.
+pub const DECISION_NONCE_FIELD: &str = "decisionNonce";
+/// `_meta.acpmux` field of a relayed allow: the person's decision proof.
+pub const DECISION_FIELD: &str = "personDecision";
+/// At most this many spent decision nonces are kept.
+pub const SPENT_LIMIT: usize = 4096;
+/// A spent decision nonce is kept this long.
+pub const SPENT_TTL: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+
 /// This launch's person key, once the app gave it.
 #[derive(Default)]
 pub struct PersonGate {
     key: StdMutex<Option<String>>,
     /// Set by `--person-key-fd`: a running unsigned daemon takes no other.
     from_spawn: AtomicBool,
+    /// This daemon run's id, which a decision proof binds.
+    instance: std::sync::OnceLock<String>,
+    /// Decision nonces that counted once, with when.
+    spent: StdMutex<std::collections::VecDeque<(String, std::time::Instant)>>,
 }
 
 impl PersonGate {
+    /// This daemon run's id (16 random bytes, lowercase hex).
+    pub fn instance(&self) -> &str {
+        self.instance.get_or_init(|| new_nonce()[..32].to_owned())
+    }
+
+    /// Whether `proof` is the person's decision for this exact prompt,
+    /// option and nonce on this daemon run (constant time), with a nonce that
+    /// has not counted yet. It spends nothing: the answer spends the nonce
+    /// when it counts ([`Self::spend_decision`]).
+    pub fn decision_proves(
+        &self,
+        session: &str,
+        permission: &str,
+        option: &str,
+        nonce: &str,
+        proof: &str,
+    ) -> bool {
+        let key = self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        let instance = self.instance();
+        let Some(expected) =
+            key.and_then(|k| decision_proof(&k, instance, session, permission, option, nonce))
+        else {
+            return false;
+        };
+        cmux_local_auth::tokens_match(proof, &expected) && !self.spent(nonce)
+    }
+
+    fn spent(&self, nonce: &str) -> bool {
+        self.spent
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .any(|(n, _)| n == nonce)
+    }
+
+    /// Spends a decision nonce; false when it was spent already. Called
+    /// under the prompt's lock by the answer that counts.
+    pub fn spend_decision(&self, nonce: &str) -> bool {
+        let mut spent = self.spent.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let now = std::time::Instant::now();
+        while spent.front().is_some_and(|(_, at)| now.duration_since(*at) > SPENT_TTL) {
+            spent.pop_front();
+        }
+        if spent.iter().any(|(n, _)| n == nonce) {
+            return false;
+        }
+        if spent.len() >= SPENT_LIMIT {
+            spent.pop_front();
+        }
+        spent.push_back((nonce.to_owned(), now));
+        true
+    }
+
     /// The key the app passed on `--person-key-fd` (unsigned daemon only).
     pub fn install_spawn_key(&self, key: &str) -> Result<(), String> {
         if !valid_key(key) {
@@ -133,6 +236,14 @@ impl PersonGate {
         *slot = Some(key.to_owned());
         self.from_spawn.store(true, Ordering::SeqCst);
         Ok(())
+    }
+
+    /// Whether `proof` answers the challenge (`nonce`, `connection`) with
+    /// the current key (constant time).
+    pub fn proves(&self, transport: &str, nonce: &str, connection: &str, proof: &str) -> bool {
+        let key = self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        key.and_then(|k| person_proof(&k, transport, nonce, connection))
+            .is_some_and(|expected| cmux_local_auth::tokens_match(proof, &expected))
     }
 
     /// Whether `presented` is this launch's key (constant time).
@@ -165,6 +276,74 @@ impl PersonGate {
         )
         .with_data(json!({"reason": ENROLL_UNAVAILABLE})))
     }
+}
+
+/// The transport a unix socket connection proves on (`transport` of [`person_proof`]).
+pub const TRANSPORT_UNIX: &str = "unix";
+/// The transport a proven LocalApp WebSocket connection proves on.
+pub const TRANSPORT_APP: &str = "app";
+
+/// The bytes a person proof covers.
+fn proof_message(transport: &str, nonce: &str, connection: &str) -> Vec<u8> {
+    let mut message = b"acpmux-person-v1\0".to_vec();
+    for part in [transport, nonce, connection] {
+        message.extend_from_slice(part.as_bytes());
+        message.push(0);
+    }
+    message.pop();
+    message
+}
+
+/// The proof for one connection's challenge, as lowercase hex; None when
+/// `key` is not a person key. `transport` is the one the CLIENT knows it
+/// uses ([`TRANSPORT_UNIX`] or [`TRANSPORT_APP`]), never a value from the
+/// challenge: a relay that hands a unix connection's challenge to the app's
+/// WebSocket gets a proof for the other transport.
+pub fn person_proof(key: &str, transport: &str, nonce: &str, connection: &str) -> Option<String> {
+    let key = cmux_local_auth::frontend_proof::unhex::<32>(key).filter(|_| valid_key(key))?;
+    Some(cmux_local_auth::frontend_proof::hex(&cmux_local_auth::frontend_proof::hmac_sha256(
+        &key,
+        &proof_message(transport, nonce, connection),
+    )))
+}
+
+/// The bytes a decision proof covers.
+fn decision_message(parts: [&str; 5]) -> Vec<u8> {
+    let mut message = b"acpmux-person-decision-v1".to_vec();
+    for part in parts {
+        message.push(0);
+        message.extend_from_slice(part.as_bytes());
+    }
+    message
+}
+
+/// The person's proof that they chose `option` for `permission` of
+/// `session`, with the prompt's `nonce`, on daemon run `instance`, as
+/// lowercase hex; None when `key` is not a person key.
+pub fn decision_proof(
+    key: &str,
+    instance: &str,
+    session: &str,
+    permission: &str,
+    option: &str,
+    nonce: &str,
+) -> Option<String> {
+    let key = cmux_local_auth::frontend_proof::unhex::<32>(key).filter(|_| valid_key(key))?;
+    Some(cmux_local_auth::frontend_proof::hex(&cmux_local_auth::frontend_proof::hmac_sha256(
+        &key,
+        &decision_message([instance, session, permission, option, nonce]),
+    )))
+}
+
+/// A connection's nonce: 32 random bytes as lowercase hex.
+pub fn new_nonce() -> String {
+    use std::io::Read;
+    let mut bytes = [0u8; 32];
+    // No randomness means no safe challenge: the daemon cannot serve.
+    std::fs::File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(&mut bytes))
+        .expect("read /dev/urandom for a connection nonce"); // crash-allow: no randomness, no safe challenge
+    cmux_local_auth::frontend_proof::hex(&bytes)
 }
 
 /// 32 bytes as lowercase hex.
@@ -273,7 +452,7 @@ impl Hub {
                 let Some(option) = params.get("optionId").filter(|v| !v.is_null()) else {
                     return Ok(());
                 };
-                if self.option_rejects(params, option) {
+                if self.option_rejects(params, option) || self.person_decided(params, option) {
                     Ok(())
                 } else {
                     Err(person_required("allowing a permission"))
@@ -388,6 +567,34 @@ impl Hub {
             let name = params.get("name").and_then(Value::as_str)?;
             cfg.presets.get(name).and_then(|p| p.policy)
         }
+    }
+
+    /// Whether a relayed allow carries the person's decision proof for the
+    /// pending prompt it answers (module docs, cx-0q7o). Question answers
+    /// are never covered by a proof.
+    fn person_decided(&self, params: &Value, option: &Value) -> bool {
+        let meta = params.pointer("/_meta/acpmux");
+        let field = |f: &str| meta.and_then(|m| m.get(f)).and_then(Value::as_str);
+        let (Some(nonce), Some(proof), Some(option)) =
+            (field(DECISION_NONCE_FIELD), field(DECISION_FIELD), option.as_str())
+        else {
+            return false;
+        };
+        if params.get("answers").is_some_and(|v| !v.is_null()) {
+            return false;
+        }
+        let Some(s) = crate::server::session_key(params).ok().and_then(|k| self.resolve(k).ok())
+        else {
+            return false;
+        };
+        let Some(pid) = params.get("permissionId").and_then(Value::as_str) else { return false };
+        let pending_nonce = {
+            let state = s.permissions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let Some(p) = state.pending.get(pid) else { return false };
+            p.decision_nonce.clone()
+        };
+        cmux_local_auth::tokens_match(nonce, &pending_nonce)
+            && self.person.decision_proves(&s.id, pid, option, nonce, proof)
     }
 
     /// Whether `option` is a reject the pending permission offered. Unknown

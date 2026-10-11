@@ -1,3 +1,5 @@
+import AppKit
+import CmuxNextIcons
 import SwiftUI
 
 /// Granted folders: name, write mark, remove; Add Folder… opens the host
@@ -28,15 +30,15 @@ struct FoldersSection: View {
             }
             ForEach(record.grant.fileRoots) { root in
                 HStack(spacing: 8) {
-                    Image(systemName: root.kind == .workspaceFolder ? "square.stack" : "folder")
-                        .font(.system(size: 11)).foregroundStyle(colors.secondary).frame(width: 14)
+                    Icon(root.kind == .workspaceFolder ? .workspace : .folder, size: 14)
+                        .foregroundStyle(colors.secondary).frame(width: 14)
                     Text(root.label).font(colors.body).foregroundStyle(colors.text).lineLimit(1)
                     if root.writable {
                         Text(AppPermissionsStrings.writable).font(colors.caption).foregroundStyle(colors.warning)
                     }
                     Spacer()
                     Button { remove(root.id) } label: {
-                        Image(systemName: "minus.circle").font(.system(size: 11)).foregroundStyle(colors.tertiary)
+                        Icon(.actionRemove, size: 13).foregroundStyle(colors.tertiary)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(Text(AppPermissionsStrings.remove))
@@ -59,17 +61,17 @@ struct ReachSection: View {
         VStack(alignment: .leading, spacing: 4) {
             SectionHeading(text: AppPermissionsStrings.reach)
             HStack(spacing: 14) {
-                menu(AppPermissionsStrings.allWorkspaces, symbol: "rectangle.stack", options: source.workspaces, current: selectors.workspaces) {
+                menu(AppPermissionsStrings.allWorkspaces, icon: .workspace, options: source.workspaces, current: selectors.workspaces) {
                     var next = selectors
                     next.workspaces = $0
                     set(next)
                 }
-                menu(AppPermissionsStrings.allRooms, symbol: "person.2", options: source.rooms, current: selectors.rooms) {
+                menu(AppPermissionsStrings.allRooms, icon: .space, options: source.rooms, current: selectors.rooms) {
                     var next = selectors
                     next.rooms = $0
                     set(next)
                 }
-                menu(AppPermissionsStrings.allMachines, symbol: "desktopcomputer", options: source.machines, current: selectors.machines) {
+                menu(AppPermissionsStrings.allMachines, icon: .machine, options: source.machines, current: selectors.machines) {
                     var next = selectors
                     next.machines = $0
                     set(next)
@@ -79,7 +81,7 @@ struct ReachSection: View {
         }
     }
 
-    private func menu(_ all: String, symbol: String, options: [AppResourceOption], current: Set<String>?,
+    private func menu(_ all: String, icon: IconName, options: [AppResourceOption], current: Set<String>?,
                       apply: @escaping @MainActor (Set<String>?) -> Void) -> some View {
         Menu {
             Button(all) { apply(nil) }
@@ -91,11 +93,11 @@ struct ReachSection: View {
                     if on { next.remove(option.id) } else { next.insert(option.id) }
                     apply(next)
                 } label: {
-                    if on { Label(option.name, systemImage: "checkmark") } else { Text(option.name) }
+                    if on { Label { Text(option.name) } icon: { Image(nsImage: NSImage.icon(.stateSelected, size: 16)) } } else { Text(option.name) }
                 }
             }
         } label: {
-            Label(current.map { AppPermissionsStrings.selectedCount($0.count) } ?? all, systemImage: symbol)
+            Label { Text(current.map { AppPermissionsStrings.selectedCount($0.count) } ?? all) } icon: { Icon(icon, size: 13) }
                 .font(colors.caption)
                 .foregroundStyle(current == nil ? colors.secondary : colors.text)
         }

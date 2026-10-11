@@ -346,6 +346,7 @@ MODEL_BY_PATH = {
     'commands/new-frontend-browser-tab/request': models.NewFrontendBrowserTabRequest,
     'commands/new-pane/request': models.NewPaneRequest,
     'commands/new-pane-right/request': models.NewPaneRightRequest,
+    'commands/new-remote-terminal-tab/request': models.NewRemoteTerminalTabRequest,
     'commands/new-row/request': models.NewRowRequest,
     'commands/new-screen/request': models.NewScreenRequest,
     'commands/new-tab/request': models.NewTabRequest,
@@ -369,6 +370,7 @@ MODEL_BY_PATH = {
     'commands/release-surface-size/request': models.ReleaseSurfaceSizeRequest,
     'commands/reload-config/request': models.ReloadConfigRequest,
     'commands/reload-config/result': models.ReloadConfigResult,
+    'commands/remote-terminal-snapshot/request': models.RemoteTerminalSnapshotRequest,
     'commands/remove-screens-from-screen-group/request': models.RemoveScreensFromScreenGroupRequest,
     'commands/remove-tabs-from-tab-group/request': models.RemoveTabsFromTabGroupRequest,
     'commands/remove-tabs-from-tab-group/result': models.RemoveTabsFromTabGroupResult,
@@ -445,6 +447,7 @@ MODEL_BY_PATH = {
     'commands/update-frontend-browser-tab/request': models.UpdateFrontendBrowserTabRequest,
     'commands/update-personal-group/request': models.UpdatePersonalGroupRequest,
     'commands/update-profile/request': models.UpdateProfileRequest,
+    'commands/update-remote-terminal-tab/request': models.UpdateRemoteTerminalTabRequest,
     'commands/update-screen-group/request': models.UpdateScreenGroupRequest,
     'commands/update-tab-group/request': models.UpdateTabGroupRequest,
     'commands/update-workspace-group/request': models.UpdateWorkspaceGroupRequest,
@@ -457,6 +460,7 @@ MODEL_BY_PATH = {
     'commands/zoom-pane/request': models.ZoomPaneRequest,
     'events/activity-changed/payload': models.ActivityChangedEvent,
     'events/agent-changed/payload': models.AgentChangedEvent,
+    'events/agent-presence-changed/payload': models.AgentPresenceChangedEvent,
     'events/bell/payload': models.BellEvent,
     'events/bookmarks-changed/payload': models.BookmarksChangedEvent,
     'events/browser-state/payload': models.BrowserStateEvent,
@@ -500,6 +504,7 @@ MODEL_BY_PATH = {
     'events/screen-closed/payload': models.ScreenClosedEvent,
     'events/screen-renamed/payload': models.ScreenRenamedEvent,
     'events/scroll-changed/payload': models.ScrollChangedEvent,
+    'events/settings-changed/payload': models.SettingsChangedEvent,
     'events/size-state/payload': models.SizeStateEvent,
     'events/status/payload': models.StatusEvent,
     'events/surface-exited/payload': models.SurfaceExitedEvent,
@@ -527,6 +532,7 @@ MODEL_BY_PATH = {
 }
 
 ENUM_BY_PATH = {
+    'types/AgentPresenceActivity': models.AgentPresenceActivity,
     'types/AgentReportSource': models.AgentReportSource,
     'types/AgentSource': models.AgentSource,
     'types/AgentState': models.AgentState,

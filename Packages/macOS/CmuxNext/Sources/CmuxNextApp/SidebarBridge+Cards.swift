@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import CmuxNextActions
 import CmuxNextPages
@@ -40,7 +41,7 @@ enum SidebarCardFeed {
 
     static func start(model: SidebarModel, updater: UpdaterService, registry: ActionRegistry? = nil) -> Task<Void, Never> {
         Task {
-            for await (card, updated, notice) in Observations({ () -> (SidebarUpdateCard?, SidebarUpdatedCard?, SidebarNoticeCard?) in
+            for await (card, updated, notice) in ObservationStream({ () -> (SidebarUpdateCard?, SidebarUpdatedCard?, SidebarNoticeCard?) in
                 (updateCard(updater), updatedCard(updater), noticeCard(updater, registry: registry))
             }) {
                 if model.updateCard != card { model.updateCard = card }

@@ -258,9 +258,9 @@ fn run(global: &GlobalArgs, args: &[String]) -> i32 {
             return 2;
         }
     };
-    let Ok((socket, _)) = super::wire::resolve_socket_with_origin(global) else {
-        eprintln!("cmux: {}", crate::localization::catalog().startup.invalid_session_name);
-        return 2;
+    let socket = match super::wire::resolve_socket_or_report(global) {
+        Ok((socket, _)) => socket,
+        Err(code) => return code,
     };
     let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
         return 3;
