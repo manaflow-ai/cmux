@@ -82,7 +82,7 @@ struct NewMachineSheetLayoutTests {
     /// its first size clips whatever arrives later. The window must end at
     /// the content's ideal size.
     @Test("an open sheet takes the size of content that arrives after it opens")
-    func presentedSheetTracksContentThatArrivesLater() throws {
+    func presentedSheetTracksContentThatArrivesLater() async throws {
         _ = NSApplication.shared
         let host = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
@@ -120,20 +120,19 @@ struct NewMachineSheetLayoutTests {
                 resourcePool: pool
             ))
             model.applySourceMachines(Self.nightlyMachines(renamedAt: tick))
-            Self.runMainLoopTurns()
+            await Self.yieldMainLoopTurns()
         }
         model.selectBaseImage(.machine(model.sourceMachines[3]))
-        Self.runMainLoopTurns()
+        await Self.yieldMainLoopTurns()
 
         let ideal = NSHostingView(rootView: NewMachineSheet(model: model)).fittingSize
         // The sheet takes a new size on a main-queue turn after SwiftUI
-        // reports it from a display cycle; a loaded runner (macOS 15 on
-        // Blacksmith) can need more than a few turns. Wait with a deadline;
-        // a sheet that never resizes still fails below.
+        // reports it from a display cycle. Wait with a deadline; a sheet that
+        // never resizes still fails below.
         var content = sheet.contentRect(forFrameRect: sheet.frame).size
         let deadline = Date(timeIntervalSinceNow: 5)
         while abs(content.height - ceil(ideal.height)) > 1 || abs(content.width - ceil(ideal.width)) > 1, Date() < deadline {
-            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02))
+            await Self.yieldMainLoopTurns(1)
             content = sheet.contentRect(forFrameRect: sheet.frame).size
         }
         #expect(abs(content.height - ceil(ideal.height)) <= 1, "sheet content \(content) does not fit its content \(ideal)")
@@ -222,9 +221,14 @@ struct NewMachineSheetLayoutTests {
         }
     }
 
-    private static func runMainLoopTurns() {
-        for _ in 0..<5 {
-            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+    /// Gives the main thread back for a few turns. `CloudSheetWindow`
+    /// applies a reported size with `DispatchQueue.main.async`; spinning
+    /// `RunLoop.main` from inside the test does not run that block while the
+    /// test itself is a main-queue job (macOS 15's main-actor executor), so
+    /// the test suspends instead and lets the main queue and run loop drain.
+    private static func yieldMainLoopTurns(_ count: Int = 5) async {
+        for _ in 0..<count {
+            try? await Task.sleep(for: .milliseconds(10))
         }
     }
 
