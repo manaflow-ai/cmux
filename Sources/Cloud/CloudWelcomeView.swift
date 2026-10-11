@@ -36,27 +36,38 @@ struct CloudWelcomeView: View {
     var sliderShowsFeatureList = true
     var sliderListUsesDots = false
 
-    static let windowWidth: CGFloat = 580
+    static let windowWidth: CGFloat = 680
     /// The list layouts put the features beside the clip, so they need more room.
-    static let listWindowWidth: CGFloat = 680
+    static let listWindowWidth: CGFloat = 840
+    /// The clip frames: 16:10 like the recorded clips (1010x640), and no wider
+    /// than half their pixels so they stay sharp on a Retina display.
+    static let stackedMediaSize = CGSize(width: 500, height: 312)
+    static let listMediaSize = CGSize(width: 480, height: 300)
 
     var body: some View {
         let hasMedia = showsMedia && CloudWelcomeSlide.all.contains { mediaURL($0) != nil }
         return VStack(spacing: 0) {
             CloudWelcomeHeader()
                 .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.horizontal, 24)
-                .padding(.top, 28)
-                .padding(.bottom, 22)
+                .padding(.horizontal, 32)
+                .padding(.top, 34)
+                .padding(.bottom, 26)
             if hasMedia {
-                CloudWelcomeMediaCarousel(slides: CloudWelcomeSlide.all, mediaURL: mediaURL, autoplays: sliderAutoplays, showsFeatureList: sliderShowsFeatureList, listUsesDots: sliderListUsesDots)
-                    .padding(.bottom, 24)
+                CloudWelcomeMediaCarousel(
+                    slides: CloudWelcomeSlide.all,
+                    mediaURL: mediaURL,
+                    mediaSize: sliderShowsFeatureList ? Self.listMediaSize : Self.stackedMediaSize,
+                    autoplays: sliderAutoplays,
+                    showsFeatureList: sliderShowsFeatureList,
+                    listUsesDots: sliderListUsesDots
+                )
+                .padding(.bottom, 28)
             } else {
                 CloudWelcomeHero()
             }
             panel(hasMedia: hasMedia)
-                .padding(.horizontal, 28)
-                .padding(.bottom, 22)
+                .padding(.horizontal, 32)
+                .padding(.bottom, 24)
         }
         .frame(width: sliderShowsFeatureList && hasMedia ? Self.listWindowWidth : Self.windowWidth)
         .background(windowBackground)
@@ -113,25 +124,25 @@ struct CloudWelcomeView: View {
             }
             Divider()
             footer
-                .padding(.top, 16)
+                .padding(.top, 18)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var footer: some View {
-        HStack(alignment: .center, spacing: 8) {
+        HStack(alignment: .center, spacing: 10) {
             VStack(alignment: .leading, spacing: 1) {
                 ForEach(noteLines, id: \.self) { line in
                     Text(line)
                 }
             }
-            .cmuxFont(size: 11)
+            .cmuxFont(size: 12)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 12)
+            Spacer(minLength: 16)
             Button(action: onNotNow) {
                 Text(String(localized: "common.notNow", defaultValue: "Not Now"))
-                    .padding(.horizontal, 6)
+                    .padding(.horizontal, 8)
             }
             .buttonStyle(.bordered)
             .buttonBorderShape(.capsule)
@@ -142,7 +153,9 @@ struct CloudWelcomeView: View {
                 onNext(nextStep)
             } label: {
                 Text(primaryLabel)
-                    .padding(.horizontal, 6)
+                    .fontWeight(.semibold)
+                    .padding(.horizontal, 14)
+                    .frame(minWidth: 120)
             }
             .buttonStyle(.borderedProminent)
             .buttonBorderShape(.capsule)
@@ -183,16 +196,16 @@ struct CloudWelcomeView: View {
 
 private struct CloudWelcomeHeader: View {
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 10) {
             HStack(spacing: 6) {
                 Image(systemName: "cloud.fill")
-                    .cmuxFont(size: 11, weight: .semibold)
-                Text(String(localized: "cloud.welcome.title.eyebrow", defaultValue: "cmux cloud"))
                     .cmuxFont(size: 12, weight: .semibold)
+                Text(String(localized: "cloud.welcome.title.eyebrow", defaultValue: "cmux cloud"))
+                    .cmuxFont(size: 13, weight: .semibold)
             }
             .foregroundStyle(Color.accentColor)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
             .background(
                 Capsule(style: .continuous)
                     .fill(Color.accentColor.opacity(0.12))
@@ -202,8 +215,8 @@ private struct CloudWelcomeHeader: View {
                     .strokeBorder(Color.accentColor.opacity(0.18), lineWidth: 0.5)
             }
             Text(String(localized: "cloud.welcome.title", defaultValue: "Your work, wherever you go"))
-                .cmuxFont(size: 30, weight: .bold)
-                .tracking(-0.35)
+                .cmuxFont(size: 34, weight: .bold)
+                .tracking(-0.4)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
         }

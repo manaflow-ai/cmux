@@ -72,7 +72,8 @@ struct CloudWelcomeMediaCarousel: View {
     let slides: [CloudWelcomeSlide]
     /// Where a slide's clip lives. The app reads its bundle; the lab a folder.
     let mediaURL: (CloudWelcomeSlide) -> URL?
-    var mediaSize = CGSize(width: 340, height: 212)
+    /// The clip's frame; the welcome passes a larger one beside the feature list.
+    var mediaSize = CloudWelcomeView.stackedMediaSize
     /// True: plays through on its own, a click on the clip pauses. False: each
     /// clip loops until the viewer moves on with the arrows or dots.
     var autoplays = true
@@ -105,13 +106,13 @@ struct CloudWelcomeMediaCarousel: View {
     var body: some View {
         Group {
             if showsFeatureList {
-                HStack(alignment: .center, spacing: 18) {
+                HStack(alignment: .center, spacing: 24) {
                     featureList
                         .frame(maxWidth: .infinity, alignment: .leading)
                     media
                 }
-                .padding(.leading, 28)
-                .padding(.trailing, 28)
+                .padding(.leading, 32)
+                .padding(.trailing, 32)
             } else {
                 stacked
             }
@@ -128,9 +129,9 @@ struct CloudWelcomeMediaCarousel: View {
         VStack(spacing: 0) {
             media
             pager
-                .padding(.top, 14)
+                .padding(.top, 16)
             caption
-                .padding(.top, 10)
+                .padding(.top, 12)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(currentSlide.title)
@@ -145,12 +146,6 @@ struct CloudWelcomeMediaCarousel: View {
     }
 
     private var currentSlide: CloudWelcomeSlide { slides[index] }
-
-    /// Beside the list the clip takes the room the titles don't need, so it
-    /// reads larger (same 16:10, so recorded clips fit either layout).
-    private var mediaFrame: CGSize {
-        showsFeatureList ? CGSize(width: 390, height: 244) : mediaSize
-    }
 
     // MARK: Feature list
 
@@ -189,12 +184,12 @@ struct CloudWelcomeMediaCarousel: View {
                 }
                 VStack(alignment: .leading, spacing: 3) {
                     Text(slide.title)
-                        .cmuxFont(size: 13, weight: .medium)
+                        .cmuxFont(size: 14, weight: .medium)
                         .foregroundStyle(isCurrent || isHovered ? Color.primary : Color.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                     if isCurrent {
                         Text(slide.caption)
-                            .cmuxFont(size: 11.5)
+                            .cmuxFont(size: 12.5)
                             .foregroundStyle(.secondary)
                             .lineSpacing(1)
                             .fixedSize(horizontal: false, vertical: true)
@@ -220,13 +215,13 @@ struct CloudWelcomeMediaCarousel: View {
     // MARK: Media
 
     private var media: some View {
-        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
         return ZStack {
             slideMedia(currentSlide)
                 .id(currentSlide.id)
                 .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.985)))
         }
-        .frame(width: mediaFrame.width, height: mediaFrame.height)
+        .frame(width: mediaSize.width, height: mediaSize.height)
         .background(shape.fill(Color.black.opacity(0.35)))
         .contentShape(shape)
         .onTapGesture {
@@ -414,16 +409,16 @@ struct CloudWelcomeMediaCarousel: View {
     // MARK: Caption
 
     private var caption: some View {
-        VStack(spacing: 3) {
+        VStack(spacing: 4) {
             Text(currentSlide.title)
-                .cmuxFont(size: 15, weight: .semibold)
+                .cmuxFont(size: 17, weight: .semibold)
             Text(currentSlide.caption)
-                .cmuxFont(size: 13)
+                .cmuxFont(size: 14)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(maxWidth: 460)
+        .frame(maxWidth: 540)
         .id(currentSlide.id)
         .transition(.opacity)
     }

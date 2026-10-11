@@ -151,4 +151,22 @@ struct CloudWelcomeTests {
         #expect(!CloudWelcomeMediaCarousel.shouldAdvanceAfterMovie(elapsed: 3.99))
         #expect(CloudWelcomeMediaCarousel.shouldAdvanceAfterMovie(elapsed: 4))
     }
+
+    @Test("clip frames are large, 16:10, sharp at 2x and fit their window")
+    func clipFramesFitTheirLayouts() {
+        // The smallest recorded clip is 1010x640 pixels.
+        let clipPixels = CGSize(width: 1010, height: 640)
+        let horizontalPadding: CGFloat = 32 * 2
+        let layouts: [(media: CGSize, window: CGFloat, besideList: CGFloat)] = [
+            (CloudWelcomeView.stackedMediaSize, CloudWelcomeView.windowWidth, 0),
+            // Beside the list the titles keep at least 240 points.
+            (CloudWelcomeView.listMediaSize, CloudWelcomeView.listWindowWidth, 240 + 24),
+        ]
+        for layout in layouts {
+            #expect(layout.media.width >= 480, "The clip should read as the dialog's focal point")
+            #expect(abs(layout.media.width / layout.media.height - 1.6) < 0.01)
+            #expect(layout.media.width * 2 <= clipPixels.width && layout.media.height * 2 <= clipPixels.height)
+            #expect(layout.media.width + layout.besideList + horizontalPadding <= layout.window)
+        }
+    }
 }
