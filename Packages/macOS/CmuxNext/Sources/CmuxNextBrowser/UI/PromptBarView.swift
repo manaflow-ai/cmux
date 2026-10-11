@@ -13,7 +13,7 @@ final class PromptBarView: NSView {
     let userField = ChromeTextField()
     let passwordField = ChromeSecureTextField()
     /// "Always allow" of a link to another app.
-    private let alwaysCheck = NSButton(checkboxWithTitle: "", target: nil, action: nil)
+    private let alwaysCheck = ThemedCheckbox(checkboxWithTitle: "", target: nil, action: nil)
     private let buttons = NSStackView()
     private let stack = NSStackView()
     private let density = DensityBinding()

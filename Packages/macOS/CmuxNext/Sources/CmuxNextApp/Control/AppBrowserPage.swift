@@ -82,6 +82,10 @@ enum AppBrowserPage {
             }
         case .screenshot(let capture):
             return try await screenshot(page, tabID: tabID, capture)
+        case .cookies(let request):
+            // Chromium's cookie methods go through the page's DevTools.
+            try await ensureBrowser(page)
+            return try await cookies(page, request)
         }
         return [:]
     }

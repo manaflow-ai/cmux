@@ -84,6 +84,10 @@ extension UpdaterService {
         guard phase != flow.phase else { return }
         #if DEBUG
         if phase.harnessName != flow.phase.harnessName { UpdateHarness.mark("phase.\(phase.harnessName)") }
+        if case .note = phase, let controller,
+           let content = UpdateSheetContent.sparkle(controller.model.effectiveState, current: identity) {
+            UpdateHarness.mark("failure_content." + content.buttons.map { String(describing: $0).prefix { $0 != "(" } }.joined(separator: "_"))
+        }
         #endif
         let wasInstalling = flow.phase == .installing
         send(.sparkle(phase))
