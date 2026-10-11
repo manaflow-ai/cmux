@@ -155,6 +155,8 @@ try:
         reply = rpc("action.run", {"action": f"openBrowser.{engine}", "args": {"url": f"{ORIGIN}/{name}"}, "focus": True})
         TAB = (reply.get("created") or [None])[0]
         check(TAB is not None, f"{engine}: a tab opens on the PDF ({reply})")
+        if TAB is None:
+            continue  # page() would read whichever tab has focus
         kind = wait_for(lambda: page("document.contentType") == "application/pdf" and "application/pdf",
                         f"{engine}: the tab's document is the PDF", 30)
         check(kind is not None, f"{engine}: the PDF shows in the tab ({page('[document.contentType, location.href, document.title]')})")
@@ -166,11 +168,11 @@ try:
         if isinstance(shot, dict) and shot.get("png_base64"):
             with open(os.path.join(opts.out, f"{engine}-pdf.png"), "wb") as f:
                 f.write(base64.b64decode(shot["png_base64"]))
+        else:
+            print(f"note: {engine}: no screenshot ({shot.get('error') if isinstance(shot, dict) else shot})", flush=True)
         time.sleep(3)  # a download would have landed by now
         landed = [f for f in os.listdir(DOWNLOADS) if RUN in f] if os.path.isdir(DOWNLOADS) else []
         check(not landed, f"{engine}: the PDF is not downloaded ({landed})")
-        for f in landed:
-            os.remove(os.path.join(DOWNLOADS, f))
 finally:
     rpc("action.run", {"action": "quitEndSessions"})
     try:
@@ -179,6 +181,11 @@ finally:
         app.kill()  # the PID launched above, never a pattern
     teardown.end()
     server.shutdown()
+    server.server_close()
+    # A PDF downloaded by mistake carries this run's id; nothing else is touched.
+    for name in (os.listdir(DOWNLOADS) if os.path.isdir(DOWNLOADS) else []):
+        if RUN in name:
+            os.remove(os.path.join(DOWNLOADS, name))
 
 print(f"{len(failures)} failure(s); artifacts in {opts.out}")
 sys.exit(1 if failures else 0)
