@@ -443,6 +443,22 @@ fn read_person_key(fd: i32) -> Option<String> {
         tracing::warn!("--person-key-fd {fd}: not a stdio descriptor");
         return None;
     }
+    // Close the descriptor at exec too, so that no agent inherits it even
+    // if a spawn starts before the read below returns.
+    // SAFETY: fcntl on a descriptor number only sets its flags.
+    unsafe {
+        libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
+    }
+    if let Err(e) = not_dumpable() {
+        // An agent this daemon starts (same uid) could read the key from
+        // its memory: no key, so no allow, rather than a readable key.
+        tracing::warn!(
+            "--person-key-fd {fd}: refused, the daemon cannot be made not dumpable: {e}"
+        );
+        // SAFETY: the launcher passed this descriptor for us to close.
+        drop(unsafe { std::fs::File::from_raw_fd(fd) });
+        return None;
+    }
     // SAFETY: the launcher passed this descriptor for us to read and close;
     // `File` owns and closes it here.
     let f = unsafe { std::fs::File::from_raw_fd(fd) };
@@ -458,6 +474,37 @@ fn read_person_key(fd: i32) -> Option<String> {
         tracing::warn!("--person-key-fd {fd}: not a person key");
         None
     }
+}
+
+/// Makes this process not dumpable before it holds a person key (cx-0q7o):
+/// on Linux, a same-uid process (an agent the daemon starts) can then not
+/// ptrace it or read its memory through /proc, and the kernel owns its
+/// /proc files. Also logs yama's ptrace_scope, the host's other ptrace rule.
+#[cfg(target_os = "linux")]
+fn not_dumpable() -> std::io::Result<()> {
+    // SAFETY: PR_SET_DUMPABLE takes an integer and changes only this
+    // process's dumpable flag.
+    if unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: PR_GET_DUMPABLE reads this process's flag.
+    if unsafe { libc::prctl(libc::PR_GET_DUMPABLE, 0, 0, 0, 0) } != 0 {
+        return Err(std::io::Error::other("PR_GET_DUMPABLE is not 0 after PR_SET_DUMPABLE 0"));
+    }
+    match std::fs::read_to_string("/proc/sys/kernel/yama/ptrace_scope") {
+        Ok(scope) => tracing::info!("person key: not dumpable; yama ptrace_scope {}", scope.trim()),
+        Err(_) => tracing::info!("person key: not dumpable; yama is not active"),
+    }
+    Ok(())
+}
+
+/// macOS and other Unix: no dumpable flag. A DEV daemon is unsigned and
+/// takes the key at spawn; a Release daemon is hardened-runtime signed,
+/// which refuses a debugger without the get-task-allow entitlement, and
+/// ignores the key descriptor (it enrolls the signed app instead).
+#[cfg(all(unix, not(target_os = "linux")))]
+fn not_dumpable() -> std::io::Result<()> {
+    Ok(())
 }
 
 /// Windows: no inherited descriptors yet (the CreateProcess handle list

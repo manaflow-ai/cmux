@@ -16576,9 +16576,9 @@
     {
       "cli" : "offered",
       "cli_name" : "sidebar enable-minimal-mode",
-      "context_menu" : "noObject",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "sidebarBackground"
       ],
       "default_aliases" : [
 
@@ -16603,9 +16603,9 @@
     {
       "cli" : "offered",
       "cli_name" : "sidebar disable-minimal-mode",
-      "context_menu" : "noObject",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "sidebarBackground"
       ],
       "default_aliases" : [
 
@@ -30234,14 +30234,40 @@
               }
             },
             {
+              "enabled_when" : "can_perform",
+              "id" : "palette.enableMinimalMode",
+              "kind" : "action",
+              "order" : 1,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "palette.disableMinimalMode",
+              "kind" : "action",
+              "order" : 2,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
               "kind" : "separator",
-              "order" : 1
+              "order" : 3
             },
             {
               "enabled_when" : "can_perform",
               "id" : "sidebar.layout.reset",
               "kind" : "action",
-              "order" : 2,
+              "order" : 4,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,

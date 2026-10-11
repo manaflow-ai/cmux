@@ -961,7 +961,13 @@ async fn dispatch_request(
             let answers = params.get("answers").cloned();
             let answered_by = crate::hub::person::answered_by(&params)?;
             let control = super::remote_guard::control_of(conn.origin, &params);
-            hub.respond_permission(&s, pid, option, answers, answered_by, control).await?;
+            // An allow that is not the person's connection counted on its
+            // decision proof (`hub/person.rs`): the answer spends its nonce.
+            let nonce = mux_meta(&params)
+                .and_then(|m| m.get(crate::hub::person::DECISION_NONCE_FIELD))
+                .and_then(Value::as_str)
+                .filter(|_| option.is_some() && !conn.is_person());
+            hub.respond_permission(&s, pid, option, answers, answered_by, nonce, control).await?;
             Ok(json!({}))
         }
         method::MUX_SET_POLICY => {
