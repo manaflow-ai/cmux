@@ -82,8 +82,9 @@ checksum="$tmp/$archive_name.sha256"
 fetch "$base_url/$archive_name.sha256" -o "$checksum"
 sha_line="$(head -n 1 "$checksum")"
 # The same archive uploaded again is nothing new either.
+# The recorded updated_at stays: the archive may be uploaded ahead of its
+# checksum, and recording its new updated_at would skip it once both are up.
 if ! $force && [[ -n "$installed_sha" && "$sha_line" == "$installed_sha" ]]; then
-  record "${updated_at:-$installed_at}" "$sha_line"
   echo "cmux NEXT DEV is up to date: $archive_name is the build installed at $app_path."
   exit 0
 fi
@@ -106,8 +107,11 @@ mkdir -p "$(dirname "$app_path")"
 was_running=false
 if [[ "$(app_running)" != "false" ]]; then
   was_running=true
-  # Quit and Keep Sessions: a plain Quit may ask whether to end them.
-  "$app_path/Contents/Resources/bin/cmux" app quit-keep-sessions >/dev/null 2>&1 || true
+  # Quit and Keep Sessions: a plain Quit may ask whether to end them. In
+  # another cmux's terminal these variables name that app; the bundled CLI
+  # then finds its own.
+  env -u CMUX_SOCKET_PATH -u CMUX_BUNDLE_ID -u CMUX_TAG \
+    "$app_path/Contents/Resources/bin/cmux" app quit-keep-sessions >/dev/null 2>&1 || true
   running="true"
   for attempt in $(seq 1 30); do
     running="$(app_running)"

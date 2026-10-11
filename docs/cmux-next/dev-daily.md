@@ -27,13 +27,14 @@ Run it as often as you like:
   `cmux app quit-keep-sessions`; a plain Quit may ask), atomically replaces the
   app and opens it again. Terminals keep running in their session daemons, and
   agents under acpmux, so the new build reattaches to them: workspaces, panes,
-  tabs, browser pages, agents and their chats, including a turn that was
-  running. Nothing needs relaunching or re-pointing. An app that wasn't
-  running stays closed.
+  tabs, browser pages, agents and their chats. Nothing needs relaunching or
+  re-pointing. An app that wasn't running stays closed.
 
-The new build takes over the previous build's daemons on its own: a
-`cmux-tui` session daemon or acpmux from another build, or from the bundle the
-update replaced, is handed off to the bundled one, and the agents keep running.
+The new build takes over the previous build's daemons on its own. A `cmux-tui`
+session daemon of another build is handed off to the bundled one; one of the
+same build keeps running and the app reattaches to it. An acpmux of another
+build, or one still running from the bundle the update replaced, is handed off
+to the bundled one, and its agents keep running under their hosts.
 
 Sparkle is disabled for this channel (`UpdateBuildIdentity.track` is
 `.development`), so there is no in-app update; this script is the update path.
