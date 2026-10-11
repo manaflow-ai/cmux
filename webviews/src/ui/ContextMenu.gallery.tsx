@@ -7,9 +7,11 @@ import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
 type Props = {
   selection?: "native" | "menu";
   disabled?: boolean;
+  /** The target in the stage's bottom-right corner, as the agent pane's composer is. */
+  edge?: boolean;
 };
 
-function ContextMenuGallery({ selection = "native", disabled = false }: Props) {
+function ContextMenuGallery({ selection = "native", disabled = false, edge = false }: Props) {
   const [receipt, setReceipt] = useState("Ready");
   const items = useMemo<ContextMenuItem[]>(
     () => [
@@ -31,7 +33,7 @@ function ContextMenuGallery({ selection = "native", disabled = false }: Props) {
     [disabled],
   );
   return (
-    <div className="context-menu-gallery-stage">
+    <div className={`context-menu-gallery-stage${edge ? " context-menu-gallery-stage--edge" : ""}`}>
       <ContextMenu items={items} selection={selection === "menu" ? "menu" : undefined}>
         <button type="button" className="context-menu-gallery-target" data-testid="context-target">
           Right-click this item
@@ -92,6 +94,15 @@ const selectionNative: Play = async (ctx) => {
   await ctx.waitFor(() => !ctx.document.querySelector('[role="menu"]'));
 };
 
+/** Opened at the window's bottom-right corner: the menu flips up and left to stay in view. */
+const edgeOpen: Play = async (ctx) => {
+  await open(ctx);
+  const menu = ctx.find({ role: "menu" }).getBoundingClientRect();
+  const view = ctx.document.defaultView!;
+  if (menu.bottom > view.innerHeight || menu.right > view.innerWidth || menu.top < 0 || menu.left < 0)
+    throw new Error(`the menu leaves the window: ${JSON.stringify(menu)} in ${view.innerWidth}x${view.innerHeight}`);
+};
+
 const disabledItem: Play = async (ctx) => {
   await open(ctx);
   await ctx.press("ArrowDown");
@@ -142,5 +153,6 @@ export default componentEntry<Props>({
       play: selectionNative,
     },
     disabled: { props: { disabled: true }, play: disabledItem },
+    edge: { props: { edge: true }, play: edgeOpen },
   },
 });
