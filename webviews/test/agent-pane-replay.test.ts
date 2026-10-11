@@ -119,8 +119,8 @@ await requireBrowserLane("agent-pane-replay.test.ts", async () => {
       // The turn took over a minute; replay shortens its 45 s wait to 2 s.
       await replay.getByText("All 12 tests in api/client.test.ts pass.").waitFor({ timeout: 40_000 });
       // The turn ends at 0:17, after its last words: Pause turns back into Play.
-      await replay.getByRole("button", { name: "Play" }).waitFor();
-      const ended = await replay.getByRole("button", { name: "Play" }).count();
+      await replay.getByRole("button", { name: "Play", exact: true }).waitFor();
+      const ended = await replay.getByRole("button", { name: "Play", exact: true }).count();
 
       await replay.getByRole("button", { name: "Back to chat" }).click();
       await page.locator(".acpmux-replay").waitFor({ state: "detached" });
@@ -155,7 +155,7 @@ await requireBrowserLane("agent-pane-replay.test.ts", async () => {
       const replay = page.locator(".acpmux-replay");
       const answer = replay.getByText("All 12 tests in api/client.test.ts pass.");
       const clock = async () => (await replay.locator(".acpmux-replay-clock").textContent())?.split(" / ")[0];
-      await replay.getByRole("button", { name: "Pause" }).click();
+      await replay.getByRole("button", { name: "Pause", exact: true }).click();
       // Keys act on the replay, not on the button that has focus.
       await replay.focus();
 
@@ -179,7 +179,7 @@ await requireBrowserLane("agent-pane-replay.test.ts", async () => {
         speeds.push(await replay.getByRole("button", { name: "Playback speed" }).textContent());
       }
       const started = Date.now();
-      await replay.getByRole("button", { name: "Play" }).click();
+      await replay.getByRole("button", { name: "Play", exact: true }).click();
       await answer.waitFor({ timeout: 15_000 });
       // 17.7 s of replay time at 16x.
       const fast = Date.now() - started < 8_000;
