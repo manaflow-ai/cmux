@@ -326,6 +326,11 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.activeElement?.matches('.nt-template-input[value="terminal"]'));
         if (!ctx.document.querySelector('.nt-screen[data-template="default"]'))
           throw new Error("arrowing onto Terminal left the page");
+        // Classic is another page, which focuses its field as it mounts: focus stays on the dots.
+        await ctx.press("ArrowLeft");
+        await ctx.waitFor(() => !ctx.document.querySelector(".nt-screen"));
+        if (!ctx.document.activeElement?.matches('.nt-template-input[value="classic"]'))
+          throw new Error("switching to Classic with the keys moved focus off the dots");
       },
     },
   }),

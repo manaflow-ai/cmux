@@ -159,12 +159,15 @@
   height: var(--nt-template-slot);
   cursor: pointer;
 }
+/* The chip and the dot draw only: a click lands on the radio itself (a click on the label would
+   reach it as a synthetic click, which Terminal ignores). */
 .nt-template-dot::before,
 .nt-templates-chip {
   content: "";
   position: absolute;
   inset: 2px;
   border-radius: 6px;
+  pointer-events: none;
 }
 .nt-template-dot:hover::before {
   background: var(--agent-control-hover);
@@ -187,6 +190,7 @@
   border-radius: 50%;
   background: var(--agent-text);
   opacity: 0.7;
+  pointer-events: none;
 }
 .nt-template-dot:hover::after {
   opacity: 0.9;
