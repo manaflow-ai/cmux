@@ -11,7 +11,8 @@ import os
 /// either way the next show is a fresh chat. With the floating chat on
 /// (cx-b9qi) Return keeps the started chat running in the panel instead,
 /// until ⌘Return or the header moves it to a tab, and a chat tab's Move to
-/// Floating Chat brings its session back into the panel.
+/// Floating Chat brings its session back into the panel. A chat the panel
+/// holds when cmux quits comes back to it on the next show.
 final class QuickComposerController {
     /// A quick chat's page on session `id` (nil: a new chat), nil when this
     /// build has no agent page.
@@ -77,6 +78,11 @@ final class QuickComposerController {
     }
 
     func show() {
+        // The chat the floating chat held when cmux quit comes back to it.
+        if chat == nil, let held = defaults.string(forKey: Self.heldSessionKey) {
+            if moveToFloatingChat(session: held) { return }
+            defaults.removeObject(forKey: Self.heldSessionKey)
+        }
         guard let chat = chat ?? makeChat(nil).map(adopt) else {
             logger.notice("quick agent chat unavailable: this build has no agent page")
             return
@@ -146,6 +152,7 @@ final class QuickComposerController {
     private func holdChat() {
         guard !holdsChat else { return }
         holdsChat = true
+        defaults.set(chat?.model.sessionId, forKey: Self.heldSessionKey)
         floatingState.holding = true
         window?.holdChat(true)
         window?.setOnTop(floatingState.onTop)
@@ -176,6 +183,7 @@ final class QuickComposerController {
     private func releaseChat() {
         if holdsChat {
             holdsChat = false
+            defaults.removeObject(forKey: Self.heldSessionKey)
             if floatingState.collapsed { window?.setCollapsed(false) }
             floatingState = AgentPaneFloatingState(onTop: floatingState.onTop)
             window?.holdChat(false)

@@ -42,7 +42,7 @@ struct FloatingChatFrames {
     /// the default column near where the composer would open (`composer`).
     static func summoned(onDisplay currentDisplay: String?, toDisplay display: String,
                          saved: CGRect?, near composer: CGRect, in visible: CGRect) -> CGRect? {
-        nil
+        display == currentDisplay ? nil : placement(saved: saved, near: composer, in: visible)
     }
 
     /// A screen's key: its display id.
