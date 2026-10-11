@@ -56,8 +56,14 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
         present(over: parent)
     }
 
-    /// Help and launch share the same feature-list layout.
-    func present(over parent: NSWindow?, sliderShowsFeatureList: Bool = true, sliderListUsesDots: Bool = false) {
+    /// Help and launch share the same feature-list layout. `activates: false`
+    /// (debug screenshot proof) orders the window in without taking focus.
+    func present(
+        over parent: NSWindow?,
+        sliderShowsFeatureList: Bool = true,
+        sliderListUsesDots: Bool = false,
+        activates: Bool = true
+    ) {
         window?.close()
         let screen = parent?.screen ?? NSScreen.main
         let window = makeWindow(
@@ -67,6 +73,10 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
         )
         self.window = window
         position(window, over: parent)
+        guard activates else {
+            window.orderFront(nil)
+            return
+        }
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
     }
