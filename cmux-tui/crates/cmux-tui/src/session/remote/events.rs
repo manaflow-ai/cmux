@@ -86,6 +86,7 @@ impl RemoteSession {
             | "detached"
             | "surface-exited"
             | "agent-changed"
+            | "agent-presence-changed"
             | "title-changed"
             | "bell"
             | "size-state"

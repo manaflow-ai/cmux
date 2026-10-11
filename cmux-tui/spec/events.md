@@ -1516,9 +1516,11 @@ reduced from its committed hook events. A pre-tool event sets `activity`,
 `tool`, and the `path` and `line` the tool input names (the only part of the
 tool input the journal keeps). A post-tool event keeps the target with
 `activity:"thinking"`. An approval, question or plan review sets
-`"waiting"`. Turn end, session start or end, and terminal close clear it:
+`"waiting"`. Turn end, session start or end, terminal close, and the
+surface's agent going idle or done by any path clear it:
 `activity` and every other field are `null`. Presence is live-only. It is
-not persisted, replayed journal commits do not emit it, and there is no
+not persisted, replayed journal commits do not emit it, a hook event that
+commits after a newer one for the same terminal is ignored, and there is no
 snapshot, so a client that reconnects waits for the next event. A client
 should fade a presence that has not updated for a while.
 

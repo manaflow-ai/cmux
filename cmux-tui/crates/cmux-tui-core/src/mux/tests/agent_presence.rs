@@ -210,3 +210,66 @@ fn replayed_commits_do_not_publish_presence() {
         }
     }
 }
+
+/// A hook event that finishes committing after a newer one (an older journal
+/// sequence) never changes presence, so a late `PreToolUse` cannot resurrect
+/// a presence its turn's `Stop` already cleared.
+#[test]
+fn an_older_hook_event_cannot_resurrect_cleared_presence() {
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().unwrap();
+    let events = mux.subscribe();
+    let pre = hook(
+        "claude",
+        &terminal_id,
+        "PreToolUse",
+        serde_json::json!({"tool_name": "Edit", "tool_input": {"file_path": "/repo/a.rs"}}),
+    );
+    let stop = hook("claude", &terminal_id, "Stop", serde_json::json!({}));
+    mux.apply_agent_presence(&pre, 10);
+    assert_eq!(next_presence(&events, surface.id).unwrap().activity, AgentActivity::Editing);
+    mux.apply_agent_presence(&stop, 12);
+    assert_eq!(next_presence(&events, surface.id), None);
+    let late = hook(
+        "claude",
+        &terminal_id,
+        "PreToolUse",
+        serde_json::json!({"tool_name": "Write", "tool_input": {"file_path": "/repo/b.rs"}}),
+    );
+    mux.apply_agent_presence(&late, 11);
+    let deadline = Instant::now() + Duration::from_millis(300);
+    while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+        match events.recv_timeout(remaining) {
+            Ok(MuxEvent::AgentPresenceChanged { .. }) => {
+                panic!("a late hook event changed presence")
+            }
+            Ok(_) => continue,
+            Err(_) => break,
+        }
+    }
+}
+
+/// An agent that stops without a hook (Ctrl-C, a crash, a socket or
+/// screen-detected report) loses its presence when its record goes idle.
+#[test]
+fn an_idle_agent_report_clears_presence() {
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().unwrap();
+    let events = mux.subscribe();
+    mux.append_journal_ingress(
+        &hook(
+            "claude",
+            &terminal_id,
+            "PreToolUse",
+            serde_json::json!({"tool_name": "Bash", "tool_input": {"command": "sleep 100"}}),
+        ),
+        "test",
+        "k-1",
+    )
+    .unwrap();
+    assert_eq!(next_presence(&events, surface.id).unwrap().activity, AgentActivity::Running);
+    mux.report_agent(surface.id, AgentState::Idle, AgentSource::Socket, None).unwrap();
+    assert_eq!(next_presence(&events, surface.id), None);
+}

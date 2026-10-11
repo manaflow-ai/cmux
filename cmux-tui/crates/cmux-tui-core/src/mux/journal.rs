@@ -485,7 +485,7 @@ impl Mux {
         // in-memory/resource projection update. The sequence guard makes this
         // a no-op for already-applied events while allowing restart repair.
         if !commit.replayed {
-            self.apply_agent_presence(ingress);
+            self.apply_agent_presence(ingress, commit.sequence);
         }
         if let Err(error) = self.apply_agent_hook_record(ingress, commit.sequence) {
             if agent_hook_terminal_gone(&error) {
