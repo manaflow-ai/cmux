@@ -263,10 +263,16 @@ extension TabStripView {
         let pending = (order: orderOverride, groups: groups.membershipOverride)
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: Self.reorderSettleTimeout)
-            guard let self, self.orderOverride == pending.order, self.groups.membershipOverride == pending.groups else { return }
-            self.discardPendingReorder()
+            // Each part ends on its own: a sync can end the order alone (a tab torn out meanwhile).
+            guard let self else { return }
+            var changed = false
+            if pending.order != nil, self.orderOverride == pending.order { self.orderOverride = nil; changed = true }
+            if !pending.groups.isEmpty, self.groups.membershipOverride == pending.groups { self.groups.membershipOverride = [:]; changed = true }
+            if changed { self.sync(fromModel: false) }
         }
     }
 
-    static let reorderSettleTimeout: Duration = .seconds(1)
+    /// How long a committed reorder waits for the store's change (it
+    /// trails the reply by a frame or two) before the model's order shows.
+    static let reorderSettleTimeout: Duration = .milliseconds(300)
 }
