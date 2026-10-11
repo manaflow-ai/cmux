@@ -39,10 +39,7 @@ struct PaletteArgumentFlow {
                 PaletteTargetOption(id: "false", title: PaletteStrings.off, symbol: "circle"),
             ], collected: collected))
         case .enumeration(let cases):
-            let options = cases.map {
-                PaletteTargetOption(id: $0.value, title: $0.title, symbol: descriptor.symbol,
-                                    swatches: PaletteGroupColor.swatches(argument: argument.name, value: $0.value))
-            }
+            let options = cases.map { PaletteTargetOption(id: $0.value, title: $0.title, symbol: descriptor.symbol) }
             return .push(withPreview(listPage(for: argument, options: options, collected: collected), argument, collected))
         case .target(let kind):
             guard let targets else { return .textInput(textSpec(for: argument, collected: collected)) }
@@ -149,6 +146,7 @@ struct PaletteArgumentFlow {
                 frecencyKey: "argument:\(descriptor.id.rawValue):\(argument.name):\(option.id)"
             )
             item.swatches = option.swatches
+            item.ball = PaletteGroupColor.ball(action: descriptor.id, argument: argument.name, value: option.id)
             return item
         }
         items.insert(contentsOf: extra, at: min(pinnedCount ?? items.count, items.count))
