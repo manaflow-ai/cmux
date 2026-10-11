@@ -2,34 +2,41 @@ import CmuxNextDaemon
 import CmuxNextOnboarding
 import Foundation
 
-/// Classic cmux session import (Leo, cx-aha.5). Kept with no UI entry and no
-/// silent run until cx-rwlb wires it as a user-started action before public launch.
+/// Classic cmux session import (Leo, cx-aha.5), run by `workspace.importClassic`
+/// (cx-rwlb): started by the person or an agent, never on launch.
 extension AppOnboardingServices {
 
-    // Kept for cx-rwlb: no caller until the import action exists.
-    /// Recreates local workspace shells and terminal tabs. Classic commands,
-    /// scrollback, and remote panels are intentionally ignored.
-    func importClassicSessions(_ workspaces: [ClassicSessionWorkspace]) {
+    /// Opens each workspace of classic's last saved session here and returns
+    /// how many opened (0 when classic saved none). Recreates local workspace
+    /// shells and terminal tabs; classic commands, scrollback, and remote
+    /// panels are intentionally ignored.
+    func importClassicSessions() async throws -> Int {
+        let importer = owner.classicSessions
+        let workspaces = try await Task.detached { try (importer ?? ClassicSessionImporter()).read() }.value
         let windows = services.windows
         let target = windows.targetWindow(preferring: windows.active?.state.id)
-        // Read before the task: after a suspension the onboarding service may be gone.
         let machines = services.machines, logger = services.daemon.logger
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            for saved in workspaces {
-                do {
-                    // Recreated in their saved order: each one after the last loose row. An
-                    // explicit slot, because the daemon itself puts a new workspace at the
-                    // `workspaces.newPlacement` slot (top by default).
-                    var spawn = WorkspaceSpawn(cwd: saved.workingDirectory, name: saved.name)
-                    spawn.slot = .bottom(anchor: nil)
-                    let id = try await windows.createWorkspace(spawn, into: target)
-                    guard let daemon = machines.daemon(forWorkspace: id), let connection = daemon.connection else { continue }
-                    try await restoreClassicLayout(saved.layout, workspaceID: id, connection: connection)
-                }
-                catch { logger.error("classic session import failed: \(String(describing: error), privacy: .public)") }
+        var opened = 0
+        var lastError: (any Error)?
+        for saved in workspaces {
+            do {
+                // Recreated in their saved order: each one after the last loose row. An
+                // explicit slot, because the daemon itself puts a new workspace at the
+                // `workspaces.newPlacement` slot (top by default).
+                var spawn = WorkspaceSpawn(cwd: saved.workingDirectory, name: saved.name)
+                spawn.slot = .bottom(anchor: nil)
+                let id = try await windows.createWorkspace(spawn, into: target)
+                guard let daemon = machines.daemon(forWorkspace: id), let connection = daemon.connection else { continue }
+                try await restoreClassicLayout(saved.layout, workspaceID: id, connection: connection)
+                opened += 1
+            } catch {
+                lastError = error
+                logger.error("classic session import failed: \(String(describing: error), privacy: .public)")
             }
         }
+        // One workspace that did not open is logged; none opening is the action's failure.
+        if opened == 0, let lastError { throw lastError }
+        return opened
     }
 
     /// Rebuilds the imported topology through the same daemon builder used by

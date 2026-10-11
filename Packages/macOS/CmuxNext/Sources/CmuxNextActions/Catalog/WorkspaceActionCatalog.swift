@@ -41,6 +41,13 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 category: .workspace, symbol: "clock.arrow.circlepath", surfaces: [.palette, .keyboard, .menu],
                 targets: [.workspace], cliName: "workspace restore-previous-app-launch", mainMenu: .file
             ),
+            // Started by the person (palette) or an agent (CLI), never on launch (cx-rwlb).
+            ActionDescriptor(
+                id: "workspace.importClassic",
+                title: String(localized: "action.workspace.importClassic", defaultValue: "Import Workspaces from Classic cmux", bundle: .module),
+                keywords: ["classic", "import", "migrate", "session", "restore"], category: .workspace,
+                symbol: "square.and.arrow.down", surfaces: [.palette], cliName: "workspace import-classic", startsTerminal: true
+            ),
             ActionDescriptor(
                 id: "reopenClosedWorkspace",
                 title: String(localized: "action.reopenClosedWorkspace", defaultValue: "Reopen Closed Workspace", bundle: .module),

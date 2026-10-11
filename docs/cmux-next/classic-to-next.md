@@ -5,9 +5,18 @@ work to come along: recent workspaces (folder, title, terminals and their launch
 or SSH commands) and Claude Code or Codex chats, resumed by session id. An agent
 can follow it end to end. Nothing here modifies classic's files.
 
-There is no migration UI in cmux-next. Everything goes through
+The quick way is **Import Workspaces from Classic cmux** in cmux-next's command
+palette, or `cmux workspace import-classic`. It opens every workspace from
+classic's last saved session, with the same panes, splits, tabs and tab names,
+each terminal in its folder. It never runs on its own. It shows a toast when it
+finishes, and running it again opens the workspaces again. A chat's terminal
+opens as a plain terminal in its folder, not a resumed chat. Launch and SSH
+commands, scrollback, browser tabs and remote panels are left out; a pane that
+held only browser tabs closes up, and its neighbour takes its space.
+
+To choose what comes over, or to bring chats and commands too, use
 [`scripts/cmux-next/classic-to-next.py`](../../scripts/cmux-next/classic-to-next.py)
-and cmux-next's control socket.
+and cmux-next's control socket, as below.
 
 ## 1. Start cmux-next
 
