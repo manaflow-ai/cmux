@@ -13,16 +13,16 @@
   display: grid;
   gap: 4px;
   color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
-  font-size: 13px;
+  font-size: var(--text-body);
 }
 
 .acpmux-options-gallery-copy strong {
   color: var(--cmux-text, CanvasText);
-  font-size: 14px;
+  font-size: var(--text-title);
   font-weight: 600;
 }
 
 .acpmux-options-gallery-stage output {
   color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
-  font-size: 12px;
+  font-size: var(--text-detail);
 }
