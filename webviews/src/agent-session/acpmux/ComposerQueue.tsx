@@ -5,7 +5,7 @@
 // Keyboard first: ↑ on an empty prompt goes to the last row; on a row, ↑/↓ move between rows (↓
 // past the last goes back to the prompt), Return edits it in place, ⌥↑/⌥↓ move it in the queue,
 // ⌘Return sends it now and Delete removes it. Esc goes back to the prompt.
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "./icons/Icon";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import type { Translate } from "./i18n";
@@ -42,14 +42,28 @@ export function ComposerQueue({
   // A row leaves as soon as it is removed or sent; it comes back only if acpmux kept it waiting.
   const [leaving, setLeaving] = useState<ReadonlySet<string>>(new Set());
   const [editing, setEditing] = useState<string>();
+  // What the open edit holds now: a prompt that starts while it is edited hands it to the prompt.
+  const draft = useRef<{ id: string; original: string; text: string }>(undefined);
+  // The row a move keeps focus on, once the new order draws.
+  const refocus = useRef<string>(undefined);
   const list = useRef<HTMLOListElement>(null);
   useEffect(() => {
     setLeaving((current) => {
       const kept = [...current].filter((id) => queue.some((entry) => entry.id === id));
       return kept.length === current.size ? current : new Set(kept);
     });
-    if (editing && !queue.some((entry) => entry.id === editing)) setEditing(undefined);
-  }, [queue, editing]);
+    if (editing && !queue.some((entry) => entry.id === editing)) {
+      const open = draft.current;
+      if (open?.id === editing && open.text.trim() && open.text !== open.original) onLost?.(open.text.trim());
+      draft.current = undefined;
+      setEditing(undefined);
+    }
+  }, [queue, editing, onLost]);
+  useLayoutEffect(() => {
+    const id = refocus.current;
+    const row = id ? list.current?.querySelector<HTMLElement>(`[data-prompt-id="${id}"]`) : null;
+    if (row && document.activeElement !== row) row.focus();
+  });
   const act = (id: string, action: () => Promise<boolean>) => {
     setLeaving((current) => new Set(current).add(id));
     const restore = () =>
@@ -73,18 +87,22 @@ export function ComposerQueue({
   };
   const remove = onRemove && ((entry: QueuedEntry) => act(entry.id, () => onRemove(entry.id)));
   const sendNow = onChange && ((entry: QueuedEntry) => act(entry.id, () => onChange(entry.id, { op: "send_now" })));
-  // A move keeps focus on the moved row once acpmux's new order draws.
+  // A move to the place of the row shown at `index` (acpmux counts rows still leaving too); the
+  // moved row keeps focus once acpmux's new order draws.
   const move =
     onChange &&
     ((entry: QueuedEntry, index: number) => {
-      if (index < 0 || index >= shown.length) return;
-      void onChange(entry.id, { op: "move", index }).then(() =>
-        requestAnimationFrame(() =>
-          list.current?.querySelector<HTMLElement>(`[data-prompt-id="${entry.id}"]`)?.focus(),
-        ),
+      const to = shown[index] && queue.findIndex((q) => q.id === shown[index].id);
+      if (to === undefined || to < 0) return;
+      refocus.current = entry.id;
+      void onChange(entry.id, { op: "move", index: to }).finally(() =>
+        setTimeout(() => {
+          if (refocus.current === entry.id) refocus.current = undefined;
+        }, 500),
       );
     });
   const save = (entry: QueuedEntry, text: string) => {
+    draft.current = undefined;
     setEditing(undefined);
     focusRow(shown.indexOf(entry));
     const next = text.trim();
@@ -122,38 +140,107 @@ export function ComposerQueue({
       onLeave?.();
     }
   };
+  // The row's menu names each action's key on the row.
+  const item = (id: string, label: string, key: string, onSelect: () => void): ContextMenuItem => ({
+    id,
+    ariaLabel: label,
+    label: (
+      <>
+        {label}
+        <span className="ui-menu-shortcut">{key}</span>
+      </>
+    ),
+    onSelect,
+  });
   const menu = (entry: QueuedEntry, index: number): ContextMenuItem[] => [
-    ...(sendNow ? [{ id: "send", label: t("composer.queueSendNow"), onSelect: () => sendNow(entry) }] : []),
-    ...(onChange ? [{ id: "edit", label: t("composer.queueEdit"), onSelect: () => setEditing(entry.id) }] : []),
+    ...(sendNow ? [item("send", t("composer.queueSendNow"), "⌘↩", () => sendNow(entry))] : []),
+    ...(onChange ? [item("edit", t("composer.queueEdit"), "↩", () => setEditing(entry.id))] : []),
     ...(move
       ? [
           {
-            id: "up",
-            label: t("composer.queueMoveUp"),
+            ...item("up", t("composer.queueMoveUp"), "⌥↑", () => move(entry, index - 1)),
             disabled: index === 0,
             separatorBefore: true,
-            onSelect: () => move(entry, index - 1),
           },
           {
-            id: "down",
-            label: t("composer.queueMoveDown"),
+            ...item("down", t("composer.queueMoveDown"), "⌥↓", () => move(entry, index + 1)),
             disabled: index === shown.length - 1,
-            onSelect: () => move(entry, index + 1),
           },
         ]
       : []),
     ...(remove
       ? [
           {
-            id: "remove",
-            label: t("composer.queueRemove"),
+            ...item("remove", t("composer.queueRemove"), "⌫", () => remove(entry)),
             destructive: true,
             separatorBefore: true,
-            onSelect: () => remove(entry),
           },
         ]
       : []),
   ];
+  // A row's mark, text (or its edit) and actions.
+  const cells = (entry: QueuedEntry, index: number) => (
+    <>
+      <span className="acpmux-queued-mark" aria-hidden="true">
+        {index + 1}
+      </span>
+      <span className="acpmux-hidden-label">{t("composer.queued")}</span>
+      {editing === entry.id ? (
+        <QueuedEdit
+          entry={entry}
+          label={t("composer.queueEdit")}
+          onInput={(text) => (draft.current = { id: entry.id, original: entry.prompt, text })}
+          onDone={(text) => {
+            if (text !== undefined) return save(entry, text);
+            draft.current = undefined;
+            setEditing(undefined);
+            focusRow(index);
+          }}
+        />
+      ) : (
+        <span className="acpmux-queued-text" onPointerEnter={(event) => titleWhenTruncated(event, entry.prompt)}>
+          {entry.prompt}
+        </span>
+      )}
+      {editing !== entry.id && (sendNow || onChange || remove) && (
+        <span className="acpmux-queued-actions">
+          {sendNow && (
+            <button
+              type="button"
+              className="acpmux-queued-action"
+              aria-label={t("composer.queueSendNow")}
+              title={t("composer.queueSendNow")}
+              onClick={() => sendNow(entry)}
+            >
+              <Icon name="composer.send" size={14} />
+            </button>
+          )}
+          {onChange && (
+            <button
+              type="button"
+              className="acpmux-queued-action"
+              aria-label={t("composer.queueEdit")}
+              title={t("composer.queueEdit")}
+              onClick={() => setEditing(entry.id)}
+            >
+              <Icon name="action.edit" size={14} />
+            </button>
+          )}
+          {remove && (
+            <button
+              type="button"
+              className="acpmux-queued-action"
+              aria-label={t("composer.queueRemove")}
+              title={t("composer.queueRemove")}
+              onClick={() => remove(entry)}
+            >
+              <Icon name="action.delete" size={14} />
+            </button>
+          )}
+        </span>
+      )}
+    </>
+  );
   return (
     <ol ref={list} className="acpmux-composer-queue" aria-label={`${t("composer.queue")} (${shown.length})`}>
       {shown.map((entry, index) => (
@@ -163,110 +250,79 @@ export function ComposerQueue({
           key={entry.id}
           data-prompt-id={entry.id}
           tabIndex={-1}
-          title={editing === entry.id ? undefined : t("composer.queueRowHint")}
+          aria-keyshortcuts="Enter Alt+ArrowUp Alt+ArrowDown Meta+Enter Delete"
           onKeyDown={(event) => rowKeyDown(event, entry, index)}
         >
-          <ContextMenu className="acpmux-queued-menu" items={menu(entry, index)}>
-            <span className="acpmux-queued-mark" aria-hidden="true">
-              {index + 1}
-            </span>
-            <span className="acpmux-hidden-label">{t("composer.queued")}</span>
-            {editing === entry.id ? (
-              <QueuedEdit
-                entry={entry}
-                label={t("composer.queueEdit")}
-                onDone={(text) => {
-                  if (text !== undefined) return save(entry, text);
-                  setEditing(undefined);
-                  focusRow(index);
-                }}
-              />
-            ) : (
-              <span className="acpmux-queued-text" onPointerEnter={(event) => titleWhenTruncated(event, entry.prompt)}>
-                {entry.prompt}
-              </span>
-            )}
-            {editing !== entry.id && (sendNow || onChange || remove) && (
-              <span className="acpmux-queued-actions">
-                {sendNow && (
-                  <button
-                    type="button"
-                    className="acpmux-queued-action"
-                    aria-label={t("composer.queueSendNow")}
-                    title={t("composer.queueSendNow")}
-                    onClick={() => sendNow(entry)}
-                  >
-                    <Icon name="composer.send" size={14} />
-                  </button>
-                )}
-                {onChange && (
-                  <button
-                    type="button"
-                    className="acpmux-queued-action"
-                    aria-label={t("composer.queueEdit")}
-                    title={t("composer.queueEdit")}
-                    onClick={() => setEditing(entry.id)}
-                  >
-                    <Icon name="action.edit" size={14} />
-                  </button>
-                )}
-                {remove && (
-                  <button
-                    type="button"
-                    className="acpmux-queued-action"
-                    aria-label={t("composer.queueRemove")}
-                    title={t("composer.queueRemove")}
-                    onClick={() => remove(entry)}
-                  >
-                    <Icon name="action.delete" size={14} />
-                  </button>
-                )}
-              </span>
-            )}
-          </ContextMenu>
+          {editing === entry.id ? (
+            cells(entry, index)
+          ) : (
+            <ContextMenu className="acpmux-queued-menu" items={menu(entry, index)}>
+              {cells(entry, index)}
+            </ContextMenu>
+          )}
         </li>
       ))}
     </ol>
   );
 }
 
-/// A queued prompt's text, edited in its row: Return saves (it keeps its place), Esc cancels.
+/// A queued prompt's text, edited in its row: Return saves (it keeps its place), Shift-Return adds
+/// a line, Esc cancels. A textarea, so a prompt's lines stay lines.
 function QueuedEdit({
   entry,
   label,
+  onInput,
   onDone,
 }: {
   entry: QueuedEntry;
   label: string;
+  onInput(text: string): void;
   /// The new text, or undefined when cancelled.
   onDone(text: string | undefined): void;
 }) {
-  const input = useRef<HTMLInputElement>(null);
+  const input = useRef<HTMLTextAreaElement>(null);
   const finished = useRef(false);
   const finish = (text: string | undefined) => {
     if (finished.current) return;
     finished.current = true;
     onDone(text);
   };
+  // As tall as its lines.
+  const fit = () => {
+    const field = input.current;
+    if (!field) return;
+    field.style.height = "auto";
+    field.style.height = `${field.scrollHeight}px`;
+  };
   useEffect(() => {
     input.current?.focus();
     input.current?.select();
+    fit();
   }, []);
   return (
-    <input
+    <textarea
       ref={input}
       className="acpmux-queued-edit"
       aria-label={label}
+      rows={1}
       defaultValue={entry.prompt}
+      onInput={(event) => {
+        fit();
+        onInput(event.currentTarget.value);
+      }}
       onKeyDown={(event) => {
-        if (event.nativeEvent.isComposing) return;
-        if (event.key === "Enter" || event.key === "Escape") {
+        // Every key belongs to the input method while it composes (WebKit sends its Return as 229).
+        if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+        if ((event.key === "Enter" && !event.shiftKey) || event.key === "Escape") {
           event.preventDefault();
           event.stopPropagation();
           finish(event.key === "Enter" ? event.currentTarget.value : undefined);
         }
       }}
-      onBlur={(event) => finish(event.currentTarget.value)}
+      // A click elsewhere saves; leaving the window keeps the edit open.
+      onBlur={(event) => {
+        if (document.hasFocus()) finish(event.currentTarget.value);
+      }}
     />
   );
 }
