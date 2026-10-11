@@ -40,7 +40,8 @@ struct FeedView: View {
                     .transition(.opacity)
             }
         }
-        .animation(Motion.animation(.fadeIn), value: model.lastReject)
+        // The toast fades in and out; a reject replacing another swaps its text.
+        .animation(Motion.animation(.fadeIn), value: model.lastReject == nil)
     }
 }
 

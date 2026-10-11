@@ -70,6 +70,7 @@ extension ThemeTokens {
 }
 
 extension Palette {
+
     /// ``CmuxTheme/ThemeTokens/glyphInk(over:base:)`` in the active theme
     /// scope for a sidebar glyph, for a fill named by its token (nil: no
     /// fill). The ground is the sidebar as it paints: the person's sidebar
