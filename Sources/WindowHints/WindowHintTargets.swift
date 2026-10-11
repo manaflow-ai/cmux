@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import WebKit
 
 /// The clickable controls hint mode labels (``WindowHintController``): the
@@ -6,7 +7,8 @@ import WebKit
 /// whose role a person clicks (buttons, rows, tabs, links, fields, menus),
 /// reached through subviews and accessibility children alike. In process a
 /// SwiftUI host shows its controls only as AXUnknown elements, so SwiftUI
-/// controls name themselves with a ``WindowHintRegion`` marker view.
+/// controls name themselves with a ``WindowHintRegion`` marker view (the
+/// pane tab bar with Bonsplit's `BonsplitHintTargetView`).
 /// Terminals are skipped: their contents are not controls of the window.
 /// Web views are asked for their page's elements instead
 /// (``WindowHintPages``).
@@ -48,11 +50,14 @@ enum WindowHintTargets {
             if let view = next as? NSView {
                 guard !view.isHiddenOrHasHiddenAncestor, view.alphaValue > 0.01 else { continue }
                 guard !(view is WKWebView), !(view is GhosttyNSView) else { continue }
-                if let marker = view as? WindowHintRegion.MarkerView {
-                    let rect = marker.convert(marker.bounds, to: nil).intersection(bounds)
+                // A marker's visible rect: a tab scrolled out of its strip shows none.
+                let marked: (title: String, enabled: Bool)? = (view as? WindowHintRegion.MarkerView).map { ($0.title, $0.isEnabled) }
+                    ?? (view as? BonsplitHintTargetView).map { ($0.title, true) }
+                if let marked {
+                    let rect = view.convert(view.visibleRect, to: nil).intersection(bounds)
                     let key = [rect.minX, rect.minY, rect.width, rect.height].map { Int($0.rounded()) }
-                    if marker.isEnabled, rect.width >= 4, rect.height >= 4, seen.insert(key).inserted {
-                        found.append(Target(rect: rect, role: NSAccessibility.Role.button.rawValue, title: marker.title))
+                    if marked.enabled, rect.width >= 4, rect.height >= 4, seen.insert(key).inserted {
+                        found.append(Target(rect: rect, role: NSAccessibility.Role.button.rawValue, title: marked.title))
                     }
                     continue
                 }
