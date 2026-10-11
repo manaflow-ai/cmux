@@ -188,7 +188,7 @@ extension SessionTransferService {
 }
 
 /// One value, delivered once to one waiter: the first `resolve` wins; later ones are dropped.
-private final class FirstOutcome<Value: Sendable>: Sendable {
+private nonisolated final class FirstOutcome<Value: Sendable>: Sendable {
     private enum Phase {
         case pending(CheckedContinuation<Value, Never>?)
         case done(Value)
