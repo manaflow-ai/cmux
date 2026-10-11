@@ -309,7 +309,8 @@ extension AgentPaneTransport {
         // proof, made here (the key never reaches the page), when this app holds that run's key.
         // Only an allow that redeemed a ticket for this very prompt and option is signed.
         if !facts.isFirst, facts.needsGesture, facts.method == "_acpmux/permission_respond" {
-            signRelayedAllow(box, sessionId: facts.sessionId, ticketPick: ticketPick)
+            // The frame's own session: `facts.sessionId` is set only for a frame with a ticket.
+            signRelayedAllow(box, sessionId: box.param("sessionId"), ticketPick: ticketPick)
         }
         // The daemon sees only relay-owned ids; a page id is used by one request at a time.
         var relayID: Int?
