@@ -27,20 +27,23 @@ env:
   # fails the workflow-source guard instead of silently stopping publication.
   SOURCE_WORKFLOW_PATHS: .github/workflows/cmux-next.yml
 
-concurrency:
-  group: cmux-next-dev-daily
-  cancel-in-progress: false
-
 jobs:
   publish:
     # The source run is checked again by id in the first step, for both events.
     if: >-
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
       (github.event.workflow_run.event == 'workflow_dispatch' &&
+       startsWith(github.event.workflow_run.display_title, 'cmux NEXT DEV daily · ') &&
        github.event.workflow_run.head_repository.full_name == github.repository &&
        github.event.workflow_run.head_branch == 'feat-cmux-next' &&
        github.event.workflow_run.path == '.github/workflows/cmux-next.yml')
     name: Sign and publish cmux NEXT DEV
+    # On the job, not the workflow: every cmux-next completion starts a run
+    # here, and a skipped one in a workflow group would cancel a pending
+    # publish.
+    concurrency:
+      group: cmux-next-dev-daily
+      cancel-in-progress: false
     environment: release
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
@@ -77,6 +80,15 @@ jobs:
                    and (.name == "cmux NEXT DEV daily · " + .head_sha or .display_title == "cmux NEXT DEV daily · " + .head_sha))
             | .head_sha')"
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "error: run $SOURCE_RUN_ID is not a finished cmux NEXT DEV daily run of cmux-next.yml on feat-cmux-next" >&2; exit 1; }
+          # head_branch is a short name, the same for a tag called
+          # feat-cmux-next: require the commit to be on the branch itself.
+          branch_sha="$(gh api "repos/$GH_REPO/git/ref/heads/feat-cmux-next" --jq '.object.sha')"
+          [[ "$branch_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "error: could not read refs/heads/feat-cmux-next" >&2; exit 1; }
+          on_branch="$(gh api "repos/$GH_REPO/compare/$sha...$branch_sha" --jq '.status')"
+          [[ "$on_branch" == ahead || "$on_branch" == identical ]] || {
+            echo "error: $sha is not on refs/heads/feat-cmux-next ($branch_sha is $on_branch of it)" >&2
+            exit 1
+          }
           echo "SOURCE_SHA=$sha" >> "$GITHUB_ENV"
           echo "Source run $SOURCE_RUN_ID built feat-cmux-next $sha"
 
