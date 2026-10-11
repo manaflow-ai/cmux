@@ -79,7 +79,8 @@ struct TerminalPastePreparationWorker {
 
     /// Tells the supervising client that exec and app-image load are done, so
     /// its preparation deadline starts now. Stdout is then pointed at
-    /// /dev/null so nothing else this process prints reaches that pipe.
+    /// /dev/null (or closed) so nothing else this process prints reaches that
+    /// pipe.
     private func reportStarted() {
         _ = fcntl(STDOUT_FILENO, F_SETNOSIGPIPE, 1)
         var byte = UInt8(ascii: "r")
@@ -88,6 +89,8 @@ struct TerminalPastePreparationWorker {
         if devNull >= 0 {
             _ = dup2(devNull, STDOUT_FILENO)
             _ = close(devNull)
+        } else {
+            _ = close(STDOUT_FILENO)
         }
     }
 
