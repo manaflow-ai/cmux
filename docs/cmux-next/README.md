@@ -19,10 +19,12 @@ From a cmux checkout:
 bash scripts/cmux-next/update-dev-daily.sh            # installs or updates ~/Applications/cmux NEXT DEV.app
 ```
 
-The script downloads `cmux-NEXT-DEV.zip` from the `cmux-next-dev` prerelease, checks its SHA-256
-and bundle id, asks the running app to quit normally, and swaps the app in place. Run it again
-whenever you want the latest build. It's signed but not notarized, so the script downloads it
-outside the browser's quarantine. Details are in [dev-daily.md](dev-daily.md).
+Run it whenever you want the latest build. When the published build is the one you have, it
+says so and leaves the app alone. Otherwise it downloads `cmux-NEXT-DEV.zip` from the
+`cmux-next-dev` prerelease, checks its SHA-256 and bundle id, quits the app keeping its sessions,
+swaps the app in place and opens it again: terminals, agents and chats come back by themselves.
+It's signed but not notarized, so the script downloads it outside the browser's quarantine.
+Details are in [dev-daily.md](dev-daily.md).
 
 To see how fresh it is, look at the asset's upload time, not the release date (the release
 entry keeps its creation date):

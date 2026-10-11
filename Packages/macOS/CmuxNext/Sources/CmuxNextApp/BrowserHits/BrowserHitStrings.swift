@@ -35,6 +35,7 @@ enum BrowserHitStrings {
     static var downloadShowInFinder: String { t("browserHits.downloads.showInFinder", "Show in Finder") }
     static var downloadPause: String { t("browserHits.downloads.pause", "Pause") }
     static var downloadResume: String { t("browserHits.downloads.resume", "Resume") }
+    static var downloadRetry: String { t("browserHits.downloads.retry", "Retry") }
     static var downloadCancel: String { t("browserHits.downloads.cancel", "Cancel Download") }
     static var downloadCopyLink: String { t("browserHits.downloads.copyLink", "Copy Download Link") }
     static var downloadPaused: String { t("browserHits.downloads.paused", "Paused") }

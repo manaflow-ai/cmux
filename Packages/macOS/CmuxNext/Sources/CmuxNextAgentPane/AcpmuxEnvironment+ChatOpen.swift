@@ -8,4 +8,10 @@ extension AcpmuxEnvironment {
     public nonisolated func chatOpenPlan(key: String, cwd: String? = nil) async throws -> AcpmuxChatOpenPlan? {
         try await AcpmuxStatusClient.chatOpen(socketPath: socketPath, key: key, cwd: cwd)
     }
+
+    /// The past turns of one device-wide chat from this daemon (`_acpmux/chat_transcript`,
+    /// cx-khns1), shown read-only before the chat can resume.
+    public nonisolated func chatTranscript(key: String) async throws -> [AgentPanePastTurn] {
+        try await AcpmuxStatusClient.chatTranscript(socketPath: socketPath, key: key)
+    }
 }

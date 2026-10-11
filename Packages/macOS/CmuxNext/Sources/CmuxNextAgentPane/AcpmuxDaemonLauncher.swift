@@ -99,10 +99,13 @@ nonisolated enum AcpmuxDaemonLauncher {
             posix_spawn_file_actions_destroy(&actions)
             posix_spawnattr_destroy(&attributes)
         }
-        let actionStatus = posix_spawn_file_actions_adddup2(&actions, outputPipe[1], STDOUT_FILENO)
+        // The read end closes first: in a process with few descriptors open it can be the
+        // person key's descriptor, and closing it after the dup2 dropped the key (the daemon
+        // then closed its own I/O driver's descriptor in its place and panicked).
+        let actionStatus = posix_spawn_file_actions_addclose(&actions, outputPipe[0])
         guard actionStatus == 0,
+              posix_spawn_file_actions_adddup2(&actions, outputPipe[1], STDOUT_FILENO) == 0,
               posix_spawn_file_actions_adddup2(&actions, keyPipe[0], personKeyDescriptor) == 0,
-              posix_spawn_file_actions_addclose(&actions, outputPipe[0]) == 0,
               "/dev/null".withCString({ path in
                   posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, path, O_RDONLY, 0)
               }) == 0,

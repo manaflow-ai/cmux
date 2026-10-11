@@ -120,11 +120,18 @@ describe("placed chief rights on an open socket", { timeout: 60_000 }, () => {
     expect(msg).toBeDefined()
     const thread = await call("/v1/read", c.token, { op: "conversation.thread", params: { conversation, root: (msg as unknown as { id: string }).id } })
     expect(thread.status, JSON.stringify(thread.json)).toBe(200)
-    // Its wake queue socket. (mux.ack admits only principal kind "agent", home-core mux/domain.ts:65,97: an install
-    // token with `agent` is refused before and after the inbox change alike, so ack is not asserted here.)
+    // Its wake queue socket and mux.ack.
     const res = await worker.fetch(`https://api.test/v1/wire/mux/${c.chief.id}`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${c.token}` } })
     expect(res.status).toBe(101)
     res.webSocket!.accept()
     res.webSocket!.close()
+    // The placed brain acks its wakes with this token (cx-59n8.17).
+    const ack = () => call("/v1/ops", c.token, { op: "mux.ack", params: { agent: c.chief.id, conversation, seq: msg!.seq }, idempotency_key: crypto.randomUUID() })
+    let acked = await ack()
+    for (let i = 0; i < 20 && !acked.json.ok; i++) {
+      await runAlarm(c.userDO)
+      acked = await ack()
+    }
+    expect(acked.json.ok, JSON.stringify(acked.json)).toBe(true)
   })
 })
