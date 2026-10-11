@@ -313,3 +313,34 @@ fn cloud_events_of_the_apps_lease_reach_only_the_app() {
     let leaked = plain.cloud_events_before_marker();
     assert!(leaked.is_empty(), "a plain connection got the app's cloud events: {leaked:?}");
 }
+
+#[test]
+fn cloud_lease_another_clients_lease_is_never_the_apps_and_names_a_known_origin() {
+    let daemon = Daemon::start("origin");
+    let cloud = FakeCloud::start();
+    let mut plain = daemon.plain();
+
+    // Without the app, a lease must name a known cmux Cloud origin (or loopback).
+    let unknown = plain.rpc(set("https://attacker.example", "other.jwt"));
+    assert_eq!(unknown["ok"], false, "{unknown}");
+    assert_eq!(unknown["reason"], "unknown_api_origin", "{unknown}");
+    assert_eq!(plain.rpc(set("https://cloud-api-staging.cmux.dev", "other.jwt"))["ok"], true);
+    assert_eq!(plain.rpc(set(&cloud.base, "other.jwt"))["ok"], true);
+
+    // The app never uses a lease that another client set: it is signed out
+    // until it leases its own session.
+    let mut app = daemon.app();
+    let status = app.rpc(json!({"cmd":"cloud-session-status"}));
+    assert_eq!(status["data"]["state"], "signed_out", "{status}");
+    let refused = app.rpc(json!({"cmd":"cloud-inbox-list"}));
+    assert_eq!(refused["error_code"], "cloud_signed_out", "{refused}");
+    assert!(
+        cloud.bodies().is_empty(),
+        "the app's request used the other lease: {:?}",
+        cloud.bodies()
+    );
+
+    assert_eq!(app.rpc(set(&cloud.base, "app.jwt"))["ok"], true);
+    let status = app.rpc(json!({"cmd":"cloud-session-status"}));
+    assert_eq!(status["data"]["state"], "active", "{status}");
+}
