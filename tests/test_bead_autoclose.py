@@ -35,6 +35,8 @@ FAKE_GH = """#!/usr/bin/env python3
 import json, sys
 query = next(arg[2:] for arg in sys.argv if arg.startswith("q="))
 nodes = json.loads(open(%(open)r).read()) if "is:open" in query else json.loads(open(%(merged)r).read())
+since = next((word[len("merged:>="):] for word in query.split() if word.startswith("merged:>=")), "")
+nodes = [node for node in nodes if node.get("mergedAt", since) >= since]
 print(json.dumps({"data": {"search": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": nodes}}}))
 """
 FAKE_BD = """#!/usr/bin/env python3
