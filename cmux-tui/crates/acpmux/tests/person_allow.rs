@@ -20,6 +20,20 @@ const REASON: &str = "permission.person_required";
 /// 32 bytes as hex: what the app makes at each launch.
 const KEY: &str = "5e1f0c2a9b8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f";
 
+/// The app's proof for one connection's challenge, as `hub/person.rs`
+/// defines it: lowercase hex HMAC-SHA256(key, "acpmux-person-v1" 0 "unix" 0
+/// nonce 0 connection). Written out here so the test states the wire contract.
+fn person_proof(key: &str, nonce: &str, connection: &str) -> Option<String> {
+    use cmux_local_auth::frontend_proof::{hex, hmac_sha256, unhex};
+    let key = unhex::<32>(key)?;
+    // These connections are the unix socket.
+    let mut message = b"acpmux-person-v1\0unix\0".to_vec();
+    message.extend_from_slice(nonce.as_bytes());
+    message.push(0);
+    message.extend_from_slice(connection.as_bytes());
+    Some(hex(&hmac_sha256(&key, &message)))
+}
+
 struct Rpc {
     lines: tokio::io::Lines<tokio::io::BufReader<tokio::net::unix::OwnedReadHalf>>,
     wr: tokio::net::unix::OwnedWriteHalf,
@@ -35,17 +49,31 @@ impl Rpc {
         Self { lines: tokio::io::BufReader::new(rd).lines(), wr, next: 0, notes: Vec::new() }
     }
 
-    /// A connection that presents `key` in its first `initialize`.
+    /// A connection that answers its challenge with `key`, as the app does:
+    /// `initialize` first (it carries no key), then `_acpmux/person_prove`.
     async fn person(path: &Path, key: &str) -> Self {
+        Self::person_with(path, key).await.0
+    }
+
+    /// `person`, with the proof reply and the challenge it answered.
+    async fn person_with(path: &Path, key: &str) -> (Self, Value, Value) {
         let mut c = Self::connect(path).await;
-        let r = c
-            .call(
-                "initialize",
-                json!({"protocolVersion": 1, "_meta": {"acpmux": {"personKey": key}}}),
-            )
-            .await;
+        let challenge = c.initialize().await;
+        let proof = person_proof(
+            key,
+            challenge["nonce"].as_str().unwrap(),
+            challenge["connection"].as_str().unwrap(),
+        )
+        .unwrap();
+        let reply = c.call("_acpmux/person_prove", json!({"proof": proof})).await;
+        (c, reply, challenge)
+    }
+
+    /// `initialize`; the person challenge it returned.
+    async fn initialize(&mut self) -> Value {
+        let r = self.call("initialize", json!({"protocolVersion": 1})).await;
         assert!(r.get("error").is_none(), "initialize: {r}");
-        c
+        r["result"]["_meta"]["acpmux"]["personChallenge"].clone()
     }
 
     async fn line(&mut self) -> Value {
@@ -341,11 +369,14 @@ async fn the_connection_that_presented_the_person_key_allows_and_grants() {
     app.ok("_acpmux/permission_respond", allow).await;
     assert_eq!(turn_said(&mut agent, rid).await, "chose yes");
 
-    // A later `initialize` on a plain connection never makes it a person.
-    let late = agent
+    // The key itself in an `initialize` (the old way) makes no person.
+    let mut old = Rpc::connect(&d.socket).await;
+    let late = old
         .call("initialize", json!({"protocolVersion": 1, "_meta": {"acpmux": {"personKey": KEY}}}))
         .await;
     assert!(late.get("error").is_none(), "{late}");
+    let r = old.call("_acpmux/set_policy", json!({"sessionId": id, "policy": "approve-all"})).await;
+    assert_eq!(reason(&r), REASON, "{r}");
     let r =
         agent.call("_acpmux/set_policy", json!({"sessionId": id, "policy": "approve-all"})).await;
     assert_eq!(reason(&r), REASON, "{r}");
@@ -513,4 +544,211 @@ async fn the_person_records_which_device_answered() {
         let text = e.to_string();
         assert!(!text.contains("fi_01k2abc") && !text.contains("_acpmuxAnsweredBy"), "{e}");
     }
+}
+
+/// cx-fcaq: whatever listens on the socket path (an agent that shut the
+/// daemon down and bound the path) gets nothing that makes it the person
+/// against the real daemon. The app's handshake sends no key; the proof it
+/// sends answers the squatter's own challenge, so the real daemon refuses
+/// it on any connection. (A squatter that relays the real challenge is
+/// stopped by the app's check of the server peer, Swift side.)
+#[tokio::test]
+async fn a_squatter_on_the_socket_path_learns_nothing_that_makes_it_the_person() {
+    let d = Daemon::start("squat", Some(KEY));
+    let squat_path = d.dir.join("squat.sock");
+    let listener = tokio::net::UnixListener::bind(&squat_path).unwrap();
+    // The squatter: answers initialize with a challenge of its own and
+    // keeps every byte the client sent.
+    let squatter = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let (rd, mut wr) = stream.into_split();
+        let mut lines = tokio::io::BufReader::new(rd).lines();
+        let mut seen = String::new();
+        while let Ok(Ok(Some(line))) =
+            tokio::time::timeout(Duration::from_secs(10), lines.next_line()).await
+        {
+            seen.push_str(&line);
+            seen.push('\n');
+            let v: Value = serde_json::from_str(&line).unwrap();
+            let reply = if v["method"] == "initialize" {
+                json!({"jsonrpc": "2.0", "id": v["id"], "result": {"protocolVersion": 1, "_meta": {"acpmux": {
+                    "personChallenge": {"nonce": "ab".repeat(32), "connection": "squatter-conn"}}}}})
+            } else {
+                json!({"jsonrpc": "2.0", "id": v["id"], "result": {"person": true}})
+            };
+            wr.write_all(format!("{reply}\n").as_bytes()).await.unwrap();
+            if v["method"] == "_acpmux/person_prove" {
+                break;
+            }
+        }
+        seen
+    });
+    let (_victim, _, _) = Rpc::person_with(&squat_path, KEY).await;
+    let seen = squatter.await.unwrap();
+    assert!(!seen.contains(KEY), "the key crossed the socket: {seen}");
+    let captured: Vec<String> = seen
+        .lines()
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .filter(|v| v["method"] == "_acpmux/person_prove")
+        .filter_map(|v| v["params"]["proof"].as_str().map(str::to_owned))
+        .collect();
+    assert_eq!(captured.len(), 1, "{seen}");
+
+    // Against the real daemon, the captured proof proves nothing.
+    let mut agent = Rpc::connect(&d.socket).await;
+    agent.initialize().await;
+    let r = agent.call("_acpmux/person_prove", json!({"proof": captured[0]})).await;
+    assert_eq!(reason(&r), "person.proof_refused", "{r}");
+    let id = new_session(&mut agent, &d).await;
+    let r =
+        agent.call("_acpmux/set_policy", json!({"sessionId": id, "policy": "approve-all"})).await;
+    assert_eq!(reason(&r), REASON, "{r}");
+}
+
+/// cx-fcaq: a proof answers one connection's challenge only. Replayed on
+/// another connection it is refused, and so is a valid proof that is not
+/// the second request.
+#[tokio::test]
+async fn a_person_proof_replayed_on_another_connection_is_refused() {
+    let d = Daemon::start("replay", Some(KEY));
+    let (mut app, reply, challenge) = Rpc::person_with(&d.socket, KEY).await;
+    assert_eq!(reply["result"]["person"], json!(true), "{reply}");
+    let proof = person_proof(
+        KEY,
+        challenge["nonce"].as_str().unwrap(),
+        challenge["connection"].as_str().unwrap(),
+    )
+    .unwrap();
+
+    let mut other = Rpc::connect(&d.socket).await;
+    let theirs = other.initialize().await;
+    assert_ne!(theirs["nonce"], challenge["nonce"]);
+    let r = other.call("_acpmux/person_prove", json!({"proof": proof})).await;
+    assert_eq!(reason(&r), "person.proof_refused", "{r}");
+
+    // A relay that hands this unix connection's challenge to the app's
+    // WebSocket gets a proof for the `app` transport: refused here.
+    let mut relayed = Rpc::connect(&d.socket).await;
+    let unix_challenge = relayed.initialize().await;
+    let for_app = acpmux::hub::person::person_proof(
+        KEY,
+        acpmux::hub::person::TRANSPORT_APP,
+        unix_challenge["nonce"].as_str().unwrap(),
+        unix_challenge["connection"].as_str().unwrap(),
+    )
+    .unwrap();
+    let r = relayed.call("_acpmux/person_prove", json!({"proof": for_app})).await;
+    assert_eq!(reason(&r), "person.proof_refused", "{r}");
+
+    // The right proof, but not as the second request: refused.
+    let mut late = Rpc::connect(&d.socket).await;
+    let mine = late.initialize().await;
+    late.ok("_acpmux/status", json!({})).await;
+    let own =
+        person_proof(KEY, mine["nonce"].as_str().unwrap(), mine["connection"].as_str().unwrap())
+            .unwrap();
+    let r = late.call("_acpmux/person_prove", json!({"proof": own})).await;
+    assert_eq!(reason(&r), "person.proof_refused", "{r}");
+
+    // Only the connection that proved may widen.
+    let id = new_session(&mut other, &d).await;
+    for c in [&mut other, &mut late] {
+        let r =
+            c.call("_acpmux/set_policy", json!({"sessionId": id, "policy": "approve-all"})).await;
+        assert_eq!(reason(&r), REASON, "{r}");
+    }
+    app.ok("_acpmux/set_policy", json!({"sessionId": id, "policy": "approve-all"})).await;
+}
+
+/// Starts the real daemon with `args` in `dir` (with its config.json): its
+/// ready line, or None when it exited first, with its exit status and stderr.
+fn run_until_ready(dir: &Path, args: &[&str]) -> (Option<Value>, std::process::Child) {
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"))
+        .args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "warn"])
+        .args(args)
+        .env("ACPMUX_HOME", dir)
+        .env("ACPMUX_SOCKET", dir.join("s.sock"))
+        .env_remove("ACPMUX_LOGIN_ENV")
+        .env_remove("XPC_SERVICE_NAME")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    // Its ready line, or the end of its output when it exits.
+    let ready = BufReader::new(child.stdout.take().unwrap())
+        .lines()
+        .map_while(Result::ok)
+        .filter_map(|line| serde_json::from_str::<Value>(&line).ok())
+        .find(|v| v["ready"] == true);
+    (ready, child)
+}
+
+fn port_dir(tag: &str, port: u16) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("amp-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let dir = std::fs::canonicalize(&dir).unwrap();
+    std::fs::write(
+        dir.join("config.json"),
+        json!({
+            "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+            "defaultHarness": "fake",
+            "websocket": {"listen": format!("127.0.0.1:{port}"), "token": "t".repeat(32)},
+        })
+        .to_string(),
+    )
+    .unwrap();
+    dir
+}
+
+/// cx-fcaq, availability: an unrelated program on the configured
+/// WebSocket port does not stop acpmux. The daemon listens on a new free
+/// loopback port, reports it, and saves it (the app reads the port from
+/// status, then checks that port's listener before it connects).
+#[test]
+fn a_taken_configured_websocket_port_moves_the_daemon_to_a_free_port() {
+    let other = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let taken = other.local_addr().unwrap().port();
+    let dir = port_dir("moved", taken);
+    let (ready, mut child) = run_until_ready(&dir, &[]);
+    let ready = ready.expect("the daemon runs with its configured port taken");
+    let web = ready["webUrl"].as_str().expect("a web listener").to_owned();
+    assert!(!web.contains(&format!(":{taken}/")), "{web}");
+    let saved: Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("config.json")).unwrap()).unwrap();
+    let listen = saved["websocket"]["listen"].as_str().unwrap().to_owned();
+    assert_ne!(listen, format!("127.0.0.1:{taken}"));
+    assert!(web.contains(&listen), "saved {listen}, reported {web}");
+    // SAFETY: the pid of the child this test spawned and still owns.
+    unsafe { libc::kill(child.id() as i32, libc::SIGTERM) };
+    let _ = child.wait();
+    drop(other);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// cx-fcaq: an explicit `--listen` that is taken stops the daemon with a
+/// clear error, and its unix socket never answers.
+#[test]
+fn a_taken_explicit_listen_port_makes_the_daemon_exit() {
+    let squatter = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = squatter.local_addr().unwrap().port();
+    let dir = port_dir("listen", port);
+    let listen = format!("127.0.0.1:{port}");
+    let (ready, mut child) = run_until_ready(&dir, &["--listen", &listen]);
+    if ready.is_some() {
+        let _ = child.kill();
+        let _ = child.wait();
+        panic!("the daemon got ready with its --listen port taken");
+    }
+    let out = child.wait_with_output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "the daemon ran with a taken port: {stderr}");
+    assert!(stderr.contains("is taken"), "{stderr}");
+    assert!(
+        std::os::unix::net::UnixStream::connect(dir.join("s.sock")).is_err(),
+        "the unix socket still answers"
+    );
+    drop(squatter);
+    let _ = std::fs::remove_dir_all(&dir);
 }

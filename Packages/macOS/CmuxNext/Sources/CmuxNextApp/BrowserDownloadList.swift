@@ -14,7 +14,8 @@ struct BrowserDownloadNotice: Equatable {
 /// The App's one list of downloads, for both engines: every `.download`
 /// intent (WebKit's `WKDownload`, Chromium's shim downloads) lands here. It
 /// logs each start and end and shows a notice over the tab when a download
-/// finishes or fails. A downloads window can list `items` later.
+/// finishes or fails. The toolbar's Downloads menu lists `items`
+/// (`BrowserDownloadsMenu`).
 @Observable
 final class BrowserDownloadList {
     /// Newest last; at most `limit`.
@@ -40,6 +41,18 @@ final class BrowserDownloadList {
             if case .blocked = item.status, let site = item.blockedSite { self?.latestBlocked = (site, key) }
             self?.finished(item, notice: notice)
         }
+    }
+
+    /// What the toolbar's Downloads button shows; read while it renders,
+    /// so it redraws as downloads start and end.
+    var toolbarSummary: BrowserToolbarDownloads {
+        BrowserToolbarDownloads(count: items.count, inProgress: items.contains { $0.status == .inProgress })
+    }
+
+    /// Drops every download that ended (Clear in the Downloads menu); the
+    /// files stay where they are.
+    func clearEnded() {
+        items.removeAll { $0.status != .inProgress }
     }
 
     private func finished(_ item: BrowserDownload, notice: (BrowserDownloadNotice) -> Void) {

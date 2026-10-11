@@ -198,7 +198,10 @@ mod journal_plugin_host;
 mod journal_retention;
 mod kitty_budget;
 mod kitty_reservation;
+mod launch_identity;
 use kitty_reservation::kitty_image_limits_exceed;
+mod agent_presence;
+pub use agent_presence::{AgentActivity, AgentPresence};
 mod agent_types;
 pub use agent_types::{AgentRecord, AgentSource, AgentState};
 use agent_types::{
@@ -251,6 +254,7 @@ pub(crate) mod screen_groups;
 mod signaled_mutex;
 pub(crate) use signaled_mutex::SignaledMutex;
 mod session_paths;
+pub(crate) mod settings;
 mod shell_history_feed;
 mod sidebar_plugin;
 mod startup_restore;
@@ -476,6 +480,8 @@ pub struct Mux {
     pub(crate) workspace_registry: SignaledMutex<WorkspaceRegistry>,
     pub(crate) session_public_id: SessionPublicId,
     pub(crate) machine_public_id: crate::resource::MachinePublicId,
+    /// The launch keys (plans/cmux-next/identity.md section 2).
+    launch_identity: crate::launch_credential::LaunchIdentity,
     /// Control-socket admission counters, shared with the accept loop.
     connection_stats: Arc<crate::diagnostics::ConnectionStats>,
     /// Clone of the registry's projection spans, read without its lock.
@@ -592,6 +598,8 @@ pub struct Mux {
     machine_usage: Mutex<Option<MachineUsage>>,
     agent_records: Mutex<HashMap<TerminalPublicId, TerminalAgentRecord>>,
     agent_hook_fences: Mutex<HashMap<TerminalPublicId, HookFence>>,
+    /// Live, never-persisted presence per terminal (`agent_presence.rs`).
+    agent_presence: Mutex<HashMap<TerminalPublicId, agent_presence::PresenceSlot>>,
     agent_roster: Mutex<AgentRosterHost>,
     agent_roster_fold: Mutex<()>,
     /// Nonterminal notifications remain placement-local. Terminal unread state is keyed by
@@ -701,6 +709,9 @@ pub struct Mux {
     terminal_reaper_events: Mutex<Option<MuxEventReceiver>>,
     /// The launch snapshot file while its writer runs (`launch-snapshot-v1`).
     launch_snapshot_path: Mutex<Option<std::path::PathBuf>>,
+    /// The settings owner (the settings file), started on first use or at
+    /// daemon start (mux/settings.rs).
+    settings: settings::SettingsSlot,
     /// Parallel terminal host launches and reaps (`terminal_work`).
     terminal_work: terminal_work::TerminalWorkPool,
     /// Hosts launched ahead of their creation, by reserved terminal id.

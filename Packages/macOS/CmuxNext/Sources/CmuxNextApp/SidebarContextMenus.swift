@@ -10,8 +10,9 @@ enum SidebarContextMenus {
         switch target {
         case .tab(let workspace, let tab):
             // The tab's own menu, as on its strip; the row is not selected by the right-click.
-            return PaneController.tabMenu(tab.rawValue, tab: services.locateTab(tab.rawValue)?.0,
-                                          workspaceKind: services.workspace(id: workspace.rawValue)?.kind, registry: registry)
+            let model = services.locateTab(tab.rawValue)?.0
+            return PaneController.tabMenu(tab.rawValue, tab: model, workspaceKind: services.workspace(id: workspace.rawValue)?.kind,
+                                          sameKind: NewTabKind.of(tab.rawValue, tab: model, services: services), registry: registry)
         case .workspaces(let ids):
             // A connecting SSH machine's row (cx-gaq9) has its machine's menu: Reconnect, Disconnect, Forget.
             if ids.count == 1, let machine = ids.first.flatMap(SSHConnectingRows.machine(of:)) {

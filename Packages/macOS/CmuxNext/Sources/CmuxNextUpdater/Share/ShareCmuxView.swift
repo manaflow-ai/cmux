@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// "Share cmux" (cx-7py7): a centered modal in the cmux dialog style
 /// (theme grays, no accent color): a title, one short line, an editable
@@ -42,7 +43,7 @@ public final class ShareCmuxView: NSView {
         surface = OverlaySurfaceView(interactive: true)
         copyButton = CmuxDialogButtonView(CmuxDialogButton(id: "copy-link", title: ShareCmuxStrings.copyLink, role: .default),
                                           target: nil, action: #selector(ShareCmuxView.copyMessage))
-        closeButton = NSButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: ShareCmuxStrings.close) ?? NSImage(),
+        closeButton = NSButton(image: NSImage.icon(.actionClose, size: 12),
                                target: nil, action: nil)
         super.init(frame: .zero)
         copyButton.target = self

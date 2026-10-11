@@ -160,7 +160,7 @@ final class PersonalGroupEditorState {
     /// A name or color edit waiting for the daemon's id, with its pending row edit.
     struct Edit {
         var name: String?
-        var color: GroupColor?
+        var color: GroupTint?
         var token: SidebarPendingEdits.Token
     }
     /// The daemon's id for a group the sidebar made under its own id.

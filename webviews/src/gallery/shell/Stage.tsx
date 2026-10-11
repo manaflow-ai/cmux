@@ -18,6 +18,7 @@ import {
 } from "../env";
 import { stageHeight, type GalleryEntry } from "../format";
 import { themeIsDark } from "../theme/ghostty";
+import { APP_ACCENTS } from "../../theme/appTheme";
 import type { PlayReport } from "../play";
 import { entryPaneSize, fitScale, PANE_LAYOUTS, WINDOW_PRESETS, windowSize, type PaneLayout } from "../window";
 import {
@@ -83,6 +84,8 @@ const FONTS = [
 export const SAMPLE_THEMES = [
   "Apple System Colors",
   "Apple System Colors Light",
+  "Rose Pine",
+  "Rose Pine Moon",
   "Dracula",
   "Nord",
   "Solarized Dark Higher Contrast",
@@ -409,6 +412,13 @@ export function Controls({ env, onChange }: { env: GalleryEnv; onChange: (env: G
         options={themeOptions}
         onChange={(value) => set("theme", value)}
         label="Theme"
+      />
+      <Select
+        className={selectClass}
+        value={env.accent ?? "neutral"}
+        options={APP_ACCENTS.map((accent) => ({ value: accent, label: `Accent: ${accent}` }))}
+        onChange={(value) => set("accent", value as GalleryEnv["accent"])}
+        label="Accent"
       />
       <Select
         className={selectClass}

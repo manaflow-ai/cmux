@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 58ca7257f6cbe1cc4e0e0bc77bea9c72ee7ad72d681fc496e52263fcaf180d42.
+// cmux-tui mux protocol 12, IR 35d5853a7a86b8f950a6dafc91236ca5fcf94b7c0a0f4ed35636d4c39ebef6a2.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -34,6 +34,25 @@ pub struct ActivitySnapshot {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ActivitySubscribeResult {
     pub activity: ActivitySnapshot,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AgentPresenceActivity {
+    #[serde(rename = "thinking")]
+    Thinking,
+    #[serde(rename = "editing")]
+    Editing,
+    #[serde(rename = "reading")]
+    Reading,
+    #[serde(rename = "running")]
+    Running,
+    #[serde(rename = "browsing")]
+    Browsing,
+    #[serde(rename = "computer_use")]
+    ComputerUse,
+    #[serde(rename = "waiting")]
+    Waiting,
 }
 
 #[rustfmt::skip]

@@ -111,6 +111,8 @@ export interface MenuButtonProps {
   className?: string;
   /** The accessible name when the button shows only an icon. */
   label?: string;
+  /** The hover tooltip (the page's title tooltips show it). */
+  title?: string;
   disabled?: boolean;
   "aria-haspopup"?: "menu" | "listbox" | "dialog";
   "aria-labelledby"?: string;
@@ -122,6 +124,7 @@ export interface MenuButtonProps {
 export function MenuButton({
   className,
   label,
+  title,
   disabled,
   "aria-haspopup": ariaHasPopup,
   "aria-labelledby": ariaLabelledBy,
@@ -133,6 +136,7 @@ export function MenuButton({
     <BaseMenu.Trigger
       className={cx("ui-button", className)}
       aria-label={label}
+      title={title}
       aria-labelledby={ariaLabelledBy}
       aria-haspopup={ariaHasPopup}
       data-menu={dataMenu}

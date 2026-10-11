@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '58ca7257f6cbe1cc4e0e0bc77bea9c72ee7ad72d681fc496e52263fcaf180d42'
+IR_SHA256 = '35d5853a7a86b8f950a6dafc91236ca5fcf94b7c0a0f4ed35636d4c39ebef6a2'
 
 
 @dataclass(frozen=True)
@@ -3342,6 +3342,7 @@ COMMANDS = {
 EVENTS = {
     'activity-changed': EventMetadata('activity-changed', 12, 'vm-activity-v1', ('control',), 'emitted'),
     'agent-changed': EventMetadata('agent-changed', 11, None, ('subscribe',), 'emitted'),
+    'agent-presence-changed': EventMetadata('agent-presence-changed', 12, 'agent-presence-v1', ('subscribe',), 'emitted'),
     'bell': EventMetadata('bell', 5, None, ('subscribe',), 'emitted'),
     'bookmarks-changed': EventMetadata('bookmarks-changed', 12, 'bookmarks-v1', ('subscribe',), 'emitted'),
     'browser-state': EventMetadata('browser-state', 6, None, ('attach-browser',), 'emitted'),
@@ -3385,6 +3386,7 @@ EVENTS = {
     'screen-closed': EventMetadata('screen-closed', 7, None, ('subscribe-deltas',), 'emitted'),
     'screen-renamed': EventMetadata('screen-renamed', 7, None, ('subscribe-deltas',), 'emitted'),
     'scroll-changed': EventMetadata('scroll-changed', 6, None, ('subscribe', 'attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
+    'settings-changed': EventMetadata('settings-changed', 12, 'settings-v1', ('subscribe',), 'emitted'),
     'size-state': EventMetadata('size-state', 12, 'shared-sizing-v1', ('subscribe', 'attach-byte', 'attach-render'), 'emitted'),
     'status': EventMetadata('status', 5, None, ('subscribe',), 'emitted'),
     'surface-exited': EventMetadata('surface-exited', 5, None, ('subscribe',), 'emitted'),

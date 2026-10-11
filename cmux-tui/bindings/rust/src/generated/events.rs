@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 58ca7257f6cbe1cc4e0e0bc77bea9c72ee7ad72d681fc496e52263fcaf180d42.
+// cmux-tui mux protocol 12, IR 35d5853a7a86b8f950a6dafc91236ca5fcf94b7c0a0f4ed35636d4c39ebef6a2.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -26,6 +26,26 @@ pub struct AgentChangedEvent {
     pub state: T::AgentState,
     pub surface: T::Id,
     pub updated_at_ms: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentPresenceChangedEvent {
+    /// What the agent is doing now; null clears the surface's presence and every other field is then null.
+    pub activity: Nullable<T::AgentPresenceActivity>,
+    /// Adapter identity (claude, codex, ...).
+    pub agent: Nullable<String>,
+    /// The 1-based line the tool call targets, when the tool input names one.
+    pub line: Nullable<u64>,
+    /// The file the tool call targets, when the tool input names one.
+    pub path: Nullable<String>,
+    /// The agent's portable session id, a stable identity for colour.
+    pub session: Nullable<String>,
+    pub surface: T::Id,
+    /// The native tool name of the current or last tool call.
+    pub tool: Nullable<String>,
+    /// When the hook observed the event; null on clear.
+    pub updated_at_ms: Nullable<u64>,
 }
 
 #[rustfmt::skip]
@@ -489,6 +509,33 @@ pub struct ScrollChangedEvent {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SettingsChangedEventOrigin {
+    #[serde(rename = "user")]
+    User,
+    #[serde(rename = "cli")]
+    Cli,
+    #[serde(rename = "mcp")]
+    Mcp,
+    #[serde(rename = "script")]
+    Script,
+    #[serde(rename = "remote")]
+    Remote,
+    #[serde(rename = "app")]
+    App,
+    #[serde(rename = "file")]
+    File,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SettingsChangedEvent {
+    pub keys: Vec<String>,
+    pub origin: SettingsChangedEventOrigin,
+    pub revision: u64,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SizeStateEvent {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -744,6 +791,7 @@ pub struct UnknownEvent {
 pub enum Event {
     ActivityChanged(ActivityChangedEvent),
     AgentChanged(AgentChangedEvent),
+    AgentPresenceChanged(AgentPresenceChangedEvent),
     Bell(BellEvent),
     BookmarksChanged(BookmarksChangedEvent),
     BrowserState(BrowserStateEvent),
@@ -787,6 +835,7 @@ pub enum Event {
     ScreenClosed(ScreenClosedEvent),
     ScreenRenamed(ScreenRenamedEvent),
     ScrollChanged(ScrollChangedEvent),
+    SettingsChanged(SettingsChangedEvent),
     SizeState(SizeStateEvent),
     Status(StatusEvent),
     SurfaceExited(SurfaceExitedEvent),
@@ -820,6 +869,7 @@ impl Event {
         match self {
             Self::ActivityChanged(_) => Some("activity-changed"),
             Self::AgentChanged(_) => Some("agent-changed"),
+            Self::AgentPresenceChanged(_) => Some("agent-presence-changed"),
             Self::Bell(_) => Some("bell"),
             Self::BookmarksChanged(_) => Some("bookmarks-changed"),
             Self::BrowserState(_) => Some("browser-state"),
@@ -863,6 +913,7 @@ impl Event {
             Self::ScreenClosed(_) => Some("screen-closed"),
             Self::ScreenRenamed(_) => Some("screen-renamed"),
             Self::ScrollChanged(_) => Some("scroll-changed"),
+            Self::SettingsChanged(_) => Some("settings-changed"),
             Self::SizeState(_) => Some("size-state"),
             Self::Status(_) => Some("status"),
             Self::SurfaceExited(_) => Some("surface-exited"),
@@ -895,6 +946,7 @@ impl Event {
         match self {
             Self::ActivityChanged(_) => Some(&ACTIVITY_CHANGED_EVENT_METADATA),
             Self::AgentChanged(_) => Some(&AGENT_CHANGED_EVENT_METADATA),
+            Self::AgentPresenceChanged(_) => Some(&AGENT_PRESENCE_CHANGED_EVENT_METADATA),
             Self::Bell(_) => Some(&BELL_EVENT_METADATA),
             Self::BookmarksChanged(_) => Some(&BOOKMARKS_CHANGED_EVENT_METADATA),
             Self::BrowserState(_) => Some(&BROWSER_STATE_EVENT_METADATA),
@@ -938,6 +990,7 @@ impl Event {
             Self::ScreenClosed(_) => Some(&SCREEN_CLOSED_EVENT_METADATA),
             Self::ScreenRenamed(_) => Some(&SCREEN_RENAMED_EVENT_METADATA),
             Self::ScrollChanged(_) => Some(&SCROLL_CHANGED_EVENT_METADATA),
+            Self::SettingsChanged(_) => Some(&SETTINGS_CHANGED_EVENT_METADATA),
             Self::SizeState(_) => Some(&SIZE_STATE_EVENT_METADATA),
             Self::Status(_) => Some(&STATUS_EVENT_METADATA),
             Self::SurfaceExited(_) => Some(&SURFACE_EXITED_EVENT_METADATA),
@@ -981,6 +1034,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("agent-changed") => match serde_json::from_value::<AgentChangedEvent>(raw.clone()) {
             Ok(event) => Event::AgentChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("agent-presence-changed") => match serde_json::from_value::<AgentPresenceChangedEvent>(raw.clone()) {
+            Ok(event) => Event::AgentPresenceChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,
@@ -1325,6 +1386,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("scroll-changed") => match serde_json::from_value::<ScrollChangedEvent>(raw.clone()) {
             Ok(event) => Event::ScrollChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("settings-changed") => match serde_json::from_value::<SettingsChangedEvent>(raw.clone()) {
+            Ok(event) => Event::SettingsChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

@@ -1034,14 +1034,16 @@ fn start(
     };
     let workspaces: Option<Arc<dyn crate::workspaces::Workspaces>> = if workspaces_off {
         None
-    } else if let Some(app) = crate::workspaces::AppWorkspaces::from_env(daemon_socket) {
-        // E17: the app while it runs, else the Chief's owner daemon.
-        Some(Arc::new(crate::workspaces::TargetWorkspaces::new(
-            app,
-            daemon_socket.into(),
-            home,
-            Some(sub_harness.clone()),
-        )))
+    } else if crate::workspaces::AppWorkspaces::from_env(daemon_socket).is_some() {
+        // hq-6d 2026-10-09: always the Chief's owner daemon (`--daemon-socket`), also when the
+        // app started this host: one place, the Chief's machine row in the app, and the
+        // workspaces outlive the app. The tabs name the Chief home's acpmux (`chief:<home id>`).
+        Some(Arc::new(crate::workspaces::DaemonWorkspaces {
+            daemon: daemon_socket.into(),
+            host: crate::workspaces::chief_host(home),
+            host_name: crate::workspaces::host_name(),
+            harness: Some(sub_harness.clone()),
+        }) as Arc<dyn crate::workspaces::Workspaces>)
     } else {
         cloud_install.map(|install| {
             Arc::new(crate::workspaces::DaemonWorkspaces {

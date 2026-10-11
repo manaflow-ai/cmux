@@ -20,7 +20,10 @@ pub struct AdapterConfig {
 }
 
 impl AdapterConfig {
-    pub const DEFAULT_MAX_FILES: usize = 2000;
+    /// A bound for a runaway store, not a page size: one `~/.claude/projects` root commonly holds
+    /// thousands of chats, and the New Tab's All chats pages must reach all of them (cx-dh2q:
+    /// 2000 cut a 5000-chat root). Unchanged files cost only a stat on later scans (`prior`).
+    pub const DEFAULT_MAX_FILES: usize = 20_000;
 
     pub fn new(kind: AdapterKind, root: impl Into<PathBuf>) -> Self {
         Self { kind, root: root.into(), max_files: Self::DEFAULT_MAX_FILES }

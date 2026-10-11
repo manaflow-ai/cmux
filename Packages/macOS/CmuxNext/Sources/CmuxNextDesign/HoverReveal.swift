@@ -53,7 +53,13 @@ public final class HoverReveal {
             owner?.endHold(generation: generation)
         }
 
-        isolated deinit { release() }
+        // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+        nonisolated deinit {
+            guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+            MainActor.assumeIsolated {
+                release()
+            }
+        }
     }
 
     /// Debug builds assert when a view or region is claimed twice. Tests
@@ -107,11 +113,15 @@ public final class HoverReveal {
         region.addSubview(probe, positioned: .below, relativeTo: nil)
     }
 
-    isolated deinit {
-        probe.removeFromSuperview()
-        for key in views.keys where Self.viewOwners[key]?.value === self { Self.viewOwners[key] = nil }
-        if let region, Self.regionOwners[ObjectIdentifier(region)]?.value === self {
-            Self.regionOwners[ObjectIdentifier(region)] = nil
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            probe.removeFromSuperview()
+            for key in views.keys where Self.viewOwners[key]?.value === self { Self.viewOwners[key] = nil }
+            if let region, Self.regionOwners[ObjectIdentifier(region)]?.value === self {
+                Self.regionOwners[ObjectIdentifier(region)] = nil
+            }
         }
     }
 
@@ -236,8 +246,12 @@ private final class HoverRevealProbe: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    isolated deinit {
-        closeObserver?.cancel()
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            closeObserver?.cancel()
+        }
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }

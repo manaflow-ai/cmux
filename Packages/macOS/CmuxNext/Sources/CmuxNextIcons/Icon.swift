@@ -6,6 +6,8 @@ public import SwiftUI
 public struct Icon: View {
     private let name: IconName
     private let size: CGFloat
+    /// The SF Symbol drawn when the pack has no icon for it (`init(symbol:size:)`).
+    private var symbol: String?
 
     @Environment(\.iconStyle) private var style
     @Environment(\.iconAccent) private var accent
@@ -18,10 +20,18 @@ public struct Icon: View {
         self.size = max(CGFloat.iconFloor, size ?? CGFloat.iconDefaultSize)
     }
 
+    /// The pack icon that stands for SF Symbol `symbol`, else that symbol: for symbol names an app
+    /// or the user supplies.
+    public init(symbol: String, size: CGFloat? = nil) {
+        let name = IconCatalog.bundled.name(forSymbol: symbol)
+        self.init(name ?? IconName(symbol), size: size)
+        if name == nil { self.symbol = symbol }
+    }
+
     public var body: some View {
         let drawn = IconCatalog.bundled.style(style, for: name, size: size)
         Group {
-            switch IconPack.bundled.resolve(name, style: drawn, accent: accent) {
+            switch symbol.map(IconResolution.system) ?? IconPack.bundled.resolve(name, style: drawn, accent: accent) {
             case .drawing(let layers):
                 IconCanvas(layers: layers, grid: IconPack.bundled.grid, accentColor: accentColor ?? .accentColor)
             case .system(let symbol):

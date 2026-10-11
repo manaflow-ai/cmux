@@ -462,6 +462,7 @@ MODEL_BY_PATH = {
     'commands/zoom-pane/request': models.ZoomPaneRequest,
     'events/activity-changed/payload': models.ActivityChangedEvent,
     'events/agent-changed/payload': models.AgentChangedEvent,
+    'events/agent-presence-changed/payload': models.AgentPresenceChangedEvent,
     'events/bell/payload': models.BellEvent,
     'events/bookmarks-changed/payload': models.BookmarksChangedEvent,
     'events/browser-state/payload': models.BrowserStateEvent,
@@ -505,6 +506,7 @@ MODEL_BY_PATH = {
     'events/screen-closed/payload': models.ScreenClosedEvent,
     'events/screen-renamed/payload': models.ScreenRenamedEvent,
     'events/scroll-changed/payload': models.ScrollChangedEvent,
+    'events/settings-changed/payload': models.SettingsChangedEvent,
     'events/size-state/payload': models.SizeStateEvent,
     'events/status/payload': models.StatusEvent,
     'events/surface-exited/payload': models.SurfaceExitedEvent,
@@ -532,6 +534,7 @@ MODEL_BY_PATH = {
 }
 
 ENUM_BY_PATH = {
+    'types/AgentPresenceActivity': models.AgentPresenceActivity,
     'types/AgentReportSource': models.AgentReportSource,
     'types/AgentSource': models.AgentSource,
     'types/AgentState': models.AgentState,

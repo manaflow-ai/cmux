@@ -23,8 +23,12 @@ final class TabStripRevealController {
         hover = HoverReveal(region: strip, tracksPointer: false)
     }
 
-    isolated deinit {
-        observation?.cancel()
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            observation?.cancel()
+        }
     }
 
     var isRevealed: Bool { hover.isRevealed }

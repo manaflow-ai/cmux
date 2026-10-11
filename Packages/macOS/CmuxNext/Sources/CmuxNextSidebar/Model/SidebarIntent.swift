@@ -27,7 +27,7 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     /// The group's name editor closed (commit or cancel). The App removes a
     /// group made with no member that is still empty (cx-rcby). No local change.
     case groupEditorEnded(GroupID)
-    case setGroupColor(GroupID, GroupColor)
+    case setGroupColor(GroupID, GroupTint)
     /// Dissolve a group, leaving its workspaces in place.
     case ungroup(GroupID)
     /// Pin (save) or unpin a group.
@@ -55,6 +55,8 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case switchProfile(ProfileKey)
     /// Create a profile (the bar's "+").
     case newProfile
+    /// Show agent history: every chat on this device (the bar's History dot, cx-zlnl).
+    case openHistory
     /// Move a profile to an insertion index (dot drag).
     case reorderProfile(ProfileKey, index: Int)
     /// Run an item of a pinned section (a built-in's action, a pinned
