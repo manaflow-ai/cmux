@@ -90,6 +90,10 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
       if (enabled.length === 0) return;
       event.preventDefault();
       setActive((index) => (index + (event.key === "ArrowDown" ? 1 : -1) + enabled.length) % enabled.length);
+    } else if (event.key === "Home" || event.key === "End") {
+      if (enabled.length === 0) return;
+      event.preventDefault();
+      setActive(event.key === "Home" ? 0 : enabled.length - 1);
     } else if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       run(enabled[active]);
@@ -161,7 +165,9 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
                       data-highlighted={enabled[active] === item ? "" : undefined}
                       onClick={() => run(item)}
                     >
-                      {item.label}
+                      <span className="ui-menu-label" title={typeof item.label === "string" ? item.label : undefined}>
+                        {item.label}
+                      </span>
                     </button>
                   </div>
                 ))}

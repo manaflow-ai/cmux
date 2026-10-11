@@ -95,7 +95,8 @@
   box-shadow: var(--ui-row-bar);
 }
 
-.ui-menu-item[data-disabled] {
+.ui-menu-item[data-disabled],
+.ui-menu-item:disabled {
   opacity: 0.45;
 }
 
@@ -112,6 +113,15 @@
 .ui-context-menu {
   position: fixed;
   min-width: 180px;
+  max-width: min(360px, calc(100vw - 8px));
+}
+
+/* A long label (a link, a path) ends in an ellipsis instead of widening the menu. */
+.ui-context-menu .ui-menu-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ui-menu-check {
