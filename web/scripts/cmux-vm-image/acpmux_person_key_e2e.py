@@ -316,6 +316,23 @@ def main():
             if not run.step("install pinned cmux-tui (test machine only)", install_pinned):
                 return 1
 
+        # hq-84 rule: the session daemon's environ is data. A value with quotes, $(...), backticks,
+        # a ";" and a newline must reach the restarted acpmux unchanged and run nothing.
+        probe_value = "a'b\"c $(touch /tmp/psxg-pwned-1) `touch /tmp/psxg-pwned-2` ;touch /tmp/psxg-pwned-3\nline2"
+
+        def hostile_env_setup():
+            unit_value = probe_value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+            conf = f'[Service]\nEnvironment="CMUX_PSXG_PROBE={unit_value}"\n'
+            b64 = base64.b64encode(conf.encode()).decode()
+            r = api.exec_root(vm, "set -e; rm -f /tmp/psxg-pwned-*; d=/etc/systemd/system/cmux-tui-daemon.service.d; mkdir -p $d; "
+                                  f"echo {b64} | base64 -d > $d/psxg-probe.conf; systemctl daemon-reload; systemctl restart cmux-tui-daemon.service; "
+                                  "p=$(pgrep -o -u cmux -f '[c]mux-tui server start'); base64 -w0 /proc/$p/environ")
+            entries = base64.b64decode(r["stdout"].strip() or "").split(b"\0")
+            got = next((e[len(b"CMUX_PSXG_PROBE="):] for e in entries if e.startswith(b"CMUX_PSXG_PROBE=")), None)
+            ok = got == probe_value.encode()
+            return ok, f"session daemon carries the hostile value exactly: {ok}", ok
+        hostile_ready = run.step("hostile env value in the session daemon (setup)", hostile_env_setup)
+
         def bad_body():
             s1, b1, _ = api.call("POST", f"/api/vm/{vm}/acpmux/keyed-start", b"not-a-key\n", {"content-type": "application/octet-stream"})
             s2, b2, _ = api.call("POST", f"/api/vm/{vm}/acpmux/keyed-start", (key_hex.upper() + "\n").encode(), {"content-type": "application/octet-stream"})
@@ -384,6 +401,17 @@ def main():
             ok = bool(fields.get("pid")) and fields.get("user") == "cmux" and not missing and not leaked and "freestyle" not in cgroup
             return ok, f"user {fields.get('user')} cgroup {cgroup}; session-daemon keys missing {missing}; exec-agent keys leaked {leaked}", ok
         run.step("restarted daemon: cmux user, session daemon env, own scope", daemon_facts)
+
+        def hostile_env_check():
+            if not hostile_ready:
+                return False, "setup failed", None
+            r = api.exec_root(vm, "p=$(pgrep -o -u cmux -f '[a]cp.*daemon run'); base64 -w0 /proc/$p/environ; echo; ls /tmp/psxg-pwned-* /psxg-pwned-* 2>/dev/null | wc -l")
+            b64, count = (r["stdout"].strip().split("\n") + ["", ""])[:2]
+            entries = base64.b64decode(b64 or "").split(b"\0")
+            got = next((e[len(b"CMUX_PSXG_PROBE="):] for e in entries if e.startswith(b"CMUX_PSXG_PROBE=")), None)
+            ok = got == probe_value.encode() and count.strip() == "0"
+            return ok, f"daemon value unchanged: {got == probe_value.encode()}; files the value would have made: {count.strip()}", ok
+        run.step("hostile env value reaches the daemon unchanged and runs nothing", hostile_env_check)
 
         if env.get("CMUX_AGENT2_STACK_EMAIL"):
             other = run.step("signin second agent account", lambda: (True, "agent2", sign_in(env["CMUX_AGENT2_STACK_EMAIL"], env["CMUX_AGENT2_STACK_PASSWORD"])))

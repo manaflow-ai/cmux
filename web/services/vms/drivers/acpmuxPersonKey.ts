@@ -1,4 +1,4 @@
-import { CMUX_TUI_DAEMON_TERMINAL_ENV, cmuxTuiAsDaemonUser, cmuxTuiLayoutSelector } from "./cmuxTuiDaemon";
+import { cmuxTuiAsDaemonUser, cmuxTuiLayoutSelector, shellQuote } from "./cmuxTuiDaemon";
 
 // The fixed guest commands of the keyed acpmux start on a Cloud machine
 // (cx-0q7o slice 2d, cx-psxg; acpmux hub/person.rs). The app makes the
@@ -11,8 +11,8 @@ import { CMUX_TUI_DAEMON_TERMINAL_ENV, cmuxTuiAsDaemonUser, cmuxTuiLayoutSelecto
 // daemon's own user, home and environment (cmuxTuiLayoutSelector,
 // cmuxTuiAsDaemonUser), so the acpmux it starts, and the `acp stdio` that
 // checks it, use the socket the session daemon's agent-session-* verbs use.
-// The environment is the one the session daemon's own acpmux starter
-// passes on (see daemonEnvironment), and the daemon runs in its own scope.
+// The keyed start gives the daemon the environment the session daemon's own
+// acpmux starter passes on, in a scope of its own (KEYED_START_SCRIPT).
 
 /** Exit status of a command that refuses a team machine (the agent-session-start team_vm_blocked rule, cx-d0tq). */
 export const ACPMUX_EXIT_TEAM_VM = 81;
@@ -45,59 +45,66 @@ function teamMachineCheck(): string {
 /**
  * Variables of the session daemon that a detached acpmux must not take: the
  * cmux terminal identity (cmux-tui acp.rs TERMINAL_IDENTITY_ENV, which its own
- * starter removes) and systemd's per-service variables.
+ * starter removes), systemd's per-service variables, and the ones the start
+ * sets itself.
  */
 const DROPPED_ENV = [
   "CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID", "CMUX_TAB_ID", "CMUX_PANEL_ID", "CMUX_PANE_ID",
   "INVOCATION_ID", "JOURNAL_STREAM", "SYSTEMD_EXEC_PID", "NOTIFY_SOCKET", "MAINPID", "MANAGERPID",
   "LISTEN_FDS", "LISTEN_PID", "LISTEN_FDNAMES", "WATCHDOG_PID", "WATCHDOG_USEC", "OLDPWD", "PWD",
+  "HOME", "USER", "LOGNAME", "SHELL", "TERM", "TERM_PROGRAM", "TERM_PROGRAM_VERSION",
 ] as const;
 
-/**
- * The environment the session daemon's own acpmux starter passes on
- * (cmux-tui acp.rs daemon_acpmux_starter: the daemon's environment without
- * the terminal identity): read from the running session daemon
- * (`cmux-tui server start` of the daemon user), each value single-quoted
- * before eval. Without one running, the host unit's `Environment=`
- * assignments that need no quoting. The provider exec agent's own service
- * variables are removed either way.
- */
-function daemonEnvironment(): string {
-  const dropped = DROPPED_ENV.join("|");
-  const fromDaemon =
-    `eval "$(tr '\\0' '\\n' < "/proc/$cmux_sd_pid/environ" | awk -v q="'" ` +
-    `'/^[A-Za-z_][A-Za-z0-9_]*=/ && $0 !~ /^(${dropped})=/ { gsub(q, q "\\\\" q q); print "export " q $0 q }')"`;
-  const fromUnit =
-    `set -f; cmux_unit_env=""; for cmux_unit in ${HOST_UNITS.join(" ")}; do ` +
-    `cmux_unit_env="$(systemctl show -p Environment --value "$cmux_unit" 2>/dev/null || true)"; ` +
-    `[ -n "$cmux_unit_env" ] && break; done; ` +
-    `for cmux_kv in $cmux_unit_env; do case "$cmux_kv" in [A-Za-z_]*=*) export "$cmux_kv" ;; esac; done; set +f`;
-  return (
-    `cmux_sd_pid="$(pgrep -o -u "$CMUX_TUI_USER" -f '[c]mux-tui server start' || true)"; ` +
-    `if [ -n "$cmux_sd_pid" ] && [ -r "/proc/$cmux_sd_pid/environ" ]; then ${fromDaemon}; else ${fromUnit}; fi; ` +
-    `unset ${DROPPED_ENV.join(" ")}`
-  );
-}
-
-/** Layout, team refusal and environment, with stdin closed so nothing here can read the key. */
+/** Layout and team refusal, with stdin closed so nothing here can read the key. */
 function setup(): string {
-  return `{ ${cmuxTuiLayoutSelector()} && ${teamMachineCheck()} && ${daemonEnvironment()}; } </dev/null`;
+  return `{ ${cmuxTuiLayoutSelector()} && ${teamMachineCheck()}; } </dev/null`;
 }
 
 /**
- * Runs `args` of the daemon binary as the daemon user in a transient systemd
- * scope of its own, in place of this shell (stdin stays the exec's). The
- * acpmux daemon it starts stays in that scope, not in the provider exec
- * agent's service, whose restart would end the daemon and its agents.
+ * The keyed start as one FIXED bash script; the layout comes in as its
+ * arguments ($1 user, $2 home, $3 binary). It gives the daemon the
+ * environment the session daemon's own acpmux starter passes on (cmux-tui
+ * acp.rs daemon_acpmux_starter: the session daemon's environment without the
+ * terminal identity), and runs it in a transient systemd scope of its own,
+ * not in the provider exec agent's service (whose restart would end the
+ * daemon and its agents).
+ *
+ * The session daemon's environ is memory of a process the work user owns, so
+ * it is only data here: read NUL-separated into an array, each entry kept
+ * only with a ^[A-Za-z_][A-Za-z0-9_]*$ name, and passed as one argv entry to
+ * `env -i`. No value reaches eval, sh -c or an unquoted expansion. Without a
+ * running session daemon, the host unit's `Environment=` words are read the
+ * same way (a quoted assignment fails the name check and is dropped). Only
+ * the final `exec` has the exec's stdin (the key); everything before it reads
+ * /dev/null.
  */
-function inOwnScope(args: string): string {
-  return (
-    `if [ "$CMUX_TUI_USER" = root ]; then cmux_drop="env"; ` +
-    `else cmux_drop="setpriv --reuid=$CMUX_TUI_USER --regid=$CMUX_TUI_USER --init-groups env USER=$CMUX_TUI_USER LOGNAME=$CMUX_TUI_USER SHELL=/bin/bash"; fi; ` +
-    `if command -v systemd-run >/dev/null 2>&1; then cmux_scope="systemd-run --scope --quiet --collect --unit=cmux-acpmux-keyed-$$-$(date +%s)"; else cmux_scope=""; fi; ` +
-    `exec $cmux_scope $cmux_drop HOME="$CMUX_TUI_HOME" ${CMUX_TUI_DAEMON_TERMINAL_ENV} "$CMUX_TUI_BIN" ${args}`
-  );
-}
+const KEYED_START_SCRIPT = [
+  `user=$1 home=$2 bin=$3`,
+  `drop=(env)`,
+  `if [ "$user" != root ]; then drop=(setpriv "--reuid=$user" "--regid=$user" --init-groups env); fi`,
+  `scope=()`,
+  `if command -v systemd-run >/dev/null 2>&1; then scope=(systemd-run --scope --quiet --collect "--unit=cmux-acpmux-keyed-$$-$(date +%s </dev/null)"); fi`,
+  `vars=()`,
+  `pid=$(pgrep -o -u "$user" -f '[c]mux-tui server start' </dev/null || true)`,
+  `if [ -n "$pid" ] && [ -r "/proc/$pid/environ" ]; then`,
+  `  while IFS= read -r -d '' kv; do vars+=("$kv"); done < "/proc/$pid/environ"`,
+  `else`,
+  `  for unit in ${HOST_UNITS.join(" ")}; do`,
+  `    line=$(systemctl show -p Environment --value "$unit" </dev/null 2>/dev/null || true)`,
+  `    if [ -n "$line" ]; then IFS=' ' read -r -a words <<< "$line"; vars+=("\${words[@]}"); break; fi`,
+  `  done`,
+  `fi`,
+  `keep=()`,
+  `for kv in "\${vars[@]}"; do`,
+  `  name=\${kv%%=*}`,
+  `  [[ "$kv" == *=* && "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue`,
+  `  case "$name" in ${DROPPED_ENV.join("|")}) continue ;; esac`,
+  `  keep+=("$kv")`,
+  `done`,
+  `version=$(head -c 64 /etc/cmux/ghostty-version 2>/dev/null </dev/null | tr -cd 'A-Za-z0-9._+-')`,
+  `exec "\${scope[@]}" "\${drop[@]}" -i "\${keep[@]}" "HOME=$home" "USER=$user" "LOGNAME=$user" SHELL=/bin/bash ` +
+    `TERM=xterm-256color TERM_PROGRAM=ghostty "TERM_PROGRAM_VERSION=$version" "$bin" acp --json daemon start --person-key-fd 0`,
+].join("\n");
 
 /**
  * Step 1, no stdin: refuse a cmux-tui without `--person-key-fd` BEFORE the
@@ -121,7 +128,10 @@ export function acpmuxPrepareCommand(): string {
  * (`personKey`, `personInstance`).
  */
 export function acpmuxKeyedStartCommand(): string {
-  return `${setup()} && ${inOwnScope("acp --json daemon start --person-key-fd 0")}`;
+  return (
+    `${setup()} && { command -v bash >/dev/null 2>&1 </dev/null || { echo "cmux: this machine has no bash" >&2; exit ${ACPMUX_EXIT_UNSUPPORTED}; }; } && ` +
+    `exec bash -c ${shellQuote(KEYED_START_SCRIPT)} cmux-acpmux-keyed-start "$CMUX_TUI_USER" "$CMUX_TUI_HOME" "$CMUX_TUI_BIN"`
+  );
 }
 
 /** `_acpmux/person_holds` over `acp stdio`; stdin = {@link acpmuxPersonHoldsFrames}. */
