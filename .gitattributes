@@ -58,6 +58,50 @@ Resources/markdown-viewer/webviews-app/** merge=cmux-generated-v1
 Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/** merge=cmux-generated-v1
 # gen-strings.mjs writes every strings table, the agent pane's included.
 webviews/src/**/generated/strings.json merge=cmux-generated-v1
+# The other exports scripts/ci/next_batch.py's merger rebuilds (its
+# SWIFT_GENERATED and SDK_GENERATED; tests/test_install_git_hooks.py checks
+# that every kept path is one of them). A kept copy that is stale fails its
+# --check until it is regenerated: regenerate-swift-exports.sh for the Swift
+# ones, cmux-tui/bindings/codegen/generate.py for the SDK. Generated files
+# without that rebuild (the app-host and cloud-wire code, the docs shortcuts,
+# the AppPlatform permission scopes) merge by line, so a lost change conflicts
+# instead of being dropped.
+plans/cmux-next/action-surfaces.json merge=cmux-generated-v1
+plans/cmux-next/actions.md merge=cmux-generated-v1
+plans/cmux-next/links.json merge=cmux-generated-v1
+schemas/settings/settings-schema.json merge=cmux-generated-v1
+docs/mdm/com.manaflow.cmux.json merge=cmux-generated-v1
+docs/mdm/com.manaflow.cmux.plist merge=cmux-generated-v1
+docs/mdm/com.manaflow.cmux.intune.plist merge=cmux-generated-v1
+docs/mdm/managed-preferences.md merge=cmux-generated-v1
+Packages/macOS/CmuxNext/ci-target-graph.json merge=cmux-generated-v1
+# SDK wire layers (cmux-tui/bindings/codegen/generate.py): only the wholly
+# generated directories and files; go/raw and java mix in hand-written code.
+cmux-tui/bindings/go/raw/.cmux-sdk-manifest.json merge=cmux-generated-v1
+cmux-tui/bindings/python/cmux/raw/_generated/** merge=cmux-generated-v1
+cmux-tui/bindings/cpp/include/cmux/raw/generated/** merge=cmux-generated-v1
+cmux-tui/bindings/cpp/src/raw/generated/** merge=cmux-generated-v1
+cmux-tui/bindings/go/raw/generated_*.go merge=cmux-generated-v1
+cmux-tui/bindings/typescript/src/raw/generated/** merge=cmux-generated-v1
+cmux-tui/bindings/rust/src/generated/** merge=cmux-generated-v1
+cmux-tui/bindings/zig/src/raw/generated/** merge=cmux-generated-v1
+# The daemon capability export (DaemonCapabilityExportTests) is one sorted
+# array per list. Keeping one side whole dropped the other side's new entries
+# on rebases (cx-urd.9.3), so scripts/merge-daemon-capabilities.py merges each
+# list as a set and conflicts only on a capability that ends in two lists.
+# Same trusted registration as xcstrings-v2; an unconfigured clone merges it
+# by line, which conflicts instead of dropping an entry.
+plans/cmux-next/daemon-capabilities.json merge=cmux-capabilities-v1
+# Ratchet baselines list known debt per entry. Keeping one side whole would
+# drop the other side's fixes (style ratchets only warn under their ceiling),
+# so scripts/merge-baseline.py merges entry by entry and writes a conflict only
+# when both sides changed the same entry. Same trusted registration as
+# xcstrings-v2.
+scripts/lint-namespace-types-ratchet.txt merge=cmux-baseline-v1
+scripts/lint-namespace-types-baseline.txt merge=cmux-baseline-v1
+scripts/lint-ios-package-conventions-baseline.txt merge=cmux-baseline-v1
+scripts/cmux-next/*-baseline.tsv merge=cmux-baseline-v1
+scripts/cmux-next/*-baseline.json merge=cmux-baseline-v1
 # Upstream license texts the shared Ghostty license collector ships, pinned by
 # SHA-256 in pinned-licenses/MANIFEST.json. Never rewrite their bytes.
 cmux-tui/build-support/notices/ghostty/pinned-licenses/** -text -whitespace

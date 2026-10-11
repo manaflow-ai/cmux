@@ -29,9 +29,17 @@
 .acpmux-summary-dot[data-state=failed]{background:var(--agent-danger)}
 .acpmux-summary-dot[data-state=running]{box-shadow:0 0 0 1px var(--agent-accent)}
 .acpmux-summary-none{color:var(--agent-muted)}
+/* Lineage (subagents/Lineage.tsx): a status dot on each agent's icon, its state in muted text. */
+.acpmux-lineage__icon{position:relative;flex:none;display:inline-flex;color:var(--agent-muted)}
+.acpmux-lineage__icon::after{content:"";position:absolute;right:-2px;bottom:-2px;width:6px;height:6px;border-radius:50%;box-shadow:0 0 0 1.5px var(--acpmux-menu-bg);background:var(--agent-muted)}
+.acpmux-lineage__icon[data-state=running]::after{background:var(--agent-accent)}
+.acpmux-lineage__icon[data-state=completed]::after{background:var(--agent-success,var(--acpmux-add,#3fb950))}
+.acpmux-lineage__icon[data-state=failed]::after{background:var(--agent-danger)}
+.acpmux-lineage__state{min-width:52px;text-align:right}
+.acpmux-lineage__previous{display:flex;align-items:center;gap:6px}
 @media (prefers-reduced-motion:no-preference){.acpmux-summary-popover{animation:ui-popup-open var(--ui-popup-open) ease-out}}
 /* The chat's gallery (GalleryDialog.tsx): over the pane as the image viewer is, a grid of the chat's images and render cards. */
-.acpmux-chat-gallery{position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;background:color-mix(in srgb,var(--agent-page-bg) 94%,transparent);-webkit-backdrop-filter:blur(24px);backdrop-filter:blur(24px);color:var(--agent-text);outline:none}
+.acpmux-chat-gallery{position:fixed;inset:0;z-index:var(--layer-modal);width:auto;margin-inline:0;display:flex;flex-direction:column;background:color-mix(in srgb,var(--agent-page-bg) 94%,transparent);-webkit-backdrop-filter:blur(24px);backdrop-filter:blur(24px);color:var(--agent-text);outline:none}
 .acpmux-chat-gallery-filters{display:flex;gap:2px;margin-right:8px}
 .acpmux-chat-gallery-filter{height:26px;padding:0 8px;border:0;border-radius:7px;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);cursor:default}
 .acpmux-chat-gallery-filter:hover{background:var(--agent-control-hover)}

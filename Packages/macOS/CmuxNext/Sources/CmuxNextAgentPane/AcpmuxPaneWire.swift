@@ -20,15 +20,52 @@ public nonisolated protocol AcpmuxPaneWire: Sendable {
 public nonisolated final class AgentPaneRemoteRoute: Sendable {
     /// The machine's name, for logs (never a secret).
     public let machine: String
+    /// The keyed restart of the machine's acpmux, when the app can do one (cx-0q7o).
+    public let approvals: AgentPaneRemoteApprovals?
     private let make: @Sendable () -> any AcpmuxPaneWire
 
-    public init(machine: String, make: @escaping @Sendable () -> any AcpmuxPaneWire) {
+    public init(machine: String, approvals: AgentPaneRemoteApprovals? = nil, make: @escaping @Sendable () -> any AcpmuxPaneWire) {
         self.machine = machine
+        self.approvals = approvals
         self.make = make
     }
 
     /// A fresh wire for one connection (each reconnect gets its own).
     public func makeWire() -> any AcpmuxPaneWire { make() }
+}
+
+/// What a chat's machine offers when its acpmux holds no person key of this app (cx-0q7o): its
+/// name for the pane's notice, and the keyed restart (nil on success, else what failed).
+public nonisolated struct AgentPaneRemoteApprovals: Sendable {
+    /// Why a keyed restart failed; the pane says it in the user's language.
+    public enum Failure: Sendable, Equatable {
+        /// The system had no randomness for a key or a nonce.
+        case noRandomness
+        /// The new daemon did not report a key (the daemon's last error line, when there is one).
+        case daemonTookNoKey(String?)
+        /// The daemon that answers does not hold this app's key.
+        case keyNotHeld
+        /// The machine's agent daemon is too old for a keyed start (a Cloud machine, cx-psxg).
+        case daemonTooOld
+        /// The machine is not running.
+        case machineNotRunning
+        /// The person does not alone own the machine, or it is a team machine: approvals from
+        /// this app stay off there (cx-psxg).
+        case notSingleOwner
+        /// ssh, the Cloud service or the machine failed (its own message).
+        case failed(String)
+    }
+
+    /// The machine id the app binds this machine's key to (`AcpmuxRemotePersonKeys`).
+    public let machineID: String
+    public let label: String
+    public let restart: @Sendable () async -> Failure?
+
+    public init(machineID: String, label: String, restart: @escaping @Sendable () async -> Failure?) {
+        self.machineID = machineID
+        self.label = label
+        self.restart = restart
+    }
 }
 
 extension AcpmuxConnection {

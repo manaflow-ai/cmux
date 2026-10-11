@@ -14,9 +14,13 @@ struct TextLayout: Hashable {
     var width: CGFloat
 
     static func make(_ text: String, runs: [TextRun], maxWidth: CGFloat, font: UIFont = Fixture.bodyFont) -> TextLayout {
-        // cmux: styled runs (an agent's Markdown, HomeMarkdown) break lines with the fonts they draw with, so a bold or code line fits its bubble; plain text keeps the measured rule.
-        let styled = font == Fixture.bodyFont && runs.contains { !($0.style ?? []).isEmpty }
-        let attr = styled ? TextLayout(text: text, runs: runs, lines: [], width: 0).attributed(color: .white, linkColor: .white, kern: 0)
+        // Measured with the faces the bubble draws: a bold or italic run (or a mention, drawn bold)
+        // is wider than the plain body font, and the plain measure left the drawn text 8 pt past a
+        // bubble's right padding (cmux-next's harness, 2026-10-10: m01 "Q3 plan" bold, right
+        // padding 12 px against 26 px on the left). No kern, as the plain measure.
+        let drawnFaces = font == Fixture.bodyFont && runs.contains { !($0.style ?? []).isEmpty || $0.mention != nil }
+        let attr = drawnFaces
+            ? TextLayout(text: text, runs: runs, lines: [], width: 0).attributed(color: .white, linkColor: .white, kern: 0)
             : NSAttributedString(string: text, attributes: [.font: font])
         let ts = CTTypesetterCreateWithAttributedString(attr)
         let len = (text as NSString).length
@@ -43,7 +47,7 @@ struct TextLayout: Hashable {
     func attributed(color: UIColor, linkColor: UIColor, kern: CGFloat = Fixture.bodyKern) -> NSAttributedString {
         let a = NSMutableAttributedString(string: text, attributes: [.font: Fixture.bodyFont, .foregroundColor: color, .kern: kern])
         for r in runs {
-            // cmux: a run that does not fit this text is skipped: negative, or past the end
+            // a run that does not fit this text is skipped: negative, or past the end
             // without overflowing (NSMaxRange of Int.max traps; addAttribute raises NSRangeException).
             guard let range = Self.range(r.start, r.length, in: a.length) else { continue }
             var traits: UIFontDescriptor.SymbolicTraits = []
@@ -74,7 +78,7 @@ struct TextLayout: Hashable {
         return a
     }
 
-    /// cmux: `start..<start+length` as a range when it lies inside a text of
+    /// `start..<start+length` as a range when it lies inside a text of
     /// `count` UTF-16 units, else nil. No arithmetic can overflow.
     static func range(_ start: Int, _ length: Int, in count: Int) -> NSRange? {
         guard start >= 0, length >= 0, start <= count, length <= count - start else { return nil }
@@ -92,7 +96,7 @@ struct TextLayout: Hashable {
         var y: CGFloat = 0
         let ns = text as NSString
         let hardAdvance = hard
-        for line in lines.prefix(max(1, i + 1)).dropFirst() { // cmux: no index math
+        for line in lines.prefix(max(1, i + 1)).dropFirst() { // no index math
             let loc = line.range.location
             let hard = loc > 0 && loc <= ns.length && ns.character(at: loc - 1) == 10
             y += hard ? hardAdvance : Fixture.lineHeight
@@ -103,10 +107,10 @@ struct TextLayout: Hashable {
 
     /// The link at a point relative to the text origin (first line top).
     func link(at p: CGPoint) -> String? {
-        let i = CrashGuard.int(floor(p.y / Fixture.lineHeight), in: CrashGuard.countRange) // cmux: no trap on NaN
-        guard i >= 0, i < lines.count, let lineRange = lines[checked: i]?.range else { return nil } // cmux: checked
+        let i = CrashGuard.int(floor(p.y / Fixture.lineHeight), in: CrashGuard.countRange) // no trap on NaN
+        guard i >= 0, i < lines.count, let lineRange = lines[checked: i]?.range else { return nil } // checked
         let attr = attributed(color: .white, linkColor: .white)
-        // cmux: lines measured for another text (stale during an edit or a streamed reply) are not read past the end.
+        // lines measured for another text (stale during an edit or a streamed reply) are not read past the end.
         guard Self.range(lineRange.location, lineRange.length, in: attr.length) != nil else { return nil }
         let line = CTLineCreateWithAttributedString(attr.attributedSubstring(from: lineRange))
         let idx = CTLineGetStringIndexForPosition(line, CGPoint(x: p.x, y: 0)) + lineRange.location
@@ -133,7 +137,7 @@ struct Metrics: Hashable {
     /// [226,232), [260,273), [287.5,294), [304.5,319.5), >= 338; 0.654 is inside all five). The old rule, proportional to
     /// the width (0.5707 W), wrapped later than Messages below 600 pt.
     var maxTextWidth: CGFloat {
-        // cmux: a Home pane can be narrower than Messages' 434 pt window minimum (the
+        // A cmux-next Home pane can be narrower than Messages' 434 pt window minimum (the
         // pane layout has no per-content minimum): below 434 pt the column keeps its
         // 434 pt share of the width (the rule alone reaches 0 pt at 80 pt).
         guard width < 434 else { return ((Fixture.maxTextWidth - 0.654 * (Fixture.windowWidth - width)) * 10).rounded() / 10 }
@@ -220,6 +224,11 @@ struct ThreadPreview: Hashable {
     /// The root part, when it is loaded (else a generic preview).
     var part: Part?
     var count: Int
+    /// The root is mine: the preview shows on the right (macOS 27, outgoing-thread-reply-take4, the
+    /// "Maybe: Instinct" reference of 2026-10-11): an outlined outgoing bubble at the right edge in blue,
+    /// "N Replies" right-aligned under it, no stub. A preview follows its root's side, not the reply's
+    /// (a reply of mine to Instinct's "Charlie." shows its preview on the left, reply-from-menu-send).
+    var outgoing = false
     /// Measured layout (points, relative to the row's content top).
     var box: CGSize
     static let stubGap: CGFloat = 3.5, stubHeight: CGFloat = 12.5
@@ -234,8 +243,8 @@ struct ThreadPreview: Hashable {
     /// Measured on 2x screenshots of macOS 26 Messages: link/text card
     /// 180.5 x 48.5 (text 39 pt in, 15 pt right padding); photo thumbnail
     /// 48 pt wide at the photo's aspect.
-    static func make(root: PartRef, part: Part?, count: Int) -> ThreadPreview {
-        var p = ThreadPreview(root: root, part: part, count: count, box: .zero)
+    static func make(root: PartRef, part: Part?, count: Int, outgoing: Bool = false) -> ThreadPreview {
+        var p = ThreadPreview(root: root, part: part, count: count, outgoing: outgoing, box: .zero)
         if p.isThumbnail, case let .attachment(a) = part {
             p.box = CGSize(width: 48, height: (48 * CGFloat(a.height ?? 450) / CGFloat(max(1, a.width ?? 600))).rounded())
         } else if p.isText {
@@ -438,7 +447,7 @@ enum VectorAsset {
 
     private static func attr(_ tag: String, _ name: String) -> String? {
         guard let r = tag.range(of: name + "=\"") else { return nil }
-        let rest = tag.suffix(from: r.upperBound) // cmux: no range subscripts
+        let rest = tag.suffix(from: r.upperBound) // no range subscripts
         return rest.firstIndex(of: "\"").map { String(rest.prefix(upTo: $0)) }
     }
 
@@ -448,12 +457,12 @@ enum VectorAsset {
     }
 
     static func parse(_ text: String) -> (CGSize, [(CGPath, UIColor)])? {
-        guard let svg = text.range(of: "<svg").map({ String(text.suffix(from: $0.lowerBound).prefix(while: { $0 != ">" })) /* cmux: no range subscript */ }),
+        guard let svg = text.range(of: "<svg").map({ String(text.suffix(from: $0.lowerBound).prefix(while: { $0 != ">" })) /* no range subscript */ }),
               let w = attr(svg, "width").flatMap(Double.init), let h = attr(svg, "height").flatMap(Double.init) else { return nil }
         var shapes: [(CGPath, UIColor)] = []
         var rest = Substring(text)
         while let r = rest.range(of: "<") {
-            let tag = String(rest.suffix(from: r.lowerBound).prefix(while: { $0 != ">" })) // cmux: no range subscripts
+            let tag = String(rest.suffix(from: r.lowerBound).prefix(while: { $0 != ">" })) // no range subscripts
             rest = rest.suffix(from: r.upperBound)
             if tag.hasPrefix("<rect") {
                 let v = ["x", "y", "width", "height"].map { attr(tag, $0).flatMap(Double.init) ?? 0 }
@@ -475,7 +484,7 @@ enum VectorAsset {
             case "M": if nums.count >= 2 { p.move(to: CGPoint(x: nums[0], y: nums[1])) }
             case "L": if nums.count >= 2 { p.addLine(to: CGPoint(x: nums[0], y: nums[1])) }
             case "C":
-                var rest = ArraySlice(nums) // cmux: six numbers at a time, no index math
+                var rest = ArraySlice(nums) // six numbers at a time, no index math
                 while rest.count >= 6 {
                     var n = rest.prefix(6).makeIterator()
                     if let x1 = n.next(), let y1 = n.next(), let x2 = n.next(), let y2 = n.next(), let x = n.next(), let y = n.next() {
@@ -548,14 +557,14 @@ final class MeasureCache: @unchecked Sendable {
     /// Text: it scales a measurement taken at another width (no text layout;
     /// the row is re-measured before it draws). Exact misses measure now.
     func size(_ m: Message, _ pi: Int, width: CGFloat, estimate: Bool = false) -> Value {
-        // cmux: a part index from another version of the message measures nothing (no trap).
+        // a part index from another version of the message measures nothing (no trap).
         guard let part = m.parts[checked: pi] else { return Value(size: .zero, text: nil, width: width) }
         // Long text: blocks, estimated then measured near the viewport (LongText.swift); never hashed or cached here.
-        if case let .text(t, _) = part, LongText.isLong(t) { // cmux: checked part
+        if case let .text(t, _) = part, LongText.isLong(t) { // checked part
             return Value(size: LongTextStore.shared.size(t, width: width, message: m.id, markdown: m.isMarkdown), text: nil, width: width)
         }
         // Custom rows: their own cache, estimates for main-only providers (CustomRows.swift).
-        if case let .custom(c) = part { // cmux
+        if case let .custom(c) = part {
             let (s, tl, est) = CustomRows.measure(c, message: m.id, part: pi, width: width)
             return Value(size: s, text: tl, width: width, estimated: est)
         }
@@ -567,7 +576,7 @@ final class MeasureCache: @unchecked Sendable {
         // Plain text that no width wrapped and that fits the new column: the same lines at the new
         // width, exact (no Core Text, no estimate). A divider drag or live resize changes most
         // short bubbles' widths only in this way.
-        if let old = latest[pk], let v = MeasureCache.sameLayout(old, at: width, part: part) { // cmux: the checked part
+        if let old = latest[pk], let v = MeasureCache.sameLayout(old, at: width, part: part) { // the checked part
             reuses += 1
             store[k] = v
             lock.unlock()
@@ -576,7 +585,7 @@ final class MeasureCache: @unchecked Sendable {
         if estimate, let old = latest[pk] {
             estimates += 1
             lock.unlock()
-            return MeasureCache.scale(old, to: width, part: part) // cmux
+            return MeasureCache.scale(old, to: width, part: part)
         }
         misses += 1
         lock.unlock()
@@ -584,11 +593,11 @@ final class MeasureCache: @unchecked Sendable {
         if case let .text(t, _) = part, let md = Markdown.layout(t, message: m.id, format: m.format, width: width) {
             v = Value(size: md.size, text: md.proxy, width: width, markdown: md)
         } else {
-            let (size, tl) = Sizing.size(of: part, width: width) // cmux
+            let (size, tl) = Sizing.size(of: part, width: width)
             v = Value(size: size, text: tl, width: width)
         }
         lock.lock()
-        store.updateValue(v, forKey: k) // cmux: dictionary writes
+        store.updateValue(v, forKey: k) // dictionary writes
         latest.updateValue(v, forKey: pk)
         lock.unlock()
         return v
@@ -624,7 +633,7 @@ final class MeasureCache: @unchecked Sendable {
         }
         let col = Metrics(width: width).maxTextWidth
         let total = tl.lines.reduce(0) { $0 + $1.width }
-        let lines = max(1, CrashGuard.int((total / col).rounded(.up), in: CrashGuard.countRange)) // cmux: no trap on NaN
+        let lines = max(1, CrashGuard.int((total / col).rounded(.up), in: CrashGuard.countRange)) // no trap on NaN
         let w = min(col, max(tl.width, total / CGFloat(lines))) + 2 * Fixture.bubblePadX
         return Value(size: CGSize(width: w, height: CGFloat(lines) * Fixture.lineHeight + 2 * Fixture.bubblePadY),
                      text: nil, width: width, estimated: true)
@@ -640,7 +649,7 @@ final class MeasureCache: @unchecked Sendable {
         guard n > 1 else { return prefetch(messages, width: width) }
         DispatchQueue.concurrentPerform(iterations: n) { k in
             for i in stride(from: k, to: messages.count, by: n) {
-                // cmux: checked read (crash ratchet)
+                // checked read (crash ratchet)
                 guard let m = messages[checked: i] else { continue }
                 for pi in m.parts.indices { _ = size(m, pi, width: width) }
             }
@@ -674,26 +683,43 @@ enum RowBuilder {
         var rows: [RowSpec] = []
         let receipts = receiptTargets(messages, me: me)
         // Thread counts (roots with 2+ replies get a label).
-        let span = (range ?? 0..<messages.count).clamped(to: 0..<messages.count) // cmux: a range from an older window stays inside
+        let span = (range ?? 0..<messages.count).clamped(to: 0..<messages.count) // a range from an older window stays inside
         var replyCount: [ID: Int] = [:]
         if !threadMode {
-            for m in messages.slice(span.lowerBound, span.upperBound) { // cmux: no index math
+            for m in messages.slice(span.lowerBound, span.upperBound) { // no index math
                 if let r = m.replyTo { replyCount.updateValue(0, forKey: r.messageId) } else { replyCount.updateValue(0, forKey: m.id) }
             }
             for m in s.conversation.messages {
                 if let r = m.replyTo, m.retractedAt == nil, let c = replyCount[r.messageId] { replyCount[r.messageId] = c + 1 }
             }
         }
+        // A message's thread: a reply's root, or the message itself when the message after it is its inline reply (a
+        // thread root with its replies under it). Messages separates such a thread from the messages around it like a
+        // sender change: when the first inline reply to a message arrives, the gap above that root grows to 32 pt
+        // (macOS 27, lossless typing-unfocused-take1: root top minus the bubble above, tail included, 7.5 -> 30.0 pt
+        // while the reply arrives). A root whose replies are elsewhere ("2 Replies", a preview at the reply) keeps
+        // its group (real still scenes). No thread view: one thread.
+        // `i`: x's index. x is a root when the messages right after it (deleted ones skipped) are its replies and one
+        // of them is not unsent: a root whose last inline reply is unsent or deleted returns to its group gap.
+        func thread(_ x: Message, at i: Int) -> ID? {
+            if let r = x.replyTo { return r.messageId }
+            guard !threadMode else { return nil }
+            for n in messages.dropFirst(i + 1) where n.deletedAt == nil {
+                guard n.replyTo?.messageId == x.id else { break }
+                if n.retractedAt == nil { return x.id }
+            }
+            return nil
+        }
         // The message above the range: the nearest one that is not deleted.
-        var prevIndex = span.lowerBound - 1
-        var prev: Message? = messages.prefix(max(0, span.lowerBound)).last { $0.deletedAt == nil } // cmux: no index math
-        for (idx, m) in zip(span, messages.dropFirst(span.lowerBound)) { // cmux
+        var prevIndex = messages.prefix(max(0, span.lowerBound)).lastIndex { $0.deletedAt == nil } ?? -1
+        var prev: Message? = messages.prefix(max(0, span.lowerBound)).last { $0.deletedAt == nil } // no index math
+        for (idx, m) in zip(span, messages.dropFirst(span.lowerBound)) {
             if m.deletedAt != nil { continue }
-            let next = messages.dropFirst(idx + 1).first { $0.deletedAt == nil } // cmux
+            let next = messages.dropFirst(idx + 1).first { $0.deletedAt == nil }
             let outgoing = m.senderId == me
             var gap: CGFloat
             var connector: String?
-            if prev.map({ m.date.timeIntervalSince($0.date) > separatorGap }) ?? true { // cmux: no force unwrap
+            if prev.map({ m.date.timeIntervalSince($0.date) > separatorGap }) ?? true { // no force unwrap
                 rows.append(RowSpec(key: "sep:\(m.id)", kind: .separator(bold: Format.day(m.date, now: now), rest: Format.time(m.date)),
                                     gap: prev == nil ? 12 : 0, height: 35.5))
                 gap = 0
@@ -708,15 +734,19 @@ enum RowBuilder {
                 case .receipt: gap = 4
                 default: gap = 3.5
                 }
-                if !threadMode { connector = "part:\(r.messageId):\(r.partIndex)" }
-            } else if let p = prev, p.senderId == m.senderId, m.date.timeIntervalSince(p.date) < groupGap, p.replyTo == m.replyTo {
+                // My reply right under my own root draws no connector: Messages draws thread lines on the
+                // incoming side only (outgoing-thread-reply-take4: my reply under the preview of my root
+                // has no stub, and Instinct's replies take the line on the left). The mirrored arc ran
+                // from the root's centre through my root's text (hq-6d, cmux Home, 2026-10-11).
+                if !threadMode, !(outgoing && p.senderId == me) { connector = "part:\(r.messageId):\(r.partIndex)" }
+            } else if let p = prev, p.senderId == m.senderId, m.date.timeIntervalSince(p.date) < groupGap, thread(p, at: prevIndex) == thread(m, at: idx) {
                 gap = 3      // measured 3 between parts of a group (text and media alike)
             } else if let p = prev, p.senderId != m.senderId, p.replyTo != nil, p.replyTo == m.replyTo {
                 // The next reply of the same thread from the other sender: 7 pt (macOS 27, lossless
                 // send-typed and send-typed-media takes: "Reply to Charlie from the menu." then
                 // Instinct's "Got it, ..." 4 pt apart at the sample columns, where 32 shows 29).
                 gap = 7
-            } else if let p = prev, p.senderId != m.senderId || p.replyTo != m.replyTo {
+            } else if let p = prev, p.senderId != m.senderId || thread(p, at: prevIndex) != thread(m, at: idx) {
                 gap = 32     // a new sender, or a change of thread (measured on macOS 26)
             } else {
                 gap = 12
@@ -730,7 +760,7 @@ enum RowBuilder {
             if let r = m.replyTo, !threadMode, connector == nil, let p = prev, p.id != r.messageId, p.replyTo != r {
                 let root = s.conversation.messages.first { $0.id == r.messageId }
                 let part = root.flatMap { r.partIndex < $0.parts.count ? $0.parts[r.partIndex] : nil }
-                let pv = ThreadPreview.make(root: r, part: part, count: replyCount[r.messageId] ?? 0)
+                let pv = ThreadPreview.make(root: r, part: part, count: replyCount[r.messageId] ?? 0, outgoing: root?.senderId == me)
                 rows.append(RowSpec(key: "preview:\(m.id)", kind: .threadPreview(pv), gap: ThreadPreview.gap, height: pv.height))
                 gap = ThreadPreview.replyGap
             }
@@ -738,9 +768,10 @@ enum RowBuilder {
             if m.retractedAt != nil {
                 rows.append(RowSpec(key: "unsent:\(m.id)", kind: .unsent(outgoing: outgoing), gap: max(gap, 8), height: 16))
             } else {
-                // cmux: no force unwrap (crash program)
+                // no force unwrap 
                 let lastOfGroup = next.map { next in next.senderId != m.senderId || next.date.timeIntervalSince(m.date) >= groupGap
-                    || next.retractedAt != nil || next.replyTo != m.replyTo } ?? true
+                    || next.retractedAt != nil || next.replyTo != m.replyTo
+                    || thread(next, at: messages.dropFirst(idx + 1).firstIndex { $0.deletedAt == nil } ?? idx + 1) != thread(m, at: idx) } ?? true
                 for (pi, part) in m.parts.enumerated() {
                     let measured = MeasureCache.shared.size(m, pi, width: width, estimate: exact.map { !$0.contains(idx) } ?? false)
                     let (size, tl) = (measured.size, measured.text)
@@ -749,10 +780,10 @@ enum RowBuilder {
                     // Link card then text: 3.5 pt (measured in the recording);
                     // every other pair in a group is 3 pt (macOS 26 references).
                     if g == 3, isText(part) {
-                        let before: Part? = pi > 0 ? m.parts[checked: pi - 1] : (gap == 3 ? prev?.parts.last : nil) // cmux
+                        let before: Part? = pi > 0 ? m.parts[checked: pi - 1] : (gap == 3 ? prev?.parts.last : nil)
                         if case .link = before { g = 3.5 }
                     }
-                    if pi > 0, case .text = m.parts[checked: pi - 1], !isText(part) { g = 3 } // cmux
+                    if pi > 0, case .text = m.parts[checked: pi - 1], !isText(part) { g = 3 }
                     // A tapback badge: 27.5 pt over the part, and a sender change above it is 27 pt,
                     // not 32 (macOS 27, lossless takes: a heart on an incoming bubble in a group moves
                     // the rows above by 27.5 pt, tapback-menu-heart; one on my bubble under Instinct's,
@@ -784,7 +815,7 @@ enum RowBuilder {
                     rows.append(RowSpec(key: "receipt:\(m.id)", kind: .receipt(bold: r.0, rest: r.1), gap: 0, height: 16))
                 }
             }
-            prev = m
+            prev = m; prevIndex = idx
         }
         // cmux: the host's notice, centered like the date row, under the newest message.
         if !threadMode, span.upperBound == messages.count, s.atNewest, let notice = s.ui.notice {
@@ -793,7 +824,7 @@ enum RowBuilder {
         if !threadMode, span.upperBound == messages.count, s.atNewest, s.ui.typing.contains(where: { $0 != me }) {
             rows.append(RowSpec(key: "typing", kind: .typing, gap: 0, height: 35))
         }
-        rows = rows.map { var r = $0; r.width = width; return r } // cmux: no index writes
+        rows = rows.map { var r = $0; r.width = width; return r } // no index writes
         return rows
     }
 
@@ -808,7 +839,7 @@ enum RowBuilder {
         var out: [RowSpec] = []
         out.reserveCapacity(derived.count)
         var idx = 0
-        // cmux: element-wise, no index math (crash ratchet): the same rows in the same order.
+        // element-wise, no index math (crash ratchet): the same rows in the same order.
         for row in derived {
             var row = row
             row.width = width
@@ -833,7 +864,7 @@ enum RowBuilder {
     /// The message id of a row key ("kind:messageID[:part]"), without allocating.
     static func owner(_ key: String) -> Substring? {
         guard let a = key.firstIndex(of: ":") else { return nil }
-        let rest = key.suffix(from: key.index(after: a)) // cmux: no range subscripts
+        let rest = key.suffix(from: key.index(after: a)) // no range subscripts
         return rest.firstIndex(of: ":").map { rest.prefix(upTo: $0) } ?? rest
     }
 
@@ -852,7 +883,7 @@ enum RowBuilder {
         var lastDelivered: (Int, Message)?
         // From the newest message back to my newest read one (a delivered one older than it
         // shows nothing): O(tail), not O(loaded window), per derive.
-        scan: for (i, m) in zip(messages.indices.reversed(), messages.reversed()) { // cmux: no index math (lazy, still O(tail))
+        scan: for (i, m) in zip(messages.indices.reversed(), messages.reversed()) { // no index math (lazy, still O(tail))
             if m.senderId == me && m.retractedAt == nil && m.deletedAt == nil {
                 switch m.status {
                 case let .read(at): lastRead = (i, m, at); break scan
@@ -862,8 +893,8 @@ enum RowBuilder {
             }
         }
         var out: [ID: (String, String)] = [:]
-        if let r = lastRead { out.updateValue((Strings.read, "\u{00A0}" + Format.time(Instant.parse(r.2))), forKey: r.1.id) } // cmux
-        if let d = lastDelivered, d.0 > (lastRead?.0 ?? -1) { out.updateValue((Strings.delivered, ""), forKey: d.1.id) } // cmux
+        if let r = lastRead { out.updateValue((Strings.read, "\u{00A0}" + Format.time(Instant.parse(r.2))), forKey: r.1.id) }
+        if let d = lastDelivered, d.0 > (lastRead?.0 ?? -1) { out.updateValue((Strings.delivered, ""), forKey: d.1.id) }
         return out
     }
 }
@@ -926,8 +957,8 @@ enum Format {
         if days < 7 { return weekday.string(from: d) }
         return days < 300 ? monthDay.string(from: d) : monthDayYear.string(from: d)
     }
-    static func bytes(_ n: Int) -> String { ByteCountFormatter.string(fromByteCount: Int64(clamping: n), countStyle: .file) } // cmux
-    static func duration(_ s: Double) -> String { let t = CrashGuard.int(s); return String(format: "%d:%02d", t / 60, t % 60) } // cmux: no trap on NaN
+    static func bytes(_ n: Int) -> String { ByteCountFormatter.string(fromByteCount: Int64(clamping: n), countStyle: .file) }
+    static func duration(_ s: Double) -> String { let t = CrashGuard.int(s); return String(format: "%d:%02d", t / 60, t % 60) } // no trap on NaN
 }
 
 /// Where every user-facing string of the MessagesLab code comes from (catalyst/Sources and

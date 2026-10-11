@@ -34,6 +34,7 @@ members = [
     "crates/cmux-tui-cloud-conversations",
     "crates/cmux-tui-platform",
     "crates/cmux-tui-image-paste",
+    "crates/cmux-tui-hooks",
     "crates/cmux-tui-util",
     "crates/cmux-tui-remote-access",
     "crates/cmux-layout-reducer",
@@ -56,6 +57,7 @@ members = [
     "crates/cmux-server",
     "crates/cmux-host",
     "crates/cmux-motion",
+    "crates/cmux-config",
     "crates/cmux-theme-tokens",
     "crates/cmux-app-manifest",
     "crates/cmux-terminal-iface",
@@ -90,6 +92,7 @@ default-members = [
     "crates/cmux-tui-cloud-conversations",
     "crates/cmux-tui-platform",
     "crates/cmux-tui-image-paste",
+    "crates/cmux-tui-hooks",
     "crates/cmux-tui-util",
     "crates/cmux-tui-remote-access",
     "crates/cmux-layout-reducer",
@@ -110,6 +113,7 @@ default-members = [
     "crates/cmux-server",
     "crates/cmux-host",
     "crates/cmux-motion",
+    "crates/cmux-config",
     "crates/cmux-theme-tokens",
     "crates/cmux-app-manifest",
     "crates/cmux-terminal-iface",
@@ -162,9 +166,11 @@ cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-conversation = { path = "crates/cmux-conversation" }
 cmux-history = { path = "crates/cmux-history" }
 cmux-local-auth = { path = "crates/cmux-local-auth" }
+cmux-config = { path = "crates/cmux-config" }
 cmux-tui-cloud-conversations = { path = "crates/cmux-tui-cloud-conversations" }
 cmux-tui-platform = { path = "crates/cmux-tui-platform" }
 cmux-tui-image-paste = { path = "crates/cmux-tui-image-paste" }
+cmux-tui-hooks = { path = "crates/cmux-tui-hooks" }
 cmux-tui-util = { path = "crates/cmux-tui-util" }
 cmux-tui-remote-access = { path = "crates/cmux-tui-remote-access" }
 cmux-link = { path = "crates/cmux-link" }
@@ -295,6 +301,11 @@ lto = "thin"
 # code, full for dependencies (ratatui/crossterm do the heavy lifting).
 [profile.dev]
 opt-level = 1
+# opt-level 1 with many codegen units turns on rustc's crate-local ThinLTO,
+# which reruns over every codegen unit of the edited crate: 5.3 s of a 9.8 s
+# cmux-tui rebuild after a one-line edit (-Z time-passes, crate-split lane 3).
+# Off: about 11 s -> 5.5 s per edit; release builds keep lto = "thin".
+lto = "off"
 
 [profile.dev.package."*"]
 opt-level = 3

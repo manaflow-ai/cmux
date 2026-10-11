@@ -12,8 +12,8 @@ import Observation
 /// left, closing a tab group) do not ask; an undo toast in their window
 /// offers them back, and Cmd-Z runs that toast (TOAST-UNDO-KEY). A close is
 /// announced before it happens (`expect`, `expectGroup`); the toast shows
-/// once the closed history records every tab of that gesture (the app's
-/// tracker, or the daemon's closed-history items of that pane), and its
+/// once the daemon's closed history records every tab of that gesture (its
+/// closed items of that pane), and its
 /// action reopens exactly those records at their own places, never "the
 /// newest". One gesture, one toast: "Closed “title”" for one tab, "Closed
 /// N tabs" for a group. One close toast per window: a newer close replaces
@@ -22,14 +22,12 @@ import Observation
 final class CloseUndoToasts {
     /// One announced gesture, waiting for its history records.
     struct Expected {
-        /// The tracker's record id (`<machine>/<tab id>`) of each tab, with
-        /// the position it held before the gesture.
-        var tabs: [(trackerTabID: String, index: Int)]
+        /// Each tab's id, with the position it held before the gesture.
+        var tabs: [(id: String, index: Int)]
         /// The daemon's closed items for them come from this pane.
         var paneResourceID: ResourceID?
         var title: String
         weak var window: NSWindow?
-        var records: [ClosedTabHistory.Record] = []
         var daemonItems: [String] = []
         var daemonTabs = 0
     }
@@ -87,7 +85,14 @@ final class CloseUndoToasts {
         }
     }
 
-    isolated deinit { observation?.cancel(); reopenWatch?.cancel() }
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            observation?.cancel()
+            reopenWatch?.cancel()
+        }
+    }
 
     private static func daemonItemIDs(_ daemons: [DaemonService]) -> [String] {
         daemons.filter(\.store.servesStateResources).flatMap { $0.store.closedItems.map(\.id) }
@@ -123,37 +128,26 @@ final class CloseUndoToasts {
     /// that may not be shown; `window` is where the toast goes).
     func expectGroup(tabs: [TabModel], in pane: PaneModel, daemon: DaemonService, window: NSWindow?) {
         let entries = tabs.compactMap { tab in
-            pane.tabs.firstIndex { $0 === tab }.map { (trackerTabID: ClosedTabTracker.qualified(daemon.machineID, tab.id), index: $0) }
+            pane.tabs.firstIndex { $0 === tab }.map { (id: tab.id, index: $0) }
         }
         announced += 1
         guard !entries.isEmpty else { announcedEmpty += 1; return }
         expected.append(Expected(tabs: entries.sorted { $0.index < $1.index }, paneResourceID: pane.resourceID,
-                                 title: tabs.count == 1 ? Self.title(of: tabs[0]) : "", window: window))
+                                 title: tabs.count == 1 ? (services.map { Self.title(of: tabs[0], pages: $0.pages) } ?? Self.title(of: tabs[0])) : "", window: window))
         if expected.count > 16 { expected.removeFirst(expected.count - 16) }
     }
 
     /// A tab's name in its toast, as its strip shows it: a browser tab on
     /// the New Tab or blank page is "New Tab", never the page's address
     /// (the toast said `Closed "chrome://newtab/"`).
-    static func title(of tab: TabModel) -> String {
-        tab.kind == .browser && BrowserNewTabPage.isNewTabPage(tab.displayTitle) ? Strings.untitledBrowser : tab.displayTitle
+    /// A page tab (a diff, Settings) is named as its strip names it, never by
+    /// its `about:blank` address (cx-u1yn).
+    static func title(of tab: TabModel, pages: InternalPageTabStore) -> String {
+        pages.storeTabItem(tab)?.title ?? title(of: tab)
     }
 
-    /// The app's tracker recorded a closed tab.
-    func trackerRecorded(_ record: ClosedTabHistory.Record) {
-        guard let position = expected.firstIndex(where: { $0.tabs.contains { $0.trackerTabID == record.tabID } }) else { return }
-        expected[position].records.append(record)
-        guard expected[position].records.count == expected[position].tabs.count else { return }
-        let close = expected.remove(at: position)
-        show(close) { [weak services] in
-            guard let services, let tracker = services.closedTabs else { return }
-            // Ascending original positions, so each tab lands where it was.
-            for (tabID, index) in close.tabs {
-                guard var record = tracker.take(tabID) else { continue }
-                record.index = index
-                tracker.reopen(record, fallback: services.windows.active?.focusedPane)
-            }
-        }
+    static func title(of tab: TabModel) -> String {
+        tab.kind == .browser && BrowserNewTabPage.isNewTabPage(tab.displayTitle) ? Strings.untitledBrowser : tab.displayTitle
     }
 
     private func daemonItemsChanged(_ ids: [String]) {
@@ -192,7 +186,7 @@ final class CloseUndoToasts {
     }
 
     /// The gestures still waiting for their history records (`debug.filepages`).
-    var waiting: [(pane: String?, tabs: Int, records: Int, daemonTabs: Int)] {
-        expected.map { ($0.paneResourceID?.rawValue, $0.tabs.count, $0.records.count, $0.daemonTabs) }
+    var waiting: [(pane: String?, tabs: Int, daemonTabs: Int)] {
+        expected.map { ($0.paneResourceID?.rawValue, $0.tabs.count, $0.daemonTabs) }
     }
 }

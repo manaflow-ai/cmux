@@ -1,4 +1,7 @@
+import CmuxNextHome
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 
 /// What the sidebar shows, read from this Chief's files.
 nonisolated struct HomeChiefSnapshot: Sendable {
@@ -15,7 +18,7 @@ nonisolated struct HomeChiefSnapshot: Sendable {
 /// This Chief's files under its mux home: `optchat/engine.json` (the engine
 /// optchat-chief reads at each turn start; read only here, the brain is its
 /// one writer and a change goes through `chief.engine.set`),
-/// `optchat/profile.json` (the avatar) and `optchat/traces/` (read only). Blocking file I/O, so it runs
+/// `optchat/profile.json` (the avatar: text, or a picture file beside it) and `optchat/traces/` (read only). Blocking file I/O, so it runs
 /// off the main actor.
 nonisolated struct HomeChiefFiles: Sendable {
     let muxHome: URL
@@ -51,8 +54,59 @@ nonisolated struct HomeChiefFiles: Sendable {
         return configured(object(acpmuxConfigFile)["coderouterClaudeRoute"] as? String)
     }
 
-    /// The avatar alone (the header reads it when Home opens).
+    /// The avatar value alone (text or a picture's file name).
     func avatar() -> String? { snapshot().avatar }
+
+    /// Whether an avatar value names a picture rather than text: a file
+    /// name (no path) with an image extension, e.g. `"avatar": "cat.png"`.
+    static func namesPicture(_ avatar: String) -> Bool {
+        !avatar.contains("/") && ["png", "jpg", "jpeg", "heic"].contains((avatar as NSString).pathExtension.lowercased())
+    }
+
+    /// The header's avatar from one profile read: its text, or the bytes of
+    /// the picture it names (beside profile.json). A picture that cannot be
+    /// read gives neither, so its file name never shows as text.
+    func headerAvatar() -> (text: String?, picture: Data?) {
+        guard let avatar = (object(profileFile)["avatar"] as? String).flatMap({ $0.isEmpty ? nil : $0 }) else { return (nil, nil) }
+        guard Self.namesPicture(avatar) else { return (avatar, nil) }
+        // concurrency-allow: HomeChiefFiles runs only inside Task.detached, never on the main actor
+        return (nil, try? Data(contentsOf: profileFile.deletingLastPathComponent().appendingPathComponent(avatar)))
+    }
+
+    /// The Chief tile's avatar from one profile read: the picture's file
+    /// (beside profile.json, squared), else the text; nil when it sets none or its
+    /// picture cannot be read, which the tile shows as the bundled cat.
+    func tileAvatar() -> HomeChiefAvatar? {
+        guard let avatar = (object(profileFile)["avatar"] as? String).flatMap({ $0.isEmpty ? nil : $0 }) else { return nil }
+        guard Self.namesPicture(avatar) else { return .text(avatar) }
+        let file = profileFile.deletingLastPathComponent().appendingPathComponent(avatar)
+        // concurrency-allow: HomeChiefFiles runs only inside Task.detached, never on the main actor
+        guard FileManager.default.isReadableFile(atPath: file.path) else { return nil }
+        return .picture(Self.squared(file) ?? file)
+    }
+
+    /// A copy of a non-square picture cropped to its centred square, as the
+    /// header draws it (the list stretches a picture over its disc), cached
+    /// by name and modification date; nil when it is square or unreadable.
+    static func squared(_ file: URL) -> URL? {
+        // concurrency-allow: HomeChiefFiles runs only inside Task.detached, never on the main actor
+        guard let source = CGImageSourceCreateWithURL(file as CFURL, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil), image.width != image.height else { return nil }
+        let side = min(image.width, image.height)
+        guard let square = image.cropping(to: CGRect(x: (image.width - side) / 2, y: (image.height - side) / 2,
+                                                     width: side, height: side)) else { return nil }
+        let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+        let directory = caches.appendingPathComponent(Bundle.main.bundleIdentifier ?? "cmux", isDirectory: true)
+            .appendingPathComponent("ChiefAvatar", isDirectory: true)
+        let stamp = Int(modified?.timeIntervalSince1970 ?? 0)
+        let copy = directory.appendingPathComponent("\(file.deletingPathExtension().lastPathComponent)-\(stamp).png")
+        if FileManager.default.fileExists(atPath: copy.path) { return copy }
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        guard let destination = CGImageDestinationCreateWithURL(copy as CFURL, UTType.png.identifier as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(destination, square, nil)
+        return CGImageDestinationFinalize(destination) ? copy : nil
+    }
 
     func writeAvatar(_ text: String) {
         var profile = object(profileFile)

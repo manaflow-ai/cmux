@@ -28,6 +28,8 @@ final class NotificationCenterService {
     var dismissedHighlightSession: String?
     @ObservationIgnored weak var services: AppServices?
     @ObservationIgnored let desktop = DesktopNotifier()
+    /// Pages' click handlers of their web notifications' banners.
+    @ObservationIgnored let webNotificationClicks = WebNotificationClicks()
     @ObservationIgnored private var lastKeystroke: [String: ContinuousClock.Instant] = [:]
     /// `timeout` dismissal deadlines per tab id (one-shot `DemandTimer`s).
     @ObservationIgnored private var timeouts: [String: DemandTimer] = [:]
@@ -41,6 +43,9 @@ final class NotificationCenterService {
     @ObservationIgnored var dockBadgeLabel: String?
     /// Hands the daemon's local feed items to the cloud owner (feed.md 9.1).
     @ObservationIgnored var feedDriver: FeedHandoffDriver?
+    /// Agent permission prompts to the person's feed, while
+    /// `feed.agentPermissionPrompts` is on (cx-aocz).
+    @ObservationIgnored var permissionBridge: AcpmuxPermissionFeedBridge?
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
     /// Recent arrivals and what was decided (for `debug.notifications`).
     @ObservationIgnored private(set) var log: [String] = []
@@ -74,7 +79,11 @@ final class NotificationCenterService {
         tasks.append(Task {
             for await active in ObservationStream({ driver.isActive }) where active { driver.run() }
         })
-        desktop.onOpen = { [weak self] _, surface in self?.open(surface: surface.map(SurfaceID.init(rawValue:))) }
+        tasks.append(followPermissionBridge(services, principal: principal))
+        desktop.onOpen = { [weak self] id, surface in
+            self?.open(surface: surface.map(SurfaceID.init(rawValue:)))
+            self?.webNotificationClicks.run(bannerID: id)
+        }
         let store = services.daemon.store
         lastSeen = store.notifications.map(\.notification.rawValue).max() ?? 0
         tasks.append(Task { [weak self] in

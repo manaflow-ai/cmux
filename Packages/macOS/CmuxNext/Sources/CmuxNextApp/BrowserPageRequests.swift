@@ -19,6 +19,7 @@ import CmuxNextTabs
 final class BrowserPageRequests: BrowserTabDelegate {
     weak var services: AppServices? {
         didSet {
+            nowPlaying.follow(services)
             // A popup panel's page gets the same rows, acting for its opener's tab.
             services?.popups.hitItems = { [weak self] target, openerKey in self?.hitItems(for: target, tab: openerKey) ?? [] }
             // A tab an agent-driven page opens is agent-driven from birth,
@@ -36,8 +37,16 @@ final class BrowserPageRequests: BrowserTabDelegate {
     }
     /// Every download of both engines, with a notice when one ends.
     let downloads = BrowserDownloadList()
+    /// Every tab's media, for the toolbar's media hub.
+    let media = BrowserMediaHub()
+    /// The playing tab in macOS Now Playing and on the media keys.
+    let nowPlaying = BrowserNowPlaying()
     /// Where a page's new tab goes next to its opener.
     let openers = BrowserTabOpeners()
+    /// Background tabs whose title changed (the strip's unread dot).
+    let titleAttention = BrowserTitleAttention()
+    /// Closed tabs' histories, for Reopen Closed Tab.
+    let closedHistories = ClosedBrowserHistories()
     /// Pages created by an engine for a daemon tab that is still being
     /// created, by the new tab's surface. `TabContentCache` takes them.
     private var adoptions: [SurfaceID: any BrowserTab] = [:]
@@ -147,6 +156,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
             openPopup(child, request: request, openerKey: key, pane: pane)
         case .unhandledKey(let pageKey):
             services.keyRouter.routePageKey(pageKey, from: page)
+        case .webNotification(let notification):
+            services.notifications.postWebNotification(notification, surface: openerTab.surface)
         case .unhandledEscape, .resizePopup:
             break
         case .takeFocus:
@@ -190,7 +201,10 @@ final class BrowserPageRequests: BrowserTabDelegate {
     /// workspace that holds the tab (cmux windows hold workspaces).
     func openFromOmnibar(_ url: URL, _ disposition: OmnibarDisposition, page: any BrowserTab) {
         switch disposition {
-        case .currentTab: page.load(url)
+        case .currentTab:
+            // The host's own pages and routed chrome:// pages, as a plain Return does.
+            if let key = services?.cache.key(of: page), services?.cache.existingBrowser(key)?.chrome.loadOverride?(url) == true { return }
+            page.load(url)
         case .newBackgroundTab: browserTab(page, didRequest: .openURL(url, .backgroundTab))
         case .newForegroundTab: browserTab(page, didRequest: .openURL(url, .foregroundTab))
         case .newWindow: browserTab(page, didRequest: .openURL(url, .newWindow))
@@ -292,8 +306,17 @@ final class BrowserPageRequests: BrowserTabDelegate {
         }
     }
 
-    func takeAdoption(for surface: SurfaceID) -> (any BrowserTab)? {
-        adoptions.removeValue(forKey: surface)
+    /// The page made for daemon tab `tab` before it appeared, else a
+    /// restored WebKit page for a reopened tab with a saved history (cx-d0d.59).
+    func takeAdoption(for tab: TabModel) -> (any BrowserTab)? {
+        if let page = adoptions.removeValue(forKey: tab.surface) { return page }
+        guard tab.browserEngine != BrowserEngineTag.cef.rawValue, let services, services.machines.daemon(forTab: tab).isLocal,
+              !proxiedTabs.isProxied(tab.id) else { return nil }
+        let cache = services.cache, profile = cache.browserProfile?(tab.id) ?? .default
+        guard let state = closedHistories.claim(tab.url, profile: profile, chromium: false) else { return nil }
+        let page = cache.webKit.makeWebKitTab(profile: profile)
+        if !page.restore(state), let url = tab.url.flatMap(URL.init(string:)) { page.load(url) }
+        return page
     }
 
     /// True once for a daemon tab whose page closed before it appeared; the

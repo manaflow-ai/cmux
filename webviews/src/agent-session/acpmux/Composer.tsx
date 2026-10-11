@@ -9,11 +9,12 @@ import React, {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import type { AcpmuxSnapshot } from "./model";
+import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import {
-  dragHasFiles,
   filesFrom,
+  installFileDropLifecycle,
   readAttachments,
+  MAX_ATTACHMENTS,
   thumbnail,
   type AttachmentError,
   type ComposerAttachment,
@@ -39,6 +40,7 @@ import {
 import { FileSearch } from "./FileSearch";
 import { Close, FileDoc } from "./conversation/icons";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
+import { openChipMenu } from "./composerChipMenu";
 import { Dialog } from "../../ui/Dialog";
 import type { Choice } from "./ComposerPickers";
 import type { FileSearchSource } from "./fileSearchModel";
@@ -61,6 +63,9 @@ import type { SendBlock } from "./useFolderTrustAsk";
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
 const STOP_GUARD_MS = 600;
+
+/// How long typing pauses before a new chat's text goes to the host (`onUnsentDraft`).
+const UNSENT_DRAFT_SETTLE_MS = 300;
 
 export type ComposerEditCommand = "cut" | "copy" | "paste" | "pasteAsPlainText";
 
@@ -100,6 +105,9 @@ function attachmentErrorText(error: AttachmentError, t: Translate): string {
 export type ComposerHandle = {
   /// Puts a held-back prompt in: `text` before what is typed now, `attachments` before the rest.
   restore(text: string, attachments: ComposerAttachment[]): void;
+  /// Adds a chip after the ones held, leaving the prompt as typed (the floating chat's Include
+  /// focused tab); one with the same id is replaced. Nothing changes when it holds the most it can.
+  attach(attachment: ComposerAttachment): void;
   /// Sends what is typed now, as Enter would, even while `blocked` is still drawn (the user just
   /// answered Trust for the prompt the composer held). False when nothing went.
   send(): boolean;
@@ -113,12 +121,15 @@ type Props = {
   /// Sends a prompt. False when nothing can take it yet (no acpmux), so the prompt keeps it. A
   /// promise holds the prompt in the composer until the host takes it: it clears when the promise
   /// resolves and stays (for the user to send again) when it rejects, so a refusal loses nothing.
-  onSend(text: string, attachments?: ComposerAttachment[]): boolean | void | Promise<unknown>;
+  /// `steer`: into the running turn now (⌘Return); otherwise a prompt sent mid-turn waits behind it.
+  onSend(text: string, attachments?: ComposerAttachment[], steer?: boolean): boolean | void | Promise<unknown>;
   onStop(): void;
   /// Withdraws a queued prompt (`_acpmux/queue_remove`); false when it already started.
   onQueueRemove?(promptId: string): Promise<boolean>;
-  /// Withdraws a queued prompt and puts its text back in the prompt.
-  onQueueEdit?(entry: AcpmuxSnapshot["queue"][number]): Promise<boolean>;
+  /// Changes a queued prompt (`_acpmux/queue_edit`): its text, its place, or send it now.
+  onQueueChange?(promptId: string, edit: QueueEdit): Promise<boolean>;
+  /// The text of an edit whose prompt started meanwhile: it goes back in the prompt.
+  onQueueLost?(text: string): void;
   /// Text the prompt starts with, such as what a chat opened from another tab inherited.
   /// Each new value fills an empty prompt once, caret at the end; it is never sent by itself.
   draft?: string;
@@ -138,6 +149,9 @@ type Props = {
   onEdit?(command: ComposerEditCommand): void;
   /// Handles a cmux-owned slash command after the user submits it.
   onCmuxCommand?(command: CmuxCommand, args?: string): boolean | void;
+  /// A new chat's typed text, before it has a session (acpmux keeps a session's draft): the host
+  /// keeps it with the tab, so a relaunch opens the chat with it (cx-z5vd).
+  onUnsentDraft?(text: string): void;
   /// Reads a transcript chosen by the cmux-owned `/import` command.
   onImportFile?(file: File): void | Promise<void>;
   /// Searches the session's files; the + menu offers Search files only when set.
@@ -187,13 +201,15 @@ export function Composer({
   onSend,
   onStop,
   onQueueRemove,
-  onQueueEdit,
+  onQueueChange,
+  onQueueLost,
   draft,
   leading,
   accessory,
   prompt,
   onEdit,
   onCmuxCommand,
+  onUnsentDraft,
   onImportFile,
   searchFiles,
   onProject,
@@ -278,20 +294,6 @@ export function Composer({
     setAttachError(read.errors[0] ? attachmentErrorText(read.errors[0], t) : undefined);
   };
   useEffect(() => {
-    const over = (event: DragEvent) => {
-      if (!dragHasFiles(event.dataTransfer)) return;
-      event.preventDefault();
-      setDropping(true);
-    };
-    const leave = (event: DragEvent) => {
-      if (!event.relatedTarget) setDropping(false);
-    };
-    const drop = (event: DragEvent) => {
-      if (!dragHasFiles(event.dataTransfer)) return;
-      event.preventDefault();
-      setDropping(false);
-      void attach.current(filesFrom(event.dataTransfer));
-    };
     const paste = (event: ClipboardEvent) => {
       const target = event.target as Node;
       // A file pasted in shell mode is kept for the next prompt; the mode stays.
@@ -301,14 +303,10 @@ export function Composer({
       event.preventDefault();
       void attach.current(files);
     };
-    document.addEventListener("dragover", over);
-    document.addEventListener("dragleave", leave);
-    document.addEventListener("drop", drop);
+    const removeFileDropLifecycle = installFileDropLifecycle((files) => void attach.current(files), setDropping);
     document.addEventListener("paste", paste);
     return () => {
-      document.removeEventListener("dragover", over);
-      document.removeEventListener("dragleave", leave);
-      document.removeEventListener("drop", drop);
+      removeFileDropLifecycle();
       document.removeEventListener("paste", paste);
     };
   }, []);
@@ -340,6 +338,12 @@ export function Composer({
             ...restoredAttachments,
             ...current.filter((attachment) => !restoredAttachments.some((back) => back.id === attachment.id)),
           ]);
+      },
+      attach(attachment) {
+        setAttachments((current) => {
+          const held = current.filter((chip) => chip.id !== attachment.id);
+          return held.length >= MAX_ATTACHMENTS ? current : [...held, attachment];
+        });
       },
       send: () => submitNow.current(true),
       focus: () => field.current?.focus(),
@@ -395,6 +399,12 @@ export function Composer({
     if (hydratedSession.current !== sessionId) return;
     writePersistedDraft(sessionId, text);
   }, [sessionId, text]);
+  useEffect(() => {
+    // Once the typing settles, so the host writes its file once per pause, not per keystroke.
+    if (sessionId || !onUnsentDraft) return;
+    const settled = setTimeout(() => onUnsentDraft(text), UNSENT_DRAFT_SETTLE_MS);
+    return () => clearTimeout(settled);
+  }, [sessionId, text, onUnsentDraft]);
   const commands = snapshot.commands;
   const remote = remoteComposer(snapshot);
   // Permission modes live in the access chip beside +; the + menu keeps only the Plan/Build toggle.
@@ -458,7 +468,7 @@ export function Composer({
     event.preventDefault();
     return send(false);
   };
-  const send = (force: boolean): boolean => {
+  const send = (force: boolean, steer = false): boolean => {
     // acpmux refuses this chat on this connection (remoteEditing.ts): keep the draft.
     if (!remote.canSend) return false;
     // The folder's trust question is open: the prompt stays where it is.
@@ -494,7 +504,7 @@ export function Composer({
     }
     const fromSend = document.activeElement?.classList.contains("acpmux-send") ?? false;
     const sent = attachments;
-    const taken = onSend(prompt, sent);
+    const taken = onSend(prompt, sent, steer);
     if (taken === false) return false;
     const written = field.current?.value() ?? "";
     const clear = (rest = "") => {
@@ -618,6 +628,38 @@ export function Composer({
     if (event.isComposing || event.keyCode === 229) return;
     if (interrupt(event)) return;
     const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
+    // ⌘Return while a turn runs steers: the prompt goes in now instead of after the turn. (The
+    // Quick Composer keeps its own ⌘Return and Esc, below.)
+    const quick = Boolean(onOpenInWindow);
+    if (
+      event.key === "Enter" &&
+      event.metaKey &&
+      !event.shiftKey &&
+      !event.altKey &&
+      !event.ctrlKey &&
+      steerable &&
+      !quick
+    ) {
+      event.preventDefault();
+      send(false, true);
+      return;
+    }
+    // ↑ on an empty prompt goes to the queue's last prompt (ComposerQueue.tsx has its keys).
+    if (event.key === "ArrowUp" && plain && !open && !text.trim() && snapshot.queue.length) {
+      const rows = form.current?.querySelectorAll<HTMLElement>(".acpmux-queued");
+      const last = rows?.[rows.length - 1];
+      if (last) {
+        event.preventDefault();
+        last.focus();
+        return;
+      }
+    }
+    // Esc on an empty prompt stops the turn, as Stop does.
+    if (event.key === "Escape" && plain && !open && stop && !quick) {
+      event.preventDefault();
+      stopTurn();
+      return;
+    }
     // ⌘Return sends whatever is typed, even over an open command menu, then opens the window.
     if (
       onOpenInWindow &&
@@ -670,6 +712,9 @@ export function Composer({
   };
 
   const stop = !shell && snapshot.isWorking && !text.trim();
+  // A prompt typed while a turn runs can go in now; an agent that cannot steer stops the turn.
+  const steerable = !shell && snapshot.isWorking && remote.canSend && !blocked && Boolean(text.trim());
+  const steerKind = snapshot.summary?.steering ? "steer" : "interrupt";
   // Focus leaving the composer closes the menu and takes back what + wrote.
   const blur = (event: React.FocusEvent<HTMLFormElement>) => {
     if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
@@ -768,6 +813,7 @@ export function Composer({
         runShell();
       }}
       onBlur={blur}
+      onContextMenuCapture={openChipMenu}
     >
       {remote.note && (
         <p className="acpmux-composer-remote-note" role="note">
@@ -797,7 +843,15 @@ export function Composer({
           form.current.parentElement,
         )}
       <div className="acpmux-composer-box" data-context-first={contextFirst ? "" : undefined}>
-        <ComposerQueue queue={snapshot.queue} t={t} onRemove={onQueueRemove} onEdit={onQueueEdit} />
+        <ComposerQueue
+          queue={snapshot.queue}
+          paused={snapshot.summary?.queuePaused === true}
+          t={t}
+          onRemove={onQueueRemove}
+          onChange={onQueueChange}
+          onLost={onQueueLost}
+          onLeave={() => field.current?.focus()}
+        />
         {contextFirst && context}
         <input
           ref={importInput}
@@ -969,17 +1023,40 @@ export function Composer({
                 <StopIcon />
               </button>
             ) : remote.canSend ? (
-              <button
-                key="send"
-                ref={sendButton}
-                type="submit"
-                disabled={Boolean(blocked) && !shell}
-                className={`acpmux-send${(shell ? shellText.trim() : !blocked && (text.trim() || attachments.length)) ? " acpmux-send-ready" : ""}`}
-                aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
-                title={shell ? t("composer.shellRun") : blocked?.reason ? t(blocked.reason) : t("composer.sendTooltip")}
-              >
-                <ArrowUpIcon />
-              </button>
+              <>
+                {steerable && (
+                  <button
+                    key="steer"
+                    type="button"
+                    className="acpmux-steer"
+                    aria-label={t(steerKind === "steer" ? "composer.steerLabel" : "composer.interruptLabel")}
+                    title={t(steerKind === "steer" ? "composer.steerTooltip" : "composer.interruptTooltip")}
+                    onClick={() => {
+                      send(false, true);
+                      field.current?.focus();
+                    }}
+                  >
+                    {t(steerKind === "steer" ? "composer.steer" : "composer.interrupt")}
+                  </button>
+                )}
+                <button
+                  key="send"
+                  ref={sendButton}
+                  type="submit"
+                  disabled={Boolean(blocked) && !shell}
+                  className={`acpmux-send${(shell ? shellText.trim() : !blocked && (text.trim() || attachments.length)) ? " acpmux-send-ready" : ""}`}
+                  aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
+                  title={
+                    shell
+                      ? t("composer.shellRun")
+                      : blocked?.reason
+                        ? t(blocked.reason)
+                        : t(snapshot.isWorking ? "composer.queueTooltip" : "composer.sendTooltip")
+                  }
+                >
+                  <ArrowUpIcon />
+                </button>
+              </>
             ) : null}
           </span>
         </div>
@@ -1028,9 +1105,27 @@ function AttachmentChip({
       </svg>
     </button>
   );
+  // Its right-click menu: Open where a click opens it, and Remove (cx-2lm4).
+  const menu = (open: (() => void) | undefined, chip: React.ReactNode) => (
+    <ContextMenu
+      className="acpmux-attachment-menu"
+      items={[
+        ...(open ? [{ id: "open", label: t("image.open"), onSelect: open }] : []),
+        {
+          id: "remove",
+          label: t(COMPOSER_LABELS.removeAttachment, { name: attachment.name }),
+          separatorBefore: Boolean(open),
+          onSelect: () => onRemove(attachment.id),
+        },
+      ]}
+    >
+      {chip}
+    </ContextMenu>
+  );
   if (image && source) {
     const img = <img alt={attachment.name} src={thumb ?? source} onError={() => setBroken(true)} />;
-    return (
+    return menu(
+      openImage ? () => openImage(source, attachment.name) : undefined,
       <div className="acpmux-attachment acpmux-attachment-image" title={attachment.name}>
         {openImage ? (
           <button
@@ -1045,23 +1140,25 @@ function AttachmentChip({
           img
         )}
         {remove}
-      </div>
+      </div>,
     );
   }
   if (attachment.kind === "document" && attachment.data) {
-    return (
+    return menu(
+      undefined,
       <PdfAttachmentChip
         attachment={{ ...attachment, kind: "document", data: attachment.data }}
         remove={remove}
         codex={codex}
-      />
+      />,
     );
   }
-  return (
+  return menu(
+    undefined,
     <div className="acpmux-attachment acpmux-attachment-file" title={attachment.name}>
       <span>{attachment.name}</span>
       {remove}
-    </div>
+    </div>,
   );
 }
 
@@ -1198,7 +1295,7 @@ function SlashMenu({
   if (matches.length === 0)
     return (
       <div
-        className="acpmux-slash-menu acpmux-slash-empty"
+        className="ui-popup acpmux-slash-menu acpmux-slash-empty"
         id="acpmux-slash-menu"
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
         role="listbox"
@@ -1210,7 +1307,7 @@ function SlashMenu({
   return (
     <div
       ref={list}
-      className="acpmux-slash-menu"
+      className="ui-popup acpmux-slash-menu"
       id="acpmux-slash-menu"
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
       role="listbox"

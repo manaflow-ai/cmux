@@ -88,6 +88,7 @@ extension DaemonStore {
             return .resync
         case .disconnected(let reason):
             connectionEpoch += 1
+            clearPresence()
             connectionState = .disconnected(reason)
             onDisconnected?()
             // Nothing newer will arrive for commands sent on this connection.
@@ -96,6 +97,7 @@ extension DaemonStore {
             return .none
         case .daemonShutdown:
             connectionEpoch += 1
+            clearPresence()
             connectionState = .disconnected("daemon shut down")
             onDisconnected?()
             return .none
@@ -209,7 +211,10 @@ extension DaemonStore {
             }
             return .none
 
-        case .treeChanged, .layoutChanged, .overflow:
+        case .treeChanged, .layoutChanged:
+            return .resync
+        case .overflow:
+            clearPresence()
             return .resync
 
         case .titleChanged(let surface, let title):
@@ -231,9 +236,12 @@ extension DaemonStore {
             agentsBySurface[status.surface] = status
             tabsBySurface[status.surface]?.setAgent(status)
             return .none
+        case .agentPresenceChanged(let presence):
+            tabsBySurface[presence.surface]?.setPresence(presence.activity == nil ? nil : presence)
+            return .none
 
         case .sessionState(let item): session.apply(item, to: workspaces); return .none
-        case .bookmarksChanged, .conversationChanged, .conversationTyping, .cloudConversations,
+        case .bookmarksChanged, .historyChanged, .conversationChanged, .conversationTyping, .conversationDraft, .cloudConversations,
              .terminalClipboardRead, .terminalClipboardReadCancelled, .unknown: // .unknown: the `apps-*` events of apps-v1
             sideEvents.deliver(event)
             return .none
@@ -252,5 +260,17 @@ extension DaemonStore {
         workspaceRevision = delta.workspaceRevision
         structureChanged()
         return .none
+    }
+}
+
+extension DaemonStore {
+    /// Drops every tab's agent presence (cx-gg84) when the store may have
+    /// missed its clear: a lost connection, a daemon shutdown or dropped
+    /// events. The daemon sends no presence in a snapshot; each agent's next
+    /// hook event brings its presence back.
+    func clearPresence() {
+        for tab in tabsBySurface.values where tab.presence != nil {
+            tab.setPresence(nil)
+        }
     }
 }

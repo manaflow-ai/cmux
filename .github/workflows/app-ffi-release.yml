@@ -44,6 +44,7 @@ on:
       - "cmux-tui/crates/cmux-rd-proto/**"
       - "cmux-tui/crates/cmux-rd-ffi/**"
       - "cmux-tui/crates/cmux-remote-browser/**"
+      - "cmux-tui/crates/cmux-tasks-core/**"
       - "cmux-tui/rust-toolchain.toml"
       - "scripts/cmux-next/build-app-ffi.sh"
       - ".github/workflows/app-ffi-release.yml"
@@ -455,6 +456,9 @@ jobs:
       group: app-ffi-repin
       cancel-in-progress: false
     steps:
+      # Workflows too: the force push moves app-ffi-repin from an older base to
+      # the tip, and when that range changes workflow files GitHub refuses a
+      # contents-only token ("`workflows` scope may be required", 2026-10-10).
       - name: Mint the release App token
         id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -464,6 +468,7 @@ jobs:
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-contents: write
+          permission-workflows: write
 
       # A separate token, because a mint that asks for a permission the App
       # lacks fails whole: manaflow-cmux-release had contents, metadata and

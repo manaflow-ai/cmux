@@ -70,6 +70,32 @@
   -webkit-font-smoothing: antialiased;
 }
 
+/* A Chief subagent's first message: the Chief's view as one collapsed line above the task. */
+.cv-user__context {
+  box-sizing: border-box;
+  max-width: 70%;
+  margin-bottom: 4px;
+  font-family: var(--cv-font);
+  font-size: var(--text-detail);
+  line-height: 18px;
+  color: var(--cv-text-muted);
+}
+.cv-user__context > summary {
+  cursor: pointer;
+  text-align: right;
+  list-style-position: inside;
+}
+.cv-user__context-text {
+  margin: 4px 0 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--cv-bubble);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  max-height: 320px;
+  overflow: auto;
+}
+
 /* A prompt queued behind a harness switch: one quiet line under its bubble ("Starting Codex…"). */
 .cv-user__status {
   display: flex;
@@ -239,6 +265,7 @@
   top: 0.35em;
   --cmux-markdown-checkbox-secondary: var(--agent-muted);
   --cmux-markdown-checkbox-accent: var(--agent-accent);
+  --cmux-markdown-checkbox-ink: var(--agent-on-accent);
   box-shadow: inset 0 0 0 1px var(--cv-strong-rule);
 }
 /* appearance.borders none: retain a quiet fill so an open task remains visible without a ring. */
@@ -1101,7 +1128,9 @@ pre.cv-math-source {
 .acpmux-image-viewer {
   position: fixed;
   inset: 0;
-  z-index: 20;
+  z-index: var(--layer-modal);
+  width: auto;
+  margin-inline: 0;
   display: flex;
   flex-direction: column;
   background: color-mix(in srgb, var(--agent-page-bg) 94%, transparent);
@@ -1113,7 +1142,7 @@ pre.cv-math-source {
 .acpmux-image-viewer-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 20;
+  z-index: var(--layer-overlay);
 }
 .acpmux-image-viewer-body {
   position: relative;
@@ -1541,10 +1570,110 @@ pre.cv-math-source {
   outline: 2px solid var(--agent-accent);
   outline-offset: -2px;
 }
+/* Find matches: the theme's highlight (the yellow is only for an unthemed preview). */
 ::highlight(acpmux-find) {
-  background-color: color-mix(in srgb, #f5c542 40%, transparent);
+  background-color: color-mix(in srgb, var(--agent-highlight, #f5c542) 40%, transparent);
 }
 ::highlight(acpmux-find-active) {
-  background-color: #f5c542;
-  color: #1d1d1f;
+  background-color: var(--agent-highlight, #f5c542);
+  color: var(--agent-highlight-text, #1d1d1f);
+}
+
+/* Jump to latest (App.tsx JumpToLatest): a glass circle centered above the composer, at the
+   transcript stage's bottom edge, shown while the reader is scrolled up. Glass like the mobile
+   app's: the page reads through a blur, under a thin ring and a soft shadow. Its dots say a reply
+   is streaming below. It fades in and out with the pane's motion tokens. */
+.acpmux-jump-latest {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  z-index: var(--layer-sticky);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background-color: color-mix(in srgb, var(--agent-page-bg) 72%, transparent);
+  -webkit-backdrop-filter: var(--surface-blur, blur(20px) saturate(1.4));
+  backdrop-filter: var(--surface-blur, blur(20px) saturate(1.4));
+  box-shadow:
+    inset 0 0 0 0.5px color-mix(in srgb, var(--agent-text) 18%, transparent),
+    0 4px 14px color-mix(in srgb, black 14%, transparent),
+    0 1px 2px color-mix(in srgb, black 10%, transparent);
+  color: var(--agent-text);
+  cursor: default;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate3d(-50%, 6px, 0) scale(0.92);
+}
+.acpmux-jump-latest[data-shown] {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate3d(-50%, 0, 0);
+}
+.acpmux-jump-latest:hover {
+  background-color: color-mix(in srgb, var(--agent-page-bg) 60%, var(--agent-text) 6%);
+}
+.acpmux-jump-latest:focus-visible {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: 2px;
+}
+.acpmux-reviewing > .acpmux-jump-latest,
+.acpmux-inspecting > .acpmux-jump-latest {
+  visibility: hidden;
+}
+.acpmux-jump-latest__dots {
+  display: inline-flex;
+  gap: 3px;
+}
+.acpmux-jump-latest__dots i {
+  width: 3.5px;
+  height: 3.5px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.45;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-jump-latest {
+    transition:
+      opacity var(--agent-motion-out) var(--agent-ease-out),
+      transform var(--agent-motion-out) var(--agent-ease-out);
+  }
+  .acpmux-jump-latest[data-shown] {
+    transition-duration: var(--agent-motion-in);
+  }
+  .acpmux-jump-latest__dots i {
+    animation: acpmux-jump-latest-dot calc(var(--agent-motion-in) * 10) var(--agent-ease-out) infinite;
+  }
+  .acpmux-jump-latest__dots i:nth-child(2) {
+    animation-delay: calc(var(--agent-motion-in) * 1.5);
+  }
+  .acpmux-jump-latest__dots i:nth-child(3) {
+    animation-delay: calc(var(--agent-motion-in) * 3);
+  }
+}
+@keyframes acpmux-jump-latest-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.45;
+  }
+  30% {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-jump-latest {
+    background-color: var(--agent-page-bg);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+:root[data-reduce-transparency] .acpmux-jump-latest {
+  background-color: var(--agent-page-bg);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }

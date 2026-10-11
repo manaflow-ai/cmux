@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR c3e75f81f153b62db514f794bde678dc60c2776c6715471d2055c9cd99ec3172.
+// cmux-tui mux protocol 12, IR d7197176d6626400cd73cde71531657da3412e0ecfceb822df0e6b1bfb7fe9eb.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -34,6 +34,25 @@ pub struct ActivitySnapshot {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ActivitySubscribeResult {
     pub activity: ActivitySnapshot,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AgentPresenceActivity {
+    #[serde(rename = "thinking")]
+    Thinking,
+    #[serde(rename = "editing")]
+    Editing,
+    #[serde(rename = "reading")]
+    Reading,
+    #[serde(rename = "running")]
+    Running,
+    #[serde(rename = "browsing")]
+    Browsing,
+    #[serde(rename = "computer_use")]
+    ComputerUse,
+    #[serde(rename = "waiting")]
+    Waiting,
 }
 
 #[rustfmt::skip]
@@ -362,6 +381,10 @@ pub struct ConversationImportMessage {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConversationMessage {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub answers: Option<Vec<String>>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub answers_pending: Option<Vec<String>>,
     pub author: String,
     pub client_msg_id: String,
     pub conversation: String,
@@ -376,6 +399,8 @@ pub struct ConversationMessage {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub retracted_at: Option<String>,
     pub seq: u64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub thread_root: Option<String>,
 }
 
 #[rustfmt::skip]
@@ -491,6 +516,9 @@ pub struct ConversationTabRecord {
     /// Page source (page-tabs-v1): the id of one of the app's own pages; exclusive with the other sources.
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub page: Option<String>,
+    /// What the page shows (page-tab-route-v1): a viewer's file or folder or a page's sub-view, 1 to 4096 bytes without control characters; only with page.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub route: Option<String>,
 }
 
 #[rustfmt::skip]
@@ -502,6 +530,16 @@ pub struct ConversationTextRun {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub mention: Option<String>,
     pub start: u32,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationThreadSummary {
+    pub authors: Vec<String>,
+    pub last_reply_at: Nullable<String>,
+    pub last_reply_seq: Nullable<u64>,
+    pub reply_count: u64,
+    pub root: String,
 }
 
 #[rustfmt::skip]
@@ -761,8 +799,12 @@ pub struct IdentifyResult {
     pub app: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub build_commit: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub build_id: Optional<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub cli_path: Optional<String>,
     pub daemon_handoff: u64,
     pub generation: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -1825,6 +1867,9 @@ pub struct Tab {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub supports_clear_history_key_fallback: Option<bool>,
     pub surface: Id,
+    /// Why a terminal will end with something other than its shell although terminal hosts are on: \`breakaway_denied\` (Windows: the host runs inside the daemon's kill-on-close Job Object and ends when that job closes) or \`host_start_failed\` (no host; the daemon runs the terminal and it ends with the daemon). Null otherwise and for browser tabs. A string, not an enum: clients read an unknown value as a notice for another reason.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_host_fallback: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]

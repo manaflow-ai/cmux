@@ -198,6 +198,11 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final Object cloudConversationThread(CloudConversationThreadRequest request) throws CmuxException {
+        Object result = execute(Commands.CLOUD_CONVERSATION_THREAD, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final Object cloudConversationUnsubscribe(CloudConversationUnsubscribeRequest request) throws CmuxException {
         Object result = execute(Commands.CLOUD_CONVERSATION_UNSUBSCRIBE, request.toWire());
         return Wire.immutableJson(result);
@@ -273,6 +278,11 @@ public abstract class GeneratedCmuxClient {
         return ConversationCreateResult.fromWire(result);
     }
 
+    public final ConversationDraftResult conversationDraft(ConversationDraftRequest request) throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_DRAFT, request.toWire());
+        return ConversationDraftResult.fromWire(result);
+    }
+
     public final ConversationHistoryResult conversationHistory(ConversationHistoryRequest request) throws CmuxException {
         Object result = execute(Commands.CONVERSATION_HISTORY, request.toWire());
         return ConversationHistoryResult.fromWire(result);
@@ -301,6 +311,11 @@ public abstract class GeneratedCmuxClient {
     public final ConversationSnapshotResult conversationSnapshot(ConversationSnapshotRequest request) throws CmuxException {
         Object result = execute(Commands.CONVERSATION_SNAPSHOT, request.toWire());
         return ConversationSnapshotResult.fromWire(result);
+    }
+
+    public final ConversationThreadResult conversationThread(ConversationThreadRequest request) throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_THREAD, request.toWire());
+        return ConversationThreadResult.fromWire(result);
     }
 
     public final EmptyResult conversationTyping(ConversationTypingRequest request) throws CmuxException {
@@ -450,6 +465,11 @@ public abstract class GeneratedCmuxClient {
 
     public final Object forgetSession(ForgetSessionRequest request) throws CmuxException {
         Object result = execute(Commands.FORGET_SESSION, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object getBlob(GetBlobRequest request) throws CmuxException {
+        Object result = execute(Commands.GET_BLOB, request.toWire());
         return Wire.immutableJson(result);
     }
 
@@ -773,6 +793,11 @@ public abstract class GeneratedCmuxClient {
         return ProcessInfoResult.fromWire(result);
     }
 
+    public final Object putBlob(PutBlobRequest request) throws CmuxException {
+        Object result = execute(Commands.PUT_BLOB, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final FrontendProjection putFrontendProjection(PutFrontendProjectionRequest request) throws CmuxException {
         Object result = execute(Commands.PUT_FRONTEND_PROJECTION, request.toWire());
         return FrontendProjection.fromWire(result);
@@ -891,6 +916,11 @@ public abstract class GeneratedCmuxClient {
     public final ResolveTerminalResult resolveTerminal(ResolveTerminalRequest request) throws CmuxException {
         Object result = execute(Commands.RESOLVE_TERMINAL, request.toWire());
         return ResolveTerminalResult.fromWire(result);
+    }
+
+    public final Object restartTab(RestartTabRequest request) throws CmuxException {
+        Object result = execute(Commands.RESTART_TAB, request.toWire());
+        return Wire.immutableJson(result);
     }
 
     public final RunResult run(RunRequest request) throws CmuxException {

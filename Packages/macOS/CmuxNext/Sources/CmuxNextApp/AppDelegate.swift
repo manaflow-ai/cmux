@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextControl
@@ -236,6 +237,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.projectsImport.start(feed: services.chatsFeed)
         if let feed = services.chatsFeed { AgentPageChats.wire(services.agentTabs, to: feed, opener: services.chatsOpener) }
         AgentPageChats.wirePager(services.agentTabs, environment: QuitAgents.environment(services), opener: services.chatsOpener)
+        NewTabClosed.wire(services.agentTabs, services: services)
+        AgentPaneModel.harnessHealthProvider = { [weak services] id, refresh in
+            let rows = (try? await services?.agentHarnesses.health(refresh: refresh)) ?? []
+            return rows.first { $0["id"]?.stringValue == id }?.foundationObject as? [String: Any]
+        }
         // The GitHub connection is deliberately off by default. Changes in
         // Settings apply to the one feed owner and never create a second
         // inbox store.
@@ -289,6 +295,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 control.registerPageDebugMethods(services)
                 control.registerRemoteBrowserDebugMethods(services)
                 RemoteViewDebugMethods(services: services).register(on: control.service?.router)
+                DebugNowPlaying.register(on: control.service?.router, services: services)
+                DebugCEFDevToolsLayout.register(on: control.service?.router, services: services)
+                DebugBrowserExternal.register(on: control.service?.router, services: services)
+                DebugTerminalLinks.register(on: control.service?.router, services: services)
                 if let router = control.service?.router {
                     BrowserPageService(engine: AppBrowserPageEngine(services: services)).install(on: router)
                     services.apps.attach(router: router)

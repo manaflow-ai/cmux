@@ -1,24 +1,7 @@
 public import AppKit
 
 extension ActionRegistry {
-    // MARK: - Search and menus
-
-    /// Bound actions ranked for a query. An empty query returns every bound
-    /// action in registration order. The palette uses its own index; this is
-    /// for simple callers such as the debug socket.
-    public func search(_ query: String) -> [Action] {
-        let parsed = FuzzyQuery(query)
-        guard !parsed.isEmpty else { return actions }
-        return actions
-            .compactMap { action -> (Action, Int)? in
-                var fields = [FuzzyField(FuzzyText(title(for: action.id) ?? action.title))]
-                fields += action.keywords.map { FuzzyField(FuzzyText($0), weight: 80) }
-                guard let score = FuzzyMatcher.score(parsed, fields: fields) else { return nil }
-                return (action, score)
-            }
-            .sorted { $0.1 > $1.1 }
-            .map(\.0)
-    }
+    // MARK: - Menus
 
     /// A menu item that performs `id` and shows its effective shortcut. Nil
     /// when `id` is neither bound nor in the catalog.
@@ -87,6 +70,13 @@ final class ActionMenuTarget: NSObject, NSMenuItemValidation {
         // A standalone key window claims the run: its close items stay
         // enabled (they close it), actions on main window content are off.
         let invocation = ActionInvocation(target: payload.target, arguments: payload.arguments)
+        // A main menu toggle reads as the change it makes for the focused target (Pin
+        // Workspace or Unpin Workspace, PINNED-ITEMS-END-TO-END); no target title, the
+        // catalog's. Context menu items (an ActionMenuPayload) are decorated when built.
+        if menuItem.representedObject is String, let targetTitle = registry.action(for: payload.id)?.targetTitle,
+           let title = targetTitle(invocation) ?? registry.title(for: payload.id), menuItem.title != title {
+            menuItem.title = title
+        }
         if let route = registry.keyWindowRoute?(registry.canonicalID(for: payload.id), invocation) { return route.enablesMenuItem }
         guard ActionTargetReasons.canPerform(payload.id, invocation: ActionInvocation(target: payload.target), in: registry) else { return false }
         if let gate = registry.menuKeyEquivalentGate, !menuItem.keyEquivalent.isEmpty, registry.isDispatchingKeyDown() {

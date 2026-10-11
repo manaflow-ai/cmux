@@ -11,8 +11,12 @@ struct CaptureSceneDefinition: Sendable {
 /// Applies a real fixture scene and writes a window snapshot after display frames settle.
 @MainActor
 final class CaptureSceneRegistry {
-    private let services: AppServices
-    private let frames = BenchFrames()
+    let services: AppServices
+    let frames = BenchFrames()
+    /// The tab `home-chief` reported as waiting, put back to idle after its snapshot.
+    var blockedTerminal: String?
+    /// The terminals `home-chief` opened, closed after its snapshot.
+    var openedTerminals: [String] = []
 
     /// Creates a registry bound to the running app services.
     init(services: AppServices) {
@@ -91,11 +95,11 @@ final class CaptureSceneRegistry {
             return .object(["error": .string("worked agent turn did not seed"), "scene": .string(definition.name), "turn": turn])
         }
 
+        // Home is native: it settles on its own conditions, and neither the
+        // agent pane's readiness nor its web view is part of its picture.
+        let isHome = definition.name == Self.homeChiefScene
         let readiness = await DebugAgentPane.handle(["action": .string("readiness")], services)
-        guard case .object(let readinessReport) = readiness,
-              (readinessReport["body_text_length"]?.intValue ?? 0) > 0,
-              (readinessReport["transcript_rows"]?.intValue ?? 0) > 0,
-              readinessReport["composer_visible"]?.boolValue == true else {
+        guard isHome || readinessIsComplete(readiness) else {
             return .object([
                 "error": .string("agent pane is blank or composer is hidden"),
                 "scene": .string(definition.name), "readiness": readiness, "turn": turn,
@@ -103,19 +107,22 @@ final class CaptureSceneRegistry {
         }
 
         let sceneAction = await applySceneAction(definition.name)
-        let actionReadiness = await waitForSceneAnimation()
+        let actionReadiness = isHome ? await showHomeChief(windowID: targetWindowID) : await waitForSceneAnimation()
         guard case .object(let actionReadinessReport) = actionReadiness,
               actionReadinessReport["error"] == nil,
-              actionReadinessReport["animations_pending"]?.boolValue == false else {
-            return .object(["error": .string("scene popover did not become opaque before capture"),
+              isHome || actionReadinessReport["animations_pending"]?.boolValue == false else {
+            return .object(["error": .string(isHome ? "Home scene did not settle" : "scene popover did not become opaque before capture"),
                             "scene": .string(definition.name), "readiness": actionReadiness,
                             "scene_action": sceneAction])
         }
         var snapshotParams = params
         snapshotParams["window"] = .string(targetWindowID)
         let snapshot = await DebugWindowSnapshot.captureAsync(snapshotParams, services: services)
+        let click = isHome ? await clickHomeAgent(params, windowID: targetWindowID) : nil
+        if isHome { clearShowcaseAgent(windowID: targetWindowID) }
         guard case .object(var result) = snapshot else { return snapshot }
-        guard (result["webviews_composited"]?.intValue ?? 0) > 0 else {
+        result["click"] = click
+        guard isHome || (result["webviews_composited"]?.intValue ?? 0) > 0 else {
             return .object([
                 "error": .string("agent web view was not composited"),
                 "scene": .string(definition.name), "readiness": readiness, "snapshot": snapshot,
@@ -169,6 +176,13 @@ final class CaptureSceneRegistry {
         }
     }
 
+    /// The agent pane drew the worked turn and shows its composer.
+    private func readinessIsComplete(_ readiness: JSONValue) -> Bool {
+        guard case .object(let report) = readiness else { return false }
+        return (report["body_text_length"]?.intValue ?? 0) > 0 && (report["transcript_rows"]?.intValue ?? 0) > 0
+            && report["composer_visible"]?.boolValue == true
+    }
+
     private func waitForSceneAnimation() async -> JSONValue {
         await DebugAgentPane.handle(["action": .string("readiness"), "wait_animations": .bool(true)], services)
     }
@@ -181,6 +195,8 @@ final class CaptureSceneRegistry {
         CaptureSceneDefinition(name: "history-narrow", description: "Narrow history destination fixture."),
         CaptureSceneDefinition(name: "hints-cmd-held", description: "Command modifier hint destination."),
         CaptureSceneDefinition(name: "hints-ctrl-held", description: "Control modifier hint destination."),
+        CaptureSceneDefinition(name: homeChiefScene,
+                               description: "Home's empty Chief conversation listing the showcase agents and terminal agents waiting, failed, done and working; click_agent N clicks row N (from 0) and reports the focused tab, click_path snapshots after it."),
     ]
 }
 #endif

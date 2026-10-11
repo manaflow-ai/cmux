@@ -58,6 +58,8 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// unread mark and attention state (no second line, no counts or badges,
     /// no tab rows), and section headers become thin lines (the `lines` look).
     public var minimal = false
+    /// Compact or expanded workspace rows (`sidebar.density`); minimal mode wins.
+    public var density: SidebarDensity = .compact
     /// Pinned bands that hide until the pointer is over the sidebar (R54).
     /// R100: the Settings/account band shows only while the pointer is over the sidebar.
     public var minimalMode: SidebarMinimalMode = .bottom

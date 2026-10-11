@@ -1,6 +1,8 @@
-//! Narrow C ABI for `cmux-layout-reducer::sidebar_drop`.
+//! Narrow C ABI for `cmux-layout-reducer`'s sidebar drop resolver
+//! (`sidebar_drop`) and sidebar section layout reducer (`sidebar_layout`),
+//! plus `cmux-tasks-core`'s optimistic Tasks preview (`tasks_preview`).
 
-use cmux_layout_reducer::sidebar_drop;
+use cmux_layout_reducer::{sidebar_drag, sidebar_drop, sidebar_layout};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 pub const ABI_VERSION: u32 = 1;
@@ -52,6 +54,13 @@ pub extern "C" fn cmux_layout_reducer_ffi_abi_version() -> u32 {
 }
 
 /// Resolves one JSON request. See the checked-in header for the pointer rules.
+///
+/// # Safety
+///
+/// `request` points to `request_len` readable bytes (or is null with length
+/// 0), `operation` is a NUL-terminated C string, `output` points to
+/// `output_capacity` writable bytes (or is null with capacity 0) and
+/// `output_len` is writable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_layout_reducer_json(
     request: *const u8,
@@ -89,6 +98,12 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&sidebar_drop::resolve(&request)).map_err(|_| ERR_INVALID)?
             }
+            b"resolve_drag" => {
+                let request: sidebar_drag::DragRequest =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_drag::resolve_drag(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
             b"tab_drop" => {
                 let request: sidebar_drop::TabRequest =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
@@ -99,6 +114,17 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: sidebar_drop::TabRequest =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&sidebar_drop::tab_drop_refusal(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_layout_reduce" => {
+                let request: sidebar_layout::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_layout::respond(&request)).map_err(|_| ERR_INVALID)?
+            }
+            b"tasks_preview" => {
+                let request: cmux_tasks_core::preview::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&cmux_tasks_core::preview::respond(&request))
                     .map_err(|_| ERR_INVALID)?
             }
             _ => return Err(ERR_INVALID),

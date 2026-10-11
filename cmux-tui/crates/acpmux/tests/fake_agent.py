@@ -6,12 +6,20 @@ Behaviour per prompt text:
   "xai-question: <q>" / "xai-plan: <p>" -> Grok's x.ai ask / exit-plan requests
   "cursor-question: <q>" / "cursor-plan: <p>" -> Cursor's ask / create-plan requests
   "slow"       -> streams three chunks with delays, honours session/cancel
+  "until-cancel" -> streams "running", then waits for session/cancel
+  "until-cancel-then-exit" -> "until-cancel", then the agent exits between turns
+  "answer-then-exit" -> answers, then the agent exits between turns
   "gate: <p>"  -> streams before-gate, waits for a write to FIFO <p>, then after-gate
   anything     -> echoes the text as one agent_message_chunk
 
 FAKE_CODEX_STEER=1: steering as codex-acp 1.10.0 does it. The agent
 advertises steering; a prompt while a turn runs joins that turn, and when
 the turn ends only the last prompt gets an answer (the earlier ones never).
+
+FAKE_SESSION_PREFIX=<p>: session ids are <p><n> instead of fake-<n> (an id as
+long as a real agent's, for checks that refuse short ones).
+
+FAKE_EXIT_AFTER_NEW=1: the agent exits once its session starts, before any prompt.
 """
 import json
 import sys
@@ -29,6 +37,7 @@ known = set()
 
 
 LAST_MCP_SERVERS = None
+SESSION_PREFIX = os.environ.get("FAKE_SESSION_PREFIX", "fake-")
 
 
 def send(obj):
@@ -268,6 +277,23 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"{name}={os.environ.get(name, '')}"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "http: URL KEY" posts a one-message chat request to URL with KEY as the
+    # bearer (a model call) and replies "HTTP <status> <body>".
+    if text.startswith("http:"):
+        import urllib.request, urllib.error
+        url, key = text[5:].split()
+        body = json.dumps({"model": "m", "messages": [{"role": "user", "content": "hi"}]}).encode()
+        req = urllib.request.Request(url, data=body, method="POST", headers={"authorization": f"Bearer {key}", "content-type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                reply = f"HTTP {resp.status} {resp.read().decode()[:300]}"
+        except urllib.error.HTTPError as e:
+            reply = f"HTTP {e.code} {e.read().decode()[:300]}"
+        except Exception as e:
+            reply = f"HTTP error {e}"
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": reply}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "mcp" replies with the mcpServers of the last session/new, load or fork.
     if text == "mcp":
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": json.dumps(LAST_MCP_SERVERS)}})
@@ -352,6 +378,36 @@ def handle_prompt(rid, params):
     if text == "refuse":
         err = {"type": "error", "error": {"message": "Image web search is not supported by the backend.", "code": "unsupported_parameter"}, "status": 400}
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": json.dumps(err)}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "until-cancel" streams "running" and ends only on session/cancel (bounded at 30 s).
+    if text == "until-cancel":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "running"}})
+        for _ in range(600):
+            if sid in cancelled:
+                cancelled.discard(sid)
+                send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+                return
+            time.sleep(0.05)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "answer-then-exit" answers, then the agent exits between turns.
+    if text == "answer-then-exit":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "answered"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        time.sleep(0.3)
+        os._exit(0)
+    # "until-cancel-then-exit" is "until-cancel", then the agent exits between
+    # turns: a chat whose process is gone with no answer.
+    if text == "until-cancel-then-exit":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "running"}})
+        for _ in range(600):
+            if sid in cancelled:
+                cancelled.discard(sid)
+                send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+                time.sleep(0.3)
+                os._exit(0)
+            time.sleep(0.05)
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     if text == "slow":
@@ -441,9 +497,9 @@ def main():
                 import time as pause  # main() binds `time` locally
                 pause.sleep(int(os.environ["FAKE_NEW_DELAY_MS"]) / 1000)
             sessions += 1
-            known.add(f"fake-{sessions}")
+            known.add(f"{SESSION_PREFIX}{sessions}")
             result = {
-                "sessionId": f"fake-{sessions}",
+                "sessionId": f"{SESSION_PREFIX}{sessions}",
                 "modes": {"currentModeId": "normal", "availableModes": [{"id": "normal", "name": "Normal"}, {"id": "strict", "name": "Strict"}]},
                 "configOptions": [{"id": "model", "name": "Model", "type": "select", "currentValue": "m1", "options": [{"value": "m1", "name": "m1"}, {"value": "m2", "name": "m2"}]}],
             }
@@ -451,6 +507,10 @@ def main():
             if os.environ.get("FAKE_NO_MODES") == "1":
                 del result["modes"]
             send({"jsonrpc": "2.0", "id": rid, "result": result})
+            # FAKE_EXIT_AFTER_NEW=1: the agent exits once its session starts,
+            # before any prompt.
+            if os.environ.get("FAKE_EXIT_AFTER_NEW") == "1":
+                os._exit(0)
         elif m == "session/load":
             # FAKE_LOAD_GATE=<path>: the load answers once that file exists, on
             # its own thread, and until then the session is unknown: a prompt
@@ -470,7 +530,7 @@ def main():
             send({"jsonrpc": "2.0", "id": rid, "result": None})
         elif m == "session/fork":
             sessions += 1
-            send({"jsonrpc": "2.0", "id": rid, "result": {"sessionId": f"fake-{sessions}"}})
+            send({"jsonrpc": "2.0", "id": rid, "result": {"sessionId": f"{SESSION_PREFIX}{sessions}"}})
         elif m == "session/set_mode":
             send({"jsonrpc": "2.0", "id": rid, "result": {}})
         elif m == "session/set_config_option":

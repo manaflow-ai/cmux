@@ -1,6 +1,7 @@
 import AppKit
 public import Foundation
 public import WebKit
+import CmuxNextCompat
 
 // MARK: - Navigation
 
@@ -37,7 +38,7 @@ extension WebKitTab: WKNavigationDelegate {
             // Other apps open only from a click in the main frame, never from
             // a script or a redirect.
             if isUserLinkClick, navigationAction.targetFrame?.isMainFrame ?? true {
-                NSWorkspace.shared.open(url)
+                BrowserExternalApps.shared.open(url, from: navigationAction.sourcePage, ask: enqueuePrompt)
             }
             return
         }
@@ -175,7 +176,26 @@ extension WebKitTab: WKUIDelegate {
         default: .cameraAndMicrophone
         }
         // Stored per-site decisions answer without asking (PageInfo).
-        decideMediaCapture(kind, origin: Self.displayOrigin(origin), decisionHandler: decisionHandler)
+        decidePermission(kind, origin: Self.displayOrigin(origin)) { decisionHandler($0 ? .grant : .deny) }
+    }
+
+    // Location, notifications and the page's window.print() have only private
+    // WKUIDelegate methods (WKUIDelegatePrivate); without them WebKit refuses
+    // the first two unasked and prints nothing.
+    @objc(_webView:requestGeolocationPermissionForOrigin:initiatedByFrame:decisionHandler:)
+    func requestLocation(_ webView: WKWebView, origin: WKSecurityOrigin, frame: WKFrameInfo,
+                         decisionHandler: @escaping @MainActor (WKPermissionDecision) -> Void) {
+        decidePermission(.location, origin: Self.displayOrigin(origin)) { decisionHandler($0 ? .grant : .deny) }
+    }
+
+    @objc(_webView:requestNotificationPermissionForSecurityOrigin:decisionHandler:)
+    func requestNotifications(_ webView: WKWebView, origin: WKSecurityOrigin, decisionHandler: @escaping @MainActor (Bool) -> Void) {
+        decidePermission(.notifications, origin: Self.displayOrigin(origin), granted: decisionHandler)
+    }
+
+    @objc(_webView:printFrame:pdfFirstPageSize:completionHandler:)
+    func printFrame(_ webView: WKWebView, frame: AnyObject?, pdfFirstPageSize: CGSize, completionHandler: @escaping @MainActor () -> Void) {
+        _ = BrowserPagePrint(self).printWebKit(webView, done: completionHandler) // the page waits for the panel
     }
 
     public func webView(
@@ -184,9 +204,7 @@ extension WebKitTab: WKUIDelegate {
         initiatedByFrame frame: WKFrameInfo,
         completionHandler: @escaping @MainActor () -> Void
     ) {
-        enqueuePrompt(.alert(message: message), origin: Self.displayOrigin(frame.securityOrigin)) { _ in
-            completionHandler()
-        }
+        enqueuePrompt(.alert(message: message), origin: Self.displayOrigin(frame.securityOrigin)) { _ in completionHandler() }
     }
 
     public func webView(

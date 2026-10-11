@@ -121,7 +121,10 @@ mod admission;
 #[cfg(unix)]
 mod agent_session_attach;
 #[cfg(unix)]
-pub use agent_session_attach::AGENT_SESSION_ATTACH_CAPABILITY;
+pub use agent_session_attach::{
+    AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_START_CAPABILITY, AcpmuxStarter, AgentStartHost,
+    AgentStartHostSource,
+};
 mod app_trust;
 pub use app_trust::{FrontendKey, frontend_proof, install_frontend_key, read_frontend_key};
 mod client_hello;
@@ -155,6 +158,7 @@ mod feed_local;
 mod frontend_browser_history;
 mod history_search;
 mod home;
+mod icon_assets;
 mod launch_snapshot;
 mod new_screen;
 mod personal;
@@ -177,6 +181,7 @@ mod cmd_server;
 use cmd_server::{stamped_build_commit, stamped_ghostty_commit};
 mod cmd_frontend;
 mod cmd_sizing;
+use cmd_sizing::{optional_surface_size, paired_surface_size};
 mod cmd_subscribe;
 mod cmd_tabs;
 mod cmd_terminal_io;
@@ -191,6 +196,7 @@ mod session_stream;
 mod split_kind;
 mod split_respawn;
 mod tab_column;
+mod tab_restart;
 mod websocket_listener;
 #[cfg(test)]
 use cmd_subscribe::subscribed_event_json;
@@ -225,6 +231,8 @@ mod terminal_resources;
 mod terminal_snapshot;
 use terminal_snapshot::{attach_overflow_json, handle_attach_send_error, report_attach_overflow};
 mod capabilities;
+mod daemon_build;
+pub use daemon_build::{DAEMON_BUILD_CAPABILITY, DaemonBuild, install_daemon_build};
 mod socket_path;
 #[cfg(test)]
 use socket_path::default_socket_path_in_runtime_dir;
@@ -366,6 +374,9 @@ pub const WORKSPACE_GROUPS_CAPABILITY: &str = "workspace-groups-v1";
 /// Durable workspace presentation: `set-workspace-metadata`, the
 /// `color`/`icon`/`title` workspace fields, and `workspace-changed` deltas.
 pub const WORKSPACE_METADATA_CAPABILITY: &str = "workspace-metadata-v1";
+/// Live agent presence: the `agent-presence-changed` subscribe event, what
+/// the agent in a surface is touching now (activity, tool, file and line).
+pub const AGENT_PRESENCE_CAPABILITY: &str = "agent-presence-v1";
 /// The sidebar workspace pin: `pinned` on `set-workspace-metadata` and the
 /// `pinned` workspace field.
 pub const WORKSPACE_PIN_CAPABILITY: &str = "workspace-pin-v1";
@@ -1011,6 +1022,7 @@ enum Command {
     BindConversationTabSession(conversation_tabs_wire::BindSessionParams),
     /// New browser tab whose page the frontend renders (WebKit or CEF).
     NewFrontendBrowserTab(frontend_browser_history::NewTabParams),
+    RestartTab(tab_restart::Params),
     UpdateFrontendBrowserTab(frontend_browser_history::UpdateTabParams),
     SetFrontendBrowserHistory(frontend_browser_history::SetParams),
     GetFrontendBrowserHistory(frontend_browser_history::GetParams),
@@ -1586,16 +1598,21 @@ enum Command {
     FeedLocalHandoffBegin(feed_local::ItemParams),
     FeedLocalHandoffAbort(feed_local::ItemParams),
     FeedLocalHandoffDone(feed_local::DoneParams),
+    /// Asset blobs for icons (`icon-assets-v1`, server/icon_assets.rs).
+    PutBlob(icon_assets::PutParams),
+    GetBlob(icon_assets::GetParams),
     /// Local conversations (`local-conversations-v1`, server/conversations.rs).
     ConversationList,
     ConversationCreate(conversations::CreateParams),
     ConversationSnapshot(conversations::SnapshotParams),
     ConversationHistory(conversations::HistoryParams),
+    ConversationThread(conversations::ThreadParams),
     ConversationSearch(conversations::SearchParams),
     /// The history search index (`history-search-v1`, server/history_search.rs).
     HistorySearch(history_search::HistorySearchParams),
     ConversationOp(conversations::OpParams),
     ConversationTyping(conversations::TypingParams),
+    ConversationDraft(conversations::DraftParams),
     ConversationBind(conversations::BindParams),
     ConversationAgentToken(conversations::AgentTokenParams),
     /// Cloud conversations proxy (`cloud-conversations-v1`,
@@ -1606,6 +1623,7 @@ enum Command {
     CloudInboxList(cloud_conversations::InboxListParams),
     CloudConversationSnapshot(cloud_conversations::SnapshotParams),
     CloudConversationHistory(cloud_conversations::HistoryParams),
+    CloudConversationThread(cloud_conversations::ThreadParams),
     CloudConversationOp(cloud_conversations::OpParams),
     CloudInboxSubscribe,
     CloudInboxUnsubscribe,
@@ -2403,11 +2421,13 @@ mod client_registry_views;
 
 mod listen;
 pub use listen::{
-    PendingServer, SocketStartLock, connect_session_socket, prepare_socket_parent, serve,
-    serve_paused,
+    BoundSocket, PendingServer, START_LOCK_DEADLINE, SocketStartLock, bind_session_socket,
+    connect_session_socket, prepare_socket_parent, serve, serve_bound, serve_paused,
 };
+mod restoring;
 #[cfg(test)]
 use listen::{prepare_runtime_socket_directory, socket_start_lock_retry_delay};
+pub use restoring::RestoringServer;
 
 #[cfg(test)]
 use websocket_listener::handle_websocket_connection;
@@ -2797,22 +2817,6 @@ fn layout_request_to_spec(layout: LayoutRequest) -> anyhow::Result<LayoutSpec> {
     }
 }
 
-fn optional_surface_size(cols: Option<u16>, rows: Option<u16>) -> Option<(u16, u16)> {
-    cols.zip(rows).map(|(cols, rows)| (cols.max(1), rows.max(1)))
-}
-
-fn paired_surface_size(
-    command: &str,
-    cols: Option<u16>,
-    rows: Option<u16>,
-) -> anyhow::Result<Option<(u16, u16)>> {
-    match (cols, rows) {
-        (Some(cols), Some(rows)) => Ok(Some((cols.max(1), rows.max(1)))),
-        (None, None) => Ok(None),
-        _ => anyhow::bail!("{command} cols and rows must be supplied together"),
-    }
-}
-
 fn default_renderer_capability_ttl_ms() -> u64 {
     30_000
 }
@@ -3174,6 +3178,7 @@ fn handle_command_with_cancellation(
         Command::BindConversationTabSession(params) => {
             cmd_tabs::bind_conversation_tab_session(mux, actor, params)
         }
+        Command::RestartTab(params) => tab_restart::restart(mux, params),
         Command::NewFrontendBrowserTab(params) => {
             cmd_tabs::new_frontend_browser_tab(mux, client, params)
         }
@@ -3467,14 +3472,18 @@ fn handle_command_with_cancellation(
         | Command::FeedLocalHandoffBegin(_)
         | Command::FeedLocalHandoffAbort(_)
         | Command::FeedLocalHandoffDone(_)) => feed_local::dispatch(mux, &actor, cmd),
+        Command::PutBlob(params) => icon_assets::put(mux, params),
+        Command::GetBlob(params) => icon_assets::get(mux, params),
         Command::ConversationList => conversations::list(mux, client),
         Command::ConversationCreate(params) => conversations::create(mux, client, params),
         Command::ConversationSnapshot(params) => conversations::snapshot(mux, client, params),
         Command::ConversationHistory(params) => conversations::history(mux, client, params),
+        Command::ConversationThread(params) => conversations::thread(mux, client, params),
         Command::ConversationSearch(params) => conversations::search(mux, client, params),
         Command::HistorySearch(params) => history_search::search(mux, client, params),
         Command::ConversationOp(params) => conversations::op(mux, client, params),
         Command::ConversationTyping(params) => conversations::typing(mux, client, params),
+        Command::ConversationDraft(params) => conversations::draft(mux, client, params),
         Command::ConversationBind(params) => conversations::bind(mux, client, params),
         Command::ConversationAgentToken(params) => conversations::agent_token(mux, client, params),
         Command::CloudSessionSet(params) => cloud_conversations::session_set(mux, client, params),
@@ -3486,6 +3495,9 @@ fn handle_command_with_cancellation(
         }
         Command::CloudConversationHistory(params) => {
             cloud_conversations::history(mux, client, params)
+        }
+        Command::CloudConversationThread(params) => {
+            cloud_conversations::thread(mux, client, params)
         }
         Command::CloudConversationOp(params) => cloud_conversations::op(mux, client, params),
         Command::CloudInboxSubscribe => cloud_conversations::subscribe(mux, client, None),

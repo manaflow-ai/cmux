@@ -158,6 +158,22 @@
       "title" : "Warn Before Closing a Running Program",
       "type" : "boolean"
     },
+    "appearance.accent" : {
+      "default" : "neutral",
+      "description" : "The color of selection, focus and the Send button. Theme Color takes the theme's own hue, such as Rose Pine's iris.",
+      "enum" : [
+        "neutral",
+        "theme",
+        "red",
+        "green",
+        "yellow",
+        "blue",
+        "magenta",
+        "cyan"
+      ],
+      "title" : "Accent",
+      "type" : "string"
+    },
     "appearance.appTheme" : {
       "default" : "followTerminal",
       "description" : "Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast.",
@@ -538,6 +554,17 @@
       "title" : "Theme",
       "type" : "string"
     },
+    "appearance.themeEdits" : {
+      "default" : {
+
+      },
+      "description" : "Your color changes to a theme, such as \"Rose Pine/background\": \"#1f1d2e\". The theme itself never changes; remove an entry to reset that color.",
+      "properties" : {
+
+      },
+      "title" : "Theme Edits",
+      "type" : "object"
+    },
     "browser.customSearchEngine.search" : {
       "default" : "",
       "description" : "Used when Search Engine is Custom. Put {searchTerms} where the typed text goes.",
@@ -808,6 +835,12 @@
       "description" : "Team enrollment token from the cmux dashboard. Signed-in users in a verified domain of the team join it; the token alone never grants membership.",
       "title" : "EnrollmentToken",
       "type" : "string"
+    },
+    "feed.agentPermissionPrompts" : {
+      "default" : false,
+      "description" : "Each request's tool and command summary goes to your own cmux feed, so your iPhone can answer it.",
+      "title" : "Send Agent Permission Requests to the Feed",
+      "type" : "boolean"
     },
     "feed.github.enabled" : {
       "default" : false,
@@ -1506,6 +1539,16 @@
       "title" : "Command-9",
       "type" : "string"
     },
+    "sidebar.density" : {
+      "default" : "compact",
+      "description" : "Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer.",
+      "enum" : [
+        "compact",
+        "expanded"
+      ],
+      "title" : "Sidebar Density",
+      "type" : "string"
+    },
     "sidebar.groupBy" : {
       "default" : "none",
       "description" : "sidebar.groupBy",
@@ -1522,6 +1565,12 @@
       "title" : "Group Workspaces by Computer",
       "type" : "boolean"
     },
+    "sidebar.minimal" : {
+      "default" : false,
+      "description" : "Workspace rows show only their icon, name and unread mark, and section titles become thin lines.",
+      "title" : "Minimal Mode",
+      "type" : "boolean"
+    },
     "sidebar.minimalMode" : {
       "default" : "bottom",
       "description" : "Hides the chosen sections until the pointer is over the sidebar.",
@@ -1531,7 +1580,7 @@
         "top",
         "both"
       ],
-      "title" : "Minimal Mode",
+      "title" : "Hide Bands Until Hover",
       "type" : "string"
     },
     "sidebar.numbering" : {
@@ -1660,6 +1709,11 @@
       "title" : "Last Activity",
       "type" : "boolean"
     },
+    "sidebar.workspaceRow.agent.log" : {
+      "description" : "sidebar.workspaceRow.agent.log",
+      "title" : "Log",
+      "type" : "boolean"
+    },
     "sidebar.workspaceRow.agent.ports" : {
       "description" : "sidebar.workspaceRow.agent.ports",
       "title" : "Ports",
@@ -1707,8 +1761,8 @@
       "type" : "boolean"
     },
     "sidebar.workspaceRow.agentStatus" : {
-      "default" : false,
-      "description" : "The status line agents and hooks report.",
+      "default" : true,
+      "description" : "The status agents and hooks report, one line each.",
       "title" : "Agent Status",
       "type" : "boolean"
     },
@@ -1741,6 +1795,11 @@
     "sidebar.workspaceRow.browser.lastActivity" : {
       "description" : "sidebar.workspaceRow.browser.lastActivity",
       "title" : "Last Activity",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.browser.log" : {
+      "description" : "sidebar.workspaceRow.browser.log",
+      "title" : "Log",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.browser.ports" : {
@@ -1807,6 +1866,12 @@
       "title" : "Last Activity",
       "type" : "boolean"
     },
+    "sidebar.workspaceRow.log" : {
+      "default" : true,
+      "description" : "The newest line agents and scripts log: cmux workspace log append <text>.",
+      "title" : "Log",
+      "type" : "boolean"
+    },
     "sidebar.workspaceRow.mixed.agentStatus" : {
       "description" : "sidebar.workspaceRow.mixed.agentStatus",
       "title" : "Agent Status",
@@ -1830,6 +1895,11 @@
     "sidebar.workspaceRow.mixed.lastActivity" : {
       "description" : "sidebar.workspaceRow.mixed.lastActivity",
       "title" : "Last Activity",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.mixed.log" : {
+      "description" : "sidebar.workspaceRow.mixed.log",
+      "title" : "Log",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.mixed.ports" : {
@@ -1891,7 +1961,7 @@
       "type" : "boolean"
     },
     "sidebar.workspaceRow.progress" : {
-      "default" : false,
+      "default" : true,
       "description" : "A progress bar under the row and the busy mark of running work.",
       "title" : "Progress",
       "type" : "boolean"
@@ -1955,6 +2025,11 @@
     "sidebar.workspaceRow.terminal.lastActivity" : {
       "description" : "sidebar.workspaceRow.terminal.lastActivity",
       "title" : "Last Activity",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.terminal.log" : {
+      "description" : "sidebar.workspaceRow.terminal.log",
+      "title" : "Log",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.terminal.ports" : {
@@ -2077,6 +2152,16 @@
       "title" : "New Tab Opens",
       "type" : "string"
     },
+    "tabs.newTabPosition" : {
+      "default" : "end",
+      "description" : "Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab.",
+      "enum" : [
+        "end",
+        "afterCurrent"
+      ],
+      "title" : "New Tab Position",
+      "type" : "string"
+    },
     "tabs.newTabTemplate" : {
       "default" : "default",
       "description" : "The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it.",
@@ -2099,6 +2184,45 @@
         "always"
       ],
       "title" : "New Tab Button",
+      "type" : "string"
+    },
+    "tabs.swapCmdTAndCmdN" : {
+      "default" : false,
+      "description" : "When on, Cmd-T opens a workspace in the current group and Cmd-N opens a tab. When off, Cmd-T opens a tab, or a workspace when an agent chat or a pane without tabs is focused.",
+      "title" : "Swap Cmd-T and Cmd-N",
+      "type" : "boolean"
+    },
+    "tabs.tabBar.agent" : {
+      "default" : "auto",
+      "description" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.",
+      "enum" : [
+        "auto",
+        "always",
+        "never"
+      ],
+      "title" : "Tab Bar in Agent Chats",
+      "type" : "string"
+    },
+    "tabs.tabBar.browser" : {
+      "default" : "auto",
+      "description" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.",
+      "enum" : [
+        "auto",
+        "always",
+        "never"
+      ],
+      "title" : "Tab Bar in Browser Panes",
+      "type" : "string"
+    },
+    "tabs.tabBar.terminal" : {
+      "default" : "auto",
+      "description" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.",
+      "enum" : [
+        "auto",
+        "always",
+        "never"
+      ],
+      "title" : "Tab Bar in Terminal Panes",
       "type" : "string"
     },
     "tasks.layout" : {

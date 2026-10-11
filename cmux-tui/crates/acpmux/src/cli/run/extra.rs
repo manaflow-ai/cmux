@@ -171,6 +171,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::Transfer { session, to, cwd, name, interrupt } => {
+            super::transfer::run(&session, &to, cwd, name, interrupt, json_out).await
+        }
         Command::Import { path, name } => {
             let client = connect(true).await?;
             let mut p = json!({"path": std::path::absolute(path)?});
@@ -240,8 +243,19 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        which @ (Command::Status | Command::DaemonStart) => {
-            match connect(matches!(which, Command::DaemonStart)).await {
+        which @ (Command::Status | Command::DaemonStart { .. }) => {
+            let start = matches!(which, Command::DaemonStart { .. });
+            // A keyed start (cx-0q7o, D2): the daemon must be the one this
+            // command starts, with the key from the app's own exec.
+            #[cfg(unix)]
+            if let Command::DaemonStart { person_key_fd: Some(fd) } = &which {
+                crate::daemon::start_keyed(*fd).await?;
+            }
+            #[cfg(not(unix))]
+            if let Command::DaemonStart { person_key_fd: Some(_) } = &which {
+                return Err(crate::platform::unsupported("--person-key-fd"));
+            }
+            match connect(start).await {
                 Ok(client) => {
                     let v = client.request(method::MUX_STATUS, json!({})).await?;
                     if json_out {
@@ -289,7 +303,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 }
                 // `daemon start` promised a running daemon: failing to start
                 // one is an error, so callers such as `host setup` see it.
-                Err(e) if matches!(which, Command::DaemonStart) => return Err(e),
+                Err(e) if start => return Err(e),
                 Err(e) => {
                     if json_out {
                         print_json(&json!({"running": false, "error": e.to_string()}))

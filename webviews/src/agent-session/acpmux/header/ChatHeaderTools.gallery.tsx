@@ -4,11 +4,18 @@ import type { ReactNode } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import type { ChatMenuItem } from "./ChatHeaderTools";
+import type { QuickAction } from "./quickActions";
 
 type HeaderToolsProps = {
   onTerminal: (mode: "toggle" | "open") => void;
   onBrowser: (mode: "toggle" | "open") => void;
   tabTools?: boolean;
+  sideTabs?: boolean;
+  hasChanges?: boolean;
+  onChanges?: (mode: "toggle" | "open") => void;
+  previewUrl?: string;
+  onPreview?: (url: string | undefined, mode: "toggle" | "open") => void;
+  onCustomize?: (list: readonly QuickAction[]) => void;
   summary: ReactNode;
   menu: () => ChatMenuItem[];
   onMenuOpen?: () => Promise<unknown>;
@@ -20,12 +27,14 @@ const menuRows = (): ChatMenuItem[] => [
   { key: "rename", label: "Rename", icon: "action.edit", shortcutAction: "renameTab", onSelect: () => undefined },
   {
     key: "pin",
-    label: "Pin tab",
+    label: "Pin",
     icon: "action.pin",
     shortcutAction: "palette.toggleTabPin",
     onSelect: () => undefined,
   },
   "separator",
+  { key: "sideChat", label: "New side chat", icon: "agent.chat.new", onSelect: () => undefined },
+  { key: "fork", label: "Fork", icon: "agent.fork", onSelect: () => undefined },
   {
     key: "continue",
     label: "Continue in",
@@ -35,11 +44,23 @@ const menuRows = (): ChatMenuItem[] => [
       { key: "claude", label: "Claude Code", onSelect: () => undefined },
     ],
   },
-  { key: "copy-link", label: "Copy link", icon: "link", onSelect: () => undefined },
   "separator",
-  { key: "move-right", label: "Move to pane right", icon: "pane.split.right", onSelect: () => undefined },
+  {
+    key: "copy",
+    label: "Copy",
+    icon: "action.copy",
+    children: [
+      { key: "copyLink", label: "Copy link", shortcutAction: "palette.copySurfaceLink", onSelect: () => undefined },
+      { key: "copyResponse", label: "Copy last response", onSelect: () => undefined },
+      { key: "copyMarkdown", label: "Copy as Markdown", onSelect: () => undefined },
+    ],
+  },
+  "separator",
+  { key: "move-right", label: "Move to right pane", icon: "pane.split.right", onSelect: () => undefined },
   { key: "new-workspace", label: "Move to new workspace", icon: "workspace.new", onSelect: () => undefined },
+  { key: "new-window", label: "Open in new window", icon: "app.open.external", onSelect: () => undefined },
   "separator",
+  { key: "archive", label: "Archive", icon: "inbox", onSelect: () => undefined },
   // The tab-owned close action stays the last row, like Chrome's tab actions.
   { key: "close", label: "Close", icon: "tab.close", shortcutAction: "closeTab", onSelect: () => undefined },
 ];
@@ -54,6 +75,46 @@ const openMenu: Play = async (ctx) => {
   await ctx.focus({ role: "button", name: "Chat actions" });
   await ctx.press("Enter");
   await ctx.waitFor(() => ctx.document.querySelector('[role="menu"]'));
+};
+
+// The App reports Terminal's, Browser's, Changes' and Preview's panels open and panes beside the chat
+// (its headerState push).
+const panelsOpen: Play = async (ctx) => {
+  const { setHeaderState } = await import("./headerState");
+  setHeaderState({ lit: ["splitRight", "splitBrowserRight", "openDiffViewer", "preview"], sideTabs: true });
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-header-tool[aria-pressed="true"]'));
+};
+
+// The App found the chat branch's pull request: open, 3 of 5 checks passed, one failing (cx-tcwj).
+const pullRequestChip: Play = async (ctx) => {
+  const { setHeaderState } = await import("./headerState");
+  setHeaderState({
+    pullRequest: {
+      url: "https://github.com/manaflow-ai/cmux/pull/19375",
+      number: 19375,
+      state: "open",
+      checks: { state: "failing", passed: 3, total: 5 },
+    },
+  });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-header-pr"));
+};
+
+// Right-click Browser: the menu to move it, pick toggle or open, and show or hide each button (#19156).
+const customizeMenu: Play = async (ctx) => {
+  const button = ctx.find({ selector: '[data-quick-action="browser"]' });
+  const box = button.getBoundingClientRect();
+  const view = ctx.document.defaultView!;
+  button.dispatchEvent(
+    new view.MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+      clientX: box.left + box.width / 2,
+      clientY: box.top + box.height / 2,
+    }),
+  );
+  await ctx.waitFor(() =>
+    ctx.document.querySelector('[role="menu"] [role="menuitemcheckbox"], [role="menu"] [role="menuitem"]'),
+  );
 };
 
 const keyboardMenu: Play = async (ctx) => {
@@ -124,6 +185,35 @@ export default componentEntry<HeaderToolsProps>({
     idle: {
       note: "The complete tab header: Terminal, Browser, summary, and chat actions.",
       props: base,
+    },
+    "panels-open": {
+      note: "Terminal, Browser, Changes, Preview and Hide tabs are lit while their panels are open beside the chat (cx-00n1).",
+      props: {
+        ...base,
+        sideTabs: true,
+        hasChanges: true,
+        onChanges: () => undefined,
+        previewUrl: "http://localhost:5173/",
+        onPreview: () => undefined,
+      },
+      play: panelsOpen,
+    },
+    "pull-request": {
+      note: "The chat branch's pull request leads the tools: its number, its state and how its checks stand (cx-tcwj).",
+      props: { ...base, hasChanges: true, onChanges: () => undefined },
+      play: pullRequestChip,
+    },
+    "customize-menu": {
+      note: "Right-clicking a quick action moves it, picks toggle or open, and shows or hides each button (cx-00n1).",
+      props: {
+        ...base,
+        hasChanges: true,
+        onChanges: () => undefined,
+        previewUrl: "http://localhost:5173/",
+        onPreview: () => undefined,
+        onCustomize: () => undefined,
+      },
+      play: customizeMenu,
     },
     "menu-open": {
       note: "The real tab menu includes navigation actions and keeps Close as the final tab-owned row.",

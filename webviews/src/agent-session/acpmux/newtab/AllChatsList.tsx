@@ -5,7 +5,10 @@
 // the next page loads when its loader row scrolls into view. One click opens the chat in a new
 // workspace with the agent pane (the host's Open Chat path); Open in terminal is in the row's
 // right-click menu. The row look follows the TEMPORARY design picker (`sidebar.allChats.design`).
+// With `onBring` (the History page, cx-zlnl) rows also select: Cmd/Ctrl-click toggles one,
+// Shift-click a range, Enter opens the selection, and the menu brings it into active sessions.
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { subscribeDeviceChats } from "./deviceChats";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { VirtualList } from "../../../ui/VirtualList";
 import { useT } from "../i18n";
@@ -64,6 +67,13 @@ function rowsOf(page: AllChatsPage | undefined): AllChatsRow[] {
   return page.chats.filter((row) => row && typeof row.key === "string" && typeof row.harness === "string");
 }
 
+/// A first page read again (a push from the chat index) over the loaded rows: its rows lead, and
+/// the loaded rows it does not name keep their order below (they are older than all of it).
+export function mergeFirstPage(fresh: AllChatsRow[], rows: AllChatsRow[]): AllChatsRow[] {
+  const named = new Set(fresh.map((row) => row.key));
+  return [...fresh, ...rows.filter((row) => !named.has(row.key))];
+}
+
 /// The pages of one query: a new query starts over at the first page (its old cursor is dropped
 /// at once, so no page of the old query is asked for again); a reply for an older query is
 /// dropped (latest wins). `load` may change identity on every parent render: the list keeps the
@@ -108,7 +118,95 @@ function useChatPages(load: LoadChatsPage) {
   useEffect(() => {
     fetchPage("", undefined);
   }, [fetchPage]);
+  // A loaded list reads its first page again when the index pushes a change and puts it on top of
+  // its rows, keeping the later pages and the cursor (cx-heu). One read at a time: a push during
+  // one reads once more after it. A query's list, or a new query meanwhile, is left alone.
+  const refreshing = useRef<"idle" | "busy" | "again">("idle");
+  const refreshFirstPage = useCallback(() => {
+    if (refreshing.current !== "idle") {
+      refreshing.current = "again";
+      return;
+    }
+    refreshing.current = "busy";
+    const ticket = generation.current;
+    void latestLoad
+      .current({ limit: PAGE })
+      .catch(() => undefined)
+      .then((page) => {
+        if (page && ticket === generation.current) {
+          setState((s) => {
+            if (s.query) return s;
+            const rows = mergeFirstPage(rowsOf(page), s.rows);
+            // Most pushes change nothing on the first page: the list keeps its rows (no re-render).
+            const same =
+              rows.length === s.rows.length &&
+              rows.every(
+                (row, i) =>
+                  row === s.rows[i] ||
+                  (row.key === s.rows[i]?.key &&
+                    row.updatedAt === s.rows[i]?.updatedAt &&
+                    row.title === s.rows[i]?.title &&
+                    row.cwd === s.rows[i]?.cwd),
+              );
+            return same ? s : { ...s, rows };
+          });
+        }
+        const again = refreshing.current === "again";
+        refreshing.current = "idle";
+        if (again) refreshFirstPage();
+      });
+  }, []);
+  // A page opened before the chat index finished its first scan (`ready: false`, or no rows yet)
+  // reads its first page from the start when the host pushes the index's chats (cx-ztlw: the first
+  // Cmd-T page stayed empty for good); a loaded one refreshes it. A search is left alone.
+  const latest = useRef(state);
+  latest.current = state;
+  useEffect(
+    () =>
+      subscribeDeviceChats(() => {
+        const current = latest.current;
+        if (current.query) return;
+        if (!current.ready || current.rows.length === 0) fetchPage("", undefined);
+        else refreshFirstPage();
+      }),
+    [fetchPage, refreshFirstPage],
+  );
   return { state, fetchPage };
+}
+
+/// Selection by Cmd/Ctrl-click (toggle) and Shift-click (the range from the last clicked row),
+/// in list order. A new query starts with nothing selected.
+function useSelection(rows: AllChatsRow[], query: string) {
+  const [selected, setSelected] = useState<string[]>([]);
+  const anchor = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    setSelected([]);
+    anchor.current = undefined;
+  }, [query]);
+  /// True when the click selected (a modifier was held); false leaves it to open.
+  const click = (event: React.MouseEvent, key: string): boolean => {
+    if (event.shiftKey) {
+      const from = rows.findIndex((row) => row.key === anchor.current);
+      const to = rows.findIndex((row) => row.key === key);
+      if (from < 0 || to < 0) {
+        anchor.current = key;
+        setSelected([key]);
+      } else {
+        setSelected(rows.slice(Math.min(from, to), Math.max(from, to) + 1).map((row) => row.key));
+      }
+      return true;
+    }
+    if (event.metaKey || event.ctrlKey) {
+      anchor.current = key;
+      setSelected((current) => (current.includes(key) ? current.filter((k) => k !== key) : [...current, key]));
+      return true;
+    }
+    anchor.current = key;
+    setSelected([]);
+    return false;
+  };
+  const clear = useCallback(() => setSelected([]), []);
+  return { selected, click, clear };
 }
 
 export function AllChatsList({
@@ -117,6 +215,7 @@ export function AllChatsList({
   active = [],
   onOpenActive,
   onOpenInTerminal,
+  onBring,
   now = Date.now(),
 }: {
   load: LoadChatsPage;
@@ -124,6 +223,8 @@ export function AllChatsList({
   active?: ActiveChat[];
   onOpenActive?(id: string): void;
   onOpenInTerminal?(key: string): void;
+  /// Rows select, and the menu's Bring into Active Sessions opens the selection (cx-zlnl).
+  onBring?(keys: string[]): void;
   now?: number;
 }) {
   const t = useT();
@@ -132,6 +233,30 @@ export function AllChatsList({
   const menuKey = useRef<string | undefined>(undefined);
   const [menuTarget, setMenuTarget] = useState<string | undefined>(undefined);
   const { rows, nextCursor } = state;
+  const selection = useSelection(rows, state.query);
+  // The menu acts on the selection when the clicked row is in it, else on that row.
+  const menuKeys = menuTarget ? (selection.selected.includes(menuTarget) ? selection.selected : [menuTarget]) : [];
+  // While rows are selected, Enter opens them and Escape clears them. The page listens, not the
+  // rows: WebKit does not focus a button on click, so after Cmd/Shift-click no row has focus.
+  const { selected, clear } = selection;
+  useEffect(() => {
+    if (!onBring || selected.length === 0) return;
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (event.defaultPrevented || target?.closest("input, textarea, [role=menu]")) return;
+      if (event.key === "Enter") {
+        event.preventDefault();
+        onBring(selected);
+        clear();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        clear();
+      }
+    };
+    // ui-allow: page-wide Enter/Escape for a selection; WebKit leaves no row focused after a click
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onBring, selected, clear]);
   const count = rows.length + (nextCursor ? 1 : 0);
   const loadMore = useCallback(
     (element: HTMLElement | null) => {
@@ -160,9 +285,14 @@ export function AllChatsList({
         <button
           type="button"
           className="nt-all-row"
+          data-focus-ring="row"
           data-untitled={row.title ? undefined : true}
+          data-selected={selection.selected.includes(row.key) ? true : undefined}
           title={row.cwd ? `${title}\n${row.cwd}` : title}
-          onClick={() => onOpen(row.key)}
+          onClick={(event) => {
+            if (onBring && selection.click(event, row.key)) return;
+            onOpen(row.key);
+          }}
         >
           <span className="nt-all-glyph">
             <AgentMark harness={row.harness} />
@@ -174,16 +304,31 @@ export function AllChatsList({
       </div>
     );
   };
-  const items = onOpenInTerminal
-    ? [
-        {
-          id: "terminal",
-          label: t("shell.openInTerminal"),
-          disabled: !menuTarget,
-          onSelect: () => menuTarget && onOpenInTerminal(menuTarget),
-        },
-      ]
-    : [];
+  const items = [
+    ...(onBring
+      ? [
+          {
+            id: "bring",
+            label: nt("bringIntoActive"),
+            disabled: menuKeys.length === 0,
+            onSelect: () => {
+              onBring(menuKeys);
+              selection.clear();
+            },
+          },
+        ]
+      : []),
+    ...(onOpenInTerminal
+      ? [
+          {
+            id: "terminal",
+            label: t("shell.openInTerminal"),
+            disabled: !menuTarget,
+            onSelect: () => menuTarget && onOpenInTerminal(menuTarget),
+          },
+        ]
+      : []),
+  ];
   return (
     <section className="nt-all" aria-label={nt("chats")}>
       <header className="nt-chats-head">
@@ -206,18 +351,25 @@ export function AllChatsList({
         <ul className="nt-all-active" aria-label={t("sidebar.active")}>
           {active.map((chat) => (
             <li key={chat.id}>
-              <button
-                type="button"
-                className="nt-all-row"
-                data-state={chat.state}
-                onClick={() => onOpenActive?.(chat.id)}
+              {/* Its right-click menu: Open, as its click (cx-2lm4). */}
+              <ContextMenu
+                className="nt-row-host"
+                items={[{ id: "open", label: nt("row.open"), onSelect: () => onOpenActive?.(chat.id) }]}
               >
-                <span className="nt-all-glyph">
-                  <AgentMark harness={chat.harness} />
-                </span>
-                <span className="nt-all-title">{chat.title}</span>
-                <span className="nt-all-state">{chat.label}</span>
-              </button>
+                <button
+                  type="button"
+                  className="nt-all-row"
+                  data-focus-ring="row"
+                  data-state={chat.state}
+                  onClick={() => onOpenActive?.(chat.id)}
+                >
+                  <span className="nt-all-glyph">
+                    <AgentMark harness={chat.harness} />
+                  </span>
+                  <span className="nt-all-title">{chat.title}</span>
+                  <span className="nt-all-state">{chat.label}</span>
+                </button>
+              </ContextMenu>
             </li>
           ))}
         </ul>

@@ -100,8 +100,9 @@ final class HostView: NSView {
         // view put them above the morph; the real glass now sits there).
         composeHost.root.addSublayer(demo.compose.overlay)
         demo.compose.nativeChrome = true
-        let tv = demo.compose.textView.view
-        addSubview(tv)
+        // The field's clip, its scroll view and the text view (ComposeTextView, as Host.swift):
+        // the text view is the scroll view's document, so the clip is what the pane holds.
+        addSubview(demo.compose.textView.clip)
         addSubview(paneHeader)
         addSubview(above)
         // The in-pane header replaces the shared drawn header (fitted blur,
@@ -289,6 +290,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
     private var pickerEmoji: NSView?
     /// The context menu's target highlight, alive while its menu is (the menu's delegate).
     var menuHighlight: MenuHighlight?
+    /// The menu input that chose my tapback, until HomeStore commits it (PaneTapback.swift).
+    var tapbackChoice: TapbackChoice?
     /// Press and hold on a message (MessagesLab 7f1a811).
     private let hold = PressHold()
     private(set) lazy var selection = TranscriptSelection(controller: self)
@@ -414,6 +417,9 @@ final class ChatController: NSObject, NSTextViewDelegate {
     }
 
     static func warmUp() {
+        // MessagesLab 7518134: the menu's glyphs and title icons are made before the first open (only
+        // images; no view, window or event), on a later pass than this layout.
+        RunLoop.main.perform(inModes: [.default]) { MenuGlyphs.warm(); MenuAction.warm() }
         let tv = FieldTextView(usingTextLayoutManager: true)
         tv.frame = NSRect(x: 0, y: 0, width: 300, height: 40)
         tv.typingAttributes = ComposeView.typing
@@ -671,6 +677,10 @@ final class ChatController: NSObject, NSTextViewDelegate {
         guard let cs = window?.screen?.colorSpace?.cgColorSpace, cs != DisplayScale.colorSpace, let demo else { return }
         DisplayScale.colorSpace = cs
         RowBitmaps.shared.removeAll()
+        // MessagesLab 7518134: the palette glyphs are drawn again in the new colour space now, not
+        // inside the next menu's open on main.
+        MenuGlyphs.removeAll()
+        RunLoop.main.perform(inModes: [.default]) { MenuGlyphs.warm() }
         let inactive = Fixture.inactive
         demo.setInactive(!inactive)
         demo.setInactive(inactive)

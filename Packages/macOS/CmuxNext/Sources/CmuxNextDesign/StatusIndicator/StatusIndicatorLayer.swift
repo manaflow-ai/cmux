@@ -121,9 +121,6 @@ public final class StatusIndicatorLayer {
         return nil
     }
 
-    /// Number of sublayers alive (tests: idle must be zero).
-    public var liveSublayerCount: Int { layer.sublayers?.count ?? 0 }
-
     /// Show `plan` with `config`. Cheap when nothing changed.
     public func apply(_ plan: StatusIndicatorPlan, config: StatusIndicatorConfig) {
         guard plan != self.plan || config != self.config else { return }
@@ -358,6 +355,7 @@ public final class StatusIndicatorLayer {
         guard let wanted, let target = animationTarget(for: wanted) else { return }
         let animation: CAAnimation? = switch wanted {
         case .spin: Motion.spinAnimation()
+        case .spinBackward: Motion.spinAnimation(backward: true)
         case .step: Motion.stepAnimation(steps: config.nativeSteps)
         case .pulse: Motion.pulseAnimation(low: Float(config.pulseLow))
         case .frames: Motion.framesAnimation(brailleFrames)
@@ -370,7 +368,7 @@ public final class StatusIndicatorLayer {
         switch animation {
         case .step?: nativeLayer
         case .frames?: brailleLayer?.mask
-        case .spin?, .pulse?: markLayer ?? glyphLayer
+        case .spin?, .spinBackward?, .pulse?: markLayer ?? glyphLayer
         case .wave?: dotsLayer?.sublayers?.first
         case nil: nil
         }

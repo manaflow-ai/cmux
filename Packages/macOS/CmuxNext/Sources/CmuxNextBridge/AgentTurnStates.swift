@@ -3,37 +3,36 @@ public import Foundation
 public import Observation
 
 /// What an acpmux session is doing for the working and needs-input
-/// indicators (WORKING-AND-LOADING-INDICATORS). acpmux owns the fact
-/// (`SessionStatus` plus pending permissions); the app only mirrors it.
+/// indicators (WORKING-AND-LOADING-INDICATORS). acpmux owns the fact (the
+/// summary's `indicator`, cx-zlox); the app only mirrors it.
 public nonisolated enum AgentTurnState: Hashable, Sendable {
-    /// A prompt turn runs (`running`, no permission pending).
+    /// A prompt turn runs (`indicator` = `working`).
     case working
     /// The turn waits for the user: a permission or a question
-    /// (`waiting`, or `pendingPermissions` > 0).
+    /// (`indicator` = `input`).
     case needsInput
-    /// The last turn failed (`lastTurn.status` = `failed`). A disconnect
-    /// alone is not a failure: the next prompt respawns the agent.
+    /// The last turn failed (`indicator` = `failed`).
     case failed
+    /// The agent went away before it answered (`indicator` = `lost`). A
+    /// disconnect after an answer stays done: the next prompt respawns it.
+    case lost
     /// The last turn (`turn`, its acpmux turn id) completed: done until the
     /// user looks at the chat (client seen state, `ProgramStatusSeenStore`),
     /// like an OSC 7501 done. acpmux `unread` is not enough: an open chat tab
     /// stays attached in a background workspace.
     case done(turn: String)
 
-    /// The state of one `_acpmux/watch` / `session_changed` session summary;
-    /// nil when no turn runs and the last turn did not fail, and always for
-    /// a closed session.
+    /// The state of one `_acpmux/watch` / `session_changed` session summary,
+    /// read from its `indicator`; nil when acpmux shows no dot.
     public static func of(summary: [String: Any]) -> AgentTurnState? {
-        let status = summary["status"] as? String
-        if status == "closed" { return nil }
-        if ((summary["pendingPermissions"] as? NSNumber)?.intValue ?? 0) > 0 || status == "waiting" { return .needsInput }
-        if status == "running" { return .working }
-        let lastTurn = summary["lastTurn"] as? [String: Any]
-        switch lastTurn?["status"] as? String {
+        switch summary["indicator"] as? String {
+        case "input"?: return .needsInput
+        case "working"?: return .working
         case "failed"?: return .failed
-        case "completed"?, "ok"?:
-            let turn = lastTurn?["turnId"] as? String ?? (lastTurn?["endedAt"] as? NSNumber)?.stringValue ?? ""
-            return .done(turn: turn)
+        case "lost"?: return .lost
+        case "done"?:
+            let lastTurn = summary["lastTurn"] as? [String: Any]
+            return .done(turn: lastTurn?["turnId"] as? String ?? (lastTurn?["endedAt"] as? NSNumber)?.stringValue ?? "")
         default: return nil
         }
     }
@@ -54,12 +53,25 @@ public nonisolated struct AgentTurnStates: Hashable, Sendable {
 
     /// Applies one `_acpmux/session_changed`; a `purged` session leaves.
     public mutating func apply(changed params: [String: Any]) {
-        guard let id = params["sessionId"] as? String else { return }
-        if params["kind"] as? String == "purged" {
-            states[id] = nil
-        } else if let summary = params["session"] as? [String: Any] {
-            upsert(summary)
-        }
+        if let change = Self.change(params) { states[change.session] = change.state }
+    }
+
+    /// One decoded `_acpmux/session_changed` (decode it off the main actor): the session and
+    /// its new state (nil: no indicator, or purged). Nil when the line names no session state.
+    public static func change(_ params: [String: Any]) -> (session: String, state: AgentTurnState?)? {
+        guard let id = params["sessionId"] as? String else { return nil }
+        if params["kind"] as? String == "purged" { return (id, nil) }
+        guard let summary = params["session"] as? [String: Any] else { return nil }
+        return (summary["sessionId"] as? String ?? id, AgentTurnState.of(summary: summary))
+    }
+
+    /// Sets one session's state. False when it already had that state: the caller then
+    /// leaves the observed store untouched, so no tab or row redraws for it.
+    @discardableResult
+    public mutating func set(_ session: String, _ state: AgentTurnState?) -> Bool {
+        guard states[session] != state else { return false }
+        states[session] = state
+        return true
     }
 
     /// The completed turns of a watch result that a client watched as they

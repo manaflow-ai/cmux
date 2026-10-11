@@ -7,8 +7,9 @@ nonisolated extension AcpmuxPaneMethods {
     /// param schema, not a mode list. The daemon's `modeFields` are an extra deny inside it.
     static let knownParams: [String: (params: Set<String>, acpmux: Set<String>)] = [
         "initialize": (["protocolVersion", "clientInfo", "clientCapabilities"], []),
-        "session/new": (["cwd", "mcpServers", "_meta"], ["harness", "adopt", "peer"]),
-        "session/prompt": (["sessionId", "prompt", "_meta"], ["promptId"]),
+        // `noProject` is the pane's own (Do not work in a project): AcpmuxPathPolicy reads and strips it.
+        "session/new": (["cwd", "mcpServers", "_meta"], ["harness", "adopt", "peer", "noProject"]),
+        "session/prompt": (["sessionId", "prompt", "_meta"], ["promptId", "steer", "interrupt"]),
         "session/set_model": (["sessionId", "modelId"], []),
         "session/cancel": (["sessionId"], []),
         "_acpmux/watch": (["enabled"], []),
@@ -24,8 +25,11 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/status": ([], []),
         "_acpmux/draft_get": (["sessionId"], []),
         "_acpmux/draft_set": (["sessionId", "text"], []),
+        "_acpmux/ask": (["sessionId", "text"], []),
         "_acpmux/queue_remove": (["sessionId", "promptId"], []),
-        "_acpmux/permission_respond": (["sessionId", "permissionId", "optionId", "answers"], []),
+        "_acpmux/queue_edit": (["sessionId", "promptId", "op", "text", "index"], []),
+        // `_meta`: only the gesture ticket of the person's pick (cx-0q7o), never anything else.
+        "_acpmux/permission_respond": (["sessionId", "permissionId", "optionId", "answers", "_meta"], []),
         "_acpmux/handoff_prepare": (["sessionId", "harness", "handoffKey"], []),
         "_acpmux/handoff_get": (["sessionId", "handoffId"], []),
         "_acpmux/handoff_draft": (["handoffId", "revision", "draftKey", "capsule", "checkpoint"], []),
@@ -62,6 +66,8 @@ nonisolated extension AcpmuxPaneMethods {
         guard let meta = rawMeta as? [String: Any] else { return true }
         // A redeeming frame: R1 first (nothing but the ticket in _meta), then the gesture rule.
         if setting, meta["cmuxGesture"] != nil { return meta.keys.contains { $0 != "cmuxGesture" } }
+        // A permission answer's `_meta` holds the pick's ticket and nothing else.
+        if method == "_acpmux/permission_respond" { return Set(meta.keys) != [gestureTicketKey] }
         // A prompt held for the folder trust answer redeems its ticket beside its acpmux.promptId.
         if meta.keys.contains(where: { $0 != "acpmux" && !(method == "session/prompt" && $0 == gestureTicketKey) }) { return true }
         guard let rawAcpmux = meta["acpmux"] else { return false }

@@ -13,6 +13,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The page switched to or created `sessionId`; the host keeps it so a
     /// reload or relaunch of the pane shows the same session.
     case persistSession(String)
+    /// A new chat's typed text before it has a session (`chat.unsentDraft`, cx-z5vd): the App
+    /// keeps it with the tab, so a relaunch opens the chat with it.
+    case unsentDraft(String)
     /// A settled transcript scroll's frame intervals in milliseconds, at
     /// most ``maximumPacingFrames``; returns the native display interval and rate mode.
     case framePacing([Double])
@@ -43,6 +46,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The new tab page got its first user input (`newTab.touched`); a
     /// touched page is never recycled into the prewarm pool.
     case touched
+    /// The page's New Tab context at once (`newTab.context`), before the
+    /// handshake that waits for acpmux: a cold New Tab page draws its frame
+    /// (layout, field, empty list) at first render (cx-0rpl.10).
+    case newTabContext
     /// The identified New Tab field mounted and took DOM focus.
     case newTabInputReady(String)
     /// The location bar picked an open tab or workspace: go there.
@@ -62,10 +69,17 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// "Choose Folder…" (`workspace.chooseFolder`): the native folder sheet that sets the
     /// workspace's agent folder, after a real gesture (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
     case chooseFolder
+    /// A folder the user picked for a chat (`workspace.useFolder {cwd, confirm}`, cx-nn3e): the
+    /// host answers whether it is used at once, asked about first (the home folder) or refused
+    /// (`/`, above the home folder). `confirm` is the user's answer to the question, on its click.
+    case useFolder(String, confirm: Bool)
     /// Choose Folder… for a chat whose folder is missing (`chat.folder.choose`, cx-nn3e.1).
     case chooseChatFolder
     /// Returns bounded recent project paths for the new-tab picker.
     case listProjects(String?)
+    /// `harness.health {id, refresh?}` (cx-ny85): this Mac's acpmux health row for the chat's
+    /// agent CLI; `refresh` checks again (after its Log In or Update).
+    case harnessHealth(String, refresh: Bool)
     /// `chats.open {key}`: a device chat card (`harness:sessionId`) the New Tab page shows,
     /// opened through the app's shared Open Chat path.
     case openChat(String)
@@ -81,6 +95,13 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// header/quickActions.ts) closes the split this tab's button opened
     /// when it is still there, else opens one.
     case paneAction(String, cwd: String? = nil, toggle: Bool = false)
+    /// The header's Preview (`pane.action {id: "preview", url, mode}`): toggles or opens a browser tab
+    /// beside the chat on `url`, the local page its last turn started or mentioned. A loopback
+    /// address only; a click that closes the open preview may name none.
+    case preview(url: String?, toggle: Bool)
+    /// The header's right-click menu saved the quick actions (`pane.setQuickActions
+    /// {quickActions}`): the App writes them into `agent-pane/layout.json`.
+    case setQuickActions([AgentPaneQuickAction])
     /// The chat tab's state the header's menu labels read: `{pinned}`.
     case tabState
     /// The "..." menu's Archive (`true`) or Unarchive (`false`) of the pane's chat.
@@ -112,6 +133,15 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The quick panel's page (Start Agent's Return): its chat started;
     /// hand the session to the sidebar in the background and hide the panel.
     case quickStartInBackground(AgentPaneQuickStart)
+    /// The floating chat's page (cx-b9qi): `quick.setOnTop {onTop}` floats the
+    /// panel over other windows or not; `quick.setCollapsed {collapsed}` folds it
+    /// to its compact bar or opens it again.
+    case quickSetOnTop(Bool)
+    case quickSetCollapsed(Bool)
+    /// `quick.floatingState`: the page, once loaded, reads the floating chat's state.
+    case quickFloatingState
+    /// `quick.context`: Include focused tab asks what the user is looking at in cmux.
+    case quickContext
     /// `git.diff` or `git.status` with `{cwd, …}`: the changes view's reads of
     /// the session's repository, which the App runs on the session host.
     case git(AgentPaneGitRequest)
@@ -124,6 +154,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case turnUndo(AgentPaneTurnUndo)
     /// `turn.undo` whose params break its contract; nothing is read or written.
     case invalidTurnUndo
+    /// `git.stage` / `git.unstage`: the Changes view's Stage and Unstage (AgentPaneGitStage.swift);
+    /// nil when its params break the contract, and nothing runs.
+    case gitStage(AgentPaneGitStage?)
+    /// `git.pullRequest`: the Changes view's Create PR (AgentPaneGitPullRequest.swift); nil when its
+    /// params break the contract, and nothing runs.
+    case gitPullRequest(AgentPaneGitPullRequest?)
     /// `transport.open`: open the host's acpmux socket named by the last handshake
     /// (``AgentPaneTransport``); answers `{connection}` once it is open.
     case transportOpen

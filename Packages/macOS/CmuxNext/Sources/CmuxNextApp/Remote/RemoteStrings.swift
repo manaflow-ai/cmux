@@ -89,13 +89,10 @@ enum RemoteStrings {
         String(format: String(localized: "remote.install.body", defaultValue: "Downloads cmux-tui %1$@ from files.cmux.com, checks its SHA-256 checksum and installs it at %2$@ on %3$@, without sudo. A cmux-tui running there restarts on the new build; its terminals keep running.", table: "Remote", bundle: .module), commit, path, destination)
     }
     static var install: String { String(localized: "remote.button.install", defaultValue: "Install", table: "Remote", bundle: .module) }
-    static func forgetTitle(_ name: String) -> String {
-        String(format: String(localized: "remote.forget.title", defaultValue: "Forget %@?", table: "Remote", bundle: .module), name)
+    /// The toast after Forget Machine (its Undo brings the machine back).
+    static func forgotToast(_ name: String) -> String {
+        String(format: String(localized: "remote.forgot.toast", defaultValue: "Forgot %@", table: "Remote", bundle: .module), name)
     }
-    static var forgetBody: String {
-        String(localized: "remote.forget.body", defaultValue: "Removes the machine from the saved list with its personal order, groups and space pins. Nothing on the machine changes.", table: "Remote", bundle: .module)
-    }
-    static var forget: String { String(localized: "remote.button.forget", defaultValue: "Forget", table: "Remote", bundle: .module) }
 
     // MARK: Failures
 

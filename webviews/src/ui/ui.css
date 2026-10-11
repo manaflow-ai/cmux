@@ -9,6 +9,9 @@
   --ui-line: var(--cmux-separator, color-mix(in srgb, var(--ui-fg) 11%, transparent));
   --ui-hover: var(--cmux-hover, color-mix(in srgb, var(--ui-fg) 6%, transparent));
   --ui-selected: var(--cmux-selection, color-mix(in srgb, var(--ui-fg) 10%, transparent));
+  /* A highlighted menu, combobox or list row (desktop.css): hover's family, a touch stronger. */
+  --ui-row: var(--cmux-row-focus, color-mix(in srgb, var(--ui-fg) 10%, transparent));
+  --ui-row-bar: inset var(--cmux-row-focus-bar, 0px) 0 0 var(--cmux-accent, currentColor);
   --ui-surface: var(--cmux-elevated-background, Canvas);
   --ui-ring: var(--cmux-focus-ring-color, color-mix(in srgb, var(--cmux-app-focus-ring, var(--ui-fg)) 48%, transparent));
   --ui-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
@@ -27,7 +30,7 @@
   outline: none;
 }
 
-:where(.ui-button, .ui-menu-item, .ui-listbox, .ui-crumb):focus-visible {
+:where(.ui-button, .ui-crumb):focus-visible {
   outline: var(--cmux-focus-ring-width, 1.5px) solid var(--ui-ring);
   outline-offset: 1px;
 }
@@ -39,6 +42,9 @@
 
 .ui-popup {
   min-width: 160px;
+  max-height: min(420px, calc(100vh - 24px));
+  overflow: auto;
+  overscroll-behavior: contain;
   padding: var(--ui-popup-padding);
   border: 1px solid var(--ui-line);
   border-radius: var(--ui-popup-radius);
@@ -50,6 +56,20 @@
   outline: none;
   /* Base UI's positioner names the side the popup grows from. */
   transform-origin: var(--transform-origin);
+  scrollbar-width: thin;
+}
+
+/* A menu may own a submenu. Let the safe-triangle bridge extend beyond the parent surface;
+   long custom pickers use their own scroll containers and Base UI keeps ordinary menus compact. */
+.ui-menu {
+  max-height: none;
+  overflow: visible;
+}
+
+/* Large pickers own scrolling in their two columns; the surface itself must stay fixed so opening
+   or filtering a list never changes the composer's geometry. */
+.ui-picker-popup {
+  overflow: hidden;
 }
 
 .ui-menu-item {
@@ -71,7 +91,8 @@
 }
 
 .ui-menu-item[data-highlighted] {
-  background: var(--ui-selected);
+  background: var(--ui-row);
+  box-shadow: var(--ui-row-bar);
 }
 
 .ui-menu-item[data-disabled] {
@@ -79,7 +100,7 @@
 }
 
 .ui-menu-item-destructive {
-  color: color-mix(in srgb, var(--ui-fg) 78%, #d44);
+  color: var(--cmux-app-danger, var(--agent-danger, color-mix(in srgb, var(--ui-fg) 78%, #d44)));
 }
 
 .ui-context-menu-backdrop {
@@ -227,21 +248,6 @@
   opacity: 0.4;
 }
 
-.ui-backdrop {
-  position: fixed;
-  inset: 0;
-  background: var(--cmux-scrim, rgb(0 0 0 / 12%));
-}
-
-.ui-dialog {
-  position: fixed;
-  inset-block-start: 12vh;
-  inset-inline: 0;
-  margin-inline: auto;
-  width: min(560px, calc(100vw - 32px));
-  outline: none;
-}
-
 .ui-sheet {
   inset-block-start: auto;
   inset-block-end: 0;
@@ -290,7 +296,8 @@
 }
 
 .ui-combobox-item[data-highlighted] {
-  background: var(--ui-selected);
+  background: var(--ui-row);
+  box-shadow: var(--ui-row-bar);
 }
 
 .ui-virtual {

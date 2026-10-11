@@ -11,11 +11,21 @@ import os
 /// one session), `_acpmux/attach`, `_acpmux/events`, `_acpmux/detach`, `session/prompt` (text
 /// blocks only), `session/cancel` and `_acpmux/permission_respond`. Every other method, and any
 /// frame that names another session, is answered `remote.unsupported`: nothing on the other
-/// machine starts a session, changes a mode, reads a folder or spawns a process from here.
+/// machine changes a mode, reads a folder or spawns a process from here.
+///
+/// A new chat's wire (``init(start:)``) has no session yet: its page's first `session/new` (the
+/// first send, cx-k21v) starts the chat on that machine through the host's start
+/// (`agent-session-start`, policy `ask`) once, and the wire then serves that one session. No
+/// session exists on the other machine before that send.
 public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// JSON-RPC `code` and `data.code` of a refused method.
     public static let unsupportedCode = -32601
     public static let unsupported = "remote.unsupported"
+
+    /// Starts a new chat on the other machine in `cwd` with `harness` (the page's `session/new`
+    /// values; nil leaves the host's own choice) and answers its attachment and session.
+    public typealias Start = @Sendable (_ cwd: String?, _ harness: String?) async throws
+        -> (client: any AgentSessionRemoteClient, session: String)
 
     private struct State {
         var onFrame: (@Sendable (String) -> Void)?
@@ -23,17 +33,28 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         var closed = false
         /// acpmux's id of the session (an attach page names it; the tab may hold a name).
         var resolved: String?
+        /// The session's daemon attachment; nil until a new chat's start answered.
+        var client: (any AgentSessionRemoteClient)?
+        /// The session the tab shows (its store record, or the one this wire started).
+        var session: String?
+        /// A `session/new` is starting the chat (one at a time).
+        var starting = false
     }
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.remote")
-    private let client: any AgentSessionRemoteClient
-    /// The session the tab shows (its store record).
-    private let session: String
-    private let state = Mutex(State())
+    private let start: Start?
+    private let state: Mutex<State>
 
+    /// The wire of the chat `session` (its store record), through `client`.
     public init(client: any AgentSessionRemoteClient, session: String) {
-        self.client = client
-        self.session = session
+        start = nil
+        state = Mutex(State(client: client, session: session))
+    }
+
+    /// The wire of a new chat that has no session yet: the page's first `session/new` runs `start`.
+    public init(start: @escaping Start) {
+        self.start = start
+        state = Mutex(State())
     }
 
     public func open(onFrame: @escaping @Sendable (String) -> Void,
@@ -57,10 +78,15 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
                        "_meta": ["acpmux": ["origin": "remote", "extensions": [String]()]]])
         case "_acpmux/status":
             reply(id, ["peers": [Any]()])
+        case "session/new":
+            startChat(id, params)
         case "session/cancel":
             run(id) { client in try await client.cancel(); return Data("{}".utf8) }
         case "_acpmux/detach":
             run(id) { client in await client.detach(); return Data("{}".utf8) }
+        case "_acpmux/watch" where state.withLock({ $0.client == nil }):
+            // A new chat before its first send: no session on that machine yet.
+            reply(id, ["sessions": [Any]()])
         case "_acpmux/watch", "_acpmux/attach", "_acpmux/events":
             guard method == "_acpmux/watch" || names(params["sessionId"]) else { return refuse(id, method) }
             let page = Self.page(params, method: method)
@@ -72,7 +98,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             guard names(params["sessionId"]), let text = Self.text(params["prompt"]) else { return refuse(id, method) }
             let prompt = ((params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])?["promptId"] as? String
                 ?? UUID().uuidString.lowercased()
-            let session = session
+            let session = state.withLock { $0.session } ?? ""
             run(id) { [weak self] client in
                 let accepted = try await client.prompt(id: prompt, text: text)
                 let object = (try? JSONSerialization.jsonObject(with: accepted)) as? [String: Any] ?? [:]
@@ -84,17 +110,59 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         case "_acpmux/permission_respond":
             guard names(params["sessionId"]), let permission = params["permissionId"] as? String,
                   let option = params["optionId"] as? String else { return refuse(id, method) }
-            run(id) { client in try await client.permission(id: permission, option: option); return Data("{}".utf8) }
+            // The decision proof the host added (never the page): acpmux on that machine decides.
+            let decision = (params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
+            let nonce = decision?["decisionNonce"] as? String, proof = decision?["personDecision"] as? String
+            run(id) { client in
+                try await client.permission(id: permission, option: option, decisionNonce: nonce, personDecision: proof)
+                return Data("{}".utf8)
+            }
         default:
             refuse(id, method)
         }
     }
 
     public func cancel(code: Int, reason: String) {
-        guard close() else { return }
-        let client = client
+        guard close(), let client = state.withLock({ $0.client }) else { return }
         // task-owner: ends the daemon attachment once; nothing waits on it
         Task { await client.close() }
+    }
+
+    // MARK: Start
+
+    /// A new chat's `session/new` (its first send): starts the chat on that machine once and
+    /// answers its session. Refused on a wire that already has a session, while a start runs, and
+    /// for an adopt (an outside chat of this Mac never moves there). A refused start leaves no
+    /// session, so the next send (a person's action) may start again; nothing retries by itself.
+    private func startChat(_ id: String?, _ params: [String: Any]) {
+        let acpmux = (params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
+        guard let start, acpmux?["adopt"] == nil, state.withLock({ state -> Bool in
+            guard !state.closed, state.client == nil, !state.starting else { return false }
+            state.starting = true
+            return true
+        }) else { return refuse(id, "session/new") }
+        let cwd = (params["cwd"] as? String).flatMap { $0.hasPrefix("/") ? $0 : nil }
+        let harness = (acpmux?["harness"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        // task-owner: the one start of this wire's chat; its reply ends it
+        Task { [weak self] in
+            do {
+                let (client, session) = try await start(cwd, harness)
+                guard let self else { await client.close(); return }
+                let open = state.withLock { state -> Bool in
+                    state.starting = false
+                    guard !state.closed else { return false }
+                    (state.client, state.session) = (client, session)
+                    return true
+                }
+                // The page reconnects with a new wire, which finds the started chat.
+                guard open else { await client.close(); return }
+                reply(id, ["sessionId": session])
+            } catch {
+                self?.state.withLock { $0.starting = false }
+                let refused = error as? AgentSessionRemoteError
+                self?.fail(id, code: refused?.code ?? Self.unsupported, message: refused?.message ?? String(describing: error))
+            }
+        }
     }
 
     // MARK: Pages
@@ -144,8 +212,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             Self.logger.info("remote agent attachment ended reason=\(reason, privacy: .public)")
             // The page reconnects (a fresh wire and daemon connection) and replays from the
             // newest seq it holds; this attachment's connection ends now.
-            guard close() else { return }
-            let client = client
+            guard close(), let client = state.withLock({ $0.client }) else { return }
             // task-owner: ends the ended attachment's daemon connection; nothing waits on it
             Task { await client.close() }
             state.withLock { $0.onClose }?(1012, reason)
@@ -166,7 +233,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// True when `value` names this chat's session (the tab's, or acpmux's id for it).
     private func names(_ value: Any?) -> Bool {
         guard let name = value as? String else { return false }
-        return name == session || state.withLock { $0.resolved } == name
+        return state.withLock { state in state.session != nil && (name == state.session || name == state.resolved) }
     }
 
     /// The text of a prompt made only of text blocks; nil for any other block.
@@ -181,7 +248,10 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     }
 
     private func run(_ id: String?, _ work: @escaping @Sendable (any AgentSessionRemoteClient) async throws -> Data) {
-        let client = client
+        // A new chat before its first send has no attachment: nothing to page, cancel or detach.
+        guard let client = state.withLock({ $0.client }) else {
+            return reply(id, [:])
+        }
         // task-owner: one daemon call per page request; its reply ends it
         Task { [weak self] in
             do {

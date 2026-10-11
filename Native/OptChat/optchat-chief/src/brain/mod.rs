@@ -136,6 +136,11 @@ pub enum Input {
         id: String,
         reply: Sender<Option<String>>,
     },
+    /// The running turn's view as its subagents get it (`spawn`): None
+    /// outside a turn.
+    TurnView {
+        reply: Sender<Option<String>>,
+    },
     /// `tell(id, message)`.
     Tell {
         id: String,
@@ -407,6 +412,8 @@ pub struct Brain {
     steer_seq: u64,
     /// A draft could not be published (logged once).
     draft_failed: bool,
+    /// The owner said once that it takes no typing indicator (cloud).
+    typing_unsupported: bool,
     after_turn: Option<TurnHook>,
     /// Notices waiting for the conversation to be known.
     notices: Vec<(String, String)>,
@@ -443,6 +450,10 @@ pub struct Brain {
     /// Where a turn waiting for the compactor says how far it is.
     settle_status: Option<Arc<crate::settle_status::SettleStatus>>,
     turn_clock: Option<Instant>,
+    /// The running turn's view with its new messages, what a `spawn` in it
+    /// gives its subagents (no wait for the compactor to summarize the
+    /// turn's own messages and tool calls).
+    turn_view: Option<String>,
     /// The running turn's engine (engine.rs), for the trace.
     turn_engine: Option<crate::engine::TurnEngine>,
     /// The per-Chief settings (`chief_settings`), owned by the host.
@@ -518,6 +529,7 @@ impl Brain {
             steering: Vec::new(),
             steer_seq: 0,
             draft_failed: false,
+            typing_unsupported: false,
             marker_refused: crate::prompt::MarkLatch::default(),
             ttl_refused: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             prewarm_ttl: None,
@@ -539,6 +551,7 @@ impl Brain {
             settle_clock: None,
             settle_status: None,
             turn_clock: None,
+            turn_view: None,
             turn_engine: None,
             describer: None,
             describing: HashSet::new(),
@@ -708,6 +721,9 @@ impl Brain {
             Input::SubagentWorkspace { id, key, name } => self.sub_workspace(&id, key, name),
             Input::SubagentFailed { id, error } => self.sub_failed(&id, &error),
             Input::SubagentAnswer { id, answer } => self.sub_answer(&id, &answer),
+            Input::TurnView { reply } => {
+                let _ = reply.send(self.turn_view.clone());
+            }
             Input::SubSession { id, reply } => {
                 let session = self.state.sub(&id).and_then(|(_, s)| s.session_id.clone());
                 let _ = reply.send(session);
@@ -986,6 +1002,17 @@ fn op_entry(conversation: String, key: &str, op: Op) -> OutboxEntry {
 }
 
 fn reply_entry(conversation: String, key: &str, text: &str) -> OutboxEntry {
+    answer_entry(conversation, key, text, Vec::new(), Vec::new())
+}
+
+/// A turn reply that names the messages it answers (E22).
+fn answer_entry(
+    conversation: String,
+    key: &str,
+    text: &str,
+    answers: Vec<String>,
+    answers_pending: Vec<String>,
+) -> OutboxEntry {
     let text = if text.len() > REPLY_BYTES {
         let mut cut = REPLY_BYTES;
         while !text.is_char_boundary(cut) {
@@ -1006,6 +1033,9 @@ fn reply_entry(conversation: String, key: &str, text: &str) -> OutboxEntry {
             client_msg_id: key.to_owned(),
             parts: vec![Part::Text { text, runs: None }],
             reply_to: None,
+            answers,
+            answers_pending,
+            thread_root: None,
         },
         rate_retried: false,
         not_before: None,

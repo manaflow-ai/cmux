@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR c3e75f81f153b62db514f794bde678dc60c2776c6715471d2055c9cd99ec3172. */
+/* cmux-tui mux protocol 12, IR d7197176d6626400cd73cde71531657da3412e0ecfceb822df0e6b1bfb7fe9eb. */
 
 
 import type * as T from "./types.js";
@@ -18,6 +18,25 @@ export type AgentChangedEvent = { event: "agent-changed" } & {
   "state": T.AgentState;
   "surface": T.Id;
   "updated_at_ms": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type AgentPresenceChangedEvent = { event: "agent-presence-changed" } & {
+  /** What the agent is doing now; null clears the surface's presence and every other field is then null. */
+  "activity": (T.AgentPresenceActivity) | null;
+  /** Adapter identity (claude, codex, ...). */
+  "agent": (string) | null;
+  /** The 1-based line the tool call targets, when the tool input names one. */
+  "line": (bigint) | null;
+  /** The file the tool call targets, when the tool input names one. */
+  "path": (string) | null;
+  /** The agent's portable session id, a stable identity for colour. */
+  "session": (string) | null;
+  "surface": T.Id;
+  /** The native tool name of the current or last tool call. */
+  "tool": (string) | null;
+  /** When the hook observed the event; null on clear. */
+  "updated_at_ms": (bigint) | null;
 };
 
 /** Protocol v5; emission: emitted; streams: subscribe. */
@@ -159,6 +178,13 @@ export type ConversationChangedEvent = { event: "conversation-changed" } & {
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
+export type ConversationDraftEvent = { event: "conversation-draft" } & {
+  "conversation": string;
+  "item": T.JsonValue;
+  "participant": string;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
 export type ConversationTypingEvent = { event: "conversation-typing" } & {
   "conversation": string;
   "on": boolean;
@@ -211,6 +237,12 @@ export type GraphicsStatusEvent = { event: "graphics-status" } & {
   "remaining"?: bigint;
   "retry_exhausted"?: boolean;
   "summary"?: string;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type HistoryChangedEvent = { event: "history-changed" } & {
+  "kinds": Array<string>;
+  "revision": bigint;
 };
 
 /** Protocol v6; emission: emitted; streams: subscribe. */
@@ -359,6 +391,13 @@ export type ScrollChangedEvent = { event: "scroll-changed" } & {
   "at_bottom": boolean;
   "offset": bigint;
   "surface": T.Id;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type SettingsChangedEvent = { event: "settings-changed" } & {
+  "keys": Array<string>;
+  "origin": "user" | "cli" | "mcp" | "script" | "remote" | "app" | "file";
+  "revision": bigint;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe, attach-byte, attach-render. */
@@ -571,6 +610,7 @@ export interface UnknownEvent {
 export type KnownCmuxEvent =
   | ActivityChangedEvent
   | AgentChangedEvent
+  | AgentPresenceChangedEvent
   | BellEvent
   | BookmarksChangedEvent
   | BrowserStateEvent
@@ -588,6 +628,7 @@ export type KnownCmuxEvent =
   | ColorsChangedEvent
   | ConfigReloadRequestedEvent
   | ConversationChangedEvent
+  | ConversationDraftEvent
   | ConversationTypingEvent
   | DaemonShutdownEvent
   | DetachedEvent
@@ -595,6 +636,7 @@ export type KnownCmuxEvent =
   | FrameEvent
   | FrontendProjectionChangedEvent
   | GraphicsStatusEvent
+  | HistoryChangedEvent
   | LayoutChangedEvent
   | MachineUsageChangedEvent
   | NotificationEvent
@@ -613,6 +655,7 @@ export type KnownCmuxEvent =
   | ScreenClosedEvent
   | ScreenRenamedEvent
   | ScrollChangedEvent
+  | SettingsChangedEvent
   | SizeStateEvent
   | StatusEvent
   | SurfaceExitedEvent
@@ -645,6 +688,7 @@ export type SerializedButNotEmittedEvent =
 /** Known subscribe stream events. */
 export type KnownSubscribeEvent =
   | AgentChangedEvent
+  | AgentPresenceChangedEvent
   | BellEvent
   | BookmarksChangedEvent
   | ClientAttachedEvent
@@ -660,10 +704,12 @@ export type KnownSubscribeEvent =
   | CloudSubscriptionStateEvent
   | ConfigReloadRequestedEvent
   | ConversationChangedEvent
+  | ConversationDraftEvent
   | ConversationTypingEvent
   | EmptyEvent
   | FrontendProjectionChangedEvent
   | GraphicsStatusEvent
+  | HistoryChangedEvent
   | LayoutChangedEvent
   | MachineUsageChangedEvent
   | NotificationEvent
@@ -678,6 +724,7 @@ export type KnownSubscribeEvent =
   | ScreenClosedEvent
   | ScreenRenamedEvent
   | ScrollChangedEvent
+  | SettingsChangedEvent
   | SizeStateEvent
   | StatusEvent
   | SurfaceExitedEvent

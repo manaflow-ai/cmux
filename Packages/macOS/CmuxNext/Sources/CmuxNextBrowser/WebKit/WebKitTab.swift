@@ -78,24 +78,25 @@ public final class WebKitTab: NSObject, BrowserTab {
         setDrawsPageBackground(!PageBackground.startsWithTheme(openedByPage: openedByPage))
 
         let controller = webViewConfiguration.userContentController
-        controller.addUserScript(WKUserScript(
-            source: PaneFullscreenScript.source,
-            injectionTime: .atDocumentStart,
-            forMainFrameOnly: false
-        ))
+        controller.addUserScript(WKUserScript(source: PaneFullscreenScript.source, injectionTime: .atDocumentStart, forMainFrameOnly: false))
         controller.add(WeakScriptMessageHandler(self), name: PaneFullscreenScript.messageHandlerName)
         WebKitContextHit.install(self, into: controller)
+        WebKitMediaHandler.install(on: self, into: controller)
         WebKitPasskeyInstaller.install(self, into: controller)
-
+        WebKitNotificationBridge.install(on: self, into: controller)
         observeWebView()
         if configuration.zoom != 1 {
             setZoom(configuration.zoom)
         }
     }
 
-    isolated deinit {
-        faviconTask?.cancel()
-        rateReshow?.cancel()
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            faviconTask?.cancel()
+            rateReshow?.cancel()
+        }
     }
 
     /// WKWebView paints white behind every page by default. macOS has no

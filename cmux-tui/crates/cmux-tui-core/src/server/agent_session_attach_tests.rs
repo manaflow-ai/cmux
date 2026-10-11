@@ -649,6 +649,52 @@ fn permission_answers_only_announced_requests_once_and_never_by_itself() {
     assert_eq!(answer(&mut client, "perm_attach")["ok"], json!(true));
 }
 
+/// cx-0q7o slice 2b: an answer from the person's app on another machine
+/// carries the person's decision proof (and who answered) to acpmux
+/// unchanged, as `_meta.acpmux`; acpmux decides, never this daemon. A proof
+/// field that is not 64 lowercase hex characters is a bad request.
+#[test]
+fn a_permission_answer_carries_the_decision_proof_to_acpmux_unchanged() {
+    let mut fake = FakeAcpmux::start("proof");
+    let mux = mux_with(&fake, "asa-proof");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "proof");
+    assert_eq!(attach(&mut client, surface)["ok"], json!(true));
+    let _ = fake.frame();
+    let _ = client.event(WAIT).expect("the early record");
+    fake.notify(
+        "_acpmux/permission_pending",
+        json!({"sessionId":SESSION,"permissionId":"perm_live","decisionNonce":"n",
+               "personInstance":"i","options":[{"optionId":"allow"}]}),
+    );
+    let shown = client.event(WAIT).expect("the request is shown to the user");
+    assert_eq!(shown["request"]["decisionNonce"], json!("n"), "{shown}");
+    assert_eq!(shown["request"]["personInstance"], json!("i"), "{shown}");
+    let nonce = "ab".repeat(32);
+    let proof = "cd".repeat(32);
+    let malformed = client.request(json!({"cmd":"agent-session-permission","surface":surface,
+        "permission_id":"perm_live","option_id":"allow","decision_nonce":nonce,
+        "person_decision":"not-hex"}));
+    assert_code(&malformed, "agent_session.bad_request");
+    let bad_device = client.request(json!({"cmd":"agent-session-permission","surface":surface,
+        "permission_id":"perm_live","option_id":"allow","decision_nonce":nonce,
+        "person_decision":proof,"answered_by":{"device":"my phone!","feed_item":"feed-1"}}));
+    assert_code(&bad_device, "agent_session.bad_request");
+    fake.no_frame();
+    let reply = client.request(json!({"cmd":"agent-session-permission","surface":surface,
+        "permission_id":"perm_live","option_id":"allow","decision_nonce":nonce,
+        "person_decision":proof,"answered_by":{"device":"iphone-1","feed_item":"feed-1"}}));
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    let sent = fake.frame();
+    assert_eq!(sent["method"], json!("_acpmux/permission_respond"));
+    assert_eq!(
+        sent["params"],
+        json!({"sessionId":SESSION,"permissionId":"perm_live","optionId":"allow",
+               "_meta":{"acpmux":{"decisionNonce":nonce,"personDecision":proof,
+                                  "answeredBy":{"device":"iphone-1","feedItem":"feed-1"}}}})
+    );
+}
+
 // MARK: Lifecycle and bounds
 
 #[test]

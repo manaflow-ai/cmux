@@ -877,6 +877,14 @@ path = "tests/test_install_git_hooks.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_bead_autoclose.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_fresh_merge.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_git_seed.py"
 lane = "linux-guard"
 
@@ -1138,4 +1146,16 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_next_recovery.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_headless_debug_workflow.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_republish_same_commit.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_classic_to_next.py"
 lane = "linux-guard"

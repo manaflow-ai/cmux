@@ -57,14 +57,19 @@ extension DaemonEvent {
             case "bell": return .bell(surface: try d(EventPayload.SurfaceField.self).surface)
             case "notification": return .notification(try d(DaemonNotification.self))
             case "agent-changed": return .agentChanged(try d(AgentStatus.self))
+            case "agent-presence-changed": return .agentPresenceChanged(try d(AgentPresence.self))
             case "frontend-projection-changed": return .frontendProjectionChanged(try d(ProjectionChange.self))
             case "terminal-registry-changed":
                 return .terminalRegistryChanged(revision: try d(EventPayload.TerminalRegistryChanged.self).terminalRevision)
             case "bookmarks-changed":
                 let e = try d(EventPayload.BookmarksChanged.self)
                 return .bookmarksChanged(browserProfileID: e.browserProfileID, revision: e.revision ?? 0)
+            case "history-changed":
+                let e = try d(EventPayload.HistoryChanged.self)
+                return .historyChanged(revision: e.revision, kinds: e.kinds ?? [])
             case "conversation-changed": return .conversationChanged(try d(ConversationEvent.self))
             case "conversation-typing": return .conversationTyping(try d(ConversationTyping.self))
+            case "conversation-draft": return .conversationDraft(try d(ConversationDraft.self))
             case "terminal-clipboard-read": return .terminalClipboardRead(try d(TerminalClipboardRead.self))
             case "terminal-clipboard-read-cancelled":
                 return .terminalClipboardReadCancelled(requestID: try d(EventPayload.RequestField.self).requestID)
@@ -90,6 +95,11 @@ extension DaemonEvent {
 
 /// Minimal payload shapes for events whose fields map onto enum cases.
 private enum EventPayload {
+    struct HistoryChanged: Decodable {
+        var revision: UInt64
+        var kinds: [String]?
+    }
+
     struct BookmarksChanged: Decodable {
         var browserProfileID: String
         var revision: UInt64?

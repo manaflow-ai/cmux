@@ -18,11 +18,11 @@ public nonisolated enum GroupColor: String, CaseIterable, Codable, Hashable, Sen
     case cyan
     case orange
 
-    /// The color a new space or browser profile gets: the first color not in
-    /// `used`, never blue (the no-blue rule covers what the app picks by
-    /// itself) or grey (no color). Nil when every such color is in use.
+    /// The color a new group, space or browser profile gets: the first of
+    /// `automaticOrder` (the theme palette in a stable order) not in `used`;
+    /// never blue or grey. Nil when every such color is in use.
     public static func automatic(used: Set<String>) -> GroupColor? {
-        allCases.first { $0 != .grey && $0 != .blue && !used.contains($0.rawValue) }
+        automaticOrder.first { !used.contains($0.rawValue) }
     }
 
     /// The color itself: swatches, group underlines, sidebar rails.
@@ -58,16 +58,5 @@ public nonisolated enum GroupColor: String, CaseIterable, Codable, Hashable, Sen
                 alpha: 1
             )
         }
-    }
-
-    /// Fills `layer` as a round swatch of this color, with an optional ring
-    /// for the chosen state. Resolves colors against `appearance`.
-    public func renderSwatch(into layer: CALayer, ringColor: NSColor?, ringWidth: CGFloat, appearance: NSAppearance) {
-        appearance.performAsCurrentDrawingAppearance {
-            layer.backgroundColor = swatch.cgColor
-            layer.borderColor = ringColor?.cgColor
-        }
-        layer.borderWidth = ringColor == nil ? 0 : ringWidth
-        layer.cornerRadius = min(layer.bounds.width, layer.bounds.height) / 2
     }
 }

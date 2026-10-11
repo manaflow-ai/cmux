@@ -19,7 +19,9 @@ use serde_json::{Value, json};
 use super::home::ChiefHome;
 use super::link::{Link, LinkError};
 use super::messages::messages;
-use crate::local_owner::{ENSURE_DEADLINE, EnsureError, Ensured, OwnerSpec, ensure_owner};
+use crate::local_owner::{
+    ENSURE_DEADLINE, EnsureError, Ensured, OwnerSpec, RestoreProgress, ensure_owner,
+};
 
 /// The app's Chief conversation create request (HomeChiefName.swift and
 /// optchat-chief daemon.rs): the same key and fields, so whoever creates it
@@ -46,7 +48,8 @@ pub(super) fn ensure(home: &ChiefHome) -> Result<PathBuf, String> {
         // through the home's brain.
         chief_tools_socket: Some(home.root.join("optchat/tools.sock")),
     };
-    match ensure_owner(&spec, Some(&session), Instant::now() + ENSURE_DEADLINE) {
+    let progress = RestoreProgress::silent();
+    match ensure_owner(&spec, Some(&session), Instant::now() + ENSURE_DEADLINE, &progress) {
         Ok(Ensured::Running(_)) => {}
         Ok(Ensured::Started(owner)) => {
             eprintln!(
@@ -84,8 +87,10 @@ fn ensure_error(error: &EnsureError) -> &'static str {
     match error {
         EnsureError::Spawn(_) => "it could not be started",
         EnsureError::NotReady => "it did not become ready in time",
+        EnsureError::RestoreTimeout => "it did not finish restoring its session in time",
         EnsureError::WrongOwner => "another program serves its socket",
         EnsureError::DifferentSession => "another session serves its socket",
+        EnsureError::DifferentState => "its running owner serves a deleted or replaced home",
         EnsureError::InvalidIdentity | EnsureError::UnsupportedProtocol => {
             "it speaks another protocol version"
         }

@@ -10,17 +10,45 @@ struct AgentChatTabActions {
     /// The chat's tab now (a provisional id becomes the store's).
     let tab: @MainActor () -> String
     let registry: @MainActor () -> ActionRegistry?
+    /// Opens the Files tree of a folder beside the chat (AgentTabStore.openFiles), on tab `target` or in a new column.
+    var files: @MainActor (_ folder: String, _ target: String?) -> Void = { _, _ in }
 
-    /// A header action, with the folder it names when it names one.
-    func run(_ id: String, cwd: String?) {
+    /// A header action, with the folder it names when it names one, on the chat's tab or on tab
+    /// `target` (a header split opening right of the one before it, AgentChatSplitToggles).
+    func run(_ id: String, cwd: String?, on target: String? = nil) {
         let arguments: [String: ActionValue] = cwd.map { ["cwd": .string($0)] } ?? [:]
-        let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab()), arguments: arguments, origin: .user)
+        var invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: target ?? tab()), arguments: arguments, origin: .user)
+        // The header's Terminal opens a terminal, not the New Tab page a person's Split Right from a chat opens.
+        invocation.opensTerminal = id == "splitRight"
         _ = registry()?.perform(ActionID(rawValue: id), invocation: invocation)
+    }
+
+    /// Runs `id` (Changes' diff viewer, Preview's browser) as an agent's beside_caller run, keeping
+    /// focus in the chat: its tab opens selected in tab `target`'s column, or with no target in a new
+    /// column right of the chat.
+    func runBeside(_ id: String, arguments: [String: ActionValue], on target: String?) {
+        var invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: target ?? tab()), arguments: arguments, origin: .user)
+        invocation.besideCaller = true
+        invocation.newColumnBeside = target == nil
+        _ = registry()?.perform(ActionID(rawValue: id), invocation: invocation)
+    }
+
+    /// The header's Files (cx-p4rt): the tree of `folder` beside the chat, as ``runBeside(_:arguments:on:)`` places a diff.
+    func openFiles(_ folder: String?, on target: String?) {
+        if let folder, !folder.isEmpty { files(folder, target) }
     }
 
     /// Closes tab `id` (a quick action's split, AgentChatSplitToggles) as its own Close Tab does.
     func close(tab id: String) {
         _ = registry()?.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: id), origin: .user))
+    }
+
+    /// The "..." menu's Move to Floating Chat: once `float` put session `id` in Start Agent's
+    /// panel, the chat's tab closes as its own Close Tab does.
+    func moveToFloatingChat(_ id: String, via float: (@MainActor (String) -> Bool)?) -> Bool {
+        guard float?(id) == true else { return false }
+        close(tab: tab())
+        return true
     }
 
     /// Search the Web on selected chat text: a browser tab beside the chat, with the omnibar's

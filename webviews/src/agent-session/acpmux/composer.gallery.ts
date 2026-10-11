@@ -13,6 +13,12 @@ const waiting = [
   { id: "q3", prompt: "Run the whole suite" },
 ];
 
+// A running turn of an agent that steers (Claude Code, Codex) or not (acpmux `steering`).
+const steering = (steers: boolean) => {
+  const running = chat(working, { isWorking: true });
+  return { ...running, summary: { ...running.summary!, steering: steers } };
+};
+
 // A chat started without a project lives in cmux's agent home, one UUID folder per chat.
 const AGENT_HOME = "/Users/you/Library/Application Support/cmux/agent-home/6b16a112-289d-4467-9675-8e6feee99481";
 
@@ -75,6 +81,7 @@ export default agentPaneEntry({
   covers: [
     "agent-session/acpmux/Composer.tsx#Composer",
     "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
+    "agent-session/acpmux/ComposerPickers.tsx#Picker",
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
     "agent-session/acpmux/composer/PromptEditor.tsx",
     "agent-session/acpmux/MarkdownField.tsx",
@@ -229,6 +236,10 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-document[data-page-count='2']"));
         await ctx.click({ selector: ".acpmux-attachment-document-open" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pdf-viewer"));
+        const dialog = ctx.document.querySelector<HTMLElement>(".acpmux-pdf-viewer");
+        if (!dialog || ctx.document.defaultView!.getComputedStyle(dialog).position !== "fixed")
+          throw new Error("PDF preview must remain a fixed dialog over the composer");
+        if (!ctx.document.querySelector(".ui-backdrop")) throw new Error("PDF preview is missing its backdrop");
       },
     },
     draft: {
@@ -270,6 +281,31 @@ export default agentPaneEntry({
       note: "A turn running: Send becomes Stop.",
       snapshot: chat(working, { isWorking: true }),
     },
+    "working-stop": {
+      note: "Play: stop a running turn; the circular control returns to Send after the host acknowledges cancellation.",
+      snapshot: chat(working, { isWorking: true }),
+      afterCall: { "chat.cancel": chat(working, { isWorking: false }) },
+      checks: {
+        layoutShiftMax: {
+          value: 0.001,
+          reason: "Stopping updates the location picker busy state and permits its subpixel compositor adjustment.",
+        },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Stop" });
+        await ctx.waitFor(() => ctx.document.querySelector('button[aria-label="Send"]'));
+      },
+    },
+    "working-steer": {
+      note: "A prompt typed while the turn runs: Steer beside Send puts it into the turn now (⌘Return); Send queues it for after the turn (Return); Esc on an empty prompt stops the turn.",
+      snapshot: steering(true),
+      ready: { draft: "Use the new tokenizer instead" },
+    },
+    "working-interrupt": {
+      note: "The same for an agent that cannot steer: Interrupt stops the turn and sends the prompt next (⌘Return).",
+      snapshot: steering(false),
+      ready: { draft: "Use the new tokenizer instead" },
+    },
     queued: {
       note: "Two prompts waiting for the running turn: numbered rows on the composer's top edge.",
       snapshot: chat(working, {
@@ -279,6 +315,29 @@ export default agentPaneEntry({
           { id: "q2", prompt: "And update the README" },
         ],
       }),
+    },
+    "queued-paused": {
+      note: "A turn failed with prompts queued: they wait, in order, until Resume. A prompt sent meanwhile runs now.",
+      snapshot: (() => {
+        const failed = steering(true);
+        return {
+          ...failed,
+          isWorking: false,
+          summary: { ...failed.summary!, status: "ready", queuePaused: true },
+          queue: waiting,
+        };
+      })(),
+    },
+    "queued-keyboard": {
+      note: "Play: ↑ from the empty prompt reaches the last queued prompt, ↑ again the one before; Return edits it in its row (Return saves, Esc cancels). On a row, ⌥↑/⌥↓ move it, ⌘Return sends it now and Delete removes it.",
+      snapshot: { ...steering(true), queue: waiting },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-composer-prompt" });
+        await ctx.press("ArrowUp");
+        await ctx.press("ArrowUp");
+        await ctx.press("Enter");
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-queued-edit"));
+      },
     },
     "queued-long": {
       note: "Many queued prompts, one too long for its row: the rows scroll, and the cut-off one shows a tooltip on hover.",
@@ -297,14 +356,16 @@ export default agentPaneEntry({
         ],
       }),
       play: async (ctx) => {
-        await ctx.hover({ text: /^Once the retries land/ });
+        // Target the queue row itself so the pointer enters the span that owns the truncation
+        // check; a text target can resolve to the row or a parent in the gallery driver.
+        await ctx.hover({ selector: ".acpmux-queued:nth-child(2) .acpmux-queued-text" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-queued-text[title]"));
       },
     },
     "queued-send-remove": {
       note: "Play: remove the first waiting prompt from its row, then Stop: the turn ends and the next prompt is sent. Neither moves the composer, the transcript or the rows below.",
       snapshot: chat(working, { isWorking: true, queue: waiting }),
-      native: { "chat.queue.remove": { removed: true } },
+      native: { "chat.queue.remove": { removed: true }, "chat.queue.edit": { ok: true } },
       afterCall: {
         // acpmux ends the turn and starts the next queued prompt (q2): its rows join the transcript.
         "chat.cancel": chat(
@@ -422,6 +483,42 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector("[role='listbox'], [role='menu']"));
       },
     },
+    "slash-menu-keyboard": {
+      note: "Play: ArrowDown moves the slash-command highlight, Enter picks it, and focus stays in the prompt.",
+      snapshot: chat(finished, {
+        commands: [
+          { name: "compact", description: "Clear conversation history but keep a summary in context" },
+          { name: "init", description: "Initialize a new CLAUDE.md file with codebase documentation" },
+          { name: "review", description: "Review a pull request" },
+        ],
+      }),
+      play: async (ctx) => {
+        const prompt = { selector: "[contenteditable='true']" } as const;
+        await ctx.focus(prompt);
+        await ctx.type("/");
+        await ctx.waitFor(() => ctx.find(prompt).getAttribute("aria-expanded") === "true");
+        await ctx.waitFor(() => {
+          const active = ctx.find(prompt).getAttribute("aria-activedescendant");
+          return Boolean(active && ctx.document.getElementById(active));
+        });
+        const before = ctx.find(prompt).getAttribute("aria-activedescendant");
+        await ctx.press("ArrowDown");
+        await ctx.waitFor(() => {
+          const active = ctx.find(prompt).getAttribute("aria-activedescendant");
+          const option = active ? ctx.document.getElementById(active) : null;
+          return Boolean(active && active !== before && option?.getAttribute("aria-selected") === "true");
+        });
+        const active = ctx.find(prompt).getAttribute("aria-activedescendant");
+        const selected = active ? ctx.document.getElementById(active)?.querySelector(".acpmux-slash-name") : null;
+        const command = selected?.textContent?.trim();
+        if (!command) throw new Error("slash command highlight has no command label");
+        await ctx.press("Enter");
+        await ctx.waitFor(() => ctx.find(prompt).getAttribute("aria-expanded") === "false");
+        if (ctx.document.activeElement !== ctx.find(prompt)) throw new Error("slash command pick lost prompt focus");
+        if (!ctx.find(prompt).textContent?.includes(`${command} `))
+          throw new Error("slash command pick did not update prompt");
+      },
+    },
     "slash-fork": {
       note: "Play: type /fork; the cmux-owned fork command appears with the harness commands.",
       snapshot: chat([...finished.slice(0, -1), summary(9, { status: "completed", seq: 12 })], {
@@ -476,7 +573,7 @@ export default agentPaneEntry({
       },
     },
     "reasoning-codex": {
-      note: "Play: Codex's reasoning menu: Low to Ultra (Xhigh reads Extra High), then Service Tier Standard (Default) and Fast with Codex's own line.",
+      note: "Play: open Codex's reasoning menu, choose Service Tier Fast, and close it; the snapshot shows Low to Ultra (Xhigh reads Extra High) plus Standard (Default) and Fast.",
       snapshot: withSummary(chat(finished, { harness: "codex", model: "gpt-6-astra", title: "Codex reasoning" }), {
         configOptions: [
           {
@@ -499,19 +596,19 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-effort .acpmux-picker-button" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-effort-menu"));
-        await ctx.click({ role: "menuitemradio", name: /^Low/ });
-        await ctx.waitFor(
-          () =>
-            ctx.document.querySelector(".acpmux-effort .acpmux-picker-button")?.textContent?.includes("Low") ?? false,
-        );
-        await ctx.click({ selector: ".acpmux-effort .acpmux-picker-button" });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-effort-menu"));
         await ctx.click({ role: "menuitemradio", name: /^Fast/ });
         await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-effort-menu"));
       },
     },
     "model-menu-keyboard": {
       note: "Play: open the model picker and move its highlight with the keyboard.",
+      checks: {
+        layoutShiftMax: {
+          value: 0.03,
+          reason:
+            "Opening the Older models fold inserts rows inside the fixed-height popup; the transcript and composer anchors must remain fixed.",
+        },
+      },
       snapshot: chat(finished, {
         harness: "claude",
         model: "claude-opus-5-5",
@@ -612,6 +709,13 @@ export default agentPaneEntry({
     },
     "model-menu-starred": {
       note: "Play: open the model picker, star Sonnet, then open the rail's Starred tab: it lists the starred models of every harness.",
+      checks: {
+        layoutShiftMax: {
+          value: 0.055,
+          reason:
+            "Filtering the model catalog reflows rows inside the fixed-height popup; the transcript and composer anchors must remain fixed.",
+        },
+      },
       snapshot: chat(finished, { harness: "claude", model: "claude-opus-5-5", title: "Starred models" }),
       play: async (ctx) => {
         const { translate } = await import("./i18n");
@@ -674,6 +778,39 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ selector: '[aria-label="Mode"]' });
         await ctx.waitFor(() => ctx.document.querySelector('[role="menu"] [role="menuitemradio"]'));
+      },
+    },
+    "popup-surface": {
+      note: "Every composer popup uses the shared glass surface: anchored above its chip, keyboard focus only, and the highlight remains visible while moving through rows.",
+      snapshot: chat(finished, {
+        summary: {
+          sessionId: "gallery-popup-surface",
+          harness: "claude",
+          model: "claude-opus-5-5",
+          effort: "high",
+          cwd: CWD,
+          host: "This Mac",
+          hostKind: "local",
+          branch: "main",
+          turnCount: 1,
+          ...composerControls,
+        },
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: '[aria-label="Mode"]' });
+        await ctx.waitFor(() => ctx.document.querySelector('.ui-popup[role="menu"]'));
+        const popup = ctx.document.querySelector<HTMLElement>('.ui-popup[role="menu"]');
+        if (!popup) throw new Error("shared popup did not open");
+        const style = ctx.document.defaultView!.getComputedStyle(popup);
+        if (style.backdropFilter === "none" && style.getPropertyValue("-webkit-backdrop-filter") === "none")
+          throw new Error("shared popup is missing glass material");
+        if (!style.backgroundColor || style.backgroundColor === "rgba(0, 0, 0, 0)")
+          throw new Error("shared popup is missing its themed surface fill");
+        await ctx.press("ArrowDown");
+        await ctx.press("Escape");
+        await ctx.waitFor(() => !ctx.document.querySelector('.ui-popup[role="menu"]'));
+        await ctx.click({ selector: '[data-menu="Effort"]' });
+        await ctx.waitFor(() => ctx.document.querySelector('.ui-popup[role="menu"] [role="menuitemradio"]'));
       },
     },
     disconnected: {

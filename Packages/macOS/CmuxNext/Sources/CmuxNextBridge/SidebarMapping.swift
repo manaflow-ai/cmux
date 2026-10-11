@@ -1,4 +1,3 @@
-import CmuxAgentBrands
 public import CmuxNextDaemon
 public import CmuxNextSidebar
 public import CmuxNextDesign
@@ -30,7 +29,8 @@ public struct SidebarMapping {
     /// detail (tooltip, accessibility). `newTabPages` are the ids of tabs
     /// still on the New Tab page, which the tab list draws as new tabs
     /// titled `newTabTitle` (localized by the App). `pageFace` gives the page
-    /// face of a workspace whose front tab is a browser.
+    /// face of a workspace whose front tab is a browser, and the favicon of
+    /// each browser tab in the tab list.
     public func sections(_ daemonSections: [DaemonSidebarSection], machine: SidebarMachine,
                                 collapsedGroups: Set<String> = [],
                                 hidesHomeWorkspace: Bool = true,
@@ -53,6 +53,8 @@ public struct SidebarMapping {
                     id: GroupID(group.id.rawValue),
                     name: group.name,
                     color: color(group.color) ?? .grey,
+                    // A custom `#RRGGBB` (cx-25az) draws instead of the token.
+                    custom: group.color.flatMap { $0.hasPrefix("#") ? GroupTint(wire: $0)?.wire : nil },
                     isCollapsed: group.collapsed || collapsedGroups.contains(group.id.rawValue),
                     isPinned: group.pinned,
                     icon: group.icon.flatMap { WorkspaceIcon.parse($0) },
@@ -82,7 +84,7 @@ public struct SidebarMapping {
         let entries = workspace.status?.entries ?? []
         // Another computer's folders shorten against that computer's home, never this Mac's (cx-gaq9).
         let shorten: (String) -> String = machine == .local ? { abbreviate($0) } : Self.abbreviateRemote
-        return SidebarWorkspace(
+        var row = SidebarWorkspace(
             id: SidebarWorkspaceID(workspace.id),
             machineID: machine,
             title: page?.title ?? workspace.displayName,
@@ -99,7 +101,7 @@ public struct SidebarMapping {
             agentWorking: StatusMapping.shared.isWorking(tabs: tabs),
             icon: Self.icon(color: workspace.color, icon: workspace.icon) ?? page?.favicon.map(WorkspaceIcon.favicon),
             kind: kind(front),
-            kindBrand: AgentBrandCatalog.brand(for: front?.agentSession?.harness ?? front?.agent?.agent)?.rawValue,
+            kindBrand: front?.agentBrand,
             unread: unread > 0 ? .count(unread) : (showsUnread && workspace.markedUnread ? .dot : .none),
             activity: indicator.state,
             activityStyle: indicator.style,
@@ -108,7 +110,8 @@ public struct SidebarMapping {
             tabs: tabs.map { tab in
                 let isNewTabPage = newTabPages.contains(tab.id) && !newTabTitle.isEmpty
                 return SidebarTab(id: TabID(tab.id), title: isNewTabPage ? newTabTitle : tab.displayTitle,
-                                  kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.hasUnread)
+                                  kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.hasUnread,
+                                  brand: tab.agentBrand, favicon: tab.kind == .browser ? pageFace(workspace, tab)?.favicon : nil)
             },
             muted: muted,
             // The store refuses every close of its home workspace (`home_not_closable`).
@@ -116,6 +119,9 @@ public struct SidebarMapping {
             // Group by Folder's bucket: the front tab's folder, else any tab's.
             folder: (front?.cwd ?? tabs.lazy.compactMap(\.cwd).first).map(shorten)
         )
+        row.presence = presence(tabs)
+        row.reported = Self.reported(workspace.status)
+        return row
     }
 
     /// The tab the row stands for: the selected tab of the workspace's most
@@ -135,12 +141,11 @@ public struct SidebarMapping {
         return tab.kind == .browser ? .browser : .terminal
     }
 
-    /// The brand of the first agent that works or waits in these tabs (design/agent-icons).
+    /// The brand of the agent running in these tabs (design/agent-icons): the first that
+    /// works or waits, else the first live one.
     func agentBrand(_ tabs: [TabModel]) -> String? {
-        tabs.lazy.compactMap { tab -> String? in
-            guard let agent = tab.agent, agent.state == .working || agent.state == .blocked else { return nil }
-            return AgentBrandCatalog.brand(for: agent.agent)?.rawValue
-        }.first
+        let busy = tabs.lazy.filter { $0.agent?.state == .working || $0.agent?.state == .blocked }.compactMap(\.agentBrand).first
+        return busy ?? tabs.lazy.compactMap(\.agentBrand).first
     }
 
     /// A tab's kind in the tab list: a New Tab page, an agent chat, else its record's kind.
@@ -187,6 +192,21 @@ public struct SidebarMapping {
     static func statusLine(_ entries: [WorkspaceStatus.Entry]) -> String? {
         let texts = entries.filter { $0.key != portsKey && $0.key != pullRequestKey }.map(\.text).filter { !$0.isEmpty }
         return texts.isEmpty ? nil : texts.joined(separator: " · ")
+    }
+
+    /// The status block: every entry but the ones other elements show, the
+    /// newest log line and the progress label; nil when none is reported.
+    static func reported(_ status: WorkspaceStatus?) -> SidebarWorkspaceStatus? {
+        guard let status else { return nil }
+        let block = SidebarWorkspaceStatus(
+            entries: status.entries.filter { $0.key != portsKey && $0.key != pullRequestKey }.map {
+                SidebarWorkspaceStatus.Entry(key: $0.key, text: $0.text, icon: $0.icon, tint: SidebarWorkspaceStatus.Tint($0.color))
+            },
+            log: status.lastLog.map {
+                SidebarWorkspaceStatus.LogLine(level: SidebarWorkspaceStatus.LogLevel(rawValue: $0.level) ?? .info, text: $0.text)
+            },
+            progressLabel: status.progress?.label)
+        return block.isEmpty ? nil : block
     }
 
     static func entry(_ key: String, in entries: [WorkspaceStatus.Entry]) -> String? {

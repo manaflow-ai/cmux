@@ -45,10 +45,16 @@ pub struct Conn {
     /// The unix socket peer's audit token, read at accept (macOS); what
     /// `_acpmux/person_enroll` checks. None for WebSocket connections.
     peer: Option<cmux_link::app_caller::PeerToken>,
-    /// Its first request was seen (`hub/person.rs`).
-    initialized: AtomicBool,
-    /// It presented this launch's person key in that `initialize`.
+    /// Requests seen so far (`hub/person.rs`: initialize first, the proof second).
+    requests: std::sync::atomic::AtomicU64,
+    /// Its first request was an `initialize` that got the person challenge.
+    challenged: AtomicBool,
+    /// This connection's challenge nonce (`hub/person.rs`).
+    pub(super) nonce: String,
+    /// It proved the person key for its challenge.
     person: AtomicBool,
+    /// `_acpmux/person_holds` calls on this connection (`hub/person.rs`).
+    pub(super) holds_calls: std::sync::atomic::AtomicU32,
 }
 
 impl Conn {
@@ -57,20 +63,32 @@ impl Conn {
         self.person.load(Ordering::SeqCst)
     }
 
-    /// A request's person key leaves its params before anything else reads
-    /// them. A unix socket or LocalApp connection whose FIRST request is an
-    /// `initialize` that carries this launch's key is the person for its
-    /// life; a key anywhere else carries no weight.
+    /// Whether this connection gets the person challenge: the unix socket
+    /// or the proven local app.
+    pub(super) fn challengeable(&self) -> bool {
+        matches!(self.origin, Origin::Local | Origin::LocalApp)
+    }
+
+    /// The person binding (`hub/person.rs`), in order before the request
+    /// runs. A `personKey` in any request is stripped and never read. A
+    /// local connection whose FIRST request is `initialize` is challenged;
+    /// its SECOND request, `_acpmux/person_prove`, makes it the person when
+    /// the proof matches its own nonce and id. Nothing else ever does.
     fn bind_person(&self, hub: &Hub, m: &str, params: &mut Option<Value>) {
-        let key = params.as_mut().and_then(crate::hub::person::take_key);
-        let first = !self.initialized.swap(true, Ordering::SeqCst);
-        if !first || m != method::INITIALIZE {
-            return;
+        let _ = params.as_mut().and_then(crate::hub::person::take_key);
+        let n = self.requests.fetch_add(1, Ordering::SeqCst) + 1;
+        if n == 1 && m == method::INITIALIZE && self.challengeable() {
+            self.challenged.store(true, Ordering::SeqCst);
         }
-        if matches!(self.origin, Origin::Local | Origin::LocalApp)
-            && key.is_some_and(|k| hub.person.matches(&k))
-        {
-            self.person.store(true, Ordering::SeqCst);
+        if n == 2 && m == method::MUX_PERSON_PROVE && self.challenged.load(Ordering::SeqCst) {
+            let proof = params.as_ref().and_then(|p| p.get("proof")).and_then(Value::as_str);
+            let transport = match self.origin {
+                Origin::LocalApp => crate::hub::person::TRANSPORT_APP,
+                _ => crate::hub::person::TRANSPORT_UNIX,
+            };
+            if proof.is_some_and(|p| hub.person.proves(transport, &self.nonce, &self.id, p)) {
+                self.person.store(true, Ordering::SeqCst);
+            }
         }
     }
 
@@ -660,8 +678,11 @@ async fn serve_connection_from(
         subs: StdMutex::new(HashMap::new()),
         watch_all: AtomicBool::new(false),
         peer,
-        initialized: AtomicBool::new(false),
+        requests: std::sync::atomic::AtomicU64::new(0),
+        challenged: AtomicBool::new(false),
+        nonce: crate::hub::person::new_nonce(),
         person: AtomicBool::new(false),
+        holds_calls: std::sync::atomic::AtomicU32::new(0),
     });
     tracing::debug!(conn = %conn.id, "client connected");
 
@@ -803,7 +824,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 ));
             }
         }
-        if rec.dir == "mux" && rec.kind == "permission_request" {
+        if rec.dir == "mux" && is_permission_ask(&rec.kind) {
             conn.send(&Message::notification(
                 method::MUX_PERMISSION_PENDING,
                 permission_pending(&ev.session_id, rec, "attach"),
@@ -857,8 +878,9 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             | "tags"
             | "turn_started"
             | "turn_result" => rec.kind.as_str(),
-            "queued" | "dequeued" | "queue_removed" => "queue",
+            k if k == "dequeued" || k.starts_with("queue") => "queue",
             "permission_auto" => "permission_resolved",
+            "permission_reissued" => "permission_request",
             _ => return,
         };
         if let Ok(s) = hub.resolve(&ev.session_id) {
@@ -868,7 +890,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             ));
         }
         // A watcher that is not attached still learns a permission is waiting.
-        if rec.kind == "permission_request" && !attached {
+        if is_permission_ask(&rec.kind) && !attached {
             conn.send(&Message::notification(
                 method::MUX_PERMISSION_PENDING,
                 permission_pending(&ev.session_id, rec, "watch"),
@@ -877,6 +899,16 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     }
 }
 
+/// A record that asks a client to answer a prompt: a new one, or one the
+/// next daemon adopted with a new decision nonce (`hub/hosts.rs`).
+fn is_permission_ask(kind: &str) -> bool {
+    matches!(kind, "permission_request" | "permission_reissued")
+}
+
+/// The `_acpmux/permission_pending` notification. The record's
+/// `decisionNonce` and `personInstance` (the daemon run that asks, also for a
+/// peer's session) are what a relayed allow's decision proof covers
+/// (`hub/person.rs`, cx-0q7o).
 fn permission_pending(session_id: &str, rec: &EventRecord, via: &str) -> Value {
     let mut p = rec.msg.clone();
     p["sessionId"] = Value::String(session_id.to_owned());
@@ -948,7 +980,7 @@ pub mod local_app;
 pub mod peer_auth;
 mod peer_forward;
 mod redact;
-mod remote_guard;
+pub(crate) mod remote_guard;
 mod requests;
 mod routes;
 pub(crate) mod trust_gate;

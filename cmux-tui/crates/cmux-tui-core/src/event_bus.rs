@@ -245,6 +245,7 @@ impl SurfaceSessionScope {
             MuxEvent::SurfaceResized { surface, .. }
             | MuxEvent::SurfaceResizeFailed { surface, .. }
             | MuxEvent::AgentChanged { surface, .. }
+            | MuxEvent::AgentPresenceChanged { surface, .. }
             | MuxEvent::TitleChanged { surface, .. }
             | MuxEvent::ScrollChanged { surface, .. }
             | MuxEvent::SizeStateChanged { surface, .. } => *surface == self.surface,
@@ -269,6 +270,8 @@ impl SurfaceSessionScope {
             | MuxEvent::FrontendProjectionChanged { .. }
             | MuxEvent::PersonalChanged { .. }
             | MuxEvent::BookmarksChanged(_)
+            | MuxEvent::HistoryChanged { .. }
+            | MuxEvent::SettingsChanged(_)
             | MuxEvent::Conversation(_)
             | MuxEvent::CloudConversation(_)
             | MuxEvent::TerminalRegistryChanged { .. }

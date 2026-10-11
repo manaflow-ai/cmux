@@ -67,7 +67,7 @@ public final class MessagesLabHomeView: NSView {
         set { projection.notice = newValue }
     }
 
-    /// H17: offline the user can type, but Send and tapbacks are off.
+    /// H17: offline the user can type; tapbacks are off and a send waits as "sending".
     public var isSendEnabled: Bool {
         get { projection.isSendEnabled }
         set { projection.isSendEnabled = newValue }
@@ -140,6 +140,13 @@ public final class MessagesLabHomeView: NSView {
     public var avatarText: String? {
         get { projection.initialsOverride }
         set { projection.initialsOverride = newValue }
+    }
+
+    /// The header avatar's picture, drawn over `avatarText` and the
+    /// initials; nil shows those.
+    public var avatarPicture: NSImage? {
+        get { projection.pictureOverride }
+        set { projection.pictureOverride = newValue }
     }
 
     /// The name pill's VoiceOver help (what a click on it does).
@@ -231,12 +238,14 @@ public final class MessagesLabHomeView: NSView {
     public var draftText: String { controller.store?.state.ui.draft.text ?? "" }
 
     /// Return in the field: sends the text and the attachments as one message.
-    public func sendDraft() { projection.send() }
+    /// Nil when it went (or waits for the owner as "sending"), else why not.
+    @discardableResult
+    public func sendDraft() -> String? { projection.send() }
 
-    /// Automation (DEBUG socket): a love tapback on the newest incoming
-    /// message through the picker's path (`ChatIntents.react`).
-    public func debugTapbackNewestIncoming() -> Bool {
-        guard let hit = controller.demo?.lastTextRow(mine: false) else { return false }
+    /// Automation (DEBUG socket): a love tapback on the newest incoming (or,
+    /// with `mine`, my newest) message through the picker's path (`ChatIntents.react`).
+    public func debugTapbackNewestIncoming(mine: Bool = false) -> Bool {
+        guard let hit = controller.demo?.lastTextRow(mine: mine) else { return false }
         projection.react(hit.row.ref, .tapback("love"))
         return true
     }
@@ -294,6 +303,22 @@ public final class MessagesLabHomeView: NSView {
             }
         }
         return false
+    }
+
+    /// Automation (DEBUG socket): clicks the first shown link whose URL starts with `prefix`,
+    /// through the click's path (`ChatController.openLink`, so an app link goes to
+    /// `onAppLink`); the clicked URL, or nil when no shown link matches.
+    public func debugClickLink(prefix: String) -> String? {
+        guard let demo = controller.demo else { return nil }
+        let b = controller.host.bounds
+        for y in stride(from: b.minY, to: b.maxY, by: 3) {
+            for x in stride(from: b.minX, to: b.maxX, by: 3) {
+                let p = CGPoint(x: x, y: y)
+                guard let url = controller.linkURL(at: p), url.absoluteString.hasPrefix(prefix), let hit = demo.hit(p) else { continue }
+                return controller.openLink(hit, at: p) ? url.absoluteString : nil
+            }
+        }
+        return nil
     }
 
     /// Automation (DEBUG socket): scrolls the transcript by `dy` points

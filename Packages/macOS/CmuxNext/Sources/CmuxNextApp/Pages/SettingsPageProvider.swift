@@ -150,7 +150,7 @@ final class SettingsPageProvider: PageProvider {
             }
             return sectionActions?(section) ?? .array([])
         case "cmux.settings.file.reveal":
-            NSWorkspace.shared.activateFileViewerSelecting([settings.file.url])
+            NSWorkspace.shared.revealInBackground([settings.file.url])
             return .object([:])
         case "cmux.settings.preview":
             // Live preview (R82 commit 5): the value applies to every window without a write;

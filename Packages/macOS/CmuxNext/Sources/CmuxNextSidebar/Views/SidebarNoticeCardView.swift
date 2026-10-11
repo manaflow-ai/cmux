@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// The shared notice card above the footer (BOTTOM-LEFT-CARDS K1; Lawrence
 /// 2026-10-09): every message to the user in this slot (the "Did you know"
@@ -28,7 +29,7 @@ final class SidebarNoticeCardView: NSView {
     private let track = CALayer()
     private let bar = CALayer()
     private(set) var actionButtons: [SidebarUpdateButton] = []
-    let closeButton = SidebarIconButton(symbol: "xmark", pointSize: { 9 }, label: "")
+    let closeButton = SidebarIconButton(icon: .actionClose, pointSize: { 9 }, label: "")
     /// The card's material: Liquid Glass, or opaque under Reduce Transparency.
     let surface: OverlaySurfaceView
     /// The lines and buttons, flipped, over the surface.
@@ -116,6 +117,27 @@ final class SidebarNoticeCardView: NSView {
         needsLayout = true
         applyColors()
     }
+
+    /// Right-click (cx-2lm4): the card's buttons, then its x (Dismiss), as menu items.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let notice else { return nil }
+        let menu = NSMenu()
+        for action in notice.actions.prefix(2) {
+            let item = menu.addItem(withTitle: action.title, action: #selector(menuAction(_:)), keyEquivalent: "")
+            (item.target, item.representedObject) = (self, action.id)
+        }
+        if let dismiss = notice.dismissLabel {
+            if !menu.items.isEmpty { menu.addItem(.separator()) }
+            menu.addItem(withTitle: dismiss, action: #selector(menuDismiss), keyEquivalent: "").target = self
+        }
+        return menu.items.isEmpty ? nil : menu
+    }
+
+    @objc private func menuAction(_ item: NSMenuItem) {
+        if let id = notice?.id, let action = item.representedObject as? String { onAction?(id, action) }
+    }
+
+    @objc private func menuDismiss() { if let id = notice?.id { onDismiss?(id) } }
 
     private func rebuildButtons(_ actions: [SidebarNoticeCard.Action]) {
         actionButtons.forEach { $0.removeFromSuperview() }
@@ -226,8 +248,7 @@ final class SidebarNoticeCardView: NSView {
             for label in lineLabels { label.textColor = Palette.textSecondary }
             shortcutLabel.textColor = Palette.textTertiary
             icon.contentTintColor = Palette.textSecondary
-            let config = NSImage.SymbolConfiguration(pointSize: Typography.bodyEmphasized.pointSize, weight: .regular)
-            icon.image = notice?.symbol.flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: nil)?.withSymbolConfiguration(config) }
+            icon.image = notice?.symbol.map { NSImage.icon(symbol: $0, size: .iconRowSize(forLabelPointSize: Typography.bodyEmphasized.pointSize)) }
             track.backgroundColor = Palette.hoverFill.cgColor
             bar.backgroundColor = Palette.textSecondary.cgColor
         }
@@ -245,12 +266,6 @@ final class SidebarNoticeCardView: NSView {
     }
 
     // MARK: Tests
-
-    /// The text lines shown (heading, title, detail, shortcut).
-    var lineViews: [NSView] { [eyebrowLabel, titleLabel, detailLabel, shortcutLabel].filter { !$0.isHidden } }
-
-    /// Whether the icon (or the spinner) shows beside the title.
-    var showsSymbol: Bool { !icon.isHidden || !spinner.isHidden }
 
     /// Every line as shown, top to bottom.
     var shownText: [String] {

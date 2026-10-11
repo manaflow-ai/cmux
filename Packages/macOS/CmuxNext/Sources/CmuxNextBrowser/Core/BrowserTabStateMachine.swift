@@ -25,6 +25,10 @@ public nonisolated enum BrowserNavigationEvent: Hashable, Sendable {
     case processExited(BrowserProcessExit)
     /// The content process stopped (true) or resumed (false) handling input.
     case unresponsiveChanged(Bool)
+    /// The page's media report (`BrowserMediaState+Scripts`); nil when it stopped.
+    case mediaChanged(BrowserMediaState?)
+    /// The tab was muted (true) or unmuted (`BrowserAudioMuting`).
+    case audioMutedChanged(Bool)
 }
 
 /// Pure reducer from engine events to `BrowserTabState`.
@@ -47,6 +51,10 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
     /// URL of the last committed document. A load stopped before it commits
     /// reverts the address to this.
     private var committedURL: URL?
+    /// The error page showing when the current navigation started: a load
+    /// cancelled before it commits shows it again (Chromium retries a
+    /// network error on its own and may cancel that retry).
+    private var errorBeforeStart: BrowserLoadError?
 
     public init(state: BrowserTabState = BrowserTabState()) {
         self.state = state
@@ -64,6 +72,7 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
     private mutating func reduce(_ event: BrowserNavigationEvent) {
         switch event {
         case .started(let id, let url):
+            errorBeforeStart = state.loadError
             state.processExit = nil
             state.isUnresponsive = false
             state.activeNavigation = id
@@ -83,6 +92,9 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
                 state.faviconURL = nil
             }
             state.title = nil
+            errorBeforeStart = nil
+            // A new document plays nothing until its script reports.
+            state.media = nil
             state.phase = .committed
             state.security = Self.security(for: state.url)
             committedURL = state.url
@@ -96,7 +108,9 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
         case .failed(let id, let error):
             guard id == state.activeNavigation else { return }
             if error.isBenignInterruption {
-                endWithoutError()
+                // Only a cancelled retry of the failed address shows its error
+                // again; a cancelled load replaced by another does not.
+                endWithoutError(restoresError: error.failingURL == errorBeforeStart?.failingURL)
             } else {
                 state.phase = .failed(error)
                 state.progress = 0
@@ -105,7 +119,7 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
 
         case .stopped:
             guard state.isLoading else { return }
-            endWithoutError()
+            endWithoutError(restoresError: true)
 
         case .progress(let value):
             guard state.isLoading else { return }
@@ -156,6 +170,7 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
             // opens what the user asked for.
             state.processExit = exit
             state.isUnresponsive = false
+            state.media = nil
             state.progress = 0
             state.activeNavigation = nil
             if state.phase != .finished { state.phase = state.url == nil ? .idle : .finished }
@@ -163,13 +178,20 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
         case .unresponsiveChanged(let unresponsive):
             guard state.processExit == nil else { return }
             state.isUnresponsive = unresponsive
+
+        case .mediaChanged(let media):
+            state.media = media
+
+        case .audioMutedChanged(let muted):
+            state.isAudioMuted = muted
         }
     }
 
-    private mutating func endWithoutError() {
+    private mutating func endWithoutError(restoresError: Bool) {
         if state.phase == .provisional {
             state.url = committedURL
-            state.phase = committedURL == nil ? .idle : .finished
+            let restored = restoresError ? errorBeforeStart : nil
+            state.phase = restored.map { .failed($0) } ?? (committedURL == nil ? .idle : .finished)
         } else {
             state.phase = .finished
         }

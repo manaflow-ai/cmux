@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -120,13 +120,34 @@ impl ChatIndex {
 
     /// Applies one changed path (a watcher event) to every root that holds it.
     pub fn path_changed(&mut self, path: &Path) -> Vec<ChatChange> {
+        self.paths_changed(std::slice::from_ref(&path.to_path_buf()))
+    }
+
+    /// Applies one burst of changed paths. A root whose store changed (its
+    /// database, WAL or index) is scanned once for the whole burst, however
+    /// many of its store files the burst names: a store scan reads the
+    /// whole database.
+    pub fn paths_changed(&mut self, paths: &[PathBuf]) -> Vec<ChatChange> {
         for slot in &mut self.slots {
-            let Some(root) = owning_root(&slot.root, path) else { continue };
-            let spelled = slot.root.path.join(path.strip_prefix(root).unwrap_or(path));
-            match classify_path(slot.root.harness, &slot.root.path, &spelled) {
-                PathRole::Store => rescan(slot),
-                PathRole::Session if !slot.scan.database => update_file(slot, &spelled),
-                PathRole::Session | PathRole::Ignore => {}
+            let mut store_changed = false;
+            let mut sessions = Vec::new();
+            for path in paths {
+                let Some(root) = owning_root(&slot.root, path) else { continue };
+                let spelled = slot.root.path.join(path.strip_prefix(root).unwrap_or(path));
+                match classify_path(slot.root.harness, &slot.root.path, &spelled) {
+                    PathRole::Store => store_changed = true,
+                    PathRole::Session => sessions.push(spelled),
+                    PathRole::Ignore => {}
+                }
+            }
+            if store_changed {
+                rescan(slot);
+            }
+            // Database stores take their chats from the query only.
+            if !slot.scan.database {
+                for spelled in &sessions {
+                    update_file(slot, spelled);
+                }
             }
         }
         self.remerge()
@@ -139,7 +160,12 @@ impl ChatIndex {
             b.entry
                 .updated_ms
                 .cmp(&a.entry.updated_ms)
-                .then_with(|| a.entry.key().cmp(&b.entry.key()))
+                // Ties: the key text (`<harness id>:<session id>`) ascending, the order
+                // clients keep (AcpmuxChatsStore), not the enum's declaration order.
+                .then_with(|| {
+                    let text = |e: &ChatEntry| format!("{}:{}", e.harness.id(), e.session_id);
+                    text(&a.entry).cmp(&text(&b.entry))
+                })
         });
         chats
     }
@@ -170,7 +196,10 @@ impl ChatIndex {
         for slot in &self.slots {
             let account = (slot.root.accounts.len() == 1).then(|| slot.root.accounts[0].clone());
             let root_id = slot.root.id();
-            for entry in &slot.scan.entries {
+            // Only person chats: not the Chief's sessions (cx-eb0m), acpmux's harness probes, or a
+            // session with no user message (Lawrence 2026-10-11).
+            for entry in slot.scan.entries.iter().filter(|entry| crate::scan::is_person_chat(entry))
+            {
                 let chat = merged.entry(entry.key()).or_insert_with(|| IndexedChat {
                     entry: entry.clone(),
                     accounts: Vec::new(),

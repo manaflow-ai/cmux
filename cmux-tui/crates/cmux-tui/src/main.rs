@@ -10,8 +10,10 @@
 mod acp;
 #[cfg(unix)]
 mod agent_browser_provider;
-mod agent_hook_install;
+use cmux_tui_hooks as agent_hook_install;
 mod agent_plugin_config;
+#[cfg(unix)]
+mod agent_start_host;
 mod app;
 #[cfg(unix)]
 mod app_identity;
@@ -1646,6 +1648,31 @@ struct CloudTemplateEnv {
 
 static CLOUD_TEMPLATE_ENV: std::sync::OnceLock<CloudTemplateEnv> = std::sync::OnceLock::new();
 
+/// Records this daemon's build id and its own binary (which is also its CLI)
+/// for `identify` (plans/cmux-next/version-skew.md step 2). A binary whose
+/// path cannot be resolved reports its build id only.
+#[cfg(unix)]
+fn install_daemon_build() {
+    // cmux-remote (which stamps the source revision) is a Unix-only
+    // dependency; a Windows daemon reports its package version until the
+    // stamp moves to a cross-platform crate.
+    #[cfg(unix)]
+    let build_id = cmux_remote::ssh_bootstrap::BUILD_IDENTITY;
+    #[cfg(not(unix))]
+    let build_id = env!("CARGO_PKG_VERSION");
+    let cli_path = std::env::current_exe().and_then(std::fs::canonicalize).unwrap_or_default();
+    cmux_tui_core::server::install_daemon_build(cmux_tui_core::server::DaemonBuild::new(
+        build_id, cli_path,
+    ));
+}
+
+/// The build id comes from cmux-remote's build script, and cmux-remote is a
+/// unix-only dependency. A Windows daemon installs no build, so `identify`
+/// reports `null` for both fields and leaves out `daemon-build-v1`, as an
+/// embedder does.
+#[cfg(not(unix))]
+fn install_daemon_build() {}
+
 /// Routes argv to a private mode, the CLI, or the interactive or headless mux.
 fn run_main() {
     startup_env::take_cloud_template_env();
@@ -1829,11 +1856,7 @@ fn run_main() {
 
 fn run_terminal_host_process(args: &[String]) -> anyhow::Result<()> {
     cmux_tui_core::terminal_host_runtime::enter_terminal_host_process()?;
-    let stdin = io::stdin();
-    let stdout = io::stdout();
-    let mut reader = stdin.lock();
-    let mut writer = stdout.lock();
-    cmux_tui_core::terminal_host_runtime::serve_terminal_host_stdio(args, &mut reader, &mut writer)
+    cmux_tui_core::terminal_host_runtime::serve_terminal_host_process(args)
 }
 
 fn run_attach(args: Args, config: config::StartupConfigSnapshot) -> anyhow::Result<()> {
@@ -2103,6 +2126,7 @@ fn run_server(
 ) -> anyhow::Result<()> {
     #[cfg(not(unix))]
     reject_unsupported_remote_options(&args)?;
+    install_daemon_build();
     owner_start::prepare(&args)?;
     let owner_host_colors = args.owner_host_colors();
     #[cfg(target_os = "linux")]
@@ -2226,6 +2250,23 @@ fn run_server(
         }
     }
     let provider_management_pending = provider_management_listener.is_some();
+    // Bind and serve the session socket before the restore below (registry
+    // load, terminal host adoption), which can take minutes on a loaded
+    // machine (cx-n3bs). For that whole time the socket names this process
+    // as the session's owner: `server ensure` sees a restoring owner and
+    // waits for it on every platform, and a second owner loses the bind and
+    // exits before it touches the registry or a terminal host.
+    // A saved state this build cannot open fails before the bind, so its
+    // recovery text can still tell whether another server holds the socket.
+    if let Some(root) = state_root.as_deref()
+        && let Err(error) =
+            cmux_tui_core::WorkspaceRegistry::check_supported_schema(root, &args.session)
+    {
+        return Err(workspace_schema_startup_error(error, &args.session, &socket_path, Some(root)));
+    }
+    let restoring_server =
+        cmux_tui_core::server::bind_session_socket(&args.session, args.socket.clone())?
+            .serve_restoring()?;
     let mux =
         match (state_root.as_deref(), provider_workspace_authority, provider_management_pending) {
             (Some(root), Some(authority), false) => Mux::open_persistent_provider_managed(
@@ -2255,15 +2296,22 @@ fn run_server(
             (_, Some(_), true) => {
                 unreachable!("conflicting provider authority inputs rejected above")
             }
-        }
-        .map_err(|error| {
-            workspace_schema_startup_error(
+        };
+    let mux = match mux {
+        Ok(mux) => mux,
+        Err(error) => {
+            // Release the socket first: the recovery text probes it to say
+            // whether a server still listens there, and this process no
+            // longer will.
+            drop(restoring_server);
+            return Err(workspace_schema_startup_error(
                 error,
                 &args.session,
                 &socket_path,
                 state_root.as_deref(),
-            )
-        })?;
+            ));
+        }
+    };
     // Cloud's trusted-carrier daemon owns the initial session shape. It creates
     // workspace-1 with one terminal before accepting clients, and the
     // idempotent Session bootstrap preserves existing names and sessions.
@@ -2301,14 +2349,7 @@ fn run_server(
                 start_local_owner_event_loop(&mux)
             }
         });
-    let pending_server = match cmux_tui_core::server::serve_paused(mux.clone(), args.socket.clone())
-    {
-        Ok(server) => server,
-        Err(error) => {
-            mux.shutdown();
-            return Err(error);
-        }
-    };
+    let pending_server = restoring_server.attach(mux.clone());
     // Kept alive until this function returns; dropping it removes the socket.
     #[cfg(unix)]
     let _link_entry = link::start_link_entry(args.link_entry, &mux, &socket_path)
@@ -2405,6 +2446,10 @@ fn run_server(
     loopback_policy::install(&mux, loopback_forward_policy);
     #[cfg(unix)]
     mux.set_acpmux_socket(acp::daemon_socket_path());
+    #[cfg(unix)]
+    mux.set_acpmux_starter(acp::daemon_acpmux_starter());
+    #[cfg(unix)]
+    mux.set_agent_start_host(agent_start_host::source());
     let served_socket = pending_server.into_bound_path();
     mux.start_journal_plugin(served_socket.clone());
     let mut served_mux_cleanup = ServedMuxCleanup::new(mux.clone(), served_socket);
@@ -2772,15 +2817,30 @@ fn start_detached_owner_session(
         chief_tools_socket: None,
     };
     let deadline = std::time::Instant::now() + local_owner::ENSURE_DEADLINE;
-    if let Err(error) = local_owner::ensure_owner(&spec, Some(&args.session), deadline) {
+    // A restore can take minutes on a loaded machine: say so once instead of
+    // a silent terminal (cx-n3bs).
+    let told = std::cell::Cell::new(false);
+    let report = |_: &local_owner::Restoring| {
+        if !told.replace(true) {
+            eprintln!("{}", messages.owner_restoring);
+        }
+    };
+    let progress = local_owner::RestoreProgress::new(&report);
+    if let Err(error) = local_owner::ensure_owner(&spec, Some(&args.session), deadline, &progress) {
         match error {
             local_owner::EnsureError::Spawn(_error) => {
                 anyhow::bail!("{}", messages.owner_spawn_failed())
             }
             local_owner::EnsureError::NotReady => anyhow::bail!("{}", messages.owner_not_ready),
+            local_owner::EnsureError::RestoreTimeout => {
+                anyhow::bail!("{}", messages.owner_restore_timeout)
+            }
             local_owner::EnsureError::WrongOwner => anyhow::bail!("{}", messages.wrong_owner),
             local_owner::EnsureError::DifferentSession => {
                 anyhow::bail!("{}", messages.different_session)
+            }
+            local_owner::EnsureError::DifferentState => {
+                anyhow::bail!("{}", messages.different_state)
             }
             local_owner::EnsureError::InvalidIdentity => {
                 anyhow::bail!("{}", messages.invalid_identity)

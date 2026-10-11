@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxHomeCore
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// New Message: pick people from the user's contacts (team members and
 /// connected people) or type an email address, optionally name a group,
@@ -15,9 +16,9 @@ public final class HomeComposeSheet: HomeSheetController, NSSearchFieldDelegate,
     let search = NSSearchField()
     let table = NSTableView()
     let scroll = NSScrollView()
-    let toLabel = NSTextField(labelWithString: "")
+    let toLabel = ThemedLabel(labelWithString: "")
     /// Says how to reach someone when the user has no teammates or contacts yet.
-    let emptyLabel = NSTextField(wrappingLabelWithString: HomeConversationStrings.composeNoContacts)
+    let emptyLabel = ThemedLabel(wrappingLabelWithString: HomeConversationStrings.composeNoContacts)
     let groupName = HomeSheetController.field(placeholder: HomeConversationStrings.composeGroupName, identifier: "cmux.home.compose.group")
     let inviteButton = NSButton(title: HomeConversationStrings.inviteByEmail, target: nil, action: nil)
     private let contacts: [HomeContact]
@@ -57,7 +58,7 @@ public final class HomeComposeSheet: HomeSheetController, NSSearchFieldDelegate,
         scroll.heightAnchor.constraint(equalToConstant: 180).isActive = true
         stack.addArrangedSubview(scroll)
         emptyLabel.font = Typography.caption
-        emptyLabel.textColor = .secondaryLabelColor
+        emptyLabel.ink = .secondary
         emptyLabel.isHidden = true
         emptyLabel.setAccessibilityIdentifier("cmux.home.compose.empty")
         stack.addArrangedSubview(emptyLabel)
@@ -144,9 +145,11 @@ public final class HomeComposeSheet: HomeSheetController, NSSearchFieldDelegate,
 
     public func numberOfRows(in tableView: NSTableView) -> Int { shown.count }
 
+    public func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? { ThemedTableRowView() }
+
     public func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let recipient = shown[row]
-        let label = NSTextField(labelWithString: "")
+        let label = ThemedLabel(labelWithString: "")
         let picked = chosen.contains(recipient)
         switch recipient {
         case .address(let address): label.stringValue = HomeConversationStrings.composeAddAddress(address.description)
@@ -156,8 +159,7 @@ public final class HomeComposeSheet: HomeSheetController, NSSearchFieldDelegate,
         }
         label.font = picked ? Typography.bodyEmphasized : Typography.body
         let cell = NSTableCellView()
-        let check = NSImageView(image: NSImage(systemSymbolName: picked ? "checkmark.circle.fill" : "circle",
-                                               accessibilityDescription: nil) ?? NSImage())
+        let check = NSImageView(image: NSImage.icon(picked ? .statusComplete : .stateIdle, size: 16))
         check.frame = NSRect(x: Metrics.space2, y: 4, width: 16, height: 16)
         label.frame = NSRect(x: Metrics.space2 + 22, y: 3, width: 320, height: 18)
         cell.addSubview(check)

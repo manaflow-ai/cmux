@@ -52,10 +52,30 @@ public final class AgentPaneSeedSource {
         self.limit = limit
     }
 
+    /// The seed holds a folder and nothing else (a new workspace's first New Tab page): a page
+    /// that takes its folder from its New Tab context can stand in for it.
+    public var holdsOnlyFolder: Bool {
+        guard read == nil else { return false }
+        guard let value else { return true }
+        return value.draft == nil && value.prompt == nil && value.adopt == nil && value.surface == nil
+            && value.harness == nil && value.folderNeeded == nil
+    }
+
     public init(_ seed: AgentPaneSeed) {
         value = seed
         limit = .zero
         surface = seed.surface
+    }
+
+    /// The seed without taking its draft or prompt: where a chat on another machine starts
+    /// (its folder and harness) before the page's handshake takes the rest.
+    public func peek() async -> AgentPaneSeed? {
+        if let read {
+            self.read = nil
+            value = await agentPaneFirst(within: limit, read)
+            surface = value?.surface
+        }
+        return value
     }
 
     /// The seed, read once. The draft and prompt are handed out only once,

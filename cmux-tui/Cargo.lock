@@ -1009,6 +1009,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-config"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "core-foundation 0.10.1",
+ "core-foundation-sys",
+ "notify",
+ "plist",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "uuid",
+]
+
+[[package]]
 name = "cmux-conversation"
 version = "0.1.0"
 dependencies = [
@@ -1417,6 +1432,7 @@ dependencies = [
  "cmux-server-core",
  "cmux-tui-cdp",
  "cmux-tui-core",
+ "cmux-tui-hooks",
  "cmux-tui-machine-agent-protocol",
  "cmux-tui-machine-protocol",
  "cmux-unix-socket",
@@ -1444,7 +1460,6 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "toml",
- "toml_edit 0.22.27",
  "unicode-segmentation",
  "unicode-width",
  "url",
@@ -1484,6 +1499,7 @@ dependencies = [
  "base64",
  "cmux-app-host",
  "cmux-app-manifest",
+ "cmux-config",
  "cmux-conversation",
  "cmux-feed-core",
  "cmux-history",
@@ -1525,6 +1541,23 @@ dependencies = [
  "wait-timeout",
  "windows-sys 0.61.2",
  "zeroize",
+]
+
+[[package]]
+name = "cmux-tui-hooks"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cmux-tui-platform",
+ "getrandom 0.3.4",
+ "libc",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "toml",
+ "toml_edit 0.22.27",
+ "wait-timeout",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

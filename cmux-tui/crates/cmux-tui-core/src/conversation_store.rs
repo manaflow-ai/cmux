@@ -25,6 +25,8 @@ use sha2::{Digest, Sha256};
 #[path = "conversation_import.rs"]
 mod import;
 pub(crate) use import::ImportedMessage;
+#[path = "conversation_threads.rs"]
+pub(crate) mod threads;
 
 /// The store's file inside the session state directory.
 pub(crate) const CONVERSATIONS_FILE: &str = "conversations.sqlite3";
@@ -203,6 +205,7 @@ impl ConversationStore {
              ) WITHOUT ROWID;",
         )?;
         transaction.execute_batch(attachments::SCHEMA)?;
+        transaction.execute_batch(threads::SCHEMA)?;
         crate::conversation_search::drop_search_index(&transaction)?;
         transaction.execute(
             "INSERT INTO meta(key, value) VALUES('schema_version', ?1)
@@ -443,6 +446,10 @@ fn apply_op_in(
         Some(reply_to) => load_message_by_id(transaction, &reply_to.message_id)?,
         None => None,
     };
+    let thread_target = match op.thread_root() {
+        Some(root) => load_message_by_id(transaction, root)?,
+        None => None,
+    };
     let last_message = load_message_by_seq(transaction, conversation, head.last_seq)?;
     let mut commit = cmux_conversation::apply(
         &head,
@@ -454,6 +461,7 @@ fn apply_op_in(
             new_message_id: &new_message_id,
             target: target.as_ref(),
             reply_target: reply_target.as_ref(),
+            thread_target: thread_target.as_ref(),
             last_message: last_message.as_ref(),
         },
     )
@@ -737,7 +745,8 @@ impl ConversationEvent {
         }
     }
 
-    /// Drafts travel only on `conversation.events`.
+    /// Drafts travel on `conversation.events`, and on `subscribe` only to a
+    /// connection that asked for them (`conversation-draft-events-v1`).
     pub(crate) const fn is_draft(&self) -> bool {
         matches!(self, Self::Draft { .. })
     }

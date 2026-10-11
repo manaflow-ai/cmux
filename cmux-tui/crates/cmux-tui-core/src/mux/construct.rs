@@ -183,7 +183,11 @@ impl Mux {
             );
         Self::rebuild_split_screen_index(&mut state);
         let resource_projection_stats = registry.resource_projection_stats().clone();
+        let launch_identity = crate::launch_credential::LaunchIdentity::load(
+            registry.session_journal_database_path().as_deref().and_then(Path::parent),
+        );
         let mux = Arc::new(Mux {
+            launch_identity,
             registry_connection: registry.connection.clone(),
             workspace_registry: SignaledMutex::new(registry),
             session_public_id,
@@ -298,6 +302,7 @@ impl Mux {
             machine_usage: Mutex::new(None),
             agent_records: Mutex::new(agent_records),
             agent_hook_fences: Mutex::new(agent_hook_fences),
+            agent_presence: Mutex::new(HashMap::new()),
             agent_roster: Mutex::new(agent_roster),
             agent_roster_fold: Mutex::new(()),
             placement_notifications: Mutex::new(HashMap::new()),
@@ -365,11 +370,13 @@ impl Mux {
             ),
             terminal_reaper_events: Mutex::new(None),
             launch_snapshot_path: Mutex::new(None),
+            settings: settings::SettingsSlot::default(),
             terminal_work: terminal_work::TerminalWorkPool::default(),
-            #[cfg(unix)]
+            #[cfg(any(unix, windows))]
             prelaunched_terminals: Mutex::new(HashMap::new()),
             #[cfg(unix)]
             image_pastes: crate::image_paste::ImagePasteStore::default(),
+            history: crate::history_ops::HistoryHost::default(),
             surface_operation_admission: Arc::new(
                 crate::server::ServerSurfaceOperationAdmission::default(),
             ),
@@ -389,7 +396,7 @@ impl Mux {
         crate::journal_ingress::start(&mux, journal_ingress_receiver)?;
         mux.materialize_interrupted_resource_workspaces()?;
         mux.materialize_restored_browsers(&contents)?;
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         mux.adopt_terminal_hosts()?;
         {
             let mut state = mux.state.lock().unwrap();
@@ -420,7 +427,7 @@ impl Mux {
         mux.close_ephemeral_workspaces()?;
         // cx-6so.49: host losses whose respawn an earlier owner never ran
         // (it shut down first, or a session shutdown ended the shell).
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         mux.respawn_lost_terminals_at_start();
         mux.retry_pending_agent_hooks()?;
         crate::journal_hooks::start(&mux)?;

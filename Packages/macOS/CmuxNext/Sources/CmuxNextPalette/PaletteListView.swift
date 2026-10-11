@@ -58,8 +58,12 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
 
     private var boundsObserver: (any NSObjectProtocol)?
 
-    isolated deinit {
-        if let boundsObserver { NotificationCenter.default.removeObserver(boundsObserver) }
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            if let boundsObserver { NotificationCenter.default.removeObserver(boundsObserver) }
+        }
     }
 
     // MARK: Updates from the model
@@ -111,7 +115,7 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
         guard let id, let row = rowIndexByID[id] else { return }
         if let rowView = table.rowView(atRow: row, makeIfNecessary: false) as? PaletteTableRowView {
             rowView.isPaletteSelected = id == selectedID
-            rowView.isHovered = id == hoveredID
+            rowView.setHovered(id == hoveredID, animated: true)
         }
         (table.view(atColumn: 0, row: row, makeIfNecessary: false) as? PaletteRowCell)?.setSelected(id == selectedID)
     }
@@ -237,8 +241,8 @@ final class PaletteSectionHeaderCell: NSTableCellView {
 
     override func layout() {
         super.layout()
-        let height = label.intrinsicContentSize.height
+        let height = PaletteText.height(label)
         let x = PaletteLayout.listInset + Metrics.space4
-        label.frame = NSRect(x: x, y: Metrics.space1, width: bounds.width - 2 * x, height: height)
+        label.frame = pixelAligned(NSRect(x: x, y: Metrics.space1, width: bounds.width - 2 * x, height: height))
     }
 }

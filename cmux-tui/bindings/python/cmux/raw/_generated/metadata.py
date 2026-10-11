@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'c3e75f81f153b62db514f794bde678dc60c2776c6715471d2055c9cd99ec3172'
+IR_SHA256 = 'd7197176d6626400cd73cde71531657da3412e0ecfceb822df0e6b1bfb7fe9eb'
 
 
 @dataclass(frozen=True)
@@ -529,6 +529,20 @@ COMMANDS = {
             'conversation': CommandFieldMetadata(None, None),
         },
     ),
+    'cloud-conversation-thread': CommandMetadata(
+        'cloud-conversation-thread',
+        'local-admin',
+        12,
+        'conversation-thread-v1',
+        ('local-admin',),
+        None,
+        {
+            'after_seq': CommandFieldMetadata(None, None),
+            'conversation': CommandFieldMetadata(None, None),
+            'limit': CommandFieldMetadata(None, None),
+            'root': CommandFieldMetadata(None, None),
+        },
+    ),
     'cloud-conversation-unsubscribe': CommandMetadata(
         'cloud-conversation-unsubscribe',
         'local-admin',
@@ -715,6 +729,26 @@ COMMANDS = {
             'title': CommandFieldMetadata(None, None),
         },
     ),
+    'conversation-draft': CommandMetadata(
+        'conversation-draft',
+        'local-admin',
+        12,
+        'conversation-draft-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+            'done': CommandFieldMetadata(None, None),
+            'fresh': CommandFieldMetadata(None, None),
+            'harness': CommandFieldMetadata(None, None),
+            'kind': CommandFieldMetadata(None, None),
+            'segment': CommandFieldMetadata(None, None),
+            'seq': CommandFieldMetadata(None, None),
+            'text': CommandFieldMetadata(None, None),
+            'truncated': CommandFieldMetadata(None, None),
+            'turn': CommandFieldMetadata(None, None),
+        },
+    ),
     'conversation-history': CommandMetadata(
         'conversation-history',
         'local-admin',
@@ -787,6 +821,20 @@ COMMANDS = {
         {
             'conversation': CommandFieldMetadata(None, None),
             'tail': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-thread': CommandMetadata(
+        'conversation-thread',
+        'local-admin',
+        12,
+        'conversation-thread-v1',
+        ('local-admin',),
+        None,
+        {
+            'after_seq': CommandFieldMetadata(None, None),
+            'conversation': CommandFieldMetadata(None, None),
+            'limit': CommandFieldMetadata(None, None),
+            'root': CommandFieldMetadata(None, None),
         },
     ),
     'conversation-typing': CommandMetadata(
@@ -1206,6 +1254,17 @@ COMMANDS = {
         {
             'force': CommandFieldMetadata(None, None),
             'session_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'get-blob': CommandMetadata(
+        'get-blob',
+        'control',
+        12,
+        'icon-assets-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'blob': CommandFieldMetadata(None, None),
         },
     ),
     'get-browser-provider': CommandMetadata(
@@ -1816,6 +1875,7 @@ COMMANDS = {
             'owner': CommandFieldMetadata(None, None),
             'page': CommandFieldMetadata(None, 'page-tabs-v1'),
             'pane': CommandFieldMetadata(None, None),
+            'route': CommandFieldMetadata(None, 'page-tab-route-v1'),
             'rows': CommandFieldMetadata(None, None),
             'transaction': CommandFieldMetadata(None, 'conversation-tab-transaction-v1'),
             'workspace': CommandFieldMetadata(None, None),
@@ -2079,6 +2139,18 @@ COMMANDS = {
         None,
         {
             'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'put-blob': CommandMetadata(
+        'put-blob',
+        'control',
+        12,
+        'icon-assets-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'data': CommandFieldMetadata(None, None),
+            'media_type': CommandFieldMetadata(None, None),
         },
     ),
     'put-frontend-projection': CommandMetadata(
@@ -2393,6 +2465,17 @@ COMMANDS = {
         None,
         {
             'terminal_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'restart-tab': CommandMetadata(
+        'restart-tab',
+        'control',
+        12,
+        'tab-restart-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
         },
     ),
     'run': CommandMetadata(
@@ -3319,6 +3402,7 @@ COMMANDS = {
 EVENTS = {
     'activity-changed': EventMetadata('activity-changed', 12, 'vm-activity-v1', ('control',), 'emitted'),
     'agent-changed': EventMetadata('agent-changed', 11, None, ('subscribe',), 'emitted'),
+    'agent-presence-changed': EventMetadata('agent-presence-changed', 12, 'agent-presence-v1', ('subscribe',), 'emitted'),
     'bell': EventMetadata('bell', 5, None, ('subscribe',), 'emitted'),
     'bookmarks-changed': EventMetadata('bookmarks-changed', 12, 'bookmarks-v1', ('subscribe',), 'emitted'),
     'browser-state': EventMetadata('browser-state', 6, None, ('attach-browser',), 'emitted'),
@@ -3337,6 +3421,7 @@ EVENTS = {
     'colors-changed': EventMetadata('colors-changed', 6, None, ('attach-byte',), 'emitted'),
     'config-reload-requested': EventMetadata('config-reload-requested', 6, None, ('subscribe',), 'emitted'),
     'conversation-changed': EventMetadata('conversation-changed', 12, 'local-conversations-v1', ('subscribe',), 'emitted'),
+    'conversation-draft': EventMetadata('conversation-draft', 12, 'conversation-draft-events-v1', ('subscribe',), 'emitted'),
     'conversation-typing': EventMetadata('conversation-typing', 12, 'local-conversations-v1', ('subscribe',), 'emitted'),
     'daemon-shutdown': EventMetadata('daemon-shutdown', 12, None, ('control',), 'emitted'),
     'detached': EventMetadata('detached', 5, None, ('attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
@@ -3344,6 +3429,7 @@ EVENTS = {
     'frame': EventMetadata('frame', 6, None, ('attach-browser',), 'emitted'),
     'frontend-projection-changed': EventMetadata('frontend-projection-changed', 7, None, ('subscribe',), 'emitted'),
     'graphics-status': EventMetadata('graphics-status', 10, None, ('subscribe',), 'emitted'),
+    'history-changed': EventMetadata('history-changed', 12, 'history-v1', ('subscribe',), 'emitted'),
     'layout-changed': EventMetadata('layout-changed', 6, None, ('subscribe',), 'emitted'),
     'machine-usage-changed': EventMetadata('machine-usage-changed', 12, 'machine-usage-v1', ('subscribe',), 'emitted'),
     'notification': EventMetadata('notification', 6, None, ('subscribe', 'attach-byte', 'attach-browser'), 'emitted'),
@@ -3362,6 +3448,7 @@ EVENTS = {
     'screen-closed': EventMetadata('screen-closed', 7, None, ('subscribe-deltas',), 'emitted'),
     'screen-renamed': EventMetadata('screen-renamed', 7, None, ('subscribe-deltas',), 'emitted'),
     'scroll-changed': EventMetadata('scroll-changed', 6, None, ('subscribe', 'attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
+    'settings-changed': EventMetadata('settings-changed', 12, 'settings-v1', ('subscribe',), 'emitted'),
     'size-state': EventMetadata('size-state', 12, 'shared-sizing-v1', ('subscribe', 'attach-byte', 'attach-render'), 'emitted'),
     'status': EventMetadata('status', 5, None, ('subscribe',), 'emitted'),
     'surface-exited': EventMetadata('surface-exited', 5, None, ('subscribe',), 'emitted'),

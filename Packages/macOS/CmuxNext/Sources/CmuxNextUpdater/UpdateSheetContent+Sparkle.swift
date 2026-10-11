@@ -24,7 +24,10 @@ extension UpdateSheetContent {
                                       buttons: [.done])
         case .error(let failure):
             let detail = (failure.error as NSError).localizedDescription
-            return UpdateSheetContent(symbol: "exclamationmark.triangle", title: UpdaterStrings.updateFailed, detail: detail, buttons: [.done, .retry])
+            // A failure the in-app installer cannot get past offers the channel's installer.
+            let manual = UpdateManualDownloadRecovery().url(for: failure.error, feedURLString: failure.feedURLString)
+            return UpdateSheetContent(symbol: "exclamationmark.triangle", title: UpdaterStrings.updateFailed, detail: detail,
+                                      buttons: [.done, .retry] + (manual.map { [.downloadManually($0)] } ?? []))
         case .startingDownload:
             return UpdateSheetContent(symbol: "arrow.down.circle", title: UpdaterStrings.startingDownload, progress: .indeterminate, buttons: [])
         case .downloading(let download):

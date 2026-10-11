@@ -127,6 +127,16 @@ final class DiffPageService: InternalPageProvider {
         Task { await recents.record(repository, source: source) }
     }
 
+    /// The repository root the tab opened on (page-tab-route-v1).
+    func route(for key: String) -> String? { tabs[key]?.repository?.root }
+
+    /// A store tab came back on repository root `route` (Reopen Closed,
+    /// relaunch): it shows that root against its default base.
+    func restore(_ route: String, for key: String) {
+        guard tabs[key] == nil, route.hasPrefix("/") else { return }
+        tabs[key] = Tab(repository: DiffRepository(root: route, branch: nil, base: nil), source: .default)
+    }
+
     /// The diff page of `key`, nil for any other tab or before its view exists.
     func pageView(_ key: String) -> PageWebView? { tabs[key]?.page }
 

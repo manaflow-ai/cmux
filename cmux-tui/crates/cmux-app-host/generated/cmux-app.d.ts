@@ -35,7 +35,7 @@ declare namespace Cmux {
   type ClosedMemberRecord = { kind: "tab" | "screen" | "workspace"; name: string | null; workspace_id: string /* workspace_… */ | null; pane_id: string /* pane_… */ | null; index: number; screens: Array<Cmux.ClosedScreenRecord> }
   type ClosedReopenResult = { closed_id: Cmux.StateId; kind: "tab" | "screen" | "workspace"; workspace_id: string /* workspace_… */; workspace_ids: Array<string /* workspace_… */>; remaining: number; screen_ids: Array<string /* screen_… */>; tab_ids: Array<string /* tab_… */> }
   type ClosedScreenRecord = { name: string | null; tabs: Array<Cmux.ClosedTabRecord> }
-  type ClosedTabRecord = { kind: "terminal" | "browser"; name: string | null; cwd: string | null; url: string | null; browser_profile_id: string | null; pinned: boolean }
+  type ClosedTabRecord = { kind: "terminal" | "browser"; name: string | null; cwd: string | null; url: string | null; browser_profile_id: string | null; pinned: boolean; page?: string | null }
   type ClosedWorkspaceGroupRecord = { id: Cmux.StateId; name: string; color: string | null; icon?: string | null }
   type CloudConnectInfo = { machine: Cmux.MachineId; host: Cmux.HostId; epoch: number; state: Cmux.CloudMachineStatus; peer: { wg_public_key: string; overlay_address: string; vpc_endpoint: string | null; public_ipv6: string | null }; gateway: { tunnel_id: string; endpoint: string; server_public_key: string; client_address: string; allowed_ips: Array<string> } | null; services: Array<"daemon" | "ssh">; daemon: { version: string | null; capabilities: Array<string> }; revision: Cmux.Revision }
   type CloudConnectServices = Array<"daemon" | "ssh">
@@ -59,7 +59,7 @@ declare namespace Cmux {
   type ConversationEventItem = unknown
   type ConversationId = string
   type ConversationKind = "chief" | "dm" | "group"
-  type ConversationMessage = { id: string; conversation: string; seq: number; client_msg_id: string; author: string; parts: Array<Cmux.JsonValue>; reply_to?: Cmux.ConversationPartRef; created_at: string; edited_at?: string; retracted_at?: string; reactions: Array<Cmux.JsonValue>; origin?: Cmux.ConversationOrigin }
+  type ConversationMessage = { id: string; conversation: string; seq: number; client_msg_id: string; author: string; parts: Array<Cmux.JsonValue>; reply_to?: Cmux.ConversationPartRef; answers?: Array<string>; answers_pending?: Array<string>; thread_root?: string; created_at: string; edited_at?: string; retracted_at?: string; reactions: Array<Cmux.JsonValue>; origin?: Cmux.ConversationOrigin }
   type ConversationMessageItem = { type: "message" | "message_updated"; conversation: string; rev: number; message: Cmux.ConversationMessage }
   type ConversationOrigin = { kind: "remote"; install: string }
   type ConversationPage = { conversation: Cmux.ConversationSummary; messages: Array<Cmux.ConversationMessage>; typing: Array<string> }
@@ -77,6 +77,7 @@ declare namespace Cmux {
   type CreatedTerminalPath = { kind: "terminal"; workspace_id: string /* workspace_… */; screen_id: string /* screen_… */; pane_id: string /* pane_… */; tab_id: string /* tab_… */; terminal_id: string /* terminal_… */ }
   type CreatedWorkspaceOnly = { kind: "workspace"; workspace_id: string /* workspace_… */ }
   type CreationResolution = { correlation_key: string; state: "pending" | "created" | "not_applied" | "indeterminate"; recovery: "retry_same_idempotency_key" | "retry_new_idempotency_key" | "wait" | "none" | "do_not_retry"; operation?: string; idempotency_key?: string; created_path?: Cmux.CreatedPath; generation?: string; revision?: string }
+  type CredentialCheck = { valid: boolean; actor?: string; reason?: "unknown_key" | "credential_invalid" | "credential_malformed" | "credential_foreign_host" | "credential_closed" }
   type CronSpec = { expr: string; tz: string }
   type Cursor = { generation: string; revision: string }
   type DeviceId = string
@@ -119,12 +120,25 @@ declare namespace Cmux {
   type GitCheckpointSkipCode = "not_selected" | "over_limit" | "excluded" | "credential" | "ignored" | "nested_repository" | "submodule" | "unsupported_type" | "unreadable"
   type GitDiffResult = { scope: Cmux.GitDiffScope; root: string; head?: string; base?: string; files: Array<Cmux.GitChangedFile>; additions: number; deletions: number; total_files: number; files_omitted: number; untracked_skipped?: number }
   type GitDiffScope = "uncommitted" | "unstaged" | "staged" | "committed" | "branch"
+  type GitFileEntry = { name: string; kind: "file" | "directory" }
   type GitFileMatch = { path: string; matches: Array<number> }
+  type GitFilesListResult = { root: string; folder: string; entries: Array<Cmux.GitFileEntry>; truncated: boolean }
   type GitFilesSearchResult = { root: string; search_root: string; results: Array<Cmux.GitFileMatch>; truncated: boolean; total_matches: number }
   type GitStatusResult = { root: string; branch?: string; detached: boolean; head?: string; upstream?: string; base?: string; ahead: number; behind: number }
   type Grant = { id: Cmux.GrantId; grantee: string; op_classes: Array<Cmux.OpClass>; approval: "none" | "per_call" | "per_session"; expires_at: number | null; revoked_at: number | null; created_from: "install" | "ui" | "automation" | "standing_rule" }
   type GrantId = string
   type GroupColor = "grey" | "blue" | "red" | "yellow" | "green" | "pink" | "purple" | "cyan" | "orange"
+  type HistoryEntriesListResult = { entries: Array<Cmux.HistoryEntry>; revision: string }
+  type HistoryEntry = { id: string; kind: Cmux.HistoryKind; at_ms: string; title: string; detail?: string; machine?: string; workspace?: string; available: boolean; current?: boolean; running?: boolean; url?: string; profile?: string; closed_kind?: "terminal_tab" | "browser_tab" | "screen" | "workspace"; cwd?: string; command?: string; exit_code?: number; session_id?: string; provider?: string }
+  type HistoryKind = "page" | "location" | "closed" | "command" | "agent"
+  type HistoryPurgeResult = { purged: number }
+  type HistoryRange = "hour" | "today" | "week" | "month" | "all"
+  type HistoryRemovalResult = { removed: number; restore_id: string | null }
+  type HistoryRestoreResult = { restored: number }
+  type HistoryVisitImportResult = { imported: number }
+  type HistoryVisitRecordResult = { id: string }
+  type HistoryVisitSummary = { url: string; title: string | null; visit_count: number; last_visit_ms: string }
+  type HistoryVisitTitleResult = { updated: number }
   type HomeAttachmentPoster = { hash: Cmux.HomeSha256; mime_type: "image/jpeg" | "image/webp"; byte_count: number }
   type HomeAttachmentPreview = { hash: Cmux.HomeSha256; mime_type: "image/jpeg" | "image/webp"; byte_count: number }
   type HomeChief = { id: Cmux.ChiefId; owner_user: string; display_name: string; is_default: boolean; brain: "cloud"; brain_place?: Cmux.ChiefBrainPlace | null; main_conversation: Cmux.ConversationId | null; harness: string | null; rev: unknown; created_at: Cmux.Timestamp; updated_at: Cmux.Timestamp; archived_at: Cmux.Timestamp | null }
@@ -134,7 +148,7 @@ declare namespace Cmux {
   type HomeDeliveryState = "queued" | "sent" | "delivered" | "bounced" | "complained" | "failed" | "suppressed" | "refused_env"
   type HomeInboxEntry = { conversation: Cmux.ConversationId; rev: number; kind: Cmux.ConversationKind; title: string; last_seq: number; last_at: Cmux.Timestamp; preview: string; preview_attachments?: { kind: "photo" | "video" | "audio" | "file"; count: number }; dm_peer?: Cmux.ParticipantId; removed: boolean; unread: number; mentions: number; counts_rev: number; pinned: boolean; pin_position?: number; muted: boolean; muted_until?: unknown; archived: boolean; archived_seq: number; marked_unread: boolean }
   type HomeInvite = { id: Cmux.InviteId; address: Cmux.AddressId; channel: "email" | "sms"; display_name: string; invited_by: Cmux.ParticipantId; created_at: Cmux.Timestamp; expires_at: Cmux.Timestamp; status: "pending" | "pending_approval" | "accepted" | "revoked" | "expired"; accepted_by?: string; accepted_at?: Cmux.Timestamp; requested_by?: string; requested_name?: string; requested_at?: Cmux.Timestamp; delivery: { state: Cmux.HomeDeliveryState; provider_id?: string; at: Cmux.Timestamp }; copy_variant: string; locale: string }
-  type HomeMessage = { id: Cmux.MessageId; conversation: Cmux.ConversationId; seq: number; client_msg_id: Cmux.ClientToken; author: Cmux.ParticipantId; parts: Array<Cmux.HomePart>; reply_to?: Cmux.HomePartRef; created_at: Cmux.Timestamp; edited_at?: Cmux.Timestamp; retracted_at?: Cmux.Timestamp; reactions: Array<Cmux.HomeReaction> }
+  type HomeMessage = { id: Cmux.MessageId; conversation: Cmux.ConversationId; seq: number; client_msg_id: Cmux.ClientToken; author: Cmux.ParticipantId; parts: Array<Cmux.HomePart>; reply_to?: Cmux.HomePartRef; thread_root?: Cmux.MessageId; created_at: Cmux.Timestamp; edited_at?: Cmux.Timestamp; retracted_at?: Cmux.Timestamp; reactions: Array<Cmux.HomeReaction> }
   type HomePart = unknown
   type HomeParticipant = { id: Cmux.ParticipantId; kind: "human" | "agent" | "address"; display_name: string; agent_class?: "mux" | "agent"; acp_session?: string; owner_user?: string; role?: "owner" | "member"; joined_seq?: number; added_by?: string; left_at?: Cmux.Timestamp }
   type HomeParticipantInput = { id: Cmux.ParticipantId; kind: "human" | "agent"; display_name: string; agent_class?: "mux" | "agent"; owner_user?: string }
@@ -143,6 +157,7 @@ declare namespace Cmux {
   type HomeReactionKind = unknown
   type HomeSha256 = string
   type HomeTextRun = { start: number; length: number; mention?: Cmux.ParticipantId; link?: string }
+  type HomeThreadSummary = { root: Cmux.MessageId; reply_count: number; last_reply_seq: number | null; last_reply_at: Cmux.Timestamp | null; authors: Array<Cmux.ParticipantId> }
   type Host = { id: Cmux.HostId; name: string; platform: Cmux.Platform; owner_user: Cmux.UserId; enrolled_by: Cmux.InstallId; enrolled_at: number; kind?: Cmux.HostKind; wg_public_key?: Cmux.WgPublicKey; tags?: Array<string>; orphaned?: { at: number; former_owner: Cmux.UserId } }
   type HostId = string
   type HostKind = "device" | "server"
@@ -185,6 +200,8 @@ declare namespace Cmux {
   type JournalSubjectFilter = { kind?: string; id?: string }
   type JournalUnsupportedReplayRecord = { sequence: string; event_id: string; kind: string }
   type JsonValue = string
+  type LaunchCredential = { credential: string; actor: string }
+  type LaunchKeyRotation = { kid: string }
   type LayoutColumn = { column_id: string /* split_… */; width: number; root: Cmux.LayoutNode; dock?: Cmux.LayoutColumnDock | null }
   type LayoutColumnDock = { edge: "left" | "right" | "top" | "bottom"; mode: "docked" | "overlay" }
   type LayoutDocument = { version: number; screen_id: string /* screen_… */; active_pane_id: string /* pane_… */; zoomed_pane_id: string /* pane_… */ | null; root: Cmux.LayoutNode; extra?: Record<string, Cmux.JsonValue> }
@@ -276,6 +293,7 @@ declare namespace Cmux {
   type SessionJournalRecord = { sequence: string; event_id: string; schema_version: number; kind: string; class: Cmux.JournalClass; replay: Cmux.JournalReplayPolicy; occurred_at_ms: string; committed_at_ms: string; producer: Cmux.JournalProducer; authority: Cmux.JournalAuthority | null; causation_id: string | null; correlation_id: string | null; causation_depth: number; subjects: Array<Cmux.JournalSubject>; sensitivity: Cmux.JournalSensitivity; payload: Cmux.JsonValue; resource_revision: string | null; previous_resource_revision: string | null }
   type SessionSnapshot = { id: string /* session_… */; machine_id: string /* machine_… */; name?: string; generation: string; revision: string; connected: boolean; extra?: Record<string, Cmux.JsonValue> }
   type SessionSnapshotItem = { kind: "snapshot"; cursor: Cmux.Cursor; reset_reason?: "initial" | "generation_changed" | "cursor_expired"; snapshot: Cmux.ResourceSnapshot }
+  type SettingsChange = { keys: Array<string> }
   type ShutdownResult = { accepted: boolean }
   type SidebarAttachItem = unknown
   type SidebarAttachPatch = { kind: "patch"; sidebar_view_id: string /* sidebar_view_… */; render: Cmux.RenderPatch }
@@ -372,6 +390,10 @@ declare namespace Cmux {
   type WgPublicKey = string
   type WindowRecordDeleteResult = { id: string; revision: string }
   type WindowRecordSnapshot = { id: string; install_id: string; window_id: string; owner: string; revision: string; record: Cmux.JsonValue; updated_at_ms: string }
+  type WorkspaceAgentStart = { cwd: string | null; kind: Cmux.WorkspaceAgentStartKind; agent_home: string | null; skipped?: Cmux.WorkspaceAgentStartSkip }
+  type WorkspaceAgentStartKind = "seed" | "chosen" | "workspace" | "agent_home"
+  type WorkspaceAgentStartSkip = { cwd: string; reason: Cmux.WorkspaceAgentStartSkipReason }
+  type WorkspaceAgentStartSkipReason = "home" | "above_home" | "agent_home" | "missing"
   type WorkspaceGroupDeleteResult = { id: Cmux.StateId; ungrouped: Array<Cmux.WorkspaceRef> }
   type WorkspaceGroupSnapshot = { id: Cmux.StateId; room_id: Cmux.StateId; name: string; color: string | null; collapsed: boolean; index: number; top_index?: number | null; icon?: string | null; pinned?: boolean }
   type WorkspaceLogLevel = "info" | "progress" | "success" | "warning" | "error"
@@ -380,8 +402,11 @@ declare namespace Cmux {
   type WorkspaceProgress = { value: number | null; label: string | null; updated_at_ms: string }
   type WorkspaceRef = { session_id: string; workspace_ref: string; workspace_id: string /* workspace_… */ | null }
   type WorkspaceSnapshot = { id: string /* workspace_… */; session_id: string /* session_… */; name: string; index: number; focused: boolean; extra?: Record<string, Cmux.JsonValue> }
-  type WorkspaceStatusEntry = { key: string; text: string; icon: string | null; color: string | null; updated_at_ms: string }
+  type WorkspaceStatusEntry = { key: string; text: string; icon: string | null; color: string | null; updated_at_ms: string; state?: Cmux.WorkspaceStatusState; progress?: number | null; style?: Cmux.WorkspaceStatusStyle | null; expires_at_ms?: string | null; owner?: Cmux.WorkspaceStatusOwner | null; target_terminal?: string /* terminal_… */ | null; exit_code?: number | null; duration_ms?: string | null }
+  type WorkspaceStatusOwner = { pid?: number; machine?: string; terminal?: string /* terminal_… */; agent_session?: string }
   type WorkspaceStatusSnapshot = { workspace_id: string /* workspace_… */; entries: Array<Cmux.WorkspaceStatusEntry>; progress: Cmux.WorkspaceProgress | null; log_count: number; last_log: Cmux.WorkspaceLogLine | null }
+  type WorkspaceStatusState = "busy" | "success" | "error" | "waiting" | "info"
+  type WorkspaceStatusStyle = "arc" | "native" | "dot" | "none"
   type MutationResult<T> = { value: T; generation: string; revision: string; replayed: boolean }
 }
 
@@ -673,7 +698,9 @@ interface CmuxGlobal {
       set: CmuxOp<{ conversation: Cmux.ConversationId; wake_policy?: "auto" | "mentions" | "all"; agent_budget?: { turns: number; gap_ms: number }; history_visible?: "all" | "since_join"; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
     }
     /** `conversation.snapshot` (read, scope `conversation:read`): Read the conversation and its newest messages (history_visible since_join hides earlier ones). */
-    snapshot: CmuxOp<{ conversation: Cmux.ConversationId; tail?: number }, { conversation: Cmux.HomeConversationSummary; messages: Array<Cmux.HomeMessage>; revision: string }>
+    snapshot: CmuxOp<{ conversation: Cmux.ConversationId; tail?: number }, { conversation: Cmux.HomeConversationSummary; messages: Array<Cmux.HomeMessage>; threads?: Array<Cmux.HomeThreadSummary>; revision: string }>
+    /** `conversation.thread` (read, scope `conversation:read`): Read one thread: its root and the replies after after_seq (ascending, exact has_more), with the root's stats. A root that is unknown, is itself a reply, or is hidden by since_join is unknown_message. */
+    thread: CmuxOp<{ conversation: Cmux.ConversationId; root: Cmux.MessageId; after_seq?: number; limit?: number }, { root: Cmux.HomeMessage; replies: Array<Cmux.HomeMessage>; has_more: boolean; thread: Cmux.HomeThreadSummary }>
     /** `conversation.typing` (mutation, scope `conversation:write`) */
     typing: CmuxOp<{ machine?: string; session?: string; conversation: string; on: boolean }, Cmux.MutationResult<Cmux.ConversationPublishResult>>
   }
@@ -762,6 +789,8 @@ interface CmuxGlobal {
     /** `git.diff` (read, scope `git:read`) */
     diff: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; scope: Cmux.GitDiffScope; paths?: Array<string>; include_patch?: boolean; max_patch_bytes?: number; max_files?: number }, Cmux.GitDiffResult>
     files: {
+      /** `git.files.list` (read, scope `git:read`) */
+      list: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; limit?: number }, Cmux.GitFilesListResult>
       /** `git.files.search` (read, scope `git:read`) */
       search: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; query: string; limit?: number }, Cmux.GitFilesSearchResult>
     }
@@ -883,8 +912,8 @@ interface CmuxGlobal {
     edit: CmuxOp<{ conversation: Cmux.ConversationId; message_id: Cmux.MessageId; parts: Array<Cmux.HomePart>; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
     /** `message.retract` (mutation, scope `message:write`): Retract one of your messages: its parts and reactions are cleared and it leaves search. */
     retract: CmuxOp<{ conversation: Cmux.ConversationId; message_id: Cmux.MessageId; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
-    /** `message.send` (mutation, scope `message:write`): Send a message. client_msg_id must equal the idempotency key; a retry with the same key returns the original message. */
-    send: CmuxOp<{ conversation: Cmux.ConversationId; client_msg_id: Cmux.ClientToken; parts: Array<Cmux.HomePart>; reply_to?: Cmux.HomePartRef; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
+    /** `message.send` (mutation, scope `message:write`): Send a message. client_msg_id must equal the idempotency key; a retry with the same key returns the original message. thread_root replies in the thread of a top-level message (one level). A send moves the sender's read cursor to the new message when the sender had read everything before it. */
+    send: CmuxOp<{ conversation: Cmux.ConversationId; client_msg_id: Cmux.ClientToken; parts: Array<Cmux.HomePart>; reply_to?: Cmux.HomePartRef; thread_root?: Cmux.MessageId; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
   }
   mux: {
     /** `mux.ack` (mutation, scope `mux:write`): The chief's brain host acknowledges its wakes in a conversation up to seq (moves its catch-up cursor). */
@@ -1180,6 +1209,16 @@ interface CmuxGlobal {
       }
     }
   }
+  settings: {
+    /** `settings.get` (read, scope `settings:read`) */
+    get: CmuxOp<{ machine?: string; session?: string; key?: string; path?: Array<string> }, Cmux.JsonValue>
+    /** `settings.list` (read, scope `settings:read`) */
+    list: CmuxOp<{ machine?: string; session?: string; section?: string }, Array<Cmux.JsonValue>>
+    /** `settings.schema` (read, scope `settings:read`) */
+    schema: CmuxOp<{ machine?: string; session?: string }, Cmux.JsonValue>
+    /** `settings.snapshot` (read, scope `settings:read`) */
+    snapshot: CmuxOp<{ machine?: string; session?: string }, Cmux.JsonValue>
+  }
   sidebar_layout: {
     /** `sidebar_layout.get` (read, scope `sidebar_layout:read`) */
     get: CmuxOp<{ machine?: string; session?: string }, Cmux.SidebarLayoutSnapshot>
@@ -1451,7 +1490,7 @@ interface CmuxGlobal {
     /** `workspace_status.list` (read, scope `workspace_status:read`) */
     list: CmuxOp<{ machine?: string; session?: string; workspace?: string }, Array<Cmux.WorkspaceStatusSnapshot>>
     /** `workspace_status.set` (mutation, scope `workspace_status:write`) */
-    set: CmuxOp<{ machine?: string; session?: string; workspace: string; key: string; text: string; icon?: string; color?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.WorkspaceStatusSnapshot>>
+    set: CmuxOp<{ machine?: string; session?: string; workspace: string; key: string; text: string; icon?: string; color?: string; state?: Cmux.WorkspaceStatusState; progress?: number; style?: Cmux.WorkspaceStatusStyle; ttl_ms?: number; owner?: Cmux.WorkspaceStatusOwner; target_terminal?: string /* terminal_… */; exit_code?: number; duration_ms?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.WorkspaceStatusSnapshot>>
   }
   call<T = unknown>(name: string, params?: unknown, options?: CmuxCallOptions): Promise<T>
   live<T = unknown>(op: string | { opName: string }, params?: unknown, options?: { events?: string[]; select?: (v: unknown) => T }): CmuxLive<T>

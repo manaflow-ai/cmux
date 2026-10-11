@@ -8,7 +8,7 @@ import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
 import { safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
-import { SUBAGENT_ROW } from "./subagents/subagentRows";
+import { SUBAGENT_OF, SUBAGENT_ROW } from "./subagents/subagentRows";
 import type { ComposerAttachment } from "./attachments";
 
 export type AcpmuxRow = {
@@ -110,10 +110,22 @@ export type AcpmuxCatalogModel = {
   contextWindow?: number;
 };
 
+/// A change to a waiting prompt (`_acpmux/queue_edit`): its text, its place (0 runs next), or
+/// send it now.
+export type QueueEdit =
+  | { op: "update"; text: string }
+  | { op: "move"; index: number }
+  | { op: "send_now" }
+  /** Runs a queue a failed turn paused; any of its prompts names it. */
+  | { op: "resume" };
+
 export type AcpmuxSnapshot = {
   type: "snapshot";
   protocolVersion: number;
   rows: AcpmuxRow[];
+  /// Each subagent's own view by subagent id: its rows, opened from its line in a group
+  /// (subagents/childRows.ts).
+  subagentViews?: Record<string, AcpmuxRow[]>;
   sessions: AcpmuxSessionEntry[];
   /** Connected peer names advertised by the acpmux daemon, including peers without chats yet. */
   peers?: string[];
@@ -139,6 +151,10 @@ export type AcpmuxSnapshot = {
     confirmedModel?: string;
     effort?: string;
     promptCapabilities?: { image?: boolean };
+    /// The agent takes a prompt mid-turn (acpmux `steering`); without it a steer stops the turn.
+    steering?: boolean;
+    /// A turn failed: the queued prompts wait until the user resumes the queue (acpmux `queuePaused`).
+    queuePaused?: boolean;
     status?: string;
     enforcement?: Enforcement;
     modes?: {
@@ -346,6 +362,8 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   // subagent, the last with the list's 8px below (subagents/SubagentGroup.tsx).
   if (row.kind === SUBAGENTS) return 56;
   if (row.kind === SUBAGENT_ROW) return row.status === "last" || row.status === "only" ? 56 : 48;
+  // The child view's 28px "Subagent of" pill with 8px above and below it.
+  if (row.kind === SUBAGENT_OF) return 44;
   // The 27px disclosure line, and the live status lines in its place.
   if (row.kind === WORKED || row.kind === WORKING || row.kind === THINKING) return 35;
   // The 20px date line with 8px above it.

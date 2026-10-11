@@ -39,21 +39,54 @@ await requireBrowserLane("composer-menu-width.test.ts", async () => {
     }
   }
 
-  /// The inline style useUiAnchor gives an open menu (src/ui/anchor.ts).
-  const ANCHORED = "position:absolute;left:0px;top:-260px;right:auto;bottom:auto;visibility:visible";
+  /// The inline style useUiAnchor gives an open menu (src/ui/anchor.ts). At a 200px viewport the
+  /// anchor's 8px margin clamps the surface to x=8, so the narrow case can check both edges.
+  const ANCHORED = "position:absolute;left:8px;top:-260px;right:auto;bottom:auto;visibility:visible";
   const row = (label: string) =>
     `<div class="acpmux-menu-item"><span class="acpmux-menu-text"><span class="acpmux-menu-label">${label}</span></span></div>`;
+  const modelRow = (label: string) => `<button class="acpmux-mp-row">${label}</button>`;
   const PAGE = `<!doctype html><html><head><style>
 :root{--agent-text:rgb(205,214,244);--agent-accent-text:rgb(30,30,46);--agent-page-bg:rgb(30,30,46);--agent-muted:rgb(166,173,200)}
 ${css}
+.flex{display:flex}
 </style></head><body>
-<div class="acpmux-shell"><div class="acpmux-composer" style="margin-top:320px">
+<div class="acpmux-shell"><div class="acpmux-composer acpmux-composer-bar" style="margin-top:320px;padding:0">
+  <span class="acpmux-picker acpmux-composer-plus"><button class="acpmux-picker-button" style="width:28px">+</button></span>
+  <div class="acpmux-chips">
   <span class="acpmux-picker acpmux-model" style="position:relative">
     <button class="acpmux-picker-button" style="width:120px">GPT-6-Astra</button>
-    <div class="acpmux-menu acpmux-menu-end acpmux-mp acpmux-mp-cascade" style="${ANCHORED}">
-      <div class="acpmux-menu-search">Type to search models</div>${row("Codex")}${row("GPT-5.6-Sol")}${row("GPT-6-Astra")}
+    <div class="ui-popup ui-picker-popup acpmux-mp flex" style="${ANCHORED}">
+      <div class="acpmux-mp-rail-scroll w-11 flex-none">
+        <div class="acpmux-mp-rail-viewport" style="overflow:scroll">
+          <div class="acpmux-mp-rail-list flex flex-col items-center gap-1 py-1.5">
+            <button class="acpmux-mp-rail-tab grid size-8 flex-none" style="width:32px;height:32px;flex:none">
+              Claude Code
+            </button>
+            <button class="acpmux-mp-rail-tab grid size-8 flex-none" style="width:32px;height:32px;flex:none">
+              Codex
+            </button>
+            <button class="acpmux-mp-rail-tab grid size-8 flex-none" style="width:32px;height:32px;flex:none">
+              Folder
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="acpmux-mp-content">
+        <div class="acpmux-mp-search">Type to search models</div>
+        <div class="acpmux-mp-models">${modelRow("GPT-5.6-Sol")}${modelRow("GPT-6-Astra")}</div>
+      </div>
     </div>
   </span>
+  <span class="acpmux-chips-spacer"></span>
+  <span class="acpmux-mode acpmux-access">
+    <button class="acpmux-picker-button acpmux-access-trigger">
+      <span class="acpmux-icon" style="width:16px;height:16px"></span>
+      <span class="acpmux-mode-text">Ask before edits</span>
+      <span class="acpmux-icon" style="width:12px;height:12px"></span>
+    </button>
+  </span>
+  </div>
+  <span class="acpmux-composer-actions"><button class="acpmux-send" style="width:28px;height:28px">↑</button></span>
 </div></div>
 <div class="ui-positioner" style="position:absolute;left:8px;top:8px">
   <div class="acpmux-menu acpmux-location-menu">${row("~/fun/cmuxterm-hq")}</div>
@@ -91,7 +124,57 @@ ${css}
 
       test("in a 200px pane the Model menu still fits inside the pane's margins", async () => {
         const page = await open(200);
-        expect((await box(page, ".acpmux-model .acpmux-mp")).width).toBeLessThanOrEqual(200 - 16);
+        const menu = await box(page, ".acpmux-model .acpmux-mp");
+        expect(menu.width).toBeLessThanOrEqual(200 - 16);
+        const geometry = await page.$eval(".acpmux-model .acpmux-mp", (node) => {
+          const menu = node as HTMLElement;
+          const rail = menu.querySelector<HTMLElement>(".acpmux-mp-rail-scroll")!;
+          const railList = menu.querySelector<HTMLElement>(".acpmux-mp-rail-list")!;
+          const content = menu.querySelector<HTMLElement>(".acpmux-mp-content")!;
+          return {
+            menuScrollWidth: menu.scrollWidth,
+            menuClientWidth: menu.clientWidth,
+            menuLeft: menu.getBoundingClientRect().left,
+            menuRight: menu.getBoundingClientRect().right,
+            menuDisplay: getComputedStyle(menu).display,
+            menuDirection: getComputedStyle(menu).flexDirection,
+            railLeft: rail.getBoundingClientRect().left,
+            railRight: rail.getBoundingClientRect().right,
+            railWidth: rail.getBoundingClientRect().width,
+            railHeight: rail.getBoundingClientRect().height,
+            viewportWidth: menu.querySelector<HTMLElement>(".acpmux-mp-rail-viewport")!.getBoundingClientRect().width,
+            viewportHeight: menu.querySelector<HTMLElement>(".acpmux-mp-rail-viewport")!.getBoundingClientRect().height,
+            contentWidth: content.getBoundingClientRect().width,
+            railListDisplay: getComputedStyle(railList).display,
+            railDirection: getComputedStyle(railList).flexDirection,
+            tabRects: [...menu.querySelectorAll<HTMLElement>(".acpmux-mp-rail-tab")].map((tab) => {
+              const rect = tab.getBoundingClientRect();
+              return { left: rect.left, right: rect.right, top: rect.top, width: rect.width, height: rect.height };
+            }),
+          };
+        });
+        expect(geometry.menuScrollWidth).toBeLessThanOrEqual(geometry.menuClientWidth);
+        expect(geometry.menuLeft).toBeGreaterThanOrEqual(8);
+        expect(geometry.menuRight).toBeLessThanOrEqual(200 - 8);
+        expect(geometry.menuDisplay).toBe("flex");
+        expect(geometry.menuDirection).toBe("column");
+        expect(geometry.railDirection).toBe("row");
+        expect(geometry.railListDisplay).toBe("flex");
+        expect(geometry.railWidth).toBeLessThanOrEqual(menu.width);
+        expect(geometry.railHeight).toBe(44);
+        expect(geometry.viewportWidth).toBe(geometry.railWidth);
+        expect(geometry.viewportHeight).toBeGreaterThanOrEqual(40);
+        expect(geometry.viewportHeight).toBeLessThanOrEqual(geometry.railHeight);
+        expect(geometry.contentWidth).toBeGreaterThan(0);
+        expect(geometry.tabRects).toHaveLength(3);
+        expect(geometry.tabRects.every((tab) => tab.width >= 24 && tab.width < geometry.railWidth / 2)).toBe(true);
+        expect(geometry.tabRects.every((tab) => tab.height >= 24 && tab.height <= geometry.railHeight)).toBe(true);
+        expect(
+          Math.max(...geometry.tabRects.map((tab) => tab.top)) - Math.min(...geometry.tabRects.map((tab) => tab.top)),
+        ).toBeLessThanOrEqual(1);
+        expect(
+          geometry.tabRects.every((tab) => tab.left >= geometry.railLeft && tab.right <= geometry.railRight + 1),
+        ).toBe(true);
         await page.close();
       });
 
@@ -104,6 +187,48 @@ ${css}
         expect(background).not.toBe("rgba(0, 0, 0, 0)");
         expect((await box(page, ".ui-positioner .acpmux-location-menu")).width).toBeGreaterThanOrEqual(200);
         await page.close();
+      });
+
+      test("permission mode changes keep the trigger width stable", async () => {
+        const page = await open(1000);
+        const widths = await page.$eval(".acpmux-access-trigger", (node) => {
+          const trigger = node as HTMLElement;
+          const mode = trigger.querySelector<HTMLElement>(".acpmux-mode-text")!;
+          const values = ["Ask before edits", "Full access"].map((label) => {
+            mode.textContent = label;
+            return trigger.getBoundingClientRect().width;
+          });
+          return values;
+        });
+        expect(widths[0]).toBeGreaterThan(0);
+        expect(widths[1]).toBe(widths[0]);
+        await page.close();
+      });
+
+      test("the complete control rail stays inside narrow LTR and RTL panes", async () => {
+        for (const width of [360, 240, 200, 180]) {
+          for (const direction of ["ltr", "rtl"] as const) {
+            const page = await open(width);
+            await page.evaluate((dir) => document.documentElement.setAttribute("dir", dir), direction);
+            const geometry = await page.$eval(".acpmux-composer-bar", (node) => {
+              const bar = node as HTMLElement;
+              const barRect = bar.getBoundingClientRect();
+              const access = bar.querySelector<HTMLElement>(".acpmux-access-trigger")!.getBoundingClientRect();
+              return {
+                clientWidth: bar.clientWidth,
+                scrollWidth: bar.scrollWidth,
+                barLeft: barRect.left,
+                barRight: barRect.right,
+                accessLeft: access.left,
+                accessRight: access.right,
+              };
+            });
+            expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth);
+            expect(geometry.accessLeft).toBeGreaterThanOrEqual(geometry.barLeft - 1);
+            expect(geometry.accessRight).toBeLessThanOrEqual(geometry.barRight + 1);
+            await page.close();
+          }
+        }
       });
     });
   }

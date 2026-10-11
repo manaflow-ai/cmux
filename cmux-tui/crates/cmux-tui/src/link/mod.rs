@@ -7,6 +7,7 @@ mod cloud_fs;
 mod control;
 mod dial;
 mod dial_cli;
+mod sync_cli;
 // Wired into `serve` when Cloud hosts run the link (needs the TeamDO peer
 // map and a token format); tested now.
 #[cfg_attr(not(test), allow(dead_code))]
@@ -94,6 +95,10 @@ pub(crate) fn run(args: &[String]) -> i32 {
     // `dial` has its own exit codes and always one JSON line on stderr.
     if args.first().map(String::as_str) == Some("dial") {
         return dial_cli::run(&args[1..]);
+    }
+    // `sync` answers one JSON line on stdout and has its own exit codes too.
+    if args.first().map(String::as_str) == Some("sync") {
+        return sync_cli::run(&args[1..]);
     }
     // Asked-for help is a success on stdout, like every other scope.
     if matches!(args.first().map(String::as_str), Some("-h" | "--help" | "help")) {

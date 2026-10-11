@@ -60,6 +60,7 @@ public final class AddressBarView: NSView {
             guard let self else { return OmniboxDelivery.finished }
             var request = request
             request.tabKey = tabKey
+            request.allowsChromiumSchemes = allowsChromiumSchemes
             return suggestionEngine.deliveries(for: request)
         }
     )
@@ -217,6 +218,10 @@ public final class AddressBarView: NSView {
         fieldToBadge.isActive = visible
     }
 
+    /// Shows the page's URL again after a commit that loaded nothing in
+    /// this tab (`chrome://settings` opened Settings instead).
+    public func showPageURL() { controller.send(.pageURLChanged(reportedURL)) }
+
     /// Shows the page's URL. While editing, typed text never changes.
     public func update(url: URL?, security: BrowserSecurityState) {
         if url != reportedURL {
@@ -254,11 +259,6 @@ public final class AddressBarView: NSView {
         controller.send(.key(.enter(disposition)))
     }
 
-    /// The search engine inside `suggestionEngine` changed.
-    public func searchEngineDidChange() {
-        controller.send(.searchEngineChanged)
-    }
-
     /// Verification hook (`BrowserDebugWindow`, tests): focuses the field
     /// and types `text` one character at a time through the field editor,
     /// as keystrokes do.
@@ -291,7 +291,6 @@ public final class AddressBarView: NSView {
     }
 
     var fieldEditor: OmnibarFieldEditor? { field.editor }
-    var suggestionPanel: OmniboxSuggestionPanel { panel }
 
     // MARK: Events in
 

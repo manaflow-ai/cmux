@@ -43,7 +43,10 @@ nonisolated enum HomeChannelsWire {
 
     @concurrent static func submit(_ source: any HomeSource, _ intent: HomeIntent) async throws -> JSONValue {
         let result = try await rejecting { try await source.submit(intent) }
-        return .object(["rev": number(result.rev), "replayed": .bool(result.replayed)])
+        var members: [String: JSONValue] = ["rev": number(result.rev), "replayed": .bool(result.replayed)]
+        // The conversation the intent made (a new group), so the page can open it.
+        if let conversation = result.conversation { members["conversation"] = .string(conversation.rawValue) }
+        return .object(members)
     }
 
     /// Runs one owner call, turning the owner's refusals into page errors.
@@ -96,6 +99,7 @@ nonisolated enum HomeChannelsWire {
             "lastSeq": number(summary.lastSeq),
             "rev": number(summary.rev),
             "updatedAt": millis(summary.updatedAt),
+            "createdAt": millis(summary.createdAt),
             "unread": JSONValue(summary.unreadCount(me: me)),
             "mentions": JSONValue(summary.mentionCount),
             "muted": .bool(summary.muted),
@@ -115,6 +119,7 @@ nonisolated enum HomeChannelsWire {
             "retracted": .bool(message.isRetracted),
             "parts": .array(message.isRetracted ? [] : message.parts.map(part)),
             "reactions": .array(message.reactions.map(reaction)),
+            "clientMessageId": .string(message.clientMessageID.rawValue),
         ]
         if let edited = message.editedAt { members["editedAt"] = millis(edited) }
         if let reply = message.replyTo {
@@ -148,6 +153,20 @@ nonisolated enum HomeChannelsWire {
         }
     }
 
+    static func draft(_ draft: HomeDraftUpdate) -> JSONValue {
+        .object([
+            "conversation": .string(draft.conversation.rawValue),
+            "participant": .string(draft.participant.rawValue),
+            "turn": .string(draft.turn.rawValue),
+            "segment": .number(Double(draft.segment)),
+            "seq": .number(Double(draft.seq)),
+            "talk": .bool(draft.isTalk),
+            "text": .string(draft.text),
+            "fresh": .bool(draft.fresh),
+            "done": .bool(draft.done),
+        ])
+    }
+
     static func reaction(_ reaction: Reaction) -> JSONValue {
         var members: [String: JSONValue] = ["author": .string(reaction.author.rawValue), "partIndex": JSONValue(reaction.partIndex)]
         switch reaction.kind {
@@ -172,6 +191,8 @@ nonisolated enum HomeChannelsWire {
 /// so the page refetches one bounded page instead.
 nonisolated final class HomeChannelsEventPump: Sendable {
     static let maxMessages = 300
+    /// Draft items kept per batch; an older dropped item shows as a gap until the next fresh one.
+    static let maxDrafts = 512
 
     private struct Pending {
         var connection: String?
@@ -182,10 +203,12 @@ nonisolated final class HomeChannelsEventPump: Sendable {
         var messageOrder: [String] = []
         var stale: Set<String> = []
         var typing: [JSONValue] = []
+        var drafts: [JSONValue] = []
         var scheduled = false
 
         var isEmpty: Bool {
-            connection == nil && !inboxStale && conversations.isEmpty && removed.isEmpty && messages.isEmpty && stale.isEmpty && typing.isEmpty
+            connection == nil && !inboxStale && conversations.isEmpty && removed.isEmpty && messages.isEmpty && stale.isEmpty
+                && typing.isEmpty && drafts.isEmpty
         }
     }
 
@@ -241,6 +264,16 @@ nonisolated final class HomeChannelsEventPump: Sendable {
                 pending.stale.insert(page.conversation.id.rawValue)
             case .intentsRevoked:
                 break
+            case .draft(let draft):
+                // Every item, in order: the page keeps the running reply (drafts.ts, the same
+                // rules as HomeDraftBook) and ends it when the reply with the turn's key posts.
+                pending.drafts.append(HomeChannelsWire.draft(draft))
+                // Over the bound, drop the oldest append (the page shows a gap until the next
+                // fresh item); a `done` or `fresh` item is kept, so a turn always ends.
+                if pending.drafts.count > Self.maxDrafts,
+                   let oldest = pending.drafts.firstIndex(where: { $0["done"]?.boolValue != true && $0["fresh"]?.boolValue != true }) {
+                    pending.drafts.remove(at: oldest)
+                }
             case .typing(let conversation, let participant, let on):
                 pending.typing.append(.object([
                     "conversation": .string(conversation.rawValue), "participant": .string(participant.rawValue), "on": .bool(on),
@@ -269,6 +302,7 @@ nonisolated final class HomeChannelsEventPump: Sendable {
         if !pending.messageOrder.isEmpty { batch["messages"] = .array(pending.messageOrder.compactMap { pending.messages[$0] }) }
         if !pending.stale.isEmpty { batch["stale"] = .array(pending.stale.map { .string($0) }) }
         if !pending.typing.isEmpty { batch["typing"] = .array(pending.typing) }
+        if !pending.drafts.isEmpty { batch["drafts"] = .array(pending.drafts) }
         return .object(batch)
     }
 }

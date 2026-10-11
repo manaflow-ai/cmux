@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxUpdater
 import Observation
+import CmuxNextCompat
 
 /// What the update sheet renders and where its buttons go.
 @MainActor
@@ -41,24 +42,8 @@ public final class UpdateSheetModel: UpdateSheetSource {
             service.checkForUpdates()
         case .relaunch:
             if case .installing(let installing) = state { installing.retryTerminatingApplication() }
-        case .releaseNotes(let url):
-            NSWorkspace.shared.open(url)
+        case .releaseNotes(let url), .downloadManually(let url):
+            NSWorkspace.shared.openInBackground(url)
         }
-    }
-}
-
-/// A fixed sheet for demos and screenshots.
-@MainActor
-@Observable
-public final class StaticUpdateSheetSource: UpdateSheetSource {
-    public var content: UpdateSheetContent?
-    public private(set) var pressed: [UpdateSheetButton] = []
-
-    public init(_ content: UpdateSheetContent?) {
-        self.content = content
-    }
-
-    public func perform(_ button: UpdateSheetButton) {
-        pressed.append(button)
     }
 }

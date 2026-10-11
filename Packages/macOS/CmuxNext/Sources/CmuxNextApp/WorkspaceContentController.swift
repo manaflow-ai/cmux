@@ -72,7 +72,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         let fallbackCreate = emptyWorkspaceRepair.create
         emptyWorkspaceRepair.createFirst = { [weak services, weak daemon] key in
             guard let services, let daemon, let workspace = daemon.store.workspaces.first(where: { $0.key == key }) else { throw DaemonError.notConnected }
-            if services.agentTabs.canHost(on: daemon) {
+            // Another machine's empty workspace gets a terminal: its chats start only when asked (cx-k21v).
+            if services.agentTabs.opensFirstPage(on: daemon) {
                 return try await services.agentTabs.openFirstPage(in: workspace, on: daemon, services: services)
             }
             return try await fallbackCreate(key)
@@ -147,11 +148,18 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         isApplying = true
         defer { isApplying = wasApplying }
         handles = result.handles
+        // A key the daemon's pane took over from a provisional one keeps its controller (cx-ry0y).
+        for (id, controller) in panes {
+            if let handle = handles.panes[id], let model = daemon.store.pane(handle) { controller.adopt(model) }
+        }
         layoutModel.acceptsEdgeDockDrops = daemon.supports(DaemonCapabilities.shared.edgeDocks)
         // No row op is sent to a daemon without rows-v1 (rows.md step 4).
         let rows = daemon.supports(DaemonCapabilities.shared.rows)
         if layoutModel.acceptsRowOps != rows { layoutModel.acceptsRowOps = rows }
         layoutModel.apply(screens: result.screens)
+        #if DEBUG
+        DebugLayoutCounters.notePanes(layoutModel.screens.reduce(0) { $0 + $1.layout.panes.count }, of: self)
+        #endif
         // The view mounts the panes in this turn: a workspace shown now
         // draws its first frame with them, not one blank frame.
         layoutView.syncWithModel()

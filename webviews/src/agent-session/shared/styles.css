@@ -18,8 +18,8 @@
   --agent-text: #ececec;
   --agent-muted: rgba(236, 236, 236, 0.58);
   --agent-soft: rgba(236, 236, 236, 0.78);
-  --agent-accent: #8ab4f8;
-  --agent-accent-soft: rgba(138, 180, 248, 0.2);
+  --agent-accent: var(--agent-text);
+  --agent-accent-soft: color-mix(in srgb, var(--agent-text) 20%, transparent);
   --agent-danger: #ff8d7e;
   --agent-shadow: rgba(0, 0, 0, 0.2);
   --agent-control: color-mix(in srgb, var(--agent-input-bg) 44%, transparent);

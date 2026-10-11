@@ -26,6 +26,10 @@ final class MachineRegistry {
     /// a Cloud machine is not reachable with `cloud` off, an SSH machine
     /// not with `remoteHosts` off, so no path opens work on it.
     @ObservationIgnored var isFeatureDisabled: (ActionFeature) -> Bool = { _ in false }
+    /// A machine left the registry (forgotten, deleted, unpaired): its
+    /// connections that live outside its session close (cx-2cob slice 2:
+    /// the forwarding connection and the browser runtimes on it).
+    @ObservationIgnored var onDaemonRemoved: (@MainActor (DaemonService) -> Void)?
 
     init(local: DaemonService) {
         self.local = local
@@ -129,6 +133,26 @@ final class MachineRegistry {
         return local
     }
 
+    /// The daemon of agent tab `tab`, whose record names a host other than this Mac (its chat
+    /// runs on another machine): the remote daemon whose tree lists it. Refused, never this Mac's
+    /// daemon in its place (hq-84, cx-cmok), when this Mac's tree lists it, or when the record
+    /// names a store (`registry:<id>`) other than the one listing it.
+    func agentDaemon(forTab tab: TabModel) throws(MachineRoutingRefusal) -> DaemonService {
+        let daemon = daemon(forTab: tab)
+        let host = tab.agentSession?.host ?? ""
+        guard !daemon.isLocal else { throw MachineRoutingRefusal(host: host, machineID: daemon.machineID) }
+        if host.hasPrefix(Self.registryHostPrefix) {
+            let named = host.dropFirst(Self.registryHostPrefix.count).lowercased()
+            guard let own = daemon.store.registryID ?? daemon.identity?.sessionID, own.lowercased() == named else {
+                throw MachineRoutingRefusal(host: host, machineID: daemon.machineID)
+            }
+        }
+        return daemon
+    }
+
+    /// An agent tab record's `host` naming a machine's store (cmux-tui `store_host`).
+    nonisolated static let registryHostPrefix = "registry:"
+
     /// Every workspace on every machine, local first.
     var allWorkspaces: [(WorkspaceModel, DaemonService)] {
         daemons.flatMap { daemon in daemon.store.workspaces.map { ($0, daemon) } }
@@ -143,7 +167,9 @@ final class MachineRegistry {
 
     func remove(_ machineID: String) -> CloudMachineSession? {
         guard let index = cloud.firstIndex(where: { $0.machineID == machineID }) else { return nil }
-        return cloud.remove(at: index)
+        let removed = cloud.remove(at: index)
+        onDaemonRemoved?(removed.daemon)
+        return removed
     }
 
     // MARK: SSH sessions (SSHService only)
@@ -155,7 +181,9 @@ final class MachineRegistry {
 
     func removeSSH(_ machineID: String) -> SSHMachineSession? {
         guard let index = ssh.firstIndex(where: { $0.machineID == machineID }) else { return nil }
-        return ssh.remove(at: index)
+        let removed = ssh.remove(at: index)
+        onDaemonRemoved?(removed.daemon)
+        return removed
     }
 
     // MARK: Servers (ServerReachService only)
@@ -167,6 +195,17 @@ final class MachineRegistry {
 
     func removeServer(_ machineID: String) -> ServerMachineSession? {
         guard let index = servers.firstIndex(where: { $0.machineID == machineID }) else { return nil }
-        return servers.remove(at: index)
+        let removed = servers.remove(at: index)
+        onDaemonRemoved?(removed.daemon)
+        return removed
     }
+}
+
+/// An agent tab whose record names a machine other than the daemon whose tree lists it: its chat
+/// is not run, read or shown through that daemon (``MachineRegistry/agentDaemon(forTab:)``).
+nonisolated struct MachineRoutingRefusal: Error, Equatable {
+    /// The tab record's host.
+    let host: String
+    /// The machine whose tree lists the tab.
+    let machineID: String
 }

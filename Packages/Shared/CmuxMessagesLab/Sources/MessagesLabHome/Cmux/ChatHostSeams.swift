@@ -6,8 +6,12 @@ import CmuxHomeRender
 /// or a tapback is an intent, never a local transcript edit.
 protocol ChatIntents: AnyObject {
     /// Return in the field: send the draft (the adapter dispatches `.send` on
-    /// the projection once the owner's log takes it, so the morph starts).
-    func send()
+    /// the projection at once, so the morph starts, and gives the draft to
+    /// HomeStore, which delivers it or queues it while offline).
+    /// Nil when the draft went (or waits for the owner as "sending"), else
+    /// why nothing was sent; the text then stays in the field.
+    @discardableResult
+    func send() -> String?
     /// A tapback from the picker or the context menu.
     func react(_ ref: PartRef, _ kind: Reaction.Kind)
     /// Tapbacks are offered (false offline: H17).

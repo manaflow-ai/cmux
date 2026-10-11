@@ -2,6 +2,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextBridge
 import CmuxNextSettings
 import Darwin
 import WebKit
@@ -18,6 +19,10 @@ import WebKit
 /// its text and whether it has focus), `retarget` (park the spare in window
 /// `window`, as a key-window change does). `window` (an index into the main
 /// windows, default 0) picks the window for `open_and_type` and `field`.
+/// `open_and_leave` (`text`): in ONE main-actor turn, the New Tab Page action, a switch back to
+/// the tab the pane showed, then each character as a key-down: the page is left before its field
+/// could report readiness, so its key hold must end and the keys reach the tab shown (nightly
+/// 2026-10-11: they waited forever and Cmd-T opened nothing).
 @MainActor
 enum DebugNewTab {
     static func handle(_ params: [String: JSONValue], _ services: AppServices?) async -> JSONValue {
@@ -27,8 +32,14 @@ enum DebugNewTab {
             return state(services)
         case "open_and_type":
             return openAndType(params, services: services)
+        case "open_and_leave":
+            return openAndType(params, services: services, leave: true)
         case "field":
             return await field(params, services)
+        case "open_tab":
+            // Clicks Open Tabs row `index` of the focused split page (cx-jfo7), as a person does.
+            let index = params["index"]?.intValue ?? 0
+            return await field(params, services, before: "document.querySelectorAll('.nt-open-tab')[\(index)]?.click();")
         case "bench_close", "bench_bang", "bench_open":
             guard let controller = controller(params, services) else { return .object(["error": .string("no such window")]) }
             switch params["action"]?.stringValue {
@@ -42,7 +53,7 @@ enum DebugNewTab {
             services.newTabSpares.retarget(window)
             return state(services)
         default:
-            return .object(["error": .string("unknown action; use state, open_and_type or field")])
+            return .object(["error": .string("unknown action; use state, open_and_type, open_and_leave, field or open_tab")])
         }
     }
 
@@ -78,13 +89,15 @@ enum DebugNewTab {
         return controllers.indices.contains(index) ? controllers[index] : nil
     }
 
-    private static func openAndType(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
+    private static func openAndType(_ params: [String: JSONValue], services: AppServices, leave: Bool = false) -> JSONValue {
         let text = params["text"]?.stringValue ?? ""
         let target = controller(params, services)
         guard let pane = target?.content?.focusedPane else {
             return .object(["error": .string("no focused pane")])
         }
+        let shown = pane.currentTabKey
         pane.newTabPage()
+        if leave, let shown { pane.select(StripTabID(shown)) }
         // Where the first key goes: the adopted page's web view, or a stale responder.
         let responder = pane.view.window?.firstResponder.map { String(describing: type(of: $0)) } ?? "none"
         for character in text {
@@ -95,17 +108,21 @@ enum DebugNewTab {
         return .object([
             "opening": services.newTabSpares.openings.last.map(opening) ?? .null,
             "first_responder": .string(responder),
+            "holding": .bool(services.keyRouter.newTabInputCoordinator.isHolding(in: pane.view.window)),
         ])
     }
 
-    private static func field(_ params: [String: JSONValue], _ services: AppServices) async -> JSONValue {
+    private static func field(_ params: [String: JSONValue], _ services: AppServices, before: String = "") async -> JSONValue {
         guard let pane = controller(params, services)?.content?.focusedPane, let key = pane.currentTabKey,
               let view = services.agentTabs.existingView(key) else {
             return .object(["error": .string("the focused pane shows no agent page")])
         }
         let script = """
+            \(before)
             const field = document.querySelector('.nt-field, .acpmux-newtab-field');
-            return JSON.stringify({ text: field ? field.value : null, focused: !!field && document.activeElement === field });
+            const openTabs = [...document.querySelectorAll('.nt-open-tab .nt-row-title')].map((title) => title.textContent);
+            return JSON.stringify({ text: field ? field.value : null, focused: !!field && document.activeElement === field,
+                                    open_tabs: openTabs });
             """
         guard let text = try? await view.webView.callAsyncJavaScript(script, arguments: [:], in: nil, contentWorld: .page) as? String,
               let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)), let value = JSONValue(foundation: object) else {

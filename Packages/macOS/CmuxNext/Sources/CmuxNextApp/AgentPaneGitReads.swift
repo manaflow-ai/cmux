@@ -20,10 +20,18 @@ final class AgentPaneGitLink {
         self.daemon = daemon
     }
 
+    /// This Mac's link: the Changes view's git writes run here only for a chat it reads.
+    var isLocal: Bool { daemon.isLocal }
+
     /// The operation's result as JSON for the page. Throws an
     /// ``AgentPaneGitFailure``: the session host's resource error, or why
     /// the read got no answer (no connection, a timeout).
     func read(_ request: AgentPaneGitRequest) async throws(AgentPaneGitFailure) -> Data {
+        try await read(request.operation, params: request.sessionHostParams)
+    }
+
+    /// Session host read `operation` with `params` as sent (the Files page's `git.files.list`).
+    func read(_ operation: String, params: [String: JSONValue]) async throws(AgentPaneGitFailure) -> Data {
         let connection: DaemonConnection
         do {
             connection = try await self.connection()
@@ -32,7 +40,7 @@ final class AgentPaneGitLink {
             throw AgentPaneGitFailure.notConnected
         }
         do {
-            let result = try await GitResourceClient(connection: connection).read(request.operation, params: request.sessionHostParams)
+            let result = try await GitResourceClient(connection: connection).read(operation, params: params)
             return try await Self.encode(result)
         } catch {
             throw AgentPaneGitFailure(reading: error)

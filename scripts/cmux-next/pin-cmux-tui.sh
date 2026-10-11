@@ -1,8 +1,16 @@
 #!/usr/bin/env bash
 # Fetch the hosted macOS arm64 cmux-tui that the cmux-next app bundles.
 #
-# Two modes. Dogfood, tagged, fleet and nightly builds use tree mode; only
-# release and RC builds use the pin.
+# Two modes. Every app build bundles the cmux-tui of its own tree: dogfood,
+# tagged and fleet builds fetch it (tree mode), nightly and RC builds install
+# the newest published tree and build the app at that commit
+# (resolve-newest-published), and release builds install their own commit's
+# tree (resolve-exact, cx-urd.9.1; release.yml and build-sign-upload.sh).
+# The pin no longer picks what a release ships. It still names the daemon of
+# the last hand-pinned release for the readers that need a fixed older build:
+# cmux-tui.yml's upgrade-adoption test, ci-macos.yml's release-build check, the
+# committed THIRD_PARTY_LICENSES.md (generate-third-party-notices.sh
+# --tui-source pin) and the rust-daemon-client launcher's PIN.
 #
 # tree (default): the daemon built from this checkout's own cmux-tui source.
 #   The key is a git tree hash of the binary's source inputs
@@ -42,12 +50,11 @@
 #   them unless CMUX_NEXT_TUI_ALLOW_DIRTY=1. CMUX_NEXT_TUI_BIN=<path> bundles a
 #   local build instead.
 #
-# pin (release and RC builds only; `--pin` or CMUX_NEXT_TUI_MODE=pin):
+# pin (`--pin` or CMUX_NEXT_TUI_MODE=pin; release builds no longer read it):
 #   scripts/cmux-next/cmux-tui.pin names one commit, its public
 #   commit-addressed binary, the publishing run (run=), the cmux-tui.yml run
-#   that verified it (verified_run=) and the binary's sha256. Release jobs
-#   install that commit's universal client. Dogfood builds do not need a pin
-#   bump. Refresh the pin only for a release:
+#   that verified it (verified_run=) and the binary's sha256. No build needs
+#   a pin bump; refresh it only to move the readers listed above:
 #     1. ./scripts/verify-cmux-tui-hosted.sh --filter cmux_next_ on the commit.
 #     2. Publish that commit's binaries: git push origin <sha>:refs/heads/cmux-tui-pin-<short>
 #        and, when the push starts no run, gh workflow run cmux-tui-artifacts.yml --ref cmux-tui-pin-<short>.
@@ -91,7 +98,11 @@
 #        | app-host-path [--tree|--pin] (where fetch puts the app host)
 #        | cloud-server-path [--tree|--pin] (where fetch puts cmux-cloud)
 #        | browser-host-path [--tree|--pin] (where fetch puts cmux-browser-host)
+#        | acpmux-path (where a tree fetch puts acpmux)
 #        | resolve-commit (the commit that published this tree; waits for it)
+#        | resolve-exact (release and RC builds: resolve-commit for HEAD itself, printed
+#          as commit=, key=, source_commit= (HEAD), tip_key=, behind=0 and behind_hours=0
+#          lines like resolve-newest-published, so app and daemon come from this commit)
 #        | resolve-newest-published (nightly: newest verified published tree in the last
 #          CMUX_TUI_TREE_SEARCH_COMMITS commits, default 50, and CMUX_TUI_TREE_MAX_AGE_HOURS,
 #          default 24; never waits; CMUX_TUI_TREE_SAME_PATHS, space-separated
@@ -151,8 +162,22 @@ read_pin() {
 }
 
 # Downloads $1 to $2 with retries; never follows to a non-HTTPS URL.
+# curl's own --retry skips many transient network failures (exit 35 "Recv
+# failure", 56 "connection reset"): a fleet build fetched three companions from
+# a published manifest, then lost the fourth download to one timed-out TLS read
+# and failed the job (cx-4pdg, 2026-10-11). So every failure except an HTTP
+# error (exit 22: the object is not there, which callers poll for) is retried
+# here, with a short backoff.
 download() {
-  curl -fsSL --proto '=https' --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 600 -o "$2" "$1"
+  local attempt=1 rc=0
+  while :; do
+    rc=0
+    curl -fsSL --proto '=https' --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 600 -o "$2" "$1" || rc=$?
+    (( rc == 0 || rc == 22 || attempt >= ${CMUX_TUI_DOWNLOAD_ATTEMPTS:-4} )) && return "$rc"
+    echo "warning: download of $1 failed (curl exit $rc, attempt $attempt); retrying" >&2
+    sleep "$(( attempt * ${CMUX_TUI_DOWNLOAD_BACKOFF_SECONDS:-2} ))"
+    attempt=$((attempt + 1))
+  done
 }
 
 # The tree key of <rev> (default HEAD) is derived from
@@ -373,9 +398,9 @@ for run in runs:
 
 # ensure_tree_publisher <key> <sha> [fallback]: with CMUX_TUI_TREE_DISPATCH=1, starts at
 # most one cmux-tui artifacts run for <sha> when tree <key> is not published and
-# no active run will publish it. cmux-tui-artifacts.yml coalesces branch pushes
-# (only the tip's tree is published), so a build of an older commit with a
-# changed cmux-tui tree has no publisher otherwise. It points
+# no active run will publish it. cmux-tui-artifacts.yml publishes every
+# feat-cmux-next push (cx-73f2), but a commit of another branch, or one whose
+# run failed for good, has no publisher otherwise. It points
 # refs/heads/cmux-tui-pin-<sha12> at <sha> (a publishing ref) and dispatches the
 # workflow there; a workflow_dispatch run has concurrency group sha-<sha>,
 # which the per-branch push group never cancels. Never fails the caller: a
@@ -702,6 +727,9 @@ fetch_tree_companions() {
   fetch_tree_companion "$1" "$2" cloud-server cmux-cloud
   fetch_tree_companion "$1" "$2" browser-host cmux-browser-host
   fetch_tree_companion "$1" "$2" agent-screen-detection cmux-agent-screen-detection
+  # The app bundles acpmux too; a tree published before its build carried
+  # acpmux has none, and the app build compiles it (build-acpmux.sh).
+  fetch_tree_companion "$1" "$2" acpmux acpmux
 }
 
 fetch_tree() {
@@ -838,6 +866,14 @@ probe_checkout_tree() {
   [[ "$legacy" == "$key" ]] && legacy=""
   [[ "$recheck" =~ ^[0-9]+$ ]] || { echo "error: CMUX_TUI_TREE_RECHECK_SECONDS must be whole seconds" >&2; exit 2; }
   refuse_dirty_source
+  # The exact commands that publish this checkout's tree: push its commit (for
+  # a pull request, the merge commit GitHub checked out, fetchable by SHA) to a
+  # cmux-tui-pin-* branch, whose cmux-tui artifacts run publishes it.
+  pin_push_hint() {
+    local sha
+    sha="$(git -C "$repo_root" rev-parse HEAD)"
+    printf 'Publish it with: git fetch origin %s && git push origin %s:refs/heads/cmux-tui-pin-%s (pin-cmux-tui.sh --help); the publish then starts the tree jobs' "$sha" "$sha" "${sha:0:12}"
+  }
   probe_state() {
     if tree_published "$key" "$legacy"; then echo ready; return; fi
     case "$source" in
@@ -855,7 +891,8 @@ probe_checkout_tree() {
     fi
   elif base_key="$(pull_request_base_key 2>/dev/null)" && [[ "$base_key" == "$key" ]]; then
     source="commit:$(git -C "$repo_root" rev-parse HEAD^1)"
-  elif [[ "${GITHUB_EVENT_NAME:-}" == pull_request ]] && ! tree_published "$key" "$legacy"; then
+  elif [[ ("${GITHUB_EVENT_NAME:-}" == pull_request || "${CMUX_TUI_TREE_DISPATCH:-}" == 1) ]] \
+      && ! tree_published "$key" "$legacy"; then
     tree_publisher_sha=""
     ensure_tree_publisher "$key" "$(git -C "$repo_root" rev-parse HEAD)" "${CMUX_TUI_TREE_HEAD_SHA:-}"
     [[ -n "$tree_publisher_sha" ]] && source="commit:$tree_publisher_sha"
@@ -880,14 +917,14 @@ probe_checkout_tree() {
         state=superseded
         reason="$(git -C "$repo_root" rev-parse HEAD) was superseded by $superseded on ${GITHUB_REF#refs/heads/}: its tree $key was not published, and the newer head is tested"
       else
-        reason="the cmux-tui artifacts runs for ${source#*:} ended without publishing tree $key (${state#ended }). Re-run that run, or for an unmerged commit push it to cmux-tui-pin-<short sha> (pin-cmux-tui.sh --help); the publish then starts the tree jobs"
+        reason="the cmux-tui artifacts runs for ${source#*:} ended without publishing tree $key (${state#ended }). Re-run that run, or for an unmerged commit: $(pin_push_hint)"
         state=failed
       fi ;;
     none)
       if [[ -z "$source" ]]; then
-        reason="${reason:-no cmux-tui artifacts run can publish tree $key}. Push the commit to cmux-tui-pin-<short sha> (pin-cmux-tui.sh --help); the publish then starts the tree jobs"
+        reason="${reason:-no cmux-tui artifacts run can publish tree $key}. $(pin_push_hint)"
       else
-        reason="no cmux-tui artifacts run exists for ${source#*:}, so nothing publishes tree $key. Push the commit to cmux-tui-pin-<short sha> (pin-cmux-tui.sh --help); the publish then starts the tree jobs"
+        reason="no cmux-tui artifacts run exists for ${source#*:}, so nothing publishes tree $key. $(pin_push_hint)"
       fi
       state=failed ;;
     *) state=failed
@@ -949,12 +986,40 @@ resolve_tree_commit() {
   echo "$commit"
 }
 
+# Release and RC builds: the daemon of HEAD's own tree, waiting for its
+# publication (bounded by CMUX_TUI_TREE_WAIT_SECONDS) like resolve-commit, in
+# resolve-newest-published's output shape with source_commit=HEAD and behind=0.
+# The publishing commit may be an older commit with the same tree key; its
+# attested manifest carries the same cmux-tui sha256 (resolve_tree_commit checks).
+resolve_exact_tree() {
+  local out commit head tip_key
+  head="$(git -C "$repo_root" rev-parse HEAD)"
+  tip_key="$(tree_key HEAD)"
+  out="$(mktemp "${TMPDIR:-/tmp}/cmux-tui-exact.XXXXXX")"
+  # Same shell, not $(...): resolve_tree_commit sets published_key.
+  resolve_tree_commit > "$out"
+  commit="$(cat "$out")"
+  rm -f "$out"
+  [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "error: resolve-commit printed no commit for ${head:0:12}" >&2; exit 1; }
+  echo "resolved cmux-tui tree $published_key for ${head:0:12} itself; published by $commit" >&2
+  printf 'commit=%s\nkey=%s\nsource_commit=%s\ntip_key=%s\nbehind=0\nbehind_hours=0\n' \
+    "$commit" "$published_key" "$head" "$tip_key"
+  if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+    {
+      echo "### cmux-tui client"
+      echo "- tree: \`$published_key\` (this commit's own tree)"
+      echo "- build commit (app and daemon): \`$head\`"
+      echo "- publishing commit (manifest sha256 verified): \`$commit\`"
+    } >> "$GITHUB_STEP_SUMMARY"
+  fi
+}
+
 # The nightly's resolver: the newest commit within the last
 # CMUX_TUI_TREE_SEARCH_COMMITS (default 50) commits of HEAD whose v2 tree is
 # published and whose publishing commit's attested manifest carries the same
-# cmux-tui sha256. It never waits: cmux-tui-artifacts.yml lets a running build
-# finish and a newer push replaces only the pending run, so under steady
-# pushes the tip's own tree may never publish (nightly-next run 37464320457).
+# cmux-tui sha256. It never waits: the tip's own tree may still be building
+# (each feat-cmux-next push has its own cmux-tui-artifacts run since cx-73f2;
+# before that a newer push replaced the pending run, nightly-next run 37464320457).
 # Prints commit=, key=, source_commit= (the branch commit whose tree was
 # used), tip_key=, behind= (commits) and behind_hours= lines, and appends them
 # to GITHUB_STEP_SUMMARY. The nightly builds the app at source_commit, so app and
@@ -1224,6 +1289,11 @@ PY
       echo "$repo_root/cmux-tui/target/hosted/$pin_commit/cmux-cloud"
     fi
     ;;
+  acpmux-path)
+    # Tree mode only: a pin fetch brings no acpmux.
+    TARGET="$(host_tree_target)"
+    echo "$(tree_dir "$(checkout_tree_key)")/acpmux"
+    ;;
   browser-host-path)
     mode_from_args "$@"
     [[ "$mode" == tree ]] && TARGET="$(host_tree_target)"
@@ -1239,6 +1309,9 @@ PY
     ;;
   resolve-newest-published)
     resolve_newest_published_tree
+    ;;
+  resolve-exact)
+    resolve_exact_tree
     ;;
   wait)
     wait_for_checkout_tree

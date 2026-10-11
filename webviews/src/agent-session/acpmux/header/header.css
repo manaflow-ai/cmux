@@ -6,6 +6,9 @@
 .acpmux-header-tool:not(:disabled):hover,.acpmux-header-tool[data-popup-open]{background:color-mix(in srgb,currentColor 8%,transparent)}
 .acpmux-header-tool:not(:disabled):active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}
 .acpmux-header-tool:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
+/* On: a toggle whose panel is open (aria-pressed, cx-00n1), tinted like the composer's Plan toggle. */
+.acpmux-header-tool[aria-pressed=true]{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 16%,transparent);color:var(--agent-accent,var(--agent-text))}
+.acpmux-header-tool[aria-pressed=true]:not(:disabled):hover{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 22%,transparent)}
 .ui-popup.acpmux-chat-menu-popover{width:256px;max-height:min(540px,70vh);overflow:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border:0;border-radius:var(--ui-popup-radius);background:var(--acpmux-menu-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),var(--ui-popup-shadow);transform-origin:var(--transform-origin);color:var(--agent-text);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:var(--text-control);line-height:var(--text-control--line-height);-webkit-user-select:none;user-select:none;cursor:default;outline:none}
 .ui-menu-item.acpmux-chat-menu-item{display:flex;align-items:center;gap:8px;width:100%;min-height:var(--ui-row-height);height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);box-sizing:border-box;border-radius:var(--ui-row-radius);color:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-chat-menu-item>svg{flex:none;color:var(--agent-muted)}
@@ -35,3 +38,14 @@
 .acpmux-status>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-handoff-header-tools{flex:none}
 @media (prefers-reduced-motion:no-preference){.ui-popup.acpmux-chat-menu-popover{animation:ui-popup-open var(--ui-popup-open) ease-out}}
+/* The right-click menu host (cx-00n1): no box of its own, so the tools keep their row. */
+.acpmux-header-customize{display:contents}
+.acpmux-header-customize-check{display:inline-block;width:1.2em}
+/* The pull request chip (cx-tcwj): its number, the icon colored by its state, a dot by its checks. */
+.acpmux-header-tool.acpmux-header-pr{width:auto;gap:3px;padding:0 6px;color:var(--agent-muted);font-size:var(--text-detail);font-variant-numeric:tabular-nums;text-decoration:none}
+.acpmux-header-pr[data-state=open]>svg{color:var(--agent-success,var(--acpmux-add,#3fb950))}
+.acpmux-header-pr[data-state=merged]>svg{color:var(--agent-ansi-5,#a371f7)}
+.acpmux-header-pr[data-state=closed]>svg{color:var(--agent-danger)}
+.acpmux-header-pr[data-checks]:not([data-checks=none])::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--agent-success,var(--acpmux-add,#3fb950))}
+.acpmux-header-pr[data-checks=pending]::after{background:var(--agent-warning,#d29922)}
+.acpmux-header-pr[data-checks=failing]::after{background:var(--agent-danger)}

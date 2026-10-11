@@ -2,6 +2,7 @@
 // a line-for-line port of Packages/Shared/CmuxTheme (ThemeRGB.swift, ThemeInput.swift,
 // ThemeTokens.swift). The gallery paints every web page with these, so a theme here looks as it
 // does in the app.
+import { deriveAppTheme, type AppAccent } from "../../theme/appTheme";
 
 export type ThemeRGB = { red: number; green: number; blue: number; alpha: number };
 
@@ -67,6 +68,8 @@ export type ThemeInput = {
   selectionBackground?: ThemeRGB;
   selectionForeground?: ThemeRGB;
   backgroundOpacity: number;
+  /** `appearance.accent` (ThemeInput.accent); neutral when absent. */
+  accent?: AppAccent;
 };
 
 export const GHOSTTY_DEFAULT: ThemeInput = {
@@ -111,6 +114,8 @@ export type ThemeTokens = {
   success: ThemeRGB;
   highlight: ThemeRGB;
   highlightText: ThemeRGB;
+  accent: ThemeRGB;
+  onAccent: ThemeRGB;
   hasThemeAccent: boolean;
   ansi: ThemeRGB[];
   backgroundOpacity: number;
@@ -144,17 +149,26 @@ export function deriveTokens(input: ThemeInput): ThemeTokens {
   const bg = input.background;
   const fg = input.foreground;
   const isDark = luminance(bg) < luminance(fg);
+  // The app theme when the setting names an accent; null keeps the neutral fills.
+  const app =
+    input.accent && input.accent !== "neutral"
+      ? deriveAppTheme({ background: hex(bg), foreground: hex(fg), palette: input.palette.map(hex) }, input.accent)
+      : null;
+  const accent = app ? parseHex(app.tokens.accent) : null;
   const hover = withAlpha(fg, isDark ? 0.06 : 0.05);
-  const selection = withAlpha(fg, isDark ? 0.1 : 0.08);
+  const selection = accent ? withAlpha(accent, isDark ? 0.26 : 0.16) : withAlpha(fg, isDark ? 0.1 : 0.08);
   const pressed = withAlpha(fg, isDark ? 0.14 : 0.11);
-  const worstSurface = composited(pressed, bg);
+  // Swift's `min` keeps the first of equal elements; so does this reduce.
+  const worstSurface = [composited(pressed, bg), composited(selection, bg)].reduce((worst, next) =>
+    contrast(fg, next) < contrast(fg, worst) ? next : worst,
+  );
   const primary = readable(fg, worstSurface, MINIMUM_TEXT_CONTRAST);
   const secondary = muted(primary, bg, 0.38, worstSurface, MINIMUM_TEXT_CONTRAST);
   const tertiary = muted(primary, bg, 0.55, worstSurface, MINIMUM_MARK_CONTRAST);
   const palette = input.palette.length >= 8 ? input.palette : GHOSTTY_DEFAULT.palette;
   const status = (index: number) => readable(palette[index]!, bg, MINIMUM_MARK_CONTRAST);
   const surface = withAlpha(bg, input.backgroundOpacity);
-  const highlight = status(4);
+  const highlight = accent ?? status(4);
   // Swift's `max` keeps the last of equal elements; so does this reduce.
   const best = (candidates: ThemeRGB[]) =>
     candidates.reduce((winner, next) => (contrast(winner, highlight) <= contrast(next, highlight) ? next : winner));
@@ -182,7 +196,7 @@ export function deriveTokens(input: ThemeInput): ThemeTokens {
     badgeFill: withAlpha(fg, isDark ? 0.14 : 0.1),
     separator: withAlpha(fg, isDark ? 0.08 : 0.07),
     paneBorder: withAlpha(fg, isDark ? 0.07 : 0.09),
-    focusRing: withAlpha(fg, 0.4),
+    focusRing: accent ?? withAlpha(fg, 0.4),
     glassTint: withAlpha(bg, isDark ? 0.4 : 0.3),
     shadow: mixed(bg, BLACK, 0.85),
     textSelection: input.selectionBackground ?? mixed(bg, fg, 0.22),
@@ -191,6 +205,8 @@ export function deriveTokens(input: ThemeInput): ThemeTokens {
     success: status(2),
     highlight,
     highlightText,
+    accent: accent ?? primary,
+    onAccent: (app && parseHex(app.tokens.onAccent)) || withAlpha(bg, 1),
     hasThemeAccent: input.palette.length >= 8,
     ansi: palette,
     backgroundOpacity: input.backgroundOpacity,

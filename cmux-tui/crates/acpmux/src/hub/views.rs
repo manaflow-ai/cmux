@@ -2,6 +2,45 @@
 
 use super::*;
 
+/// The session's status dot, decided here once so every client draws the
+/// same one (cx-zlox). First match wins:
+///
+/// - `input`: a permission or question waits for the person.
+/// - `working`: a turn runs.
+/// - `failed`: the last turn failed (also when the agent then exited).
+/// - `lost`: the agent process is gone (`disconnected`, or a peer's
+///   `unreachable`) and the chat's last turn did not answer. A chat with
+///   no turn yet has nothing to lose.
+/// - `done`: the last turn answered. Whether the person saw it is each
+///   client's own record.
+/// - null: nothing to show (no turn yet, a cancelled turn, closed).
+///
+/// A peer's session that is `unreachable` mid-turn or with a question
+/// waiting is `lost`: that turn cannot answer, nor the question be answered.
+/// So is a `disconnected` one whose turn has not ended yet (the agent died
+/// before its turn recorded `lastTurn`).
+///
+/// Reads only the summary's own fields, so a summary whose `status` changes
+/// afterwards (a peer going unreachable) is re-decided from it.
+pub fn status_indicator(summary: &Value) -> Option<&'static str> {
+    let status = summary["status"].as_str().unwrap_or_default();
+    let last = summary["lastTurn"]["status"].as_str();
+    let answered = last == Some("completed");
+    let pending = summary["pendingPermissions"].as_u64().unwrap_or(0) > 0;
+    match status {
+        "closed" => None,
+        "unreachable" if pending || !summary["turn"].is_null() => Some("lost"),
+        "disconnected" if !summary["turn"].is_null() => Some("lost"),
+        "waiting" => Some("input"),
+        _ if pending => Some("input"),
+        "running" => Some("working"),
+        _ if last == Some("failed") => Some("failed"),
+        "disconnected" | "unreachable" if last.is_some() && !answered => Some("lost"),
+        _ if answered => Some("done"),
+        _ => None,
+    }
+}
+
 /// What limits a session's agent as far as acpmux can tell. `policy` is
 /// always the acpmux permission policy (the session's own, else
 /// `default_policy`), so sessions on different harnesses compare; the
@@ -39,7 +78,7 @@ impl Hub {
     pub fn session_summary(&self, session: &Session) -> Value {
         let m = session.meta();
         let turn = session.turn();
-        json!({
+        let mut summary = json!({
             "sessionId": m.id,
             "name": m.name,
             "harness": m.harness,
@@ -57,8 +96,15 @@ impl Hub {
             "lastPrompt": m.last_prompt,
             "preview": m.preview.as_deref().map(|p| short_text(p, 160)),
             "queued": session.queued(),
+            // A turn failed: the prompts that waited behind it wait for a client to resume them.
+            "queuePaused": session.queue_paused(),
+            // Being moved to another daemon (`transfer_out.rs`): it takes no prompt meanwhile.
+            "moving": session.moving().is_some(),
+            // The agent takes a prompt mid-turn (`_meta.acpmux.steer`); else a steer waits, or
+            // with `interrupt` stops the turn and runs next.
+            "steering": session.steering.load(Ordering::SeqCst),
             "turn": turn.map(|t| json!({"startedAt": t.started_at, "client": t.client, "prompt": t.prompt_preview, "turnId": t.turn_id, "promptId": t.prompt_id, "turnSeq": t.turn_seq})),
-            "queue": session.queue().into_iter().map(|q| json!({"promptId": q.prompt_id, "turnId": q.turn_id, "client": q.client, "prompt": q.preview, "queuedAt": q.queued_at})).collect::<Vec<_>>(),
+            "queue": session.queue().into_iter().map(|q| json!({"promptId": q.prompt_id, "turnId": q.turn_id, "client": q.client, "prompt": q.preview, "queuedAt": q.queued_at, "held": q.held})).collect::<Vec<_>>(),
             "pendingPermissions": session.pending_permissions().len(),
             "currentModeId": m.modes.as_ref().and_then(|x| x.get("currentModeId")).cloned(),
             "model": current_model(&m),
@@ -70,7 +116,9 @@ impl Hub {
             "unread": m.unread,
             "lastTurn": m.last_turn,
             "attached": session.attached.load(Ordering::SeqCst),
-        })
+        });
+        summary["indicator"] = status_indicator(&summary).map_or(Value::Null, Value::from);
+        summary
     }
 
     pub fn session_detail(&self, session: &Session) -> Value {
@@ -84,7 +132,11 @@ impl Hub {
         v["usage"] = m.usage.clone().unwrap_or(Value::Null);
         v["forkSeq"] = json!(m.fork_seq);
         v["rulesJson"] = m.permission_rules.clone().unwrap_or(Value::Null);
-        v["pending"] = Value::Array(session.permissions.lock().unwrap().pending_records());
+        let mut pending = session.permissions.lock().unwrap().pending_records();
+        for p in &mut pending {
+            p["personInstance"] = Value::String(self.person.instance().to_owned());
+        }
+        v["pending"] = Value::Array(pending);
         v
     }
 
@@ -102,6 +154,10 @@ impl Hub {
             "build": BUILD,
             "pid": std::process::id(),
             "startedAt": self.started_at,
+            // Whether this run holds a person key, and its id (`hub/person.rs`):
+            // the app checks that a daemon it started with a key still runs.
+            "personKey": self.person.has_key(),
+            "personInstance": self.person.instance(),
             "home": crate::config::home(),
             "userHome": dirs::home_dir(),
             "socket": crate::config::socket_path(),
