@@ -6,18 +6,68 @@ use super::svg_icon::{sanitize_svg_icon, svg_icon_wire};
 /// Wire prefix of a sanitized SVG asset reference (`svg:sha256-<64 hex>`).
 const SVG_ICON_PREFIX: &str = "svg:";
 
+/// What an asset icon value names: a raster image or a sanitized SVG.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IconAssetKind {
+    Raster,
+    Svg,
+}
+
+/// An icon value that names a stored asset by the SHA-256 of its bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IconAssetRef<'a> {
+    pub kind: IconAssetKind,
+    pub digest: &'a str,
+}
+
+/// The asset an `image:sha256-<hex>` or `svg:sha256-<hex>` value names, or
+/// `None` for every other value.
+pub fn parse_icon_asset(value: &str) -> Option<IconAssetRef<'_>> {
+    let (kind, rest) = if let Some(rest) = value.strip_prefix("image:") {
+        (IconAssetKind::Raster, rest)
+    } else {
+        (IconAssetKind::Svg, value.strip_prefix(SVG_ICON_PREFIX)?)
+    };
+    let digest = rest.strip_prefix("sha256-")?;
+    is_sha256_hex(digest).then_some(IconAssetRef { kind, digest })
+}
+
+/// Exactly 64 lowercase hex digits.
+pub fn is_sha256_hex(value: &str) -> bool {
+    value.len() == 64
+        && value.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+/// The format of an icon value for a field that takes assets: an SF Symbol
+/// name, one emoji, or an asset reference (`image:sha256-<hex>`,
+/// `svg:sha256-<hex>`). Format only: every write path of such a field also
+/// calls `personal_store::blobs::require_icon_asset` in its transaction,
+/// which requires the named asset to exist in the blob store.
+pub fn validate_icon_value(value: &str) -> anyhow::Result<()> {
+    if parse_icon_asset(value).is_some() {
+        return Ok(());
+    }
+    anyhow::ensure!(
+        !value.starts_with(SVG_ICON_PREFIX) && !value.starts_with("image:"),
+        "bad request: icon must be an SF Symbol name (lowercase letters, digits, and dots), one emoji, image:sha256-<64 lowercase hex>, or svg:sha256-<64 lowercase hex>"
+    );
+    validate_presentation_icon(value)
+}
+
 /// An SF Symbol name such as `terminal`, `folder.fill`, or `0.circle`, or
 /// exactly one emoji grapheme (shared by every entity with an icon,
 /// plans/cmux-next/data-model.md "Shared appearance shape").
 ///
 /// Asset references (`svg:sha256-<hex>`, `image:sha256-<hex>`) are refused
-/// here: the daemon has no icon asset store yet, so it cannot prove that the
-/// named asset exists and passed the sanitizer. The store's put path must call
-/// [`validate_presentation_icon_asset`] with the asset bytes.
+/// here. Fields that take assets (`icon-assets-v1`: workspace, screen, room,
+/// browser profile and workspace status icons) check them with
+/// `personal_store::blobs::require_icon_asset`, which proves the asset exists
+/// and keeps it out of the blob sweep; the store's put path accepts an SVG
+/// only through [`validate_presentation_icon_asset`].
 pub fn validate_presentation_icon(value: &str) -> anyhow::Result<()> {
     anyhow::ensure!(
         !value.starts_with(SVG_ICON_PREFIX) && !value.starts_with("image:"),
-        "bad request: icon assets (svg:, image:) are not enabled yet"
+        "bad request: icon assets (svg:, image:) are not accepted for this field"
     );
     let symbol = !value.is_empty()
         && value.len() <= 128
@@ -38,9 +88,8 @@ pub fn validate_presentation_icon(value: &str) -> anyhow::Result<()> {
 /// [`sanitize_svg_icon`] (the owner sanitizes again and never trusts a
 /// client's copy), and the digest must name exactly those bytes.
 ///
-/// Its caller is the icon asset store's put path, which does not exist yet
-/// (bd cx-qno.2); until then only the tests reach it.
-#[cfg_attr(not(test), allow(dead_code))]
+/// Its caller is the icon asset store's put path
+/// (`personal_store::blobs::put_blob`).
 pub fn validate_presentation_icon_asset(wire: &str, bytes: &[u8]) -> anyhow::Result<()> {
     let digest = wire
         .strip_prefix(SVG_ICON_PREFIX)

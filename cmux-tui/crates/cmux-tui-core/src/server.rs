@@ -158,6 +158,7 @@ mod feed_local;
 mod frontend_browser_history;
 mod history_search;
 mod home;
+mod icon_assets;
 mod launch_snapshot;
 mod new_screen;
 mod personal;
@@ -1594,6 +1595,9 @@ enum Command {
     FeedLocalHandoffBegin(feed_local::ItemParams),
     FeedLocalHandoffAbort(feed_local::ItemParams),
     FeedLocalHandoffDone(feed_local::DoneParams),
+    /// Asset blobs for icons (`icon-assets-v1`, server/icon_assets.rs).
+    PutBlob(icon_assets::PutParams),
+    GetBlob(icon_assets::GetParams),
     /// Local conversations (`local-conversations-v1`, server/conversations.rs).
     ConversationList,
     ConversationCreate(conversations::CreateParams),
@@ -3476,6 +3480,8 @@ fn handle_command_with_cancellation(
         | Command::FeedLocalHandoffBegin(_)
         | Command::FeedLocalHandoffAbort(_)
         | Command::FeedLocalHandoffDone(_)) => feed_local::dispatch(mux, &actor, cmd),
+        Command::PutBlob(params) => icon_assets::put(mux, params),
+        Command::GetBlob(params) => icon_assets::get(mux, params),
         Command::ConversationList => conversations::list(mux, client),
         Command::ConversationCreate(params) => conversations::create(mux, client, params),
         Command::ConversationSnapshot(params) => conversations::snapshot(mux, client, params),
