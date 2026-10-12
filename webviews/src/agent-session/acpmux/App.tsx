@@ -1,6 +1,7 @@
 import React, {
   memo,
   useCallback,
+  useDeferredValue,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -807,6 +808,8 @@ const LIVE_ROWS_PER_UPDATE = 3;
 /// (a jump), the whole transcript is placed again.
 const DRAWN_SEARCH_ROWS = 64;
 const MAX_SCROLL_LEAD_VIEWPORTS = 4;
+/// Viewports of rows kept mounted either side of the reader, built between frames.
+const WARM_VIEWPORTS = 1;
 /// How far above the latest message the reader is before Jump to latest shows.
 const JUMP_LATEST_DISTANCE = 80;
 /// A smooth jump lands on the latest message once this has passed, even if a streaming reply grew past it.
@@ -1196,9 +1199,18 @@ export function VirtualTranscript({
   const reportedEstimate = useRef<typeof estimated | null>(null);
   const lead = Math.min(Math.abs(scroll.delta) * SCROLL_LEAD_STEPS, height * MAX_SCROLL_LEAD_VIEWPORTS);
   const range = visibleLayoutRange(layout, scroll.delta < 0 ? scroll.top - lead : scroll.top, height + lead);
+  // The rows a viewport either side of where the reader was also mount, in a deferred render
+  // between frames: a scroll then finds the rows it brings in already drawn and measured instead
+  // of building them in its own frame. A jump past them mounts only what it shows.
+  const warmTop = useDeferredValue(scroll.top);
+  const warm = visibleLayoutRange(layout, warmTop - height * WARM_VIEWPORTS, height * (1 + 2 * WARM_VIEWPORTS));
+  const mounted =
+    warm.last < range.first || warm.first > range.last
+      ? range
+      : { first: Math.min(range.first, warm.first), last: Math.max(range.last, warm.last) };
   if (lastPlaced.current) {
-    lastPlaced.current.first = range.first;
-    lastPlaced.current.last = range.last;
+    lastPlaced.current.first = mounted.first;
+    lastPlaced.current.last = mounted.last;
   }
   // A session can reuse row ids. Until the reset effect commits, render the new session as a
   // fresh transcript so a stale focus or range never flashes on its first paint.
@@ -1304,9 +1316,9 @@ export function VirtualTranscript({
   const activeVisible = rows.slice(range.first, range.last).some((row) => row.id === effectiveActiveRowId);
   const tabStopId = activeVisible ? effectiveActiveRowId : rows[range.first]?.id;
   useLayoutEffect(() => {
-    const last = range.last - 1;
-    acpmuxPerf.mountedTop = range.last > range.first ? layout.tops[range.first] : 0;
-    acpmuxPerf.mountedBottom = range.last > range.first ? layout.tops[last] + layout.heights[last] : 0;
+    const last = mounted.last - 1;
+    acpmuxPerf.mountedTop = mounted.last > mounted.first ? layout.tops[mounted.first] : 0;
+    acpmuxPerf.mountedBottom = mounted.last > mounted.first ? layout.tops[last] + layout.heights[last] : 0;
     // A memo hit spent no time in geometry this render.
     const freshLayout = reportedLayout.current !== measured;
     reportedLayout.current = measured;
@@ -1537,8 +1549,8 @@ export function VirtualTranscript({
         <FindReveal.Provider value={findReveal}>
           <div className="acpmux-spacer" style={{ height: layout.totalHeight }}>
             <div ref={thread} className="acpmux-thread">
-              {rows.slice(range.first, range.last).map((row, index) => {
-                const absoluteIndex = range.first + index;
+              {rows.slice(mounted.first, mounted.last).map((row, index) => {
+                const absoluteIndex = mounted.first + index;
                 const kind = rowKind(row);
                 const Component = registry[kind] ?? NoticeRow;
                 const isExpanded = expanded.has(row.id);
