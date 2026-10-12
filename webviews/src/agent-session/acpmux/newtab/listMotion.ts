@@ -24,16 +24,46 @@ function drawnShift(element: HTMLElement): { x: number; y: number } {
   return { x: matrix.m41, y: matrix.m42 };
 }
 
+/// Where each row's box is laid out, relative to `root`: drawn places less their running slides.
+function measure(root: HTMLElement, elements: HTMLElement[], keys: readonly string[]): Places {
+  const origin = root.getBoundingClientRect();
+  return new Map(
+    elements.map((element, index) => {
+      const rect = element.getBoundingClientRect();
+      const shift = drawnShift(element);
+      return [keys[index], { x: rect.left - origin.left - shift.x, y: rect.top - origin.top - shift.y }] as const;
+    }),
+  );
+}
+
 /// Animates the rows of the list in `list` when `keys` change: `rows` selects them under the list's
-/// own children (a row's box, not its `display: contents` menu host), in the order of `keys`. Places are relative to the list, so a list that moves as a whole (the template
-/// switch) carries its rows.
+/// own children (a row's box, not its `display: contents` menu host), in the order of `keys`.
+/// Places are relative to the list, so a list that moves as a whole (the template switch) carries
+/// its rows, and they are measured again when the list resizes (the cards grid changes its columns
+/// with the pane's width, with no render), so a later change never slides from a stale place.
 export function useListMotion(list: RefObject<HTMLElement | null>, rows: string, keys: readonly string[]): void {
   const places = useRef<Places>(new Map());
   const running = useRef<Animation[]>([]);
   const shown = useRef<string>("");
+  const shownKeys = useRef<readonly string[]>([]);
   const signature = keys.join("\n");
+  const observed = useRef<{ root: HTMLElement; observer: ResizeObserver } | null>(null);
+  useLayoutEffect(() => () => observed.current?.observer.disconnect(), []);
   useLayoutEffect(() => {
     const root = list.current;
+    if (observed.current?.root !== root) {
+      observed.current?.observer.disconnect();
+      observed.current = null;
+      if (root && typeof ResizeObserver !== "undefined") {
+        const observer = new ResizeObserver(() => {
+          const elements = [...root.querySelectorAll<HTMLElement>(`:scope > ${rows}`)];
+          if (shown.current !== "" && elements.length === shownKeys.current.length)
+            places.current = measure(root, elements, shownKeys.current);
+        });
+        observer.observe(root);
+        observed.current = { root, observer };
+      }
+    }
     const elements = root ? [...root.querySelectorAll<HTMLElement>(`:scope > ${rows}`)] : [];
     if (!root || elements.length !== keys.length) {
       places.current = new Map();
@@ -46,16 +76,10 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
     const drawn = new Map(elements.map((element, index) => [keys[index], drawnShift(element)] as const));
     if (changed) for (const animation of running.current) animation.cancel();
     if (changed) running.current = [];
-    const origin = root.getBoundingClientRect();
-    const after: Places = new Map(
-      elements.map((element, index) => {
-        const rect = element.getBoundingClientRect();
-        const shift = changed ? { x: 0, y: 0 } : (drawn.get(keys[index]) ?? { x: 0, y: 0 });
-        return [keys[index], { x: rect.left - origin.left - shift.x, y: rect.top - origin.top - shift.y }] as const;
-      }),
-    );
+    const after = measure(root, elements, keys);
     places.current = after;
     shown.current = signature;
+    shownKeys.current = keys;
     if (!changed) return;
     const style = getComputedStyle(root);
     const reduced = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
