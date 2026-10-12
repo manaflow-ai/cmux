@@ -47,7 +47,7 @@ export type NewTabScreenActions = {
   onInputReady?(token: string): void;
   /// The first user input reached the page (the host recycles only an untouched page, R81).
   onTouched?(): void;
-  /// Opens the host's Integrate a harness flow (`palette.addHarness`).
+  /// No agent to ask: opens the Harnesses page (cx-uj5g8).
   onAddHarness?(): void;
 };
 

@@ -72,7 +72,7 @@ final class ProfileBadgeView: NSView {
         }
         symbol.isHidden = shownSymbol == nil
         let help = BrowserProfileStrings.badgeHelp(badge.name)
-        toolTip = help
+        themedToolTip = help
         setAccessibilityLabel(help)
         needsDisplay = true
         updateLayer()

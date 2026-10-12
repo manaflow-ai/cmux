@@ -41,7 +41,7 @@ struct AppSceneDecorations: ViewModifier {
             .layoutPriority(node.number("layoutPriority") ?? 0)
             .fixedSize(horizontal: fixed(.horizontal), vertical: fixed(.vertical))
             .disabled(node.flag("disabled"))
-            .help(node.string("help") ?? "")
+            .themedHelp(node.string("help") ?? "")
             .contentShape(shape)
             .onHover { hovering in
                 guard hoverFill != nil else { return }

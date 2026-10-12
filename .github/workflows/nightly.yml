@@ -8,10 +8,11 @@ name: Nightly macOS build
 # only ever advances within its own channel. Everything channel-specific is
 # resolved once in `decide`; every later job reads it from there.
 #
-# A push to `nightly-next` publishes the cmux-next track: the same app identity
-# as cmux NIGHTLY (bundle id com.cmuxterm.app.nightly), but its own release
-# `nightly-next`, DMG names, Sparkle key and feed (NIGHTLY_NEXT_FEED_BASE), so
-# its installs never read main's NIGHTLY feed and main's never read its feed.
+# A push to `nightly-next` publishes the cmux-next track as its own app, cmux
+# NEXT (bundle id com.cmuxterm.app.nightly.cmux-next, cx-x7hwx), which installs
+# beside cmux NIGHTLY, with its own release `nightly-next`, DMG names, Sparkle
+# key and feed (NIGHTLY_NEXT_FEED_BASE), so its installs never read main's
+# NIGHTLY feed and main's never read its feed.
 # Only main's nightly.yml job promote-nightly-next (release environment, release
 # App) moves `nightly-next`, to a feat-cmux-next head whose Release compile is
 # green; cmux-next.yml requests it after a green push run. Its signing and upload secrets live in the
@@ -147,13 +148,18 @@ env:
   CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
   # The cmux-next track (branch `nightly-next`). The feed base must never be
   # main's nightly or RC feed; scripts/ci/nightly-next-guard.py refuses it.
-  NIGHTLY_NEXT_FEED_BASE: https://files-next.cmux.com/nightly-next
+  # cmux NEXT's feed (cx-x7hwx). It keeps "/nightly-next/" in its path:
+  # UpdateFeedResolver classifies the track by it. Release notes sit beside it.
+  NIGHTLY_NEXT_FEED_BASE: https://files-next.cmux.com/nightly-next/next
+  # The feed of the cmux NIGHTLY-identity nightly-next builds before cmux NEXT.
+  # It is no longer written; build numbers stay above it.
+  NIGHTLY_NEXT_LEGACY_FEED_BASE: https://files-next.cmux.com/nightly-next
   # cmux-next's own version line (CFBundleShortVersionString
   # <this>-nightly.<build>); main's nightly and RC keep the project version.
   # scripts/ci/nightly_version.py owns the rule.
   NIGHTLY_NEXT_MARKETING_VERSION: "1.0.0"
   NIGHTLY_NEXT_R2_BUCKET: cmux-nightly-next
-  NIGHTLY_NEXT_R2_PREFIX: nightly-next/
+  NIGHTLY_NEXT_R2_PREFIX: nightly-next/next/
   # SUPublicEDKey of the cmux-next track. The build refuses a
   # SPARKLE_NEXT_PRIVATE_KEY that does not derive this public key.
   NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY: IOPItMLjtc4NsROTNZ6a/jsUW+C4fcicl6SNjVVvzRM=
@@ -343,15 +349,21 @@ jobs:
                 entitlements: 'cmux.rc.entitlements',
                 iconName: 'AppIcon-RC',
               },
+              // cmux NEXT installs beside cmux NIGHTLY (cx-x7hwx). A tagged
+              // nightly bundle id gives it its own control socket
+              // (/tmp/cmux-nightly-cmux-next.sock), daemon session and state
+              // and keeps Sparkle on (com.cmuxterm.app.debug.* never updates).
+              // Signed without a provisioning profile: no passkeys in the
+              // browser, auth tokens in a file, no keychain-backed iroh pairing.
               'nightly-next': {
-                bundleId: 'com.cmuxterm.app.nightly',
-                appName: 'cmux NIGHTLY',
-                urlScheme: 'cmux-nightly',
+                bundleId: 'com.cmuxterm.app.nightly.cmux-next',
+                appName: 'cmux NEXT',
+                urlScheme: 'cmux-next',
                 dmgPrefix: 'cmux-nightly-next-macos',
                 releaseTag: 'nightly-next',
                 releaseName: 'Nightly (cmux-next)',
                 feedBase: process.env.NIGHTLY_NEXT_FEED_BASE,
-                entitlements: 'cmux.nightly.entitlements',
+                entitlements: 'cmux.next-dev.entitlements',
                 iconName: 'AppIcon-Nightly',
               },
             }[track];
@@ -374,8 +386,9 @@ jobs:
               });
             }
             core.setOutput('notary_probe', notaryProbe ? 'true' : 'false');
-            core.setOutput('sign_channel', notaryProbe ? 'stable' : channel);
-            core.setOutput('profile_channel', notaryProbe ? 'RELEASE' : channel.toUpperCase());
+            core.setOutput('sign_channel', notaryProbe ? 'stable' : track === 'nightly-next' ? 'next' : channel);
+            // cmux NEXT embeds no provisioning profile.
+            core.setOutput('profile_channel', notaryProbe ? 'RELEASE' : track === 'nightly-next' ? '' : channel.toUpperCase());
             core.setOutput('channel', channel);
             core.setOutput('track', track);
             core.setOutput('environment', isNextRef ? 'release-next' : 'release');
@@ -1836,7 +1849,7 @@ jobs:
             # ever offers a downgrade after a switch between the two.
             feeds=()
             for appcast in appcast.xml appcast-arm64.xml appcast-x86_64.xml; do
-              feeds+=(--feed "${NIGHTLY_NEXT_FEED_BASE}/${appcast}" --feed "https://files.cmux.com/nightly/${appcast}")
+              feeds+=(--feed-if-present "${NIGHTLY_NEXT_FEED_BASE}/${appcast}" --feed "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${appcast}" --feed "https://files.cmux.com/nightly/${appcast}")
             done
             python3 scripts/ci/nightly_version.py check-build --build "$build" "${feeds[@]}"
           fi
@@ -2442,6 +2455,14 @@ jobs:
               exit 1
             fi
             /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:1:CFBundleURLSchemes:0 ${CHANNEL_URL_SCHEME}" "$app_plist"
+            if [ "$TRACK" = nightly-next ] && [ "$NOTARY_PROBE" != true ]; then
+              # A tagged nightly bundle id defaults to the stable `cmux`
+              # sign-in callback; cmux NEXT signs in through its own scheme
+              # (CloudConfiguration reads LSEnvironment first).
+              /usr/libexec/PlistBuddy -c "Add :LSEnvironment dict" "$app_plist" >/dev/null 2>&1 || true
+              /usr/libexec/PlistBuddy -c "Delete :LSEnvironment:CMUX_AUTH_CALLBACK_SCHEME" "$app_plist" >/dev/null 2>&1 || true
+              /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUX_AUTH_CALLBACK_SCHEME string ${CHANNEL_URL_SCHEME}" "$app_plist"
+            fi
             /usr/libexec/PlistBuddy -c "Delete :SUPublicEDKey" "$app_plist" >/dev/null 2>&1 || true
             /usr/libexec/PlistBuddy -c "Delete :SUFeedURL" "$app_plist" >/dev/null 2>&1 || true
             if [ "$NOTARY_PROBE" = true ]; then
@@ -2503,6 +2524,22 @@ jobs:
             --assets-dir remote-daemon-assets \
             --app "$CHANNEL_APP_PATH" --embed "${bundle_args[@]}"
 
+      # Read-only: can this ASC key register nightly-next's own App ID
+      # (com.cmuxterm.app.next) and fetch its Developer ID profile? It reports
+      # and never writes or fails the build.
+      - name: Probe the cmux NEXT App ID and profile (read-only)
+        if: needs.decide.outputs.track == 'nightly-next'
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+        run: |
+          python3 scripts/ci/asc_developer_id_app.py check \
+            --bundle-id com.cmuxterm.app.next --name "cmux NEXT" --profile-name "cmux NEXT Developer ID" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Import signing cert
         env:
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
@@ -2530,6 +2567,7 @@ jobs:
       # Each channel has its own Developer ID profile:
       # APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64 / APPLE_RC_PROVISIONING_PROFILE_BASE64.
       - name: Embed channel provisioning profile
+        if: needs.decide.outputs.profile_channel != ''
         env:
           APP_PROVISIONING_PROFILE_BASE64: ${{ secrets[format('APPLE_{0}_PROVISIONING_PROFILE_BASE64', needs.decide.outputs.profile_channel)] }}
           PROFILE_SECRET_NAME: APPLE_${{ needs.decide.outputs.profile_channel }}_PROVISIONING_PROFILE_BASE64
@@ -2698,6 +2736,9 @@ jobs:
         if: >-
           always() && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.no_publish != 'true' &&
           (steps.notarize-nightly.outputs.submission_pending == 'true' || steps.notarize-nightly.outcome == 'failure')
+        env:
+          # The state file records the signing channel (cmux NEXT signs as `next`).
+          SIGN_CHANNEL: ${{ needs.decide.outputs.sign_channel }}
         run: |
           set -euo pipefail
           for required in \
@@ -2730,12 +2771,13 @@ jobs:
             "${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}" \
             "${{ needs.resolve-nightly-cmux-tui-client.outputs.tip_sha }}" \
             "${{ needs.resolve-nightly-cmux-tui-client.outputs.behind }}" \
-            "${{ needs.resolve-nightly-cmux-tui-client.outputs.behind_hours }}" <<'PY'
+            "${{ needs.resolve-nightly-cmux-tui-client.outputs.behind_hours }}" \
+            "$SIGN_CHANNEL" <<'PY'
           import json
           import pathlib
           import sys
 
-          state_path, actual_sha, dmg_path, app_path, channel, variant, release_tag, build, head_sha, short_sha, tip_sha, behind, behind_hours = sys.argv[1:]
+          state_path, actual_sha, dmg_path, app_path, channel, variant, release_tag, build, head_sha, short_sha, tip_sha, behind, behind_hours, sign_channel = sys.argv[1:]
           state = {}
           for line in pathlib.Path(state_path).read_text(encoding="utf-8").splitlines():
               if not line:
@@ -2755,7 +2797,8 @@ jobs:
           for key in ("immutable_path", "release_tag", "dmg_prefix", "variant", "channel"):
               if not state.get(key):
                   raise SystemExit(f"notarization state is missing {key}")
-          if state["channel"] != channel or state["variant"] != variant or state["release_tag"] != release_tag:
+          # The manifest keeps the release channel for check-manifest.
+          if state["channel"] != sign_channel or state["variant"] != variant or state["release_tag"] != release_tag:
               raise SystemExit("notarization state metadata does not match the build")
           if state.get("dmg_path", "").split("/")[-1] != pathlib.Path(dmg_path).name:
               raise SystemExit("notarization state points at a different DMG")
@@ -2982,7 +3025,7 @@ jobs:
           set -euo pipefail
           feeds=()
           for appcast in appcast.xml appcast-arm64.xml appcast-x86_64.xml; do
-            feeds+=(--feed "${NIGHTLY_NEXT_FEED_BASE}/${appcast}" --feed "https://files.cmux.com/nightly/${appcast}")
+            feeds+=(--feed-if-present "${NIGHTLY_NEXT_FEED_BASE}/${appcast}" --feed "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${appcast}" --feed "https://files.cmux.com/nightly/${appcast}")
           done
           candidates="$(python3 scripts/ci/find-nightly-next-recovery.py \
             --repo "$GITHUB_REPOSITORY" --current-run-id "$GITHUB_RUN_ID" --limit 3 "${feeds[@]}")"
@@ -3016,6 +3059,7 @@ jobs:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CHANNEL: ${{ needs.decide.outputs.channel }}
+      SIGN_CHANNEL: ${{ needs.decide.outputs.sign_channel }}
       TRACK: ${{ needs.decide.outputs.track }}
       CHANNEL_DMG_PREFIX: ${{ needs.decide.outputs.dmg_prefix }}
       CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
@@ -3040,7 +3084,7 @@ jobs:
           set -euo pipefail
           feeds=()
           for appcast in appcast.xml appcast-arm64.xml appcast-x86_64.xml; do
-            feeds+=(--feed "${NIGHTLY_NEXT_FEED_BASE}/${appcast}" --feed "https://files.cmux.com/nightly/${appcast}")
+            feeds+=(--feed-if-present "${NIGHTLY_NEXT_FEED_BASE}/${appcast}" --feed "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${appcast}" --feed "https://files.cmux.com/nightly/${appcast}")
           done
           mkdir -p recovered
           while IFS=$'\t' read -r run_id artifact; do
@@ -3066,7 +3110,7 @@ jobs:
             tar -C "$dir/cmux-nightly-notarization-recovery-app" -xzf "$dir/cmux-nightly-notarization-recovery-app.tar.gz"
             pending="$dir/github-output"
             : > "$pending"
-            if ! CMUX_CHANNEL="$CHANNEL" CMUX_NOTARY_CONTINUE_STATE="$dir/$STATE_NAME" GITHUB_OUTPUT="$pending" \
+            if ! CMUX_CHANNEL="$SIGN_CHANNEL" CMUX_NOTARY_CONTINUE_STATE="$dir/$STATE_NAME" GITHUB_OUTPUT="$pending" \
                 ./scripts/ci/notarize-nightly-dmg.sh "$dir/$APP_NAME" "$dir/$DMG_NAME" "recovered/$IMMUTABLE_NAME"; then
               echo "::notice::run $run_id: Apple did not accept submission $SUBMISSION_ID; skipping"
               echo "::endgroup::"; continue
@@ -3236,7 +3280,7 @@ jobs:
           set -euo pipefail
           feeds=()
           for appcast in appcast.xml appcast-arm64.xml appcast-x86_64.xml; do
-            feeds+=(--feed "${NIGHTLY_NEXT_FEED_BASE}/${appcast}" --feed "https://files.cmux.com/nightly/${appcast}")
+            feeds+=(--feed-if-present "${NIGHTLY_NEXT_FEED_BASE}/${appcast}" --feed "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${appcast}" --feed "https://files.cmux.com/nightly/${appcast}")
           done
           python3 scripts/ci/nightly_version.py check-build --build "$NIGHTLY_BUILD" "${feeds[@]}"
 
@@ -3901,11 +3945,15 @@ jobs:
             --head "$HEAD_SHA" --since "$since" --out notes
           # Extend the published index only when its signature verifies.
           previous=""
-          if curl -fsSL -A "cmux-release-notes/1" -o notes/previous-index.json https://files-next.cmux.com/nightly-next/notes/index.json \
-             && curl -fsSL -A "cmux-release-notes/1" -o notes/previous-index.json.sig https://files-next.cmux.com/nightly-next/notes/index.json.sig \
-             && python3 scripts/cmux-next/release-notes.py verify --public-key "$CONTENT_PUBLIC_KEY" notes/previous-index.json; then
-            previous=notes/previous-index.json
-          fi
+          # The first cmux NEXT build carries the history over from the old feed.
+          for base in "${NIGHTLY_NEXT_FEED_BASE}" "${NIGHTLY_NEXT_LEGACY_FEED_BASE}"; do
+            if curl -fsSL -A "cmux-release-notes/1" -o notes/previous-index.json "$base/notes/index.json" \
+               && curl -fsSL -A "cmux-release-notes/1" -o notes/previous-index.json.sig "$base/notes/index.json.sig" \
+               && python3 scripts/cmux-next/release-notes.py verify --public-key "$CONTENT_PUBLIC_KEY" notes/previous-index.json; then
+              previous=notes/previous-index.json
+              break
+            fi
+          done
           python3 scripts/cmux-next/release-notes.py index --notes "notes/$NIGHTLY_BUILD.json" \
             ${previous:+--previous "$previous"} --out notes/index.json
           rm -f notes/previous-index.json notes/previous-index.json.sig

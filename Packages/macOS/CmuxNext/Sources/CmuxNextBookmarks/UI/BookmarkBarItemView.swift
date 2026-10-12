@@ -32,7 +32,7 @@ final class BookmarkBarItemView: NSView {
         label.cell?.truncatesLastVisibleLine = true
         addSubview(icon)
         addSubview(label)
-        toolTip = node.url.map { "\(node.displayTitle)\n\($0.absoluteString)" } ?? node.displayTitle
+        themedToolTip = node.url.map { "\(node.displayTitle)\n\($0.absoluteString)" } ?? node.displayTitle
         setAccessibilityElement(true)
         setAccessibilityRole(node.isFolder ? .menuButton : .button)
         setAccessibilityLabel(node.displayTitle)

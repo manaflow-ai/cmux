@@ -243,8 +243,6 @@ type Props = {
   onEditShortcut?(kind: TabKind): void;
   /// Choose Folder…: the host's folder panel; resolves to the picked folder.
   onBrowseProject?(): Promise<string | undefined>;
-  /// Opens the host's Integrate a harness flow (`palette.addHarness`).
-  onAddHarness?(): void;
   now?: number;
 };
 
@@ -269,7 +267,6 @@ export function NewTabPage({
   onShowAll,
   onEditShortcut,
   onBrowseProject,
-  onAddHarness,
   inputToken,
   onInputReady,
 }: Props) {
@@ -555,11 +552,6 @@ export function NewTabPage({
           {t(NEW_TAB_LABELS.allSessions)}
           <ChevronRight />
         </button>
-        {onAddHarness && (
-          <button type="button" className="acpmux-newtab-all" onClick={onAddHarness}>
-            {t("newtab.addHarness")}
-          </button>
-        )}
       </div>
     </div>
   );

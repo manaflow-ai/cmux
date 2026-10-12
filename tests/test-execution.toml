@@ -1045,6 +1045,10 @@ path = "tests/test_nightly_version.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_next_identity.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_vendored_cmux_agent_cursor.py"
 lane = "linux-guard"
 
@@ -1058,6 +1062,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_tui_artifacts_retry.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_asc_developer_id_app.py"
 lane = "linux-guard"
 
 [[test]]

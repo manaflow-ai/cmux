@@ -123,6 +123,7 @@ impl Mux {
         terminal_id: Option<TerminalPublicId>,
         created_at_ms: u64,
         source: NotificationSource,
+        desktop: bool,
     ) -> u64 {
         let id = self.next_notification_id();
         {
@@ -138,6 +139,7 @@ impl Mux {
                 created_at_ms,
                 source,
                 surface,
+                desktop,
             });
             let mut evicted = Vec::new();
             while ledger.len() > NOTIFICATION_LEDGER_CAPACITY {
@@ -367,6 +369,7 @@ impl Mux {
             terminal_id.clone(),
             created_at_ms,
             source,
+            true,
         );
         let session_id = self.workspace_registry.lock().unwrap().session_id().clone();
         let notification = ResourceNotification {
@@ -379,6 +382,7 @@ impl Mux {
             created_at_ms,
             source,
             surface,
+            desktop: true,
         };
         let value = self.created_notification_value(&notification, &session_id);
         let outcome = ResourceEffectOutcome::Success(value.clone());

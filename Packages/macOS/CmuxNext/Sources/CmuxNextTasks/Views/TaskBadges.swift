@@ -1,5 +1,6 @@
 import CmuxAgentBrands
 import SwiftUI
+import CmuxNextDesign
 
 /// A person's initial, or an agent mark with its harness initial.
 struct AssigneeBadge: View {
@@ -15,7 +16,7 @@ struct AssigneeBadge: View {
                 AgentBrandMark(agent: delegate.harness, size: size * 0.62).foregroundStyle(colors.ansi(5))
             }
             .frame(width: size, height: size)
-            .help(delegate.harness)
+            .themedHelp(delegate.harness)
         } else if let assignee {
             ZStack {
                 Circle().fill(colors.hover)
@@ -23,11 +24,11 @@ struct AssigneeBadge: View {
                     .font(.system(size: size * 0.5, weight: .semibold)).foregroundStyle(colors.secondary)
             }
             .frame(width: size, height: size)
-            .help(assignee.shortName)
+            .themedHelp(assignee.shortName)
         } else {
             Circle().strokeBorder(colors.tertiary.opacity(0.5), style: StrokeStyle(lineWidth: 1, dash: [2, 2]))
                 .frame(width: size, height: size)
-                .help(TasksStrings.unassigned)
+                .themedHelp(TasksStrings.unassigned)
         }
     }
 }
@@ -40,7 +41,7 @@ struct LabelDots: View {
     var body: some View {
         HStack(spacing: 3) {
             ForEach(labels) { label in
-                Circle().fill(colors.ansi(label.color)).frame(width: 6, height: 6).help(label.name)
+                Circle().fill(colors.ansi(label.color)).frame(width: 6, height: 6).themedHelp(label.name)
             }
         }
     }
