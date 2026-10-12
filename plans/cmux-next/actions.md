@@ -45,17 +45,17 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 - `sidebar`: 66
 - `notifications`: 20
 - `agents`: 57
-- `cloud`: 50
+- `cloud`: 51
 - `remote`: 10
 - `settings`: 71
 
-## Counts (921 actions)
+## Counts (922 actions)
 
-Palette 885, CLI verbs 488, right-click 474, MCP tools 427.
+Palette 886, CLI verbs 489, right-click 475, MCP tools 428.
 
 ## Menus
 
-- **tab**: tab.restart newTab.toRight [new] > (newTab.ofKind newSurface openBrowser.chromium duplicateTab) | [openIn] > (browser.openInChromium browserProfile.moveTab browserProfile.duplicateTab) | renameTab palette.toggleTabPin [options] > (reloadTab | palette.clearTabName palette.toggleTabUnread toggleTabAudioMute terminal.setTheme[choices] terminal.clearTheme tab.setIcon tab.clearIcon terminal.keep | palette.toggleFullWidthTab | hibernateTab wakeTab disconnectRemoteTab | tab.showResources) | [group] > (tabGroup.create tabGroup.addTab tabGroup.removeTab) | [move] > (moveSurfaceToPaneLeft moveSurfaceToPaneRight moveSurfaceToPaneUp moveSurfaceToPaneDown tab.moveToNewSplit tab.moveToNewColumn palette.moveTabToNewWorkspace tab.moveToNewWindow tab.moveToNewDockColumn moveSurfaceLeft moveSurfaceRight moveSurfaceToPreviousPane moveSurfaceToNextPane tab.moveToWorkspace) | [copy] > (palette.copySurfaceID palette.copySurfaceLink palette.copyIdentifiers palette.copyPaneID palette.copyPaneLink) | closeTab [close] > (closeTabsToLeft closeTabsToRight closeOtherTabsInPane)
+- **tab**: tab.restart newTab.toRight [new] > (newTab.ofKind newSurface openBrowser.chromium duplicateTab) | [openIn] > (browser.openInChromium browserProfile.moveTab browserProfile.duplicateTab) | renameTab palette.toggleTabPin [options] > (reloadTab | palette.clearTabName palette.toggleTabUnread toggleTabAudioMute terminal.setTheme[choices] terminal.clearTheme tab.setIcon tab.clearIcon terminal.keep | palette.toggleFullWidthTab | hibernateTab wakeTab disconnectRemoteTab | tab.showResources) | [group] > (tabGroup.create tabGroup.addTab tabGroup.removeTab) | [move] > (cloudMove | moveSurfaceToPaneLeft moveSurfaceToPaneRight moveSurfaceToPaneUp moveSurfaceToPaneDown tab.moveToNewSplit tab.moveToNewColumn palette.moveTabToNewWorkspace tab.moveToNewWindow tab.moveToNewDockColumn moveSurfaceLeft moveSurfaceRight moveSurfaceToPreviousPane moveSurfaceToNextPane tab.moveToWorkspace) | [copy] > (palette.copySurfaceID palette.copySurfaceLink palette.copyIdentifiers palette.copyPaneID palette.copyPaneLink) | closeTab [close] > (closeTabsToLeft closeTabsToRight closeOtherTabsInPane)
 - **tabGroup**: tabGroup.newTab | tabGroup.rename tabGroup.setColor > (tabGroup.color.grey tabGroup.color.blue tabGroup.color.red tabGroup.color.yellow tabGroup.color.green tabGroup.color.pink tabGroup.color.purple tabGroup.color.cyan tabGroup.color.orange) | tabGroup.toggleCollapsed [group] > (tabGroup.save tabGroup.unsave) | [move] > (tabGroup.moveLeft tabGroup.moveRight tabGroup.moveToNewSplit tabGroup.moveToNewColumn tabGroup.moveToNewWorkspace tabGroup.moveToWorkspace tabGroup.moveToNewWindow) | tabGroup.ungroup tabGroup.close
 - **screen**: screen.new [new] > (screen.duplicate screen.newWith) | screen.rename screen.clearName screen.togglePin [appearance] > (screen.setColor > (screen.color.grey screen.color.blue screen.color.red screen.color.yellow screen.color.green screen.color.pink screen.color.purple screen.color.cyan screen.color.orange screen.clearColor) screen.setIcon screen.clearIcon) | [group] > (screenGroup.create screenGroup.addScreen screenGroup.removeScreen) | [move] > (screen.moveLeft screen.moveRight screen.moveToWorkspace screen.moveToNewWorkspace screen.moveToNewWindow) | screen.close [close] > (screen.closeOthers screen.closeToRight screen.closeToLeft)
 - **screenGroup**: screenGroup.newScreen | screenGroup.rename screenGroup.setColor > (screenGroup.color.grey screenGroup.color.blue screenGroup.color.red screenGroup.color.yellow screenGroup.color.green screenGroup.color.pink screenGroup.color.purple screenGroup.color.cyan screenGroup.color.orange) | screenGroup.toggleCollapsed [group] > (screenGroup.save screenGroup.unsave) | [move] > (screenGroup.moveLeft screenGroup.moveRight screenGroup.moveToWorkspace screenGroup.moveToNewWorkspace screenGroup.moveToNewWindow) | screenGroup.ungroup screenGroup.close
@@ -79,7 +79,7 @@ Palette 885, CLI verbs 488, right-click 474, MCP tools 427.
 - **notification**: notificationOpen | notificationToggleRead | notificationCopy | notificationDismiss
 - **sidebarItem**: sidebar.item.toggleLabel | sidebar.item.removeEverywhere sidebar.item.remove sidebar.item.hideApp
 - **sidebarSection**: sidebar.section.add sidebar.item.add | sidebar.section.rename [appearance] > (sidebar.section.useBuiltInLook sidebar.section.useListLook sidebar.section.toggleTitle sidebar.section.layoutList sidebar.section.layoutInline sidebar.section.layoutGrid sidebar.section.setAlignment sidebar.section.setGap sidebar.section.setColumns) [options] > (sidebar.section.toggleSpaceScope sidebar.section.setMaxRows) | sidebar.section.toggleCollapsed | [move] > (sidebar.section.moveToTop sidebar.section.moveToScrolling sidebar.section.moveToBottom) | sidebar.section.hide | sidebar.section.remove sidebar.item.hideApp
-- **agentChat**: appearance.changeBackground workspace.setTheme[choices] | agentPaneZoomIn agentPaneZoomOut agentPaneZoomReset | find | agentPane.toggleInspector
+- **agentChat**: appearance.changeBackground workspace.setTheme[choices] | cloudMove | agentPaneZoomIn agentPaneZoomOut agentPaneZoomReset | find | agentPane.toggleInspector
 
 ## Exemptions: palette
 
