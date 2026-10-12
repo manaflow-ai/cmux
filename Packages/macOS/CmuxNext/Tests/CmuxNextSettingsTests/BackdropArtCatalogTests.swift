@@ -51,10 +51,21 @@ import Testing
         }
     }
 
+    /// Every work ships a small thumbnail (the picker and the first frame); only the starter set
+    /// ships its full image, and the rest download on first pick (``BackdropArtDownloads``).
     @MainActor @Test(arguments: BackdropArt.allCases)
-    func everyBundledImageDecodesAtBackdropSize(art: BackdropArt) throws {
+    func everyWorkShipsAThumbnailAndTheStarterSetShipsItsImage(art: BackdropArt) throws {
+        let thumbnail = try #require(art.thumbnailURL.flatMap(NSImage.init(contentsOf:)), "\(art.rawValue) has no thumbnail")
+        #expect(thumbnail.representations.first?.pixelsWide == 480, "\(art.rawValue) thumbnail")
+        guard art.isBundled else { return }
         let image = try #require(art.image(), "\(art.rawValue) is missing or does not decode")
         let rep = try #require(image.representations.first)
         #expect(rep.pixelsWide == 1600 && rep.pixelsHigh == 1000, "\(art.rawValue): \(rep.pixelsWide)×\(rep.pixelsHigh)")
+    }
+
+    @Test func aStarterSetOfDarkWorksShipsInTheApp() {
+        let bundled = BackdropArt.allCases.filter(\.isBundled)
+        #expect((12...24).contains(bundled.count))
+        #expect(bundled.allSatisfy { $0.metadata.tone == .dark })
     }
 }
