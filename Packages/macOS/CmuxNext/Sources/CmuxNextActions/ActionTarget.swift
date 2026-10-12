@@ -108,6 +108,9 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
     case notification
     /// An item of a docked sidebar section (Home, Settings, a pinned row).
     case sidebarItem
+    /// The empty space of the sidebar's bottom band: Show for each piece hidden from it
+    /// (cx-wab7m: the spaces dots, the profile button).
+    case sidebarFooter
     /// The header of a titled sidebar section.
     case sidebarSection
     /// An agent chat's empty space: not a message, not a selection.
@@ -126,7 +129,7 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
         case .pane, .newTab: .pane
         case .workspaceRow: .workspace
         case .workspaceGroup: .workspaceGroup
-        case .sidebarBackground: nil
+        case .sidebarBackground, .sidebarFooter: nil
         case .cloudMachine, .sshMachine: .machine
         case .profile: .profile
         case .browserProfile: .browserProfile

@@ -19,6 +19,8 @@ public nonisolated enum SidebarSectionsSetting {
     public static let showProjectsPath = ["sidebar", "showProjects"]
     public static let groupByPath = ["sidebar", "groupBy"]
     public static let showChatsPath = ["sidebar", "showChats"]
+    public static let showSpacesPath = ["sidebar", "showSpaces"]
+    public static let showProfileControlPath = ["sidebar", "showProfileControl"]
     public static let tipsPath = ["sidebar", "cards", "tips"]
 
     static func tipsDescriptor(group: SettingText) -> SettingDescriptor {
@@ -95,6 +97,15 @@ public nonisolated enum SidebarSectionsSetting {
                               ]),
                               default: .string(SidebarSectionsPreferences.defaults.groupBy.rawValue),
                               keywords: ["sidebar", "projects", "group", "folder", "directory", "cwd"]),
+            // The bottom band's pieces (cx-wab7m): right-click hides each, the band shows it again.
+            SettingDescriptor(showSpacesPath, section: .appearance, group: group,
+                              title: SettingsText.keyed("settings.sidebar.showSpaces", "Show Spaces"),
+                              kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showSpaces),
+                              keywords: ["sidebar", "spaces", "dots", "profiles", "footer", "hide", "show"]),
+            SettingDescriptor(showProfileControlPath, section: .appearance, group: group,
+                              title: SettingsText.keyed("settings.sidebar.showProfileControl", "Show Profile Button"),
+                              kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showProfileControl),
+                              keywords: ["sidebar", "profile", "account", "avatar", "footer", "hide", "show"]),
         ]
     }
 
@@ -164,6 +175,8 @@ public nonisolated enum SidebarSectionsSetting {
         SidebarNavigationSetting.parse(root, into: &result.navigation, diagnostics: &diagnostics)
         result.workspaceRow = WorkspaceRowSetting().parse(root, diagnostics: &diagnostics)
         result.showProjects = flag(root, showProjectsPath, fallback: result.showProjects, &diagnostics)
+        result.showSpaces = flag(root, showSpacesPath, fallback: result.showSpaces, &diagnostics)
+        result.showProfileControl = flag(root, showProfileControlPath, fallback: result.showProfileControl, &diagnostics)
         result.minimal = flag(root, minimalPath, fallback: result.minimal, &diagnostics)
         if let value = root.value(at: groupByPath) {
             if let text = value.stringValue, let groupBy = SidebarGroupBy(rawValue: text) {
