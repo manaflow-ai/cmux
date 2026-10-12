@@ -10,6 +10,27 @@ import Testing
         )
     }
 
+    /// An older page lands above the transcript: only the page and the
+    /// first message under it need entries, and they must be the entries
+    /// the whole plan would give them (statuses still come from the newest
+    /// messages).
+    @Test func aPlanForThePrefixMatchesTheWholePlanThere() {
+        var messages: [ConversationMessage] = []
+        for i in 0..<40 {
+            let sender = [0, 1, 2, 5, 9, 10, 11, 30].contains(i % 13) ? "me" : "a"
+            messages.append(message(i + 1, sender, minute: Double(i * 3 + (i % 7 == 0 ? 90 : 0) + i * i % 11), delivery: sender == "me" ? .read(nil) : nil, replyTo: i == 17 ? "m3" : nil))
+        }
+        messages[39].senderID = "me"
+        messages[39].delivery = .delivered
+        messages[3].senderID = "me"
+        messages[3].delivery = .delivered
+        let whole = ConversationRunPlan(messages: messages, meID: "me", typingParticipantIDs: ["a"])
+        for limit in [0, 1, 3, 4, 20, 39, 40] {
+            let prefix = ConversationRunPlan(messages: messages, meID: "me", typingParticipantIDs: ["a"], limit: limit)
+            #expect(prefix.entries == Array(whole.entries.prefix(limit)), "limit \(limit)")
+        }
+    }
+
     @Test func consecutiveSameSenderFormsOneRunWithTailOnLast() {
         let plan = ConversationRunPlan(messages: [
             message(1, "a", minute: 0), message(2, "a", minute: 1), message(3, "a", minute: 2), message(4, "me", minute: 3),

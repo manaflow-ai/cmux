@@ -61,7 +61,7 @@ public final class ConversationViewController: UIViewController {
     lazy var audioComposer = ConversationAudioComposer(controller: self)
 
     private(set) var rows: [ConversationRow] = []
-    private(set) var rowIndex: [String: Int] = [:]
+    private(set) var rowIndex = ConversationRowIndex()
     /// `rows.map(\.id)`, kept so each update does not walk the old row models.
     private var rowIDs: [String] = []
     /// Height and leading spacing of each row, aligned with `rows` (NaN = not
@@ -567,21 +567,34 @@ public final class ConversationViewController: UIViewController {
     }
 
     func rebuild(change: ConversationStoreChange) {
-        rebuild(change: change, measured: nil)
+        rebuild(change: change, measured: nil, splice: nil)
     }
 
     /// `measured` carries rows a measure-ahead built from the store as it
     /// still is (see `measureAhead`), so the landing frame does not build
     /// every row of the transcript again.
-    private func rebuild(change: ConversationStoreChange, measured: [ConversationRow]?) {
+    /// `splice` describes `measured` when it was built from the page alone
+    /// (see `ConversationRowBuilder.rowsAfterPrepend`).
+    private func rebuild(change: ConversationStoreChange, measured: [ConversationRow]?, splice: ConversationPrependRows?) {
         rebuildSerial &+= 1
         if store.hasLoadedNewest, initialSpinner.isAnimating {
             initialSpinner.stopAnimating()
             initialSpinner.isHidden = true
         }
-        let newRows = measured ?? ConversationRowBuilder.rows(store: store)
-        if measured == nil, change == .prepended, measureAhead(newRows) { return }
-        apply(newRows, change: change)
+        var splice = splice
+        let newRows: [ConversationRow]
+        if let measured {
+            newRows = measured
+        } else if change == .prepended, hasPositionedInitially, let built = ConversationRowBuilder.rowsAfterPrepend(store: store, previous: rows) {
+            // An older page: only its rows and the boundary are built.
+            assert(built.rows == ConversationRowBuilder.rows(store: store), "rows after a landed page differ from a full build")
+            newRows = built.rows
+            splice = built
+        } else {
+            newRows = ConversationRowBuilder.rows(store: store)
+        }
+        if measured == nil, change == .prepended, measureAhead(newRows, splice: splice) { return }
+        apply(newRows, change: change, splice: splice)
         updateCatchUp()
         if let info = store.info, header.window != nil, !hasConfiguredHeader {
             hasConfiguredHeader = true
@@ -599,12 +612,13 @@ public final class ConversationViewController: UIViewController {
     /// A landed page's rows are measured off the main thread before they
     /// are applied, so the frame that shows them only places them. Returns
     /// whether the rows wait for that (the measured rows rebuild again).
-    private func measureAhead(_ newRows: [ConversationRow]) -> Bool {
+    private func measureAhead(_ newRows: [ConversationRow], splice: ConversationPrependRows?) -> Bool {
         let width = collectionView.bounds.width
         let margin = layoutMargin
         guard hasPositionedInitially, width > 0 else { return false }
         var fresh: [MessageRowModel] = []
-        for row in newRows {
+        // Rows taken unchanged from the transcript are not new.
+        for row in newRows[..<(splice?.reused.lowerBound ?? newRows.count)] {
             if case let .message(model) = row, rowIndex[model.rowID] == nil { fresh.append(model) }
         }
         let pending = layoutCache.unmeasured(fresh, width: width, margin: margin)
@@ -630,7 +644,8 @@ public final class ConversationViewController: UIViewController {
             guard let self else { return }
             self.layoutCache.adopt(measured.items, width: width, margin: margin)
             guard generation == self.measureGeneration else { return }
-            self.rebuild(change: .prepended, measured: serial == self.rebuildSerial ? newRows : nil)
+            let current = serial == self.rebuildSerial
+            self.rebuild(change: .prepended, measured: current ? newRows : nil, splice: current ? splice : nil)
         }
         return true
     }
@@ -686,33 +701,30 @@ public final class ConversationViewController: UIViewController {
         collectionView.contentOffset = offset
     }
 
-    private func apply(_ newRows: [ConversationRow], change: ConversationStoreChange) {
+    /// What an update changes, in old and new row positions.
+    private struct RowDiff {
+        var newIDs: [String]
+        var deleted: [IndexPath]
+        var inserted: [IndexPath]
+        /// One row that changed place, from its old to its new index.
+        var moved: (from: Int, to: Int)?
+        var structural: Bool
+        var updated: [IndexPath]
+        /// Whether a row is among the new rows.
+        var contains: (String) -> Bool
+        /// Brings `rowIndex` from the old rows to the new ones.
+        var updateIndex: (inout ConversationRowIndex) -> Void
+        /// The new rows' metrics (nil: measure every row again).
+        var metrics: [RowMetrics]?
+    }
+
+    private func diff(_ newRows: [ConversationRow]) -> RowDiff {
         let oldIDs = rowIDs
         let newIDs = newRows.map(\.id)
-        prefetchedRange = 0..<0
-        let oldIndex = rowIndex
         var newIndex: [String: Int] = [:]
         newIndex.reserveCapacity(newIDs.count)
         for (index, id) in newIDs.enumerated() { newIndex[id] = index }
-
-        // Before anything is shown, or when the whole window changed, reload.
-        if !hasPositionedInitially || change == .reset && oldIDs.isEmpty {
-            rows = newRows
-            rowIndex = newIndex
-            rowIDs = newIDs
-            invalidateRowMetrics()
-            collectionView.reloadData()
-            collectionView.layoutIfNeeded()
-            if !newRows.isEmpty {
-                // Also stops the bounce the empty transcript may still be
-                // running, which would otherwise carry on from the new offset
-                // and leave the newest message under the composer.
-                collectionView.setContentOffset(bottomOffset, animated: false)
-                hasPositionedInitially = true
-            }
-            return
-        }
-
+        let oldIndex = rowIndex
         let deleted = oldIDs.enumerated().compactMap { newIndex[$0.element] == nil ? IndexPath(item: $0.offset, section: 0) : nil }
         let inserted = newIDs.enumerated().compactMap { oldIndex[$0.element] == nil ? IndexPath(item: $0.offset, section: 0) : nil }
         let commonOld = oldIDs.filter { newIndex[$0] != nil }
@@ -731,6 +743,108 @@ public final class ConversationViewController: UIViewController {
                 updated.append(IndexPath(item: n, section: 0))
             }
         }
+        let movedPlaces = moved.flatMap { id in oldIndex[id].flatMap { from in newIndex[id].map { (from, $0) } } }
+        return RowDiff(
+            newIDs: newIDs, deleted: deleted, inserted: inserted, moved: movedPlaces, structural: structural, updated: updated,
+            contains: { newIndex[$0] != nil },
+            updateIndex: { $0 = ConversationRowIndex(newIndex) },
+            metrics: structural ? carriedRowMetrics(newIDs: newIDs, oldIndex: { oldIndex[$0] }, updated: updated) : nil
+        )
+    }
+
+    /// The diff of an older page landing (`splice`): only the rows above the
+    /// kept transcript, and the few rows rebuilt in it, are compared. Nil
+    /// when the rows do not line up as `splice` says.
+    private func prependDiff(_ newRows: [ConversationRow], splice: ConversationPrependRows) -> RowDiff? {
+        let oldIDs = rowIDs
+        let keep = splice.keptFrom
+        let start = splice.reused.lowerBound
+        guard keep <= oldIDs.count, splice.reused.upperBound == newRows.count, newRows.count - start == oldIDs.count - keep else { return nil }
+        let prefixIDs = newRows[..<start].map(\.id)
+        var oldPrefix: [String: Int] = [:]
+        for index in 0..<keep { oldPrefix[oldIDs[index]] = index }
+        var newPrefix: [String: Int] = [:]
+        for (index, id) in prefixIDs.enumerated() { newPrefix[id] = index }
+        // Each id once, and none of the page's rows already further down.
+        guard oldPrefix.count == keep, newPrefix.count == start,
+              !prefixIDs.contains(where: { id in rowIndex[id].map { $0 >= keep } ?? false }) else { return nil }
+        let commonOld = oldIDs[..<keep].filter { newPrefix[$0] != nil }
+        let commonNew = prefixIDs.filter { oldPrefix[$0] != nil }
+        guard commonOld == commonNew else { return nil }
+        let shift = start - keep
+        var updated: [IndexPath] = []
+        for id in commonNew {
+            guard let o = oldPrefix[id], let n = newPrefix[id], rows[o] != newRows[n] else { continue }
+            updated.append(IndexPath(item: n, section: 0))
+        }
+        for n in splice.rebuilt where rows[n - shift] != newRows[n] {
+            updated.append(IndexPath(item: n, section: 0))
+        }
+        // Metrics as `carriedRowMetrics` gives them, from the old prefix and
+        // the old metrics of the kept rows.
+        var metrics: [RowMetrics]?
+        if rowMetrics.count == rows.count {
+            let changed = Set(updated.map(\.item))
+            var carried = [RowMetrics](repeating: RowMetrics(), count: start)
+            var previousOld: Int?
+            for (index, id) in prefixIDs.enumerated() {
+                let old = oldPrefix[id]
+                defer { previousOld = changed.contains(index) ? nil : old }
+                guard let old, !changed.contains(index) else { continue }
+                carried[index].height = rowMetrics[old].height
+                let samePredecessor = index == 0 ? old == 0 : previousOld.map { $0 == old - 1 } ?? false
+                if samePredecessor { carried[index].spacing = rowMetrics[old].spacing }
+            }
+            carried.append(contentsOf: rowMetrics[keep...])
+            if start < carried.count, previousOld != keep - 1 { carried[start].spacing = .nan }
+            for n in changed where n >= start {
+                carried[n] = RowMetrics()
+                if n + 1 < carried.count { carried[n + 1].spacing = .nan }
+            }
+            metrics = carried
+        }
+        let oldPrefixIDs = oldIDs[..<keep]
+        return RowDiff(
+            newIDs: prefixIDs + oldIDs[keep...],
+            deleted: (0..<keep).filter { newPrefix[oldIDs[$0]] == nil }.map { IndexPath(item: $0, section: 0) },
+            inserted: (0..<start).filter { oldPrefix[prefixIDs[$0]] == nil }.map { IndexPath(item: $0, section: 0) },
+            moved: nil, structural: true, updated: updated,
+            contains: { [rowIDs] id in newPrefix[id] != nil || (oldPrefix[id] == nil && rowIDs.contains(id)) },
+            updateIndex: { $0.replacePrefix(oldPrefixIDs, with: prefixIDs) },
+            metrics: metrics
+        )
+    }
+
+    private func apply(_ newRows: [ConversationRow], change: ConversationStoreChange, splice: ConversationPrependRows? = nil) {
+        let oldIDs = rowIDs
+        prefetchedRange = 0..<0
+
+        // Before anything is shown, or when the whole window changed, reload.
+        if !hasPositionedInitially || change == .reset && oldIDs.isEmpty {
+            rows = newRows
+            var positions: [String: Int] = [:]
+            for (index, row) in newRows.enumerated() { positions[row.id] = index }
+            rowIndex = ConversationRowIndex(positions)
+            rowIDs = newRows.map(\.id)
+            invalidateRowMetrics()
+            collectionView.reloadData()
+            collectionView.layoutIfNeeded()
+            if !newRows.isEmpty {
+                // Also stops the bounce the empty transcript may still be
+                // running, which would otherwise carry on from the new offset
+                // and leave the newest message under the composer.
+                collectionView.setContentOffset(bottomOffset, animated: false)
+                hasPositionedInitially = true
+            }
+            return
+        }
+
+        let diff = splice.flatMap { prependDiff(newRows, splice: $0) } ?? diff(newRows)
+        let newIDs = diff.newIDs
+        let deleted = diff.deleted
+        let inserted = diff.inserted
+        let structural = diff.structural
+        let updated = diff.updated
 
         // A failed send reshapes its row; never leave its flight hanging.
         for indexPath in updated {
@@ -794,24 +908,24 @@ public final class ConversationViewController: UIViewController {
         // Undo Send: the bubble dissolves where it stood while its notice fades in.
         if animateLive {
             for indexPath in deleted where indexPath.item < rows.count {
-                guard case let .message(model) = rows[indexPath.item], newIndex["unsent:\(model.rowID)"] != nil,
+                guard case let .message(model) = rows[indexPath.item], diff.contains("unsent:\(model.rowID)"),
                       let cell = collectionView.cellForItem(at: indexPath) as? MessageCell else { continue }
                 dissolve(cell)
             }
         }
 
         layoutCache.forget(rowIDs: deleted.lazy.map { oldIDs[$0.item] })
-        let carriedMetrics = structural ? carriedRowMetrics(newIDs: newIDs, oldIndex: oldIndex, updated: updated) : nil
+        let carriedMetrics = diff.metrics
         let updates = {
             self.rows = newRows
-            self.rowIndex = newIndex
+            diff.updateIndex(&self.rowIndex)
             self.rowIDs = newIDs
             if let carriedMetrics { self.rowMetrics = carriedMetrics } else { self.invalidateRowMetrics() }
             if structural {
                 self.collectionView.deleteItems(at: deleted)
                 self.collectionView.insertItems(at: inserted)
-                if let moved, let from = oldIndex[moved], let to = newIndex[moved] {
-                    self.collectionView.moveItem(at: IndexPath(item: from, section: 0), to: IndexPath(item: to, section: 0))
+                if let moved = diff.moved {
+                    self.collectionView.moveItem(at: IndexPath(item: moved.from, section: 0), to: IndexPath(item: moved.to, section: 0))
                 }
             } else {
                 self.collectionView.reloadSections(IndexSet(integer: 0))
@@ -1352,14 +1466,14 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
     /// Metrics for the new rows. A row keeps its height when it is unchanged,
     /// and its spacing when, in addition, the row above it is the same
     /// unchanged row (spacing depends only on the pair).
-    private func carriedRowMetrics(newIDs: [String], oldIndex: [String: Int], updated: [IndexPath]) -> [RowMetrics] {
+    private func carriedRowMetrics(newIDs: [String], oldIndex: (String) -> Int?, updated: [IndexPath]) -> [RowMetrics] {
         var metrics = [RowMetrics](repeating: RowMetrics(), count: newIDs.count)
         guard rowMetrics.count == rows.count else { return metrics }
         var changed = [Bool](repeating: false, count: newIDs.count)
         for indexPath in updated { changed[indexPath.item] = true }
         var previousOld: Int?
         for (index, id) in newIDs.enumerated() {
-            let old = oldIndex[id]
+            let old = oldIndex(id)
             defer { previousOld = changed[index] ? nil : old }
             guard let old, !changed[index] else { continue }
             metrics[index].height = rowMetrics[old].height
