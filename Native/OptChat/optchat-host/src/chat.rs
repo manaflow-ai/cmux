@@ -398,7 +398,12 @@ impl OptChat {
         {
             let fresh = done.fresh.iter().filter(|f| **f).count();
             debug_assert_eq!(
-                done.ids.iter().zip(&done.fresh).filter(|(_, f)| **f).map(|(i, _)| *i).next_back(),
+                done.ids
+                    .iter()
+                    .zip(&done.fresh)
+                    .filter(|(_, f)| **f)
+                    .map(|(i, _)| *i)
+                    .next_back(),
                 (fresh > 0).then(|| after[fresh].len() - 1)
             );
             st.memory = after.swap_remove(fresh);
