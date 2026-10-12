@@ -114,7 +114,10 @@ struct CloudBringBackTests {
             #expect(answers() == [["link", "access", "answer", "--socket", trip.vmSocket, "--machine", "vm-move", "--session", "chat-on-vm",
                                    "--request", "fedcba9876543210fedcba9876543210", "--share-secret", "GITHUB_TOKEN"]])
             let digest = SHA256.hash(data: Data(secret.utf8)).map { String(format: "%02x", $0) }.joined()
-            let received = try? String(contentsOf: trip.root.appendingPathComponent("secret-digest"), encoding: .utf8)
+            // The CLI's call is logged before it reads stdin: wait for its digest, which appears only once it did.
+            let digestFile = trip.root.appendingPathComponent("secret-digest")
+            try await trip.waitUntil { FileManager.default.fileExists(atPath: digestFile.path) }
+            let received = try? String(contentsOf: digestFile, encoding: .utf8)
             #expect(received?.trimmingCharacters(in: .whitespacesAndNewlines) == digest, "the CLI's stdin was not the typed value")
             #expect(await trip.toolCards(waiting: false)?.isEmpty == true, "the card stayed after Share once")
             #expect(trip.filesHolding(secret).isEmpty, "the secret was written to \(trip.filesHolding(secret))")
@@ -449,7 +452,7 @@ struct CloudBringBackTests {
     /// machine daemon's `agent-transfer-finish` would (see ``CloudMoveTests``); then `link sync
     /// pull` and the move back answer as `mode` says. `link access triage` lists one file ask of the
     /// moved chat in `access` mode, and one secret ask in `secret` mode, until `link access answer`
-    /// answered it; a secret's answer keeps only the SHA-256 of its stdin, and an upload only the
+    /// answered it; a secret's answer keeps only the SHA-256 of its stdin (written whole, last), and an upload only the
     /// SHA-256 of its last file. Other `link access` calls answer ok.
     private static func standInCLI(in root: URL, log: URL, mode: String, vmState: URL) throws -> URL {
         let url = root.appendingPathComponent("cmux")
@@ -497,7 +500,8 @@ struct CloudBringBackTests {
                 fi ;;
             "link access answer")
                 # A slow CLI: its call is logged a second before it has read stdin (a loaded test host).
-                case " $* " in *" --share-secret "*) sleep 1; /usr/bin/openssl dgst -sha256 -r 2> '\(secretDigest).err' | cut -d ' ' -f 1 > '\(secretDigest)' ;; esac
+                # The digest appears whole, by rename, only once stdin was read to its end.
+                case " $* " in *" --share-secret "*) sleep 1; /usr/bin/openssl dgst -sha256 -r 2> '\(secretDigest).err' | cut -d ' ' -f 1 > '\(secretDigest).part' && mv '\(secretDigest).part' '\(secretDigest)' ;; esac
                 touch '\(answered)'; echo '{"ok":true}' ;;
             "link access sync") echo '{"ok":true,"synced":[]}' ;;
             "link access upload")
