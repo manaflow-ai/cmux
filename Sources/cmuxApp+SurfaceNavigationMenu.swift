@@ -11,7 +11,12 @@ extension cmuxApp {
             ),
             shortcut: menuShortcut(for: .nextSurface)
         ) {
-            activeTabManager.stepTabOrWorkspace(forward: true)
+            activeTabManager.stepTabOrWorkspace(
+                forward: true,
+                dock: AppDelegate.shared?.focusedDockStoreForShortcut(
+                    preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                )
+            )
         }
         splitCommandButton(
             title: String(
@@ -20,7 +25,12 @@ extension cmuxApp {
             ),
             shortcut: menuShortcut(for: .prevSurface)
         ) {
-            activeTabManager.stepTabOrWorkspace(forward: false)
+            activeTabManager.stepTabOrWorkspace(
+                forward: false,
+                dock: AppDelegate.shared?.focusedDockStoreForShortcut(
+                    preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                )
+            )
         }
         splitCommandButton(
             title: String(
