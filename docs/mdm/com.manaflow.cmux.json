@@ -897,6 +897,12 @@
       "title" : "Theme Edits",
       "type" : "object"
     },
+    "browser.allowIPhoneAccess" : {
+      "default" : false,
+      "description" : "Lets cmux's iPhone app view and control Chromium tabs on this Mac. Takes effect after restarting cmux.",
+      "title" : "Allow cmux on iPhone to View Browser Tabs",
+      "type" : "boolean"
+    },
     "browser.customSearchEngine.search" : {
       "default" : "",
       "description" : "Used when Search Engine is Custom. Put {searchTerms} where the typed text goes.",

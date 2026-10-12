@@ -67,6 +67,7 @@ extension CEFRuntime {
     }
 
     func handle(_ event: CEFShimEvent) {
+        defer { CEFRemoteDevTools.shared.observe(event, runtime: self) }  // opt-in iPhone DevTools status
         switch event {
         case .contextInitialized:
             logger.info("CEF context initialized")

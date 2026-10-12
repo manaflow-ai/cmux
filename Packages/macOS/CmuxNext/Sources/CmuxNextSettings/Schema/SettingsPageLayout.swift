@@ -142,7 +142,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
             groups: [
                 group("settings.group.engine"), group("settings.group.addressBar"), group("settings.group.bookmarks"),
                 group("settings.group.links"), group("settings.group.terminalLinks"), group("settings.group.memory"),
-                group("settings.group.remote"),
+                group("settings.group.remote"), group("settings.group.iPhone"),
             ],
             trail: [.browserProfiles], actions: [.browser], aliases: [.browser]),
         CategorySpec(
