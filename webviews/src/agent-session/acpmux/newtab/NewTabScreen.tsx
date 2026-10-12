@@ -150,9 +150,13 @@ export function NewTabScreen(props: Props) {
     const model = entry.models.find((option) => option.id === chipSnapshot.summary?.model)?.name;
     return { harness, agent: entry.name, ...(model ? { model } : {}) };
   }, [snapshot.catalog, harness, chipSnapshot.summary?.model]);
+  // A dismiss in the host (another app, a resize) hides the rows until the text changes; it stays.
+  const [dismissed, setDismissed] = useState<string>();
+  const textRef = useRef(text);
+  textRef.current = text;
   const rows = useMemo(
-    () => (touched && !shell ? screenRows(text, { omnibar, home, ...(ask ? { ask } : {}) }) : []),
-    [touched, shell, text, omnibar, home, ask],
+    () => (touched && !shell && text !== dismissed ? screenRows(text, { omnibar, home, ...(ask ? { ask } : {}) }) : []),
+    [touched, shell, text, dismissed, omnibar, home, ask],
   );
   // New tabs or pages from the host can shorten the rows under a highlight.
   const current = selected === undefined ? defaultSelection(rows) : selected < rows.length ? selected : -1;
@@ -199,6 +203,7 @@ export function NewTabScreen(props: Props) {
     gap: UI_ANCHOR_GAP,
     kind: "list",
     shell: "parent",
+    onDismiss: () => setDismissed(textRef.current),
   });
   // The box scrolls past its cap; the selected row stays in view. Only the box scrolls (not the
   // screen around it, as scrollIntoView would). A callback ref: it runs when a row becomes the
@@ -490,9 +495,9 @@ export function NewTabScreen(props: Props) {
                 ) : (
                   <RowGlyph kind={row.type} />
                 )}
-                <span className="nt-row-title">{rowTitle(nt, row)}</span>
+                <span className="nt-row-title">{rowTitle(nt, row)}</span>{" "}
                 {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
-                <span className="nt-row-action">
+                <span className="nt-row-action" data-popup-skip>
                   {rowAction(t, nt, row)}
                   {index === current && <kbd>↵</kbd>}
                 </span>
