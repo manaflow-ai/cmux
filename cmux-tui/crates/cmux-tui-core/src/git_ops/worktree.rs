@@ -117,10 +117,7 @@ fn plan(
     };
     // A branch is recorded by name, so the later diff follows it; anything
     // else (`HEAD~1`, a tag that may move) by the commit it names now.
-    let named = ["refs/heads/", "refs/remotes/"]
-        .iter()
-        .any(|prefix| repository.commit(&format!("{prefix}{base}")).is_some());
-    let base = if named { base } else { base_commit.clone() };
+    let base = if repository.branch_ref(&base).is_some() { base } else { base_commit.clone() };
     let Some(home) = crate::platform::home_dir() else {
         let message = "the session host has no home folder for worktrees";
         return Err(refused(OPERATION, "no_home", message, Value::Null));

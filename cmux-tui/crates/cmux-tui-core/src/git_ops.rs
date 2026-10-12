@@ -141,6 +141,17 @@ impl Repository {
         (!commit.is_empty()).then_some(commit)
     }
 
+    /// The branch `name` names exactly, local first: `main` but not
+    /// `main~1` or `main@{1}`, which name a commit relative to one.
+    fn branch_ref(&self, name: &str) -> Option<String> {
+        ["refs/heads/", "refs/remotes/"].iter().map(|prefix| format!("{prefix}{name}")).find(
+            |reference| {
+                let arguments = ["show-ref", "--verify", "--quiet", reference.as_str()];
+                self.run(&arguments, MAX_SMALL_OUTPUT_BYTES).is_ok()
+            },
+        )
+    }
+
     /// The empty tree in this repository's hash, to compare against before
     /// the first commit.
     fn empty_tree(&self) -> Result<String, GitFailure> {
@@ -189,12 +200,7 @@ impl Repository {
         if branch.is_empty() || base.is_empty() || base.starts_with('-') {
             return None;
         }
-        ["refs/heads/", "refs/remotes/"]
-            .iter()
-            .map(|prefix| format!("{prefix}{base}"))
-            .find(|reference| self.commit(reference).is_some())
-            .or_else(|| self.commit(&base))
-            .map(|reference| (reference, base))
+        self.branch_ref(&base).or_else(|| self.commit(&base)).map(|reference| (reference, base))
     }
 
     /// The main checkout of a linked worktree (one `git worktree add` made);
