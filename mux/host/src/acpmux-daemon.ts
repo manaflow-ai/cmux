@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, openSync } from "node:fs";
 import { connect } from "node:net";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { Readable } from "node:stream";
 
@@ -52,13 +53,19 @@ export function waitForReady(pipe: Readable, options: { timeoutMs: number; exite
   });
 }
 
-/** The home a started daemon gets: ACPMUX_HOME, else the socket's folder. */
+/**
+ * The home a started daemon gets: ACPMUX_HOME, else the configured socket's folder, else the
+ * socket's own, except the shared short alias folder a long path resolves to (acpmuxSocketPath):
+ * acpmux creates that one private, so a home there would be `~/.acpmux`.
+ */
 export function acpmuxDaemonHome(
   env: Record<string, string | undefined>,
   socket: string,
-  _uid: number = process.getuid?.() ?? 0,
+  uid: number = process.getuid?.() ?? 0,
 ): string {
-  return env.ACPMUX_HOME ?? dirname(env.ACPMUX_SOCKET || socket);
+  if (env.ACPMUX_HOME) return env.ACPMUX_HOME;
+  const folder = dirname(env.ACPMUX_SOCKET || socket);
+  return folder === `/tmp/acpmux-${uid}` ? join(env.HOME ?? homedir(), ".acpmux") : folder;
 }
 
 /**

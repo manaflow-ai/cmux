@@ -254,19 +254,26 @@ fn daemon_home(socket: &Path) -> PathBuf {
     )
 }
 
-/// The home a started daemon gets: `ACPMUX_HOME`, else the socket's directory.
+/// The home a started daemon gets: `ACPMUX_HOME`, else the configured
+/// socket's directory, else the socket's own, except the shared short alias
+/// folder a long path resolves to ([`socket_path_for`]): acpmux creates that
+/// one private, so a home there would be `~/.acpmux`.
 pub fn daemon_home_for(
     home: Option<&str>,
-    _configured: Option<&str>,
+    configured: Option<&str>,
     socket: &Path,
-    _user_home: &Path,
-    _uid: u32,
+    user_home: &Path,
+    uid: u32,
 ) -> PathBuf {
-    home.map(PathBuf::from).unwrap_or_else(|| {
-        socket
-            .parent()
-            .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
-    })
+    if let Some(home) = home {
+        return home.into();
+    }
+    let named = configured.map_or(socket, Path::new);
+    match named.parent() {
+        Some(dir) if dir != Path::new(&format!("/tmp/acpmux-{uid}")) => dir.into(),
+        Some(_) => user_home.join(".acpmux"),
+        None => PathBuf::from("."),
+    }
 }
 
 /// The daemon this process started (local mode): only that one is this
