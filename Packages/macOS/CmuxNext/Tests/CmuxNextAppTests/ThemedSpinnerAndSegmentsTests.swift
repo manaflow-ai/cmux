@@ -73,8 +73,11 @@ import Testing
         let spinner = try #require(Self.all(StatusIndicatorView.self, in: bar).first { !$0.isHidden })
 
         window.orderFrontRegardless()
-        NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: window)
         let visible = window.occlusionState.contains(.visible)
+        // Start from the opposite state, so the check holds on a host whose windows never report
+        // visible (headless CI) as well as on one where they do.
+        spinner.isWindowVisible = !visible
+        NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: window)
         #expect(spinner.isWindowVisible == visible, "the spinner follows its window's occlusion (visible: \(visible))")
         if visible, StatusIndicatorAppearance.shared.config.animatesLoops {
             #expect(spinner.indicator.runningAnimation == .step, "the native spokes step once the window shows")
