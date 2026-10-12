@@ -246,6 +246,7 @@ extension AgentPaneRequest {
         case "git.pullRequest": self = .gitPullRequest(AgentPaneGitPullRequest(params: params))
         case "project.instructions": self = .projectInstructions(AgentPaneProjectInstructions(params: params))
         case "project.addFiles": self = .projectAddFiles(AgentPaneProjectInstructions(params: params))
+        case "composer.capture": self = .composerCapture(mode: params?["mode"] as? String)
         case "git.githubRepository":
             if let cwd = params?["cwd"] as? String, cwd.hasPrefix("/"), !cwd.contains("\0") {
                 self = .githubRepository(cwd: cwd)
