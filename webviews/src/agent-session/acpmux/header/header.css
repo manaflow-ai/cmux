@@ -50,10 +50,22 @@
 .acpmux-header-pr[data-checks=pending]::after{background:var(--agent-warning,#d29922)}
 .acpmux-header-pr[data-checks=failing]::after{background:var(--agent-danger)}
 /* A worktree chat's branch (cx-lyqio.3b): a quiet label beside the PR chip, the full name in its tooltip. */
-.acpmux-header-worktree{display:inline-flex;align-items:center;gap:4px;min-width:0;max-width:180px;height:24px;padding:0 6px;color:var(--agent-muted);font-size:var(--text-detail);white-space:nowrap;cursor:default}
+.acpmux-header-tool.acpmux-header-worktree{width:auto;gap:4px;min-width:0;max-width:180px;padding:0 6px;color:var(--agent-muted);font-size:var(--text-detail);white-space:nowrap}
 .acpmux-header-worktree>svg{flex:none}
 .acpmux-header-worktree-name{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .acpmux-header-worktree-detail{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+/* The pill's popover (cx-lyqio.4): the branch, what it is a worktree of, then Apply and where it stands. */
+.acpmux-worktree-status{width:280px}
+.acpmux-worktree-apply{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin-top:2px;padding:8px 6px 2px;border-top:.5px solid var(--acpmux-composer-edge);font-size:var(--text-detail);overflow-wrap:anywhere}
+.acpmux-worktree-apply button{height:24px;padding:0 10px;border:0;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
+.acpmux-worktree-apply button:hover:not(:disabled){background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)))}
+.acpmux-worktree-apply button:focus-visible{outline:2px solid var(--agent-accent);outline-offset:-2px}
+.acpmux-worktree-apply button:disabled{color:var(--agent-muted)}
+.acpmux-worktree-apply>output{color:var(--agent-success,var(--acpmux-add,#3fb950))}
+.acpmux-worktree-apply>[role=alert]{color:var(--agent-danger)}
+.acpmux-worktree-apply+.acpmux-worktree-remove{border-top:0;padding-top:0}
+.acpmux-worktree-remove-confirm{display:flex;gap:6px}
+.acpmux-worktree-apply button.acpmux-worktree-remove-discard{color:var(--agent-danger)}
 /* The chip's status (cx-ncc.77.1): the title linking the pull request, its state and review, then each
    check with a dot by its outcome, failing first. Compact rows, the summary popover's surface. */
 .acpmux-pr-status{width:300px;max-height:min(480px,70vh);overflow:auto;padding:8px 6px 6px;box-sizing:border-box;border:0;border-radius:var(--ui-popup-radius);background:var(--acpmux-menu-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),var(--ui-popup-shadow);transform-origin:var(--transform-origin);color:var(--agent-text);font-size:var(--text-control);line-height:18px;outline:none}

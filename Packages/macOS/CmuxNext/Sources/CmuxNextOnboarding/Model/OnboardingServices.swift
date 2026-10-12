@@ -18,6 +18,10 @@ public protocol OnboardingServices: AnyObject {
     func authorizePasswordRead(reason: String) async -> Bool
     /// Opens a URL with the system (System Settings panes).
     func openExternal(_ url: URL)
+    /// Import from Another Browser… (cx-d0d.65): the browser's export steps,
+    /// then the files it exported, into `profile` (nil: the default profile).
+    /// Reads no browser's own data, so it works where detection finds nothing.
+    func importFromFiles(into profile: String?)
 
     // Computer use
     /// The helper app's grants, or nil when this build has no computer use.
@@ -27,6 +31,7 @@ public protocol OnboardingServices: AnyObject {
 public extension OnboardingServices {
     var computerUsePermissions: (any ComputerUsePermissionSource)? { nil }
     func canImportPasswords() async -> Bool { false }
+    func importFromFiles(into profile: String?) {}
 }
 
 /// System Settings deep links.

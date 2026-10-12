@@ -51,7 +51,9 @@ nonisolated enum GhosttyThemeFiles {
         guard let file = [user.appending(path: base), shipped?.appending(path: base)].compactMap(\.self)
             .first(where: { FileManager.default.fileExists(atPath: $0.path) }),
             let text = try? String(contentsOf: file, encoding: .utf8) else { throw Refusal.unknownBase }
-        let edited = ThemeEdits([base: edits]).configLines(for: base)
+        let themeEdits = ThemeEdits([base: edits])
+        // The accent is no Ghostty color: a comment line Ghostty skips and cmux reads back.
+        let edited = themeEdits.configLines(for: base) + (themeEdits.accent(for: base).map { [accentLine($0)] } ?? [])
         let lines = merge(colorLines(text), edited)
         try write(["# \(name): \(base) with edits, saved by cmux"] + lines, to: target)
         return target
@@ -67,7 +69,7 @@ nonisolated enum GhosttyThemeFiles {
             throw Refusal.notATheme
         }
         let lines = colorLines(String(decoding: data, as: UTF8.self))
-        guard !lines.isEmpty else { throw Refusal.notATheme }
+        guard lines.contains(where: { !$0.hasPrefix("#") }) else { throw Refusal.notATheme }
         let target = try destination(name, resources: resources, home: home, environment: environment, replace: replace)
         try write(["# \(name): imported by cmux from \(url.lastPathComponent)"] + lines, to: target)
         return name
@@ -85,10 +87,12 @@ nonisolated enum GhosttyThemeFiles {
         return target
     }
 
-    /// The color lines of a theme file as `key = value`, in order; everything else is dropped.
+    /// The color lines of a theme file as `key = value`, and its `# cmux-accent` line, in order;
+    /// everything else is dropped.
     static func colorLines(_ text: String) -> [String] {
         text.split(whereSeparator: \.isNewline).compactMap { raw in
             let line = raw.trimmingCharacters(in: .whitespaces)
+            if let accent = ThemeFileColors.accent(line) { return accentLine(AppTheme.hex(accent)) }
             guard !line.hasPrefix("#"), let equals = line.firstIndex(of: "=") else { return nil }
             let key = line[..<equals].trimmingCharacters(in: .whitespaces)
             let value = line[line.index(after: equals)...].trimmingCharacters(in: .whitespaces)
@@ -96,6 +100,9 @@ nonisolated enum GhosttyThemeFiles {
             return "\(key) = \(value)"
         }
     }
+
+    /// `# cmux-accent = #rrggbb`.
+    private static func accentLine(_ color: String) -> String { "# \(ThemeFileColors.accentKey) = \(color)" }
 
     /// `base` with each of `edits` replacing the line it sets (a palette edit, that index's line);
     /// an edit the base does not set is added at the end.

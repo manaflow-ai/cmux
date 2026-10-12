@@ -1,4 +1,4 @@
-//! `git status|diff|files|list|checkpoint|commit|push|worktree create|apply`: the session host's git operations. The repository
+//! `git status|diff|files|list|checkpoint|commit|push|worktree create|apply|remove`: the session host's git operations. The repository
 //! is the one `--path` is in, or the working directory of the terminal a
 //! `--workspace`, `--screen`, `--pane`, `--tab` or `--terminal` selector
 //! names; with none of them, the current directory's.
@@ -29,6 +29,7 @@ pub(super) fn parse_git(words: &[&str], flags: &mut Flags) -> Result<CommandPlan
         ["push"] => return write::push(flags, &selectors, params),
         ["worktree", "create"] => return write::worktree_create(flags, &selectors, params),
         ["worktree", "apply"] => return write::worktree_apply(flags, &selectors, params),
+        ["worktree", "remove"] => return write::worktree_remove(flags, &selectors, params),
         ["status"] => Op::GitStatus,
         ["diff", paths @ ..] => {
             let scope = flags.take("scope").unwrap_or_else(|| "uncommitted".to_string());

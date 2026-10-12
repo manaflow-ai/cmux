@@ -20,7 +20,7 @@ import {
 } from "../../../theme/tokenTuning";
 import { t } from "../strings";
 
-const NAMED: ThemeEditToken[] = ["background", "foreground", "cursor", "selection"];
+const NAMED: ThemeEditToken[] = ["background", "foreground", "cursor", "selection", "accent"];
 
 /** A token's name as the page shows it. */
 function tokenLabel(token: ThemeEditToken): string {
@@ -33,6 +33,8 @@ function tokenLabel(token: ThemeEditToken): string {
       return t("settingsPage.theme.cursor");
     case "selection":
       return t("settingsPage.theme.selection");
+    case "accent":
+      return t("settingsPage.theme.accent");
     default:
       return t("settingsPage.theme.edit.ansi", token);
   }
@@ -91,7 +93,7 @@ export function ThemeTokens({
       </div>
       <div className="theme-tokens-row">
         <span className="theme-tokens-label">{t("settingsPage.theme.bright")}</span>
-        {THEME_EDIT_TOKENS.slice(12).map(swatch)}
+        {THEME_EDIT_TOKENS.slice(12, 20).map(swatch)}
       </div>
       <div className="theme-tokens-named">
         {NAMED.map((token) => (

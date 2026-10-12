@@ -532,13 +532,13 @@ body {
 }
 .base-picker-group-header {
   padding: 8px 8px 4px;
-  font-size: 11px;
+  font-size: var(--text-caption);
   font-weight: 400;
   color: color-mix(in lab, var(--cmux-diff-fg) 52%, var(--cmux-diff-bg));
 }
 .base-picker-more {
   padding: 5px 8px 7px;
-  font-size: 11px;
+  font-size: var(--text-caption);
   color: color-mix(in lab, var(--cmux-diff-fg) 48%, var(--cmux-diff-bg));
   cursor: default;
   user-select: none;
@@ -1963,7 +1963,7 @@ svg[data-icon-fill] {
 
 /* The base picker popover uses the toolbar menu surface. */
 .base-picker-popover {
-  border-radius: 12px;
+  border-radius: 8px;
   background: color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg));
   box-shadow: 0 16px 34px color-mix(in lab, #000 30%, transparent);
 }
@@ -1972,15 +1972,14 @@ svg[data-icon-fill] {
   border-bottom: 0;
 }
 .base-picker-input {
-  font-size: 13px;
+  font-size: var(--text-body);
 }
 .base-picker-input:focus,
 .base-picker-input:focus-visible {
   outline: none;
 }
 .base-picker-row {
-  min-height: 30px;
-  border-radius: 7px;
+  border-radius: 6px;
 }
 /* File header row (FileHeader in App.tsx), slotted into Pierre's opaque sticky
    header: language icon, dim directory + bright file name, collapse caret,
