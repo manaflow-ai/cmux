@@ -412,7 +412,11 @@ public final class HostBrowserSignInFlow {
     }
 
     /// True until `window` has passed on `clock`.
-    private static func until<C: Clock>(clock: C, after window: Duration) -> @Sendable () -> Bool
+    private static func until(clock: any Clock<Duration>, after window: Duration) -> @Sendable () -> Bool {
+        fresh(clock: clock, for: window)
+    }
+
+    private static func fresh<C: Clock>(clock: C, for window: Duration) -> @Sendable () -> Bool
         where C.Duration == Duration {
         let deadline = clock.now.advanced(by: window)
         return { clock.now < deadline }
