@@ -530,6 +530,27 @@ final class FlowTests: XCTestCase {
         snap(app, "e1-settings-bottom")
     }
 
+    /// A second harness (Codex via codex-acp) end to end.
+    func testCodexAgent() throws {
+        let app = launchSignedIn()
+        pause(4)
+        app.buttons["shell.menu"].tap()
+        pause(1)
+        app.buttons["sidebar.new"].tap()
+        let field = app.textFields["agent.field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 20))
+        pause(1.5)
+        app.buttons["new.harness"].tap()
+        pause(1)
+        app.buttons["Codex"].firstMatch.tap()
+        pause(1)
+        field.tap()
+        field.typeText("Say hi.")
+        app.buttons["agent.send"].tap()
+        pause(40)
+        snap(app, "f0-codex")
+    }
+
     /// Forces TURN relay and checks the Mac connects through it.
     func testRelayConnection() throws {
         let app = launchSignedIn(arguments: ["-cnm-relay-only"])

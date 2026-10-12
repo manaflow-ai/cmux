@@ -45,3 +45,4 @@ Loop log for the agent building this. Updated in place.
 - Agent resume (r49): after a host restart killed the agent, the next prompt restarted it with ACP `session/load` and it still remembered ("Pineapple"). ACP session ids persist as `<id>.acp`; replayed history is dropped.
 - Terminal rotation (r50): the remote pty follows the phone grid, portrait 50x23 → landscape 96x6 (keyboard up).
 - Terminal pinch-to-zoom (r51): font size via Ghostty binding actions; grid follows (50 → 43 columns).
+- Codex agent (r60): codex-acp on the distant mini answered; its modes ("Auto review") and models ("6.1 Sol (low)") show as composer chips.

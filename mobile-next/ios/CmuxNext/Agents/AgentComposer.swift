@@ -65,20 +65,24 @@ struct AgentComposer: View {
                     .accessibilityIdentifier("agent.field")
                 HStack(spacing: 8) {
                     AttachButton(attachments: $attachments)
-                    if !modes.isEmpty {
-                        chipMenu(
-                            title: modes.first { $0.id == currentMode }?.name ?? String(localized: "Mode"),
-                            symbol: "slider.horizontal.3", choices: modes, current: currentMode, pick: onMode
-                        )
-                        .accessibilityIdentifier("agent.mode")
+                    // Full chip names scroll sideways instead of truncating.
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            if !modes.isEmpty {
+                                chipMenu(
+                                    title: modes.first { $0.id == currentMode }?.name ?? String(localized: "Mode"),
+                                    symbol: "slider.horizontal.3", choices: modes, current: currentMode, pick: onMode
+                                )
+                                .accessibilityIdentifier("agent.mode")
+                            }
+                            if !models.isEmpty {
+                                chipMenu(
+                                    title: models.first { $0.id == currentModel }?.name ?? String(localized: "Model"),
+                                    symbol: "cpu", choices: models, current: currentModel, pick: onModel
+                                )
+                            }
+                        }
                     }
-                    if !models.isEmpty {
-                        chipMenu(
-                            title: models.first { $0.id == currentModel }?.name ?? String(localized: "Model"),
-                            symbol: "cpu", choices: models, current: currentModel, pick: onModel
-                        )
-                    }
-                    Spacer()
                     actionButton
                 }
             }
@@ -128,7 +132,7 @@ struct AgentComposer: View {
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: symbol).font(.system(size: 12, weight: .medium))
-                Text(title).font(.system(size: 14, weight: .medium)).lineLimit(1)
+                Text(title).font(.system(size: 14, weight: .medium)).lineLimit(1).fixedSize()
                 Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold))
             }
             .foregroundStyle(.secondary)
