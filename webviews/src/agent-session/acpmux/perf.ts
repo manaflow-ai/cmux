@@ -161,6 +161,9 @@ export class AcpmuxPerf {
   /** Layout and React time since the last frame mark. */
   private layoutSinceMark = 0;
   private reactSinceMark = 0;
+  /** Named spans since the last frame mark (`span`), and each recorded frame's, oldest first. */
+  private spansSinceMark = new Map<string, number>();
+  private spanFrames: Map<string, number>[] = [];
   private lastMark: number | undefined;
   /** Pixel extent of the mounted rows at the last commit. */
   mountedTop = 0;
@@ -219,6 +222,23 @@ export class AcpmuxPerf {
     return value;
   }
 
+  /** Adds `ms` to the named span of the current frame (client reduce, row derivation, a flush). */
+  span(name: string, ms: number): void {
+    if (!this.enabled) return;
+    this.spansSinceMark.set(name, (this.spansSinceMark.get(name) ?? 0) + ms);
+  }
+
+  /** Runs `body`, adding its time to the named span when measuring. */
+  timed<T>(name: string, body: () => T): T {
+    if (!this.enabled) return body();
+    const start = performance.now();
+    try {
+      return body();
+    } finally {
+      this.span(name, performance.now() - start);
+    }
+  }
+
   addLayout(ms: number): void {
     this.layoutSinceMark += ms;
   }
@@ -254,15 +274,21 @@ export class AcpmuxPerf {
     this.lastMark = undefined;
     this.layoutSinceMark = 0;
     this.reactSinceMark = 0;
+    this.spansSinceMark = new Map();
+    this.spanFrames = [];
   }
 
   /** One display frame at `now`; `blank` is whether the viewport shows past the mounted rows. */
   markFrame(now: number, blank: boolean): void {
-    if (this.lastMark !== undefined)
+    if (this.lastMark !== undefined) {
       this.ring.push(now - this.lastMark, this.layoutSinceMark, this.reactSinceMark, blank);
+      this.spanFrames.push(this.spansSinceMark);
+      if (this.spanFrames.length > this.ring.capacity) this.spanFrames.shift();
+    }
     this.lastMark = now;
     this.layoutSinceMark = 0;
     this.reactSinceMark = 0;
+    this.spansSinceMark = new Map();
   }
 
   /** The per-frame breakdown of the last recording. */
@@ -276,8 +302,14 @@ export class AcpmuxPerf {
       react: summary(samples.map((sample) => sample.react)),
       other: summary(samples.map((sample) => sample.other)),
     };
+    const spanFrames = this.spanFrames.slice(-samples.length);
+    const names = new Set(spanFrames.flatMap((frame) => [...frame.keys()]));
+    result.spans = Object.fromEntries(
+      [...names].map((name) => [name, summary(spanFrames.map((frame) => frame.get(name) ?? 0))]),
+    );
     if (raw)
-      result.samples = samples.map((sample) => ({
+      result.samples = samples.map((sample, index) => ({
+        spans: Object.fromEntries([...(spanFrames[index] ?? new Map())].map(([name, ms]) => [name, round2(ms)])),
         interval_ms: round2(sample.interval),
         layout_ms: round2(sample.layout),
         react_ms: round2(sample.react),
