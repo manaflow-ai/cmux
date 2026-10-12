@@ -1052,7 +1052,7 @@ fn resolve_browser_surface(
     Ok((browser_id, surface))
 }
 
-fn browser_surface_for_id(
+pub(super) fn browser_surface_for_id(
     mux: &Mux,
     browser_id: &BrowserPublicId,
 ) -> Option<(crate::SurfaceId, Arc<Surface>)> {
