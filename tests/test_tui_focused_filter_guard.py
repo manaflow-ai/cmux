@@ -56,7 +56,7 @@ def test_macos_job_runs_the_focused_filter() -> None:
     assert macos_step["if"] == "inputs.mode == 'focused'"
 
 
-def _run_focused(listing: str, ignored: str) -> tuple[int, str]:
+def _run_focused(listing: str, ignored: str, extra_env: dict[str, str] | None = None) -> tuple[int, str]:
     """Run the focused script against a fake cargo that prints LISTING / IGNORED for --list."""
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
@@ -77,7 +77,7 @@ def _run_focused(listing: str, ignored: str) -> tuple[int, str]:
             check=False,
             capture_output=True,
             text=True,
-            env={"PATH": f"{root}:/usr/bin:/bin", "RUNNER_TEMP": str(root)},
+            env={"PATH": f"{root}:/usr/bin:/bin", "RUNNER_TEMP": str(root), **(extra_env or {})},
         )
         calls = log.read_text(encoding="utf-8") if log.exists() else ""
     return result.returncode, calls
@@ -87,6 +87,26 @@ def test_focused_script_fails_when_the_filter_selects_nothing() -> None:
     code, calls = _run_focused("", "")
     assert code == 1
     assert "some_filter -- --test-threads=2" not in calls
+
+
+def test_a_host_that_compiles_none_of_the_filtered_tests_passes_when_allowed() -> None:
+    """Linux-only test files (#![cfg(target_os = "linux")]) compile to nothing on macOS.
+
+    A focused dispatch for bring_back_journey or cloud_move_journey ran them on Linux
+    and then failed macOS with "selected no Rust tests". The macOS job allows a host
+    with no matching test; Linux stays strict, so a typo still fails the dispatch.
+    """
+    code, calls = _run_focused("", "", {"CMUX_TUI_FOCUSED_ALLOW_NONE_ON_HOST": "1"})
+    assert code == 0
+    assert "some_filter -- --test-threads=2" not in calls
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    for job_name, allowed in (("macos", "1"), ("test", None)):
+        step = next(
+            step
+            for step in workflow["jobs"][job_name]["steps"]
+            if "cmux-tui-focused-test.sh" in str(step.get("run", ""))
+        )
+        assert step["env"].get("CMUX_TUI_FOCUSED_ALLOW_NONE_ON_HOST") == allowed, job_name
 
 
 def test_focused_script_runs_the_selected_tests_with_extra_args() -> None:
