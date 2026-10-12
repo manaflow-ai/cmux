@@ -61,8 +61,9 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// Compact or expanded workspace rows (`sidebar.density`); minimal mode wins.
     public var density: SidebarDensity = .compact
     /// Pinned bands that hide until the pointer is over the sidebar (R54).
-    /// R100: the Settings/account band shows only while the pointer is over the sidebar.
-    public var minimalMode: SidebarMinimalMode = .bottom
+    /// Off by default: a fresh profile's sidebar is pinned, its Settings and
+    /// account band always shown; hover-reveal is opt-in (Leo 2026-10-11).
+    public var minimalMode: SidebarMinimalMode = .off
     /// Cmd-1…9 and Cmd-Ctrl-[ / ] (`sidebar.numbering`, `sidebar.cmd9`,
     /// `sidebar.stepping`, `sidebar.steppingWraps`).
     public var navigation = SidebarNavigationSettings.defaults
