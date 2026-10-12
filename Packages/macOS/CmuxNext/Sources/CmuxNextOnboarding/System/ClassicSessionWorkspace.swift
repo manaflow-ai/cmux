@@ -18,6 +18,14 @@ public nonisolated struct ClassicSessionWorkspace: Codable, Equatable, Sendable 
         self.remote = remote
         self.cloudVM = cloudVM
     }
+
+    /// This workspace with each folder that `exists` rejects replaced by
+    /// `home`: a terminal cannot start in a folder that is gone.
+    public func openingMissingFolders(in home: String, exists: (String) -> Bool) -> ClassicSessionWorkspace {
+        let folder = { (path: String) in exists(path) ? path : home }
+        return ClassicSessionWorkspace(name: name, workingDirectory: folder(workingDirectory),
+                                       layout: layout.mappingFolders(folder), remote: remote, cloudVM: cloudVM)
+    }
 }
 
 /// Where a classic SSH workspace ran (`remote`): `user@host` and its port.

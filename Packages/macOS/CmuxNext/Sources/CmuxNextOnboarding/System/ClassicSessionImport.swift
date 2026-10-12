@@ -62,9 +62,18 @@ public nonisolated struct ClassicSessionImporter: Sendable {
     }
 
     /// Returns the saved workspaces, or an empty list when classic cmux has no snapshot.
+    /// A local folder that is gone (a deleted project, a cleared /tmp) becomes the
+    /// home folder, since no terminal can start in it; an SSH workspace's folders
+    /// are on its host.
     public func read() throws -> [ClassicSessionWorkspace] {
         guard let data = try readData() else { return [] }
-        return try decode(data)
+        return try decode(data).map { saved in
+            guard saved.remote == nil else { return saved }
+            return saved.openingMissingFolders(in: NSHomeDirectory()) { path in
+                var isFolder: ObjCBool = false
+                return FileManager.default.fileExists(atPath: path, isDirectory: &isFolder) && isFolder.boolValue
+            }
+        }
     }
 
     private func readData() throws -> Data? {
