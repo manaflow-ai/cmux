@@ -443,7 +443,20 @@ function parseDiffViewerLayout(value: unknown): DiffViewerLayout | null {
   return value === "split" || value === "unified" ? value : null;
 }
 
-/** The options the viewer draws with. */
+/// The viewer width two readable split sides need. Below it the viewer draws unified, as GitHub
+/// does, and keeps the stored preference for a wider pane.
+export const SPLIT_MIN_WIDTH = 760;
+
+/** Whether a split diff fits the viewer; an unmeasured viewer counts as wide. */
+export function splitFits(viewerWidth: number): boolean {
+  return viewerWidth === 0 || viewerWidth >= SPLIT_MIN_WIDTH;
+}
+
+/** The options the viewer draws with: unified while a split preference does not fit. */
 export function renderedDiffOptions(state: Pick<AppState, "options" | "viewerWidth">): DiffViewerOptions {
-  return state.options;
+  return drawnDiffOptions(state.options, splitFits(state.viewerWidth));
+}
+
+export function drawnDiffOptions(options: DiffViewerOptions, fits: boolean): DiffViewerOptions {
+  return options.layout === "split" && !fits ? { ...options, layout: "unified" } : options;
 }
