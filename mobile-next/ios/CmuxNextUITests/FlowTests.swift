@@ -577,6 +577,31 @@ final class FlowTests: XCTestCase {
         snap(app, "g1-typed")
     }
 
+    func testSearch() throws {
+        let app = launchSignedIn()
+        pause(4)
+        app.buttons["shell.menu"].tap()
+        pause(1)
+        let field = app.textFields["sidebar.search"]
+        field.tap()
+        field.typeText("pineapple")
+        pause(1)
+        snap(app, "h0-drawer-search")
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'pineapple'")).firstMatch.exists)
+        XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'farewell'")).firstMatch.exists)
+        field.typeText("zzzz")
+        pause(0.8)
+        snap(app, "h1-drawer-empty")
+        app.buttons["sidebar.home"].tap()
+        pause(1)
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.tap()
+        search.typeText("late")
+        pause(1)
+        snap(app, "h2-home-search")
+    }
+
     /// Forces TURN relay and checks the Mac connects through it.
     func testRelayConnection() throws {
         let app = launchSignedIn(arguments: ["-cnm-relay-only"])
