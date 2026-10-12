@@ -2,6 +2,7 @@ import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextTerminal
 import Foundation
 
 /// Builds the app's React pages with their routes (its own type, not an `AppServices` member:

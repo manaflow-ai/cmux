@@ -9,7 +9,9 @@ import type { Reply } from "../store";
 
 type Prompt =
   | { kind: "name"; value: string }
-  | { kind: "replace"; name: string; retry: (replace: boolean) => Promise<Reply<{ name?: string }>> };
+  | { kind: "replace"; name: string; again: Retry; details: WireError["details"] };
+/** The same save or import again, for a refusal's details (an import's token); `replace` replaces. */
+type Retry = (details: WireError["details"]) => (replace: boolean) => Promise<Reply<{ name?: string }>>;
 
 const refusals: Record<string, string> = {
   "cmux.settings.theme.invalid_name": "settingsPage.theme.file.invalidName",
@@ -38,10 +40,7 @@ export function ThemeFiles({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const finish = async (
-    reply: Reply<{ name?: string }>,
-    retry: (replace: boolean) => Promise<Reply<{ name?: string }>>,
-  ) => {
+  const finish = async (reply: Reply<{ name?: string }>, again: Retry) => {
     if (reply.ok) {
       setPrompt(null);
       setError(null);
@@ -51,7 +50,7 @@ export function ThemeFiles({
     const { code, details } = reply.error as WireError;
     if (code === "cmux.settings.theme.exists") {
       const name = typeof details?.name === "string" ? details.name : "";
-      setPrompt({ kind: "replace", name, retry });
+      setPrompt({ kind: "replace", name, again, details });
       setError(null);
       return;
     }
@@ -65,19 +64,24 @@ export function ThemeFiles({
       setBusy(false);
     }
   };
-  const save = (name: string) => (replace: boolean) => store.saveThemeFile(name, base, replace);
+  const save =
+    (name: string): Retry =>
+    () =>
+    (replace) =>
+      store.saveThemeFile(name, base, replace);
+  // An import retries with the token of the refusal it answers.
+  const reimport: Retry = (details) => (replace) =>
+    store.importThemeFile({ token: typeof details?.token === "string" ? details.token : "", replace });
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (prompt?.kind !== "name") return;
     const name = prompt.value.trim();
-    void run(async () => finish(await save(name)(false), save(name)));
+    void run(async () => finish(await save(name)(undefined)(false), save(name)));
   };
   const importFile = () =>
     void run(async () => {
       setPrompt(null);
-      const reply = await store.importThemeFile();
-      const token = !reply.ok && typeof reply.error.details?.token === "string" ? reply.error.details.token : null;
-      await finish(reply, (replace) => store.importThemeFile({ token: token ?? "", replace }));
+      await finish(await store.importThemeFile(), reimport);
     });
 
   return (
@@ -113,7 +117,7 @@ export function ThemeFiles({
             type="button"
             className="button danger"
             disabled={busy}
-            onClick={() => void run(async () => finish(await prompt.retry(true), prompt.retry))}
+            onClick={() => void run(async () => finish(await prompt.again(prompt.details)(true), prompt.again))}
           >
             {t("settingsPage.theme.file.replaceButton")}
           </button>

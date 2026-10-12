@@ -31,9 +31,10 @@ nonisolated enum GhosttyThemeFiles {
     }
 
     /// Whether `name` can be a theme file's name: one theme spec name exactly (no pair, no `#`, `=`,
-    /// `"` or control characters), no `/`, no leading dot, no surrounding spaces.
+    /// `"` or control characters), no `/`, no leading dot, no surrounding spaces, at most 255 bytes
+    /// (the file-name limit).
     static func isValidName(_ name: String) -> Bool {
-        guard !name.isEmpty, name.count <= 128, name == name.trimmingCharacters(in: .whitespaces),
+        guard !name.isEmpty, name.utf8.count <= 255, name == name.trimmingCharacters(in: .whitespaces),
               !name.hasPrefix("."), !name.contains("/"), let spec = ThemeSpec(name) else { return false }
         return spec.light == name && spec.dark == name
     }
@@ -42,6 +43,8 @@ nonisolated enum GhosttyThemeFiles {
     @discardableResult
     static func save(name: String, base: String, edits: [String: String], resources: String?, home: URL,
                      environment: [String: String], replace: Bool) throws -> URL {
+        // The base is a theme name too, never a path to some other file.
+        guard isValidName(base) else { throw Refusal.unknownBase }
         let target = try destination(name, resources: resources, home: home, environment: environment, replace: replace)
         let user = userFolder(home: home, environment: environment)
         let shipped = resources.map { URL(fileURLWithPath: $0).appending(path: "themes") }

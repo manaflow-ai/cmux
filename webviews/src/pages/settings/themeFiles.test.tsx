@@ -38,6 +38,21 @@ test("Save as Ghostty Theme saves the previewed theme with its edits and picks i
   expect(page.store.getSnapshot().domains.themes).toContain("Dracula Ink");
 });
 
+test("saving while following the system replaces only the side in view", async () => {
+  page = await renderPage({
+    path: "/settings/theme",
+    mock: { values: { "appearance.theme": "light:Apple System Colors Light,dark:Dracula" } },
+  });
+  const shown = previewed(page)!;
+  await click(action(page, "save"));
+  await changeValue(files(page).querySelector<HTMLInputElement>("input")!, "Mine");
+  await fire(files(page).querySelector("form")!, "submit");
+  const written = ops(page.provider, "cmux.settings.set").at(-1) as { value: string };
+  expect(written.value).toMatch(/^light:.+,dark:.+$/);
+  expect(written.value).toContain("Mine");
+  expect(written.value.replace("Mine", shown)).toBe("light:Apple System Colors Light,dark:Dracula");
+});
+
 test("a name in use asks inline, and Replace saves over it", async () => {
   page = await renderPage({ path: "/settings/theme", mock: { values: edited } });
   for (let round = 0; round < 2; round++) {

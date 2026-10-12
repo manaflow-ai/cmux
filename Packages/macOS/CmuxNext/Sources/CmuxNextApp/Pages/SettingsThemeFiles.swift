@@ -54,6 +54,8 @@ final class SettingsThemeFiles {
             name = target
         } else {
             let token = params["token"]?.stringValue
+            // A new pick drops the files of imports the person did not retry.
+            if token == nil { pending.removeAll() }
             let picked = token.flatMap { pending.removeValue(forKey: $0) }
             guard let file = token == nil ? await pickFile() : picked else {
                 if token != nil { throw PageError.invalidParams("unknown import token") }

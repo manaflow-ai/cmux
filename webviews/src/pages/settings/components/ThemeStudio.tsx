@@ -208,7 +208,7 @@ export function ThemeStudio() {
             base={terminal.name}
             disabled={disabled || previewing !== null}
             canSave={!!state.themeColors?.has(terminal.name)}
-            onSaved={(name) => write({ kind: "single", name })}
+            onSaved={(name) => (paired ? pickSide(scheme)(name) : write({ kind: "single", name }))}
           />
         </figure>
       ) : null}

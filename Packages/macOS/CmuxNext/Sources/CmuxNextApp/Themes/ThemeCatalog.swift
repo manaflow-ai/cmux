@@ -24,14 +24,22 @@ final class ThemeCatalog {
 
     func load() {
         guard loading == nil else { return }
-        loading = Task { [weak self] in await self?.refresh() }
+        loading = Task { [weak self] in
+            guard let self else { return }
+            await self.refresh()
+        }
     }
 
     /// Lists and reads the themes again (a theme file saved or imported, cx-wqn5.1); returns once
     /// the names and colors include it.
     func reload() async {
-        await loading?.value
-        let task = Task { [weak self] in await self?.refresh() }
+        // Each reload runs after the one before it, so an older list never lands last.
+        let previous = loading
+        let task = Task { [weak self] in
+            await previous?.value
+            guard let self else { return }
+            await self.refresh()
+        }
         loading = task
         await task.value
     }

@@ -73,6 +73,11 @@ import Testing
             #expect(throws: GhosttyThemeFiles.Refusal.invalidName) { try folders.save(name, edits: [:]) }
         }
         #expect(throws: GhosttyThemeFiles.Refusal.shippedName) { try folders.save("Rose Pine", edits: [:]) }
+        // The base is a theme name, never a path to another file.
+        #expect(throws: GhosttyThemeFiles.Refusal.unknownBase) {
+            try GhosttyThemeFiles.save(name: "Leak", base: "../../home/.ssh/config", edits: [:], resources: folders.resources,
+                                       home: folders.home, environment: folders.environment, replace: false)
+        }
         _ = try folders.save("Mine", edits: ["background": "#000000"])
         #expect(throws: GhosttyThemeFiles.Refusal.exists) { try folders.save("Mine", edits: ["background": "#111111"]) }
         _ = try folders.save("Mine", edits: ["background": "#222222"], replace: true)
