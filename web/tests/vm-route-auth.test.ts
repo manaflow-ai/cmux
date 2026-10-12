@@ -493,6 +493,7 @@ describe("VM REST auth", () => {
       addressIpv4: "10.16.0.9",
       addressIpv6: null,
       cmuxTuiContract: "snapshot-v2",
+      resourceReservation: { vcpus: 4, memoryMb: 8192 },
     });
 
     const response = await POST(
@@ -531,6 +532,8 @@ describe("VM REST auth", () => {
       // re-reading the fleet and calling POST /attach-endpoint.
       address: { ipv4: "10.16.0.9", ipv6: null },
       cmuxTuiContract: "snapshot-v2",
+      resources: { vcpus: 4, memoryMb: 8192 },
+      resourceReservation: { vcpus: 4, memoryMb: 8192 },
     });
     expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
       userId: "user-1",
