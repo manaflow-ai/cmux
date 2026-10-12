@@ -78,6 +78,8 @@ def main():
     popups = (rpc("debug.page_popup") or {}).get("popups") or []
     print("page_popup:", json.dumps(popups), flush=True)
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "page-popup-escape.png")})
+    # At 600x400 the Mode menu fits on neither side of its button: it must go past the window.
+    row("the menu went past the window's edge", "escaped", json.dumps(menu), bool(menu.get("escaped")))
     if menu.get("escaped"):
         panel = popups[0] if popups else {}
         row("the escaped menu shows in one panel", "1 panel", len(popups), len(popups) == 1)
