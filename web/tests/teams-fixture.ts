@@ -215,7 +215,8 @@ export class FakeStack {
       listUserContactChannels: async (userId) => {
         this.calls.push(`listUserContactChannels:${userId}`);
         const data = this.users.get(userId);
-        return (data?.verifiedEmails ?? []).map((value) => ({ type: "email", value, isVerified: true }));
+        if (!data) return null;
+        return (data.verifiedEmails ?? []).map((value) => ({ type: "email", value, isVerified: true }));
       },
       createTeam: async ({ displayName, creatorUserId }) => {
         const id = "33333333-3333-4333-8333-333333333333";

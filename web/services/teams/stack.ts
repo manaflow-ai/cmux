@@ -71,8 +71,11 @@ export type TeamStackApp = {
     options?: { recursive?: boolean },
   ): Promise<readonly { readonly userId: string; readonly permissionId: string }[]>;
   getAuthJson(options: { tokenStore: StackTokenStore }): Promise<{ accessToken: string | null }>;
-  /** One server read of a user's contact channels, without first reading the user. */
-  listUserContactChannels(userId: string): Promise<readonly StackContactChannel[]>;
+  /**
+   * One server read of a user's contact channels, without first reading the
+   * user. Null when Stack does not know the user.
+   */
+  listUserContactChannels(userId: string): Promise<readonly StackContactChannel[] | null>;
 };
 
 /** Adapt the SDK app; the adapter picks `getUser`'s by-id overload explicitly. */
@@ -94,7 +97,7 @@ export function defaultTeamStackApp(): TeamStackApp {
  * user object, which costs a `GET /users/{id}` first; the invitation poll needs
  * nothing else from that user. Stack lists the primary email as a channel.
  */
-async function listStackUserContactChannels(userId: string): Promise<readonly StackContactChannel[]> {
+async function listStackUserContactChannels(userId: string): Promise<readonly StackContactChannel[] | null> {
   const projectId = env.NEXT_PUBLIC_STACK_PROJECT_ID;
   const secretServerKey = env.STACK_SECRET_SERVER_KEY;
   if (!projectId || !secretServerKey) throw new Error("Stack Auth is not configured");
@@ -114,6 +117,11 @@ async function listStackUserContactChannels(userId: string): Promise<readonly St
     signal: AbortSignal.timeout(10_000),
     cache: "no-store",
   });
+  const knownError = response.headers.get("x-hexclave-known-error") ?? response.headers.get("x-stack-known-error");
+  if (knownError === "USER_NOT_FOUND") {
+    await response.body?.cancel();
+    return null;
+  }
   if (!response.ok) {
     await response.body?.cancel();
     // No body in the error: Stack can echo account data. The status keeps a

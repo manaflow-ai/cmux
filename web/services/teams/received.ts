@@ -40,6 +40,7 @@ export async function listReceivedInvitations(
   // The route already authenticated this user; only the verified emails are
   // needed, so read the contact channels directly instead of the user first.
   const channels = await withStackDeadline(() => stack.listUserContactChannels(userId));
+  if (!channels) throw new TeamApiError("unauthorized", 401);
   const emails = [...verifiedChannelEmails(channels)];
   const rows = await store.listPendingEmailInvitationsForEmails(emails);
   // One team read and one member list per team, however many of its
