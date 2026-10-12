@@ -145,7 +145,8 @@ def test_journal_sentinels_are_focused_only_and_full_uses_isolated_core_runner()
         assert "full" not in condition
 
     final_sentinels = steps[FOCUSED_SENTINEL_STEPS[3]]["run"]
-    assert "cargo test -p cmux-tui-core --test browser_runtime" in final_sentinels
+    # fc36c16ddea8: hand-picked selections go through cargo-test-selected.sh (fails on zero tests).
+    assert "cargo-test-selected.sh -p cmux-tui-core --test browser_runtime" in final_sentinels
     assert "socket_browser_attach_streams_frames_input_and_cell_pixels" in final_sentinels
 
     cargo_test = steps["cargo test"]["run"]
@@ -194,8 +195,8 @@ def test_lint_is_one_required_job_and_os_matrix_only_runs_behavior_tests() -> No
     assert "cargo fmt --check" not in macos_commands
     assert "cargo clippy --workspace --all-targets --locked -- -D warnings" in macos_commands
     assert "platform::tests::" in macos_commands
-    assert "mac_process_scope" in macos_commands
-    assert "macos_pty_" in macos_commands
+    # mac_process_scope / macos_pty_ unit tests were deleted with the unit suites (c38b54db5a6e, cx-034r).
+    assert "a_daemon_integrated_zsh_titles_a_long_command_with_every_argument" in macos_commands
     assert "lint" in gate["needs"]
     assert "macos" in gate["needs"]
     assert gate["env"]["LINT_RESULT"] == "${{ needs.lint.result }}"
