@@ -523,6 +523,27 @@
   white-space: nowrap;
 }
 
+/* Save as Ghostty Theme and Import Theme File, with their inline name and replace prompts. */
+.theme-files {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.theme-files-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-sm);
+}
+
+.theme-files-row .field {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
 /* The Theme section's help explains a choice; it wraps instead of truncating. */
 .theme-studio .row-help {
   white-space: normal;

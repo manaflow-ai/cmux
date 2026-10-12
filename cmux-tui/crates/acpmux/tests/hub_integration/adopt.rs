@@ -97,11 +97,16 @@ fn backdate(file: &std::path::Path) {
 /// while some harness runs, so a test that expects "written" starts one
 /// rather than depend on what else runs on the builder. A copied `sleep`
 /// would not do: a multicall coreutils exits on an unknown argv[0].
-fn harness_stand_in(dir: &std::path::Path, name: &str) -> std::process::Child {
+/// It runs in `cwd`, the chat's folder: only a harness there can hold the chat open.
+fn harness_stand_in(
+    dir: &std::path::Path,
+    name: &str,
+    cwd: &std::path::Path,
+) -> std::process::Child {
     let script = dir.join(name);
     std::fs::create_dir_all(dir).unwrap();
     std::fs::write(&script, "import time\ntime.sleep(60)\n").unwrap();
-    std::process::Command::new("python3").arg(&script).spawn().unwrap()
+    std::process::Command::new("python3").arg(&script).current_dir(cwd).spawn().unwrap()
 }
 
 /// A recent write is live only while a harness outside acpmux runs: with
@@ -120,7 +125,7 @@ fn a_recent_write_is_live_only_while_a_harness_runs() {
     let proc = |pid, ppid, command: &str| Proc { pid, ppid, command: command.to_owned() };
     let shell = proc(10, 1, "/bin/zsh -l");
     let recent = |procs: &[Proc]| {
-        matches!(live_use(&id, &transcript, procs, now), Some(LiveUse::RecentWrite { .. }))
+        matches!(live_use(&id, &transcript, None, procs, now), Some(LiveUse::RecentWrite { .. }))
     };
     assert!(!recent(std::slice::from_ref(&shell)));
     assert!(recent(&[shell.clone(), proc(11, 10, "/opt/homebrew/bin/codex")]));
@@ -207,7 +212,7 @@ async fn adopt_refuses_a_chat_live_in_another_process() {
 
     // No process names it, but its transcript was just written while a
     // Codex harness runs.
-    let mut harness = harness_stand_in(&root.join("bin"), "codex");
+    let mut harness = harness_stand_in(&root.join("bin"), "codex", &project);
     std::fs::File::options()
         .write(true)
         .open(&rollout)
@@ -261,7 +266,7 @@ async fn adopt_forks_a_live_claude_chat_when_asked() {
         .unwrap();
 
     // Just written while a Claude Code harness runs: live.
-    let mut harness = harness_stand_in(&root.join("bin"), "claude");
+    let mut harness = harness_stand_in(&root.join("bin"), "claude", &project);
     let refused = c.request(method::SESSION_NEW, adopt("fakeclaude", &fork_id)).await.unwrap_err();
     assert!(refused.contains("written"), "{refused}");
     let forked =

@@ -92,6 +92,15 @@ enum DebugAgentPane {
             let state = view.model.transport.gestures.debugState
             var fields: [String: JSONValue] = ["pane": .string(pane), "available": .bool(state.available), "scope_available": .bool(state.scopeAvailable), "tickets": .number(Double(state.tickets))]
             fields["age_seconds"] = state.ageSeconds.map { .number($0) } ?? .null
+            // A seeded prompt's ticket (cx-k21v gap 4): outstanding, and whether its one remote start was used.
+            let seed = view.model.transport.gestures.seedTicketState
+            fields["seed_ticket"] = .bool(seed.outstanding)
+            fields["seed_started"] = .bool(seed.started)
+            // `replay_seed: true` redeems the last seed ticket again for its own prompt (a replay): false once spent.
+            if params["replay_seed"]?.boolValue == true {
+                let replay = view.model.transport.gestures.replayLastSeedTicket(connection: view.model.transport.connection ?? -1)
+                fields["seed_replay_allowed"] = replay.map { .bool($0) } ?? .null
+            }
             return .object(fields)
         }
         #if DEBUG

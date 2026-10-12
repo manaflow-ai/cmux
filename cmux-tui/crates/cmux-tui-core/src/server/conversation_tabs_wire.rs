@@ -91,6 +91,38 @@ pub(super) struct AgentSessionParams {
     host_name: Option<String>,
 }
 
+/// The host prefix of a tab whose chat runs on the machine of the store that
+/// lists it (`registry:<registry id>`): the app's new chat in a pane of an SSH
+/// machine or a Cloud VM.
+const MACHINE_HOST_PREFIX: &str = "registry:";
+
+/// A session for a `registry:` tab from anywhere but that machine's own
+/// `agent-session-start` (cx-k21v): a session never leaves its machine, so
+/// another machine's chat (a Mac's acpmux session or an outside chat it
+/// resumes) is never bound into a tab of this one.
+#[derive(Debug)]
+pub(crate) struct MachineMismatch;
+
+impl MachineMismatch {
+    pub(crate) const CODE: &'static str = "conversation_tab.machine_mismatch";
+}
+
+impl std::fmt::Display for MachineMismatch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(
+            "a tab of this machine starts its chat only through agent-session-start: \
+             a session of another machine never binds to it",
+        )
+    }
+}
+
+impl std::error::Error for MachineMismatch {}
+
+/// The `error_code` of a conversation tab change refused here.
+pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
+    error.downcast_ref::<MachineMismatch>().map(|_| MachineMismatch::CODE.to_string())
+}
+
 fn record_of(
     conversation: Option<String>,
     owner: Option<String>,
@@ -104,6 +136,11 @@ fn record_of(
             Ok(ConversationTabRecord::Conversation { conversation, owner })
         }
         (None, None, Some(AgentSessionParams { host, session, harness, host_name }), None) => {
+            // A machine's own tab is created without a session; only that
+            // machine's agent-session-start binds one.
+            if host.starts_with(MACHINE_HOST_PREFIX) && session.is_some() {
+                return Err(MachineMismatch.into());
+            }
             Ok(ConversationTabRecord::AgentSession { host, session, harness, host_name })
         }
         (None, None, None, Some(page)) => Ok(ConversationTabRecord::Page { page, route }),
@@ -194,6 +231,14 @@ pub(super) fn bind(
     params: BindSessionParams,
 ) -> anyhow::Result<Value> {
     let BindSessionParams { surface, session, expected_session } = params;
+    // A machine's own tab binds only through agent-session-start (which
+    // binds in the store directly, never through this command).
+    let machine_tab = mux.surface(surface).and_then(|runtime| mux.conversation_tab_of(&runtime));
+    if let Some(ConversationTabRecord::AgentSession { host, .. }) = machine_tab
+        && host.starts_with(MACHINE_HOST_PREFIX)
+    {
+        return Err(MachineMismatch.into());
+    }
     let expected = expected_session.as_deref();
     let (record, replayed) =
         mux.bind_conversation_tab_session_as(actor, surface, &session, expected)?;

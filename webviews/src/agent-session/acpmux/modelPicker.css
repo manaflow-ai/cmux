@@ -255,3 +255,11 @@
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
+
+/* Under Increase Contrast the search row's text step does not show (muted is the text color):
+   the row takes the shared focus ring when its field has focus (cx-ncc.57). */
+@media (prefers-contrast: more) {
+  .acpmux-mp-search:focus-within {
+    box-shadow: inset 0 0 0 var(--cmux-focus-ring-width) var(--cmux-focus-ring-color);
+  }
+}
