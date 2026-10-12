@@ -63,7 +63,7 @@ test("Advanced names the loaded settings file and shows one Reload Configuration
   const buttons = [...page.container.querySelectorAll<HTMLButtonElement>("button")].map((b) => b.textContent);
   expect(buttons.filter((title) => title === "Open cmux.json").length).toBe(1);
   expect(buttons.filter((title) => title === "Reload Configuration").length).toBe(1);
-  expect(text).toContain("Every setting and shortcut in cmux.json goes back to its default.");
+  expect(text).toContain("Resets everything in cmux.json. Custom actions stay.");
   expect(text).not.toContain("cmux-next.json");
   page.unmount();
 });
