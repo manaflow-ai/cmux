@@ -56,7 +56,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ が承認を求めています"
+            "value": "%@が承認を求めています"
           }
         },
         "km": {
@@ -122,13 +122,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 需要批准"
+            "value": "%@需要批准"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 需要核准"
+            "value": "%@需要核准"
           }
         }
       }
@@ -188,7 +188,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ が質問しています"
+            "value": "%@が質問しています"
           }
         },
         "km": {
@@ -254,13 +254,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 提出了问题"
+            "value": "%@提出了问题"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 提出了問題"
+            "value": "%@提出了問題"
           }
         }
       }
@@ -320,7 +320,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ にサインインが必要です"
+            "value": "%@にサインインが必要です"
           }
         },
         "km": {
@@ -386,13 +386,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 需要登录"
+            "value": "%@需要登录"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 需要登入"
+            "value": "%@需要登入"
           }
         }
       }
@@ -452,7 +452,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ が入力を待っています"
+            "value": "%@が入力を待っています"
           }
         },
         "km": {
@@ -518,13 +518,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 需要输入"
+            "value": "%@需要输入"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 需要輸入"
+            "value": "%@需要輸入"
           }
         }
       }
@@ -578,13 +578,13 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ non è riuscito"
+            "value": "%@ ha avuto un errore"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ が失敗しました"
+            "value": "%@が失敗しました"
           }
         },
         "km": {
@@ -650,13 +650,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 失败"
+            "value": "%@失败"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 失敗"
+            "value": "%@失敗"
           }
         }
       }
@@ -716,7 +716,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ が完了しました"
+            "value": "%@が完了しました"
           }
         },
         "km": {
@@ -782,13 +782,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 已完成"
+            "value": "%@已完成"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 已完成"
+            "value": "%@已完成"
           }
         }
       }
