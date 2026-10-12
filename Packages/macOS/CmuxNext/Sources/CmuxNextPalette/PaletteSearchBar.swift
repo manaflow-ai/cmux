@@ -36,7 +36,9 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
         field.cell?.isScrollable = true
         field.cell?.wraps = false
         field.delegate = self
+        // The field reads through its cell (an AX client sees the cell), so both carry its name.
         field.setAccessibilityIdentifier("palette.search")
+        field.cell?.setAccessibilityIdentifier("palette.search")
         magnifier.image = PaletteText.symbol("magnifyingglass", size: Metrics.iconSize)
         breadcrumb.addSubview(breadcrumbLabel)
         breadcrumb.onClick = { [weak self] in
@@ -73,7 +75,9 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
         breadcrumbLabel.stringValue = ([rootTitle] + scopeChips.map(\.title)).joined(separator: " › ")
         breadcrumb.themedToolTip = scopeChips.dropLast().last.map { PaletteStrings.backTo($0.title) } ?? PaletteStrings.backTo(rootTitle)
         keywordHint.update(title: hint)
-        field.setAccessibilityLabel(scopeChips.last.map { PaletteStrings.keywordHint($0.title) } ?? placeholder)
+        let name = scopeChips.last.map { PaletteStrings.keywordHint($0.title) } ?? placeholder
+        field.setAccessibilityLabel(name)
+        field.cell?.setAccessibilityLabel(name)
         field.font = Typography.search
         spinner.spin(isLoading)
         needsLayout = true

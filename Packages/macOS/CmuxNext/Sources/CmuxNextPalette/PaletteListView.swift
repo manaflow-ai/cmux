@@ -91,6 +91,7 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
         selectedID = id
         refresh(old)
         refresh(id)
+        if old != id { NSAccessibility.post(element: table, notification: .selectedRowsChanged) }
     }
 
     func setHover(_ id: String?) {
@@ -202,6 +203,12 @@ final class PaletteTableView: NSTableView {
     private var trackingArea: NSTrackingArea?
 
     override var acceptsFirstResponder: Bool { false }
+
+    /// The palette's selected row (`PaletteTableRowView.isPaletteSelected`), for VoiceOver.
+    override func accessibilitySelectedRows() -> [Any]? {
+        (0..<numberOfRows).compactMap { rowView(atRow: $0, makeIfNecessary: false) as? PaletteTableRowView }
+            .filter(\.isPaletteSelected)
+    }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()

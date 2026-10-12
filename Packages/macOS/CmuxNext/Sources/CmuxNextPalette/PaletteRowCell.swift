@@ -67,6 +67,10 @@ final class PaletteTableRowView: NSTableRowView {
         didSet { if isPaletteSelected != oldValue { needsDisplay = true } }
     }
 
+    /// VoiceOver reads the palette's selected row as selected: the table's own selection stays
+    /// off (the search field keeps the keyboard), so the row says so itself (cx-9ce.44).
+    override func isAccessibilitySelected() -> Bool { isPaletteSelected }
+
     var isHovered = false {
         didSet { if isHovered != oldValue { needsDisplay = true } }
     }
