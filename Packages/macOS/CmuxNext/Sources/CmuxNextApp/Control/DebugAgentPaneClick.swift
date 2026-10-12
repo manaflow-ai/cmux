@@ -70,8 +70,11 @@ enum DebugAgentPaneClick {
         guard let down = mouse(.leftMouseDown), let up = mouse(.leftMouseUp) else {
             return .object(["pane": .string(pane), "error": .string("could not synthesize events")])
         }
+        // What a real click at this point reaches: the window's hit test, from its frame view.
+        let frameView = window.contentView?.superview
+        let hit = frameView.flatMap { $0.hitTest($0.convert(point, from: nil)) }
         let delivered: String
-        if DebugNativeInput.clicksThroughApp(window) {
+        if DebugNativeInput.usesAppKitPath(window) {
             DebugNativeInput.sendThroughApp([down, up])
             delivered = "app"
         } else {
@@ -87,6 +90,8 @@ enum DebugAgentPaneClick {
             "pane": .string(pane), "clicked": .bool(true), "tag": (found["tag"] as? String).map(JSONValue.string) ?? .null,
             "window_x": .number(Double(point.x)), "window_y": .number(Double(point.y)), "delivered": .string(delivered),
             "gesture_available": .bool(gestures.available),
+            "hit": hit.map { .string(String(describing: type(of: $0))) } ?? .null,
+            "hit_in_page": .bool(hit?.isDescendant(of: webView) == true),
         ])
     }
 }
