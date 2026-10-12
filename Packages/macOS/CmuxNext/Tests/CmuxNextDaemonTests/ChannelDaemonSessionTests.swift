@@ -54,13 +54,18 @@ struct ChannelDaemonSessionTests {
         }
         let releaseLauncher = try isolated(release)
         let nightlyLauncher = try isolated(nightly)
-        let releaseEnsured = try await releaseLauncher.ensure()
-        let nightlyEnsured = try await nightlyLauncher.ensure()
         let releaseConnection = DaemonConnection(configuration: BranchDaemonHarness.configuration(),
                                                  endpointProvider: releaseLauncher.endpointProvider)
         let nightlyConnection = DaemonConnection(configuration: BranchDaemonHarness.configuration(),
                                                  endpointProvider: nightlyLauncher.endpointProvider)
+        // The daemons this test started (no terminals), stopped by pid when
+        // a step fails before a connection knows them.
+        var started: [Int32] = []
         do {
+            let releaseEnsured = try await releaseLauncher.ensure()
+            started.append(releaseEnsured.pid)
+            let nightlyEnsured = try await nightlyLauncher.ensure()
+            started.append(nightlyEnsured.pid)
             let releaseIdentity = try await releaseConnection.start()
             let nightlyIdentity = try await nightlyConnection.start()
             #expect(releaseIdentity.session == "cmux-app")
@@ -78,6 +83,7 @@ struct ChannelDaemonSessionTests {
         } catch {
             await BranchDaemonHarness.shutDown(nightlyConnection)
             await BranchDaemonHarness.shutDown(releaseConnection)
+            for pid in Set(started) where kill(pid, 0) == 0 { kill(pid, SIGTERM) }
             throw error
         }
         await BranchDaemonHarness.shutDown(nightlyConnection)

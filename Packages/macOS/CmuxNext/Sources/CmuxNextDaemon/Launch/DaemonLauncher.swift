@@ -235,7 +235,7 @@ public struct DaemonLauncher: Sendable {
     /// daemon session and state. Mirrors `ControlSocketPath.channelBundleIDs`
     /// and cmux-tui's `app_identity.rs` `CHANNELS`. Release
     /// (`com.cmuxterm.app`) is not here: it keeps `cmux-app`.
-    static let channelBundleIDs = [
+    public static let channelBundleIDs = [
         ("com.cmuxterm.app.nightly", "nightly"),
         ("com.cmuxterm.app.rc", "rc"),
         ("com.cmuxterm.app.staging", "staging"),
