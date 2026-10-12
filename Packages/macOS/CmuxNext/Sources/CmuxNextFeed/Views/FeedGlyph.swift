@@ -1,6 +1,7 @@
 import CmuxNextIcons
 import Foundation
 import SwiftUI
+import CmuxNextDesign
 
 /// The kind of an item as a small registry icon; color only for attention.
 struct FeedGlyph: View {
@@ -82,7 +83,7 @@ struct PosterLine: View {
             Text(verbatim: "·")
             Text(FeedRelativeTime.string(item.createdAt, now: now)).monospacedDigit()
             if item.home.isLocal {
-                Icon(.machineLocal, size: .iconRowSize(forLabelPointSize: 11)).help(FeedStrings.thisMac)
+                Icon(.machineLocal, size: .iconRowSize(forLabelPointSize: 11)).themedHelp(FeedStrings.thisMac)
             }
             if item.count > 1 {
                 Text(verbatim: "×\(item.count)").monospacedDigit()

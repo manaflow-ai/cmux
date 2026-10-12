@@ -14,6 +14,14 @@ import type { ComposerAttachment } from "./attachments";
 /** One item of an agent's todo list (an ACP `plan` entry). */
 export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progress" | "completed" };
 
+/** How a background shell ended (acpmux `background_task_update`, cx-ncc.84). */
+export type AcpmuxBackgroundTask = {
+  toolCallId: string;
+  command: string;
+  state: "completed" | "failed" | "stopped";
+  reason?: string;
+};
+
 export type AcpmuxRow = {
   id: string;
   version: number;
@@ -28,6 +36,8 @@ export type AcpmuxRow = {
   items?: AcpmuxActivity[];
   /// A plan row's todo list (cx-ncc.80): the agent's latest `plan` update in its turn.
   plan?: AcpmuxPlanEntry[];
+  /// A background task row's shell, which ended where the row sits (cx-ncc.84).
+  backgroundTask?: AcpmuxBackgroundTask;
   toolCount?: number;
   durationMs?: number;
   /// A turn summary's checkpoints, when acpmux recorded them (changes/turnCheckpointSource.ts).
@@ -372,7 +382,14 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   if (row.kind === "permission") return 87;
   // The plan's 20px progress line over its 22px items, inside 8px margins (conversation/PlanList.tsx).
   if (row.kind === "plan" && row.plan) return 24 + 20 + row.plan.length * 22;
-  if (row.kind === "turnSummary" || row.kind === "notice" || row.kind === "plan" || row.kind === "typing") return 37;
+  if (
+    row.kind === "turnSummary" ||
+    row.kind === "notice" ||
+    row.kind === "backgroundTask" ||
+    row.kind === "plan" ||
+    row.kind === "typing"
+  )
+    return 37;
   return 24 + chromeHeight(row) + textLines * MESSAGE_LINE_HEIGHT;
 }
 
