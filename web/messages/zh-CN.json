@@ -3467,7 +3467,10 @@
     "title": "已登录 cmux",
     "body": "如果 cmux 没有自动打开，请使用下面的按钮。",
     "button": "返回 cmux",
-    "switchAccountButton": "使用其他账号"
+    "switchAccountButton": "使用其他账号",
+    "rateLimitedTitle": "登录繁忙",
+    "rateLimitedBody": "我们的登录服务收到的请求过多。请等待几秒钟后继续。你无需重新登录。",
+    "retryButton": "继续登录"
   },
   "landing": {
     "bestTerminal": {

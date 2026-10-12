@@ -3464,7 +3464,10 @@
     "title": "Logget ind på cmux",
     "body": "Hvis cmux ikke åbnede automatisk, skal du bruge knappen nedenfor.",
     "button": "Tilbage til cmux",
-    "switchAccountButton": "Brug en anden konto"
+    "switchAccountButton": "Brug en anden konto",
+    "rateLimitedTitle": "Login er optaget",
+    "rateLimitedBody": "Vores login-tjeneste behandler for mange forespørgsler. Vent et par sekunder, og fortsæt derefter. Du behøver ikke at logge ind igen.",
+    "retryButton": "Fortsæt login"
   },
   "landing": {
     "bestTerminal": {

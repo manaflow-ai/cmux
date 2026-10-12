@@ -3467,7 +3467,10 @@
     "title": "Conectado ao cmux",
     "body": "Se o cmux não abriu automaticamente, use o botão abaixo.",
     "button": "Voltar ao cmux",
-    "switchAccountButton": "Usar outra conta"
+    "switchAccountButton": "Usar outra conta",
+    "rateLimitedTitle": "O login está ocupado",
+    "rateLimitedBody": "Nosso provedor de login está recebendo solicitações demais. Aguarde alguns segundos e continue. Você não precisa entrar novamente.",
+    "retryButton": "Continuar login"
   },
   "landing": {
     "bestTerminal": {

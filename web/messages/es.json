@@ -3466,7 +3466,10 @@
     "title": "Sesión iniciada en cmux",
     "body": "Si cmux no se abrió automáticamente, usa el botón de abajo.",
     "button": "Volver a cmux",
-    "switchAccountButton": "Usar otra cuenta"
+    "switchAccountButton": "Usar otra cuenta",
+    "rateLimitedTitle": "El inicio de sesión está ocupado",
+    "rateLimitedBody": "Nuestro proveedor de inicio de sesión está recibiendo demasiadas solicitudes. Espera unos segundos y continúa. No necesitas iniciar sesión de nuevo.",
+    "retryButton": "Continuar el inicio de sesión"
   },
   "landing": {
     "bestTerminal": {

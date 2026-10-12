@@ -3467,7 +3467,10 @@
     "title": "Bei cmux angemeldet",
     "body": "Wenn cmux nicht automatisch geöffnet wurde, verwende die Schaltfläche unten.",
     "button": "Zurück zu cmux",
-    "switchAccountButton": "Anderes Konto verwenden"
+    "switchAccountButton": "Anderes Konto verwenden",
+    "rateLimitedTitle": "Anmeldung ist ausgelastet",
+    "rateLimitedBody": "Unser Anmeldedienst verarbeitet zu viele Anfragen. Warte ein paar Sekunden und fahre dann fort. Du musst dich nicht erneut anmelden.",
+    "retryButton": "Anmeldung fortsetzen"
   },
   "landing": {
     "bestTerminal": {

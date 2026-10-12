@@ -3467,7 +3467,10 @@
     "title": "Zalogowano do cmux",
     "body": "Jeśli cmux nie otworzył się automatycznie, użyj przycisku poniżej.",
     "button": "Wróć do cmux",
-    "switchAccountButton": "Użyj innego konta"
+    "switchAccountButton": "Użyj innego konta",
+    "rateLimitedTitle": "Logowanie jest przeciążone",
+    "rateLimitedBody": "Nasz dostawca logowania obsługuje zbyt wiele żądań. Odczekaj kilka sekund, a potem kontynuuj. Nie musisz logować się ponownie.",
+    "retryButton": "Kontynuuj logowanie"
   },
   "landing": {
     "bestTerminal": {

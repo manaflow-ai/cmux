@@ -4958,7 +4958,10 @@
     "title": "cmux にサインインしました",
     "body": "cmux が自動的に開かない場合は、下のボタンを使用してください。",
     "button": "cmux に戻る",
-    "switchAccountButton": "別のアカウントを使用"
+    "switchAccountButton": "別のアカウントを使用",
+    "rateLimitedTitle": "サインインが混み合っています",
+    "rateLimitedBody": "サインインサービスへのリクエストが集中しています。数秒待ってから続行してください。もう一度サインインする必要はありません。",
+    "retryButton": "サインインを続ける"
   },
   "billingSuccess": {
     "metaTitle": "cmux Pro が有効になりました",

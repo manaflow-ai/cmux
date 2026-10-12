@@ -3464,7 +3464,10 @@
     "title": "Logget på cmux",
     "body": "Hvis cmux ikke åpnet automatisk, bruk knappen nedenfor.",
     "button": "Gå tilbake til cmux",
-    "switchAccountButton": "Bruk en annen konto"
+    "switchAccountButton": "Bruk en annen konto",
+    "rateLimitedTitle": "Innloggingen er opptatt",
+    "rateLimitedBody": "Innloggingstjenesten vår behandler for mange forespørsler. Vent noen sekunder, og fortsett deretter. Du trenger ikke å logge inn på nytt.",
+    "retryButton": "Fortsett innloggingen"
   },
   "landing": {
     "bestTerminal": {

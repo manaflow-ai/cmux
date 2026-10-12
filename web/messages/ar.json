@@ -3464,7 +3464,10 @@
     "title": "تم تسجيل الدخول إلى cmux",
     "body": "إذا لم يفتح cmux تلقائيًا، استخدم الزر أدناه.",
     "button": "العودة إلى cmux",
-    "switchAccountButton": "استخدام حساب مختلف"
+    "switchAccountButton": "استخدام حساب مختلف",
+    "rateLimitedTitle": "تسجيل الدخول مشغول",
+    "rateLimitedBody": "يتلقى موفر تسجيل الدخول طلبات كثيرة جدًا. انتظر بضع ثوانٍ ثم تابع. لا تحتاج إلى تسجيل الدخول مرة أخرى.",
+    "retryButton": "متابعة تسجيل الدخول"
   },
   "landing": {
     "bestTerminal": {

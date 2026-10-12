@@ -35,10 +35,26 @@ export class StackRateLimitedResponseError extends Error {
 
 type GuardedFetch = typeof fetch & { [GUARD_MARK]?: true };
 
+type GuardTarget = typeof globalThis & { [GUARD_MARK]?: true };
+
+/**
+ * Whether the guard is in this process's fetch chain. Recorded on the global
+ * rather than read off `fetch`, because OpenTelemetry and Next.js wrap fetch
+ * again after instrumentation registers.
+ */
+export function isStackThrottleFetchGuardInstalled(target: typeof globalThis): boolean {
+  return (target as GuardTarget)[GUARD_MARK] === true;
+}
+
+/** Test hook: forget the install so a test can restore and re-wrap fetch. */
+export function resetStackThrottleFetchGuardForTests(target: typeof globalThis): void {
+  delete (target as GuardTarget)[GUARD_MARK];
+}
+
 /** Install once per process; later calls (and hot reloads) are no-ops. */
 export function installStackThrottleFetchGuard(target: typeof globalThis, projectId: string): void {
   const current = target.fetch as GuardedFetch;
-  if (!projectId || current[GUARD_MARK]) return;
+  if (!projectId || current[GUARD_MARK] || isStackThrottleFetchGuardInstalled(target)) return;
   const base = current;
   const guarded = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const response = await base(input, init);
@@ -49,6 +65,7 @@ export function installStackThrottleFetchGuard(target: typeof globalThis, projec
   }) as GuardedFetch;
   guarded[GUARD_MARK] = true;
   target.fetch = guarded;
+  (target as GuardTarget)[GUARD_MARK] = true;
 }
 
 /**

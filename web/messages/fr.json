@@ -3469,7 +3469,10 @@
     "title": "Connecté à cmux",
     "body": "Si cmux ne s’est pas ouvert automatiquement, utilisez le bouton ci-dessous.",
     "button": "Retourner à cmux",
-    "switchAccountButton": "Utiliser un autre compte"
+    "switchAccountButton": "Utiliser un autre compte",
+    "rateLimitedTitle": "La connexion est saturée",
+    "rateLimitedBody": "Notre service de connexion reçoit trop de requêtes. Patientez quelques secondes, puis continuez. Vous n'avez pas besoin de vous reconnecter.",
+    "retryButton": "Continuer la connexion"
   },
   "landing": {
     "bestTerminal": {

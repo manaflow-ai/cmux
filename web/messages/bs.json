@@ -3467,7 +3467,10 @@
     "title": "Prijavljeni ste u cmux",
     "body": "Ako se cmux nije automatski otvorio, koristite dugme ispod.",
     "button": "Vrati se u cmux",
-    "switchAccountButton": "Koristi drugi račun"
+    "switchAccountButton": "Koristi drugi račun",
+    "rateLimitedTitle": "Prijava je zauzeta",
+    "rateLimitedBody": "Naš servis za prijavu obrađuje previše zahtjeva. Sačekajte nekoliko sekundi, pa nastavite. Ne morate se ponovo prijaviti.",
+    "retryButton": "Nastavi prijavu"
   },
   "landing": {
     "bestTerminal": {

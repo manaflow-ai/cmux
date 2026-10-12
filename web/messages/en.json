@@ -5048,7 +5048,10 @@
     "title": "Signed in to cmux",
     "body": "If cmux did not open automatically, use the button below.",
     "button": "Return to cmux",
-    "switchAccountButton": "Use a different account"
+    "switchAccountButton": "Use a different account",
+    "rateLimitedTitle": "Sign-in is busy",
+    "rateLimitedBody": "Our sign-in provider is handling too many requests. Wait a few seconds, then continue. You do not need to sign in again.",
+    "retryButton": "Continue signing in"
   },
   "billingSuccess": {
     "metaTitle": "cmux Pro is active",

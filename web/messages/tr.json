@@ -3465,7 +3465,10 @@
     "title": "cmux oturumu açıldı",
     "body": "cmux otomatik olarak açılmadıysa aşağıdaki düğmeyi kullanın.",
     "button": "cmux’a dön",
-    "switchAccountButton": "Farklı bir hesap kullan"
+    "switchAccountButton": "Farklı bir hesap kullan",
+    "rateLimitedTitle": "Oturum açma yoğun",
+    "rateLimitedBody": "Oturum açma sağlayıcımız çok fazla istek alıyor. Birkaç saniye bekleyin, ardından devam edin. Yeniden oturum açmanız gerekmez.",
+    "retryButton": "Oturum açmaya devam et"
   },
   "landing": {
     "bestTerminal": {

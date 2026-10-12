@@ -3467,7 +3467,10 @@
     "title": "Accesso a cmux effettuato",
     "body": "Se cmux non si è aperto automaticamente, usa il pulsante qui sotto.",
     "button": "Torna a cmux",
-    "switchAccountButton": "Usa un altro account"
+    "switchAccountButton": "Usa un altro account",
+    "rateLimitedTitle": "L'accesso è occupato",
+    "rateLimitedBody": "Il nostro servizio di accesso sta gestendo troppe richieste. Attendi qualche secondo, poi continua. Non devi accedere di nuovo.",
+    "retryButton": "Continua l'accesso"
   },
   "landing": {
     "bestTerminal": {

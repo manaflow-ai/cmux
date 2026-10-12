@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { StackServerApp } from "@hexclave/js";
 
-import { installStackThrottleFetchGuard } from "../services/auth/stackThrottleFetchGuard";
+import {
+  installStackThrottleFetchGuard,
+  resetStackThrottleFetchGuardForTests,
+} from "../services/auth/stackThrottleFetchGuard";
 import { hasAuthRateLimitSignal } from "../services/vms/authErrors";
 
 // The Stack SDK answers a 429 by sleeping for Retry-After and then walking its
@@ -37,6 +40,7 @@ function app() {
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  resetStackThrottleFetchGuardForTests(globalThis);
 });
 
 describe("Stack throttle fetch guard", () => {
