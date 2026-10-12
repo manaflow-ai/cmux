@@ -202,6 +202,25 @@ struct TerminalSurfaceRemoteOutputTests {
         remote.cancelClipboardWritePermit()
         #expect(!remote.permitsClipboardWrite(contentLength: 1))
 
+        // Cmd+C and Edit > Copy on a mirror pane copy synchronously, outside
+        // any pointer-gesture window, and must still reach the clipboard (#17472)
+        // without spending or creating an allowance for later remote OSC 52.
+        let other = makeSurface(
+            runtimeSurfaceBits: UInt(bitPattern: UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)),
+            ioMode: .manualMirror,
+            isRemoteTerminal: true
+        )
+        defer { other.surface!.deallocate() }
+        let userCopyAdmitted = remote.withUserInitiatedClipboardWriteIntent {
+            remote.permitsClipboardWrite(contentLength: 1)
+        }
+        #expect(userCopyAdmitted)
+        #expect(!remote.permitsClipboardWrite(contentLength: 1))
+        let otherSurfaceAdmitted = remote.withUserInitiatedClipboardWriteIntent {
+            other.permitsClipboardWrite(contentLength: 1)
+        }
+        #expect(!otherSurfaceAdmitted)
+
         let cloud = makeSurface(
             runtimeSurfaceBits: UInt(bitPattern: UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)),
             isRemoteTerminal: true,
