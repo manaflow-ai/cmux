@@ -27,11 +27,11 @@ extension NotificationCenterService {
     /// it connects, so rows show notifications posted before the app did.
     func followNotificationLedger(_ daemon: DaemonService) -> Task<Void, Never> {
         Task {
-            let ready = { () -> Bool in
+            let ready = ObservationStream { () -> Bool in
                 guard daemon.store.isLoaded, case .connected = daemon.store.connectionState else { return false }
                 return true
             }
-            for await connected in ObservationStream(ready) where connected {
+            for await connected in ready where connected {
                 guard daemon.supports(DaemonCapabilities.shared.notificationAck) else { continue }
                 daemon.send("list-notifications") { connection in
                     let entries = try await connection.notificationLedger()
