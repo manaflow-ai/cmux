@@ -121,6 +121,104 @@ extension AgentNotificationRegressionTests {
         #expect(notices.map(\.category) == [.turnComplete, .turnComplete], "\(notices.map(\.body)); exits \(exits)")
     }
 
+    @Test("An OpenCode turn that runs a tool posts one notification")
+    func openCodeTurnWithAToolStepPostsOnce() async throws {
+        // A fake OpenCode server: one prompt is a tool step and an answer, each a finished
+        // assistant message, then the session goes idle.
+        let agent = try FakeClaudeExecutable(script: #"exec /usr/bin/python3 "$(dirname "$0")/fake_opencode.py""#)
+        defer { agent.restore() }
+        try Self.fakeOpenCode.write(
+            to: agent.project.appendingPathComponent("fake_opencode.py", isDirectory: false), atomically: true, encoding: .utf8
+        )
+        let store = AgentSessionProcessStore()
+        defer { store.closeAll() }
+        var notices: [AgentSessionTurnNotifier.Notice] = []
+        var started = false
+        var seen: [String] = []
+        let notifier = AgentSessionTurnNotifier(
+            surfaceID: UUID(), workspaceID: { UUID() }, workingDirectory: { nil },
+            deliver: { notices.append($0) }
+        )
+        store.eventSink = { event in
+            notifier.observe(event)
+            seen.append(["type", "stream", "text", "status"].compactMap { key in event[key].map { value in "\(value)" } }.joined(separator: " "))
+            if event["type"] as? String == "provider.started" { started = true }
+        }
+        let session = try await store.start(
+            plan: AgentSessionLaunchPlan(
+                provider: .opencode,
+                executableURL: agent.project.appendingPathComponent("claude", isDirectory: false),
+                arguments: [],
+                environment: ProcessInfo.processInfo.environment
+            ),
+            workingDirectory: agent.project.path
+        )
+        let deadline = ContinuousClock.now + .seconds(20)
+        while !started, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(20)) }
+        #expect(started, "the fake OpenCode session started: \(seen)")
+        try await store.writeLine(sessionId: session.sessionId, text: "Read the file")
+        // The turn's notice carries the final answer; a per-step notice comes before it.
+        while !notices.contains(where: { $0.body.contains("All done.") }), ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(notices.count == 1, "one notification per OpenCode turn: \(notices.map(\.body)), events: \(seen)")
+        #expect(notices.first?.body.contains("All done.") == true)
+    }
+
+    private static let fakeOpenCode = #"""
+import json, queue
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+events = queue.Queue()
+
+def emit(kind, **properties):
+    events.put({"type": kind, "properties": properties})
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+    def reply(self, obj, code=200):
+        data = json.dumps(obj).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def do_POST(self):
+        self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        path = self.path.split("?")[0]
+        if path == "/session":
+            return self.reply({"id": "ses1"})
+        if path.endswith("/prompt_async"):
+            self.reply({})
+            # One turn: a tool step, then the answer, then the session goes idle.
+            for step, (text, finish) in enumerate([("Reading the file.", "tool-calls"), ("All done.", "stop")]):
+                info = {"id": "m%d" % step, "role": "assistant", "sessionID": "ses1"}
+                emit("message.updated", info=info)
+                emit("message.part.updated", part={"id": "p%d" % step, "messageID": info["id"],
+                                                   "sessionID": "ses1", "type": "text", "text": text})
+                emit("message.updated", info=dict(info, finish=finish, time={"created": 1, "completed": 2}))
+            emit("session.idle", sessionID="ses1")
+            return
+        self.reply({}, 404)
+
+    def do_GET(self):
+        if self.path.split("?")[0] != "/event":
+            return self.reply({}, 404)
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.end_headers()
+        while True:
+            self.wfile.write(("data: " + json.dumps(events.get()) + "\n\n").encode())
+            self.wfile.flush()
+
+server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+print("opencode server listening on http://127.0.0.1:%d" % server.server_address[1], flush=True)
+server.serve_forever()
+"""#
+
     @Test("An agent session reports a Claude turn while the agent keeps running")
     func agentSessionReportsTurnWhileAgentRuns() async throws {
         let agent = try FakeClaudeExecutable(script: """
