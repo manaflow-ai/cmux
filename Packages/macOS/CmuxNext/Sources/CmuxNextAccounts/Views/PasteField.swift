@@ -20,6 +20,7 @@ struct PasteField: View {
                 .font(palette.caption).foregroundStyle(palette.secondary).fixedSize(horizontal: false, vertical: true)
             SecureField(AccountsStrings.pastePlaceholder, text: $secret)
                 .textFieldStyle(.roundedBorder)
+                .focusEffectDisabled()
                 .accessibilityIdentifier("cmux.accounts.paste.\(provider.rawValue)")
             if let error { Text(error).font(palette.caption).foregroundStyle(palette.danger) }
             HStack(spacing: Metrics.space3) {
