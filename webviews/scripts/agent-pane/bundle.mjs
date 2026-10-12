@@ -1,7 +1,10 @@
 // Bundles the React agent pane (src/agent-session/acpmux) for the app with the React
 // Compiler on, the same compiler the Vite dev server runs (vite.config.ts).
 //
-//   bun scripts/agent-pane/bundle.mjs <entry> <shiki alias dir> <outfile> [--report <file>]
+//   bun scripts/agent-pane/bundle.mjs <entry> <shiki alias dir> <outfile> [--report <file>] [--split]
+//
+// --split writes the code behind dynamic imports (shiki's grammars, KaTeX) as chunks/ beside
+// <outfile>, so the page's first script is only what its first frame runs.
 //
 // Pass `-` as the shiki alias for a page that does not use shiki (the Settings page).
 //
@@ -23,6 +26,7 @@ if (!entry || !shikiAlias || !outfile) {
 }
 const reportIndex = rest.indexOf("--report");
 const reportFile = reportIndex >= 0 ? rest[reportIndex + 1] : undefined;
+const split = rest.includes("--split");
 const srcRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../src");
 
 const mode = reactCompilerMode();
@@ -46,7 +50,14 @@ await build({
   legalComments: "none",
   alias: shikiAlias === "-" ? {} : { shiki: path.resolve(shikiAlias) },
   logLevel: "warning",
-  outfile,
+  ...(split
+    ? {
+        splitting: true,
+        outdir: path.dirname(outfile),
+        entryNames: path.basename(outfile, ".js"),
+        chunkNames: "chunks/[name]-[hash]",
+      }
+    : { outfile }),
   plugins: [reactCompiler, tailwindPlugin],
 });
 
