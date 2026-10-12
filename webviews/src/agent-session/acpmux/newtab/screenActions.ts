@@ -72,6 +72,14 @@ export function newTabScreenActions(deps: {
     // No agent to ask: the Harnesses page, in place (cx-uj5g8).
     onAddHarness: () => void openHarnessesPage(),
     onTouched: () => ignore(callNative("newTab.touched")),
+    // A blank terminal in the tab's folder (nothing typed), or a browser tab on the new tab page.
+    onCreate: (kind) =>
+      ignore(
+        callNative(
+          "tab.open",
+          kind === "terminal" ? { kind, text: "", run: false, ...(cwd ? { cwd } : {}) } : { kind, text: "" },
+        ),
+      ),
     onInputReady: (token) => ignore(callNative("newTab.inputReady", { token })),
   };
 }

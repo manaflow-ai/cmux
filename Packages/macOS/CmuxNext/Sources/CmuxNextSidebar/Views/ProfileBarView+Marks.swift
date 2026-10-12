@@ -19,6 +19,14 @@ extension ProfileBarView {
                                         width: diameter, height: diameter)).fill()
             return
         }
+        if let image = profile.image {
+            // A stored image or SVG keeps its own colors, at the symbol's size and the mark's opacity.
+            let side = min(Metrics.smallIconSize + Metrics.space1, rect.height - Metrics.space2)
+            NSImage(cgImage: image.image, size: NSSize(width: side, height: side))
+                .draw(in: NSRect(x: rect.midX - side / 2, y: rect.midY - side / 2, width: side, height: side),
+                      from: .zero, operation: .sourceOver, fraction: color.alphaComponent)
+            return
+        }
         if let icon = profile.icon, profile.iconIsEmoji {
             let font = NSFont.systemFont(ofSize: min(Metrics.smallIconSize + Metrics.space1, rect.height - Metrics.space2))
             let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]

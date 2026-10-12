@@ -9,6 +9,9 @@ fraction of a device pixel blends one pixel row (or column) of the two along its
 """
 import struct, zlib
 
+# The proofs not run (check_rows on a window that is not 2x), for the caller's summary.
+SKIPPED = []
+
 
 def read_png(path):
     """8-bit RGB or RGBA, non-interlaced PNG (window snapshots): (width, height, (rows of bytes, 3 or 4 per pixel))."""
@@ -140,11 +143,19 @@ def check_rows(check, name, report, path, keys=None, min_rows=3):
       is the text's width) and its top on whole device pixels;
     - the drawn balloon's edges are where the app draws them (`balloon`: RowDraw.balloon; an incoming balloon is
       its frame, an outgoing text balloon is a little inside it on macOS 27, MessagesLab 2281879), measured from
-      the snapshot's coverage within 0.12 device px: top, bottom and, for a bubble 60 pt or taller, the anchored side;
+      the snapshot's coverage within 0.12 device px and nearer the balloon than the frame (half their distance):
+      top, bottom and, for a bubble 60 pt or taller, the anchored side; every one of them must be measured;
+    - on a window whose backing scale is not 2, nothing is checked: a SKIP line, and `name` in SKIPPED;
     - an incoming balloon's straight edges have no partial pixels (at most 10 % of their lines).
     `keys`: only these rows."""
     w, h, px = read_png(path)
     scale = w / report["windowWidth"]; wh = report["windowHeight"]
+    if abs(scale - 2) > 0.01:
+        # The sample places (4 device px around an edge, 3 pt between grouped bubbles) and the half-pixel move
+        # assume a 2x backing store: on another scale the proof is not run, and says so.
+        print(f"SKIP {name}: the row proof needs a 2x display (this window's backing scale is {scale:.2f})", flush=True)
+        SKIPPED.append(name)
+        return []
     rows = [r for r in report["rows"] if r["kind"] == "text" and (keys is None or r["key"] in keys)
             and r["y"] >= 64 and r["y"] + r["height"] <= wh - 90]
     check(f"{name}: at least {min_rows} text rows to measure", len(rows) >= min_rows, report["rows"][:12])
@@ -159,17 +170,25 @@ def check_rows(check, name, report, path, keys=None, min_rows=3):
         bt, bb = (wh - b["y"] - b["height"]) * scale, (wh - b["y"]) * scale
         x0, x1 = bl + (br - bl) * 0.3, bl + (br - bl) * 0.7
         y0, y1 = bt + (bb - bt) * 0.3, bt + (bb - bt) * 0.7
-        expected = {"top": (bt, range(int(x0), int(x1))), "bottom": (bb, range(int(x0), int(x1)))}
+        # The frame's edges: where an edge would be if the balloon were drawn on its frame.
+        ft, fb = top, (wh - r["y"]) * scale
+        fl, fr = r["x"] * scale, (r["x"] + r["width"]) * scale
+        expected = {"top": (bt, ft, range(int(x0), int(x1))), "bottom": (bb, fb, range(int(x0), int(x1)))}
         if r["height"] >= 60:
-            expected["right" if r["outgoing"] else "left"] = (br if r["outgoing"] else bl, range(int(y0), int(y1)))
+            expected["right" if r["outgoing"] else "left"] = ((br, fr) if r["outgoing"] else (bl, fl)) + (range(int(y0), int(y1)),)
         line = []
-        for edge, (want, span) in expected.items():
+        for edge, (want, frame_at, span) in expected.items():
             got, n = edge_position(px, w, h, edge, round(want), span)
-            if got is None and edge in ("top", "bottom"):
+            if got is None:
                 unmeasured.append({r["key"]: edge, "lines": n})
-            line.append(f"{edge} {want:.2f}/{'-' if got is None else f'{got:.2f}'}px")
-            if got is not None and abs(got - want) > 0.12:
-                off_edges.append({r["key"]: edge, "drawn": round(want, 3), "measured": round(got, 3)})
+            # Within 0.12 px, and nearer the balloon than its frame where the two differ (the outgoing top inset
+            # is 0.05-0.08 px: a balloon drawn on its frame fails).
+            gap = abs(want - frame_at)
+            tol = min(0.12, gap / 2) if gap > 0.001 else 0.12
+            line.append(f"{edge} {want:.2f}/{'-' if got is None else f'{got:.2f}'}px (frame {frame_at:.2f}, tol {tol:.3f})")
+            if got is not None and abs(got - want) > tol:
+                off_edges.append({r["key"]: edge, "drawn": round(want, 3), "frame": round(frame_at, 3), "measured": round(got, 3),
+                                  "tolerance": round(tol, 3)})
         if not r["outgoing"]:
             for edge, (place, measured, partial) in row_edges(px, w, h, scale, r, wh).items():
                 if edge == "right":
@@ -180,7 +199,9 @@ def check_rows(check, name, report, path, keys=None, min_rows=3):
         print(f"     {name} {r['key']} ({'out' if r['outgoing'] else 'in'}; edge drawn/measured): " + ", ".join(line), flush=True)
     check(f"{name}: every text row's anchored side (incoming left, outgoing right) and top are on whole device pixels",
           not bad_place, bad_place)
-    check(f"{name}: every text row's top and bottom edges were measured (8 lines each or more)", bool(rows) and not unmeasured, unmeasured)
-    check(f"{name}: every balloon edge is where the app draws it (within 0.12 device px)", not off_edges, off_edges)
+    check(f"{name}: every checked edge was measured (top, bottom and a tall row's anchored side; 8 lines each or more)",
+          bool(rows) and not unmeasured, unmeasured)
+    check(f"{name}: every balloon edge is where the app draws it (within 0.12 device px, nearer the balloon than its frame)",
+          not off_edges, off_edges)
     check(f"{name}: no straight edge of an incoming balloon has partial pixels (at most 10 % of its lines)", not bad_edges, bad_edges)
     return rows

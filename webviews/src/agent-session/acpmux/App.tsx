@@ -22,6 +22,8 @@ import {
   paneHeader,
   placeRows,
   transcriptRowWidth,
+  mergeRowRanges,
+  scrollLeadRanges,
   visibleLayoutRange,
   type AcpmuxPermission,
   type AcpmuxRow,
@@ -61,7 +63,7 @@ import { BridgeSocket } from "./bridgeSocket";
 import { useComposerKeyboard } from "./composerFocus";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
 import { acpWire } from "./wire";
-import { acpmuxPerf } from "./perf";
+import { acpmuxPerf, type MountedSpan } from "./perf";
 import { followTrace } from "./followTrace";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
@@ -1269,24 +1271,26 @@ export function VirtualTranscript({
   // new session from the top once so its first paint cannot reuse the previous chat's mounted rows.
   const renderScroll = sessionSwitched ? { top: 0, delta: 0 } : scroll;
   const renderFollowing = sessionSwitched || following;
-  const lead = Math.min(Math.abs(renderScroll.delta) * SCROLL_LEAD_STEPS, height * MAX_SCROLL_LEAD_VIEWPORTS);
-  const range = visibleLayoutRange(
+  const ahead = scrollLeadRanges(
     layout,
-    renderScroll.delta < 0 ? renderScroll.top - lead : renderScroll.top,
-    height + lead,
+    renderScroll.top,
+    renderScroll.delta,
+    height,
+    SCROLL_LEAD_STEPS,
+    height * MAX_SCROLL_LEAD_VIEWPORTS,
   );
+  // The run of mounted rows the reader sees.
+  const view = visibleLayoutRange(layout, renderScroll.top, height);
+  const range = ahead.find((each) => each.first <= view.first && view.first < each.last) ?? view;
   // The rows a viewport either side of where the reader was also mount, in a deferred render
   // between frames: a scroll then finds the rows it brings in already drawn and measured instead
   // of building them in its own frame. A jump past them mounts only what it shows.
   const warmTop = useDeferredValue(renderScroll.top);
   const warm = visibleLayoutRange(layout, warmTop - height * WARM_VIEWPORTS, height * (1 + 2 * WARM_VIEWPORTS));
-  const mounted =
-    warm.last < range.first || warm.first > range.last
-      ? range
-      : { first: Math.min(range.first, warm.first), last: Math.max(range.last, warm.last) };
+  const mountedRanges = mergeRowRanges(warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]);
   if (lastPlaced.current) {
-    lastPlaced.current.first = mounted.first;
-    lastPlaced.current.last = mounted.last;
+    lastPlaced.current.first = mountedRanges[0]?.first ?? 0;
+    lastPlaced.current.last = mountedRanges.at(-1)?.last ?? 0;
   }
   // A session can reuse row ids. Until the reset effect commits, render the new session as a
   // fresh transcript so a stale focus or range never flashes on its first paint.
@@ -1392,9 +1396,11 @@ export function VirtualTranscript({
   const activeVisible = rows.slice(range.first, range.last).some((row) => row.id === effectiveActiveRowId);
   const tabStopId = activeVisible ? effectiveActiveRowId : rows[range.first]?.id;
   useLayoutEffect(() => {
-    const last = mounted.last - 1;
-    acpmuxPerf.mountedTop = mounted.last > mounted.first ? layout.tops[mounted.first] : 0;
-    acpmuxPerf.mountedBottom = mounted.last > mounted.first ? layout.tops[last] + layout.heights[last] : 0;
+    const spans = mountedRanges.map(({ first, last }): MountedSpan => [
+      layout.tops[first],
+      layout.tops[last - 1] + layout.heights[last - 1],
+    ]);
+    acpmuxPerf.mounted = spans;
     // A memo hit spent no time in geometry this render.
     const freshLayout = reportedLayout.current !== measured;
     reportedLayout.current = measured;
@@ -1404,7 +1410,7 @@ export function VirtualTranscript({
     if (acpmuxPerf.enabled && freshLayout) acpmuxPerf.addLayout(layoutMs);
     if (acpmuxPerf.enabled && renderStart > 0) {
       const now = performance.now();
-      acpmuxPerf.commit(now - renderStart, layoutMs, acpmuxPerf.mountedTop, acpmuxPerf.mountedBottom, now);
+      acpmuxPerf.commit(now - renderStart, layoutMs, spans, now);
     }
   });
   useLayoutEffect(() => {
@@ -1697,48 +1703,52 @@ export function VirtualTranscript({
         <FindReveal.Provider value={findReveal}>
           <div className="acpmux-spacer" style={{ height: layout.totalHeight }}>
             <div ref={thread} className="acpmux-thread">
-              {rows.slice(mounted.first, mounted.last).map((row, index) => {
-                const absoluteIndex = mounted.first + index;
-                const kind = rowKind(row);
-                const Component = registry[kind] ?? NoticeRow;
-                const isExpanded = expanded.has(row.id);
-                const controls =
-                  row.kind === WORKED && isExpanded ? disclosureControls(rows, absoluteIndex + 1) : undefined;
-                return (
-                  <RowFrame
-                    key={`${sessionId ?? ""}:${row.id}`}
-                    row={row}
-                    kind={kind}
-                    index={absoluteIndex}
-                    setSize={canLoadOlder ? -1 : rows.length}
-                    top={layout.tops[absoluteIndex]}
-                    rowWidth={transcriptRowWidth(width)}
-                    expanded={isExpanded}
-                    observer={observer}
-                    report={reportDrawn}
-                    enter={enteringRows.current.has(row.id)}
-                    onEntered={onEntered}
-                    active={effectiveActiveRowId === row.id}
-                    selected={selectedRows.has(absoluteIndex)}
-                    tabStop={tabStopId === row.id}
-                    onFocus={() => rowFocus(row.id)}
-                    onRowKeyDown={(event) => rowKeyDown(absoluteIndex, event)}
-                    copyable={transcriptHasFloatingCopy(row)}
-                    onCopy={() =>
-                      copyRows(selectedRows.has(absoluteIndex) && selectedRowIds.length > 0 ? selectedRowIds : [row.id])
-                    }
-                  >
-                    <Component
+              {mountedRanges.flatMap(({ first, last }) =>
+                rows.slice(first, last).map((row, index) => {
+                  const absoluteIndex = first + index;
+                  const kind = rowKind(row);
+                  const Component = registry[kind] ?? NoticeRow;
+                  const isExpanded = expanded.has(row.id);
+                  const controls =
+                    row.kind === WORKED && isExpanded ? disclosureControls(rows, absoluteIndex + 1) : undefined;
+                  return (
+                    <RowFrame
+                      key={`${sessionId ?? ""}:${row.id}`}
                       row={row}
-                      onToggleActivity={onToggleActivity}
-                      onOpenDiff={onOpenDiff}
+                      kind={kind}
+                      index={absoluteIndex}
+                      setSize={canLoadOlder ? -1 : rows.length}
+                      top={layout.tops[absoluteIndex]}
+                      rowWidth={transcriptRowWidth(width)}
                       expanded={isExpanded}
-                      controls={controls}
-                      githubRepository={githubRepository}
-                    />
-                  </RowFrame>
-                );
-              })}
+                      observer={observer}
+                      report={reportDrawn}
+                      enter={enteringRows.current.has(row.id)}
+                      onEntered={onEntered}
+                      active={effectiveActiveRowId === row.id}
+                      selected={selectedRows.has(absoluteIndex)}
+                      tabStop={tabStopId === row.id}
+                      onFocus={() => rowFocus(row.id)}
+                      onRowKeyDown={(event) => rowKeyDown(absoluteIndex, event)}
+                      copyable={transcriptHasFloatingCopy(row)}
+                      onCopy={() =>
+                        copyRows(
+                          selectedRows.has(absoluteIndex) && selectedRowIds.length > 0 ? selectedRowIds : [row.id],
+                        )
+                      }
+                    >
+                      <Component
+                        row={row}
+                        onToggleActivity={onToggleActivity}
+                        onOpenDiff={onOpenDiff}
+                        expanded={isExpanded}
+                        controls={controls}
+                        githubRepository={githubRepository}
+                      />
+                    </RowFrame>
+                  );
+                }),
+              )}
             </div>
           </div>
         </FindReveal.Provider>

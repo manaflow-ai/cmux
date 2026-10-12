@@ -19,8 +19,6 @@ import QuartzCore
     /// The space a release switched to, until the model shows it.
     private(set) var pendingTarget: ProfileKey?
     private var snapshot: NSView?
-    /// The bounce now running; a newer one replaces an older one's end.
-    private var bumpGeneration = 0
     var snapshotView: NSView? { snapshot }
 
     init(host: SidebarView) { self.host = host }
@@ -188,46 +186,12 @@ import QuartzCore
 
     // MARK: Mouse wheel
 
-    /// How far a wheel past the first or last space nudges the list, in pages.
-    static let bumpDistance: CGFloat = 0.06
-
     /// One mouse wheel page (`SpaceWheelPager`): the space beside slides in
-    /// like a switch by dot. Past the first or last space the list nudges
-    /// toward the wheel and eases back, a paged scroll view's edge.
+    /// like a switch by dot. Past the first or last space nothing moves
+    /// (POLISH: no bouncy transforms).
     func page(by step: Int) {
         guard pager == nil, pendingTarget == nil, step != 0 else { return }
-        if host.model.stepProfile(by: step) { return }
-        bump(step)
-    }
-
-    /// The list moves out toward the wheel and eases back, by layer
-    /// translation only like a swipe; reduced motion shows nothing, and one
-    /// space has no edge to show (no bounce on every notch).
-    private func bump(_ step: Int) {
-        guard snapshot == nil, Motion.animatesMovement, host.model.profiles.count > 1 else { return }
-        page.wantsLayer = true
-        guard let layer = page.layer else { return }
-        host.clipsToBounds = true
-        let keyPath = "transform.translation.x"
-        translate(page, 0, animated: nil)
-        let animation = CAKeyframeAnimation(keyPath: keyPath)
-        animation.values = [0, -CGFloat(step) * Self.bumpDistance * width, 0]
-        animation.keyTimes = [0, 0.35, 1]
-        animation.timingFunctions = [CAMediaTimingFunction(name: .easeOut), CAMediaTimingFunction(name: .easeInEaseOut)]
-        animation.duration = Self.bumpDuration
-        CATransaction.begin()
-        bumpGeneration += 1
-        let generation = bumpGeneration
-        CATransaction.setCompletionBlock { MainActor.assumeIsolated { [weak self] in self?.endBump(generation) } } // main-proof: CATransaction.h: the completion block is called on the main thread
-        layer.add(animation, forKey: Self.slideKey)
-        CATransaction.commit()
-    }
-
-    private static let bumpDuration: CFTimeInterval = 0.3
-
-    private func endBump(_ generation: Int) {
-        guard generation == bumpGeneration, pager == nil, pendingTarget == nil, snapshot == nil else { return }
-        host.clipsToBounds = false
+        _ = host.model.stepProfile(by: step)
     }
 
     // MARK: Switch by dot, key or a new space
