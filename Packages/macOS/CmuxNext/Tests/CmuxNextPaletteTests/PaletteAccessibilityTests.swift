@@ -65,7 +65,7 @@ struct PaletteAccessibilityTests {
 
         // The query field, named for VoiceOver.
         let field = nodes.first { $0.identifier == "palette.search" }
-        #expect(field != nil && field?.text.isEmpty == false, "no named query field:\n\(Self.probe(panel))\n\(dump)")
+        #expect(field != nil && field?.text.isEmpty == false, "no named query field:\n\(dump)")
         // Each visible row is an element that reads its title.
         let rows = nodes.filter { $0.role == NSAccessibility.Role.row.rawValue }
         let titles = palette.model.rows.prefix(3).map(\.item.title)
@@ -92,22 +92,6 @@ struct PaletteAccessibilityTests {
         guard let view else { return nil }
         if let found = view as? T { return found }
         return view.subviews.lazy.compactMap { first(type, in: $0) }.first
-    }
-
-    /// What the query field and its cell report, when the tree has no named field.
-    private static func probe(_ panel: NSWindow) -> String {
-        guard let bar = first(PaletteSearchBar.self, in: panel.contentView) else { return "no search bar" }
-        let field = bar.field
-        func describe(_ name: String, _ object: NSObject?) -> String {
-            guard let object else { return "\(name): nil" }
-            return "\(name) <\(type(of: object))> ignored=\(object.accessibilityIsIgnored()) "
-                + "id=\(attribute(object, .identifier) ?? "nil") desc=\(attribute(object, .description) ?? "nil") "
-                + "names=\(object.accessibilityAttributeNames().map(\.rawValue))"
-        }
-        return [describe("field", field), describe("cell", field.cell),
-                describe("editor", field.currentEditor()),
-                "cell newAPI id=\(field.cell?.accessibilityIdentifier() ?? "nil") label=\(field.cell?.accessibilityLabel() ?? "nil")"]
-            .joined(separator: "\n")
     }
 
     /// Whether the table's selection, as VoiceOver asks for it, is one row that reads `title`.
