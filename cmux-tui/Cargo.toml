@@ -228,7 +228,7 @@ regex = "1"
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "json"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 time = { version = "0.3", default-features = false, features = ["parsing", "std"] }
-jsonschema = { version = "0.30", default-features = false }
+jsonschema = { version = "0.34", default-features = false }
 # QuickJS-ng for the app host (one VM per app process). Exact pin: the app
 # host is a sandbox boundary, so engine upgrades are deliberate. `allocator`
 # lets the host count every byte the VM allocates (32 MiB limit per app).
