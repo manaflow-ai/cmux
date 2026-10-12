@@ -111,6 +111,12 @@ pub(crate) fn public_item(record: &Value) -> Value {
         "member_count": members.len(),
         "members": members.iter().map(public_member).collect::<Vec<_>>(),
     });
+    // An ungrouped tab group names the group it forms again and its place.
+    if let Some(group) = record.get("tab_group").filter(|group| group.is_object()) {
+        item["workspace_id"] = group["workspace_id"].clone();
+        item["pane_id"] = group["pane_id"].clone();
+        item["tab_group"] = group.clone();
+    }
     // A deleted personal workspace group names the group it forms again.
     if let Some(group) = record.get("group").filter(|group| group.is_object()) {
         item["group"] =
