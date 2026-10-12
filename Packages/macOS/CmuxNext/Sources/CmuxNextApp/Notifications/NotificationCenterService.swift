@@ -54,6 +54,8 @@ final class NotificationCenterService {
     @ObservationIgnored var desktopPostingEnabled = true
     /// The deadline clock; tests inject their own.
     @ObservationIgnored var clock: any Clock<Duration> = ContinuousClock()
+    /// The languages banner titles the app writes are in (OSC 7501 alerts, cx-6so.36.8); tests pick one.
+    @ObservationIgnored var localizations: [String] = Bundle.module.preferredLocalizations
     /// Ghostty's `desktop-notifications`: off reads terminal notifications
     /// at once, as Ghostty then posts none (read per arrival, so a config
     /// reload applies).
@@ -98,6 +100,7 @@ final class NotificationCenterService {
             }
         })
         tasks.append(followViewedProgramStatus(store))
+        tasks.append(followNotificationLedger(services.daemon))
         tasks.append(Task { [weak self] in
             for await count in ObservationStream({ [weak self] in self?.currentUnreadCount() ?? 0 }) {
                 self?.updateDockBadge(count)
@@ -285,6 +288,7 @@ final class NotificationCenterService {
         // The feed (and the iPhone push) gets only what would alert on this Mac: the
         // driver's pass applies the policy to the daemon's item, and a notice that did
         // not alert here (pane in view, app active, banners off) stays local.
+        moveToTop(located.workspace)
         feedDriver?.noteArrival(terminal: located.tab.terminalResourceID?.rawValue, alerted: decision.alerts)
         feedDriver?.run()
         if decision.desktop {
@@ -300,7 +304,9 @@ final class NotificationCenterService {
     private func post(_ notification: DaemonNotification, tab: TabModel?, workspace: String?, sound: String?,
                       subtitle: String? = nil, program: ProgramStatusNotification? = nil) {
         let id = "cmux-notification-\(notification.notification.rawValue)"
-        let title = notification.title.isEmpty ? (tab?.displayTitle ?? "cmux") : notification.title
+        // An OSC 7501 alert reads in the app's language; the daemon's English is the fallback.
+        let title = program?.title(localizations: localizations)
+            ?? (notification.title.isEmpty ? (tab?.displayTitle ?? "cmux") : notification.title)
         desktop.post(id: id, title: title, subtitle: subtitle, body: notification.body, surface: notification.surface?.rawValue,
                      workspace: workspace, defaultSound: sound == "default",
                      attachment: program.flatMap { StatusNotificationImage.data($0.reason) },

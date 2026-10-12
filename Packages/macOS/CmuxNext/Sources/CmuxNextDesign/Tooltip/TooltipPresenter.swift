@@ -2,8 +2,8 @@ public import AppKit
 import CmuxNextWakeups
 
 /// The app's one tooltip (Leo, 2026-10-12: no stock macOS bubble). A view sets `themedToolTip`
-/// (`.themedHelp` in SwiftUI); hovering it shows this tooltip after `delay`, at once when the pointer
-/// moves on from one just shown (along a rail or a toolbar), below the view and kept on screen. It
+/// (`.themedHelp` in SwiftUI); hovering it shows this tooltip at once (POLISH: no hover delay on the
+/// first show), below the view and kept on screen. It
 /// draws in the view's theme scope: the elevated surface, the primary ink, a hairline border, a
 /// small radius and a shortcut hint in the secondary ink. Pages draw the same tooltip
 /// (webviews/src/ui/titleTooltips.ts, `.ui-tooltip`). A click, a key, a scroll or the app going
@@ -11,10 +11,6 @@ import CmuxNextWakeups
 @MainActor
 public final class TooltipPresenter {
     public static let shared = TooltipPresenter()
-    /// Hover time before the first tooltip (the pages' `TOOLTIP_DELAY`).
-    public static let delay: Duration = .milliseconds(500)
-    /// How long after one hides the next shows without the delay (`TOOLTIP_WARM`).
-    public static let warm: Duration = .milliseconds(400)
     /// Room kept between the tooltip and the screen's edges, and its gap from the view.
     static let edge: CGFloat = 6
     static let gap: CGFloat = 6
@@ -22,22 +18,25 @@ public final class TooltipPresenter {
     /// How often a shown tooltip checks that its view is still under the pointer and on screen (a view
     /// removed, hidden or scrolled away sends no exit). Only while one is on screen.
     static let recheck: Duration = .milliseconds(500)
+    /// How long the scrolling stays still before the row under the pointer shows its tooltip.
+    static let scrollQuiet: Duration = .milliseconds(150)
 
-    private let timer: DemandTimer
     private let checker: DemandTimer
+    private let quiet: DemandTimer
+    /// A scroll is under way: rows pass under the pointer, and none shows its tooltip.
+    private var scrolling = false
     private(set) lazy var panel = TooltipPanel()
     /// Trackers the pointer is inside (entered, not exited); the deepest one with text shows.
     private var inside: [TooltipTracker] = []
     private weak var current: TooltipTracker?
-    private var hiddenAt: ContinuousClock.Instant?
     private var monitor: Any?
 
     /// The text and shortcut on screen, nil while hidden (tests and debug).
     public private(set) var shown: (text: String, shortcut: String?)?
 
     init(clock: any Clock<Duration> = ContinuousClock()) {
-        timer = DemandTimer(owner: "tooltip", clock: clock)
         checker = DemandTimer(owner: "tooltip-check", clock: clock)
+        quiet = DemandTimer(owner: "tooltip-scroll", clock: clock)
     }
 
     /// The pointer entered a tooltip's view or region.
@@ -66,31 +65,35 @@ public final class TooltipPresenter {
     public func dismiss() {
         inside.removeAll()
         hide()
-        hiddenAt = nil
     }
 
-    /// Shows the pending tooltip now, as if the delay passed (tests).
-    func fire() {
-        timer.cancel()
-        show()
+    /// A scroll-wheel event: the tooltip goes, and the rows that pass under the pointer show none
+    /// (shown at once, each flashed by). Once the scrolling stops, the row under the pointer shows its.
+    func scrolled() {
+        if !scrolling {
+            dismiss()
+            scrolling = true
+            watch()
+        }
+        quiet.schedule(after: Self.scrollQuiet) { @MainActor [weak self] in
+            guard let self else { return }
+            scrolling = false
+            resolve()
+            if inside.isEmpty, !scrolling { unwatch() }
+        }
     }
 
-    /// Picks the deepest tooltip under the pointer and shows it: after the delay, or at once when one
-    /// was just on screen (moving along a rail or a toolbar).
+    /// Picks the deepest tooltip under the pointer and shows it at once.
     private func resolve() {
         inside.removeAll { $0.view == nil || $0.text == nil }
+        guard !scrolling else { return }
         let target = inside.max { $0.depth < $1.depth }
         guard target !== current else { return }
-        let warm = shown != nil || hiddenAt.map { $0.duration(to: .now) < Self.warm } ?? false
         hide()
         current = target
         guard target != nil else { return }
         watch()
-        if warm {
-            show()
-        } else {
-            timer.schedule(after: Self.delay) { @MainActor [weak self] in self?.show() }
-        }
+        show()
     }
 
     private func show() {
@@ -107,15 +110,11 @@ public final class TooltipPresenter {
     }
 
     private func hide() {
-        timer.cancel()
         checker.cancel()
-        if shown != nil {
-            hiddenAt = .now
-            panel.orderOut(nil)
-        }
+        if shown != nil { panel.orderOut(nil) }
         shown = nil
         current = nil
-        if inside.isEmpty { unwatch() }
+        if inside.isEmpty, !scrolling { unwatch() }
     }
 
     /// While a tooltip shows: its view still in a visible window, not hidden, the app active and the
@@ -148,7 +147,11 @@ public final class TooltipPresenter {
         monitor = NSEvent.addLocalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown, .scrollWheel, .appKitDefined]
         ) { [weak self] event in
-            if event.type != .appKitDefined || event.subtype == .applicationDeactivated { self?.dismiss() }
+            if event.type == .scrollWheel {
+                self?.scrolled()
+            } else if event.type != .appKitDefined || event.subtype == .applicationDeactivated {
+                self?.dismiss()
+            }
             return event
         }
     }

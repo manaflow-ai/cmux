@@ -106,8 +106,11 @@ import CmuxNextCompat
     /// The app-wide gate: one mode confirmation open at a time, across all panes and windows.
     public var confirmationGate = AgentPaneConfirmationGate.shared
     /// acpmux's Enable harness prompt for `id` in `folder` (`_acpmux/harness_enable` without
-    /// sha256, over the unix socket); nil when the daemon cannot give one (refused, not found).
-    public var harnessEnablePrompt: @MainActor (_ folder: String, _ id: String) async -> AgentPaneHarnessEnablePrompt? = { _, _ in nil }
+    /// sha256, over the unix socket); throws when the daemon cannot give one (its refusal, as
+    /// ``AcpmuxRPCError``, says why).
+    public var harnessEnablePrompt: @MainActor (_ folder: String, _ id: String) async throws -> AgentPaneHarnessEnablePrompt = { _, _ in
+        throw AcpmuxStatusClient.Failure.closed
+    }
     /// Shows the native Enable harness sheet for `prompt`; Cancel answers false.
     public var requestHarnessEnable: (@MainActor (_ prompt: AgentPaneHarnessEnablePrompt, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
     /// The current socket's request ids (relay-owned, mapped back on the reply).
@@ -148,8 +151,8 @@ import CmuxNextCompat
             try await AcpmuxStatusClient.markUnread(socketPath: path, sessionId: session)
         }
         harnessEnablePrompt = { [weak self] folder, id in
-            guard let path = self?.socketPath else { return nil }
-            return await AcpmuxStatusClient.harnessEnablePrompt(socketPath: path, folder: folder, id: id)
+            guard let path = self?.socketPath else { throw AcpmuxStatusClient.Failure.closed }
+            return try await AcpmuxStatusClient.harnessEnablePrompt(socketPath: path, folder: folder, id: id)
         }
     }
 

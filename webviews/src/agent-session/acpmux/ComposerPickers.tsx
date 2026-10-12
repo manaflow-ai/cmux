@@ -14,6 +14,8 @@ import { ModelPicker } from "./ModelPicker";
 import type { CatalogRefreshState, ModelCombo, ModelPickerProps } from "./modelPickerLayout";
 import { topModelsFor } from "./topModels";
 import { rememberPick } from "./lastPick";
+import { defaultModel } from "./harnessSwitch";
+import { harnessProfiles } from "./harnessProfiles";
 import type { PickerCatalog } from "./modelCatalogData";
 import { Popover } from "../../ui/Popover";
 import { ContextMenu } from "../../ui/ContextMenu";
@@ -349,6 +351,19 @@ export function ComposerPickers({
   });
   // A default model draws as the model it resolves to: the running session's, else the one this
   // harness's default last resolved to, else the model placeholder.
+  // The model a New Tab starts a chat on `agent` with (newTabStart, newTabChipSnapshot): the last
+  // pick here, else its profile's, else its first listed model, else the catalog's default.
+  const startingModel = (agent: string) => {
+    const entry = pickerCatalog?.harnesses.find((candidate) => (candidate.acpmuxHarness ?? candidate.id) === agent);
+    const asked = defaultModel(agent, snapshot.catalog, harnessProfiles, folder ?? summary?.cwd);
+    const id = asked && !isDefaultChoice({ id: asked }) ? asked : entry?.defaultModel;
+    if (!id || isDefaultChoice({ id })) return undefined;
+    return (
+      entry?.models.find((choice) => choice.id === id)?.name ??
+      models.find((choice) => choice.id === id)?.name ??
+      modelIdName(id)
+    );
+  };
   const defaulted = shown !== undefined && isDefaultChoice(model ?? { id: shown });
   // A harness still starting draws its last session's options, which name no model this chat runs.
   const resolvedNow = switching ? undefined : resolvedModel(summary);
@@ -359,7 +374,11 @@ export function ComposerPickers({
   const resolvedName =
     resolvedId &&
     (models.find((choice) => choice.id === resolvedId && !isDefaultChoice(choice))?.name ?? modelIdName(resolvedId));
-  const modelName = defaulted ? (resolvedName ?? t(PICKER_LABELS.model)) : (model?.name ?? summary?.model);
+  // A fresh chat on this Mac whose session has not reported its model yet names the one its New Tab
+  // started it on (cx-e2aa, cx-21jvw). A resumed or remote chat may run another: it waits.
+  const fresh = (summary?.turnCount ?? 0) === 0 && !summary?.host && summary?.hostKind !== "cloud";
+  const starting = shown === undefined && harness && fresh && !switching ? startingModel(harness) : undefined;
+  const modelName = defaulted ? (resolvedName ?? t(PICKER_LABELS.model)) : (model?.name ?? summary?.model ?? starting);
   const usage = summary?.usage;
   const compact = onCompact && snapshot.commands?.some((command) => command.name === "compact") ? onCompact : undefined;
 

@@ -12937,6 +12937,270 @@
         }
       }
     },
+    "hunk.acceptFile": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "قبول الملف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prihvati datoteku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Acceptér fil"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Datei annehmen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accept file"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aceptar archivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Accepter le fichier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Accetta file"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを承認"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទទួលយកឯកសារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "파일 수락"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Godta fil"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaakceptuj plik"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aceitar arquivo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Принять файл"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยอมรับไฟล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dosyayı kabul et"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прийняти файл"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chấp nhận tệp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "接受文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "接受檔案"
+          }
+        }
+      }
+    },
+    "hunk.rejectFile": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "رفض الملف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odbij datoteku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afvis fil"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Datei ablehnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reject file"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rechazar archivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rejeter le fichier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rifiuta file"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを却下"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បដិសេធឯកសារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "파일 거부"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avvis fil"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odrzuć plik"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rejeitar arquivo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Отклонить файл"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปฏิเสธไฟล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dosyayı reddet"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відхилити файл"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Từ chối tệp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "拒绝文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "拒絕檔案"
+          }
+        }
+      }
+    },
     "hunk.reject": {
       "comment": "Agent pane",
       "extractionState": "manual",
@@ -16244,127 +16508,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا توجد دردشات"
+            "value": "لا توجد دردشات بعد"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nema chatova"
+            "value": "Još nema chatova"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen chats"
+            "value": "Ingen chats endnu"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Keine Chats"
+            "value": "Noch keine Chats"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No chats"
+            "value": "No chats yet"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "No hay chats"
+            "value": "Aún no hay chats"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aucune discussion"
+            "value": "Aucune discussion pour le moment"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nessuna chat"
+            "value": "Ancora nessuna chat"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "チャットはありません"
+            "value": "チャットはまだありません"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "គ្មានការជជែក"
+            "value": "មិនទាន់មានការជជែកនៅឡើយ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "채팅 없음"
+            "value": "아직 채팅 없음"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen chatter"
+            "value": "Ingen chatter ennå"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Brak czatów"
+            "value": "Nie ma jeszcze czatów"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nenhum chat"
+            "value": "Nenhum chat ainda"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Нет чатов"
+            "value": "Чатов пока нет"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไม่มีแชท"
+            "value": "ยังไม่มีแชท"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sohbet yok"
+            "value": "Henüz sohbet yok"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Немає чатів"
+            "value": "Чатів ще немає"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Không có cuộc trò chuyện"
+            "value": "Chưa có cuộc trò chuyện nào"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "没有对话"
+            "value": "还没有对话"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "沒有對話"
+            "value": "尚無對話"
           }
         }
       }
@@ -63500,127 +63764,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا توجد جلسات مطابقة"
+            "value": "لا توجد دردشات مطابقة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nema odgovarajućih sesija"
+            "value": "Nema odgovarajućih chatova"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen matchende sessioner"
+            "value": "Ingen matchende chats"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Keine passenden Sitzungen"
+            "value": "Keine passenden Chats"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No matching sessions"
+            "value": "No matching chats"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ninguna sesión coincide"
+            "value": "Ningún chat coincide"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aucune session correspondante"
+            "value": "Aucune discussion correspondante"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nessuna sessione corrispondente"
+            "value": "Nessuna chat corrispondente"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "一致するセッションなし"
+            "value": "一致するチャットはありません"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "គ្មានសម័យដែលត្រូវគ្នា"
+            "value": "គ្មានការជជែកដែលត្រូវគ្នា"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "일치하는 세션 없음"
+            "value": "일치하는 채팅 없음"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen samsvarende økter"
+            "value": "Ingen samsvarende chatter"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Brak pasujących sesji"
+            "value": "Brak pasujących czatów"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nenhuma sessão correspondente"
+            "value": "Nenhum chat correspondente"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Нет подходящих сеансов"
+            "value": "Нет подходящих чатов"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไม่มีเซสชันที่ตรงกัน"
+            "value": "ไม่มีแชทที่ตรงกัน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Eşleşen oturum yok"
+            "value": "Eşleşen sohbet yok"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Немає відповідних сеансів"
+            "value": "Немає відповідних чатів"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Không có phiên khớp"
+            "value": "Không có cuộc trò chuyện nào phù hợp"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "没有匹配的会话"
+            "value": "没有匹配的对话"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "沒有符合的工作階段"
+            "value": "沒有符合的對話"
           }
         }
       }
@@ -63764,127 +64028,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا توجد جلسات بعد"
+            "value": "لا توجد دردشات بعد"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Još nema sesija"
+            "value": "Još nema chatova"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen sessioner endnu"
+            "value": "Ingen chats endnu"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Noch keine Sitzungen"
+            "value": "Noch keine Chats"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No sessions yet"
+            "value": "No chats yet"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aún no hay sesiones"
+            "value": "Aún no hay chats"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aucune session pour le moment"
+            "value": "Aucune discussion pour le moment"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ancora nessuna sessione"
+            "value": "Ancora nessuna chat"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "セッションはまだありません"
+            "value": "チャットはまだありません"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "មិនទាន់មានសម័យនៅឡើយ"
+            "value": "មិនទាន់មានការជជែកនៅឡើយ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "아직 세션 없음"
+            "value": "아직 채팅 없음"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen økter ennå"
+            "value": "Ingen chatter ennå"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Brak sesji"
+            "value": "Nie ma jeszcze czatów"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nenhuma sessão ainda"
+            "value": "Nenhum chat ainda"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Сеансов пока нет"
+            "value": "Чатов пока нет"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ยังไม่มีเซสชัน"
+            "value": "ยังไม่มีแชท"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Henüz oturum yok"
+            "value": "Henüz sohbet yok"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Сеансів ще немає"
+            "value": "Чатів ще немає"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chưa có phiên nào"
+            "value": "Chưa có cuộc trò chuyện nào"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "还没有会话"
+            "value": "还没有对话"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "尚無工作階段"
+            "value": "尚無對話"
           }
         }
       }
@@ -64556,127 +64820,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "البحث في الجلسات"
+            "value": "البحث في الدردشات"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pretraži sesije"
+            "value": "Pretraži chatove"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Søg i sessioner"
+            "value": "Søg i chats"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sitzungen durchsuchen"
+            "value": "Chats durchsuchen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Search sessions"
+            "value": "Search chats"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Buscar sesiones"
+            "value": "Buscar chats"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Rechercher des sessions"
+            "value": "Rechercher des discussions"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cerca sessioni"
+            "value": "Cerca chat"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "セッションを検索"
+            "value": "チャットを検索"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ស្វែងរកសម័យ"
+            "value": "ស្វែងរកការជជែក"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "세션 검색"
+            "value": "채팅 검색"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Søk i økter"
+            "value": "Søk i chatter"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Szukaj sesji"
+            "value": "Szukaj czatów"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pesquisar sessões"
+            "value": "Pesquisar chats"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Поиск сеансов"
+            "value": "Поиск чатов"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ค้นหาเซสชัน"
+            "value": "ค้นหาแชท"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Oturumlarda ara"
+            "value": "Sohbetlerde ara"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Шукати сеанси"
+            "value": "Шукати чати"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tìm kiếm phiên"
+            "value": "Tìm kiếm cuộc trò chuyện"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "搜索会话"
+            "value": "搜索对话"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "搜尋工作階段"
+            "value": "搜尋對話"
           }
         }
       }
