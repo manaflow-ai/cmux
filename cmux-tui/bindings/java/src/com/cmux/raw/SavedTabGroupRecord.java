@@ -11,7 +11,7 @@ import java.util.Objects;
 
 
 public final class SavedTabGroupRecord implements WireValue {
-    /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors. */
+    /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors. */
     private final String color;
     private final String id;
     private final List<SavedTabGroupMember> members;

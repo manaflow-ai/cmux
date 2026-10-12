@@ -352,6 +352,13 @@ struct PartRow: Hashable {
     var outgoing: Bool
     var tail: Bool
     var reactions: [Reaction]
+    /// The index in `reactions` of the viewer's own reaction (the participant with isMe,
+    /// AppState.me, of the conversation this row was built from), or nil. The row carries it, not
+    /// a process global: two windows with different users draw their own badges blue, and the
+    /// off-main renderers read no shared state. Part of the row's equality and hash, so the row
+    /// bitmap and badge caches re-render when it changes. The engine keeps one reaction per
+    /// person per part; with more, the first one is mine.
+    var myReaction: Int? = nil
     var failed: Bool
     var size: CGSize
     var text: TextLayout?
@@ -849,7 +856,8 @@ enum RowBuilder {
                     var failed = false
                     if case .failed = m.status { failed = true }
                     let row = PartRow(ref: PartRef(messageId: m.id, partIndex: pi), part: part, outgoing: CustomRows.outgoing(part, sender: outgoing),
-                                      tail: lastOfGroup && pi == m.parts.count - 1, reactions: reactions, failed: failed,
+                                      tail: lastOfGroup && pi == m.parts.count - 1, reactions: reactions,
+                                      myReaction: reactions.firstIndex { $0.senderId == me }, failed: failed,
                                       size: size, text: tl, connectorRoot: pi == 0 ? connector : nil, markdown: measured.markdown,
                                       markdownFormat: m.isMarkdown)
                     rows.append(RowSpec(key: "part:\(m.id):\(pi)", kind: .part(row), gap: g, height: size.height,

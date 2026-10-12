@@ -20,4 +20,10 @@ extension CmuxConfigSnapshot {
         self[keyPath: keyPath] = parsed.0
         if let diagnostic = parsed.1 { diagnostics.append(diagnostic) }
     }
+
+    /// Stores one setting's parsed value and keeps its diagnostics.
+    mutating func take<Value>(_ parsed: (Value, [SettingsDiagnostic]), _ keyPath: WritableKeyPath<Self, Value>) {
+        self[keyPath: keyPath] = parsed.0
+        diagnostics += parsed.1
+    }
 }

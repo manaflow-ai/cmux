@@ -223,6 +223,12 @@ export function NewTabScreen(props: Props) {
     if (!prompt || initialSelection(prompt, home) === 0 || !harness) return;
     props.onAsk(harness, prompt, project);
   };
+  const send = () => {
+    touch();
+    if (!shell) return submit();
+    const command = text.trim();
+    if (command) props.onShell(command);
+  };
   // A key typed anywhere on the page goes into the field, the first key kept (Lawrence
   // 2026-10-09: "if i just start typing it needs to automatically start typing"). Another field
   // (a picker's search), a menu with its own keys, a chord and IME keep theirs.
@@ -357,9 +363,17 @@ export function NewTabScreen(props: Props) {
           {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
               switch is the one Enter reuses. */}
           {Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />}
-          <kbd className="nt-enter" aria-hidden="true">
+          {/* Send: a click does what Return does (a prompt, a row, or a shell command). */}
+          <button
+            type="button"
+            className="nt-enter"
+            aria-label={t("composer.send")}
+            title={t("composer.send")}
+            disabled={!text.trim()}
+            onClick={send}
+          >
             ↵
-          </kbd>
+          </button>
         </div>
       </div>
       {rows.length > 0 && (
