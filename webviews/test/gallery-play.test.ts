@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { syntheticKey } from "../src/gallery/frame/playRunner";
+import { selectTextWithDriver, syntheticKey } from "../src/gallery/frame/playRunner";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -114,5 +114,33 @@ describe("gallery shell keyboard emulation", () => {
     syntheticKey("Tab");
     expect(document.activeElement).toBe(first);
     expect(document.activeElement).not.toBe(second);
+  });
+
+  test("uses the trusted driver to drag across all rendered text lines", async () => {
+    const root = document.getElementById("root")!;
+    root.innerHTML = '<p id="copy">first line<br />second line</p>';
+    const element = document.getElementById("copy")!;
+    const rangePrototype = dom.window.Range.prototype;
+    const descriptor = Object.getOwnPropertyDescriptor(rangePrototype, "getClientRects");
+    Object.defineProperty(rangePrototype, "getClientRects", {
+      configurable: true,
+      value: () => [
+        { left: 10, right: 70, top: 20, width: 60, height: 10 },
+        { left: 10, right: 90, top: 40, width: 80, height: 10 },
+      ],
+    });
+    try {
+      const actions: { kind: string; x?: number; y?: number }[] = [];
+      await selectTextWithDriver(element, async (action) => {
+        actions.push(action);
+      });
+      expect(actions.map(({ kind }) => kind)).toEqual(["down", "move", "up"]);
+      expect(actions[0]).toMatchObject({ kind: "down", x: 12, y: 25 });
+      expect(actions[1]).toMatchObject({ kind: "move", x: 88, y: 45 });
+      expect(actions[2]).toMatchObject({ kind: "up", x: 88, y: 45 });
+    } finally {
+      if (descriptor) Object.defineProperty(rangePrototype, "getClientRects", descriptor);
+      else delete (rangePrototype as { getClientRects?: unknown }).getClientRects;
+    }
   });
 });

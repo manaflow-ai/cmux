@@ -98,7 +98,7 @@ public nonisolated enum AgentPaneGitWrite: Equatable, Sendable {
     /// Nil unless `params` name a valid key and, for a commit, a message of 1 byte to 64 KiB with a visible character. An
     /// `expected_head` must be a hexadecimal commit id; booleans default to
     /// false and anything else of the wrong type refuses.
-    init?(method: String, params: [String: Any]?) {
+    public init?(method: String, params: [String: Any]?) {
         guard let params, let key = params["idempotency_key"] as? String, Self.isKey(key) else { return nil }
         if method == "git.worktree.create" {
             guard let cwd = params["cwd"] as? String, cwd.hasPrefix("/"), !cwd.contains("\0") else { return nil }

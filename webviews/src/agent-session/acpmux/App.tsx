@@ -26,6 +26,7 @@ import {
 } from "./model";
 import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
 import { postNative } from "./native";
+import { NativeError } from "./nativeError";
 import { errorMessage } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
 import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost, type TabKind } from "./NewTabPage";
@@ -77,6 +78,7 @@ import { useFolderTrustAsk } from "./useFolderTrustAsk";
 import { heldPrompts } from "./heldPrompt";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { DiffPanel } from "./DiffPanel";
+import type { DiffFindHandle } from "./changes/diffFind";
 import { Inspector, type ExportOutcome } from "./Inspector";
 import { SummaryButton } from "./summary/SummaryButton";
 import { turnCounts, turnDisplay } from "./changes/turnCheckpoint";
@@ -160,6 +162,7 @@ import { MOVE_ROW, type ChatMove, withMoveRows } from "./shell/chatMoves";
 import { MoveRow } from "./shell/MoveRow";
 import { ShellActionsContext, ShellRow, type ShellActions } from "./shell/ShellRow";
 import { SwitchNotice } from "./SwitchNotice";
+import { InstructionsNotice, type InstructionsFailure } from "./header/InstructionsNotice";
 import { FolderChoice, showsFolderChoice } from "./FolderChoice";
 import { type FolderAsk, StartFolderAsk, WorktreeFailure, confirmFolder, newWorktree, pickFolder } from "./startFolder";
 import { MissingFolder, chooseChatFolder } from "./missingFolder";
@@ -1655,6 +1658,27 @@ function AcpmuxPane() {
     error?: string;
   }>();
   const [importError, setImportError] = useState<string | undefined>();
+  // Edit CLAUDE.md the app refused (a link out of the folder, not a file): the notice above the
+  // composer says why, with Retry; opening it clears the notice.
+  const [instructionsFailure, setInstructionsFailure] = useState<
+    { cwd: string; failure: InstructionsFailure } | undefined
+  >();
+  // The shown chat's folder: an answer for a folder the pane has left changes nothing.
+  const instructionsFolder = useRef<string | undefined>(undefined);
+  const openInstructions = useCallback((cwd: string, name: string) => {
+    void callNative("project.instructions", { cwd, name }).then(
+      () => {
+        if (instructionsFolder.current === cwd) setInstructionsFailure(undefined);
+      },
+      (error: unknown) => {
+        if (instructionsFolder.current !== cwd) return;
+        setInstructionsFailure({
+          cwd,
+          failure: { file: name, code: error instanceof NativeError ? error.code : undefined },
+        });
+      },
+    );
+  }, []);
   /// Shell mode's commands (shell/shellRuns.ts), across the chats this page showed.
   const [shellRuns] = useState(() => new ShellRuns(callNative));
   const allShellRuns = useSyncExternalStore(shellRuns.subscribe, shellRuns.snapshot, shellRuns.snapshot);
@@ -1958,6 +1982,7 @@ function AcpmuxPane() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new current match opens its fold once
   }, [findTarget?.rowId, findTarget?.occurrence]);
   const findRef = useRef(find);
+  const diffFindRef = useRef<DiffFindHandle | undefined>(undefined);
   findRef.current = find;
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const inspectorOpener = useRef<HTMLElement | undefined>(undefined);
@@ -2567,10 +2592,13 @@ function AcpmuxPane() {
       command(name) {
         if (name === "createCheckpoint") showCheckpoint.current();
         // Find, Find Next, Find Previous and Hide Find on an agent pane (the app's Edit menu, Cmd-F).
-        if (name === "find") findRef.current.show();
-        if (name === "findNext") findRef.current.next();
-        if (name === "findPrevious") findRef.current.previous();
-        if (name === "hideFind") findRef.current.hide();
+        // With the keyboard in the changes view (or the view covering the transcript) they find there.
+        const diff = diffFindRef.current;
+        const target = diff?.owns() ? diff.find : findRef.current;
+        if (name === "find") target.show();
+        if (name === "findNext") target.next();
+        if (name === "findPrevious") target.previous();
+        if (name === "hideFind") target.hide();
         // Switch Model… (Ctrl-Cmd-M): the model picker opens on the path every opener uses, which
         // ends with the keyboard in its search field.
         if (name === "openModelPicker") openPicker(translate(PICKER_LABELS.model));
@@ -3307,6 +3335,9 @@ function AcpmuxPane() {
   const summary = snapshot.summary;
   const localCwd =
     summary && !summary.peer && !(summary.host && summary.hostKind !== "local") ? summary.cwd : undefined;
+  instructionsFolder.current = localCwd;
+  // Another chat or folder: an instructions notice was about the one before.
+  useEffect(() => setInstructionsFailure(undefined), [snapshot.sessionId, localCwd]);
   // The header's state from the chat's tab (header/headerState.ts): read when a chat opens, then pushed
   // by the App on every change. Whether the panes beside the chat show ([+] New tab reads Hide tabs) also
   // follows the App's answer to the click.
@@ -3422,9 +3453,7 @@ function AcpmuxPane() {
     // The chat folder's CLAUDE.md or AGENTS.md, in a file tab beside the chat (a tab: not Quick Chat).
     const instructions = quick
       ? undefined
-      : instructionsRow({ cwd: localCwd, family: summary?.family || summary?.harness }, (cwd, name) =>
-          ignoreFailure(callNative("project.instructions", { cwd, name })),
-        );
+      : instructionsRow({ cwd: localCwd, family: summary?.family || summary?.harness }, openInstructions);
     // Files every chat in the folder reads: copied into it and named in that file (cx-ncc.67).
     const projectFiles = quick
       ? undefined
@@ -3785,6 +3814,13 @@ function AcpmuxPane() {
           {importError}
         </p>
       )}
+      <InstructionsNotice
+        failure={instructionsFailure?.failure}
+        onRetry={() =>
+          instructionsFailure && openInstructions(instructionsFailure.cwd, instructionsFailure.failure.file)
+        }
+        onDismiss={() => setInstructionsFailure(undefined)}
+      />
       {harnessCard ?? (
         <SwitchNotice switching={snapshot.switching} onRetry={() => void callNative("chat.harness.retry")} />
       )}
@@ -4414,6 +4450,7 @@ function AcpmuxPane() {
                     onGitIntentHandled={clearGitIntent}
                     writeKeys={writeKeysFor(diffView.sessionId)}
                     onAddressThread={addressThread}
+                    findHandle={diffFindRef}
                   />
                 )}
               </div>

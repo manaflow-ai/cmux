@@ -2,6 +2,7 @@
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
 import type { AccountsRow, AccountsState, HostLists } from "./ops";
 import { categories, homes } from "./categories";
+import { mockThemeColors } from "./mockThemes";
 import { schema } from "./schema";
 import DEGAS_HALEVY from "../../gallery/fixtures/art/nga-degas-halevy-standing-66489.jpg?inline";
 import DEGAS_DANCER from "../../gallery/fixtures/art/nga-degas-dancer-from-behind-32137.jpg?inline";
@@ -301,6 +302,43 @@ Object.assign(variants, {
     },
     note: "An MDM lock inline on the setting.",
   }),
+  "theme-file-save": variant("theme", {
+    allThemes: true,
+    options: { values: { "appearance.theme": "Dracula" } },
+    steps: [
+      wait('[data-theme-files-action="save"]:not([disabled])'),
+      click('[data-theme-files-action="save"]'),
+      wait('[data-theme-files-prompt="name"]'),
+    ],
+    note: "Save as Ghostty Theme asks for a name inline, starting from the previewed theme's.",
+  }),
+  "theme-file-replace": variant("theme", {
+    allThemes: true,
+    options: {
+      values: { "appearance.theme": "Dracula" },
+      importable: { ...mockThemeColors[0]!, name: "Dracula Night" },
+    },
+    steps: [
+      wait('[data-theme-files-action="import"]:not([disabled])'),
+      click('[data-theme-files-action="import"]'),
+      wait('[data-theme-files-action="import"]:not([disabled])'),
+      click('[data-theme-files-action="import"]'),
+      wait('[data-theme-files-prompt="replace"]'),
+    ],
+    note: "Importing a file whose theme name is already in the themes folder asks inline before replacing it.",
+  }),
+  "theme-file-refused": variant("theme", {
+    allThemes: true,
+    options: { values: { "appearance.theme": "Dracula" } },
+    steps: [
+      wait('[data-theme-files-action="save"]:not([disabled])'),
+      click('[data-theme-files-action="save"]'),
+      input('[data-theme-files-prompt="name"] input', "Dracula"),
+      click('[data-theme-files-prompt="name"] button[type="submit"]'),
+      wait("[data-theme-files-error]"),
+    ],
+    note: "A name a shipped theme uses is refused inline; the name prompt stays open.",
+  }),
   "changed-only": variant("general", {
     options: { values: customValues },
     steps: [click("[data-changed-only]"), wait("[data-search-results]")],
@@ -570,6 +608,7 @@ export default settingsPageEntry({
     "pages/settings/components/SettingsApp.tsx",
     "pages/settings/components/SettingsPage.tsx",
     "pages/settings/components/ScopeOverrides.tsx",
+    "pages/settings/components/ThemeFiles.tsx",
     "pages/settings/components/ThemePicker.tsx",
     "pages/settings/components/ThemePreview.tsx",
     "pages/settings/components/ThemeStudio.tsx",
