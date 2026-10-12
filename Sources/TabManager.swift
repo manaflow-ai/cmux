@@ -175,6 +175,11 @@ fileprivate func cmuxVsyncIOSurfaceTimelineCallback(
 }
 #endif
 
+private struct SessionSnapshotWorkspaceSelection {
+    let workspaces: [Workspace]
+    let selectedWorkspaceIndex: Int?
+}
+
 // WorkspaceGroup, WorkspaceReorderPlanItem, WorkspaceBatchReorderError, and
 // the pure batch-reorder planning live in CmuxWorkspaces.
 
@@ -6589,6 +6594,19 @@ class TabManager: ObservableObject {
 }
 
 extension TabManager {
+    /// Returns the restorable workspace projection shared by snapshot capture,
+    /// selection mapping, and autosave fingerprinting.
+    private func sessionSnapshotWorkspaceSelection() -> SessionSnapshotWorkspaceSelection {
+        let allRestorableWorkspaces = tabs.filter(\.isRestorableInSessionSnapshot)
+        let selectedRestorableWorkspaceIndex = selectedTabId.flatMap { selectedTabId in
+            allRestorableWorkspaces.firstIndex(where: { $0.id == selectedTabId })
+        }
+        return SessionSnapshotWorkspaceSelection(
+            workspaces: allRestorableWorkspaces,
+            selectedWorkspaceIndex: selectedRestorableWorkspaceIndex
+        )
+    }
+
     func sessionAutosaveFingerprint(
         restorableAgentIndex: RestorableAgentSessionIndex = .empty,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex = .empty
@@ -6614,7 +6632,8 @@ extension TabManager {
             hasher.combine(group.externalID ?? "")
             hasher.combine(group.anchorWorkspaceProvenance.rawValue)
         }
-        for workspace in tabs.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow) {
+        let workspaceSelection = sessionSnapshotWorkspaceSelection()
+        for workspace in workspaceSelection.workspaces {
             hasher.combine(workspace.id)
             hasher.combine(workspace.groupId)
             hasher.combine(workspace.focusedPanelId)
@@ -6888,10 +6907,8 @@ extension TabManager {
         downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable: Bool = false
     ) -> SessionTabManagerSnapshot {
         panelTitleUpdateCoalescer.flushNow()
-        let restorableTabs = tabs
-            .filter(\.isRestorableInSessionSnapshot)
-            .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
-        let workspaceSnapshots = restorableTabs
+        let workspaceSelection = sessionSnapshotWorkspaceSelection()
+        let workspaceSnapshots = workspaceSelection.workspaces
             .map {
                 $0.sessionSnapshot(
                     includeScrollback: includeScrollback,
@@ -6901,15 +6918,13 @@ extension TabManager {
                         downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable
                 )
             }
-        let selectedWorkspaceIndex = selectedTabId.flatMap { selectedTabId in
-            restorableTabs.firstIndex(where: { $0.id == selectedTabId })
-        }
-        let occupiedGroupIds = Set(restorableTabs.compactMap(\.groupId))
+        let selectedWorkspaceIndex = workspaceSelection.selectedWorkspaceIndex
+        let occupiedGroupIds = Set(workspaceSelection.workspaces.compactMap(\.groupId))
         // Build a per-group ordered list of restorable member IDs so we can
         // record the anchor's index (restore-stable across UUID rotation).
         let restorableMembersByGroupId: [UUID: [UUID]] = {
             var map: [UUID: [UUID]] = [:]
-            for tab in restorableTabs {
+            for tab in workspaceSelection.workspaces {
                 if let gid = tab.groupId {
                     map[gid, default: []].append(tab.id)
                 }
@@ -6951,12 +6966,7 @@ extension TabManager {
     }
 
     func sessionSnapshotWorkspaceIds() -> [UUID] {
-        Array(
-            tabs
-                .filter(\.isRestorableInSessionSnapshot)
-                .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
-                .map(\.id)
-        )
+        sessionSnapshotWorkspaceSelection().workspaces.map(\.id)
     }
 
     private func releaseRestoredAwayWorkspace(_ workspace: Workspace, clearNotifications: Bool = true) {
@@ -7060,12 +7070,11 @@ extension TabManager {
         var newTabs: [Workspace] = []
         var restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]] = []
         let (normalizedWorkspaceSnapshots, selectedWorkspaceIndex) = Self.normalizedCloudVMSessionRestoreWorkspaces(
-            snapshot.workspaces.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow),
+            snapshot.workspaces,
             selectedWorkspaceIndex: snapshot.selectedWorkspaceIndex,
             cloudDisabledByPolicy: managedDevicePolicy.isEnforced(.disableCloud)
         )
         let workspaceSnapshots = normalizedWorkspaceSnapshots
-            .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
         prepareLegacyWorkspaceCustomizationMigration(
             afterRestoring: Array(workspaceSnapshots)
         )

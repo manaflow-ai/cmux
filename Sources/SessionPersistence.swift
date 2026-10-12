@@ -36,7 +36,6 @@ enum SessionPersistencePolicy {
     static let minimumWindowHeight: Double = 400
     static let autosaveInterval: TimeInterval = 8.0
     static let maxWindowsPerSnapshot: Int = 12
-    static let maxWorkspacesPerWindow: Int = 128
     static let maxPanelsPerWorkspace: Int = 512
     static let maxScrollbackLinesPerTerminal: Int = 4000
     static let maxScrollbackCharactersPerTerminal: Int = 400_000
@@ -1939,6 +1938,10 @@ struct SessionTabManagerSnapshot: Codable, Sendable {
     var selectedWorkspaceIndex: Int?
     var workspaces: [SessionWorkspaceSnapshot]
     var workspaceGroups: [SessionWorkspaceGroupSnapshot]? = nil
+    /// Legacy omission metadata from an intermediate snapshot format.
+    /// New snapshots do not omit workspaces, but keeping this optional field
+    /// allows those files to decode and makes the format additive.
+    var omittedWorkspaceCount: Int? = nil
 }
 
 struct SessionWindowSnapshot: Codable, Sendable {

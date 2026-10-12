@@ -41,12 +41,9 @@ extension TabManager {
         from snapshot: SessionTabManagerSnapshot
     ) -> [(snapshot: SessionWorkspaceSnapshot, workspace: Workspace)] {
         let (normalizedSnapshots, _) = Self.normalizedCloudVMSessionRestoreWorkspaces(
-            snapshot.workspaces.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow),
+            snapshot.workspaces,
             selectedWorkspaceIndex: snapshot.selectedWorkspaceIndex
         )
-        return Array(zip(
-            normalizedSnapshots.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow),
-            tabs
-        ))
+        return Array(zip(normalizedSnapshots, tabs))
     }
 }
