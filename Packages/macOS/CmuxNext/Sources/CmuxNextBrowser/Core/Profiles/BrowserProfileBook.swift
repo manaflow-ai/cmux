@@ -145,9 +145,14 @@ public nonisolated struct BrowserProfileBook: Codable, Hashable, Sendable {
         return color
     }
 
-    /// An SF Symbol name (ASCII letters, digits, dots) or one grapheme (an emoji).
+    /// An SF Symbol name (ASCII letters, digits, dots), one grapheme (an emoji) or a stored
+    /// image or SVG (`image:`/`svg:` asset ref).
     public static func validIcon(_ icon: String?) throws -> String? {
         guard let icon = icon?.trimmingCharacters(in: .whitespaces), !icon.isEmpty else { return nil }
+        switch IconValue(wire: icon) {
+        case .image?, .svg?: return icon
+        default: break
+        }
         let symbol = icon.count <= 64 && icon.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == ".") }
         guard symbol || icon.count == 1 else { throw BrowserProfileBookError.invalidIcon }
         return icon
