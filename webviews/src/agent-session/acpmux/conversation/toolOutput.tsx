@@ -5,9 +5,12 @@
 import { useMemo, useState } from "react";
 import { useT } from "../i18n";
 
-/// Terminal colour codes and terminal hyperlinks (OSC 8, `\x1b]8;;URL\x07text\x1b]8;;\x07`).
+/// Terminal control codes: CSI sequences (colours, `\x1b[?25l`, `\x1b[2~`, `\x1b[0 q`), OSC
+/// strings such as hyperlinks (`\x1b]8;;URL\x07text\x1b]8;;\x07`), charset picks (`tput sgr0`
+/// writes `\x1b(B`) and the two-byte keypad and cursor-save codes. Each starts with ESC, so no
+/// plain text is taken.
 // eslint-disable-next-line no-control-regex
-const ANSI = /\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
+const ANSI = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()*+][0-9A-Za-z]|\x1b[=>78DEHM]/g;
 
 export const stripAnsi = (text: string) => text.replace(ANSI, "");
 
@@ -17,17 +20,26 @@ const TAIL_CHARS = 40_000;
 
 /// The end of `text` a closed-up output shows, or undefined when all of it fits.
 export function outputTail(text: string): string | undefined {
-  // The line break before the last TAIL_LINES lines, when there are more.
-  let at = text.length;
+  // The line break before the last TAIL_LINES lines, when there are more; a final newline ends
+  // the last line rather than starting another.
+  let at = text.endsWith("\n") ? text.length - 1 : text.length;
   for (let n = 0; n < TAIL_LINES && at > 0; n++) at = text.lastIndexOf("\n", at - 1);
-  const start = Math.max(at > 0 ? at + 1 : 0, text.length - TAIL_CHARS);
+  let start = Math.max(at > 0 ? at + 1 : 0, text.length - TAIL_CHARS);
+  // A cut inside one long line must not split a surrogate pair.
+  if (start > 0 && /[\uDC00-\uDFFF]/.test(text[start] ?? "")) start++;
   return start > 0 ? text.slice(start) : undefined;
 }
 
 /// What an opened call shows of `output` (colour codes removed): its end while long, all of it
-/// once `all` is set.
-export function useOutput(output: string | undefined) {
-  const [all, setAll] = useState(false);
+/// once the reader asks. Each new `reveal` (Find in Chat revealed the call, and a match may be in
+/// the head) shows all of it too; the reader can still close it up.
+export function useOutput(output: string | undefined, reveal = 0) {
+  const [all, setAll] = useState(reveal > 0);
+  const [revealed, setRevealed] = useState(reveal);
+  if (reveal !== revealed) {
+    setRevealed(reveal);
+    if (reveal > 0) setAll(true);
+  }
   const [text, tail] = useMemo(() => {
     const text = output === undefined ? undefined : stripAnsi(output);
     return [text, text === undefined ? undefined : outputTail(text)] as const;

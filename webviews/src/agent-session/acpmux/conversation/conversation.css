@@ -1121,6 +1121,10 @@ pre.cv-math-source {
   background: var(--cv-card-fill);
   opacity: 0;
 }
+.cv-tool-output__copy:hover {
+  color: var(--cv-text);
+  background: color-mix(in srgb, var(--cv-fg) 7%, var(--cv-card-fill));
+}
 .cv-tool-output-card:hover .cv-tool-output__copy,
 .cv-tool-output__copy:focus-visible {
   opacity: 1;

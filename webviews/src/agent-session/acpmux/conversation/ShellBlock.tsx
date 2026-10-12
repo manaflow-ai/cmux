@@ -10,14 +10,17 @@ export function ShellBlock({
   command,
   output,
   exitCode,
+  reveal,
 }: {
   id?: string;
+  /** Bumped when Find in Chat reveals the call: shows the whole output, not only its end. */
+  reveal?: number;
   command?: string;
   output?: string;
   exitCode?: number;
 }) {
   const t = useT();
-  const shown = useOutput(output);
+  const shown = useOutput(output, reveal);
   return (
     <div className="cv-shell" id={id} ref={menuPartRef({ command, output: shown.text })}>
       <div className="cv-shell__label">
