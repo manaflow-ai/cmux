@@ -42,7 +42,16 @@ struct DaemonScreen: Codable, Sendable, Hashable {
     var id: Int
     var name: String?
     var active: Bool?
+    var activePane: Int?
     var panes: [DaemonPane]
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, active, panes
+        case activePane = "active_pane"
+    }
+
+    /// The focused pane (new tabs open there), else the first.
+    var focusedPane: DaemonPane? { panes.first { $0.id == activePane } ?? panes.first }
 }
 
 struct DaemonPane: Codable, Sendable, Hashable {

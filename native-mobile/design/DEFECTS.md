@@ -28,6 +28,7 @@ owner-handoff (written up for the owning agent).
 | 19 | Files | Previewing a minified bundle (one multi-megabyte line) built one row millions of points wide and ran the syntax highlighter over the whole line, stalling the preview. | S2 | fixed: rows cut at 4000 characters with "N more characters", no highlighting above 1000; tests |
 | 20 | Diff | The same one-huge-line problem in the diff viewer: a changed minified file rendered one multi-megabyte highlighted row and a no-wrap width in the millions of points. | S2 | fixed: diff rows use the code preview limits (cut at 4000 characters, plain above 1000 bytes) |
 | 21 | Feed / bandwidth | Every reconnect's backfill re-enriched the 12 newest posts, and each enrich pulls the terminal's whole scrollback over the link (megabytes on a long agent session, 12 times per reconnect). | S2 | fixed: enrich each post once per connection |
+| 22 | New terminal | "New terminal" in a workspace with a split screen opened the tab in the first pane, not the focused one (the phone ignored `active_pane`). | S3 | fixed: `DaemonScreen.activePane` / `focusedPane` |
 
 ## Open (owner handoff or needs a device run)
 

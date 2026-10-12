@@ -241,7 +241,7 @@ final class HostConnection {
 
     @discardableResult
     func newTerminal(in workspace: DaemonWorkspace) async throws -> Int? {
-        guard let control, let pane = workspace.screens.first(where: { $0.active ?? false })?.panes.first ?? workspace.screens.first?.panes.first else { return nil }
+        guard let control, let pane = (workspace.screens.first(where: { $0.active ?? false }) ?? workspace.screens.first)?.focusedPane else { return nil }
         let surface = try await control.newTab(pane: pane.id)
         await refresh()
         return surface
