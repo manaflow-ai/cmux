@@ -7,8 +7,5 @@ extension AgentPaneView {
     /// delivers that event itself, and first runs the handler that the local monitor runs for a
     /// real event. The gesture rule is the same; Release builds have no such entry.
     public func debugRunGestureMonitor(_ event: NSEvent) { monitored(event) }
-
-    /// The left mouse downs the page's web view has received (DEBUG automation).
-    public var debugWebViewMouseDowns: Int { (webView as? AgentPaneWKWebView)?.debugMouseDowns ?? 0 }
 }
 #endif

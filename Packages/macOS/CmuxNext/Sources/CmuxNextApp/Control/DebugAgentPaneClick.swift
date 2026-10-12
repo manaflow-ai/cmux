@@ -34,11 +34,22 @@ enum DebugAgentPaneClick {
         const seen = [];
         window.__cmuxDebugClick = seen;
         for (const type of ['pointerdown', 'mousedown', 'mouseup', 'click']) {
-            window.addEventListener(type, (e) => { if (window.__cmuxDebugClick === seen) seen.push(type + (e.isTrusted ? '' : '?')); }, { capture: true, once: true });
+            window.addEventListener(type, function note(e) {
+                if (window.__cmuxDebugClick !== seen) return window.removeEventListener(type, note, true);
+                seen.push(type + (e.isTrusted ? '' : '?'));
+            }, true);
         }
         target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
         const r = target.getBoundingClientRect();
         return JSON.stringify({ x: r.left + r.width / 2, y: r.top + r.height / 2, tag: target.tagName.toLowerCase() });
+        """
+
+    /// Whether the page has seen the click's mouse down, waiting up to `ms` for it.
+    private static let arrived = """
+        for (const until = Date.now() + ms; Date.now() < until; await new Promise((resolve) => setTimeout(resolve, 20))) {
+            if ((window.__cmuxDebugClick ?? []).some((type) => type.startsWith('mousedown'))) return true;
+        }
+        return false;
         """
 
     /// After the click: the page's events (`?` marks an untrusted one), its visibility and focus.
@@ -87,15 +98,16 @@ enum DebugAgentPaneClick {
         let hit = frameView.flatMap { $0.hitTest($0.convert(point, from: nil)) }
         // `path`: "app" or "view" forces one delivery path; by default the key window takes the app's.
         let path = params["path"]?.stringValue
-        let downsBefore = view.debugWebViewMouseDowns
         var delivered: String
         if path == "app" || (path != "view" && DebugNativeInput.usesAppKitPath(window)) {
             DebugNativeInput.sendThroughApp([down, up])
             delivered = "app"
             // Automation makes a window key without the app being frontmost, and AppKit then holds
-            // a first click back from a view that does not accept first mouse (the web view): the
-            // page never got it, so it goes to the web view as for a window that is not key.
-            if path != "app", view.debugWebViewMouseDowns == downsBefore {
+            // a first click back from a view that does not accept first mouse (the web view): when
+            // the click was this page's and the page never saw it, it goes to the web view as for a
+            // window that is not key. A click AppKit gave another view stays there.
+            let pageSawIt = (try? await webView.callAsyncJavaScript(arrived, arguments: ["ms": 500], in: nil, contentWorld: .page)) as? Bool
+            if path != "app", pageSawIt == false, hit?.isDescendant(of: webView) == true {
                 webView.mouseDown(with: down)
                 webView.mouseUp(with: up)
                 delivered = "app, then view"
@@ -117,7 +129,6 @@ enum DebugAgentPaneClick {
             "gesture_available": .bool(gestures.available),
             "hit": hit.map { .string(String(describing: type(of: $0))) } ?? .null,
             "hit_in_page": .bool(hit?.isDescendant(of: webView) == true),
-            "web_view_downs": .number(Double(view.debugWebViewMouseDowns - downsBefore)),
             "page_events": .array(((pageObject?["events"] as? [String]) ?? []).map(JSONValue.string)),
             "page_visibility": (pageObject?["visibility"] as? String).map(JSONValue.string) ?? .null,
             "page_focus": (pageObject?["focus"] as? Bool).map(JSONValue.bool) ?? .null,
