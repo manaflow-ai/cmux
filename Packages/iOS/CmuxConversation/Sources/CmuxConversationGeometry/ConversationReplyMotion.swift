@@ -75,8 +75,16 @@ public enum ConversationReplyMotion {
     }
 
     /// Whether `part` slides right with the bubble during a reply swipe.
+    /// ChatKit applies `swipeToReplyLayoutOffset` only to the message
+    /// display view (`CKTranscriptMessageContentCell`) and, through
+    /// `transcriptBalloonCell:didTranslateBalloonByDelta:`, to the tapback
+    /// cells; the avatar, sender name and quoted message stay where they
+    /// are, so the arrow grows in the gap the bubble leaves, uncovered.
     public static func followsSwipe(_ part: SwipePart) -> Bool {
-        true
+        switch part {
+        case .balloon, .tapback: true
+        case .avatar, .senderName, .replyQuote: false
+        }
     }
 
     /// Where the arrow draws for a bubble `offset`: its box parked at
