@@ -34,6 +34,7 @@ public struct TabItemMapping {
         item.busyStyle = busy.style
         if item.status == .needsInput { item.blockedKind = StatusMapping.shared.blockedKind(tab) }
         item.presence = presence(tab)
+        item.statusDetail = StatusMapping.shared.detail(tab)
         applyUserIcon(tab, to: &item)
         return item
     }
