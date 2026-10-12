@@ -91,7 +91,7 @@ Verdicts: **yes** conforms; **fixed** conformed only after this bead; **gap** op
 
 | Spec rule / contract row | Verdict | Where / evidence |
 | --- | --- | --- |
-| never markup; plain text only | yes | S shows `title` only as a `StatusReport.label`; banners are plain `UNNotificationContent` text |
+| never markup; plain text only | yes | S shows `title` as a `StatusReport.label`, and `title` and `msg` after `app` on the tab hover card's own quieter line (`StatusMapping.detail`, `TabHoverCardView`, cx-6so.36.9; test `ProgramStatusHoverDetailTests`); banners are plain `UNNotificationContent` text |
 | disarm bidi/invisible formatting outside the grid (SHOULD) | yes | D `shown_text` strips Cf controls; test `shown_text_drops_invisible_formatting_and_caps_length`; live `bidi` |
 | `msg`: MUST NOT read meaning into it | yes | no code branches on `msg` |
 | tab indicator: working (progress), blocked = attention dot, error/done = unseen badge | yes | S `StatusMapping.reports/needsInput/outcome`, `TabItemMapping.status`; live snapshots |
@@ -118,4 +118,4 @@ Verdicts: **yes** conforms; **fixed** conformed only after this bead; **gap** op
 2. Daemon restart loses records (see table). Programs restore them with their next report; no data is wrong, only missing.
 3. The TUI has no working/progress indicator for any status source; adding one is a TUI feature, not a protocol rule.
 4. Notification wording comes from the daemon in English, like the agent-hook notifications ("Claude needs approval"); localizing daemon notification titles is a separate change for both producers.
-5. `msg` is not shown anywhere except the notification body (no hover detail exists for any status source yet).
+5. Fixed (cx-6so.36.9): the tab hover card shows the shown record's `app`, `title` and `msg` on one line. Other status sources (agent hooks, workspace status) still have no hover detail.
