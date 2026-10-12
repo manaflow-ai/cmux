@@ -11,6 +11,7 @@ struct PaletteAccessibilityTests {
     /// One node of the panel's accessibility tree, as an AX client reads it.
     private struct Node {
         var role: String
+        var kind = ""
         var identifier: String
         var text: String
         var selected: Bool
@@ -37,12 +38,13 @@ struct PaletteAccessibilityTests {
         let texts = [NSAccessibility.Attribute.description, .title, .value].compactMap { attribute(object, $0) as? String }.filter { !$0.isEmpty }
         let text = texts.reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
         let children = depth > 40 ? [] : (attribute(object, .children) as? [Any] ?? []).map { node($0, depth: depth + 1) }
-        return Node(role: attribute(object, .role) as? String ?? "", identifier: attribute(object, .identifier) as? String ?? "",
+        return Node(role: attribute(object, .role) as? String ?? "", kind: String(describing: type(of: object)),
+                    identifier: attribute(object, .identifier) as? String ?? "",
                     text: text.joined(separator: ", "), selected: (attribute(object, .selected) as? Bool) ?? false, children: children)
     }
 
     private static func dump(_ node: Node, indent: String = "") -> String {
-        "\(indent)\(node.role) [\(node.identifier)] \(node.text)\(node.selected ? " (selected)" : "")\n"
+        "\(indent)\(node.role) <\(node.kind)> [\(node.identifier)] \(node.text)\(node.selected ? " (selected)" : "")\n"
             + node.children.map { dump($0, indent: indent + "  ") }.joined()
     }
 
