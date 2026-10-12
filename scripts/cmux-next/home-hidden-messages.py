@@ -13,7 +13,10 @@ Cases:
 - few: a conversation with 2 messages, opened in Home for the first time (its
   transcript page loads after the view is made), then a live message.
 - thread: the thread proof's order (before, root, 2 replies), opened, a plain
-  message right away, then a live thread reply.
+  message right away, then a live thread reply (its root's text preview shows
+  above it). Then the transcript moves by half a device pixel: the text rows
+  under the preview rest on whole device pixels with no partial pixels on their
+  straight edges (MessagesLab c1457e5 row-snap; home_pixels.check_rows).
 
 Reads and writes only through the debug socket; no system input. Runs on
 cmux-lawrence-2 (GUI host), never on the laptop. Ends with quitEndSessions and
@@ -23,6 +26,9 @@ Usage: home-hidden-messages.py --tag <tag> [--out DIR] [--no-launch]
 Exit 0 when every check passes, 1 otherwise.
 """
 import argparse, json, os, socket, subprocess, sys, time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from home_pixels import check_rows  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -198,6 +204,28 @@ try:
         compare("thread, live reply", thread, ["Before the thread", ROOT, "I can take the schema part.",
                                                "I will do the backfill after it.", "After the thread", "Third reply, arriving live."],
                 "thread-live.png")
+        # The live reply's root preview (a 2-line text preview: 52.65 pt of parts, a 52.5 pt row on the pixel
+        # grid since MessagesLab c1457e5) sits above the reply. With the transcript on half a device pixel
+        # (both axes), the text rows under the preview rest on whole device pixels with crisp straight edges.
+        rows = (rpc("debug.home.drive", {"action": "rows"}) or {}).get("rows") or []
+        kinds = [r["kind"] for r in rows]
+        has_preview = "preview" in kinds and "text" in kinds[kinds.index("preview") + 1:]
+        check("thread, live reply: a thread preview shows above a text row", has_preview, kinds)
+        rpc("debug.home.drive", {"action": "nudge", "dx": 0.25, "dy": 0.25})
+        time.sleep(0.2)  # test harness: one display frame for the move to show
+        half = rpc("debug.home.drive", {"action": "rows"}) or {}
+        half_shot = os.path.join(opts.out, "thread-half-pixel.png")
+        rpc("debug.window_snapshot", {"path": half_shot})
+        check("thread, half pixel: the transcript sits on half a device pixel (both axes)", bool(half.get("ok"))
+              and all(abs(((half.get(k, 0) * 2) % 1) - 0.5) < 0.01 for k in ("hostX", "hostY")),
+              {k: half.get(k) for k in ("hostX", "hostY", "error")})
+        if has_preview and half.get("ok") and os.path.exists(half_shot):
+            hk = [r["kind"] for r in half["rows"]]
+            below = {r["key"] for r in half["rows"][hk.index("preview") + 1:]} if "preview" in hk else set()
+            preview = next((r for r in half["rows"] if r["kind"] == "preview"), None)
+            if preview:
+                print(f"     thread preview row: {preview['height']} pt", flush=True)
+            check_rows(check, "thread, half pixel, under the preview", half, half_shot, keys=below, min_rows=1)
 finally:
     if pid:
         reply = rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)

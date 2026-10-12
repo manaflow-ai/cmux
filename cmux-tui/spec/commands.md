@@ -8289,8 +8289,8 @@ The daemon forgets the move even when acpmux refuses the abort.
 
 ## Access requests
 
-`access-request-v1` keeps a Cloud machine's agents' requests for files of
-the person's Mac (Move to Cloud, slice 6). An agent on the machine files a
+`access-request-v1` keeps a Cloud machine's agents' requests for files and
+secrets of the person's Mac (Move to Cloud, slice 6). An agent on the machine files a
 request and polls its status; the app on the Mac lists the pending requests
 through its machine link, decides on the Mac (a folder the chat was granted,
 or the person's answer on an inline card), copies what it shares itself
@@ -8309,17 +8309,32 @@ each is forgotten 15 minutes after it was made or answered
 (`access_request.limit` when full; the machine's own agents can fill it, which only stalls that machine's requests). Other codes:
 `access_request.unknown_request` and `access_request.answered`.
 
-- `{cmd:"access-request", kind:"file", path, session?, reason?}`: `path` is
-  absolute (at most 4096 bytes), `session` the asking chat's agent session
-  (plain, at most 200 bytes), `reason` at most 1000 bytes. Answers
-  `{request_id}` (32 hex digits).
+- `{cmd:"access-request", kind:"file", path, session?, reason?}` or
+  `{cmd:"access-request", kind:"secret", name, session?, reason?}`: `path`
+  is absolute (at most 4096 bytes), `name` a secret's name (`A-Za-z0-9._-`,
+  at most 128 bytes), `session` the asking chat's agent session (plain, at
+  most 200 bytes), `reason` at most 1000 bytes. Answers `{request_id}` (32
+  hex digits).
 - `{cmd:"access-request-status", request_id}`: `{state:"pending"}`,
-  `{state:"delivered", path}` (where the Mac put it on this machine) or
+  `{state:"delivered", path}` (where the Mac put a file on this machine),
+  `{state:"delivered", value}` (a secret, to the first status read only;
+  later reads get `{state:"delivered", taken:true}`) or
   `{state:"denied", reason}`.
-- `{cmd:"access-request-list"}`: `{requests:[{request_id, kind, path,
+- `{cmd:"access-request-list"}`: `{requests:[{request_id, kind, path, name,
   session, reason, age_ms}]}`, the pending ones, oldest first.
-- `{cmd:"access-request-answer", request_id, outcome:"delivered", path}` or
-  `{..., outcome:"denied", reason?}`: a pending request only. Answers `{}`.
+- `{cmd:"access-request-answer", request_id, outcome:"delivered", path}` (a
+  file request), `{..., outcome:"delivered", value}` (a secret request, at
+  most 64 KiB) or `{..., outcome:"denied", reason?}`: a pending request
+  only. Answers `{}`.
+
+A secret value is kept in memory only, never written or logged, and wiped
+when the request is forgotten; its first status read takes it (best effort:
+the frame and reply lines are plain buffers while read and written). The
+Mac shares one only for one request the person answered
+(`cmux link access answer --share-secret NAME`, the value on stdin byte for
+byte, no newline removed). An agent's `request --secret` that stops waiting
+withdraws its request (denies it), so a later answer is
+`access_request.answered`.
 
 ## File system (fs-v1)
 

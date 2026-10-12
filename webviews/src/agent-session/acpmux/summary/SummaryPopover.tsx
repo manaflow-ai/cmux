@@ -1,5 +1,6 @@
 import React, { type ReactNode } from "react";
 import { Counts } from "../changes/Counts";
+import { changedByTools } from "../changes/turnCheckpoint";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
@@ -14,7 +15,8 @@ const ROW_ICON = rowIconSize(12);
 /// always show, in the Codex app's order, with "None" while empty; pull requests, background
 /// tasks and wakeups follow when there are any.
 /// Pull requests and sources are links, so they open, copy and open in a new tab as links do;
-/// an output opens the changes view at that file. Following a link calls `onFollow`. A chat
+/// an output opens the changes view at that file. A file the last turn changed is listed under
+/// Changes only. Following a link calls `onFollow`. A chat
 /// with images or renders offers its gallery under Outputs (GalleryDialog.tsx). A chat whose
 /// subagents acpmux reports shows their Lineage (subagents/Lineage.tsx) in the Subagents place.
 const TASK_STATES: Record<SummaryBackgroundTask["state"], StringKey> = {
@@ -53,12 +55,19 @@ export function SummaryPopover({
   lineage?: ReactNode;
 }) {
   const t = useT();
+  // A file the last turn changed shows once, under Changes (as in Codex); Outputs keeps the rest.
+  // A loaded checkpoint lists them under the repository root, outputs as the agent wrote them.
+  const changed = changes?.files ?? [];
+  const outputs =
+    changed.length > 0
+      ? summary.outputs.filter((output) => !changed.some((file) => changedByTools(file, [output])))
+      : summary.outputs;
   return (
     <>
       <SummarySection
         title={t("summary.outputs")}
         fixed
-        items={summary.outputs}
+        items={outputs}
         row={(file) => (
           <li key={file.path}>
             <button
