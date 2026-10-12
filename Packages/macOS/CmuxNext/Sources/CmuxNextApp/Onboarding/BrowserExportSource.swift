@@ -2,12 +2,15 @@ import Foundation
 
 /// A browser whose export steps Import from Another Browser… shows, one row
 /// of `browser-export-steps.json`. The steps' text follows `family`; a
-/// Chromium browser's rows name the pages it exports from.
+/// Chromium browser's rows name the pages it exports from. The password
+/// managers (1Password, Bitwarden) export passwords only.
 nonisolated struct BrowserExportSource: Decodable, Equatable, Sendable {
     enum Family: String, Decodable, Sendable {
         case chromium
         case firefox
         case safari
+        case onePassword = "1password"
+        case bitwarden
     }
 
     let id: String
@@ -16,7 +19,7 @@ nonisolated struct BrowserExportSource: Decodable, Equatable, Sendable {
     let family: Family
     /// The page that exports passwords (Chromium browsers).
     let passwords: String?
-    /// The page that exports bookmarks (Chromium browsers).
+    /// The page that exports bookmarks (Chromium browsers); nil when it has no bookmarks export (Arc).
     let bookmarks: String?
     /// Where its history exports (Chrome: Google Takeout).
     let history: String?
