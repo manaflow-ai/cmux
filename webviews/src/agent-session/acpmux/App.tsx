@@ -2508,6 +2508,9 @@ function AcpmuxPane() {
     }),
     [shellRuns],
   );
+  // New Worktree while the host makes it (a git worktree add can take seconds): a line says so;
+  // a newer folder pick ends it.
+  const [worktreeCreating, setWorktreeCreating] = useState(false);
   /// A folder the user picked on this Mac: the host takes it at once or asks first
   /// (startFolder.tsx); `use` runs only with a folder the host took.
   /// Only the latest pick's answer counts (two quick picks can answer out of order).
@@ -2518,6 +2521,7 @@ function AcpmuxPane() {
     const pick = ++folderPick.current;
     const sessionId = shownSession.current;
     setFolderAsk(undefined);
+    setWorktreeCreating(false);
     void pickFolder(callNative, cwd, (folder) => {
       if (pick === folderPick.current) use(folder);
     }).then((ask) => {
@@ -2548,14 +2552,19 @@ function AcpmuxPane() {
     const pick = ++folderPick.current;
     setFolderAsk(undefined);
     setWorktreeError(undefined);
+    setWorktreeCreating(true);
     void newWorktree(callNative, cwd, (folder) => {
       if (pick !== folderPick.current) return;
       // A chat that started meanwhile keeps its folder: the worktree gets a new chat of its own.
       if (freshRef.current) setProjectDraft(folder);
       else void callNative("chat.new", { cwd: folder }).catch(() => undefined);
-    }).catch((error: unknown) => {
-      if (pick === folderPick.current) setWorktreeError(errorMessage(error) || String(error));
-    });
+    })
+      .catch((error: unknown) => {
+        if (pick === folderPick.current) setWorktreeError(errorMessage(error) || String(error));
+      })
+      .finally(() => {
+        if (pick === folderPick.current) setWorktreeCreating(false);
+      });
   }, []);
   const automationPick = useRef<(cwd: string) => void>(undefined);
   automationPick.current = (cwd) => chooseProject(cwd);
@@ -3897,6 +3906,9 @@ function AcpmuxPane() {
             }}
           />
         )
+      )}
+      {worktreeCreating && freshChat && !snapshot.sessionId && (
+        <output className="acpmux-switch-notice acpmux-worktree-creating">{t("worktree.creating")}</output>
       )}
       {worktreeError && freshChat && !snapshot.sessionId && (
         <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />
