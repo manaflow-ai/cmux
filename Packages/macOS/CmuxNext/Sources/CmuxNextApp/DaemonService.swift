@@ -121,10 +121,8 @@ final class DaemonService {
             }
         }
         endpointProvider = launcher.endpointProvider
-        if let session = try? DaemonLauncher.sessionName(tag: launch.tag) {
-            launchSnapshotSession = session
-            showLaunchSnapshot(session: session, stateDirectory: launcher.configuration.stateDirectory)
-        }
+        launchSnapshotSession = launcher.configuration.session
+        showLaunchSnapshot(session: launcher.configuration.session, stateDirectory: launcher.configuration.stateDirectory)
         let configuration = Self.localConfiguration(terminalEnvironment: terminalEnvironmentProvider,
                                                     resolvesShellIntegration: resolvesShellIntegration,
                                                     installKey: launcher.configuration.installKey, retryWake: retryWake)
