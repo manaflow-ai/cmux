@@ -117,6 +117,7 @@ export function WorktreePill({
             applying={applying}
             setApplying={(next) => setApply({ branch: worktree.branch, applying: next })}
             apply={onApply}
+            busy={removing.step === "removing"}
           />
         )}
         {onRemove && (
@@ -125,6 +126,7 @@ export function WorktreePill({
             removing={removing}
             setRemoving={(next) => setRemove({ branch: worktree.branch, removing: next })}
             remove={onRemove}
+            busy={applying.step === "applying"}
           />
         )}
       </Popover>
