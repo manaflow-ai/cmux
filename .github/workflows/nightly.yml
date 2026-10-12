@@ -2768,6 +2768,8 @@ jobs:
         # 15m more in Apple's queue plus 20m of Gatekeeper propagation polling
         # (notarize-computer-use-helper.sh), so the step budget covers both
         # waits and the DMG's pending state is always written before a timeout.
+        # A helper Apple still holds after 15m is not a failure: the DMG ticket
+        # covers it, and that is checked (cx-urd.68), and a slow DMG is handed off.
         timeout-minutes: ${{ needs.decide.outputs.notary_test == 'true' && 205 || 85 }}
         env:
           CMUX_NOTARY_WAIT_TIMEOUT: ${{ needs.decide.outputs.notary_test == 'true' && '160m' || '40m' }}
