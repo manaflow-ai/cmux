@@ -96,13 +96,16 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
                 selection: BackdropSelection? = nil, tuning: AppearanceTuning = .identity,
                 texture: BackdropTexture = .default) {
         let resolvedSelection = selection ?? art.map(BackdropSelection.art)
+        // A work's own tint replaces the theme's (dark works show more of themselves); the
+        // legibility floor below still keeps text readable over it.
         let opacity = resolvedSelection == nil || tokens.backgroundOpacity < 1
             ? tokens.backgroundOpacity
-            : max(tokens.wallpaperTintOpacity, resolvedSelection?.minimumTintOpacity ?? 0)
+            : resolvedSelection?.preferredTintOpacity
+                ?? max(tokens.wallpaperTintOpacity, resolvedSelection?.minimumTintOpacity ?? 0)
         self.init(backgroundOpacity: opacity, backgroundBlur: tokens.backgroundBlur,
                   reduceTransparency: reduceTransparency)
         if resolvedSelection != nil, !isOpaque {
-            legibleTintOpacity = tokens.legibleTintOpacity(requested: 0)
+            legibleTintOpacity = tokens.legibleTintOpacity(over: resolvedSelection?.artRange ?? .any, requested: 0)
             tintOpacity = max(tintOpacity, legibleTintOpacity)
         }
         self.art = art

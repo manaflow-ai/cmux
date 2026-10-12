@@ -86,7 +86,8 @@ extension NewTabPage {
     /// (`keep`: its Log In, Update or Open in Terminal) stays; the new tab opens beside it.
     /// A static of the page, not the pane, so PaneController stays one
     /// responsibility (the godfile limit counts its extensions).
-    static func replace(_ key: String, with request: AgentPaneOpenTab, cwd: String?, in pane: PaneController, keep: Bool = false) {
+    static func replace(_ key: String, with request: AgentPaneOpenTab, cwd: String?, in pane: PaneController, keep chat: Bool = false) {
+        let keep = chat || request.keep
         let services = pane.services
         services.keyRouter.newTabInputCoordinator.cancel(in: pane.view.window)
         openingPanes.remove(ObjectIdentifier(pane))

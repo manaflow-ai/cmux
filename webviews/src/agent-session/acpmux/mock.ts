@@ -510,7 +510,10 @@ export class MockAcpmuxSocket {
           ...(typeof params.to === "string" ? { to: params.to } : {}),
         };
       case "git.diff":
-        return mockGitDiff(target, params.scope, params.include_patch === true);
+        return mockGitDiff(target, params.scope, params.include_patch === true, {
+          paths: Array.isArray(params.paths) ? params.paths.map(String) : undefined,
+          context: typeof params.context_lines === "number" ? params.context_lines : undefined,
+        });
       case "git.status":
         return mockGitStatus(target);
       case "git.commit":

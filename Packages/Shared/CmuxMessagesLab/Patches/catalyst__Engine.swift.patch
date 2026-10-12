@@ -21,7 +21,7 @@
      /// Hosted rows of these messages measure again (no state change). `animated` false: an
      /// estimate correction (no motion; the first visible row keeps its place).
      case remeasureCustom([ID], animated: Bool)
-@@ -190,6 +197,13 @@
+@@ -195,6 +202,13 @@
              s.conversation.messages.update(at: i) { $0.parts.update(at: pi) { $0 = .custom(part) } }
          case .remeasureCustom:
              break

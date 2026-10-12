@@ -159,7 +159,7 @@ enum RowDraw {
                               CGRect(x: 19.00 - 2.375, y: typingBubble.maxY + 3.23 - 2.375, width: 4.75, height: 4.75)]
     static func drawTypingBubble(_ ctx: CGContext, top: CGFloat) {
         let b = CGRect(x: typingBubble.minX, y: top, width: typingBubble.width, height: typingBubble.height)
-        Fixture.incoming.setFill()
+        Fixture.typingFill.setFill()
         UIBezierPath(roundedRect: b, cornerRadius: b.height / 2).fill()
     }
     static func typingDotCenter(_ i: Int) -> CGPoint {

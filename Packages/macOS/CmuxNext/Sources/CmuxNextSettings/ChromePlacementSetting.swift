@@ -70,6 +70,7 @@ public nonisolated struct ChromePlacementSetting {
                           title: SettingsText.keyed("settings.tabs.barOrder", "Tab Bar and Browser Toolbar"),
                           help: SettingsText.keyed("settings.tabs.barOrder.help",
                                                    "In a browser pane with the tab bar at the top: the tab bar above the address bar, or below it."),
+                          summary: SettingsText.keyed("settings.tabs.barOrder.summary", "Which sits on top in a browser pane"),
                           kind: .choice([
                               SettingChoice(TabBarOrder.aboveToolbar.rawValue,
                                             SettingsText.keyed("settings.choice.tabsAboveToolbar", "Tab Bar Above")),

@@ -34,14 +34,29 @@ export function Backdrops() {
       <span className="row-help">{attribution}</span>
     </button>
   );
+  // Art arrives grouped by collection (Dark Art, Museum Icons, Calm, Doré), each under its
+  // title; the desktop picture and system wallpapers follow in one untitled group.
+  const groups: Array<{ key: string; title: string | null; choices: typeof backdrops }> = [];
+  for (const choice of backdrops) {
+    const key = choice.collection ?? "";
+    const last = groups[groups.length - 1];
+    if (last && last.key === key) last.choices.push(choice);
+    else groups.push({ key, title: choice.collection_title ?? null, choices: [choice] });
+  }
   return (
     <section className="group" data-card="backdrop">
       <h3 className="group-title">{t("settingsWindow.backdropPicker.title")}</h3>
-      <div className="row-help">{t("settingsWindow.backdropPicker.hint")}</div>
       <div className="backdrop-grid">
         {tile("none", t("settingsWindow.backdropPicker.none"), t("settingsWindow.backdropPicker.none"))}
-        {backdrops.map((choice) => tile(choice.id, choice.title, choice.attribution))}
       </div>
+      {groups.map((group) => (
+        <div key={group.key || "other"} className="backdrop-group" data-collection={group.key || undefined}>
+          {group.title && <h4 className="row-help backdrop-group-title">{group.title}</h4>}
+          <div className="backdrop-grid">
+            {group.choices.map((choice) => tile(choice.id, choice.title, choice.attribution))}
+          </div>
+        </div>
+      ))}
     </section>
   );
 }
@@ -51,7 +66,6 @@ export function TerminalInfo() {
   if (!host?.terminal) return null;
   return (
     <section className="group" data-card="terminal">
-      <div className="row-help">{t("settingsWindow.terminalBody.options")}</div>
       <div className="rows">
         <ActionRow title={t("settingsWindow.ghosttyConfig")} help="">
           <span className="row-help selectable" title={host.terminal.ghostty_config}>

@@ -9,7 +9,7 @@
 /* On: a toggle whose panel is open (aria-pressed, cx-00n1), tinted like the composer's Plan toggle. */
 .acpmux-header-tool[aria-pressed=true]{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 16%,transparent);color:var(--agent-accent,var(--agent-text))}
 .acpmux-header-tool[aria-pressed=true]:not(:disabled):hover{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 22%,transparent)}
-.ui-popup.acpmux-chat-menu-popover{width:256px;max-height:min(540px,70vh);overflow:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border:0;border-radius:var(--ui-popup-radius);background:var(--acpmux-menu-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),var(--ui-popup-shadow);transform-origin:var(--transform-origin);color:var(--agent-text);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:var(--text-control);line-height:var(--text-control--line-height);-webkit-user-select:none;user-select:none;cursor:default;outline:none}
+.ui-popup.acpmux-chat-menu-popover{width:256px;max-height:min(540px,70vh);overflow:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border:0;border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),var(--ui-popup-shadow);transform-origin:var(--transform-origin);color:var(--agent-text);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:var(--text-control);line-height:var(--text-control--line-height);-webkit-user-select:none;user-select:none;cursor:default;outline:none}
 .ui-menu-item.acpmux-chat-menu-item{display:flex;align-items:center;gap:8px;width:100%;min-height:var(--ui-row-height);height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);box-sizing:border-box;border-radius:var(--ui-row-radius);color:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-chat-menu-item>svg{flex:none;color:var(--agent-muted)}
 .ui-menu-item.acpmux-chat-menu-item[data-highlighted],.ui-menu-item.acpmux-chat-menu-item[data-popup-open]{background:var(--acpmux-menu-hover);outline:none}
@@ -68,7 +68,7 @@
 .acpmux-worktree-apply button.acpmux-worktree-remove-discard{color:var(--agent-danger)}
 /* The chip's status (cx-ncc.77.1): the title linking the pull request, its state and review, then each
    check with a dot by its outcome, failing first. Compact rows, the summary popover's surface. */
-.acpmux-pr-status{width:300px;max-height:min(480px,70vh);overflow:auto;padding:8px 6px 6px;box-sizing:border-box;border:0;border-radius:var(--ui-popup-radius);background:var(--acpmux-menu-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),var(--ui-popup-shadow);transform-origin:var(--transform-origin);color:var(--agent-text);font-size:var(--text-control);line-height:18px;outline:none}
+.acpmux-pr-status{width:300px;max-height:min(480px,70vh);overflow:auto;padding:8px 6px 6px;box-sizing:border-box;border:0;border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),var(--ui-popup-shadow);transform-origin:var(--transform-origin);color:var(--agent-text);font-size:var(--text-control);line-height:18px;outline:none}
 @media (prefers-reduced-motion:no-preference){.acpmux-pr-status{animation:ui-popup-open var(--ui-popup-open) ease-out}}
 .acpmux-pr-title{display:block;padding:0 6px;color:var(--agent-text);font-weight:600;text-decoration:none;overflow-wrap:anywhere}
 .acpmux-pr-title:hover{text-decoration:underline}
@@ -88,7 +88,7 @@
 .acpmux-pr-none{padding:4px 6px;border-top:.5px solid var(--acpmux-composer-edge);color:var(--agent-muted)}
 /* Merge on the PR chip's status (cx-ncc.77.4): asks once more in place, then says it merged or why not. */
 /* Sticky, so Merge stays in reach under a long check list. */
-.acpmux-pr-merge{position:sticky;bottom:-6px;display:flex;flex-direction:column;gap:6px;margin:6px 0 -6px;padding:8px 6px 8px;background:var(--acpmux-menu-bg);border-top:.5px solid var(--acpmux-composer-edge);font-size:var(--text-detail)}
+.acpmux-pr-merge{position:sticky;bottom:-6px;display:flex;flex-direction:column;gap:6px;margin:6px 0 -6px;padding:8px 6px 8px;background:var(--surface-popup);border-top:.5px solid var(--acpmux-composer-edge);font-size:var(--text-detail)}
 .acpmux-pr-merge-buttons{display:flex;justify-content:flex-end;gap:6px}
 .acpmux-pr-merge button{height:24px;padding:0 10px;border:0;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
 .acpmux-pr-merge button:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)))}
