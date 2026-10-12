@@ -19,9 +19,9 @@ final class TabGroupChipCell {
         didSet {
             guard oldValue != isLifted else { return }
             themeScope.perform { pill.shadowColor = Palette.shadow.cgColor }
-            pill.shadowRadius = Metrics.space3
-            pill.shadowOffset = CGSize(width: 0, height: Metrics.space1)
-            pill.shadowOpacity = isLifted ? 0.22 : 0
+            pill.shadowRadius = PopupStyle.standard.shadowBlur
+            pill.shadowOffset = CGSize(width: 0, height: PopupStyle.standard.shadowOffset)
+            pill.shadowOpacity = isLifted ? Float(PopupStyle.standard.shadowAlpha) : 0
             layer.zPosition = isLifted ? 11 : 1
         }
     }
@@ -38,7 +38,7 @@ final class TabGroupChipCell {
         }
     }
 
-    private let pill = CALayer()
+    let pill = CALayer()
     private let nameLayer = ChromeTextLayer()
     private let nameMask = CAGradientLayer()
     private let countLayer = ChromeTextLayer()

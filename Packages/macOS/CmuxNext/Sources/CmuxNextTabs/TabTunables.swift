@@ -46,10 +46,10 @@ public nonisolated enum TabTunables {
         default: 14, range: 1...60, step: 1, unit: .multiplier, code: "TabTunables.autoscrollGain")
     public static let hoverCardMinimumDelay = Tunable<Double>.number(
         "tabs.hoverCard.minimumDelay", .hover, "Hover card delay (narrow tabs)", help: "Delay over the narrowest tabs.",
-        default: 0.3, range: 0...2, step: 0.05, unit: .seconds, code: "TabTunables.hoverCardMinimumDelay")
+        default: 0, range: 0...2, step: 0.05, unit: .seconds, code: "TabTunables.hoverCardMinimumDelay")
     public static let hoverCardMaximumDelay = Tunable<Double>.number(
         "tabs.hoverCard.maximumDelay", .hover, "Hover card delay (wide tabs)", help: "Delay over full-width tabs.",
-        default: 0.8, range: 0...3, step: 0.05, unit: .seconds, code: "TabTunables.hoverCardMaximumDelay")
+        default: 0, range: 0...3, step: 0.05, unit: .seconds, code: "TabTunables.hoverCardMaximumDelay")
     public static var all: [TunableDescriptor] {
         [compactTabWidth, pinnedGroupGap, contentTrailingInset, closeButtonSize, closeGlyphSize, iconTitleSpacing, titleCloseSpacing,
          titleFadeWidth, badgeSize, closeMinContentsWidth, titleMinVisibleWidth, scrollFadeWidth,
