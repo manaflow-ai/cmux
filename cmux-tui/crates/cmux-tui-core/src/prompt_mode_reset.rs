@@ -1,10 +1,11 @@
 //! A program that dies without cleanup (SIGKILL, a crash) leaves the modes it
 //! set: mouse reporting stays on, so every mouse move types an SGR report
 //! (`35;1;13M`) into the shell, an alternate screen stays up and the cursor
-//! stays hidden. When the
-//! shell starts its next prompt (OSC 133;A) while it is the terminal's
-//! foreground job, nothing it runs can want them any more: they are reset
-//! right before the mark, so the prompt draws on a sane screen.
+//! stays hidden. When the shell starts its next prompt (OSC 133;A) with no
+//! command running since its last 133;D, nothing it runs can want them any
+//! more: they are reset right before the mark, so the prompt draws on a sane
+//! screen. A program that prints a prompt mark itself runs after the shell's
+//! 133;C, so its modes stay.
 //!
 //! Bracketed paste (2004), focus reports (1004) and application cursor keys
 //! (1) are the line editor's own prompt modes (zsh, bash and fish turn them
@@ -14,8 +15,8 @@ use std::borrow::Cow;
 
 use ghostty_vt::{Screen, Terminal};
 
-/// The OSC 133 prompt-start mark, any terminator or options after it.
-const PROMPT_START: &[u8] = b"\x1b]133;A";
+/// An OSC 133 semantic mark; the byte after it names the mark.
+const MARK: &[u8] = b"\x1b]133;";
 
 /// Every mouse reporting mode and encoding, as ghostty-vt knows them.
 const MOUSE_RESET: &[u8] =
@@ -36,38 +37,48 @@ const CURSOR_VISIBLE: u16 = 25;
 /// application cursor keys, a hidden cursor or an alternate screen.
 pub(crate) const EXIT_RESET: &[u8] = b"\x1b[?9l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?1016l\x1b[?2004l\x1b[?1004l\x1b[?1l\x1b[?25h\x1b[?47l\x1b[?1047l\x1b[?1049l";
 
+/// Where the shell is between its marks, carried across output chunks.
+#[derive(Debug, Default)]
+pub(crate) struct ShellMarks {
+    /// A command started (133;C) and has not finished (133;D).
+    running: bool,
+}
+
 /// Write `data` to `term`, resetting a dead program's modes right before
-/// each prompt mark when `shell_foreground` says the terminal's own child
-/// is the foreground job. Returns the bytes the terminal parsed, resets
-/// included, for mirrors and attach taps.
+/// each prompt mark the shell prints at its prompt. Returns the bytes the
+/// terminal parsed, resets included, for mirrors and attach taps.
 pub(crate) fn write_output<'a>(
     term: &mut Terminal,
     data: &'a [u8],
-    shell_foreground: impl Fn() -> bool,
+    marks: &mut ShellMarks,
 ) -> Cow<'a, [u8]> {
-    let Some(first) = find(data, PROMPT_START) else {
-        return term.vt_write_with_normalized(data);
-    };
-    let mut parsed = Vec::with_capacity(data.len());
-    let mut rest = data;
-    let mut at = first;
-    loop {
-        parsed.extend_from_slice(&term.vt_write_with_normalized(&rest[..at]));
-        let reset = leftover_modes(term);
-        if !reset.is_empty() && shell_foreground() {
-            parsed.extend_from_slice(&term.vt_write_with_normalized(&reset));
+    let mut parsed: Option<Vec<u8>> = None;
+    let mut written = 0;
+    let mut from = 0;
+    while let Some(offset) = find(&data[from..], MARK) {
+        let at = from + offset;
+        from = at + MARK.len();
+        match data.get(from) {
+            Some(b'C') => marks.running = true,
+            Some(b'D') => marks.running = false,
+            Some(b'A') if !marks.running => {
+                // The modes as of the mark: what this chunk set before it counts.
+                let parsed = parsed.get_or_insert_with(|| Vec::with_capacity(data.len()));
+                parsed.extend_from_slice(&term.vt_write_with_normalized(&data[written..at]));
+                written = at;
+                let reset = leftover_modes(term);
+                if !reset.is_empty() {
+                    parsed.extend_from_slice(&term.vt_write_with_normalized(&reset));
+                }
+            }
+            _ => {}
         }
-        let mark = &rest[at..];
-        let next = find(&mark[PROMPT_START.len()..], PROMPT_START);
-        match next {
-            Some(offset) => {
-                rest = mark;
-                at = PROMPT_START.len() + offset;
-            }
-            None => {
-                parsed.extend_from_slice(&term.vt_write_with_normalized(mark));
-                return Cow::Owned(parsed);
-            }
+    }
+    match parsed {
+        None => term.vt_write_with_normalized(data),
+        Some(mut parsed) => {
+            parsed.extend_from_slice(&term.vt_write_with_normalized(&data[written..]));
+            Cow::Owned(parsed)
         }
     }
 }

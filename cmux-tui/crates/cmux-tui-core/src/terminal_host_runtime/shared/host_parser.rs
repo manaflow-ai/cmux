@@ -123,6 +123,7 @@ pub(crate) fn run_host_parser(
     let ParserSignals { pending_responses, title_changed, bell } = signals;
     let mut last_colors = initial_colors;
     let mut last_pwd = None;
+    let mut shell_marks = crate::prompt_mode_reset::ShellMarks::default();
     // Ghostty can answer terminal queries without producing a parser
     // frame. Flush those answers after every parser command, not only
     // after PTY output, so lifecycle operations (for example resize
@@ -144,12 +145,9 @@ pub(crate) fn run_host_parser(
                     let cursor_activity = term
                         .cursor_activity()
                         .expect("valid host terminals expose cursor activity");
-                    let pid = parser_host.pid;
                     let normalized =
-                        crate::prompt_mode_reset::write_output(&mut term, &bytes, || {
-                            pid.is_some_and(crate::platform::is_foreground)
-                        })
-                        .into_owned();
+                        crate::prompt_mode_reset::write_output(&mut term, &bytes, &mut shell_marks)
+                            .into_owned();
                     parser_host.terminal_metadata.lock().unwrap().observe_output(&bytes);
                     let title = title_changed
                         .swap(false, Ordering::AcqRel)

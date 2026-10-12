@@ -251,6 +251,7 @@ impl Surface {
                             .clone(),
                     );
                     let mut buf = [0u8; 64 * 1024];
+                    let mut shell_marks = crate::prompt_mode_reset::ShellMarks::default();
                     // The PTY master is blocking, so WouldBlock should not
                     // happen; if it does, retries are spaced instead of the
                     // old fixed 1 ms (1 kHz) poll.
@@ -303,11 +304,10 @@ impl Surface {
                             let cursor_activity = term
                                 .cursor_activity()
                                 .expect("valid local terminals expose cursor activity");
-                            let pid = pty.pid;
                             let normalized = crate::prompt_mode_reset::write_output(
                                 &mut term,
                                 &buf[..n],
-                                || pid.is_some_and(platform::is_foreground),
+                                &mut shell_marks,
                             );
                             terminal_notifications = pty.observe_terminal_output(&buf[..n]);
                             finished_commands = pty.observe_shell_marks(&mut term, || {
