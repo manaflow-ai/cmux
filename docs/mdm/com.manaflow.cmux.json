@@ -1987,10 +1987,22 @@
       "title" : "Show All Chats",
       "type" : "boolean"
     },
+    "sidebar.showProfileControl" : {
+      "default" : true,
+      "description" : "sidebar.showProfileControl",
+      "title" : "Show Profile Button",
+      "type" : "boolean"
+    },
     "sidebar.showProjects" : {
       "default" : true,
       "description" : "sidebar.showProjects",
       "title" : "Show Projects",
+      "type" : "boolean"
+    },
+    "sidebar.showSpaces" : {
+      "default" : true,
+      "description" : "sidebar.showSpaces",
+      "title" : "Show Spaces",
       "type" : "boolean"
     },
     "sidebar.showWorkspaceTabs" : {
@@ -2506,17 +2518,6 @@
       "description" : "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu.",
       "title" : "Cmd-W Closes Pinned Tabs",
       "type" : "boolean"
-    },
-    "tabs.hiddenButtons" : {
-      "default" : [
-
-      ],
-      "description" : "Action ids of the buttons hidden from the tab bar. Right-click a button to hide it, the tab bar's buttons to show it again.",
-      "items" : {
-        "type" : "string"
-      },
-      "title" : "Hidden Tab Bar Buttons",
-      "type" : "array"
     },
     "tabs.newTabKind" : {
       "default" : "page",

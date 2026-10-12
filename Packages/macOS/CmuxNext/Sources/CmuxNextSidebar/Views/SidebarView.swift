@@ -76,8 +76,11 @@ public final class SidebarView: NSView {
     private var lastState: RenderState?
     /// App section contributions the bands showed at the last update (`releaseAppSections`).
     var shownAppContributions: Set<String> = []
-    public init(model: SidebarModel) {
+    /// The `sidebar.*` settings this sidebar draws from (tests give their own).
+    let design: DesignSettings
+    public init(model: SidebarModel, design: DesignSettings = .shared) {
         self.model = model
+        self.design = design
         list = SidebarListView(model: model)
         profileBar = ProfileBarView(model: model)
         super.init(frame: .zero)
@@ -177,11 +180,8 @@ public final class SidebarView: NSView {
         }
     }
 
-    /// Starts inline rename of a workspace (the "rename workspace" action's
-    /// sidebar entrypoint). Commit emits `.rename`.
-    public func beginRename(workspace id: WorkspaceID) {
-        list.inlineRename.begin(.workspace(id))
-    }
+    /// Starts inline rename of a workspace (the "rename workspace" action's sidebar entrypoint).
+    public func beginRename(workspace id: WorkspaceID) { list.inlineRename.begin(.workspace(id)) }
 
     // MARK: Hierarchy
 
@@ -255,7 +255,8 @@ public final class SidebarView: NSView {
         // A lone space switches nothing, so the footer keeps one control, the
         // profile control (Leo 2026-10-11: its mark and the History dot beside
         // it read as a duplicate switcher). Two or more spaces show the strip.
-        let showsProfiles = ProfileBarLogic.isVisible(profileCount: model.profiles.count)
+        // `sidebar.showSpaces` off (cx-wab7m) shows no strip, wherever it would sit.
+        let showsProfiles = ProfileBarLogic.isVisible(profileCount: model.profiles.count) && design.sidebarSections.showSpaces
         profileBar.isHidden = !showsProfiles
         // R109: the dots under the titlebar row, or in the footer.
         let spacesHeight: CGFloat = spacesPosition == .top && showsProfiles ? SidebarStyle.footerHeight : 0
@@ -294,6 +295,11 @@ public final class SidebarView: NSView {
 
     override public func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+    /// A bottom-band right-click no piece took opens the band's menu: Show for its hidden pieces (cx-wab7m).
+    override public func menu(for event: NSEvent) -> NSMenu? {
+        convert(event.locationInWindow, from: nil).y >= footer.frame.minY ? contextMenuProvider?(.footer) : super.menu(for: event)
+    }
+
     // MARK: Hover reveal
 
     // The pointer over the sidebar reveals its chrome: `chromeHover`, set up in init.
@@ -326,7 +332,7 @@ public final class SidebarView: NSView {
     }
 
     private func observe() {
-        let model = model
+        let model = model, design = design
         observation = Task { [weak self] in
             for await state in ObservationStream({
                 RenderState(
@@ -342,7 +348,7 @@ public final class SidebarView: NSView {
                     collapsedSections: model.collapsedLayoutSections,
                     look: SidebarSectionTunables.currentLook,
                     drawsLines: Borders.drawsLines,
-                    preferences: DesignSettings.shared.sidebarSections,
+                    preferences: design.sidebarSections,
                     suppressedApps: model.suppressedApps,
                     metrics: .standard,
                     fontSize: Typography.body.pointSize,
