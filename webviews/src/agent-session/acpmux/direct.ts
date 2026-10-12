@@ -1039,9 +1039,10 @@ export class AcpmuxDirectClient {
     return postNative("file.search", { cwd, query, limit });
   }
 
-  /// The selected session's repository changes in one git scope (changes/model.ts).
-  gitDiff(scope: string): Promise<unknown> {
-    return this.git("git.diff", { scope, include_patch: true });
+  /// The selected session's repository changes in one git scope (changes/model.ts); `narrow` names
+  /// files (`paths`) and their unchanged context (`context_lines`, changes/wholeFile.ts).
+  gitDiff(scope: string, narrow: { paths?: string[]; context_lines?: number } = {}): Promise<unknown> {
+    return this.git("git.diff", { scope, include_patch: true, ...narrow });
   }
 
   /// The selected session's branch, upstream and how far it is ahead and behind.
