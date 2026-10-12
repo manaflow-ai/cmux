@@ -123,14 +123,14 @@ public final class WhatsNewCenter {
     /// (``dismissUpdated()``) clears it (a939fe59's terms, 2026-10-10).
     public func markUpdateSeen() {
         if let current { seen.markSeen(current) }
-        lastUpdates?.clear()
+        lastUpdates?.clear(ifFor: currentBuild)
         isUpdated = false
     }
 
     /// The card's x: the record goes, from memory and from disk.
     private func markRecordSeen() {
         lastUpdate = nil
-        lastUpdates?.clear()
+        lastUpdates?.clear(ifFor: currentBuild)
     }
 
     /// The "cmux Updated!" card's x: this version is seen, so the card and
