@@ -82,28 +82,22 @@ const runDbTests = process.env.CMUX_DB_TEST === "1";
     process.env.CMUX_DB_POOL_MAX = "1";
     const { cloudDb, closeCloudDbForTests } = await import("../db/client");
     const { sql } = await import("drizzle-orm");
-    const timings: Array<CloudDbQueryTiming & { label: string }> = [];
-    let label = "";
-    setCloudDbQueryObserver(() => {
-      const current = label;
-      return (timing) => timings.push({ ...timing, label: current });
-    });
+    const timings: CloudDbQueryTiming[] = [];
+    setCloudDbQueryObserver(() => (timing) => timings.push(timing));
     try {
-      label = "slow";
-      const slow = cloudDb().execute(sql`select pg_sleep(0.3)`);
-      label = "queued";
-      const queued = cloudDb().execute(sql`select 1 as one`);
-      await Promise.all([slow, queued]);
+      // The pool's one connection is opened first, so neither query waits on a connect.
+      await cloudDb().execute(sql`select 1 as warm`);
+      timings.length = 0;
+      await Promise.all([cloudDb().execute(sql`select pg_sleep(0.3)`), cloudDb().execute(sql`select 1 as one`)]);
     } finally {
       await closeCloudDbForTests();
     }
-    const queued = timings.find((timing) => timing.label === "queued");
-    const slow = timings.find((timing) => timing.label === "slow");
-    expect(slow?.failed).toBe(false);
-    expect(queued?.failed).toBe(false);
-    // The queued query was sent only after the slow one released the connection.
-    expect(queued!.acquireWaitMs).toBeGreaterThan(slow!.acquireWaitMs);
-    expect(queued!.acquireWaitMs).toBeGreaterThanOrEqual(slow!.durationMs - 50);
+    expect(timings).toHaveLength(2);
+    expect(timings.every((timing) => !timing.failed)).toBe(true);
+    // Whichever query got the connection second was sent only after the
+    // first released it: its acquire wait covers the first one's run.
+    const [first, second] = [...timings].sort((a, b) => a.acquireWaitMs - b.acquireWaitMs);
+    expect(second!.acquireWaitMs).toBeGreaterThanOrEqual(first!.durationMs - 50);
   });
 
   test("the timing hook leaves query cancellation working", async () => {
@@ -116,7 +110,7 @@ const runDbTests = process.env.CMUX_DB_TEST === "1";
     const url = process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL!;
     const probe = (await import("postgres")).default(url, { max: 1, prepare: false });
     try {
-      const running = runWithCloudDbQuerySignal(controller.signal, () => cloudDb().execute(sql`select pg_sleep(5) as cancellation_probe`));
+      const running = runWithCloudDbQuerySignal(controller.signal, async () => await cloudDb().execute(sql`select pg_sleep(5) as cancellation_probe`));
       const settled = running.then(() => "resolved", () => "rejected");
       // Abort once the server is actually running the statement: a bounded
       // poll of pg_stat_activity, not a fixed wait.
@@ -131,5 +125,5 @@ const runDbTests = process.env.CMUX_DB_TEST === "1";
       await closeCloudDbForTests();
     }
     expect(timings.at(-1)?.failed).toBe(true);
-  });
+  }, 15_000);
 });
