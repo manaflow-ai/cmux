@@ -309,8 +309,9 @@ impl Mux {
 
     /// Form an ungrouped tab group again (`archive`, from
     /// `record_ungrouped_tab_group`) with its id, name and color around
-    /// those of its tabs still open and unpinned in one pane, in their
-    /// order: its own pane when it holds any, else the pane of the first.
+    /// those of its tabs still open, unpinned and in no other group, in one
+    /// pane, in their order: its own pane when it holds any, else the pane
+    /// of the first. A group formed since keeps its tabs.
     /// None still open forms nothing; a live group of that id (a retried
     /// reopen) is left as it is.
     fn reopen_tab_group(
@@ -327,7 +328,10 @@ impl Mux {
                 .into_iter()
                 .flatten()
                 .filter_map(Value::as_str)
-                .filter(|tab| !presentation.pinned_tabs.contains(*tab))
+                .filter(|tab| {
+                    !presentation.pinned_tabs.contains(*tab)
+                        && !presentation.tab_groups.members.contains_key(*tab)
+                })
                 .map(str::to_string)
                 .collect::<Vec<_>>();
             let home = archive["pane_id"].as_str().map(str::to_string);

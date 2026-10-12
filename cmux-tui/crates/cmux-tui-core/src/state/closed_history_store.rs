@@ -368,11 +368,22 @@ fn insert_group(
     members: Vec<Value>,
     window: Option<String>,
 ) -> anyhow::Result<()> {
-    let pending = take_pending_group(transaction)?;
-    let closed_id = match &pending {
-        Some((closed_id, _)) => closed_id.clone(),
-        None => new_closed_id(),
+    let (closed_id, extra) = match take_pending_group(transaction)? {
+        Some((closed_id, extra)) => (closed_id, Some(extra)),
+        None => (new_closed_id(), None),
     };
+    insert_record(transaction, closed_id, members, window, extra)
+}
+
+/// Store group `closed_id` of `members` with the fields of `extra` and
+/// queue its public upsert.
+fn insert_record(
+    transaction: &Transaction<'_>,
+    closed_id: String,
+    members: Vec<Value>,
+    window: Option<String>,
+    extra: Option<Value>,
+) -> anyhow::Result<()> {
     let closed_at_ms = unix_epoch_ms()?;
     let mut record = json!({
         "id": closed_id,
@@ -381,7 +392,7 @@ fn insert_group(
         "closed_at_ms": closed_at_ms.to_string(),
         "members": members,
     });
-    if let Some((_, Value::Object(extra))) = pending {
+    if let Some(Value::Object(extra)) = extra {
         for (key, value) in extra {
             record[key] = value;
         }
@@ -494,12 +505,8 @@ pub(crate) fn record_ungrouped_tab_group(
         return Ok(());
     }
     let window = window_of_workspace(transaction, workspace_id)?;
-    pend_group(
-        transaction,
-        &new_closed_id(),
-        &json!({"name": archive["name"], "tab_group": archive}),
-    )?;
-    insert_group(transaction, Vec::new(), window)
+    let extra = json!({"name": archive["name"], "tab_group": archive});
+    insert_record(transaction, new_closed_id(), Vec::new(), window, Some(extra))
 }
 
 /// A new closed group id.
