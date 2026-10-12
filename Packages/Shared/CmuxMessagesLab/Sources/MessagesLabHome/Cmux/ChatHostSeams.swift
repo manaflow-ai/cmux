@@ -42,6 +42,10 @@ protocol ChatIntents: AnyObject {
     func videoState(_ ref: PartRef) -> HomeVideoState
     /// The transcript moved (user scroll, pin): paging and read cursor.
     func scrolled()
+    /// The rows read a new window place (RowCell.windowPlace: the pane moved by a fraction of a point or
+    /// resized) and may have moved their content onto other device pixels (RowCell.snapRow, MessagesLab
+    /// c1457e5): what the host draws over a row follows it.
+    func rowsPlaced()
 }
 
 /// One-shot wake-ups for the controller's engine clock (scheduled actions,
