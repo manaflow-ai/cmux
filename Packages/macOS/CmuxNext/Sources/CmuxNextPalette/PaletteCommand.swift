@@ -20,8 +20,11 @@ public struct PaletteSection: Hashable, Sendable {
 
     /// The user's pinned commands (cmux.json `palette.pins`), first on the empty query.
     public static var pinned: PaletteSection {
-        PaletteSection(id: "pinned", title: PaletteStrings.sectionPinned, order: -110)
+        PaletteSection(id: "pinned", title: PaletteStrings.sectionPinned, order: pinnedOrder)
     }
+
+    /// Pinned's order: the searcher finds a page's Pinned section by it, off the main actor.
+    nonisolated static let pinnedOrder = -110
 
     /// The catalog's first-use commands on the empty query, after Recent.
     public static var suggested: PaletteSection {

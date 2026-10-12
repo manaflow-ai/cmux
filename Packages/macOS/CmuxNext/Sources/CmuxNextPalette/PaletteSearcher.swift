@@ -116,7 +116,7 @@ public actor PaletteSearcher {
         guard let bridge else { return [] }
         do {
             // The page's Pinned section (`PalettePageState` adds it to a page that shows Recent).
-            let pinned = sectionOrders.firstIndex(of: PaletteSection.pinned.order)
+            let pinned = sectionOrders.firstIndex(of: PaletteSection.pinnedOrder)
             return try bridge.rankEmpty(entries: entries, version: version, sectionOrders: sectionOrders,
                                         frecency: frecency, now: now, showsRecent: showsRecent,
                                         settings: rankSettings.withLock { $0 }, pinnedSectionIndex: pinned)
