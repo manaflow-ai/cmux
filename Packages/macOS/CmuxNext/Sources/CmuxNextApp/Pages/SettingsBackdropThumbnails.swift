@@ -21,7 +21,9 @@ final class SettingsBackdropThumbnails: PageDynamicResourceSource {
               let id = request.path[0].removingPercentEncoding, allowed.contains(id),
               let selection = BackdropSelection(id: id) else { return nil }
         if let data = cache[id] { return PageResource(data: data, mimeType: "image/png") }
-        guard let image = selection.image(), let data = Self.thumbnail(image) else { return nil }
+        // Art reads its bundled thumbnail, so works that are not downloaded yet still show.
+        guard let image = selection.thumbnailURL.flatMap(NSImage.init(contentsOf:)) ?? selection.image(),
+              let data = Self.thumbnail(image) else { return nil }
         cache[id] = data
         return PageResource(data: data, mimeType: "image/png")
     }
