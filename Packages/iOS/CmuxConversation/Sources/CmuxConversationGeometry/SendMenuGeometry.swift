@@ -22,8 +22,14 @@ public enum SendMenuGeometry {
     /// `sendMenuPreferredNumberOfItemsToDisplayOnOpen`: a longer list scrolls,
     /// with the 7th row cut in half to show there is more.
     public static let maximumVisibleRows: CGFloat = 6.6
-    /// `sendMenuListItemFont`: SF 24 regular.
+    /// `sendMenuListItemFont`: SF 24 regular at Large.
     public static let labelFontSize: CGFloat = 24
+
+    /// `sendMenuListItemFont` at the reader's text size, given 24 pt scaled
+    /// like the title 2 style (`UIFontMetrics`).
+    public static func labelPointSize(title2Scaled: CGFloat) -> CGFloat {
+        labelFontSize
+    }
     /// Corner radius of the open popover, fitted to the recorded outline.
     public static let cornerRadius: CGFloat = 32
     /// `sendMenuPlusSymbolScale`: the "+" grows to this while it fades out.
