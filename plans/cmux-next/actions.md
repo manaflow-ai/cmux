@@ -81,6 +81,7 @@ Palette 892, CLI verbs 490, right-click 480, MCP tools 429.
 - **sidebarFooter**: sidebar.spaces.show sidebar.profileControl.show
 - **sidebarSection**: sidebar.section.add sidebar.item.add | sidebar.section.rename [appearance] > (sidebar.section.useBuiltInLook sidebar.section.useListLook sidebar.section.toggleTitle sidebar.section.layoutList sidebar.section.layoutInline sidebar.section.layoutGrid sidebar.section.setAlignment sidebar.section.setGap sidebar.section.setColumns) [options] > (sidebar.section.toggleSpaceScope sidebar.section.setMaxRows) | sidebar.section.toggleCollapsed | [move] > (sidebar.section.moveToTop sidebar.section.moveToScrolling sidebar.section.moveToBottom) | sidebar.section.hide | sidebar.section.remove sidebar.item.hideApp
 - **agentChat**: appearance.changeBackground workspace.setTheme[choices] | cloudMove cloudBringBack | agentPaneZoomIn agentPaneZoomOut agentPaneZoomReset | find | agentPane.toggleInspector
+- **windowBackground**: appearance.changeBackground
 
 ## Exemptions: palette
 

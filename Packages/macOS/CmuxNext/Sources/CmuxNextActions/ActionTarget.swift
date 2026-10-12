@@ -115,6 +115,8 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
     case sidebarSection
     /// An agent chat's empty space: not a message, not a selection.
     case agentChat
+    /// The window's own background where it shows: the gaps between panes and an empty workspace.
+    case windowBackground
 
     /// The object a right-click in this context targets, if any.
     public var targetKind: ActionTargetKind? {
@@ -134,7 +136,7 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
         case .profile: .profile
         case .browserProfile: .browserProfile
         case .bookmark: .bookmark
-        case .bookmarksBar, .screenBar, .notification: nil
+        case .bookmarksBar, .screenBar, .notification, .windowBackground: nil
         case .sidebarItem: .sidebarItem
         case .sidebarSection: .sidebarSection
         // The chat's tab (the App passes it).
