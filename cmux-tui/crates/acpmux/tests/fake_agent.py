@@ -435,6 +435,16 @@ def main():
     if os.environ.get("FAKE_IGNORE_TERM") == "1":
         import signal
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    # FAKE_SETSID_CHILD=<path>: start a child that leaves this process group (setsid), as a
+    # harness that daemonizes a helper does, and write its pid to that file.
+    if os.environ.get("FAKE_SETSID_CHILD"):
+        import subprocess
+        helper = subprocess.Popen(
+            [sys.executable, "-c", "import os, time; os.setsid(); time.sleep(600)"],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        with open(os.environ["FAKE_SETSID_CHILD"] + ".tmp", "w") as f:
+            f.write(str(helper.pid))
+        os.replace(os.environ["FAKE_SETSID_CHILD"] + ".tmp", os.environ["FAKE_SETSID_CHILD"])
     # FAKE_START_GATE=<path>: start (read stdin) only once that file exists: a slow agent start.
     gate = os.environ.get("FAKE_START_GATE")
     if gate:
