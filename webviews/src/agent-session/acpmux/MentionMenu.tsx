@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useEscapingList } from "../../ui/popupHost";
 import { matchRuns, readFileSearch, type FileMatch, type FileSearchSource, type Run } from "./fileSearchModel";
 import { PickerOption, PickerOptionList } from "../../ui/PickerPrimitives";
 import { useT } from "./i18n";
@@ -89,6 +90,8 @@ export function MentionMenu({
 }) {
   const t = useT();
   const results = mentionResults(state);
+  // Above the composer, or past the window's edge when the pane has no room there (cx-6k6cg).
+  const escape = useEscapingList("top", 6);
   useEffect(() => {
     document.getElementById(`acpmux-mention-${active}`)?.scrollIntoView?.({ block: "nearest" });
   }, [active]);
@@ -102,6 +105,7 @@ export function MentionMenu({
           : undefined;
   return (
     <PickerOptionList
+      ref={escape}
       aria-label={t("files.search")}
       aria-busy={state.kind === "searching"}
       className="ui-popup acpmux-slash-menu acpmux-mention-menu"

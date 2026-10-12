@@ -28,9 +28,12 @@ public final class WebPopupHost {
         public var side: PopupPlacement.Side
         public var trailing: Bool
         public var width: CGFloat
+        /// A tooltip: one row that takes no clicks and draws no check column.
+        public var tooltip: Bool
 
         /// Reads `{items:[{id,label,shortcut?,checked?,disabled?,separator?}], highlighted?,
-        /// anchor:{left,top,right,bottom}, side:"bottom"|"top", align:"start"|"end", width}`.
+        /// anchor:{left,top,right,bottom}, side:"bottom"|"top", align:"start"|"end", width,
+        /// kind?:"menu"|"tooltip"}`.
         public init?(_ params: [String: Any]) {
             guard let rows = params["items"] as? [[String: Any]], let anchor = params["anchor"] as? [String: Any],
                   let left = Self.number(anchor["left"]), let top = Self.number(anchor["top"]),
@@ -46,7 +49,8 @@ public final class WebPopupHost {
             self.anchor = CGRect(x: left, y: top, width: max(0, right - left), height: max(0, bottom - top))
             side = params["side"] as? String == "top" ? .above : .below
             trailing = params["align"] as? String == "end"
-            width = max(120, min(Self.number(params["width"]) ?? 200, 800))
+            tooltip = params["kind"] as? String == "tooltip"
+            width = max(tooltip ? 40 : 120, min(Self.number(params["width"]) ?? 200, 800))
         }
 
         private static func number(_ value: Any?) -> CGFloat? {
@@ -81,6 +85,8 @@ public final class WebPopupHost {
         let panel = self.panel ?? WebPopupPanel(onPick: { [weak self] id in self?.picked(id) },
                                                 onHover: { [weak self] id in self?.send(["type": "highlight", "id": id]) })
         self.panel = panel
+        panel.ignoresMouseEvents = model.tooltip
+        panel.rows.plain = model.tooltip
         panel.rows.update(model.items, highlighted: model.highlighted)
         let scale = zoom()
         let local = CGRect(x: model.anchor.minX * scale, y: model.anchor.minY * scale,
@@ -201,6 +207,8 @@ final class WebPopupRows: NSView {
     private var items: [WebPopupHost.Item] = []
     var itemCount: Int { items.filter { !$0.separator }.count }
     private var highlighted: String?
+    /// No check column (a tooltip's text).
+    var plain = false
     private var tracking: NSTrackingArea?
     private let style = PopupStyle.standard
     private static let separatorHeight: CGFloat = 9
@@ -251,7 +259,7 @@ final class WebPopupRows: NSView {
     override func draw(_ dirtyRect: NSRect) {
         let font = Typography.body
         let check = "✓" as NSString
-        let inset: CGFloat = 22
+        let inset: CGFloat = plain ? 8 : 22
         for (item, frame) in rowFrames() where frame.intersects(dirtyRect) {
             if item.separator {
                 Palette.separator.setFill()

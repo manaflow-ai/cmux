@@ -580,6 +580,30 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector("[role='listbox'], [role='menu']"));
       },
     },
+    "slash-menu-full": {
+      note: "Play: type / with an agent's full command list; in a small window the list goes past the window's edge (cx-6k6cg).",
+      snapshot: chat(finished, {
+        commands: [
+          { name: "add-dir", description: "Add a new working directory" },
+          { name: "agents", description: "Manage agent configurations" },
+          { name: "clear", description: "Clear conversation history and free up context" },
+          { name: "compact", description: "Clear conversation history but keep a summary in context" },
+          { name: "config", description: "Open the config panel" },
+          { name: "cost", description: "Show the total cost and duration of the current session" },
+          { name: "doctor", description: "Diagnose and verify your installation" },
+          { name: "init", description: "Initialize a new CLAUDE.md file with codebase documentation" },
+          { name: "memory", description: "Edit memory files" },
+          { name: "permissions", description: "Manage allow and deny tool permission rules" },
+          { name: "review", description: "Review a pull request" },
+          { name: "status", description: "Show the version, model, account and connectivity" },
+        ],
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: "[contenteditable='true']" });
+        await ctx.type("/");
+        await ctx.waitFor(() => ctx.document.querySelector("#acpmux-slash-menu [role='option']"));
+      },
+    },
     "slash-menu-keyboard": {
       note: "Play: ArrowDown moves the slash-command highlight, Enter picks it, and focus stays in the prompt.",
       snapshot: chat(finished, {

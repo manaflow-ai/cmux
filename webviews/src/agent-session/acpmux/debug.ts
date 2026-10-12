@@ -60,8 +60,9 @@ const NO_AUTOMATION = { error: "the page has no automation host" };
 const WARMUP_FRAMES = 30;
 
 /** The open menu's rows: how many, how many show whole in the page, and whether it went past the window. */
-function openMenuRows(): Record<string, unknown> | null {
-  const popup = [...document.querySelectorAll<HTMLElement>("[role=menu],[role=listbox]")].at(-1);
+function openMenuRows(
+  popup = [...document.querySelectorAll<HTMLElement>("[role=menu],[role=listbox]")].at(-1) ?? null,
+): Record<string, unknown> | null {
   if (!popup) return null;
   const rows = [...popup.querySelectorAll('[role^="menuitem"],[role=option]')];
   const frame = popup.getBoundingClientRect();
@@ -74,7 +75,8 @@ function openMenuRows(): Record<string, unknown> | null {
   return {
     rows: rows.length,
     shown_in_page: whole.length,
-    escaped: popup.parentElement?.hasAttribute("data-escaped") ?? false,
+    // A Base UI menu marks its positioner; a list the page positions itself, itself (popupHost.ts).
+    escaped: popup.hasAttribute("data-escaped") || (popup.parentElement?.hasAttribute("data-escaped") ?? false),
   };
 }
 
@@ -197,6 +199,23 @@ export function createAcpmuxDebug(
 
     // Not a measurement, so it leaves acpmuxPerf off.
     async openMenu(label) {
+      // "/" or "@query" types into the prompt, as key presses do: the commands list or the file
+      // list opens (the file list once its results arrive).
+      if (label.startsWith("/") || label.startsWith("@")) {
+        const prompt = document.querySelector<HTMLElement>(
+          ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']",
+        );
+        if (!prompt) return { error: "no prompt" };
+        prompt.focus();
+        document.execCommand("insertText", false, label);
+        const id = label.startsWith("/") ? "acpmux-slash-menu" : "acpmux-mention-menu";
+        for (let frame = 0; frame < 300; frame += 1) {
+          if (document.querySelector(`#${id} [role=option]`)) break;
+          await nextFrame();
+        }
+        for (let frame = 0; frame < 4; frame += 1) await nextFrame();
+        return { opened: label, menu: openMenuRows(document.getElementById(id)) };
+      }
       if (!openPicker(label)) return { error: `no menu labelled ${JSON.stringify(label)}`, menus: pickerLabels() };
       await nextFrame();
       await nextFrame();
