@@ -13755,6 +13755,1578 @@
           }
         }
       }
+    },
+    "cloud.bringBack.bringing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bringing this chat back to this Mac…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ إعادة هذه المحادثة إلى جهاز Mac هذا…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vraćanje ovog chata na ovaj Mac…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flytter denne chat tilbage til denne Mac…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Chat wird zurück auf diesen Mac geholt…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trayendo este chat de vuelta a este Mac…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retour de cette discussion sur ce Mac…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riporto questa chat su questo Mac…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットをこの Mac に戻しています…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងនាំការជជែកនេះត្រឡប់មក Mac នេះវិញ…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 채팅을 이 Mac으로 다시 가져오는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flytter denne chatten tilbake til denne Macen …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przywracanie tego czatu na ten Mac…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trazendo este chat de volta para este Mac…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Возвращаем этот чат на этот Mac…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังนำแชทนี้กลับมาที่ Mac เครื่องนี้…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbet bu Mac'e geri getiriliyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повертаємо цей чат на цей Mac…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đang đưa cuộc trò chuyện này về lại máy Mac này…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在将此对话带回这台 Mac…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在將此對話帶回這台 Mac…"
+          }
+        }
+      }
+    },
+    "cloud.bringBack.broughtBack": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This chat runs on this Mac again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعمل هذه المحادثة على جهاز Mac هذا مجددًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj chat ponovo radi na ovom Macu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne chat kører på denne Mac igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Chat läuft wieder auf diesem Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este chat vuelve a ejecutarse en este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette discussion s’exécute de nouveau sur ce Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa chat è di nuovo in esecuzione su questo Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットは再びこの Mac で実行されています。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកនេះដំណើរការលើ Mac នេះម្តងទៀតហើយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 채팅이 다시 이 Mac에서 실행됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne chatten kjører på denne Macen igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten czat znów działa na tym Macu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este chat voltou a rodar neste Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот чат снова работает на этом Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชทนี้ทำงานบน Mac เครื่องนี้อีกครั้งแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbet yeniden bu Mac'te çalışıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей чат знову працює на цьому Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện này lại chạy trên máy Mac này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此对话已重新在这台 Mac 上运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此對話已重新在這台 Mac 上執行。"
+          }
+        }
+      }
+    },
+    "cloud.bringBack.notFromMove": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bring Back Local works on a chat that moved to Cloud from this Mac."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعمل خيار «إعادة إلى الجهاز المحلي» على محادثة نُقلت إلى Cloud من جهاز Mac هذا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vrati lokalno radi na chatu koji je s ovog Maca premješten u Cloud."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hent tilbage lokalt virker på en chat, der blev flyttet til Cloud fra denne Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Lokal zurückholen“ funktioniert bei einem Chat, der von diesem Mac in die Cloud verschoben wurde."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Traer de vuelta a local funciona con un chat que se movió a Cloud desde este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rapatrier en local s’applique à une discussion déplacée vers le Cloud depuis ce Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riporta in locale funziona su una chat spostata su Cloud da questo Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「ローカルに戻す」は、この Mac から Cloud に移動したチャットで使えます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នាំត្រឡប់មកមូលដ្ឋាន ដំណើរការលើការជជែកដែលបានផ្លាស់ទីទៅ Cloud ពី Mac នេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬로 다시 가져오기는 이 Mac에서 Cloud로 옮긴 채팅에서만 작동합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hent tilbake lokalt virker på en chat som ble flyttet til Cloud fra denne Macen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przywróć lokalnie działa dla czatu przeniesionego do Cloud z tego Maca."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trazer de volta para o local funciona em um chat que foi movido para o Cloud a partir deste Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Вернуть локально» работает для чата, перенесённого в Cloud с этого Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "นำกลับมาที่เครื่อง ใช้ได้กับแชทที่ย้ายไปยัง Cloud จาก Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yerele geri getir, bu Mac'ten Cloud'a taşınmış bir sohbette çalışır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Повернути локально» працює для чату, перенесеного в Cloud з цього Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đưa về máy cục bộ dùng cho cuộc trò chuyện đã được chuyển lên Cloud từ máy Mac này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“带回本地”适用于从这台 Mac 移动到 Cloud 的对话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「帶回本機」適用於從這台 Mac 移動到 Cloud 的對話。"
+          }
+        }
+      }
+    },
+    "cloud.bringBack.noFolder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The chat's folder %@ isn't on this Mac anymore."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يعد مجلد المحادثة %@ موجودًا على جهاز Mac هذا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mapa chata %@ više nije na ovom Macu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chattens mappe %@ findes ikke længere på denne Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Ordner des Chats, %@, ist nicht mehr auf diesem Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La carpeta del chat, %@, ya no está en este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le dossier de la discussion, %@, n’est plus sur ce Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La cartella della chat %@ non è più su questo Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットのフォルダ %@ はこの Mac にもうありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថតរបស់ការជជែក %@ លែងមាននៅលើ Mac នេះទៀតហើយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 폴더 %@이(가) 더 이상 이 Mac에 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chattens mappe %@ finnes ikke lenger på denne Macen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Folderu czatu %@ nie ma już na tym Macu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A pasta do chat, %@, não está mais neste Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Папки чата %@ больше нет на этом Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีโฟลเดอร์ของแชท %@ บน Mac เครื่องนี้แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbetin klasörü %@ artık bu Mac'te değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Теки чату %@ більше немає на цьому Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thư mục %@ của cuộc trò chuyện không còn trên máy Mac này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此对话的文件夹 %@ 已不在这台 Mac 上。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此對話的資料夾 %@ 已不在這台 Mac 上。"
+          }
+        }
+      }
+    },
+    "cloud.bringBack.conflict": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "These files changed both here and on Cloud, so nothing came back: %@. Settle them, then Retry."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تغيّرت هذه الملفات هنا وعلى Cloud معًا، لذا لم يُعَد أي شيء: %@. سوِّها ثم أعد المحاولة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ove datoteke su se promijenile i ovdje i na Cloudu, pa ništa nije vraćeno: %@. Usaglasi ih, pa pokušaj ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disse filer er ændret både her og på Cloud, så intet blev hentet tilbage: %@. Afklar dem, og prøv så igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Dateien wurden hier und in der Cloud geändert, daher kam nichts zurück: %@. Kläre sie und versuche es dann erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estos archivos cambiaron aquí y en Cloud, así que no se trajo nada: %@. Resuélvelos y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ces fichiers ont changé ici et sur le Cloud, donc rien n’a été rapatrié : %@. Réglez-les, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questi file sono cambiati sia qui sia su Cloud, quindi non è tornato nulla: %@. Sistemali, poi riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これらのファイルはこの Mac と Cloud の両方で変更されたため、何も戻されませんでした: %@。解決してから再試行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឯកសារទាំងនេះបានផ្លាស់ប្តូរទាំងនៅទីនេះ និងនៅលើ Cloud ដូច្នេះគ្មានអ្វីត្រូវបាននាំមកវិញទេ៖ %@។ ដោះស្រាយវា រួចព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 파일들이 여기와 Cloud 양쪽에서 변경되어 아무것도 가져오지 않았습니다: %@. 정리한 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disse filene er endret både her og på Cloud, så ingenting ble hentet tilbake: %@. Avklar dem, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Te pliki zmieniły się i tutaj, i w Cloud, więc nic nie wróciło: %@. Uzgodnij je, a potem ponów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estes arquivos mudaram aqui e no Cloud, então nada voltou: %@. Resolva-os e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эти файлы изменились и здесь, и в Cloud, поэтому ничего не вернулось: %@. Разберитесь с ними и повторите."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไฟล์เหล่านี้เปลี่ยนทั้งที่นี่และบน Cloud จึงไม่มีอะไรถูกนำกลับมา: %@ จัดการให้เรียบร้อยแล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu dosyalar hem burada hem Cloud'da değişti, bu yüzden hiçbir şey geri gelmedi: %@. Bunları çözün, sonra yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ці файли змінилися і тут, і в Cloud, тому нічого не повернулося: %@. Розв’яжіть це й повторіть."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các tệp này đã thay đổi cả ở đây và trên Cloud nên không có gì được đưa về: %@. Hãy xử lý chúng rồi thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这些文件在这里和 Cloud 上都有更改，因此没有带回任何内容：%@。处理好后再重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這些檔案在這裡和 Cloud 上都有變更，因此沒有帶回任何內容：%@。處理好後再重試。"
+          }
+        }
+      }
+    },
+    "cloud.bringBack.syncFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't copy the folder back from %1$@: %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر نسخ المجلد مرة أخرى من %1$@: %2$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mapa se nije mogla kopirati nazad s %1$@: %2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mappen kunne ikke kopieres tilbage fra %1$@: %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Ordner konnte nicht von %1$@ zurückkopiert werden: %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo copiar la carpeta de vuelta desde %1$@: %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de recopier le dossier depuis %1$@ : %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile ricopiare la cartella da %1$@: %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ からフォルダをコピーして戻せませんでした: %2$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចចម្លងថតត្រឡប់មកវិញពី %1$@ បានទេ៖ %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@에서 폴더를 다시 복사하지 못했습니다: %2$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke kopiere mappen tilbake fra %1$@: %2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się skopiować folderu z powrotem z %1$@: %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível copiar a pasta de volta de %1$@: %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось скопировать папку обратно с %1$@: %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คัดลอกโฟลเดอร์กลับจาก %1$@ ไม่ได้: %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klasör %1$@ makinesinden geri kopyalanamadı: %2$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося скопіювати теку назад з %1$@: %2$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể sao chép thư mục về từ %1$@: %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法从 %1$@ 将文件夹复制回来：%2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法從 %1$@ 將資料夾複製回來：%2$@"
+          }
+        }
+      }
+    },
+    "cloud.bringBack.policyBlocks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This chat approves actions without asking. A chat coming back from Cloud must ask first: set it to ask in the chat, then Retry."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توافق هذه المحادثة على الإجراءات دون أن تسأل. يجب أن تسأل المحادثة العائدة من Cloud أولًا: اضبطها على السؤال داخل المحادثة، ثم أعد المحاولة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj chat odobrava radnje bez pitanja. Chat koji se vraća s Clouda mora prvo pitati: postavi ga da pita u chatu, pa pokušaj ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne chat godkender handlinger uden at spørge. En chat, der kommer tilbage fra Cloud, skal spørge først: Indstil den til at spørge i chatten, og prøv så igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Chat genehmigt Aktionen ohne Nachfrage. Ein Chat, der aus der Cloud zurückkommt, muss zuerst fragen: Stelle ihn im Chat auf Nachfragen und versuche es dann erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este chat aprueba acciones sin preguntar. Un chat que vuelve de Cloud debe preguntar primero: configúralo para que pregunte en el chat y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette discussion approuve les actions sans demander. Une discussion qui revient du Cloud doit d’abord demander : réglez-la pour qu’elle demande dans la discussion, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa chat approva le azioni senza chiedere. Una chat che torna da Cloud deve prima chiedere: impostala su Chiedi nella chat, poi riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットは確認せずに操作を承認します。Cloud から戻るチャットは先に確認する必要があります。チャットで確認するように設定してから再試行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកនេះយល់ព្រមលើសកម្មភាពដោយមិនសួរ។ ការជជែកដែលត្រឡប់មកពី Cloud ត្រូវតែសួរជាមុនសិន៖ កំណត់វាឲ្យសួរក្នុងការជជែក រួចព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 채팅은 묻지 않고 작업을 승인합니다. Cloud에서 돌아오는 채팅은 먼저 물어야 합니다. 채팅에서 묻기로 설정한 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne chatten godkjenner handlinger uten å spørre. En chat som kommer tilbake fra Cloud, må spørre først: Sett den til å spørre i chatten, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten czat zatwierdza działania bez pytania. Czat wracający z Cloud musi najpierw pytać: ustaw w czacie pytanie, a potem ponów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este chat aprova ações sem perguntar. Um chat que volta do Cloud precisa perguntar antes: configure-o para perguntar no chat e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот чат одобряет действия, не спрашивая. Чат, возвращающийся из Cloud, должен сначала спрашивать: включите в чате запрос разрешения и повторите."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชทนี้อนุมัติการกระทำโดยไม่ถาม แชทที่กลับมาจาก Cloud ต้องถามก่อน: ตั้งค่าให้ถามในแชท แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbet eylemleri sormadan onaylıyor. Cloud'dan dönen bir sohbet önce sormalı: Sohbette sorma olarak ayarlayın, sonra yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей чат схвалює дії, не питаючи. Чат, що повертається з Cloud, має спершу питати: увімкніть у чаті запит дозволу й повторіть."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện này phê duyệt hành động mà không hỏi. Cuộc trò chuyện quay về từ Cloud phải hỏi trước: hãy đặt nó thành hỏi trong cuộc trò chuyện rồi thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此对话会不经询问就批准操作。从 Cloud 带回的对话必须先询问：请在对话中将其设为询问，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此對話會不經詢問就核准操作。從 Cloud 帶回的對話必須先詢問：請在對話中將其設為詢問，然後重試。"
+          }
+        }
+      }
+    },
+    "cloud.bringBack.modeBlocks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This chat's mode acts without asking. A chat coming back from Cloud must ask first: pick an asking mode in the chat, then Retry."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وضع هذه المحادثة ينفّذ دون أن يسأل. يجب أن تسأل المحادثة العائدة من Cloud أولًا: اختر وضعًا يسأل داخل المحادثة، ثم أعد المحاولة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Način ovog chata radi bez pitanja. Chat koji se vraća s Clouda mora prvo pitati: odaberi način koji pita u chatu, pa pokušaj ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne chats tilstand handler uden at spørge. En chat, der kommer tilbage fra Cloud, skal spørge først: Vælg en tilstand, der spørger, i chatten, og prøv så igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Modus dieses Chats handelt ohne Nachfrage. Ein Chat, der aus der Cloud zurückkommt, muss zuerst fragen: Wähle im Chat einen Modus, der nachfragt, und versuche es dann erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El modo de este chat actúa sin preguntar. Un chat que vuelve de Cloud debe preguntar primero: elige un modo que pregunte en el chat y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le mode de cette discussion agit sans demander. Une discussion qui revient du Cloud doit d’abord demander : choisissez un mode qui demande dans la discussion, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La modalità di questa chat agisce senza chiedere. Una chat che torna da Cloud deve prima chiedere: scegli una modalità che chiede nella chat, poi riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットのモードは確認せずに実行します。Cloud から戻るチャットは先に確認する必要があります。チャットで確認するモードを選んでから再試行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របៀបរបស់ការជជែកនេះធ្វើសកម្មភាពដោយមិនសួរ។ ការជជែកដែលត្រឡប់មកពី Cloud ត្រូវតែសួរជាមុនសិន៖ ជ្រើសរើសរបៀបដែលសួរក្នុងការជជែក រួចព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 채팅의 모드는 묻지 않고 실행합니다. Cloud에서 돌아오는 채팅은 먼저 물어야 합니다. 채팅에서 묻는 모드를 고른 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modusen til denne chatten handler uten å spørre. En chat som kommer tilbake fra Cloud, må spørre først: Velg en modus som spør, i chatten, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tryb tego czatu działa bez pytania. Czat wracający z Cloud musi najpierw pytać: wybierz w czacie tryb z pytaniem, a potem ponów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O modo deste chat age sem perguntar. Um chat que volta do Cloud precisa perguntar antes: escolha um modo que pergunte no chat e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Режим этого чата действует, не спрашивая. Чат, возвращающийся из Cloud, должен сначала спрашивать: выберите в чате режим с запросом и повторите."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โหมดของแชทนี้ทำงานโดยไม่ถาม แชทที่กลับมาจาก Cloud ต้องถามก่อน: เลือกโหมดที่ถามในแชท แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbetin modu sormadan işlem yapıyor. Cloud'dan dönen bir sohbet önce sormalı: Sohbette soran bir mod seçin, sonra yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Режим цього чату діє, не питаючи. Чат, що повертається з Cloud, має спершу питати: виберіть у чаті режим із запитом і повторіть."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chế độ của cuộc trò chuyện này hành động mà không hỏi. Cuộc trò chuyện quay về từ Cloud phải hỏi trước: hãy chọn một chế độ có hỏi trong cuộc trò chuyện rồi thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此对话的模式会不经询问就执行。从 Cloud 带回的对话必须先询问：请在对话中选择会询问的模式，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此對話的模式會不經詢問就執行。從 Cloud 帶回的對話必須先詢問：請在對話中選擇會詢問的模式，然後重試。"
+          }
+        }
+      }
+    },
+    "cloud.bringBack.familyBlocks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This agent can't take a chat back from Cloud yet, so the chat stays there."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن لهذا الوكيل استعادة محادثة من Cloud بعد، لذا ستبقى المحادثة هناك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj agent još ne može vratiti chat s Clouda, pa chat ostaje tamo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne agent kan endnu ikke tage en chat tilbage fra Cloud, så chatten bliver der."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Agent kann noch keinen Chat aus der Cloud zurücknehmen, daher bleibt der Chat dort."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este agente todavía no puede recuperar un chat de Cloud, así que el chat se queda allí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet agent ne peut pas encore reprendre une discussion depuis le Cloud, elle y reste donc."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo agente non può ancora riprendere una chat da Cloud, quindi la chat resta lì."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このエージェントはまだ Cloud からチャットを戻せないため、チャットは Cloud に残ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងារនេះមិនទាន់អាចនាំការជជែកត្រឡប់ពី Cloud បានទេ ដូច្នេះការជជែកនៅទីនោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 에이전트는 아직 Cloud에서 채팅을 다시 가져올 수 없어 채팅이 그대로 남습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne agenten kan ikke ta tilbake en chat fra Cloud ennå, så chatten blir der."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten agent nie może jeszcze przejąć czatu z Cloud, więc czat tam zostaje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este agente ainda não consegue trazer um chat de volta do Cloud, então o chat fica lá."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот агент пока не может забрать чат из Cloud, поэтому чат остаётся там."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์นี้ยังนำแชทกลับจาก Cloud ไม่ได้ แชทจึงยังอยู่ที่นั่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu ajan henüz Cloud'dan bir sohbeti geri alamıyor, bu yüzden sohbet orada kalıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей агент поки не може забрати чат із Cloud, тому чат залишається там."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác tử này chưa thể nhận lại cuộc trò chuyện từ Cloud nên cuộc trò chuyện vẫn ở đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此代理暂时无法从 Cloud 带回对话，因此对话会留在那里。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此代理暫時無法從 Cloud 帶回對話，因此對話會留在那裡。"
+          }
+        }
+      }
+    },
+    "cloud.bringBack.unresolved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The move back didn't finish, so the chat is paused. Retry to finish it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تكتمل الإعادة، لذا المحادثة متوقفة مؤقتًا. أعد المحاولة لإكمالها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vraćanje nije završeno, pa je chat pauziran. Pokušaj ponovo da ga završiš."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flytningen tilbage blev ikke færdig, så chatten er sat på pause. Prøv igen for at gøre den færdig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Zurückholen wurde nicht abgeschlossen, daher ist der Chat pausiert. Versuche es erneut, um es abzuschließen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El regreso no terminó, así que el chat está en pausa. Vuelve a intentarlo para terminarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le retour n’est pas terminé, la discussion est donc en pause. Réessayez pour le terminer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il ritorno non è terminato, quindi la chat è in pausa. Riprova per completarlo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "戻す処理が完了しなかったため、チャットは一時停止しています。再試行して完了してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការនាំត្រឡប់មកវិញមិនទាន់បញ្ចប់ ដូច្នេះការជជែកត្រូវបានផ្អាក។ ព្យាយាមម្តងទៀតដើម្បីបញ្ចប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 가져오기가 끝나지 않아 채팅이 일시 중지되었습니다. 다시 시도하여 완료하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flyttingen tilbake ble ikke fullført, så chatten er satt på pause. Prøv igjen for å fullføre den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przywracanie się nie zakończyło, więc czat jest wstrzymany. Ponów, aby je dokończyć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O retorno não terminou, então o chat está pausado. Tente novamente para concluí-lo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Возврат не завершился, поэтому чат приостановлен. Повторите, чтобы завершить его."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การนำกลับยังไม่เสร็จ แชทจึงถูกหยุดชั่วคราว ลองอีกครั้งเพื่อให้เสร็จ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geri getirme bitmedi, bu yüzden sohbet duraklatıldı. Tamamlamak için yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повернення не завершилося, тому чат призупинено. Повторіть, щоб завершити його."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Việc đưa về chưa hoàn tất nên cuộc trò chuyện đang tạm dừng. Hãy thử lại để hoàn tất."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "带回尚未完成，因此对话已暂停。请重试以完成。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "帶回尚未完成，因此對話已暫停。請重試以完成。"
+          }
+        }
+      }
+    },
+    "cloud.bringBack.tabFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The chat is back on this Mac, but its tab didn't open: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عادت المحادثة إلى جهاز Mac هذا، لكن علامة تبويبها لم تُفتح: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat je ponovo na ovom Macu, ali njegova kartica se nije otvorila: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatten er tilbage på denne Mac, men dens fane åbnede ikke: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Chat ist wieder auf diesem Mac, aber sein Tab wurde nicht geöffnet: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El chat volvió a este Mac, pero su pestaña no se abrió: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La discussion est de retour sur ce Mac, mais son onglet ne s’est pas ouvert : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La chat è di nuovo su questo Mac, ma la sua scheda non si è aperta: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットはこの Mac に戻りましたが、タブを開けませんでした: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកបានត្រឡប់មក Mac នេះវិញ ប៉ុន្តែផ្ទាំងរបស់វាមិនបានបើកទេ៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅이 이 Mac으로 돌아왔지만 탭이 열리지 않았습니다: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatten er tilbake på denne Macen, men fanen åpnet seg ikke: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czat wrócił na ten Mac, ale jego karta się nie otworzyła: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O chat voltou para este Mac, mas a aba dele não abriu: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат вернулся на этот Mac, но его вкладка не открылась: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชทกลับมาที่ Mac เครื่องนี้แล้ว แต่แท็บของแชทไม่เปิด: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet bu Mac'e geri döndü ama sekmesi açılmadı: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат повернувся на цей Mac, але його вкладка не відкрилася: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện đã về lại máy Mac này nhưng tab của nó không mở được: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "对话已回到这台 Mac，但其标签页未能打开：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "對話已回到這台 Mac，但其分頁未能開啟：%@"
+          }
+        }
+      }
+    },
+    "cloud.bringBack.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't bring the chat back: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّرت إعادة المحادثة: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat se nije mogao vratiti: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatten kunne ikke hentes tilbage: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Chat konnte nicht zurückgeholt werden: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo traer el chat de vuelta: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de rapatrier la discussion : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile riportare la chat: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットを戻せませんでした: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចនាំការជជែកត្រឡប់មកវិញបានទេ៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅을 다시 가져오지 못했습니다: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke hente chatten tilbake: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się przywrócić czatu: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível trazer o chat de volta: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось вернуть чат: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "นำแชทกลับมาไม่ได้: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet geri getirilemedi: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося повернути чат: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể đưa cuộc trò chuyện về: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法带回对话：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法帶回對話：%@"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

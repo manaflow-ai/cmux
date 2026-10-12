@@ -48,6 +48,10 @@ final class CloudService {
     @ObservationIgnored var move = CloudMoveSetup()
     /// What Retry does for each chat whose move stopped.
     @ObservationIgnored let moveRetries = CloudMoveRetries()
+    /// What Retry does for each machine chat whose Bring Back Local stopped, by its tab there.
+    @ObservationIgnored let bringBackRetries = CloudMoveRetries()
+    /// The chats moved from this Mac, for Bring Back Local.
+    @ObservationIgnored let movedChats = CloudMovedChats()
 
     init(machines: MachineRegistry, isDebugBuild: Bool) {
         self.machines = machines
@@ -85,9 +89,12 @@ final class CloudService {
         ))
         binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
         move.cli = binary
+        move.ledger = .standard
         if let binary {
             hub = CloudTunnelHub(api: api, paths: paths, binary: binary, deviceName: Self.deviceName)
         }
+        movedChats.defaults = { [weak self] in self?.move.ledger }
+        CloudMovedChats.app = movedChats
     }
 
     /// `cmux-<host>`, as the old app named its link device. Reads the kernel

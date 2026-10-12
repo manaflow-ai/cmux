@@ -1,7 +1,7 @@
 import Foundation
 
-/// What Move to Cloud (``CloudMove``) runs and where it puts a folder on a
-/// Cloud machine. ``CloudService`` holds the app's; tests point it at stand-ins.
+/// What Move to Cloud (``CloudMove``) and Bring Back Local (``CloudBringBack``) run, and where
+/// a folder goes on a Cloud machine. ``CloudService`` holds the app's; tests point it at stand-ins.
 struct CloudMoveSetup {
     /// The `cmux` binary (the bundled cmux-tui) that runs `cmux link sync push`
     /// and `cmux link agent move`; nil when this build has none.
@@ -13,4 +13,7 @@ struct CloudMoveSetup {
     var workRoots: [String] = ["/home/cmux/work", "/root/work"]
     /// How long one CLI run may take: a first sync of a big repository, or a long chat, can take minutes.
     var timeout: Duration = .seconds(30 * 60)
+    /// Where the moved chats are kept for Bring Back Local (``CloudMovedChats``): the app's own
+    /// defaults; nil keeps them in memory.
+    var ledger: UserDefaults?
 }
