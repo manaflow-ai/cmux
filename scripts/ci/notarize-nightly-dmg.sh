@@ -98,8 +98,8 @@ if [ "$SKIP_NOTARIZATION" != true ]; then
   notary_auth_init "$NOTARY_DIR"
 fi
 
-# cmux-next ships no nested Computer Use helper; only a bundle that carries
-# one needs its separate notarization and host reseal.
+# A bundle that carries the nested Computer Use helper (the cmux-next nightly
+# does, cx-urd.6) needs its separate notarization and host reseal.
 if [ -n "$CONTINUE_STATE" ]; then
   echo "Continuing Apple submission $CONTINUE_SUBMISSION_ID for $DMG_RELEASE"
 elif [ "$SKIP_NOTARIZATION" = true ]; then
