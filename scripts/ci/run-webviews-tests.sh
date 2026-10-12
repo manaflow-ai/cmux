@@ -18,7 +18,7 @@
 # agent-pane-peer-chat, chat-find) stall in the optimizer's first bundle, even with a cache each;
 # editor-page timed out the same way beside ui-a11y and text-field-focus. So one file per Vite
 # config runs first, alone, and warms that config's cache (CMUX_VITE_CACHE_DIR, which the dev
-# configs read); the rest then run CMUX_WEB_TEST_DEV_JOBS at once (default half of the jobs), each
+# configs read); the rest then run CMUX_WEB_TEST_DEV_JOBS at once (default a quarter of the jobs), each
 # on its own copy of its config's warm cache. A config whose warming file fails keeps its other
 # files one at a time on a cold cache each.
 #
@@ -70,13 +70,16 @@ if [ "${1:-}" = --one ]; then
   log="$results/$(printf '%s' "$file" | tr '/' '_').log"
   status=0
   if [ -n "$cache" ]; then
-    rm -rf "$cache"
+    # `|| true` on cache upkeep: a failed copy or cleanup (a server outliving its timed-out file)
+    # must still leave this file's result in the summary, not stop the lane under set -e.
+    rm -rf "$cache" || true
     mkdir -p "$(dirname "$cache")"
-    if [ -n "$seed" ] && [ -d "$seed" ]; then cp -R "$seed" "$cache"; else mkdir -p "$cache"; fi
+    if [ -n "$seed" ] && [ -d "$seed" ]; then cp -R "$seed" "$cache" || true; fi
+    mkdir -p "$cache"
     CMUX_VITE_CACHE_DIR="$cache" run_with_timeout "$timeout_seconds" bun test "./$file" > "$log" 2>&1 < /dev/null ||
       status=$?
     # A warming file's cache (no seed) is the one the rest copy; any other one only costs disk.
-    if [ -n "$seed" ]; then rm -rf "$cache"; fi
+    if [ -n "$seed" ]; then rm -rf "$cache" || true; fi
   else
     run_with_timeout "$timeout_seconds" bun test "./$file" > "$log" 2>&1 < /dev/null || status=$?
   fi
@@ -126,8 +129,8 @@ if [ "$count" -eq 0 ]; then
 fi
 # Two dev servers at once (composer-mention, composer-send-stop) optimize dependencies into the
 # same node_modules/.vite, and each loses files the other wrote. `"dev",` is the argument a file
-# passes when it spawns `vp dev` itself. `--null`, not `-Z`: BSD grep reads -Z as decompress.
-dev_servers='vite\.config\.(acpmux-pane\.mjs|gallery-dev\.ts)|"dev",'
+# passes when it spawns `vp dev` itself, `configFile: …` one that calls createServer. `--null`, not `-Z`: BSD grep reads -Z as decompress.
+dev_servers='vite\.config\.(acpmux-pane\.mjs|gallery-dev\.ts)|"dev",|configFile: path\.join\(webviews, "vite\.config'
 xargs -0 grep -lE --null -- "$dev_servers" < "$results/files" > "$results/serial" || true
 serial="$(tr -cd '\0' < "$results/serial" | wc -c | tr -d ' ')"
 xargs -0 grep -LE --null -- "$dev_servers" < "$results/files" > "$results/parallel" || true
