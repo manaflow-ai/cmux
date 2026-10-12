@@ -80,7 +80,7 @@ extension ConversationViewController {
         presenter.present(navigation, animated: true)
         if let category {
             picker.loadViewIfNeeded()
-            picker.selectCategoryFromLab(category)
+            picker.openCategory(category)
         }
     }
 

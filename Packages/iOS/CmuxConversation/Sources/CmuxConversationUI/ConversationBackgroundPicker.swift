@@ -183,6 +183,9 @@ final class ConversationBackgroundPickerViewController: UIViewController, PHPick
         refresh()
     }
 
+    /// Opens on a category (the details' Backgrounds page, and the lab).
+    func openCategory(_ kind: ConversationBackground.Kind?) { selectCategory(kind) }
+
     #if DEBUG
     func selectCategoryFromLab(_ kind: ConversationBackground.Kind?) { selectCategory(kind) }
     func selectLookFromLab(_ look: ConversationBackgroundLook) { selectLook(look) }
