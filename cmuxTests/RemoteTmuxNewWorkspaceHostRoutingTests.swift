@@ -39,14 +39,20 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
 
     /// A stub that creates `sessionName` successfully and then answers
     /// `kill-session` with `killExit`, recording every invocation to `argvLog`.
-    private func makeCreateThenKillStub(sessionName: String, killExit: Int, argvLog: String) throws -> String {
+    private func makeCreateThenKillStub(
+        sessionName: String,
+        killExit: Int,
+        argvLog: String,
+        emitCreatedName: Bool = true
+    ) throws -> String {
         let path = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-create-kill-stub-\(UUID().uuidString).sh").path
+        let output = emitCreatedName ? "echo \(sessionName)" : ""
         try """
         #!/bin/sh
         echo "$@" >> "\(argvLog)"
         case "$*" in *kill-session*) exit \(killExit) ;; esac
-        echo \(sessionName)
+        \(output)
 
         """.write(toFile: path, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path)
@@ -81,13 +87,19 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
     /// and returns what was reported plus the stub's recorded invocations.
     private func runCreateThenFailedAttach(
         sessionName: String,
-        killExit: Int
+        killExit: Int,
+        emitCreatedName: Bool = true
     ) async throws -> (failures: [RemoteTmuxController.NewSessionFailure], argv: String, tabs: Int) {
         _ = NSApplication.shared
         let appDelegate = try #require(AppDelegate.shared)
         let argvLog = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-create-kill-argv-\(UUID().uuidString).log").path
-        let stub = try makeCreateThenKillStub(sessionName: sessionName, killExit: killExit, argvLog: argvLog)
+        let stub = try makeCreateThenKillStub(
+            sessionName: sessionName,
+            killExit: killExit,
+            argvLog: argvLog,
+            emitCreatedName: emitCreatedName
+        )
         let restoreSSH = RemoteTmuxRoutingFixture.pinStubSSH(stub)
         defer {
             restoreSSH()
@@ -179,6 +191,29 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
                 .attach(sessionName: "stuck", removed: false),
             ])
             #expect(run.argv.contains("'kill-session' '-t' '=stuck'"))
+            #expect(run.tabs == 0)
+        }
+    }
+
+    /// A successful tmux command can lose its `-P` response when the transport closes. The
+    /// explicit request name still lets cmux remove the possible remote session before reporting
+    /// the creation failure.
+    @Test func anEmptyCreateResponseCleansTheKnownRequestedName() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let run = try await runCreateThenFailedAttach(
+                sessionName: "unused-output",
+                killExit: 0,
+                emitCreatedName: false
+            )
+            #expect(run.failures.count == 1)
+            if case let .attach(sessionName, removed) = run.failures[0] {
+                #expect(sessionName.hasPrefix("cmux-new-"))
+                #expect(removed)
+            } else {
+                Issue.record("expected an attach cleanup failure, got \(run.failures)")
+            }
+            #expect(run.argv.contains("'new-session' '-d' '-s' 'cmux-new-"))
+            #expect(run.argv.contains("'kill-session' '-t' '=cmux-new-"))
             #expect(run.tabs == 0)
         }
     }
@@ -630,6 +665,56 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
         #expect(existingManager.tabs.first { $0.title == newName } == nil)
         #expect(controller.sessionMirror(host: hostA, sessionName: newName) == nil)
         #expect(controller.blockedMultiplexNewSessionKeys.contains(newKey))
+        controller.stopMultiplexedHost(host: hostA)
+    }
+
+    /// A shared stream can acknowledge `new-session` and then publish a snapshot in which the
+    /// generated session is already gone (for example, its shell exits immediately). The routed
+    /// request must resolve after a bounded miss window instead of retaining its completion and
+    /// request markers forever.
+    @Test func vanishedMultiplexedRoutedSessionResolvesAsCreateFailure() throws {
+        let controller = RemoteTmuxController()
+        let view = RemoteTmuxViewConnection(host: hostA, ownerId: "vanished-routing-test")
+        let shared = RemoteTmuxControlConnection(host: hostA, sessionName: view.view.sessionName)
+        view.connection = shared
+        controller.multiplexedViewsByHost[hostA.connectionHash] = view
+
+        let manager = TabManager()
+        let existing = RemoteTmuxLinkedWorkspaceModel.Workspace(
+            sessionName: "existing",
+            windowIds: ["@1"],
+            activeWindowId: "@1",
+            sessionId: 1
+        )
+        controller.applyMultiplexedWorkspaces(
+            host: hostA,
+            manager: manager,
+            workspaces: [existing],
+            shared: shared
+        )
+
+        let vanishedName = "cmux-new-vanished"
+        let vanishedKey = RemoteTmuxController.connectionKey(host: hostA, sessionName: vanishedName)
+        var completionResult: Bool?
+        controller.pendingMultiplexNewSessionCompletions[vanishedKey] = { completionResult = $0 }
+
+        let snapshotWithoutVanished = [existing]
+        controller.applyMultiplexedWorkspaces(
+            host: hostA,
+            manager: manager,
+            workspaces: snapshotWithoutVanished,
+            shared: shared
+        )
+        #expect(completionResult == nil)
+        controller.applyMultiplexedWorkspaces(
+            host: hostA,
+            manager: manager,
+            workspaces: snapshotWithoutVanished,
+            shared: shared
+        )
+
+        #expect(completionResult == false)
+        #expect(controller.pendingMultiplexNewSessionCompletions[vanishedKey] == nil)
         controller.stopMultiplexedHost(host: hostA)
     }
 
