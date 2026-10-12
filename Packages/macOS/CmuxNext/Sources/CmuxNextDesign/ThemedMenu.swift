@@ -20,6 +20,13 @@ extension NSMenu {
     }
 
     private func themeRows(in scope: ThemeScope, session: ThemedMenuSession) {
+        // Arrow keys move the highlight without AppKit redrawing view rows: the relay does, and
+        // passes every call on to the delegate the menu had (a choices submenu's coordinator).
+        if !(delegate is ThemedMenuHighlightRelay) {
+            let relay = ThemedMenuHighlightRelay(forward: delegate)
+            session.keep(relay)
+            delegate = relay
+        }
         for item in items where !item.isSeparatorItem {
             if item.view == nil { item.view = ThemedMenuRowView(item: item, scope: scope, session: session) }
             if let submenu = item.submenu {
@@ -33,6 +40,10 @@ extension NSMenu {
 /// One opening of a themed menu, shared by its submenus: its action runs at most once.
 final class ThemedMenuSession {
     private(set) var hasRun = false
+    /// A menu's delegate is weak; the rows hold the session, the session holds the relays.
+    private var relays: [ThemedMenuHighlightRelay] = []
+
+    func keep(_ relay: ThemedMenuHighlightRelay) { relays.append(relay) }
 
     /// The menu (re)opened: its rows may run again.
     func reset() { hasRun = false }
@@ -67,4 +78,24 @@ final class ThemedMenuDispatch: NSObject, NSMenuItemValidation {
         guard let receiver else { return false }
         return (receiver as? any NSMenuItemValidation)?.validateMenuItem(menuItem) ?? true
     }
+}
+
+/// A themed menu's delegate: redraws the row losing and the row taking the highlight, then
+/// forwards to the menu's previous delegate, which keeps its own behavior.
+final class ThemedMenuHighlightRelay: NSObject, NSMenuDelegate {
+    private weak var forward: (any NSMenuDelegate)?
+
+    init(forward: (any NSMenuDelegate)?) {
+        self.forward = forward
+    }
+
+    func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
+        menu.highlightedItem?.view?.needsDisplay = true
+        item?.view?.needsDisplay = true
+        forward?.menu?(menu, willHighlight: item)
+    }
+
+    func menuWillOpen(_ menu: NSMenu) { forward?.menuWillOpen?(menu) }
+    func menuDidClose(_ menu: NSMenu) { forward?.menuDidClose?(menu) }
+    func menuNeedsUpdate(_ menu: NSMenu) { forward?.menuNeedsUpdate?(menu) }
 }

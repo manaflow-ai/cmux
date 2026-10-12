@@ -8,7 +8,8 @@ public import AppKit
 /// `enclosingMenuItem.isHighlighted`), its title feeds type-select, and its submenu opens from it.
 /// Two things AppKit does not do for a view row are done here: a click runs the item (AppKit sends
 /// no action on mouse-up), and Return delivered to the row runs it too. Every route funnels through
-/// the item's `ThemedMenuDispatch`, which runs once per opening.
+/// the item's `ThemedMenuDispatch`, which runs once per opening. VoiceOver reads and presses the
+/// native menu item, not this view.
 public final class ThemedMenuRowView: NSView {
     private let scope: ThemeScope
     private let session: ThemedMenuSession
@@ -20,6 +21,10 @@ public final class ThemedMenuRowView: NSView {
     /// menu has been open a moment, so the release of the right-click that opened it never does.
     private var pressed = false
     private var shownAt: TimeInterval = 0
+    /// Where the pointer was when the menu opened: once it moved, a release is a choice.
+    private var openedAt: NSPoint = .zero
+    /// The item `activate` runs once the menu's tracking loop has ended.
+    private var pendingItem: NSMenuItem?
 
     init(item: NSMenuItem, scope: ThemeScope, session: ThemedMenuSession) {
         self.scope = scope
@@ -35,9 +40,8 @@ public final class ThemedMenuRowView: NSView {
         super.init(frame: NSRect(x: 0, y: 0, width: Self.width(of: item), height: Self.height(of: item)))
         // The menu widens every row to its widest.
         autoresizingMask = .width
-        setAccessibilityElement(true)
-        setAccessibilityRole(.menuItem)
-        setAccessibilityLabel(item.title)
+        // The NSMenuItem's own element (title, enabled, mark, shortcut, press) is what VoiceOver uses.
+        setAccessibilityElement(false)
     }
 
     @available(*, unavailable)
@@ -116,17 +120,28 @@ public final class ThemedMenuRowView: NSView {
 
     // MARK: Activation
 
-    /// Runs the item, as releasing on a native row would: closes the menu and sends the action
-    /// once. Rows with a submenu open it instead (AppKit does that).
+    /// Runs the item, as releasing on a native row would: closes the menu, then sends the action
+    /// once the tracking loop has ended (the run loop is back in its default mode), so an action
+    /// that opens a field, popover or another menu never does it inside the closing one. Rows with
+    /// a submenu open it instead (AppKit does that).
     func activate() {
-        guard let item = enclosingMenuItem, item.isEnabled, item.submenu == nil, item.action != nil,
-              let menu = item.menu else { return }
+        guard let item = enclosingMenuItem, Self.runs(item), let menu = item.menu else { return }
         var root = menu
         while let parent = root.supermenu { root = parent }
         root.cancelTracking()
         if menu !== root { menu.cancelTracking() }
+        pendingItem = item
+        RunLoop.main.perform(#selector(runPendingItem), target: self, argument: nil, order: 0, modes: [.default])
+    }
+
+    @objc private func runPendingItem() {
+        guard let item = pendingItem, let menu = item.menu else { return }
+        pendingItem = nil
         menu.performActionForItem(at: menu.index(of: item))
     }
+
+    /// An item a click or Return runs: enabled, with an action, no submenu.
+    private static func runs(_ item: NSMenuItem) -> Bool { item.isEnabled && item.action != nil && item.submenu == nil }
 
     public override func mouseDown(with event: NSEvent) { pressed = true }
     public override func rightMouseDown(with event: NSEvent) { pressed = true }
@@ -135,25 +150,28 @@ public final class ThemedMenuRowView: NSView {
 
     private func release(_ event: NSEvent) {
         let inside = bounds.contains(convert(event.locationInWindow, from: nil))
-        let settled = shownAt > 0 && event.timestamp - shownAt > Self.openingGrace
+        let moved = hypot(NSEvent.mouseLocation.x - openedAt.x, NSEvent.mouseLocation.y - openedAt.y) > 3
+        let settled = shownAt > 0 && (event.timestamp - shownAt > Self.openingGrace || moved)
         guard inside, pressed || settled else { return }
         activate()
     }
 
     public override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        guard isHighlighted, Self.isReturn(event) else { return super.performKeyEquivalent(with: event) }
+        guard takesReturn(event) else { return super.performKeyEquivalent(with: event) }
         activate()
         return true
     }
 
     public override func keyDown(with event: NSEvent) {
-        guard isHighlighted, Self.isReturn(event) else { return super.keyDown(with: event) }
+        guard takesReturn(event) else { return super.keyDown(with: event) }
         activate()
     }
 
-    public override func accessibilityPerformPress() -> Bool {
-        activate()
-        return true
+    /// Return on this highlighted row when it runs an item; Return on a submenu row (it opens the
+    /// submenu) or a disabled one stays AppKit's.
+    private func takesReturn(_ event: NSEvent) -> Bool {
+        guard isHighlighted, Self.isReturn(event), let item = enclosingMenuItem else { return false }
+        return Self.runs(item)
     }
 
     /// Return or keypad Enter, without modifiers.
@@ -181,6 +199,7 @@ public final class ThemedMenuRowView: NSView {
         session.reset()
         pressed = false
         shownAt = ProcessInfo.processInfo.systemUptime
+        openedAt = NSEvent.mouseLocation
         needsDisplay = true
     }
 }

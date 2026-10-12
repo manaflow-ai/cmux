@@ -54,10 +54,9 @@ import Testing
         // AppKit's Return on the highlighted item sends the item's action; the row also takes
         // Return itself. One press runs the action once, whichever reaches it first.
         menu.performActionForItem(at: 0)
-        let returnKey = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
-                                                      context: nil, characters: "\r", charactersIgnoringModifiers: "\r",
-                                                      isARepeat: false, keyCode: 36))
-        _ = row.performKeyEquivalent(with: returnKey)
+        #expect(row.performKeyEquivalent(with: try Self.returnKey()))
+        // The row's run waits for the menu's tracking loop to end: let it.
+        Self.drainRunLoop { false }
         #expect(counter.count == 1)
         #expect(counter.sender === menu.items[0], "the action gets its own item, which carries its payload")
     }
@@ -74,6 +73,9 @@ import Testing
                                                         context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
             type == .leftMouseDown ? row.mouseDown(with: event) : row.mouseUp(with: event)
         }
+        // Like a native row, the action runs once the menu's tracking loop has ended.
+        #expect(counter.count == 0)
+        Self.drainRunLoop { counter.count > 0 }
         #expect(counter.count == 1)
         // The second row, never clicked, did not run.
         #expect(counter.sender === menu.items[0])
@@ -91,6 +93,27 @@ import Testing
         row.highlightOverride = true
         #expect(row.performKeyEquivalent(with: try Self.returnKey()) == false)
         #expect(counter.count == 0)
+    }
+
+    /// Arrow keys move the highlight; the rows losing and taking it redraw, and a submenu's own
+    /// delegate (a choices coordinator's preview) still hears the highlight.
+    @Test func aHighlightChangeRedrawsRowsAndReachesTheMenusDelegate() throws {
+        let counter = Counter()
+        let menu = Self.menu(counter)
+        let spy = DelegateSpy()
+        menu.delegate = spy
+        menu.themeRows(in: try Self.accentedScope())
+        let row = try #require(menu.items[1].view as? ThemedMenuRowView)
+        // Hosted in a window so its dirty state is tracked.
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView?.addSubview(row)
+        window.displayIfNeeded()
+        row.needsDisplay = false
+        menu.delegate?.menu?(menu, willHighlight: menu.items[1])
+        #expect(row.needsDisplay)
+        #expect(spy.highlighted === menu.items[1])
+        menu.delegate?.menuDidClose?(menu)
+        #expect(spy.closed)
     }
 
     @Test func keepsTitlesSubmenusAndValidation() throws {
@@ -126,6 +149,14 @@ import Testing
         return menu
     }
 
+    /// Runs the main run loop in its default mode until `done` or a short deadline.
+    private static func drainRunLoop(until done: () -> Bool) {
+        let deadline = Date(timeIntervalSinceNow: 0.5)
+        while !done(), Date() < deadline {
+            RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02))
+        }
+    }
+
     private static func returnKey() throws -> NSEvent {
         try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
                                       characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
@@ -157,4 +188,13 @@ import Testing
     }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool { enabled }
+}
+
+/// A menu delegate that records what it heard.
+@MainActor private final class DelegateSpy: NSObject, NSMenuDelegate {
+    weak var highlighted: NSMenuItem?
+    var closed = false
+
+    func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) { highlighted = item }
+    func menuDidClose(_ menu: NSMenu) { closed = true }
 }
