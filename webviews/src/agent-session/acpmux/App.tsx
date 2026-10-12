@@ -103,12 +103,11 @@ import {
   clearFindHighlights,
   FindReveal,
   findRowIndex,
-  isFindRow,
   paintFindHighlights,
-  useChatFind,
   type ChatFind,
 } from "./conversation/chatFind";
 import { ChatFindBar } from "./conversation/ChatFindBar";
+import { ChatFindScope } from "./conversation/ChatFindScope";
 import { DATE, PREVIEW, RENDER, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
 import { ArrowDown, Copy } from "./conversation/icons";
 import { PreviewCard } from "./conversation/PreviewCard";
@@ -1934,25 +1933,13 @@ function AcpmuxPane() {
   // Another chat never opens on a subagent of this one.
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
   useEffect(() => setSubagentView(undefined), [shownSessionId]);
-  // Find in Chat over the transcript; the page actions read it through `findRef`.
-  const findRows = childRows ?? sourceRows;
-  const find = useChatFind(findRows);
-  // A match in a turn's closed "Worked for" opens it, so the transcript draws the row.
-  const findTarget = find.open ? find.matches[find.active] : undefined;
-  // Before paint, so the transcript scrolls to the match in the same frame.
-  useLayoutEffect(() => {
-    if (!findTarget || childRows || transcriptRows.some((row) => isFindRow(row, findTarget.rowId))) return;
-    const user = findRows
-      .slice(0, findTarget.rowIndex + 1)
-      .reverse()
-      .find((row) => row.kind === "user");
-    if (!user) return;
-    const fold = `${WORKED}-${user.id}`;
-    setExpanded((current) => (current.has(fold) ? current : new Set(current).add(fold)));
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new current match opens its fold once
-  }, [findTarget?.rowId, findTarget?.occurrence]);
-  const findRef = useRef(find);
-  findRef.current = find;
+  // Find in Chat over the transcript (ChatFindScope, below the pane); the page actions read it
+  // through `findRef`.
+  const findRef = useRef<ChatFind | undefined>(undefined);
+  const openFold = useCallback(
+    (fold: string) => setExpanded((current) => (current.has(fold) ? current : new Set(current).add(fold))),
+    [],
+  );
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const inspectorOpener = useRef<HTMLElement | undefined>(undefined);
   const inspectorOpenRef = useRef(false);
@@ -2561,10 +2548,10 @@ function AcpmuxPane() {
       command(name) {
         if (name === "createCheckpoint") showCheckpoint.current();
         // Find, Find Next, Find Previous and Hide Find on an agent pane (the app's Edit menu, Cmd-F).
-        if (name === "find") findRef.current.show();
-        if (name === "findNext") findRef.current.next();
-        if (name === "findPrevious") findRef.current.previous();
-        if (name === "hideFind") findRef.current.hide();
+        if (name === "find") findRef.current?.show();
+        if (name === "findNext") findRef.current?.next();
+        if (name === "findPrevious") findRef.current?.previous();
+        if (name === "hideFind") findRef.current?.hide();
         // Switch Model… (Ctrl-Cmd-M): the model picker opens on the path every opener uses, which
         // ends with the keyboard in its search field.
         if (name === "openModelPicker") openPicker(translate(PICKER_LABELS.model));
@@ -3055,10 +3042,10 @@ function AcpmuxPane() {
           },
           "chat.history": () => client.loadOlder(),
           // Find in Chat (the app's Find commands on an agent pane).
-          "chat.find": async ({ text }) => findRef.current.show(typeof text === "string" ? text : undefined),
-          "chat.findNext": async () => findRef.current.next(),
-          "chat.findPrevious": async () => findRef.current.previous(),
-          "chat.hideFind": async () => findRef.current.hide(),
+          "chat.find": async ({ text }) => findRef.current?.show(typeof text === "string" ? text : undefined),
+          "chat.findNext": async () => findRef.current?.next(),
+          "chat.findPrevious": async () => findRef.current?.previous(),
+          "chat.hideFind": async () => findRef.current?.hide(),
           // Composer drafts belong to the daemon session so every host can restore them.
           "chat.readDraft": ({ sessionId }) => client.readDraft(String(sessionId)),
           "chat.writeDraft": ({ sessionId, text }) => client.writeDraft(String(sessionId), String(text ?? "")),
@@ -3672,32 +3659,41 @@ function AcpmuxPane() {
               <SessionRowsContext.Provider value={snapshot.rows}>
                 <SessionCwdContext.Provider value={snapshot.summary?.cwd}>
                   <SubagentNavContext.Provider value={setSubagentView}>
-                    <VirtualTranscript
-                      rows={transcriptRows}
-                      working={snapshot.isWorking}
-                      // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
-                      jumpButton={!quick}
-                      focusComposer={() => composerHandle.current?.focus()}
-                      find={quick ? undefined : find}
-                      sessionId={childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId}
-                      canLoadOlder={!childRows && snapshot.canLoadOlder}
-                      openAt={
-                        !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
-                          ? scrollAnchor
-                          : undefined
-                      }
-                      onAnchor={
-                        quick || childRows || !shownSessionId
-                          ? undefined
-                          : (anchor) => postScrollAnchor(shownSessionId, anchor)
-                      }
-                      expanded={expanded}
-                      registry={registry}
-                      githubRepository={githubRepository}
-                      // The Quick Composer has no room for the changes view; its file rows stay plain.
-                      onOpenDiff={quick ? undefined : openDiff}
-                      onToggleActivity={toggleActivity}
-                    />
+                    <ChatFindScope
+                      rows={childRows ?? sourceRows}
+                      shown={childRows ? undefined : transcriptRows}
+                      openFold={openFold}
+                      findRef={findRef}
+                    >
+                      {(find) => (
+                        <VirtualTranscript
+                          rows={transcriptRows}
+                          working={snapshot.isWorking}
+                          // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
+                          jumpButton={!quick}
+                          focusComposer={() => composerHandle.current?.focus()}
+                          find={quick ? undefined : find}
+                          sessionId={childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId}
+                          canLoadOlder={!childRows && snapshot.canLoadOlder}
+                          openAt={
+                            !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
+                              ? scrollAnchor
+                              : undefined
+                          }
+                          onAnchor={
+                            quick || childRows || !shownSessionId
+                              ? undefined
+                              : (anchor) => postScrollAnchor(shownSessionId, anchor)
+                          }
+                          expanded={expanded}
+                          registry={registry}
+                          githubRepository={githubRepository}
+                          // The Quick Composer has no room for the changes view; its file rows stay plain.
+                          onOpenDiff={quick ? undefined : openDiff}
+                          onToggleActivity={toggleActivity}
+                        />
+                      )}
+                    </ChatFindScope>
                   </SubagentNavContext.Provider>
                 </SessionCwdContext.Provider>
               </SessionRowsContext.Provider>
