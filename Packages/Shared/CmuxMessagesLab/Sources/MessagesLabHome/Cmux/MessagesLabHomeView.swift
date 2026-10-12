@@ -263,7 +263,7 @@ public final class MessagesLabHomeView: NSView {
 
     /// Automation (DEBUG socket): the field's height and, for the newest
     /// receipt row with a row under it, its top to that row's body (macOS 27
-    /// Messages: 31 pt and 20 pt).
+    /// Messages: the field is 30 pt after a send and 31 pt from the first key; 20 pt).
     public func debugGeometry() -> [String: Double] {
         guard let demo = controller.demo else { return [:] }
         var out: [String: Double] = ["fieldHeight": Double(demo.compose.fieldRect.height)]
