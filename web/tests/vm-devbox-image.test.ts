@@ -114,9 +114,11 @@ describe("devbox image template", () => {
     expect(readdirSync(templateDir).sort()).toEqual([
       "Dockerfile",
       "README.md",
+      "agent-auth.sh",
       "agent-config.sh",
       "chrome-managed-policy.json",
       "cmux-bashrc",
+      "cmux-claude",
       "cmux-devbox-boot",
       "cmux-motd",
       "cmux-opencode",
@@ -134,9 +136,11 @@ describe("devbox image template", () => {
     // The bake scripts' preflight covers the same set (minus the README).
     expect([...DEVBOX_TEMPLATE_FILES].sort()).toEqual([
       "Dockerfile",
+      "agent-auth.sh",
       "agent-config.sh",
       "chrome-managed-policy.json",
       "cmux-bashrc",
+      "cmux-claude",
       "cmux-devbox-boot",
       "cmux-motd",
       "cmux-opencode",
