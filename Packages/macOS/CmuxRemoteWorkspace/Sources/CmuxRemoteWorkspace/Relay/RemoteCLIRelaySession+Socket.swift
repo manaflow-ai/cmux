@@ -11,6 +11,15 @@ extension RemoteCLIRelayServer.Session {
                 NSLocalizedDescriptionKey: "failed to create local relay socket",
             ])
         }
+        // A local socket that closes mid-request must fail the write with
+        // EPIPE; SIGPIPE's default action would terminate cmux.
+        var noSIGPIPE: Int32 = 1
+        guard setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSIGPIPE, socklen_t(MemoryLayout<Int32>.size)) == 0 else {
+            Darwin.close(fd)
+            throw NSError(domain: "cmux.remote.relay", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "failed to configure local relay socket",
+            ])
+        }
         return fd
     }
 
