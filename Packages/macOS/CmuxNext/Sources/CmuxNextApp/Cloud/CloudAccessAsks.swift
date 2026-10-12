@@ -220,7 +220,7 @@ final class CloudAccessAsks {
     }
 
     /// The tab of moved chat `chat` on `machine`: the one bound to its session through its `registry:` host.
-    private static func tab(of chat: CloudMovedChats.Entry, on machine: CloudMachineSession, services: AppServices) -> String? {
+    static func tab(of chat: CloudMovedChats.Entry, on machine: CloudMachineSession, services: AppServices) -> String? {
         let tabs = services.agentTabs
         return machine.daemon.store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { tab in
             guard let record = tab.agentSession, record.host == chat.host else { return false }
@@ -229,7 +229,7 @@ final class CloudAccessAsks {
     }
 
     /// The work root (``CloudMoveSetup/workRoots``) the chat's synced folder is under.
-    private static func remoteRoot(_ folder: String, roots: [String]) -> String? {
+    static func remoteRoot(_ folder: String, roots: [String]) -> String? {
         roots.first { folder.hasPrefix($0.hasSuffix("/") ? $0 : $0 + "/") }
     }
 }

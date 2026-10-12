@@ -203,6 +203,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `chat.toolCard.respond {id, action, value?}`: a click on a button of a tool card (``AgentPaneToolCard``),
     /// with what the person typed in its field.
     case toolCard(card: String, action: String, value: AgentPaneToolCard.Entered?)
+    /// `chat.upload {files: [{name, data}]}`: files the person dropped or pasted, for the chat's Cloud machine (``AgentPaneUpload``).
+    case upload([AgentPaneUpload])
     case unsupported(String)
 
     /// Most frames in one `transport.send` (the page sends what one task wrote).
@@ -219,6 +221,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// A tool card answer carrying what the person typed (a secret): never logged, even redacted.
     public var carriesEntered: Bool {
         if case .toolCard(_, _, .some) = self { return true }
+        return false
+    }
+
+    /// An upload: the person's files, never logged.
+    public var carriesFiles: Bool {
+        if case .upload = self { return true }
         return false
     }
 

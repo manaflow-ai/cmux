@@ -212,6 +212,8 @@ extension AgentPaneRequest {
             if let archived = params?["archived"] as? Bool { self = .archive(archived) } else { self = .unsupported(method) }
         case "chat.markUnread":
             self = .markUnread
+        case "chat.upload":
+            if let files = AgentPaneUpload.files(params) { self = .upload(files) } else { self = .unsupported(method) }
         case "chat.toolCard.respond":
             if let answer = AgentPaneToolCard.answer(params) { self = .toolCard(card: answer.card, action: answer.action, value: answer.value) } else { self = .unsupported(method) }
         case "shortcut.edit":

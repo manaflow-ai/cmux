@@ -52,6 +52,8 @@ nonisolated struct CloudAccessCLI: Sendable {
         var secrets: [SecretAsk] = []
         /// `triage`'s per-request errors and `sync`'s failed copies.
         var failures = 0
+        /// `upload`: where each file went on the machine, in the order given.
+        var uploaded: [String] = []
     }
 
     let binary: URL
@@ -75,6 +77,11 @@ nonisolated struct CloudAccessCLI: Sendable {
         }
     }
 
+    /// `upload`: copies `files` (in this Mac's temporary `cmux-pastes`) to the machine, each under `remoteRoot`.
+    func upload(socket: String, remoteRoot: String, files: [String]) async throws -> Answer {
+        try await run(["link", "access", "upload", "--socket", socket, "--remote-root", remoteRoot] + files)
+    }
+
     /// `sync`: copies chat `session`'s granted folders on the machine again.
     func sync(socket: String, machine: String, session: String) async throws -> Answer {
         try await run(["link", "access", "sync", "--socket", socket, "--machine", machine, "--session", session])
@@ -96,8 +103,9 @@ nonisolated struct CloudAccessCLI: Sendable {
         }
         let listed = object["ask"] as? [[String: Any]] ?? []
         let failedSyncs = (object["synced"] as? [[String: Any]] ?? []).filter { $0["ok"] as? Bool != true }.count
+        let uploaded = (object["uploads"] as? [[String: Any]] ?? []).compactMap { $0["path"] as? String }
         return Answer(ok: ok, errorCode: object["error_code"] as? String, error: object["error"] as? String, asks: listed.compactMap(Self.fileAsk),
-                      secrets: listed.compactMap(Self.secretAsk), failures: (object["errors"] as? [Any] ?? []).count + failedSyncs)
+                      secrets: listed.compactMap(Self.secretAsk), failures: (object["errors"] as? [Any] ?? []).count + failedSyncs, uploaded: uploaded)
     }
 
     /// A request id as the machine daemon mints them: 32 lowercase hex digits.
