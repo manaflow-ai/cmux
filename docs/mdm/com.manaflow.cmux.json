@@ -1625,7 +1625,7 @@
       "type" : "boolean"
     },
     "sidebar.minimalMode" : {
-      "default" : "bottom",
+      "default" : "off",
       "description" : "Hides the chosen sections until the pointer is over the sidebar.",
       "enum" : [
         "off",
