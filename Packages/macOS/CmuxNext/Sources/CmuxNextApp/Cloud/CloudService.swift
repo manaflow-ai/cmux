@@ -53,7 +53,8 @@ final class CloudService {
     /// The chats moved from this Mac, for Bring Back Local.
     @ObservationIgnored let movedChats = CloudMovedChats()
     /// Agents' asks to move their chats, and the cards they raise in chats.
-    @ObservationIgnored let moveAsks = CloudMoveAsks(), toolCards = AgentToolCards()
+    @ObservationIgnored let moveAsks = CloudMoveAsks()
+    @ObservationIgnored let toolCards = AgentToolCards()
 
     init(machines: MachineRegistry, isDebugBuild: Bool) {
         self.machines = machines
