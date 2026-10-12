@@ -25,7 +25,7 @@ describe("stack session revocation store", () => {
     // Enqueueing again (a retried DELETE) keeps the existing rows.
     await store.enqueue({ userId: "user-1", accessGrantId: null, stackSessionIds: ["s1"] });
     const now = new Date();
-    let answers = [429, 200, 200];
+    const answers = [429, 200, 200];
     const revoke = async () => {
       const status = answers.shift();
       if (status !== 200) throw Object.assign(new Error("throttled"), { status });
