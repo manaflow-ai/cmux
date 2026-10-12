@@ -46,6 +46,8 @@ final class CloudService {
     let creations = CloudCreations()
     /// Move to Cloud's CLI and machine folders.
     @ObservationIgnored var move = CloudMoveSetup()
+    /// What Retry does for each chat whose move stopped.
+    @ObservationIgnored let moveRetries = CloudMoveRetries()
 
     init(machines: MachineRegistry, isDebugBuild: Bool) {
         self.machines = machines

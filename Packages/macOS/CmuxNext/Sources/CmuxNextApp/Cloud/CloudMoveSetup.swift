@@ -11,4 +11,6 @@ struct CloudMoveSetup {
     /// user existed (cmux-host `daemon_spec.rs`, `WORK_HOME` and `ROOT_HOME`).
     /// The machine daemon takes a moved chat only under its `$HOME/work`.
     var workRoots: [String] = ["/home/cmux/work", "/root/work"]
+    /// How long one CLI run may take: a first sync of a big repository, or a long chat, can take minutes.
+    var timeout: Duration = .seconds(30 * 60)
 }
