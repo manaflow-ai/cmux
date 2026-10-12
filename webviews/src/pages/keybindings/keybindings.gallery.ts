@@ -153,6 +153,43 @@ const searchReadOnly: Play = async (ctx) => {
   });
 };
 
+const searchComposition: Play = async (ctx) => {
+  const search = { selector: ".keys-search" } as const;
+  await ctx.waitFor(() => ctx.document.querySelector(".keys-row"));
+  await ctx.focus(search);
+  const selectedTitle = () =>
+    ctx.document.querySelector<HTMLElement>(".keys-row.selected .keys-command-title")?.textContent;
+  await ctx.press("ArrowDown");
+  await ctx.press("ArrowDown");
+  await ctx.waitFor(() => selectedTitle() === "Go to File");
+
+  const dispatch = (key: string, isComposing: boolean, keyCode?: number) => {
+    const KeyboardEventConstructor = ctx.document.defaultView?.KeyboardEvent;
+    if (!KeyboardEventConstructor) throw new Error("gallery document has no KeyboardEvent constructor");
+    const event = new KeyboardEventConstructor("keydown", {
+      bubbles: true,
+      cancelable: true,
+      isComposing,
+      key,
+    });
+    if (keyCode !== undefined) Object.defineProperty(event, "keyCode", { configurable: true, value: keyCode });
+    (ctx.find(search) as HTMLInputElement).dispatchEvent(event);
+    return event;
+  };
+
+  // IME candidate navigation must not move the selected row or cancel composition.
+  const composingArrow = dispatch("ArrowDown", true);
+  await ctx.waitFor(() => selectedTitle() === "Go to File" && !composingArrow.defaultPrevented);
+  // Older WebKit reports only the legacy 229 keyCode on the commit key.
+  const composingEnter = dispatch("Enter", false, 229);
+  await ctx.waitFor(
+    () =>
+      selectedTitle() === "Go to File" &&
+      !composingEnter.defaultPrevented &&
+      !ctx.document.querySelector(".keys-row.recording"),
+  );
+};
+
 export default keybindingsPageEntry({
   id: "pages.keybindings",
   title: "Keyboard Shortcuts",
@@ -177,6 +214,11 @@ export default keybindingsPageEntry({
       note: "Return does not start recording when search selection lands on a Ghostty or removed row.",
       bindings: readOnlyBindings,
       play: searchReadOnly,
+    },
+    "search-composition": {
+      note: "IME candidate navigation and commit stay in composition instead of moving or recording a row.",
+      bindings,
+      play: searchComposition,
     },
     "many-bindings": {
       note: "A long shortcut table with scrolling and long command names.",
