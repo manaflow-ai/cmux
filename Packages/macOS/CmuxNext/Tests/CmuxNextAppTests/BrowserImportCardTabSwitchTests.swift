@@ -32,6 +32,7 @@ import Testing
         let window: NSWindow
         let pane: PaneContentView
         let chrome: BrowserChromeView
+        let page: WebKitTab
 
         init() {
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.titled],
@@ -39,10 +40,14 @@ import Testing
             window.isReleasedWhenClosed = false
             pane = PaneContentView(stripModel: TabStripModel(tabs: [TabItem(id: TabID("browser"), title: "Example")]),
                                    reveal: LaunchReveal(deadline: .zero))
+            // The tab bar above the toolbar (the default): no header band, so a switch to a page
+            // that has not painted holds the browser on screen (`PaneContentView.show`).
+            pane.barOrder = .aboveToolbar
             pane.frame = window.contentLayoutRect
             window.contentView = pane
             window.orderFrontRegardless()
-            chrome = BrowserChromeView(tab: WebKitEngine().makeWebKitTab())
+            page = WebKitEngine().makeWebKitTab()
+            chrome = BrowserChromeView(tab: page)
             pane.show(chrome)
             pane.layoutSubtreeIfNeeded()
         }
@@ -56,16 +61,16 @@ import Testing
             return chrome.currentCookieImportCard
         }
 
-        /// Whether `card` is on screen: presented in a window over this one.
+        /// Whether `card` is on screen: presented on this window's overlay host.
         func shows(_ card: NSView?) -> Bool {
-            guard let card, let shownIn = card.window else { return false }
-            return shownIn === window || shownIn.parent === window
+            card?.window?.parent === window
         }
 
         func tearDown() {
             chrome.hideCookieImportOffer()
             window.orderOut(nil)
             window.close()
+            page.close()
         }
     }
 
@@ -91,12 +96,15 @@ import Testing
         let tab = Pane()
         defer { tab.tearDown() }
         let card = try #require(tab.offer())
+        #expect(tab.shows(card), "the card shows over its browser tab")
         let page = UnpaintedPage()
         tab.pane.show(page)
         tab.pane.layoutSubtreeIfNeeded()
+        #expect(!tab.chrome.isHidden, "the browser stays on screen until the page paints")
+        #expect(tab.shows(card), "and its card with it")
         page.paint()
         tab.pane.layoutSubtreeIfNeeded()
-        #expect(tab.chrome.isHiddenOrHasHiddenAncestor || tab.chrome.window == nil, "the browser left once the page painted")
+        #expect(tab.chrome.isHidden, "the browser is parked once the page painted")
         #expect(!tab.shows(card), "the New Tab page shows: the card is not over it")
     }
 
@@ -109,6 +117,7 @@ import Testing
         tab.pane.show(page)
         tab.pane.layoutSubtreeIfNeeded()
         let card = try #require(tab.offer())
+        #expect(tab.shows(card), "the browser is still on screen under the hold, and so is its card")
         page.paint()
         tab.pane.layoutSubtreeIfNeeded()
         #expect(!tab.shows(card), "the New Tab page shows: the card is not over it")
