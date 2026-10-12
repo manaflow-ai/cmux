@@ -512,7 +512,7 @@ function BranchBaseButtonLabel({ picker }: { picker: BranchPickerPayload }) {
   );
 }
 
-function BranchPickerRowView({
+export function BranchPickerRowView({
   current,
   domId,
   entry,
