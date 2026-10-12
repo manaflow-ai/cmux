@@ -905,6 +905,16 @@ pre.cv-math-source {
 .cv-shell__exit {
   font: 13px/20px var(--cv-font);
 }
+/* "Shell" with the output's copy button at the other end; the button overhangs the label's line. */
+.cv-shell__label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 20px;
+}
+.cv-shell__label .cv-codeblock__action {
+  margin-right: -6px;
+}
 .cv-shell__body {
   display: flex;
   flex-direction: column;
@@ -1094,6 +1104,48 @@ pre.cv-math-source {
 }
 .cv-rotor.is-flipped {
   transform: rotate(180deg);
+}
+/* A call's output under its row (ToolRow.tsx): copyable whole from the corner on hover or focus. */
+.cv-tool-output-card {
+  position: relative;
+  margin: 4px 0 8px;
+}
+.cv-tool-output-card .cv-tool-output {
+  margin: 0;
+}
+.cv-tool-output__copy {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  color: var(--cv-text-muted);
+  background: var(--cv-card-fill);
+  opacity: 0;
+}
+.cv-tool-output-card:hover .cv-tool-output__copy,
+.cv-tool-output__copy:focus-visible {
+  opacity: 1;
+}
+/* The mark where a long output's shown end begins, and the button that shows all of it. */
+.cv-output-cut {
+  color: var(--cv-text-muted);
+}
+.cv-output-more {
+  all: unset;
+  display: block;
+  margin: 4px 0 0;
+  font-family: var(--cv-font);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  color: var(--cv-text-muted);
+  cursor: pointer;
+}
+.cv-output-more:hover {
+  color: var(--cv-text);
+}
+.cv-output-more:focus-visible {
+  outline: 2px solid var(--agent-accent-soft);
+  outline-offset: 1px;
+  border-radius: 4px;
 }
 .cv-message .cv-tool-output {
   margin: 0 10px 8px 32.5px;
@@ -1326,10 +1378,14 @@ pre.cv-math-source {
 }
 
 /* Images (Markdown.tsx): a data URL image fits the column; a web image is a link. */
+/* A reply's image: as wide as the column at most, and no taller than a screenful's share, so a tall
+ * screenshot does not push the reply off the page; the viewer shows it whole. */
 .cv-img {
   display: block;
   max-width: 100%;
+  max-height: 360px;
   height: auto;
+  object-fit: contain;
   margin: 6px 0;
   border-radius: 8px;
 }

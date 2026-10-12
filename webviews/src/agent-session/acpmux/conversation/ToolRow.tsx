@@ -12,7 +12,10 @@ import { toolImages } from "../toolImages";
 import { toolLabel } from "../toolPaths";
 import { SessionCwdContext } from "../turnChanges/sessionRows";
 import { EditDiff } from "./EditDiff";
+import { CopyButton } from "./CopyButton";
+import { menuPartRef } from "./menuParts";
 import { ShellBlock } from "./ShellBlock";
+import { OutputMore, useOutput } from "./toolOutput";
 import { ChevronRight, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
 
 /// ACP tool kinds (`ToolKind`) to row glyphs.
@@ -97,12 +100,32 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
           ))}
         </div>
       )}
-      {open && !shell && files.length === 0 && body && (
-        <pre id={detailsId} className="cv-tool-output selectable">
-          {body}
-        </pre>
-      )}
+      {open && !shell && files.length === 0 && body && <ToolOutput id={detailsId} output={body} />}
     </>
+  );
+}
+
+/// A call's output when it is not a shell's: copyable whole, the end of a long one shown.
+function ToolOutput({ id, output }: { id: string; output: string }) {
+  const t = useT();
+  const shown = useOutput(output);
+  return (
+    <div id={id} className="cv-tool-output-card" ref={menuPartRef({ output: shown.text })}>
+      <CopyButton
+        text={shown.text ?? ""}
+        label={t("turn.copy")}
+        className="cv-codeblock__action cv-tool-output__copy"
+      />
+      <pre className="cv-tool-output selectable">
+        {shown.cut && (
+          <span className="cv-output-cut" aria-hidden="true">
+            …{"\n"}
+          </span>
+        )}
+        {shown.shown}
+      </pre>
+      <OutputMore output={shown} />
+    </div>
   );
 }
 
