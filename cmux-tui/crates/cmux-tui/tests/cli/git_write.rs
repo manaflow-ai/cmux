@@ -246,5 +246,19 @@ fn a_worktree_chats_status_and_branch_diff_follow_its_recorded_base() {
     let status = json_output(&git_cli(&server, &repo, &["status"]));
     assert!(status.get("worktree").is_none(), "{status}");
     assert_eq!(status["base"], "main", "{status}");
+
+    // A base past a branch (`feature~1`) is no branch: the chat keeps the commit it named then,
+    // even after the branch moves on.
+    let first = git(&repo, &["rev-parse", "feature~1"]);
+    let args =
+        ["worktree", "create", "--name", "past", "--base", "feature~1", "--idempotency-key", "b2"];
+    assert_success(&git_cli(&server, &repo, &args));
+    git(&repo, &["checkout", "-q", "feature"]);
+    fs::write(repo.join("g.txt"), "more\n").unwrap();
+    git(&repo, &["add", "g.txt"]);
+    git(&repo, &["commit", "-q", "-m", "more"]);
+    let past = home.join(".cmux/worktrees/project/past");
+    let status = json_output(&git_cli(&server, &past, &["status"]));
+    assert_eq!(status["base"], first.trim(), "{status}");
     let _ = fs::remove_dir_all(root);
 }
