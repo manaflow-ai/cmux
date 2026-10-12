@@ -127,7 +127,10 @@ final class HostConnection {
             })
             if let services {
                 // Rebind rather than replace: open sheets hold this client.
-                if await services.isClosed { await services.rebind(try await link.openChannel(label: "svc")) }
+                if await services.isClosed {
+                    let channel = try await link.openChannel(label: "svc")
+                    await services.rebind(channel)
+                }
             } else {
                 let svc = ServiceClient(channel: try await link.openChannel(label: "svc"))
                 await svc.start()
