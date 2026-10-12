@@ -40,7 +40,14 @@ fn window_close_changes(
         Some(key) => closed::workspace_name(transaction, key)?,
         None => None,
     };
-    Ok(vec![closed::insert_window_group(transaction, id, name)?])
+    let keys = record
+        .get("workspace_key")
+        .into_iter()
+        .chain(record.get("workspace_keys").and_then(Value::as_array).into_iter().flatten())
+        .filter_map(Value::as_str)
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    Ok(closed::insert_window_group(transaction, id, name, &keys)?.into_iter().collect())
 }
 
 /// One write of a window record.

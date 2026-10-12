@@ -182,8 +182,10 @@ input[type="submit"] {
   outline: none;
 }
 
+/* Reduce Motion stops every page animation, except the popup surfaces' fades: a menu, tooltip or
+   sheet that appeared in one frame flashed (POLISH; ui/popupSurface.css keeps them fade-only). */
 @media (prefers-reduced-motion: reduce) {
-  *,
+  *:not(.ui-popup, .ui-tooltip, .ui-sheet),
   *::before,
   *::after {
     animation-duration: 0.01ms !important;

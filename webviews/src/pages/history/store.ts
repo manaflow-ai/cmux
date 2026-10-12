@@ -191,8 +191,10 @@ export class HistoryStore {
     return this.intent(HistoryOps.removeSite, { host, profile: entry.profile, idempotency_key: this.key() });
   }
 
+  /** Clears the range of the kinds the filter shows (every kind under All). */
   clear(range: HistoryRange): Promise<void> {
-    return this.intent(HistoryOps.clear, { range, idempotency_key: this.key() });
+    const kinds = filterKinds(this.snapshot.filter);
+    return this.intent(HistoryOps.clear, { range, ...(kinds.length ? { kinds } : {}), idempotency_key: this.key() });
   }
 
   async copy(text: string): Promise<void> {

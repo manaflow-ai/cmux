@@ -6,6 +6,7 @@ import { ChevronDown, Code, Eye, FileTypeIcon, OpenTab } from "../changeIcons";
 import { useT } from "../i18n";
 import { Counts } from "./Counts";
 import { FileMenu } from "./FileMenu";
+import { openFileKeys, type HunkDecision, type HunkReview } from "./hunkReview";
 
 export type FileView = { collapsed: boolean; viewed: boolean };
 /// Where the host opens a changed file: a tab beside the agent, or the editor app.
@@ -29,14 +30,19 @@ export function FileHeader({
   index,
   view,
   on,
+  review,
 }: {
   file: TurnFile;
   edit: DiffEdit;
   index: number;
   view: FileView;
   on: FileActions;
+  /// The turn's hunk review, where the view has one: the menu decides every change in the file.
+  review?: HunkReview;
 }) {
   const t = useT();
+  const open = review ? openFileKeys(file, review.decisions) : [];
+  const decideFile = (decision: HunkDecision) => open.forEach((key) => review?.decide(key, decision));
   const slash = file.displayPath.lastIndexOf("/");
   const additions = edit.hunks.reduce((sum, hunk) => sum + hunk.lines.filter((line) => line.type === "add").length, 0);
   const deletions = edit.hunks.reduce((sum, hunk) => sum + hunk.lines.filter((line) => line.type === "del").length, 0);
@@ -102,6 +108,14 @@ export function FileHeader({
         collapsed={view.collapsed}
         onToggleCollapsed={() => on.toggleCollapsed(file.path)}
         onOpenInTab={file.deleted ? undefined : () => on.openFile(file.path, "tab")}
+        review={
+          open.length > 0
+            ? [
+                { label: t("hunk.rejectFile"), run: () => decideFile("rejected") },
+                { label: t("hunk.acceptFile"), run: () => decideFile("accepted") },
+              ]
+            : undefined
+        }
         stage={
           on.stage && {
             label: t(on.stage.unstage ? "changes.unstageFile" : "changes.stageFile"),

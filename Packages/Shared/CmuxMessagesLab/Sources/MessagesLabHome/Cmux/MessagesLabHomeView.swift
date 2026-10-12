@@ -48,6 +48,14 @@ public final class MessagesLabHomeView: NSView {
 
     public override var isFlipped: Bool { true }
 
+    /// MessagesLab b6760b6: Home moved in its pane without a size change (a split or sidebar move that only
+    /// shifts it): the typing indicator snaps to the window's device pixels at the new place. A size change
+    /// lays the host out, which refreshes it too (HostView.layout).
+    public override func setFrameOrigin(_ newOrigin: NSPoint) {
+        super.setFrameOrigin(newOrigin)
+        controller.host.refreshWindowPlaceIfMoved()
+    }
+
     public override func layout() {
         super.layout()
         if controller.host.frame != bounds { controller.host.frame = bounds }
@@ -289,6 +297,9 @@ public final class MessagesLabHomeView: NSView {
         }
         return nil
     }
+
+    /// The window view's origin in window points (bottom-left origin), for automation.
+    public var debugHostOrigin: CGPoint { controller.host.convert(CGPoint.zero, to: nil) }
 
     /// Automation (DEBUG socket): the text of the newest `limit` messages
     /// this view holds (its own store), oldest first.
