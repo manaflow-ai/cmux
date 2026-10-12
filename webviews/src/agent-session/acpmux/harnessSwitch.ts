@@ -242,7 +242,7 @@ export class HarnessSwitch {
     const shownSession = port?.shown();
     const cwd = folder ?? previous?.cwd ?? shownSession?.cwd;
     if (previous && previous.harness === harness && previous.phase !== "failed" && previous.cwd === cwd) {
-      if (options.model) this.pickModel(options.model);
+      if (options.model) void this.pickModel(options.model);
       return previous.done.promise;
     }
     // While the shown session's turn streams (or the pane holds a page), the pick applies to the next turn.

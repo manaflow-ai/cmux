@@ -235,8 +235,9 @@ async function mountNewTab(start: { harness: string }) {
     prewarm: () => undefined,
     prewarmSupported: () => false,
   });
-  (window as unknown as { cmuxAcpmuxActions: Record<string, (params: Record<string, unknown>) => unknown> })
-    .cmuxAcpmuxActions = {
+  (
+    window as unknown as { cmuxAcpmuxActions: Record<string, (params: Record<string, unknown>) => unknown> }
+  ).cmuxAcpmuxActions = {
     "chat.new": (params) => {
       sent.push({ method: "chat.new", params });
       const { harness, cwd, deferred, model } = params;
