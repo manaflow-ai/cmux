@@ -341,6 +341,8 @@ fn a_pull_brings_back_the_machines_edits_and_commits_but_never_its_hooks() {
     std::fs::write(remote.join("notes.txt"), "notes\nunstaged there\n").unwrap();
     std::fs::write(remote.join("staged.txt"), "staged there\n").unwrap();
     git(&remote, &["add", "staged.txt"]);
+    // The push sent no hooks folder.
+    std::fs::create_dir_all(remote.join(".git/hooks")).unwrap();
     std::fs::write(remote.join(".git/hooks/post-merge"), "#!/bin/sh\nexit 1\n").unwrap();
     git(&remote, &["config", "core.hooksPath", "/tmp/machine-hooks"]);
     std::fs::create_dir_all(remote.join("build")).unwrap();
