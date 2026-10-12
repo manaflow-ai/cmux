@@ -259,6 +259,11 @@
       "vcpuMessage": "Your VMs already use {used} of {pool} vCPUs. This VM needs {requested} vCPUs.",
       "upgradeAction": "Pause or delete a VM, or upgrade to Max.",
       "action": "Pause or delete a VM."
+    },
+    "activeLimit": {
+      "counted": "Counted now: {machines}. Paused machines do not count.",
+      "provisioning": "{name} (provisioning)",
+      "separator": ", "
     }
   },
   "ios": {

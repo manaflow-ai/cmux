@@ -262,6 +262,27 @@ export async function vmGoLimitCopy(
   return { message: t(`${kind}Message`), action: t(`${kind}Action`) };
 }
 
+/**
+ * The localized sentence naming the machines an active-VM limit counted, or
+ * "" when there are none. It is appended to the plan sentence, so it starts
+ * with a space.
+ */
+export async function vmActiveLimitCountedCopy(
+  locale: Locale,
+  machines: readonly { readonly name: string; readonly status: "provisioning" | "running" }[],
+): Promise<string> {
+  if (machines.length === 0) return "";
+  const t = createTranslator({
+    locale,
+    messages: await loadMessages(locale),
+    namespace: "vmErrors.activeLimit",
+  }) as unknown as (key: string, values?: Record<string, string>) => string;
+  const names = machines.map((machine) =>
+    machine.status === "provisioning" ? t("provisioning", { name: machine.name }) : machine.name
+  );
+  return ` ${t("counted", { machines: names.join(t("separator")) })}`;
+}
+
 /** Localized copy for a create, resume, resize, or fork that does not fit the shared pool. */
 export async function vmResourcePoolCopy(
   locale: Locale,

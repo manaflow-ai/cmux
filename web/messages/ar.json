@@ -110,6 +110,11 @@
       "vcpuMessage": "تستخدم أجهزتك الافتراضية بالفعل {used} من {pool} vCPU. يحتاج هذا الجهاز الافتراضي إلى {requested} vCPU.",
       "upgradeAction": "أوقف جهازاً افتراضياً مؤقتاً أو احذفه، أو قم بالترقية إلى Max.",
       "action": "أوقف جهازاً افتراضياً مؤقتاً أو احذفه."
+    },
+    "activeLimit": {
+      "counted": "المحتسبة الآن: {machines}. لا تُحتسب الأجهزة المتوقفة مؤقتًا.",
+      "provisioning": "{name} (قيد التجهيز)",
+      "separator": "، "
     }
   },
   "billingRecovery": {

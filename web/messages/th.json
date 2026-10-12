@@ -110,6 +110,11 @@
       "vcpuMessage": "VM ของคุณใช้ไปแล้ว {used} จาก {pool} vCPU VM นี้ต้องใช้ {requested} vCPU",
       "upgradeAction": "หยุดชั่วคราวหรือลบ VM หรืออัปเกรดเป็น Max",
       "action": "หยุดชั่วคราวหรือลบ VM"
+    },
+    "activeLimit": {
+      "counted": "ที่นับอยู่ตอนนี้: {machines} เครื่องที่หยุดชั่วคราวจะไม่ถูกนับ",
+      "provisioning": "{name} (กำลังจัดเตรียม)",
+      "separator": ", "
     }
   },
   "billingRecovery": {

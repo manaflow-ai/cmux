@@ -535,6 +535,10 @@ public struct AgentResumeArgv: Sendable, Equatable {
             return withOption("qoder", executable: "qodercli", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "kimi":
             return withOption("kimi", executable: "kimi", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
+        case "muse":
+            let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: MuseExecutableName.launcher)
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "muse", args: parts.tail) else { return nil }
+            return [MuseExecutableName(parts.executable).resumeExecutable, "resume", sessionId] + preserved
         default:
             return nil
         }

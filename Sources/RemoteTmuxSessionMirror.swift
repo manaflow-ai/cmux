@@ -154,6 +154,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     var paneSeedReadinessObserverTokens: [NSObjectProtocol] = []
     /// Per-window renderers, created from each window's first published layout.
     var windowMirrorByWindowId: [Int: RemoteTmuxWindowMirror] = [:]
+    private let agentStatusProjector = RemoteTmuxAgentStatusProjector()
     private var pendingExplicitFocusWindowId: Int?
     private var observerToken: UUID?
     private var paneInputForwarder: RemoteTmuxPaneInputForwarder?
@@ -227,6 +228,9 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
             onSessionChanged: { [weak self] oldName, newName in
                 self?.handleSessionNameChanged(oldName: oldName, newName: newName)
             },
+            onPaneAgent: { [weak self] _, _ in
+                self?.refreshAgentStatus()
+            },
             onTopologyChanged: { [weak self] in
                 self?.rebuild()
             },
@@ -234,6 +238,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                 self?.forceResizeAllVisibleMirrors()
             },
             onExit: { [weak self] in
+                self?.clearAgentStatus()
                 self?.handleConnectionExited()
             },
             onConnectionStateChanged: { [weak self] state in
@@ -244,6 +249,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                 // Resetting on the disconnect edge is ordering-independent (no output
                 // arrives while not connected).
                 if state != .connected {
+                    self?.clearAgentStatus()
                     self?.titleFilters.removeAll()
                     self?.notificationFilters.removeAll()
                     self?.clearPendingPaneSeedDeliveries()
@@ -315,6 +321,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     /// renderers (called when the mirror is torn down so its callbacks
     /// don't linger on a shared connection and its pane surfaces don't leak).
     func detachObserver() {
+        clearAgentStatus()
         clearPendingPaneSeedDeliveries()
         if let observerToken {
             connection.removeObserver(observerToken)
@@ -337,6 +344,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         windowMirrorByWindowId.removeAll()
         windowIdByPanel.removeAll()
         windowIdByPane.removeAll()
+
     }
 
     /// The tmux window id (if any) whose layout currently contains `paneId`.
@@ -433,6 +441,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         if desiredPanelOrder.count > 1 {
             workspace.reorderRemoteTmuxMirrorTabs(toPanelOrder: desiredPanelOrder)
         }
+        refreshAgentStatus()
     }
 
     /// Applies explicit focus only after the corresponding mirror tab exists and
@@ -514,6 +523,20 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
               let mirror = windowMirrorByWindowId[windowId] else { return }
         mirror.surface(forPane: paneId)?.setManualIONoReflow(noReflow)
         mirror.updatePaneTitle(paneId)
+    }
+
+    private func refreshAgentStatus() {
+        guard let workspace else { return }
+        agentStatusProjector.reconcile(
+            statuses: connection.paneAgentStatuses,
+            panelByPane: windowIdByPane.compactMapValues { panelIdByWindow[$0] },
+            workspace: workspace
+        )
+    }
+
+    private func clearAgentStatus() {
+        guard let workspace else { return }
+        agentStatusProjector.reconcile(statuses: [:], panelByPane: [:], workspace: workspace)
     }
 
     /// Updates only the mirror-owned tab for a pane whose tmux title changed.

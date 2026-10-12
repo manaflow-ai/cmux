@@ -9189,7 +9189,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // panel's pending row show Base coming up while the person keeps working (#11397).
                 let model = NewMachineModel(
                     mode: .base(workspaceID: workspace.id),
-                    plan: MachineSnapshotBuilder.planSnapshot(activeCount: page?.vms.count ?? 0, limits: page?.limits),
+                    plan: MachineSnapshotBuilder.planSnapshot(activeCount: page?.activeMachineCount ?? 0, limits: page?.limits),
                     memoryOptionsMb: page?.limits?.memoryOptionsMb ?? [],
                     lockedMemoryOptionsMb: page?.limits?.lockedMemoryOptionsMb,
                     memoryUpgradePlanId: page?.limits?.memoryUpgradePlanId,
@@ -16530,16 +16530,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Legacy Ctrl+Tab has no configurable action of its own; it steps
-        // the sidebar like nextSurface/prevSurface.
+        // Legacy Ctrl+Tab has no configurable action of its own. It
+        // intentionally reuses nextSurface/prevSurface for Dock ownership so
+        // both strokes follow the same routing classification.
         if matchesLegacyNextSurfaceShortcut(event: event) {
-            (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?
-                .stepTabOrWorkspace(forward: true)
+            stepTabOrWorkspace(
+                forward: true,
+                tabManager: preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager,
+                event: event
+            )
             return true
         }
         if matchesLegacyPreviousSurfaceShortcut(event: event) {
-            (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?
-                .stepTabOrWorkspace(forward: false)
+            stepTabOrWorkspace(
+                forward: false,
+                tabManager: preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager,
+                event: event
+            )
             return true
         }
 

@@ -940,6 +940,7 @@ function createErrorResponders(entitlements: {
       vmActiveLimitExceededResponse({
         locale: context.locale,
         limit: error.limit,
+        activeMachines: error.activeMachines,
         planId: entitlements.planId,
         retryAction: "Run `cmux vm ls`, then delete an active VM with `cmux vm rm <id>` before creating another, or upgrade your plan.",
       }),

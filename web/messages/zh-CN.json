@@ -110,6 +110,11 @@
       "vcpuMessage": "你的 VM 已使用 {pool} 个 vCPU 中的 {used} 个。此 VM 需要 {requested} 个 vCPU。",
       "upgradeAction": "暂停或删除一台 VM，或升级到 Max。",
       "action": "暂停或删除一台 VM。"
+    },
+    "activeLimit": {
+      "counted": "当前计入：{machines}。已暂停的机器不计入。",
+      "provisioning": "{name}（正在预配）",
+      "separator": "、"
     }
   },
   "billingRecovery": {

@@ -51,6 +51,20 @@ struct CloudWireGuardHubRecoveryPlanTests {
         #expect(plan.wait(after: hubFailure, enrolled: true) == nil)
     }
 
+    @Test("A spent busy budget gives up instead of falling into ordinary restarts")
+    func spentBusyBudgetGivesUp() {
+        let longBusy = VMClientError.httpStatus(
+            409, #"{"error":"vm_access_grant_busy","retryable":true,"retryAfterSeconds":60}"#
+        )
+        var plan = CloudWireGuardHubRecoveryPlan(backoff: [.seconds(1), .seconds(2), .seconds(4)])
+        #expect(plan.wait(after: longBusy, enrolled: false) == .seconds(60))
+        // The next 60 s would pass the 90 s budget: stop, rather than spend
+        // the three restarts waiting 60 s each.
+        #expect(plan.wait(after: longBusy, enrolled: false) == nil)
+        // A different failure still gets its restart attempts.
+        #expect(plan.wait(after: hubFailure, enrolled: true) == .seconds(1))
+    }
+
     @Test("A refused ordinary enrollment is not turned into a forced replacement")
     func refusedEnrollmentStaysOrdinary() {
         var plan = CloudWireGuardHubRecoveryPlan()

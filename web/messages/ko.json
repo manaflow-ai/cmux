@@ -110,6 +110,11 @@
       "vcpuMessage": "VM이 이미 vCPU {pool}개 중 {used}개를 사용하고 있습니다. 이 VM에는 vCPU {requested}개가 필요합니다.",
       "upgradeAction": "VM을 일시 중지하거나 삭제하거나, Max로 업그레이드하세요.",
       "action": "VM을 일시 중지하거나 삭제하세요."
+    },
+    "activeLimit": {
+      "counted": "현재 집계 중: {machines}. 일시 중지된 머신은 집계되지 않습니다.",
+      "provisioning": "{name} (프로비저닝 중)",
+      "separator": ", "
     }
   },
   "billingRecovery": {

@@ -5876,25 +5876,31 @@ struct CMUXCLI {
                 }
                 if let limits = response["limits"] as? [String: Any],
                    let planId = limits["planId"] as? String {
+                    // The cap counts running and provisioning machines; paused
+                    // ones are listed above but do not hold a slot.
+                    let activeCount = (limits["activeVmCount"] as? Int) ?? vms.count(where: { vm in
+                        let status = (vm["status"] as? String)?.lowercased()
+                        return status == "running" || status == "provisioning"
+                    })
                     // Absent or null means the plan has no active-machine cap.
                     if let maxActiveVms = limits["maxActiveVms"] as? Int, maxActiveVms == 1 {
                         let format = String(
                             localized: "cli.vm.list.planMeter.single",
                             defaultValue: "%1$d of 1 machine on the %2$@ plan"
                         )
-                        print(String(format: format, vms.count, planId))
+                        print(String(format: format, activeCount, planId))
                     } else if let maxActiveVms = limits["maxActiveVms"] as? Int {
                         let format = String(
                             localized: "cli.vm.list.planMeter",
                             defaultValue: "%1$d of %2$d machines on the %3$@ plan"
                         )
-                        print(String(format: format, vms.count, maxActiveVms, planId))
+                        print(String(format: format, activeCount, maxActiveVms, planId))
                     } else {
                         let format = String(
                             localized: "cli.vm.list.planMeter.unlimited",
                             defaultValue: "%1$d machines on the %2$@ plan, no limit"
                         )
-                        print(String(format: format, vms.count, planId))
+                        print(String(format: format, activeCount, planId))
                     }
                     // Free plans: the backend says when access to the fleet closes;
                     // the footer counts down to it so the lock never comes as a surprise.
@@ -20039,7 +20045,7 @@ struct CMUXCLI {
             agent. Claude Code and Pi hooks are injected automatically by their cmux wrappers.
 
             Agents:
-              codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
+              codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder, muse
 
             Hook targets:
               setup              Install hooks for all supported agents on PATH
@@ -34783,14 +34789,14 @@ struct CMUXCLI {
     }
 
     private func nestedHookTimeout(_ timeoutMs: Int, for def: AgentHookDef) -> Int {
-        guard def.name == "codex" || def.name == "grok" else {
+        guard def.name == "codex" || def.name == "grok" || def.name == "muse" else {
             return max(timeoutMs, 1)
         }
         return Self.timeoutSecondsFromMilliseconds(timeoutMs)
     }
 
     private func nestedFeedHookTimeout(_ timeoutMs: Int, for def: AgentHookDef) -> Int {
-        guard def.name == "codex" || def.name == "grok" else { return max(timeoutMs, 1) }
+        guard def.name == "codex" || def.name == "grok" || def.name == "muse" else { return max(timeoutMs, 1) }
         return Self.timeoutSecondsFromMilliseconds(timeoutMs)
     }
 
@@ -35857,6 +35863,8 @@ export default {
 
         existing["hooks"] = hooks
         if case .flat = def.format { existing["version"] = 1 }
+        // Muse refuses to start with a settings file that lacks a schema version.
+        if def.name == "muse", existing["schema_version"] == nil { existing["schema_version"] = 1 }
         if case .kiroAgentJSON = def.format {
             if existing["name"] == nil {
                 existing["name"] = "cmux"
@@ -36477,6 +36485,22 @@ export default {
         return normalizedHookValue(env["CMUX_SURFACE_ID"]) ?? ""
     }
 
+    /// Whether a Muse hook payload belongs to an internal child session.
+    ///
+    /// Muse child sessions report `turn_id == session_id`; top-level turns
+    /// carry a distinct turn id, and session lifecycle events carry none.
+    static func isMuseChildSessionHookPayload(_ payload: [String: Any]?) -> Bool {
+        guard let payload,
+              let sessionId = (payload["session_id"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              !sessionId.isEmpty,
+              let turnId = (payload["turn_id"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) else {
+            return false
+        }
+        return turnId == sessionId
+    }
+
     /// Runs one agent hook event.
     ///
     /// `codex monitor` is the one event that leads to another: when the
@@ -36768,6 +36792,13 @@ export default {
             ?? String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8)
             ?? ""
         let input = parseClaudeHookInput(rawInput: rawInput)
+        // Muse runs internal child sessions (reminders, delegated subagents)
+        // whose hooks reuse the session id as the turn id. They must not
+        // replace the main session's binding or drive the pane's status.
+        if def.name == "muse", Self.isMuseChildSessionHookPayload(input.rawObject) {
+            print("OK")
+            return
+        }
         let persistedHookEventName = reportedHookEventName(from: input)
             ?? Self.feedEventName(forClaudeSubcommand: subcommand)
 
@@ -43571,7 +43602,9 @@ export default {
         guard let def = Self.agentDef(named: first) else { return false }
         let action = commandArgs.dropFirst().first?.lowercased()
         if def.name == "pi", action == "extension-source" { return false }
-        if def.name == "grok" {
+        // Grok and Muse clear CMUX_* from hook subprocesses; their pinned
+        // hooks resolve the surface from the agent process instead.
+        if def.name == "grok" || def.name == "muse" {
             return false
         }
         return action != "install" && action != "uninstall"

@@ -259,6 +259,11 @@
       "vcpuMessage": "VM はすでに {pool} vCPU のうち {used} vCPU を使っています。この VM には {requested} vCPU が必要です。",
       "upgradeAction": "VM を一時停止または削除するか、Max にアップグレードしてください。",
       "action": "VM を一時停止または削除してください。"
+    },
+    "activeLimit": {
+      "counted": "現在カウント中: {machines}。一時停止中のマシンはカウントされません。",
+      "provisioning": "{name}（プロビジョニング中）",
+      "separator": "、"
     }
   },
   "ios": {

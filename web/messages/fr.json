@@ -110,6 +110,11 @@
       "vcpuMessage": "Vos VMs utilisent déjà {used} vCPU sur {pool}. Cette VM a besoin de {requested} vCPU.",
       "upgradeAction": "Mettez en pause ou supprimez une VM, ou passez à Max.",
       "action": "Mettez en pause ou supprimez une VM."
+    },
+    "activeLimit": {
+      "counted": "Comptées actuellement : {machines}. Les machines en pause ne comptent pas.",
+      "provisioning": "{name} (en cours de provisionnement)",
+      "separator": ", "
     }
   },
   "billingRecovery": {
