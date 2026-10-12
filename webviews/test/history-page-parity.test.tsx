@@ -98,7 +98,6 @@ async function mount(languages: string[] = ["en"], provider = new RecordingProvi
 }
 
 const rows = () => [...host.querySelectorAll<HTMLElement>(".history-row")];
-const rowTitle = (row: HTMLElement) => row.querySelector(".history-row-title")?.textContent ?? "";
 const button = (text: string) =>
   [...host.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === text)!;
 const menuItem = (text: string) =>

@@ -9,6 +9,7 @@ import {
   HistoryOps,
   type HistoryChanged,
   type HistoryEntry,
+  type HistoryKind,
   type HistoryListParams,
   type HistoryListResult,
   type HistoryRange,
@@ -95,10 +96,12 @@ export class MockHistoryProvider implements PageClient {
         return this.mutate((entry) => entry.kind !== "page" || !entry.url || hostOf(entry.url) !== host, ["page"]) as R;
       }
       case HistoryOps.clear: {
-        const start = rangeStart((params as { range: HistoryRange }).range, this.now());
+        const { range, kinds } = params as { range: HistoryRange; kinds?: HistoryKind[] };
+        const start = rangeStart(range, this.now());
+        const cleared: HistoryKind[] = kinds?.length ? kinds : ["page", "location", "closed", "command", "agent"];
         return this.mutate(
-          (entry) => start !== undefined && entry.at_ms < start,
-          ["page", "location", "closed", "command", "agent"],
+          (entry) => !cleared.includes(entry.kind) || (start !== undefined && entry.at_ms < start),
+          cleared,
         ) as R;
       }
       case ACTION_RUN:

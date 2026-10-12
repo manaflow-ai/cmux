@@ -231,6 +231,7 @@ function HistoryRow({ entry, selected, badge, badgeText, language, onSelect, onO
       role="option"
       tabIndex={-1}
       aria-selected={selected}
+      aria-disabled={entry.available ? undefined : true}
       className={`history-row${selected ? " selected" : ""}${entry.available ? "" : " unavailable"}`}
       ref={selected ? revealOnSelect : undefined}
       onClick={onSelect}
