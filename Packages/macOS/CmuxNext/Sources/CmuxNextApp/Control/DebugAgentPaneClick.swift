@@ -71,7 +71,7 @@ enum DebugAgentPaneClick {
             return .object(["pane": .string(pane), "error": .string("could not synthesize events")])
         }
         let delivered: String
-        if DebugNativeInput.usesAppKitPath(window) {
+        if DebugNativeInput.clicksThroughApp(window) {
             DebugNativeInput.sendThroughApp([down, up])
             delivered = "app"
         } else {

@@ -11,10 +11,16 @@ import CmuxNextAgentPane
 ///   (it sends keys only to the key window) and hold back a first click (`acceptsFirstMouse`), so
 ///   the caller delivers the event itself; first this runs the gesture monitor handler of each
 ///   agent pane in that window on it, as the local monitor would.
+/// - A click in the key window of an app that is not active (automation and
+///   `debug.window.focus` make a window key without activating the app) is a
+///   first click too: AppKit spends it activating, and the page never sees it.
 @MainActor
 enum DebugNativeInput {
-    /// Whether `window` gets events by the real AppKit path.
+    /// Whether `window` gets key events by the real AppKit path.
     static func usesAppKitPath(_ window: NSWindow) -> Bool { NSApp.keyWindow === window }
+
+    /// Whether a click in `window` takes the real AppKit path: its key window, in the active app.
+    static func clicksThroughApp(_ window: NSWindow) -> Bool { NSApp.isActive && usesAppKitPath(window) }
 
     /// The real path: the events go through `CmuxApplication.sendEvent` and its local monitors.
     static func sendThroughApp(_ events: [NSEvent]) {
