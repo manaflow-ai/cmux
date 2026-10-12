@@ -67,9 +67,13 @@ def daemon_socket():
     return os.path.join(temp, f"cmux-tui-{os.getuid()}", session)
 
 
+HIDDEN = set()  # ids of daemon workspaces no sidebar row shows at the start (Home)
+
+
 def daemon_workspaces():
+    """The daemon's workspaces, less the ones the sidebar never shows."""
     snapshot = line_json(daemon_socket(), {"id": 1, "cmd": "list-workspaces"}, 30)
-    return (snapshot.get("data") or {}).get("workspaces") or []
+    return [w for w in (snapshot.get("data") or {}).get("workspaces") or [] if not ids(w) & HIDDEN]
 
 
 def ids(entry):
@@ -94,6 +98,11 @@ def sidebar_rows():
     windows = (rpc("debug.sidebar_rows") or {}).get("windows") or []
     rows = windows[0].get("rows") or [] if windows else []
     return [r for r in rows if str(r.get("key", "")).startswith("workspace(")]
+
+
+def row_id(r):
+    found = re.search(r"workspace\(([^)]*)\)", str(r.get("key")))
+    return found.group(1) if found else str(r.get("key"))
 
 
 def number(name):
@@ -142,10 +151,12 @@ def settled(before_count, expected_new):
 def main():
     if not wait(lambda: (rpc("debug.windows") or {}).get("windows"), 60):
         sys.exit("the app does not answer on " + opts.socket)
+    shown = {row_id(r) for r in sidebar_rows()}
+    HIDDEN.update(*(ids(w) for w in daemon_workspaces() if not ids(w) & shown))
     before = daemon_workspaces()
     before_ids = set().union(*(ids(w) for w in before)) if before else set()
     refusals_before = len((rpc("debug.toast") or {}).get("refusals") or [])
-    print(f"before: {len(before)} workspaces, {refusals_before} refusals", flush=True)
+    print(f"before: {len(before)} workspaces ({len(HIDDEN)} hidden ids), {refusals_before} refusals", flush=True)
     snapshot("rapid-workspace-before.png")
 
     stop, seen = threading.Event(), {}
@@ -173,9 +184,6 @@ def main():
     row("daemon count", len(before) + expected_new, len(daemon), state is not None and len(daemon) == len(before) + expected_new)
 
     # The sidebar lists the daemon's workspaces, in the same order.
-    def row_id(r):
-        found = re.search(r"workspace\(([^)]*)\)", str(r.get("key")))
-        return found.group(1) if found else str(r.get("key"))
     sidebar_ids = [row_id(r) for r in rows]
     daemon_order = [next((i for i in ids(w) if i in sidebar_ids), None) for w in daemon]
     row("sidebar matches daemon", "same workspaces, same order", f"sidebar={len(rows)} daemon={len(daemon)} "
