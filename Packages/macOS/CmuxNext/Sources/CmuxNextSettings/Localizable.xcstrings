@@ -3800,6 +3800,268 @@
         }
       }
     },
+    "settings.attention.moveToTop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move the Workspace to the Top"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نقل مساحة العمل إلى الأعلى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Premjesti radni prostor na vrh"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flyt arbejdsområdet øverst"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arbeitsbereich nach oben verschieben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mover el espacio de trabajo arriba"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Déplacer l’espace de travail en haut"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sposta lo spazio di lavoro in cima"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ワークスペースを先頭に移動"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្លាស់ទីកន្លែងធ្វើការទៅខាងលើ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "워크스페이스를 맨 위로 이동"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flytt arbeidsområdet øverst"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przenieś obszar roboczy na górę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mover o espaço de trabalho para o topo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перемещать рабочее пространство наверх"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ย้ายพื้นที่ทำงานไปไว้บนสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalışma Alanını En Üste Taşı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Переміщувати робочий простір угору"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chuyển không gian làm việc lên đầu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "将工作区移到顶部"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "將工作區移到頂端"
+          }
+        }
+      }
+    },
+    "settings.attention.moveToTop.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ينقل الإشعار مساحة العمل الخاصة به إلى أعلى الصفوف غير المثبتة، ما لم تكن تنظر إلى جزئها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obavijest premješta svoj radni prostor na vrh nepričvršćenih redova, osim ako gledate njegovo okno."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En notifikation flytter sit arbejdsområde øverst blandt de ikke-fastgjorte rækker, medmindre du kigger på dets rude."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine Mitteilung verschiebt ihren Arbeitsbereich an den Anfang der nicht angehefteten Zeilen, außer du siehst dir seinen Bereich gerade an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una notificación mueve su espacio de trabajo arriba de las filas no fijadas, salvo que estés mirando su panel."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une notification place son espace de travail en haut des lignes non épinglées, sauf si vous regardez son panneau."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una notifica sposta il suo spazio di lavoro in cima alle righe non fissate, a meno che tu non stia guardando il suo riquadro."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "通知を受け取ったワークスペースは、そのペインを見ている場合を除き、固定されていない行の先頭に移動します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការជូនដំណឹងផ្លាស់ទីកន្លែងធ្វើការរបស់វាទៅខាងលើជួរដែលមិនបានខ្ទាស់ លុះត្រាតែអ្នកកំពុងមើលផ្ទាំងរបស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "알림이 오면 해당 창을 보고 있지 않는 한 그 워크스페이스가 고정되지 않은 행의 맨 위로 이동합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et varsel flytter arbeidsområdet sitt øverst blant radene som ikke er festet, med mindre du ser på ruten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Powiadomienie przenosi swój obszar roboczy na górę nieprzypiętych wierszy, chyba że patrzysz na jego panel."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma notificação move seu espaço de trabalho para o topo das linhas não fixadas, a menos que você esteja olhando o painel dele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Уведомление перемещает своё рабочее пространство наверх незакреплённых строк, если только вы не смотрите на его панель."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การแจ้งเตือนจะย้ายพื้นที่ทำงานของมันไปไว้บนสุดของแถวที่ไม่ได้ปักหมุด เว้นแต่คุณกำลังดูบานหน้าต่างนั้นอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir bildirim, bölmesine bakmıyorsanız çalışma alanını sabitlenmemiş satırların en üstüne taşır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сповіщення переміщує свій робочий простір угору незакріплених рядків, якщо ви не дивитеся на його панель."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thông báo sẽ chuyển không gian làm việc của nó lên đầu các hàng không ghim, trừ khi bạn đang xem ô của nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "收到通知的工作区会移到未固定行的顶部，除非你正在查看它的窗格。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "收到通知的工作區會移到未釘選列的頂端，除非你正在查看它的窗格。"
+          }
+        }
+      }
+    },
     "settings.attention.showOnSidebar": {
       "extractionState": "manual",
       "localizations": {
@@ -76053,6 +76315,268 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "展開"
+          }
+        }
+      }
+    },
+    "settings.workspaceRow.notification": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Latest Notification"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أحدث إشعار"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Najnovija obavijest"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seneste notifikation"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neueste Mitteilung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Última notificación"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dernière notification"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ultima notifica"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "最新の通知"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការជូនដំណឹងចុងក្រោយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "최근 알림"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Siste varsel"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Najnowsze powiadomienie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Notificação mais recente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Последнее уведомление"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การแจ้งเตือนล่าสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Son Bildirim"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Останнє сповіщення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thông báo mới nhất"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "最新通知"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "最新通知"
+          }
+        }
+      }
+    },
+    "settings.workspaceRow.notification.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The text of the workspace's newest unread notification."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نص أحدث إشعار غير مقروء في مساحة العمل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tekst najnovije nepročitane obavijesti radnog prostora."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Teksten fra arbejdsområdets nyeste ulæste notifikation."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Text der neuesten ungelesenen Mitteilung des Arbeitsbereichs."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El texto de la notificación no leída más reciente del espacio de trabajo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le texte de la notification non lue la plus récente de l’espace de travail."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il testo dell’ultima notifica non letta dello spazio di lavoro."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ワークスペースの最新の未読通知のテキスト。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អត្ថបទនៃការជូនដំណឹងមិនទាន់អានថ្មីបំផុតរបស់កន្លែងធ្វើការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "워크스페이스의 가장 최근 읽지 않은 알림 텍스트입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Teksten i arbeidsområdets nyeste uleste varsel."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Treść najnowszego nieprzeczytanego powiadomienia obszaru roboczego."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O texto da notificação não lida mais recente do espaço de trabalho."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Текст последнего непрочитанного уведомления рабочего пространства."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ข้อความของการแจ้งเตือนที่ยังไม่ได้อ่านล่าสุดของพื้นที่ทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalışma alanının okunmamış en yeni bildiriminin metni."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Текст найновішого непрочитаного сповіщення робочого простору."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nội dung thông báo chưa đọc mới nhất của không gian làm việc."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "工作区最新一条未读通知的文本。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "工作區最新一則未讀通知的文字。"
           }
         }
       }
