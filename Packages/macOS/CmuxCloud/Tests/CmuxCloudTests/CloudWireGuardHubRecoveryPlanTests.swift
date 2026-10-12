@@ -37,7 +37,8 @@ struct CloudWireGuardHubRecoveryPlanTests {
         }
         #expect(waited == CloudWireGuardHubRecoveryPlan.busyBudget)
         #expect(plan.busyWait(after: unavailable) == nil)
-        #expect(CloudWireGuardHubRecoveryPlan().busyWait(after: hubFailure) == nil)
+        var fresh = CloudWireGuardHubRecoveryPlan()
+        #expect(fresh.busyWait(after: hubFailure) == nil)
     }
 
     @Test("Restart attempts are bounded by the backoff table; busy waits are not attempts")
