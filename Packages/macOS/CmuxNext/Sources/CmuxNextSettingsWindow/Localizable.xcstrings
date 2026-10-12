@@ -14459,7 +14459,7 @@
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Setzt alles in %@ zurück. Eigene Aktionen bleiben."
+            "value": "Setzt alles in %@ zurück. Aktionen bleiben."
           }
         },
         "es": {
@@ -14495,7 +14495,7 @@
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tilbakestiller alt i %@. Egne handlinger beholdes."
+            "value": "Tilbakestiller alt i %@. Handlinger beholdes."
           }
         },
         "pl": {
@@ -14525,7 +14525,7 @@
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ içindeki her şeyi sıfırlar. Özel eylemler kalır."
+            "value": "%@ içinde her şeyi sıfırlar. Eylemler kalır."
           }
         },
         "uk": {
@@ -14537,7 +14537,7 @@
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Đặt lại mọi thứ trong %@. Giữ hành động tùy chỉnh."
+            "value": "Đặt lại mọi thứ trong %@. Giữ hành động riêng."
           }
         },
         "zh-Hans": {
@@ -29818,7 +29818,7 @@
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Omogućava agentima da klikću, kucaju i listaju u drugim aplikacijama."
+            "value": "Agenti klikaju, kucaju i listaju u drugim aplikacijama."
           }
         },
         "da": {
@@ -29830,25 +29830,25 @@
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Erlaubt Agenten, in anderen Apps zu klicken, zu tippen und zu scrollen."
+            "value": "Agenten klicken, tippen und scrollen in anderen Apps."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Permite a los agentes hacer clic, escribir y desplazarse en otras apps."
+            "value": "Clic, escritura y desplazamiento en otras apps."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Permet aux agents de cliquer, saisir et faire défiler dans d’autres apps."
+            "value": "Clics, saisie et défilement dans d’autres apps."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Consente agli agenti di fare clic, digitare e scorrere in altre app."
+            "value": "Gli agenti cliccano, scrivono e scorrono in altre app."
           }
         },
         "km": {
@@ -29872,7 +29872,7 @@
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pozwala agentom klikać, pisać i przewijać w innych aplikacjach."
+            "value": "Agenci klikają, piszą i przewijają w innych aplikacjach."
           }
         },
         "pt-BR": {
@@ -29884,7 +29884,7 @@
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Позволяет агентам нажимать, печатать и прокручивать в других приложениях."
+            "value": "Агенты кликают, печатают и листают в других приложениях."
           }
         },
         "th": {
@@ -29896,13 +29896,13 @@
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ajanların diğer uygulamalarda tıklamasına, yazmasına ve kaydırmasına izin verir."
+            "value": "Ajanlar diğer uygulamalarda tıklar, yazar ve kaydırır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Дає агентам змогу натискати, вводити й прокручувати в інших програмах."
+            "value": "Агенти натискають, вводять і гортають в інших програмах."
           }
         },
         "vi": {
@@ -30092,7 +30092,7 @@
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Erlaubt Agenten, die Fenster zu sehen, in denen sie arbeiten."
+            "value": "Agenten sehen die Fenster, in denen sie arbeiten."
           }
         },
         "es": {
@@ -30104,7 +30104,7 @@
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Permet aux agents de voir les fenêtres dans lesquelles ils travaillent."
+            "value": "Les agents voient les fenêtres où ils travaillent."
           }
         },
         "it": {
@@ -31003,13 +31003,13 @@
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slå Computer Use til ovenfor for at kontrollere dets tilladelser."
+            "value": "Slå Computer Use til ovenfor for at se tilladelserne."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Schalte Computer Use oben ein, um die Berechtigungen zu prüfen."
+            "value": "Schalte Computer Use oben ein, um sie zu prüfen."
           }
         },
         "es": {
@@ -31021,7 +31021,7 @@
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Activez Computer Use ci-dessus pour vérifier ses autorisations."
+            "value": "Activez Computer Use ci-dessus pour vérifier l’accès."
           }
         },
         "it": {
@@ -31533,7 +31533,7 @@
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Erlaube beide Berechtigungen, damit Computer Use funktioniert."
+            "value": "Erlaube beide Berechtigungen für Computer Use."
           }
         },
         "es": {
@@ -34517,127 +34517,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Updating needs administrator rights. Run in a terminal:"
+            "value": "Needs admin rights. Run in a terminal:"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يتطلب التحديث صلاحيات المسؤول. شغّل في الطرفية:"
+            "value": "يتطلب صلاحيات المسؤول. شغّل في الطرفية:"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ažuriranje traži administratorska prava. Pokrenite u terminalu:"
+            "value": "Treba administratorska prava. Pokrenite u terminalu:"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Opdatering kræver administratorrettigheder. Kør i en terminal:"
+            "value": "Kræver administratorrettigheder. Kør i en terminal:"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Die Aktualisierung erfordert Administratorrechte. Im Terminal ausführen:"
+            "value": "Braucht Administratorrechte. Im Terminal ausführen:"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Actualizar requiere permisos de administrador. Ejecuta en una terminal:"
+            "value": "Requiere permisos de admin. Ejecuta en una terminal:"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La mise à jour nécessite des droits d’administrateur. Exécutez dans un terminal :"
+            "value": "Droits d’administrateur requis. Exécutez dans un terminal :"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "L’aggiornamento richiede i privilegi di amministratore. Esegui in un terminale:"
+            "value": "Servono i permessi di admin. Esegui in un terminale:"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "アップデートには管理者権限が必要です。ターミナルで実行してください:"
+            "value": "管理者権限が必要です。ターミナルで実行:"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ការធ្វើបច្ចុប្បន្នភាពត្រូវការសិទ្ធិអ្នកគ្រប់គ្រង។ ដំណើរការក្នុងទែមីណាល់៖"
+            "value": "ត្រូវការសិទ្ធិអ្នកគ្រប់គ្រង។ ដំណើរការក្នុងទែមីណាល់៖"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "업데이트하려면 관리자 권한이 필요합니다. 터미널에서 실행하세요:"
+            "value": "관리자 권한이 필요합니다. 터미널에서 실행:"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Oppdatering krever administratorrettigheter. Kjør i en terminal:"
+            "value": "Krever administratorrettigheter. Kjør i en terminal:"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aktualizacja wymaga uprawnień administratora. Uruchom w terminalu:"
+            "value": "Wymaga uprawnień administratora. Uruchom w terminalu:"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "A atualização exige privilégios de administrador. Execute em um terminal:"
+            "value": "Requer privilégios de administrador. Execute no terminal:"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Для обновления нужны права администратора. Выполните в терминале:"
+            "value": "Нужны права администратора. Выполните в терминале:"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "การอัปเดตต้องใช้สิทธิ์ผู้ดูแลระบบ เรียกใช้ในเทอร์มินัล:"
+            "value": "ต้องใช้สิทธิ์ผู้ดูแลระบบ เรียกใช้ในเทอร์มินัล:"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Güncelleme yönetici izni gerektirir. Bir terminalde çalıştırın:"
+            "value": "Yönetici izni gerekir. Bir terminalde çalıştırın:"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Для оновлення потрібні права адміністратора. Виконайте в терміналі:"
+            "value": "Потрібні права адміністратора. Виконайте в терміналі:"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cập nhật cần quyền quản trị viên. Chạy trong terminal:"
+            "value": "Cần quyền quản trị. Chạy trong terminal:"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "更新需要管理员权限。请在终端中运行："
+            "value": "需要管理员权限。请在终端中运行："
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "更新需要管理員權限。請在終端機中執行："
+            "value": "需要管理員權限。請在終端機中執行："
           }
         }
       }

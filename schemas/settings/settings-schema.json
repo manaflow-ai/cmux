@@ -1323,7 +1323,7 @@
       "section" : "general",
       "summary" : {
         "key" : "settings.app.globalHotKey.summary",
-        "text" : "Show or hide all windows with ⌃⌥⌘."
+        "text" : "Show or hide all windows from any app"
       },
       "title" : {
         "key" : "settings.app.globalHotKey",
@@ -1377,10 +1377,7 @@
         null
       ],
       "section" : "general",
-      "summary" : {
-        "key" : "settings.app.startAgentGlobalHotKey.summary",
-        "text" : "Start an agent with ⌃⌥⌘Space"
-      },
+      "summary" : null,
       "title" : {
         "key" : "settings.app.startAgentGlobalHotKey",
         "text" : "Start Agent from Any App"
@@ -15522,10 +15519,7 @@
         1
       ],
       "section" : "browser",
-      "summary" : {
-        "key" : "settings.browser.customSearch.summary",
-        "text" : "Used when Search Engine is Custom"
-      },
+      "summary" : null,
       "title" : {
         "key" : "settings.browser.customSearch",
         "text" : "Custom Search Address"
@@ -16309,10 +16303,7 @@
         ]
       ],
       "section" : "browser",
-      "summary" : {
-        "key" : "settings.browser.hostWhitelist.summary",
-        "text" : "Empty opens every host in cmux"
-      },
+      "summary" : null,
       "title" : {
         "key" : "settings.browser.hostWhitelist",
         "text" : "Hosts to Open in Embedded Browser"
@@ -16570,10 +16561,7 @@
         "1"
       ],
       "section" : "notifications",
-      "summary" : {
-        "key" : "settings.notifications.timeoutSeconds.summary",
-        "text" : "For sources that clear after a timeout"
-      },
+      "summary" : null,
       "title" : {
         "key" : "settings.notifications.timeoutSeconds",
         "text" : "Timeout"
@@ -17076,7 +17064,7 @@
       "section" : "notifications",
       "summary" : {
         "key" : "settings.notifications.suppressWhileTyping.summary",
-        "text" : "Marks alerts read in panes you just typed in"
+        "text" : "No alerts from a pane you just typed in"
       },
       "title" : {
         "key" : "settings.notifications.suppressWhileTyping",
@@ -17131,7 +17119,7 @@
       "section" : "notifications",
       "summary" : {
         "key" : "settings.status.runNotifyMinimumSeconds.summary",
-        "text" : "For commands run with cmux status run"
+        "text" : "Long runs notify when they finish"
       },
       "title" : {
         "key" : "settings.status.runNotifyMinimumSeconds",
@@ -17943,7 +17931,7 @@
       "section" : "notifications",
       "summary" : {
         "key" : "settings.feed.github.enabled.summary",
-        "text" : "Uses your gh login on this Mac"
+        "text" : "Inbox shows your GitHub notifications"
       },
       "title" : {
         "key" : "settings.feed.github.enabled",
@@ -19250,7 +19238,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "50a753613524ff6eb425b3d9d9e8e15943e2d877a879c7af1d23f3ecdfd185b1",
+  "schema_hash" : "d81eaa0521aac51ab54f82b6870197eb02e97390d88aca365d11a6434fdea848",
   "sections" : [
     {
       "id" : "general",
