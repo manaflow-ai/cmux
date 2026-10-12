@@ -131,7 +131,12 @@ export function installTooltips(doc: Document): () => void {
     tip.style.left = `${position.left}px`;
     tip.style.top = `${position.top}px`;
   };
+  // The show waits for the next frame: measuring the tooltip lays out the page, and done at once it
+  // landed in the frame of a click that opens a menu (a long frame); a click before then cancels it.
+  let frame: number | undefined;
   const hide = () => {
+    if (frame !== undefined) win.cancelAnimationFrame(frame);
+    frame = undefined;
     tip.hidden = true;
     target = undefined;
   };
@@ -149,7 +154,10 @@ export function installTooltips(doc: Document): () => void {
     hide();
     if (!element || !textOf(element)) return;
     target = element;
-    show();
+    frame = win.requestAnimationFrame(() => {
+      frame = undefined;
+      show();
+    });
   };
   const onOut = (event: PointerEvent) => {
     // Leaving the element (not moving onto one of its children) hides it.

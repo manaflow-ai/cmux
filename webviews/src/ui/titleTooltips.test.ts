@@ -26,9 +26,10 @@ afterEach(() => {
   dom = undefined;
 });
 
-/** Hovers `element`. */
+/** Hovers `element` and waits a frame: the tooltip shows on the next one. */
 async function hover(element: Element) {
   element.dispatchEvent(new dom!.window.MouseEvent("pointerover", { bubbles: true }));
+  await new Promise((resolve) => dom!.window.requestAnimationFrame(resolve));
 }
 
 function page(body: string) {
@@ -100,12 +101,12 @@ test("an untruncated control's tooltip keeps the standard width and shows its sh
   expect(tip.querySelector(".ui-tooltip-hint")?.textContent).toBe("⌘T");
 });
 
-test("the first tooltip shows on the first hover, with no delay", () => {
+test("the first tooltip shows on the next frame after the first hover, with no delay", async () => {
   // POLISH (Instant): tooltips open on the first frame, no hover delay on the first show.
   const doc = page(`<button id="close" title="Close Tab"></button>`);
   const button = doc.getElementById("close")!;
   button.getBoundingClientRect = () => ({ left: 10, top: 10, width: 24, height: 24 }) as DOMRect;
-  button.dispatchEvent(new dom!.window.MouseEvent("pointerover", { bubbles: true }));
+  await hover(button);
   const tip = doc.querySelector<HTMLElement>(".ui-title-tooltip")!;
   expect(tip.hidden).toBe(false);
   expect(tip.querySelector(".ui-tooltip-text")?.textContent).toBe("Close Tab");
