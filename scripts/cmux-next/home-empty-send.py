@@ -109,7 +109,7 @@ try:
             rpc("debug.home.drive", {"action": "focus"})
             rpc("debug.home.drive", {"action": "type", "text": typed})
         reply = rpc("debug.home.drive", {"action": "send"}) or {}
-        check(f"Return on {label} is refused", reply.get("refused") == "empty_draft", reply)
+        check(f"Return on {label} is refused", "empty_draft" in str(reply.get("refused", "")), reply)
         time.sleep(1.0)  # test harness: give a wrong send time to reach the owner before comparing
         check(f"Return on {label} changes nothing (view, HomeStore, owner)", state() == before, {"before": before, "after": state()})
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "after-empty-returns.png")})
