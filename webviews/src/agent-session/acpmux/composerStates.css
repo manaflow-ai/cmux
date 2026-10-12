@@ -37,12 +37,12 @@
   background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 28%, transparent);
 }
 
-/* Steer (or Interrupt) beside Send while a turn runs: a quiet pill, as Plan is; Send queues. */
+/* Steer (or Interrupt) beside Send while a turn runs: a quiet chip, as Plan is; Send queues. */
 .acpmux-steer {
   height: 28px;
   padding: 0 10px;
   border: 0;
-  border-radius: 14px;
+  border-radius: 6px;
   background: none;
   color: var(--agent-muted);
   font: inherit;
