@@ -97,6 +97,7 @@ export function ChatHeaderTools({
   onMergePullRequest,
   folder,
   readStatus,
+  statusKey,
 }: {
   /// Terminal and Browser run their split with the quick action's mode: the App opens it, or for
   /// `toggle` closes the split this button opened when it is still there.
@@ -131,9 +132,11 @@ export function ChatHeaderTools({
   onExpanded?: () => void;
   /// Merge on the PR chip (cx-ncc.77.4): merges that pull request; rejects with why not.
   onMergePullRequest?: (pullRequest: { number: number; url: string }) => Promise<MergeResult>;
-  /// The chat's folder on this Mac and its `git.status`: a worktree chat's branch shows (cx-lyqio.3b).
+  /// The chat's folder on this Mac and its `git.status`: a worktree chat's branch shows (cx-lyqio.3b),
+  /// read again when `statusKey` changes.
   folder?: string;
-  readStatus?: () => Promise<unknown>;
+  readStatus?: (cwd: string) => Promise<unknown>;
+  statusKey?: unknown;
 }) {
   const t = useT();
   const terminalKey = useShortcut(HEADER_ACTIONS.terminal);
@@ -141,7 +144,7 @@ export function ChatHeaderTools({
   const changesKey = useShortcut(HEADER_ACTIONS.changes);
   const actions = useQuickActions();
   const { lit, pullRequest } = useHeaderState();
-  const worktree = useWorktree(folder, readStatus);
+  const worktree = useWorktree(folder, readStatus, statusKey);
   // A toggle is on while the split it opened is open; in open mode each click makes another, so none is.
   const on = (action: string, mode: QuickActionMode) => (mode === "toggle" ? lit.includes(action) : undefined);
   // The right-clicked button, read as the menu opens.

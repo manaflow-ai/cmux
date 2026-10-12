@@ -53,6 +53,7 @@
 .acpmux-header-worktree{display:inline-flex;align-items:center;gap:4px;min-width:0;max-width:180px;height:24px;padding:0 6px;color:var(--agent-muted);font-size:var(--text-detail);white-space:nowrap;cursor:default}
 .acpmux-header-worktree>svg{flex:none}
 .acpmux-header-worktree-name{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.acpmux-header-worktree-detail{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 /* The chip's status (cx-ncc.77.1): the title linking the pull request, its state and review, then each
    check with a dot by its outcome, failing first. Compact rows, the summary popover's surface. */
 .acpmux-pr-status{width:300px;max-height:min(480px,70vh);overflow:auto;padding:8px 6px 6px;box-sizing:border-box;border:0;border-radius:var(--ui-popup-radius);background:var(--acpmux-menu-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),var(--ui-popup-shadow);transform-origin:var(--transform-origin);color:var(--agent-text);font-size:var(--text-control);line-height:18px;outline:none}

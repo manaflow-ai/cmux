@@ -23,26 +23,27 @@ export function worktreeOf(value: unknown): HeaderWorktree | undefined {
   return { branch, base: text(raw.base), mainRoot };
 }
 
-/// The worktree of the chat's folder, read again when the folder changes; a reply for a folder the
-/// chat has left is dropped.
+/// The worktree of the chat's folder (a new chat's picked folder too), read again when the folder
+/// changes and when `refresh` does (the chat starts or ends a turn, which may switch its branch). A
+/// reply for a folder the chat has left is dropped.
 export function useWorktree(
   folder: string | undefined,
-  readStatus: (() => Promise<unknown>) | undefined,
+  readStatus: ((cwd: string) => Promise<unknown>) | undefined,
+  refresh?: unknown,
 ): HeaderWorktree | undefined {
   const [found, setFound] = useState<{ folder: string; worktree: HeaderWorktree | undefined }>();
   useEffect(() => {
     if (!folder || !readStatus) return;
     let current = true;
-    readStatus().then(
+    readStatus(folder).then(
       (value) => current && setFound({ folder, worktree: worktreeOf(value) }),
       () => current && setFound({ folder, worktree: undefined }),
     );
     return () => {
       current = false;
     };
-    // The status is the folder's: a new reader for the same folder asks nothing new.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [folder]);
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- the status is the folder's: a new reader asks nothing new
+  }, [folder, refresh]);
   return folder && readStatus && found?.folder === folder ? found.worktree : undefined;
 }
 
@@ -55,6 +56,7 @@ export function WorktreePill({ worktree }: { worktree: HeaderWorktree }) {
     <span className="acpmux-header-worktree" title={title}>
       <Icon name="git.worktree" size={13} />
       <span className="acpmux-header-worktree-name">{worktree.branch}</span>
+      <span className="acpmux-header-worktree-detail">{title}</span>
     </span>
   );
 }
