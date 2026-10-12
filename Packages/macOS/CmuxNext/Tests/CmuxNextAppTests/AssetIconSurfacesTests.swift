@@ -43,7 +43,8 @@ struct AssetIconSurfacesTests {
         let drawn = TabItemMapping.shared.item(tab, fallbackTitle: "Terminal", asset: { $0 == Self.icon ? image : nil })
         #expect(drawn.icon == .image(image))
         let loading = TabItemMapping.shared.item(tab, fallbackTitle: "Terminal")
-        #expect(loading.icon != .image(image), "keeps its kind icon until the asset is read")
+        let plain = TabItemMapping.shared.item(TabModel(TabSnapshot(surface: 2)), fallbackTitle: "Terminal")
+        #expect(loading.icon == plain.icon, "keeps its kind icon until the asset is read")
     }
 
     @Test func aSpaceAndABrowserProfileShowTheirStoredIcons() throws {
@@ -58,5 +59,14 @@ struct AssetIconSurfacesTests {
         let profile = BrowserProfileRecord(id: "bp1", name: "Work", icon: Self.icon)
         let items = BrowserProfileLinkMenu.profileItems([profile], asset: { $0 == Self.icon ? menuImage : nil }, run: { _ in })
         #expect(items.first?.image === menuImage)
+    }
+
+    /// The picker stores an asset for a browser profile; the profile keeps it (the daemon's
+    /// `update-browser-profile` takes the same forms), where it was silently refused before.
+    @Test func aBrowserProfileTakesAStoredIcon() throws {
+        var book = BrowserProfileBook()
+        try book.setIcon(BrowserProfileRecord.defaultID, Self.icon)
+        #expect(book.record(BrowserProfileRecord.defaultID)?.icon == Self.icon)
+        #expect(throws: (any Error).self) { try book.setIcon(BrowserProfileRecord.defaultID, "svg:not-a-digest") }
     }
 }
