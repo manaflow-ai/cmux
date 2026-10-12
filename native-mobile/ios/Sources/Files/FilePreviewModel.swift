@@ -176,7 +176,8 @@ final class FilePreviewModel {
     nonisolated static func looksLikeText(_ data: Data) -> Bool {
         let sample = data.prefix(8192)
         guard !sample.isEmpty, !sample.contains(0) else { return sample.isEmpty }
-        return String(data: sample, encoding: .utf8) != nil || String(data: sample.dropLast(3), encoding: .utf8) != nil
+        // The cut may land inside a multi-byte character: drop 0 to 3 bytes.
+        return (0...3).contains { String(data: sample.dropLast($0), encoding: .utf8) != nil }
     }
 
     func cleanUp() {
