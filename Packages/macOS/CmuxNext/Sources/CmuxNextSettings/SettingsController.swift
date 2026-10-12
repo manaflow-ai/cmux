@@ -43,6 +43,9 @@ public final class SettingsController {
     /// The app's native confirmation for a socket write of a user-only key (`cmux settings set
     /// --confirm`): it shows a sheet that names the key and value and needs a real click or key.
     @ObservationIgnored public var userOnlyConfirmation: (@MainActor (String, JSONValue?) async -> Bool)?
+    /// Ghostty's `background-blur` (C encoding) while Material is unset: an opacity write then
+    /// names the material it gives (`WindowBackgroundSetting.linkedEdits`). Nil reads as no blur.
+    @ObservationIgnored public var ghosttyBackgroundBlur: (@MainActor () -> Int)?
     /// Device-scoped values of the managing team's policy; set with `setTeamPolicy`.
     public internal(set) var teamPolicy: TeamPolicyLayer = .none
 

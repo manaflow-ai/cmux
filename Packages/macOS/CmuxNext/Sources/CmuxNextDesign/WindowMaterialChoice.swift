@@ -18,7 +18,7 @@ extension WindowMaterialChoice {
     ///
     /// - Parameter ghosttyBlur: `background-blur` in Ghostty's C encoding
     ///   (0 off, > 0 radius, -1 `macos-glass-regular`, -2 `macos-glass-clear`).
-    public init(ghosttyBlur: Int) {
+    public nonisolated init(ghosttyBlur: Int) {
         switch ghosttyBlur {
         case -2: self = .glassClear
         case ..<0: self = .glass
