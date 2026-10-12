@@ -31958,7 +31958,7 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "browser.resetPinnedTab",
+          "id" : "newTab.toRight",
           "kind" : "action",
           "order" : 3,
           "visible_when" : {
@@ -31971,22 +31971,9 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "newTab.toRight",
-          "kind" : "action",
-          "order" : 4,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
-        },
-        {
-          "enabled_when" : "can_perform",
           "id" : "duplicateTab",
           "kind" : "action",
-          "order" : 5,
+          "order" : 4,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -32102,6 +32089,19 @@
             {
               "kind" : "separator",
               "order" : 3
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "browser.resetPinnedTab",
+              "kind" : "action",
+              "order" : 4,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
             },
             {
               "children" : [
@@ -32393,14 +32393,14 @@
               ],
               "folder" : "options",
               "kind" : "folder",
-              "order" : 4,
+              "order" : 5,
               "title" : "Options",
               "title_key" : "menu.folder.options",
               "title_table" : "Localizable"
             },
             {
               "kind" : "separator",
-              "order" : 5
+              "order" : 6
             },
             {
               "children" : [
@@ -32446,14 +32446,14 @@
               ],
               "folder" : "group",
               "kind" : "folder",
-              "order" : 6,
+              "order" : 7,
               "title" : "Group",
               "title_key" : "menu.folder.group",
               "title_table" : "Localizable"
             },
             {
               "kind" : "separator",
-              "order" : 7
+              "order" : 8
             },
             {
               "children" : [
@@ -32672,14 +32672,14 @@
               ],
               "folder" : "move",
               "kind" : "folder",
-              "order" : 8,
+              "order" : 9,
               "title" : "Move",
               "title_key" : "menu.folder.move",
               "title_table" : "Localizable"
             },
             {
               "kind" : "separator",
-              "order" : 9
+              "order" : 10
             },
             {
               "children" : [
@@ -32751,14 +32751,14 @@
               ],
               "folder" : "copy",
               "kind" : "folder",
-              "order" : 10,
+              "order" : 11,
               "title" : "Copy",
               "title_key" : "menu.folder.copy",
               "title_table" : "Localizable"
             },
             {
               "kind" : "separator",
-              "order" : 11
+              "order" : 12
             },
             {
               "children" : [
@@ -32804,7 +32804,7 @@
               ],
               "folder" : "close",
               "kind" : "folder",
-              "order" : 12,
+              "order" : 13,
               "title" : "Close",
               "title_key" : "menu.folder.close",
               "title_table" : "Localizable"
@@ -32812,20 +32812,20 @@
           ],
           "folder" : "more",
           "kind" : "folder",
-          "order" : 6,
+          "order" : 5,
           "title" : "More",
           "title_key" : "menu.folder.more",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 7
+          "order" : 6
         },
         {
           "enabled_when" : "can_perform",
           "id" : "closeTab",
           "kind" : "action",
-          "order" : 8,
+          "order" : 7,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
