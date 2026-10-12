@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextTerminal
@@ -38,6 +39,8 @@ final class LaunchSettle {
         isSettled = true
         unavailableWatch?.cancel()
         unavailableWatch = nil
+        // The agent pages' warm-up page is done: their first page made its own process by now.
+        AgentPaneWarmup.finish()
         let waiting = waiters
         waiters.removeAll()
         for work in waiting { work() }
