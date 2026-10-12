@@ -38,8 +38,13 @@ afterAll(() => {
   }
 });
 
-
-const chat = (sessionId: string, title: string) => ({ sessionId, title, harness: "claude", cwd: "/tmp/cmux", updatedAt: 1 });
+const chat = (sessionId: string, title: string) => ({
+  sessionId,
+  title,
+  harness: "claude",
+  cwd: "/tmp/cmux",
+  updatedAt: 1,
+});
 
 async function sidebar(sessions: ReturnType<typeof chat>[], settledSessions: ReturnType<typeof chat>[]) {
   const { createRoot } = await import("react-dom/client");
