@@ -44,6 +44,7 @@ struct ConversationView: View {
     @State private var reactingTo: ConversationMessage?
     @State private var fieldWidth: CGFloat = 318
     @State private var timestampOffset: CGFloat = 0
+    @State private var viewWidth: CGFloat = 402
     @FocusState private var composerFocused: Bool
 
     private var info: ConversationInfo? { host.conversations.first { $0.id == conversationID } }
@@ -74,6 +75,7 @@ struct ConversationView: View {
                                 && !animatedSends.contains(message.clientID ?? ""),
                             onSendAnimated: { if let id = message.clientID { animatedSends.insert(id) } },
                             fieldWidth: fieldWidth,
+                            maxWidth: viewWidth * Messages.maxWidthFraction,
                             timestampOffset: mine ? timestampOffset : 0
                         )
                         .padding(.top, index == 0 || Self.timestamp(for: message, after: previous) != nil ? 0
@@ -108,6 +110,7 @@ struct ConversationView: View {
                 }
                 .animation(.spring(response: 0.35, dampingFraction: 0.82), value: typing)
             }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewWidth = $0 }
             .defaultScrollAnchor(.bottom)
             .scrollDismissesKeyboard(.interactively)
             .contentMargins(.top, 44, for: .scrollContent)
@@ -206,6 +209,11 @@ struct ConversationView: View {
         return scene?.windows.first?.safeAreaInsets.top ?? 62
     }
 
+    static var windowHeight: CGFloat {
+        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+        return max(scene?.windows.first?.bounds.height ?? 874, 1)
+    }
+
     static func gap(_ a: ConversationMessage?, _ b: ConversationMessage?) -> Bool {
         guard let a, let b else { return true }
         return b.sentAt.timeIntervalSince(a.sentAt) > 5 * 60
@@ -273,6 +281,7 @@ struct BubbleRow: View {
     let isNewlySent: Bool
     var onSendAnimated: () -> Void = {}
     let fieldWidth: CGFloat
+    let maxWidth: CGFloat
     var timestampOffset: CGFloat = 0
 
     @State private var phase: SendPhase = .settled
@@ -284,47 +293,43 @@ struct BubbleRow: View {
     enum SendPhase { case field, shrunk, settled }
 
     var body: some View {
-        GeometryReader { geometry in
-            let maxWidth = geometry.size.width * Messages.maxWidthFraction
-            HStack(spacing: 0) {
-                if isMine { Spacer(minLength: 0) }
-                MessageBubble(
-                    text: message.text,
-                    isMine: isMine,
-                    tail: tail,
-                    fill: isMine ? Messages.sentColor(atScreenFraction: screenFraction, dark: colorScheme == .dark) : Messages.received,
-                    minWidth: phase == .field ? fieldWidth : 0,
-                    maxWidth: phase == .field ? max(fieldWidth, maxWidth) : maxWidth
-                )
-                .overlay(alignment: isMine ? .topLeading : .topTrailing) {
-                    if let reaction = message.reactions.values.first {
-                        ReactionBadge(reaction: reaction)
-                            .offset(x: isMine ? -20 : 20, y: -28)
-                            .transition(.scale(scale: 0.2).combined(with: .opacity))
-                    }
+        HStack(spacing: 0) {
+            if isMine { Spacer(minLength: 0) }
+            MessageBubble(
+                text: message.text,
+                isMine: isMine,
+                tail: tail,
+                fill: isMine ? Messages.sentColor(atScreenFraction: screenFraction, dark: colorScheme == .dark) : Messages.received,
+                minWidth: phase == .field ? fieldWidth : 0,
+                maxWidth: phase == .field ? max(fieldWidth, maxWidth) : maxWidth
+            )
+            .overlay(alignment: isMine ? .topLeading : .topTrailing) {
+                if let reaction = message.reactions.values.first {
+                    ReactionBadge(reaction: reaction, onSentBubble: isMine)
+                        .offset(x: isMine ? -16 : 16, y: -24)
+                        .transition(.scale(scale: 0.2).combined(with: .opacity))
                 }
-                .scaleEffect(phase == .shrunk ? 0.79 : 1, anchor: .bottomTrailing)
-                // The scroll lifts the row by its height; this covers the rest of
-                // the way from the composer field to the slot.
-                .offset(y: phase == .settled ? 0 : 14)
-                .offset(x: timestampOffset)
-                .onGeometryChange(for: CGFloat.self) { proxy in
-                    proxy.frame(in: .global).midY / max(UIScreen.main.bounds.height, 1)
-                } action: { screenFraction = $0 }
-                if !isMine { Spacer(minLength: 0) }
             }
-            .padding(.horizontal, Messages.margin)
-            .overlay(alignment: .trailing) {
-                if isMine, timestampOffset < 0 {
-                    Text(message.sentAt.formatted(date: .omitted, time: .shortened))
-                        .font(.system(size: 11))
-                        .foregroundStyle(Messages.secondary)
-                        .padding(.trailing, 3)
-                        .opacity(Double(-timestampOffset / 58))
-                }
+            .scaleEffect(phase == .shrunk ? 0.79 : 1, anchor: .bottomTrailing)
+            // The scroll lifts the row by its height; this covers the rest of
+            // the way from the composer field to the slot.
+            .offset(y: phase == .settled ? 0 : 14)
+            .offset(x: timestampOffset)
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.frame(in: .global).midY / ConversationView.windowHeight
+            } action: { screenFraction = $0 }
+            if !isMine { Spacer(minLength: 0) }
+        }
+        .padding(.horizontal, Messages.margin)
+        .overlay(alignment: .trailing) {
+            if isMine, timestampOffset < 0 {
+                Text(message.sentAt.formatted(date: .omitted, time: .shortened))
+                    .font(.system(size: 11))
+                    .foregroundStyle(Messages.secondary)
+                    .padding(.trailing, 3)
+                    .opacity(Double(-timestampOffset / 58))
             }
         }
-        .frame(height: bubbleHeight)
         .padding(.top, message.reactions.isEmpty ? 0 : 14)
         .onAppear {
             guard isNewlySent else { return }
@@ -334,18 +339,6 @@ struct BubbleRow: View {
             withAnimation(Messages.sendRise.delay(0.15)) { phase = .settled }
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: message.reactions)
-    }
-
-    /// The bubble's height for its text at 17 pt with 20 pt lines.
-    private var bubbleHeight: CGFloat {
-        let width = UIScreen.main.bounds.width * Messages.maxWidthFraction - 28
-        let font = UIFont.systemFont(ofSize: 17)
-        let rect = (message.text as NSString).boundingRect(
-            with: CGSize(width: width, height: .greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: [.font: font], context: nil
-        )
-        let lines = max(1, Int((rect.height / font.lineHeight).rounded()))
-        return 20.33 + CGFloat(lines) * 20
     }
 }
 
@@ -445,13 +438,17 @@ struct TypingBubble: View {
 /// two "thought" dots toward the bubble.
 struct ReactionBadge: View {
     let reaction: String
+    /// Sent bubbles carry the badge top-leading with the dots trailing toward
+    /// the bubble; received bubbles mirror it.
+    var onSentBubble = true
 
     var body: some View {
-        ZStack(alignment: .bottomTrailing) {
+        let side: CGFloat = onSentBubble ? 1 : -1
+        ZStack(alignment: onSentBubble ? .bottomTrailing : .bottomLeading) {
             Circle().fill(Messages.accent).frame(width: 9, height: 9)
                 .overlay(Circle().stroke(Color(.systemBackground), lineWidth: 2))
-                .offset(x: 6, y: 8)
-            Circle().fill(Messages.accent).frame(width: 5, height: 5).offset(x: 11, y: 14)
+                .offset(x: 6 * side, y: 8)
+            Circle().fill(Messages.accent).frame(width: 5, height: 5).offset(x: 11 * side, y: 14)
             Image(systemName: Tapback.symbol(reaction))
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(.white)
@@ -503,8 +500,10 @@ struct TapbackOverlay: View {
                                 .foregroundStyle(message.reactions["me"] == tapback.rawValue ? .white : Color(.secondaryLabel))
                                 .frame(width: 44, height: 44)
                                 .background(Circle().fill(message.reactions["me"] == tapback.rawValue ? Messages.accent : .clear))
+                                .contentShape(.circle)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityIdentifier("tapback.\(tapback.rawValue)")
                         .scaleEffect(shown ? 1 : 0.2)
                         .animation(Messages.menuIn.delay(Double(index) * 0.015), value: shown)
                     }
@@ -515,7 +514,7 @@ struct TapbackOverlay: View {
                 MessageBubble(
                     text: message.text, isMine: isMine, tail: true,
                     fill: isMine ? Messages.accent : Messages.received,
-                    maxWidth: UIScreen.main.bounds.width * Messages.maxWidthFraction
+                    maxWidth: 281
                 )
                 .scaleEffect(shown ? 1.02 : 1)
                 VStack(spacing: 0) {

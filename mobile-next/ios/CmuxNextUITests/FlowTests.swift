@@ -224,6 +224,19 @@ final class FlowTests: XCTestCase {
         snap(app, "64-two-sent")
         pause(25)
         snap(app, "65-reply")
+        // Long-press Chief's latest bubble and love it.
+        let bubbles = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "agent"))
+        if bubbles.count > 0 {
+            bubbles.element(boundBy: bubbles.count - 1).press(forDuration: 0.6)
+            pause(0.8)
+            snap(app, "65b-tapback-menu")
+            let heart = app.buttons["tapback.love"]
+            XCTAssertTrue(heart.waitForExistence(timeout: 3), "no heart button")
+            XCTAssertTrue(heart.isHittable, "heart not hittable at \(heart.frame)")
+            heart.tap()
+            pause(1.2)
+            snap(app, "65c-tapback-badge")
+        }
         app.swipeDown()
         pause(1)
         snap(app, "66-keyboard-down")
