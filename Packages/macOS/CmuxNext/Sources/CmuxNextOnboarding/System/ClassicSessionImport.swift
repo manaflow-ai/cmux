@@ -117,7 +117,7 @@ public nonisolated struct ClassicSessionImporter: Sendable {
             return Self.tab(panel).map { (id, $0) }
         }
         // Panels nothing here can show (markdown, file preview) stay in classic.
-        let leftOutPanels = panels.contains { $0["id"] is String && Self.tab($0) == nil }
+        let leftOutPanels = panels.contains { !["terminal", "browser"].contains($0["type"] as? String ?? "terminal") }
         // A snapshot can name a panel twice; the first wins.
         let panelMap = Dictionary(panelEntries, uniquingKeysWith: { first, _ in first })
         guard let layoutValue = value["layout"] as? [String: Any] else {

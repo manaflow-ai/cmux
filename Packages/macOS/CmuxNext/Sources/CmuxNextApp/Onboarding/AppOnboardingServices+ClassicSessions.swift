@@ -59,8 +59,9 @@ extension AppOnboardingServices {
             if saved.leftOutPanels { summary.leftTabs = true }
             guard let layout = saved.layout.keeping({ browsers || $0.url == nil }) else { continue }
             if saved.remote != nil, layout.tabs.contains(where: { $0.scrollback != nil }) { summary.leftSSHScrollback = true }
+            var node = WorkspaceBlueprint.Node.pane([])
             do {
-                let node = blueprintNode(layout, replays: saved.remote == nil)
+                node = blueprintNode(layout, replays: saved.remote == nil)
                 // Recreated in their saved order: each one after the last loose row. An
                 // explicit slot, because the daemon itself puts a new workspace at the
                 // `workspaces.newPlacement` slot (top by default).
@@ -77,6 +78,8 @@ extension AppOnboardingServices {
                 if daemon.isLocal { await openClassicChats(placed, on: daemon, connection: connection) }
                 summary.opened += 1
             } catch {
+                // A workspace that did not open leaves no saved scrollback behind.
+                for case .terminal(_, let replay?) in node.tabs { try? FileManager.default.removeItem(atPath: replay) }
                 lastError = error
                 logger.error("classic session import failed: \(String(describing: error), privacy: .public)")
             }
@@ -147,10 +150,12 @@ extension AppOnboardingServices {
     private func blueprintNode(_ layout: ClassicSessionLayout, replays: Bool) -> WorkspaceBlueprint.Node {
         switch layout {
         case .pane(let pane):
-            // An agent's terminal holds its place until its chat opens.
+            // An agent's terminal holds its place until its chat opens, and
+            // replays nothing: its chat has the session's own history.
             return .pane(pane.tabs.map { tab in
                 tab.url.map { .browser(url: $0, engine: nil) }
-                    ?? .terminal(cwd: tab.agent?.workingDirectory ?? tab.workingDirectory, replay: replays ? replayFile(tab.scrollback) : nil)
+                    ?? .terminal(cwd: tab.agent?.workingDirectory ?? tab.workingDirectory,
+                                 replay: replays && tab.agent == nil ? replayFile(tab.scrollback) : nil)
             })
         case .split(let orientation, let ratio, let first, let second):
             return .split(
