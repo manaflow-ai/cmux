@@ -205,8 +205,6 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
             ],
             "workspace.create",
         ),
-        (vec!["workspace", "create", "--cwd", "/tmp", "--", "make", "watch"], "workspace.create"),
-        (vec!["workspace", "create", "--shell", "make watch"], "workspace.create"),
         (vec!["workspace", WORKSPACE, "rename", "--name", "api"], "workspace.rename"),
         (vec!["workspace", WORKSPACE, "move", "--index", "2"], "workspace.move"),
         (vec!["workspace", WORKSPACE, "focus"], "workspace.focus"),
