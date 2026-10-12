@@ -119,7 +119,12 @@ enum RowDraw {
         case let .receipt(bold, rest):
             drawReceipt(ctx, bold, rest, receiptRight: m.receiptRight, top: top)
         case .typing:
+            // macOS: the bubble is a vector layer of the cell (RowCell.typingBody), placed on whole device pixels;
+            // this bitmap drew it at fractional geometry and was then resampled at a fractional position (each
+            // straight edge spread over 2 px). The iOS app keeps it in the bitmap.
+#if os(iOS) && !targetEnvironment(macCatalyst)
             drawTypingBubble(ctx, top: top + typingBubble.minY - margin)
+#endif
         case let .threadPreview(pv):
             if pv.outgoing {
                 PartRenderer.drawOutgoingThreadPreview(ctx, pv, top: top, rightEdge: m.rightEdge)
@@ -143,20 +148,22 @@ enum RowDraw {
             .reduce(0) { $0 + TextDraw.width($1.0, font: $1.1, kern: captionKern) }
     }
 
-    /// The typing bubble without its dots and tail discs (layers that animate). Messages at rest (the lossless
-    /// typing stills and send-typed-media-take1 at the bottom of each breath, fitted with the same capsule model as
-    /// a capture of ours): 43.69 x 27.19 pt, its left edge 20.14 pt, its bottom where ours was
-    /// (tools/evidence/ANIMATIONS.md section 6, cx-3cb typing-breath).
-    static let typingBubble = CGRect(x: 20.14, y: margin + 4.31, width: 43.69, height: 27.19)
+    /// The typing bubble without its dots and tail discs (layers that animate). Messages at rest, read from pixel
+    /// coverage of its lossless typing stills (tools/evidence/anim/typedge.py; no model fit): 44 x 27 pt, its
+    /// straight edges on whole device pixels (left 20 pt, top 46.5 pt above the field's top edge). macOS draws it
+    /// as a layer whose top RowCell snaps to a whole device pixel (tools/evidence/ANIMATIONS.md section 6,
+    /// cx-3cb typing-pixels; before: 20.14, 4.31, 43.69 x 27.19 from a capsule fit with a blur bias).
+    static let typingBubble = CGRect(x: 20, y: margin + 4.335, width: 44, height: 27)
     /// The point the typing bubble grows from (row coordinates): Messages' fitted scale centre,
     /// 19.1 pt left of and 8.7 pt above the bubble's centre (tools/evidence/ANIMATIONS.md section 6).
     static var typingAnchor: CGPoint { CGPoint(x: typingBubble.midX - 19.07, y: typingBubble.midY - 8.71) }
     /// The bubble's two tail discs (row coordinates), large then small: layers of their own
     /// (RowCell.typingDiscs; on macOS they move apart from the bubble as it appears). Messages at rest: the
-    /// large disc d 9.18 pt, its centre 24.78 pt from the left and 2.40 pt above the bubble's bottom; the
-    /// small one d 4.75 pt at 19.00 pt, 3.23 pt below it (section 6, cx-3cb typing-breath).
-    static let typingDiscs = [CGRect(x: 24.78 - 4.59, y: typingBubble.maxY - 2.40 - 4.59, width: 9.18, height: 9.18),
-                              CGRect(x: 19.00 - 2.375, y: typingBubble.maxY + 3.23 - 2.375, width: 4.75, height: 4.75)]
+    /// large disc d 9.18 pt, its centre 24.78 pt from the left and 2.27 pt above the bubble's bottom; the
+    /// small one d 4.75 pt at 19.00 pt, 3.40 pt below it (section 6, cx-3cb typing-pixels: exact-coverage
+    /// circles against the bubble's pixel edges; window places within 0.04 pt of cx-3cb typing-breath's).
+    static let typingDiscs = [CGRect(x: 24.78 - 4.59, y: typingBubble.maxY - 2.27 - 4.59, width: 9.18, height: 9.18),
+                              CGRect(x: 19.00 - 2.375, y: typingBubble.maxY + 3.40 - 2.375, width: 4.75, height: 4.75)]
     static func drawTypingBubble(_ ctx: CGContext, top: CGFloat) {
         let b = CGRect(x: typingBubble.minX, y: top, width: typingBubble.width, height: typingBubble.height)
         Fixture.typingFill.setFill()
@@ -164,8 +171,9 @@ enum RowDraw {
     }
     static func typingDotCenter(_ i: Int) -> CGPoint {
         let b = typingBubble
-        // Messages at rest: 32.25, 41.75, 51.25 pt, 0.335 pt above the bubble's centre (section 6).
-        return CGPoint(x: 32.25 + CGFloat(i) * 9.5, y: b.midY - 0.335)
+        // Messages at rest: 32.25, 41.75, 51.25 pt (12.25 pt + 9.5 i from the left edge), 0.28 pt above the
+        // bubble's centre (section 6, cx-3cb typing-pixels: centroids against the bubble's pixel edges).
+        return CGPoint(x: 32.25 + CGFloat(i) * 9.5, y: b.midY - 0.28)
     }
 }
 
