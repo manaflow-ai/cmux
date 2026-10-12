@@ -35,11 +35,53 @@ struct CloudTreeCrossWindowSelectionTests {
         let secondSelectionBefore = secondManager.selectedTabId
         #expect(firstSelectionBefore != cloudWorkspace.id)
 
-        let didSelect = app.selectCloudTreeLocalWorkspace(cloudWorkspace.id, from: secondManager)
+        var focusedWindowIds: [UUID] = []
+        let result = app.selectCloudTreeLocalWorkspace(
+            cloudWorkspace.id,
+            from: secondManager,
+            focusWindow: { windowId in
+                focusedWindowIds.append(windowId)
+                return true
+            }
+        )
 
-        #expect(didSelect)
+        #expect(result == .selected)
+        #expect(focusedWindowIds == [firstWindowId])
         #expect(firstManager.selectedTabId == cloudWorkspace.id)
         #expect(secondManager.selectedTabId == secondSelectionBefore)
+        #expect(secondManager.workspacesById[cloudWorkspace.id] == nil)
+    }
+
+    @Test func aWorkspaceOpenInAWindowThatCannotComeForwardIsNotSelected() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        AppDelegate.shared = app
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let firstManager = TabManager(autoWelcomeIfNeeded: false)
+        let secondManager = TabManager(autoWelcomeIfNeeded: false)
+        let firstWindowId = app.registerMainWindowContextForTesting(tabManager: firstManager)
+        let secondWindowId = app.registerMainWindowContextForTesting(tabManager: secondManager)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: firstWindowId)
+            app.unregisterMainWindowContextForTesting(windowId: secondWindowId)
+        }
+
+        let cloudWorkspace = firstManager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let firstSelectionBefore = firstManager.selectedTabId
+
+        let result = app.selectCloudTreeLocalWorkspace(
+            cloudWorkspace.id,
+            from: secondManager,
+            focusWindow: { _ in false }
+        )
+
+        // Still open in the first window, so the palette must not open a copy.
+        #expect(result == .openInUnfocusableWindow)
+        #expect(firstManager.selectedTabId == firstSelectionBefore)
         #expect(secondManager.workspacesById[cloudWorkspace.id] == nil)
     }
 
@@ -58,7 +100,18 @@ struct CloudTreeCrossWindowSelectionTests {
 
         let workspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
 
-        #expect(app.selectCloudTreeLocalWorkspace(workspace.id, from: manager))
+        var focusedWindowIds: [UUID] = []
+        let result = app.selectCloudTreeLocalWorkspace(
+            workspace.id,
+            from: manager,
+            focusWindow: { windowId in
+                focusedWindowIds.append(windowId)
+                return true
+            }
+        )
+
+        #expect(result == .selected)
+        #expect(focusedWindowIds.isEmpty)
         #expect(manager.selectedTabId == workspace.id)
     }
 
@@ -76,7 +129,7 @@ struct CloudTreeCrossWindowSelectionTests {
         defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
         let selectionBefore = manager.selectedTabId
 
-        #expect(!app.selectCloudTreeLocalWorkspace(UUID(), from: manager))
+        #expect(app.selectCloudTreeLocalWorkspace(UUID(), from: manager) == .notOpen)
         #expect(manager.selectedTabId == selectionBefore)
     }
 }

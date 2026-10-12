@@ -5858,8 +5858,16 @@ struct ContentView: View {
         if let shownIn = SurfaceCatalog.shared.localWorkspaceShowing(
             remoteWorkspaceID: target.workspace.id,
             placements: target.group.placements
-        ), AppDelegate.shared?.selectCloudTreeLocalWorkspace(shownIn, from: tabManager) == true {
-            return
+        ) {
+            switch AppDelegate.shared?.selectCloudTreeLocalWorkspace(shownIn, from: tabManager) {
+            case .selected:
+                return
+            case .openInUnfocusableWindow:
+                NSSound.beep()
+                return
+            case .notOpen, nil:
+                break
+            }
         }
         let actions = CloudTreeNodeActions.bound(
             navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),
