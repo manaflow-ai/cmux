@@ -911,6 +911,16 @@ mark {
   border-color: var(--border);
 }
 
+/* Choose Image… (cx-t2x.8): an empty tile with a plus. */
+.backdrop-choose {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted-text);
+  font-size: var(--text-title);
+  border-style: dashed;
+}
+
 .backdrop-title {
   overflow: hidden;
   font-size: 12px;

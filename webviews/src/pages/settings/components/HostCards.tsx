@@ -35,7 +35,8 @@ export function Backdrops() {
     </button>
   );
   // Art arrives grouped by collection (Dark Art, Museum Icons, Calm, Doré), each under its
-  // title; the desktop picture and system wallpapers follow in one untitled group.
+  // title, then the person's own images ("Your images"); the desktop picture and system
+  // wallpapers follow in one untitled group.
   const groups: Array<{ key: string; title: string | null; choices: typeof backdrops }> = [];
   for (const choice of backdrops) {
     const key = choice.collection ?? "";
@@ -48,6 +49,13 @@ export function Backdrops() {
       <h3 className="group-title">{t("settingsWindow.backdropPicker.title")}</h3>
       <div className="backdrop-grid">
         {tile("none", t("settingsWindow.backdropPicker.none"), t("settingsWindow.backdropPicker.none"))}
+        <button type="button" className="backdrop-tile" onClick={() => void store.chooseBackdropImage()}>
+          <span className="backdrop-thumb backdrop-none backdrop-choose" aria-hidden="true">
+            +
+          </span>
+          <span className="backdrop-title">{t("settingsWindow.backdropPicker.chooseImage")}</span>
+          <span className="row-help">{t("settingsWindow.backdropPicker.dropHint")}</span>
+        </button>
       </div>
       {groups.map((group) => (
         <div key={group.key || "other"} className="backdrop-group" data-collection={group.key || undefined}>
