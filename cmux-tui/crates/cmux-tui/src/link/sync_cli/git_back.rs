@@ -28,6 +28,10 @@ use sha2::{Digest as _, Sha256};
 use super::Manifest;
 use super::remote::Remote;
 
+/// Most bytes one object file or pack of the machine may have; streamed to
+/// disk, never held in memory.
+const MAX_OBJECT_BYTES: u64 = 4 << 30;
+
 /// The git state of a working copy, as a push records it and a pull
 /// compares it.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -178,10 +182,9 @@ fn head_conflict(why: &str) -> GitConflict {
 }
 
 impl GitPlan {
-    /// Fetches what the plan needs from the quarantine (every object
-    /// checked), then moves HEAD's branch and the staged changes. The
-    /// branch moves only if it is still where the plan saw it.
-    pub(super) fn apply(&self, folder: &Path) -> anyhow::Result<bool> {
+    /// Fetches what the plan needs from the quarantine, every object
+    /// checked. Only objects arrive: no ref, index or file changes here.
+    pub(super) fn fetch(&self, folder: &Path) -> anyhow::Result<()> {
         let mut wanted = Vec::new();
         if let Some(head) = &self.head {
             set_ref(&self.quarantine, "refs/cmux-sync/head", head)?;
@@ -202,19 +205,39 @@ impl GitPlan {
             )
             .context("cannot fetch the machine's commits")?;
         }
-        if let Some(head) = &self.head {
-            let old = self.local.head.clone().unwrap_or_else(|| "0".repeat(head.len()));
+        Ok(())
+    }
+
+    /// Moves HEAD's branch, then the staged changes, once this Mac's branch
+    /// and index are checked to be still as the plan saw them. The branch
+    /// moves by compare-and-swap, and moves back if the index can't follow.
+    /// Returns whether the branch moved.
+    pub(super) fn commit(&self, folder: &Path) -> anyhow::Result<bool> {
+        if base_of(folder)? != self.local {
+            bail!("this Mac's branch or staged changes changed during the pull");
+        }
+        let zero = |id: &str| "0".repeat(id.len());
+        let move_ref = |new: &str, old: &str| {
             let mut command = local(folder);
             command.args(["update-ref", "-m", "cmux sync pull: bring back from the machine"]);
             match &self.local.head_ref {
                 Some(name) => command.arg(name),
                 None => command.args(["--no-deref", "HEAD"]),
             };
-            checked(command.args([head, &old])).context("cannot move the branch")?;
+            checked(command.args([new, old])).map(drop)
+        };
+        let old = self.head.as_deref().map(|head| self.local.head.clone().unwrap_or_else(|| zero(head)));
+        if let (Some(head), Some(old)) = (&self.head, &old) {
+            move_ref(head, old).context("cannot move the branch")?;
         }
         if let Some(staged) = &self.staged {
-            checked(local(folder).arg("read-tree").arg(format!("{staged}^{{tree}}")))
-                .context("cannot stage the machine's changes")?;
+            let read = checked(local(folder).arg("read-tree").arg(format!("{staged}^{{tree}}")));
+            if let Err(error) = read {
+                if let (Some(head), Some(old)) = (&self.head, &old) {
+                    let _ = move_ref(old, head);
+                }
+                return Err(error.context("cannot stage the machine's changes"));
+            }
         }
         Ok(self.head.is_some())
     }
@@ -323,10 +346,15 @@ fn copy_objects(
             if found.kind != "file" || !wanted || pushed(&relative, &found.revision) {
                 continue;
             }
-            let Some(bytes) = remote.read(&format!("{objects}/{relative}"))? else { continue };
             let target = quarantine.join("objects").join(&relative);
             std::fs::create_dir_all(target.parent().context("no parent")?)?;
-            std::fs::write(&target, bytes)?;
+            let mut out = std::fs::File::create(&target)?;
+            let source = format!("{objects}/{relative}");
+            if remote.read_into(&source, &mut out, MAX_OBJECT_BYTES)?.is_none() {
+                drop(out);
+                std::fs::remove_file(&target)?;
+                continue;
+            }
             if !loose {
                 checked(quarantine_git(quarantine).arg("index-pack").arg(&target))
                     .with_context(|| format!("the machine's {relative} is not a valid pack"))?;

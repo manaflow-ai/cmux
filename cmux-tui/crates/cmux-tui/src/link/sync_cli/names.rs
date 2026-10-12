@@ -3,19 +3,42 @@
 //! path that comes back may reach a repository folder under any spelling a
 //! Mac or Windows file system resolves to `.git`.
 
-/// One plain name of a listing. (Red: every name passes, as pull takes them today.)
-pub(super) fn plain_name(_name: &str) -> bool {
-    true
+/// One plain name of a listing: not empty, not `.` or `..`, no `/` or NUL.
+pub(super) fn plain_name(name: &str) -> bool {
+    !matches!(name, "" | "." | "..") && !name.contains(['/', '\0'])
 }
 
-/// A relative path that may come back. (Red: today's rule.)
+/// A relative path that may come back: plain names, none of them a
+/// repository folder ([`is_dotgit`]).
 pub(super) fn safe_relative(relative: &str) -> bool {
-    super::plain_relative(relative) && relative.split('/').all(|name| !is_dotgit(name))
+    super::plain_relative(relative)
+        && relative.split('/').all(|name| plain_name(name) && !is_dotgit(name))
 }
 
-/// Whether a file system could resolve `name` to `.git`. (Red: today's rule.)
+/// Whether a file system could resolve `name` to `.git`: git's own rules
+/// (`is_hfs_dotgit`, `is_ntfs_dotgit` in git's path.c and utf8.c), case
+/// ignored. HFS+ drops the code points git calls ignorable; NTFS drops
+/// trailing dots and spaces, an alternate stream (`:...`) and knows the
+/// 8.3 short name `git~1`. A backslash counts as a separator there.
 pub(super) fn is_dotgit(name: &str) -> bool {
-    name == ".git"
+    name.split('\\').any(|part| is_hfs_dotgit(part) || is_ntfs_dotgit(part))
+}
+
+fn is_hfs_dotgit(name: &str) -> bool {
+    let kept: String = name.chars().filter(|c| !is_hfs_ignorable(*c)).collect();
+    kept.eq_ignore_ascii_case(".git")
+}
+
+/// The code points HFS+ ignores in names (git's `next_hfs_char`).
+fn is_hfs_ignorable(c: char) -> bool {
+    matches!(c as u32, 0x200c..=0x200f | 0x202a..=0x202e | 0x206a..=0x206f | 0xfeff)
+}
+
+fn is_ntfs_dotgit(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    let stem = lower.split(':').next().unwrap_or_default();
+    let stem = stem.trim_end_matches(['.', ' ']);
+    stem == ".git" || stem == "git~1"
 }
 
 #[cfg(test)]

@@ -14,7 +14,8 @@
 //! whose hash, permissions and revision still match is not written again,
 //! and a file the manifest lists but the folder no longer has is deleted
 //! while the machine still has it as this push left it. Files the machine
-//! made or changed itself are never deleted.
+//! made or changed itself are never deleted. This Mac keeps a copy of the
+//! manifest ([`base`]); a pull trusts only that copy.
 //!
 //! Output: one JSON line on stdout, `{"ok":true,"written":N,"unchanged":N,
 //! "deleted":N,"skipped":N,"bytes":N}` (a pull adds `fast_forwarded` and
@@ -23,9 +24,10 @@
 //! `sync_conflict`), exit 1; bad usage exits 64. Unix only, like the link.
 
 mod git_back;
+mod base;
 mod local;
-#[allow(dead_code)]
 mod names;
+mod place;
 mod pull;
 mod remote;
 
@@ -44,8 +46,9 @@ use remote::{Remote, RemoteEntry};
 
 const USAGE: &str = "usage: cmux link sync push|pull --socket PATH LOCAL_FOLDER REMOTE_FOLDER";
 
-/// What the machine holds of earlier pushes.
-#[derive(Default, Serialize, Deserialize)]
+/// What the machine holds of earlier pushes; this Mac keeps a copy
+/// ([`base`]), which is what a pull trusts.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 struct Manifest {
     version: u32,
     files: BTreeMap<String, Pushed>,
@@ -54,7 +57,7 @@ struct Manifest {
     git: Option<git_back::GitBase>,
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 struct Pushed {
     sha256: String,
     permissions: u32,
@@ -233,6 +236,8 @@ fn push(socket: &Path, local: &Path, remote_root: &str) -> anyhow::Result<Summar
     remote
         .write(&manifest_path, &mut manifest.as_slice(), 0o600)
         .context("cannot save the sync manifest")?;
+    // A pull's base is this copy, never the machine's.
+    base::save(&local, remote_root, &next).context("cannot keep the sync record on this Mac")?;
     Ok(summary)
 }
 

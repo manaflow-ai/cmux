@@ -95,6 +95,7 @@ fn cloud_move_journey_moves_a_dirty_folder_and_its_chat_to_a_personal_cloud_vm()
     let synced = vm.home().join("work/app");
     let (ok, summary) = run_json(
         Command::new(bin())
+            .env("CMUX_TUI_STATE_DIR", mac.dir.join("state"))
             .args(["link", "sync", "push", "--socket"])
             .arg(&vm.socket)
             .arg(&repo)

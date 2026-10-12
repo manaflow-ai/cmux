@@ -108,6 +108,7 @@ fn bring_back_journey_returns_a_vm_edit_a_commit_and_a_chat_to_the_mac() {
     let synced = vm.home().join("work/app");
     let (ok, pushed) = run_json(
         Command::new(bin())
+            .env("CMUX_TUI_STATE_DIR", mac.dir.join("state"))
             .args(["link", "sync", "push", "--socket"])
             .arg(&vm.socket)
             .arg(&repo)
@@ -144,6 +145,7 @@ fn bring_back_journey_returns_a_vm_edit_a_commit_and_a_chat_to_the_mac() {
     fs::write(synced.join("notes.txt"), "notes\nunsaved on the vm\n").unwrap();
     let (ok, pulled) = run_json(
         Command::new(bin())
+            .env("CMUX_TUI_STATE_DIR", mac.dir.join("state"))
             .args(["link", "sync", "pull", "--socket"])
             .arg(&vm.socket)
             .arg(&repo)

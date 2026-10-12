@@ -17,17 +17,28 @@
 //! `.env*` files, symlinks and special files. Outside git every file of the
 //! machine's folder counts.
 //!
+//! The machine is not trusted. The base is the copy of the push's record
+//! this Mac kept ([`super::base`]), never the machine's; a listing that
+//! names anything but plain names is refused; no path that reaches a
+//! repository folder under any spelling (`.GIT`, `git~1`, ...: see
+//! [`super::names`]) comes back, and no folder holding one (a nested
+//! repository) either. Files are read with their revision checked before
+//! and after, streamed to disk.
+//!
 //! On any conflict nothing here changes: the answer is `{"ok":false,
 //! "error_code":"sync_conflict","conflicts":[paths]}`. Otherwise every
 //! file the machine changed is first copied into a staging folder of this
 //! command (in the repository's git folder, else a hidden folder at the top
-//! of the folder), this Mac's files are checked again, and only then do
-//! files move into place: through no symlink, regular files only, each
-//! renamed over its target, with 0644, 0755, 0600 or 0700 permissions.
-//! The manifest then records the merged state as the next base.
+//! of the folder) and the machine's commits are fetched; this Mac's files
+//! are checked again, and only then do files move into place, as one
+//! transaction ([`super::place`]): through folder handles that follow no
+//! symlink, regular files only, each renamed over its target (which is
+//! moved aside first), with 0644, 0755, 0600 or 0700 permissions. The
+//! branch and index move last. Any failure puts back what changed.
+//! The records then hold the merged state as the next base.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::Write as _;
+use std::io::Write;
 use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -38,8 +49,12 @@ use sha2::{Digest as _, Sha256};
 
 use super::git_back::{self, GitPlan};
 use super::local::{self, GitDirs};
+use super::place::{self, Dir, Entry, Transaction};
 use super::remote::{self, Remote};
-use super::{Manifest, Pushed, plain_relative};
+use super::{Manifest, Pushed, base, names};
+
+/// Most bytes one file of the machine may have.
+const MAX_FILE_BYTES: u64 = 4 << 30;
 
 /// What a pull did, or the paths that stopped it.
 pub(super) enum Pulled {
@@ -64,7 +79,7 @@ enum Side {
 enum Step {
     /// The machine's file replaces this Mac's: staged copy, permissions.
     Write {
-        staged: PathBuf,
+        staged: String,
         permissions: u32,
         revision: String,
         sha256: String,
@@ -90,14 +105,13 @@ pub(super) fn pull(socket: &Path, local: &Path, remote_root: &str) -> anyhow::Re
     let manifest_name = if git.is_some() { ".git/cmux-sync.json" } else { ".cmux-sync.json" };
     let mut remote = Remote::connect(socket)?;
     let manifest_path = format!("{remote_root}/{manifest_name}");
-    let manifest: Manifest = match remote.read(&manifest_path)? {
-        Some(bytes) => serde_json::from_slice(&bytes).context("the sync manifest is not valid")?,
-        None => return Err(NoBase.into()),
-    };
+    let record = remote.read(&manifest_path)?;
+    let manifest = base::trusted(&local, remote_root, record.as_deref())?;
     let staging = Staging::make(git.as_ref().map_or(&local, |dirs| &dirs.own))?;
+    let root = Dir::open(&local)?;
 
-    let mut skipped = 0u64;
-    let found = machine_files(&mut remote, remote_root, &local, git.is_some(), &manifest)?;
+    let (found, mut skipped) =
+        machine_files(&mut remote, remote_root, &local, git.is_some(), &manifest)?;
     let mut conflicts = Vec::new();
     let mut planned = Vec::new();
     let mut unchanged = 0u64;
@@ -133,7 +147,7 @@ pub(super) fn pull(socket: &Path, local: &Path, remote_root: &str) -> anyhow::Re
             skipped += 1;
             continue;
         }
-        let here = local_side(&local, relative)?;
+        let here = local_side(&root, relative)?;
         let step = if here == machine {
             Step::Settle(staged.map(|staged| staged.pushed()))
         } else if here != pushed_side {
@@ -145,7 +159,7 @@ pub(super) fn pull(socket: &Path, local: &Path, remote_root: &str) -> anyhow::Re
                     permissions: staged.permissions,
                     revision: staged.revision,
                     sha256: staged.sha256,
-                    staged: staged.path,
+                    staged: staged.name,
                 },
                 (Side::Missing, _) => Step::Delete,
                 _ => {
@@ -178,52 +192,45 @@ pub(super) fn pull(socket: &Path, local: &Path, remote_root: &str) -> anyhow::Re
     }
     // This Mac's files are as planned, or nothing moves.
     for step in &planned {
-        if local_side(&local, &step.relative)? != step.local {
+        if local_side(&root, &step.relative)? != step.local {
             return Ok(Pulled::Conflict(vec![step.relative.clone()], Vec::new()));
         }
     }
-
-    let fast_forwarded = match &git_plan {
-        Some(plan) => plan.apply(&local)?,
-        None => false,
-    };
-    let mut next = manifest;
-    let (mut written, mut deleted, mut bytes) = (0u64, 0u64, 0u64);
-    for step in planned {
-        let target = local.join(&step.relative);
-        match step.step {
-            Step::Write { staged, permissions, revision, sha256 } => {
-                bytes += std::fs::metadata(&staged)?.len();
-                place(&local, &step.relative, &staged, permissions)?;
-                written += 1;
-                next.files.insert(step.relative, Pushed { sha256, permissions, revision });
-            }
-            Step::Delete => {
-                if std::fs::symlink_metadata(&target).is_ok_and(|meta| meta.is_file()) {
-                    std::fs::remove_file(&target)
-                        .with_context(|| format!("cannot delete {}", target.display()))?;
-                    remove_empty_parents(&local, &target);
-                }
-                deleted += 1;
-                next.files.remove(&step.relative);
-            }
-            Step::Settle(Some(pushed)) => {
-                next.files.insert(step.relative, pushed);
-            }
-            Step::Settle(None) => {
-                next.files.remove(&step.relative);
-            }
-        }
+    // Only objects so far: the branch and index move last.
+    if let Some(plan) = &git_plan {
+        plan.fetch(&local)?;
     }
+
+    let mut next = manifest;
+    let mut transaction = Transaction::new(&local, &staging.0)?;
+    let applied = apply(&mut transaction, &staging, planned, &mut next);
+    let (written, deleted, bytes) = match applied {
+        Ok(counts) => counts,
+        Err(error) => {
+            transaction.roll_back();
+            return Err(error);
+        }
+    };
+    let fast_forwarded = match git_plan.as_ref().map(|plan| plan.commit(&local)).transpose() {
+        Ok(moved) => moved.unwrap_or(false),
+        Err(error) => {
+            transaction.roll_back();
+            return Err(error);
+        }
+    };
+    transaction.finish();
     let head = git_plan.as_ref().and_then(|plan| plan.settled.head.clone());
     if let Some(plan) = git_plan {
         next.git = Some(plan.settled);
     }
-    // The next base: a pull that ran again finds nothing new.
+    // The next base, on the machine and here: a pull that ran again finds
+    // nothing new. This Mac's copy moves only once the machine's did, so
+    // the two stay equal when the machine's write fails.
     let saved = serde_json::to_vec(&next)
         .ok()
         .and_then(|manifest| remote.write(&manifest_path, &mut manifest.as_slice(), 0o600).ok())
-        .is_some();
+        .is_some()
+        && base::save(&local, remote_root, &next).is_ok();
     Ok(Pulled::Done(json!({
         "ok": true,
         "written": written,
@@ -237,23 +244,43 @@ pub(super) fn pull(socket: &Path, local: &Path, remote_root: &str) -> anyhow::Re
     })))
 }
 
-/// No push left a manifest at the folder.
-#[derive(Debug)]
-pub(super) struct NoBase;
-
-impl std::fmt::Display for NoBase {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("no sync push left this folder on the machine")
+/// Applies the planned steps through `transaction`, recording each in
+/// `next`: written, deleted and bytes written.
+fn apply(
+    transaction: &mut Transaction,
+    staging: &Staging,
+    planned: Vec<Planned>,
+    next: &mut Manifest,
+) -> anyhow::Result<(u64, u64, u64)> {
+    let (mut written, mut deleted, mut bytes) = (0u64, 0u64, 0u64);
+    for step in planned {
+        match step.step {
+            Step::Write { staged, permissions, revision, sha256 } => {
+                bytes += std::fs::metadata(staging.0.join(&staged))?.len();
+                transaction.write(&step.relative, &staged)?;
+                written += 1;
+                next.files.insert(step.relative, Pushed { sha256, permissions, revision });
+            }
+            Step::Delete => {
+                transaction.delete(&step.relative)?;
+                deleted += 1;
+                next.files.remove(&step.relative);
+            }
+            Step::Settle(Some(pushed)) => {
+                next.files.insert(step.relative, pushed);
+            }
+            Step::Settle(None) => {
+                next.files.remove(&step.relative);
+            }
+        }
     }
+    Ok((written, deleted, bytes))
 }
 
-impl std::error::Error for NoBase {}
-
-/// A working-tree path of the manifest: not the repository, not a part file.
+/// A working-tree path of the record: no repository folder under any
+/// spelling, not a part file.
 fn is_tree_path(relative: &str) -> bool {
-    plain_relative(relative)
-        && relative != ".git"
-        && !relative.starts_with(".git/")
+    names::safe_relative(relative)
         && relative != ".cmux-sync.json"
         && !relative.ends_with(".cmux-sync-part")
 }
@@ -273,15 +300,17 @@ enum Found {
 }
 
 /// The machine's working-tree files, by path, from its folder's listings,
-/// level by level. Folders this working copy ignores are not entered
-/// (unless the push had files there), and nested repositories never.
+/// level by level, and how many entries were left out. Folders this
+/// working copy ignores are not entered (unless the push had files there).
+/// No name that reads as `.git` comes back, and no folder below the top
+/// that holds one (a nested repository).
 fn machine_files(
     remote: &mut Remote,
     remote_root: &str,
     local: &Path,
     git: bool,
     manifest: &Manifest,
-) -> anyhow::Result<BTreeMap<String, Found>> {
+) -> anyhow::Result<(BTreeMap<String, Found>, u64)> {
     let pushed_dirs: BTreeSet<String> = manifest
         .files
         .keys()
@@ -292,22 +321,33 @@ fn machine_files(
         })
         .collect();
     let mut found = BTreeMap::new();
+    let mut skipped = 0u64;
     let mut level = vec![String::new()];
     while !level.is_empty() {
         let mut children: Vec<(String, bool, Found)> = Vec::new();
         for dir in level.drain(..) {
             let path =
                 if dir.is_empty() { remote_root.into() } else { format!("{remote_root}/{dir}") };
+            // Every listed name is one plain component (`Remote::list`).
             let Some(entries) = remote.list(&path)? else { continue };
+            if !dir.is_empty() && entries.keys().any(|name| names::is_dotgit(name)) {
+                skipped += 1;
+                continue;
+            }
             for (name, entry) in entries {
-                let relative = if dir.is_empty() { name.clone() } else { format!("{dir}/{name}") };
-                if name == ".git"
-                    || name.starts_with(".cmux-sync")
-                    || name.ends_with(".cmux-sync-part")
-                {
+                if names::is_dotgit(&name) {
+                    // The top's own `.git` is the repository, never a file.
+                    if !(dir.is_empty() && name == ".git") {
+                        skipped += 1;
+                    }
                     continue;
                 }
-                if !local::holdable(&relative) {
+                if name.starts_with(".cmux-sync") || name.ends_with(".cmux-sync-part") {
+                    continue;
+                }
+                let relative = if dir.is_empty() { name.clone() } else { format!("{dir}/{name}") };
+                if !names::safe_relative(&relative) || !local::holdable(&relative) {
+                    skipped += 1;
                     continue;
                 }
                 match entry.kind.as_str() {
@@ -329,7 +369,7 @@ fn machine_files(
             }
         }
     }
-    Ok(found)
+    Ok((found, skipped))
 }
 
 /// Which of `paths` this working copy's ignore rules match (tracked files
@@ -371,50 +411,37 @@ fn ignored(local: &Path, paths: &[(String, bool, Found)]) -> anyhow::Result<BTre
         .collect())
 }
 
-/// This Mac's file at `relative`. A path through a symlinked folder is
-/// [`Side::Other`]: nothing is written or deleted through it.
-fn local_side(local: &Path, relative: &str) -> anyhow::Result<Side> {
-    let mut at = local.to_path_buf();
-    let parts: Vec<&str> = relative.split('/').collect();
-    for part in &parts[..parts.len() - 1] {
-        at.push(part);
-        match std::fs::symlink_metadata(&at) {
-            Ok(meta) if meta.is_dir() => {}
-            Ok(_) => return Ok(Side::Other),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Side::Missing),
-            Err(error) => return Err(error.into()),
+/// This Mac's file at `relative`, read through folder handles. A path
+/// through a symlink or anything but a folder is [`Side::Other`]: nothing
+/// is written or deleted through it.
+fn local_side(root: &Dir, relative: &str) -> anyhow::Result<Side> {
+    let (dir, name) = match place::parent_of(root, relative) {
+        Ok(Some(found)) => found,
+        Ok(None) => return Ok(Side::Missing),
+        Err(error) if matches!(error.raw_os_error(), Some(libc::ENOTDIR | libc::ELOOP)) => {
+            return Ok(Side::Other);
         }
-    }
-    at.push(parts[parts.len() - 1]);
-    match std::fs::symlink_metadata(&at) {
-        Ok(meta) if meta.is_file() => {
-            let permissions = local::permissions_of(meta.permissions().mode());
-            let sha256 = hash_file(&at)?;
-            Ok(Side::File { sha256, permissions })
+        Err(error) => return Err(error.into()),
+    };
+    match dir.entry(&name)? {
+        Entry::Missing => Ok(Side::Missing),
+        Entry::File { mode } => {
+            let mut file = dir.open_file(&name)?;
+            let mut hasher = Sha256::new();
+            std::io::copy(&mut file, &mut hasher)?;
+            Ok(Side::File { sha256: hex(&hasher.finalize()), permissions: local::permissions_of(mode) })
         }
-        Ok(_) => Ok(Side::Other),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Side::Missing),
-        Err(error) => Err(error.into()),
+        Entry::Dir | Entry::Other => Ok(Side::Other),
     }
-}
-
-fn hash_file(path: &Path) -> anyhow::Result<String> {
-    let mut file = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(path)?;
-    let mut hasher = Sha256::new();
-    std::io::copy(&mut file, &mut hasher)?;
-    Ok(hex(&hasher.finalize()))
 }
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-/// A machine file copied into the staging folder.
+/// A machine file copied into the staging folder, by its name there.
 struct Staged {
-    path: PathBuf,
+    name: String,
     sha256: String,
     permissions: u32,
     revision: String,
@@ -441,26 +468,62 @@ impl Staging {
     }
 
     /// Copies the machine's file at `target` here, with its hash, synced
-    /// permissions and revision.
+    /// permissions and revision, streamed to disk. Its revision is read
+    /// before and after; a file that changed meanwhile is read again.
     fn stage(&self, remote: &mut Remote, target: &str) -> anyhow::Result<Staged> {
-        let stat = remote.stat(target)?.with_context(|| format!("{target} went away"))?;
-        let revision = stat["revision"].as_str().unwrap_or_default().to_string();
-        let mode = stat["mode_display"].as_str().map_or(0o644, mode_bits);
-        let permissions = local::permissions_of(mode);
-        let bytes = remote.read(target)?.with_context(|| format!("{target} went away"))?;
-        let number = self.1.get() + 1;
-        self.1.set(number);
-        let path = self.0.join(format!("file-{number}"));
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW)
-            .open(&path)?;
-        file.write_all(&bytes)?;
-        file.set_permissions(std::fs::Permissions::from_mode(permissions))?;
-        file.sync_all()?;
-        Ok(Staged { path, sha256: hex(&Sha256::digest(&bytes)), permissions, revision })
+        for _ in 0..3 {
+            let stat = remote.stat(target)?.with_context(|| format!("{target} went away"))?;
+            if stat["kind"] != "file" {
+                bail!("{target} is no longer a file");
+            }
+            let revision = stat["revision"].as_str().unwrap_or_default().to_string();
+            let mode = stat["mode_display"].as_str().map_or(0o644, mode_bits);
+            let permissions = local::permissions_of(mode);
+            let number = self.1.get() + 1;
+            self.1.set(number);
+            let name = format!("file-{number}");
+            let path = self.0.join(&name);
+            let file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .custom_flags(libc::O_NOFOLLOW)
+                .open(&path)?;
+            let mut out = Hashing { file, hasher: Sha256::new() };
+            remote
+                .read_into(target, &mut out, MAX_FILE_BYTES)?
+                .with_context(|| format!("{target} went away"))?;
+            let after = remote.stat(target)?;
+            if after.as_ref().and_then(|stat| stat["revision"].as_str()) != Some(revision.as_str())
+            {
+                drop(out);
+                let _ = std::fs::remove_file(&path);
+                continue;
+            }
+            out.file.set_permissions(std::fs::Permissions::from_mode(permissions))?;
+            out.file.sync_all()?;
+            let sha256 = hex(&out.hasher.finalize());
+            return Ok(Staged { name, sha256, permissions, revision });
+        }
+        bail!("{target} kept changing while it was read")
+    }
+}
+
+/// A file that hashes what is written to it.
+struct Hashing {
+    file: std::fs::File,
+    hasher: Sha256,
+}
+
+impl Write for Hashing {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        let written = self.file.write(bytes)?;
+        self.hasher.update(&bytes[..written]);
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.file.flush()
     }
 }
 
@@ -475,66 +538,16 @@ fn mode_bits(display: &str) -> u32 {
     display.chars().take(9).fold(0, |mode, c| (mode << 1) | u32::from(c != '-'))
 }
 
-/// Moves `staged` to `relative` under `local`, making missing folders and
-/// refusing a path through anything but a folder (a symlink above it, or a
-/// folder where the file goes).
-fn place(local: &Path, relative: &str, staged: &Path, permissions: u32) -> anyhow::Result<()> {
-    let mut at = local.to_path_buf();
-    let parts: Vec<&str> = relative.split('/').collect();
-    for part in &parts[..parts.len() - 1] {
-        at.push(part);
-        match std::fs::symlink_metadata(&at) {
-            Ok(meta) if meta.is_dir() => {}
-            Ok(_) => bail!("{} is not a folder", at.display()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                std::fs::create_dir(&at)
-                    .with_context(|| format!("cannot make {}", at.display()))?;
-            }
-            Err(error) => return Err(error.into()),
-        }
-    }
-    let target = at.join(parts[parts.len() - 1]);
-    if std::fs::symlink_metadata(&target).is_ok_and(|meta| !meta.is_file()) {
-        bail!("{} is not a regular file", target.display());
-    }
-    match std::fs::rename(staged, &target) {
-        Ok(()) => Ok(()),
-        // Another file system (a mount inside the folder): copy next to it.
-        Err(error) if error.raw_os_error() == Some(libc::EXDEV) => {
-            let part = at.join(format!(".{}.cmux-sync-part", parts[parts.len() - 1]));
-            let _ = std::fs::remove_file(&part);
-            let mut out = std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .custom_flags(libc::O_NOFOLLOW)
-                .open(&part)?;
-            std::io::copy(&mut std::fs::File::open(staged)?, &mut out)?;
-            out.set_permissions(std::fs::Permissions::from_mode(permissions))?;
-            out.sync_all()?;
-            std::fs::rename(&part, &target)
-                .with_context(|| format!("cannot write {}", target.display()))
-        }
-        Err(error) => Err(error).with_context(|| format!("cannot write {}", target.display())),
-    }
-}
-
-/// Removes the folders above `target` that its delete left empty, up to
-/// `local` (never `local` itself).
-fn remove_empty_parents(local: &Path, target: &Path) {
-    let mut at = target.parent();
-    while let Some(dir) = at {
-        if dir == local || !dir.starts_with(local) || std::fs::remove_dir(dir).is_err() {
-            return;
-        }
-        at = dir.parent();
-    }
-}
-
 /// The error code of a pull failure.
 pub(super) fn failure_code(error: &anyhow::Error) -> String {
-    if error.downcast_ref::<NoBase>().is_some() {
+    if error.downcast_ref::<base::NoBase>().is_some() {
         return "sync_no_base".into();
+    }
+    if error.downcast_ref::<base::Mismatch>().is_some() {
+        return "sync_base_mismatch".into();
+    }
+    if error.downcast_ref::<remote::UnsafeName>().is_some() {
+        return "sync_unsafe_name".into();
     }
     remote::refusal_code(error).unwrap_or("sync_failed").to_string()
 }
