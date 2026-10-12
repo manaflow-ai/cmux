@@ -353,6 +353,31 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-queued-edit"));
       },
     },
+    "history-recall": {
+      note: "Play: ↑ from the empty prompt brings back the chat's last prompt, ↑ again the one before, ↓ steps forward and past the newest empties the prompt, as in Codex and Claude Code. The older prompt has Markdown characters the field escapes. A prompt being typed is never replaced.",
+      snapshot: chat([
+        user("Fix arr[0] and the 2 * 3 case in fetch_helper_retry", 6),
+        assistant("Added retries with exponential backoff.", 5),
+        user("Then add a test for the 429 path", 3),
+        assistant("Added the test.", 2),
+      ]),
+      play: async (ctx) => {
+        const prompt = () =>
+          ctx.document.querySelector(".acpmux-composer-prompt .acpmux-md-root")?.textContent?.trim() ?? "";
+        await ctx.click({ selector: ".acpmux-composer-prompt" });
+        await ctx.press("ArrowUp");
+        await ctx.waitFor(() => prompt() === "Then add a test for the 429 path");
+        await ctx.press("ArrowUp");
+        await ctx.waitFor(() => prompt() === "Fix arr[0] and the 2 * 3 case in fetch_helper_retry");
+        await ctx.press("ArrowDown");
+        await ctx.waitFor(() => prompt() === "Then add a test for the 429 path");
+        await ctx.press("ArrowDown");
+        await ctx.waitFor(() => prompt() === "");
+        await ctx.type("draft");
+        await ctx.press("ArrowUp");
+        await ctx.waitFor(() => prompt() === "draft");
+      },
+    },
     "queued-long": {
       note: "Many queued prompts, one too long for its row: the rows scroll, and the cut-off one shows a tooltip on hover.",
       snapshot: chat(working, {
@@ -578,6 +603,30 @@ export default agentPaneEntry({
         await ctx.click({ selector: "[contenteditable='true']" });
         await ctx.type("/");
         await ctx.waitFor(() => ctx.document.querySelector("[role='listbox'], [role='menu']"));
+      },
+    },
+    "slash-menu-full": {
+      note: "Play: type / with an agent's full command list; in a small window the list goes past the window's edge (cx-6k6cg).",
+      snapshot: chat(finished, {
+        commands: [
+          { name: "add-dir", description: "Add a new working directory" },
+          { name: "agents", description: "Manage agent configurations" },
+          { name: "clear", description: "Clear conversation history and free up context" },
+          { name: "compact", description: "Clear conversation history but keep a summary in context" },
+          { name: "config", description: "Open the config panel" },
+          { name: "cost", description: "Show the total cost and duration of the current session" },
+          { name: "doctor", description: "Diagnose and verify your installation" },
+          { name: "init", description: "Initialize a new CLAUDE.md file with codebase documentation" },
+          { name: "memory", description: "Edit memory files" },
+          { name: "permissions", description: "Manage allow and deny tool permission rules" },
+          { name: "review", description: "Review a pull request" },
+          { name: "status", description: "Show the version, model, account and connectivity" },
+        ],
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: "[contenteditable='true']" });
+        await ctx.type("/");
+        await ctx.waitFor(() => ctx.document.querySelector("#acpmux-slash-menu [role='option']"));
       },
     },
     "slash-menu-keyboard": {

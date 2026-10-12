@@ -8,6 +8,8 @@ struct PaneToolbarItem: Equatable {
     let title: String
     let symbol: String
     let shortcut: String?
+    /// On: the zoom button of a zoomed pane.
+    var lit = false
 }
 
 /// The pane's buttons at the tab bar's trailing end (``PaneToolbar``, cx-kk7lm): a few action
@@ -60,7 +62,10 @@ final class PaneToolbarView: NSView {
             button.setAccessibilityLabel(item.title)
             button.themedToolTip = item.title
             button.themedToolTipShortcut = item.shortcut
-            button.menuProvider = { [weak self] in self?.hideMenu(item) }
+            // The lit zoom button says the pane is zoomed: nothing to hide.
+            button.menuProvider = item.lit ? nil : { [weak self] in self?.hideMenu(item) }
+            button.state = item.lit ? .on : .off
+            if item.lit { button.contentTintColor = performWithTheme { Palette.accent } }
             addSubview(button)
             return button
         }
