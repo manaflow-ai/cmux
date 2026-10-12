@@ -31,6 +31,8 @@ public final class TabModel: Identifiable {
     public internal(set) var notification: TabNotification?
     public internal(set) var url: String?
     public internal(set) var pinned: Bool
+    /// The page a pinned browser tab was pinned on (Back to Pinned Page).
+    public internal(set) var pinnedURL: String?
     /// The daemon's cwd, else the folder the shell last reported to this
     /// app's surface (`noteTerminalDirectory`): the pinned daemon clears its
     /// own on a `kitty-shell-cwd://` report.
@@ -126,6 +128,7 @@ public final class TabModel: Identifiable {
         notification = s.notification
         url = s.url
         pinned = s.pinned
+        pinnedURL = s.pinnedURL
         cwd = s.cwd
         gitBranch = s.gitBranch
         gitDetached = s.gitDetached
@@ -158,6 +161,7 @@ public final class TabModel: Identifiable {
         if notification != s.notification { notification = s.notification }
         if url != s.url { url = s.url }
         if pinned != s.pinned { pinned = s.pinned }
+        if pinnedURL != s.pinnedURL { pinnedURL = s.pinnedURL }
         refreshCwd()
         if gitBranch != s.gitBranch { gitBranch = s.gitBranch }
         if gitDetached != s.gitDetached { gitDetached = s.gitDetached }

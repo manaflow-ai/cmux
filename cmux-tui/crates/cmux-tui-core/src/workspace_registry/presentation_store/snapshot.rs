@@ -38,14 +38,19 @@ impl WorkspaceRegistry {
             }
         }
         let db = self.connection.get();
-        let pinned_tabs = db
+        let pins = db
             .prepare(
-                "SELECT p.tab_id FROM tab_presentation AS p
+                "SELECT p.tab_id, p.url FROM tab_presentation AS p
                  JOIN resource_tabs AS t ON t.public_id = p.tab_id
                  WHERE p.pinned = 1 AND t.deleted_revision IS NULL",
             )?
-            .query_map([], |row| row.get::<_, String>(0))?
-            .collect::<Result<HashSet<_>, _>>()?;
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        let pinned_urls = pins
+            .iter()
+            .filter_map(|(tab, url)| url.clone().map(|url| (tab.clone(), url)))
+            .collect::<HashMap<_, _>>();
+        let pinned_tabs = pins.into_iter().map(|(tab, _)| tab).collect::<HashSet<_>>();
         let mut frontend_browsers = HashMap::new();
         {
             let db = self.connection.get();
@@ -91,6 +96,7 @@ impl WorkspaceRegistry {
             groups,
             workspaces,
             pinned_tabs,
+            pinned_urls,
             frontend_browsers,
             conversation_tabs,
             remote_terminals,
