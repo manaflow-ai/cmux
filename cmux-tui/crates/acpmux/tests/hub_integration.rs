@@ -18,6 +18,8 @@ mod drafts;
 mod permission_groups;
 #[path = "hub_integration/questions.rs"]
 mod questions;
+#[path = "hub_integration/secrets.rs"]
+mod secrets;
 #[path = "hub_integration/seen.rs"]
 mod seen;
 #[path = "hub_integration/status_indicator.rs"]
