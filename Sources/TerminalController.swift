@@ -10050,21 +10050,21 @@ class TerminalController {
     /// Answers native pending state in one main-actor turn without a synchronous queue hop.
     private func v2BrowserDialogRespond(params: [String: Any], accept: Bool) -> V2CallResult {
         guard !Task.isCancelled else {
-            return .err(code: "timeout", message: "Request timed out after 10 seconds", data: nil)
+            return .err(code: "timeout", message: String(localized: "cli.socket.error.commandTimedOut", defaultValue: "Command timed out"), data: nil)
         }
         v2RefreshKnownRefs()
         guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(code: "unavailable", message: String(localized: "cli.browser.error.tabManagerUnavailable", defaultValue: "Browser controls are unavailable"), data: nil)
         }
         let resolved = v2ResolveBrowserPanelContext(params: params, tabManager: tabManager)
         if let error = resolved.error { return error }
         guard let ctx = resolved.context else {
-            return .err(code: "internal_error", message: "Browser operation failed", data: nil)
+            return .err(code: "internal_error", message: String(localized: "cli.browser.error.operationFailed", defaultValue: "Browser operation failed"), data: nil)
         }
         // Empty and whitespace-only prompt answers are meaningful.
         let text = (params["text"] as? String) ?? (params["prompt_text"] as? String)
         guard let dialog = ctx.browserPanel.respondToJavaScriptDialog(accept: accept, text: text) else {
-            return .err(code: "not_found", message: "No pending dialog", data: ["pending": []])
+            return .err(code: "not_found", message: String(localized: "cli.browser.dialog.error.noPending", defaultValue: "No pending dialog"), data: ["pending": []])
         }
         let type: String
         switch dialog.kind {
