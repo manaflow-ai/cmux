@@ -37,9 +37,9 @@ import Testing
 
         let presenter = TooltipPresenter.shared
         let tracker = try #require(TooltipTracker.whole(of: button))
+        presenter.dismiss()
+        // POLISH (Instant): the first tooltip opens on the first frame, no hover delay.
         presenter.enter(tracker)
-        #expect(presenter.shown == nil, "waits the hover delay")
-        presenter.fire()
         #expect(presenter.shown?.text == "New Tab")
         #expect(presenter.shown?.shortcut == "⌘T")
         let panel = presenter.panel
@@ -80,7 +80,6 @@ import Testing
         // The pointer comes straight onto the button: whichever enter arrives last, the button's shows.
         presenter.enter(try #require(TooltipTracker.whole(of: add)))
         presenter.enter(try #require(TooltipTracker.whole(of: header)))
-        presenter.fire()
         #expect(presenter.shown?.text == "New Workspace")
         // Back onto the header: its own tooltip, at once.
         presenter.exit(try #require(TooltipTracker.whole(of: add)))

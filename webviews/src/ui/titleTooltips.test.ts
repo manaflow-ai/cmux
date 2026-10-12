@@ -100,3 +100,14 @@ test("an untruncated control's tooltip keeps the standard width and shows its sh
   expect(tip.querySelector(".ui-tooltip-text")?.textContent).toBe("New Tab");
   expect(tip.querySelector(".ui-tooltip-hint")?.textContent).toBe("⌘T");
 });
+
+test("the first tooltip shows on the first hover, with no delay", () => {
+  // POLISH (Instant): tooltips open on the first frame, no hover delay on the first show.
+  const doc = page(`<button id="close" title="Close Tab"></button>`);
+  const button = doc.getElementById("close")!;
+  button.getBoundingClientRect = () => ({ left: 10, top: 10, width: 24, height: 24 }) as DOMRect;
+  button.dispatchEvent(new dom!.window.MouseEvent("pointerover", { bubbles: true }));
+  const tip = doc.querySelector<HTMLElement>(".ui-title-tooltip")!;
+  expect(tip.hidden).toBe(false);
+  expect(tip.querySelector(".ui-tooltip-text")?.textContent).toBe("Close Tab");
+});
