@@ -87,7 +87,7 @@ public final class AgentPaneView: NSView {
     public private(set) lazy var redraw = AgentPageRedraw(webView: webView) // a chat shown again draws first
     public private(set) lazy var topBar = AgentPaneTopBar(pane: self) // the App's omnibar row over a New Tab page (cx-e2aa)
     /// The process pool every agent page shares (R81: fonts are listed once per pool).
-    private static let processPool = WKProcessPool()
+    static let processPool = WKProcessPool()
 
     /// The bundled page, nil when it is missing (a broken build).
     public static var bundledPage: URL? {

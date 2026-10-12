@@ -243,6 +243,7 @@ public final class CmuxDialogView: NSView {
         case .text(let id, let caption, let initial, let placeholder, let secure):
             let input = secure ? NSSecureTextField(string: initial) : NSTextField(string: initial)
             input.placeholderString = placeholder
+            input.focusRingType = .none
             input.font = Typography.body
             input.delegate = self
             input.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.field.\(id)")

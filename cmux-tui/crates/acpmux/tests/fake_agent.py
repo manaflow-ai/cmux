@@ -458,6 +458,18 @@ def main():
         params = msg.get("params") or {}
         if m in ("session/new", "session/load", "session/fork"):
             LAST_MCP_SERVERS = params.get("mcpServers")
+        # FAKE_SETSID_CHILD=<path>: on session/new (the session's harness, not a probe),
+        # start a child that leaves this process group (setsid), as a harness that
+        # daemonizes a helper does, and write its pid to that file.
+        if m == "session/new" and os.environ.get("FAKE_SETSID_CHILD"):
+            import subprocess
+            helper = subprocess.Popen(
+                [sys.executable, "-c", "import os, time; os.setsid(); time.sleep(600)"],
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            tmp = f"{os.environ['FAKE_SETSID_CHILD']}.{os.getpid()}.tmp"
+            with open(tmp, "w") as f:
+                f.write(str(helper.pid))
+            os.replace(tmp, os.environ["FAKE_SETSID_CHILD"])
         # FAKE_CWD_LOG=<path>: append the process folder and the session/new cwd.
         if m == "session/new" and os.environ.get("FAKE_CWD_LOG"):
             with open(os.environ["FAKE_CWD_LOG"], "a") as log:
