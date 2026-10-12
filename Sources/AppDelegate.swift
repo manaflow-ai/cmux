@@ -15901,8 +15901,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return handled
         }
 
-        if handleAgentTurnNavigationShortcut(event: event) { return true }
-
         if matchConfiguredShortcut(event: event, action: .focusTextBoxInput) {
             if performFocusedDockShortcut(
                 .focusTextBoxInput,
