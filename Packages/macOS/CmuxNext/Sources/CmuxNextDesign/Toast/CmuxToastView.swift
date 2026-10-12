@@ -1,8 +1,9 @@
 public import AppKit
 
-/// A toast: the message, the action button and a close button on an
-/// overlay surface. VoiceOver reads the message; the buttons are reachable
-/// with VoiceOver and by click. The pointer on it holds it (`onHover`).
+/// A toast: the message, the action button and a close button on a solid
+/// theme surface (never translucent glass) with the popups' small radius
+/// and shadow. VoiceOver reads the message; the buttons are reachable with
+/// VoiceOver and by click. The pointer on it holds it (`onHover`).
 @MainActor
 public final class CmuxToastView: NSView {
     public let toast: CmuxToast
@@ -46,16 +47,16 @@ public final class CmuxToastView: NSView {
         row.orientation = .horizontal
         row.alignment = .centerY
         row.spacing = Metrics.space2
-        // The message sits at the pane text inset; the buttons' hover fills stop one small step
-        // short of the edge, so the toast reads as one material with text in it.
-        row.edgeInsets = NSEdgeInsets(top: Metrics.space2, left: Metrics.space4,
-                                      bottom: Metrics.space2, right: Metrics.space2)
+        // Room around the message; the buttons' hover fills stop one step short of the edge,
+        // so the toast reads as one surface with text in it.
+        row.edgeInsets = NSEdgeInsets(top: Metrics.space4, left: Metrics.space5,
+                                      bottom: Metrics.space4, right: Metrics.space4)
         row.translatesAutoresizingMaskIntoConstraints = false
         if let action = toast.action {
             let button = CmuxToastButton(style: .action, title: action.title, target: self, action: #selector(runAction))
             actionButton = button
             row.addArrangedSubview(button)
-            row.setCustomSpacing(Metrics.space3, after: label)
+            row.setCustomSpacing(Metrics.space5, after: label)
         }
         closeButton.target = self
         closeButton.action = #selector(close)
@@ -63,8 +64,16 @@ public final class CmuxToastView: NSView {
 
         let content = NSView()
         content.addSubview(row)
-        let surface = Glass.makeOverlayPanel(content: content)
+        // A solid fill: the Reduce Transparency overlay fill (`ThemeTokens.opaqueOverlayFill`)
+        // pinned on every Mac. Swap to `Palette.popupSurface` once it lands on base.
+        let surface = OverlaySurfaceView(material: .opaque, interactive: true, cornerRadius: Self.cornerRadius)
+        surface.translatesAutoresizingMaskIntoConstraints = false
+        content.translatesAutoresizingMaskIntoConstraints = true
+        content.autoresizingMask = [.width, .height]
+        content.frame = surface.contentView.bounds
+        surface.contentView.addSubview(content)
         addSubview(surface)
+        castShadow()
         NSLayoutConstraint.activate([
             row.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             row.trailingAnchor.constraint(equalTo: content.trailingAnchor),
@@ -77,6 +86,28 @@ public final class CmuxToastView: NSView {
             widthAnchor.constraint(equalTo: row.widthAnchor),
             heightAnchor.constraint(equalTo: row.heightAnchor),
         ])
+    }
+
+    /// The popups' small radius, never a capsule.
+    static let cornerRadius = PopupStyle.standard.cornerRadius
+
+    /// The popups' one subtle shadow, on this view's layer behind the surface
+    /// (the surface clips to its corners, so it cannot cast its own).
+    private func castShadow() {
+        wantsLayer = true
+        let style = PopupStyle.standard
+        layer?.masksToBounds = false
+        layer?.shadowColor = NSColor.black.cgColor
+        layer?.shadowOpacity = Float(style.shadowAlpha)
+        // Core Animation's radius is about half a CSS blur.
+        layer?.shadowRadius = style.shadowBlur / 2
+        layer?.shadowOffset = CGSize(width: 0, height: -style.shadowOffset)
+    }
+
+    public override func layout() {
+        super.layout()
+        layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: Self.cornerRadius,
+                                   cornerHeight: Self.cornerRadius, transform: nil)
     }
 
     @objc private func runAction() { onAction?() }

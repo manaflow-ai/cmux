@@ -14,6 +14,7 @@ nonisolated struct ChatSettingsSchema {
             SettingDescriptor(ChatSettings.rootsPath, section: .general, group: group,
                 title: SettingsText.keyed("settings.chats.roots", "Chat Folders"),
                 help: SettingsText.keyed("settings.chats.roots.help", "Add absolute paths to harness data folders. Protected folders are refused. Your organization can add locked folders."),
+                summary: SettingsText.keyed("settings.chats.roots.summary", "Extra folders to read chats from"),
                 kind: .folderList, default: .array([]), keywords: ["agents", "chats", "folders", "roots", "privacy"]),
         ]
     }

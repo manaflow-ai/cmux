@@ -1,4 +1,6 @@
 import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
+import type { DictationField } from "../dictation";
 import { FOCUS_LOCATION_EVENT, FolderIcon, type NewTabHost } from "../NewTabPage";
 import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
@@ -8,11 +10,10 @@ import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
 import { ChatCards } from "./ChatCards";
 import { ClosedList } from "./ClosedList";
 import { OpenTabsList } from "./OpenTabsList";
-import { defaultModel } from "../harnessSwitch";
+import { newTabStart } from "./chipDefaults";
 import { useDeviceChats } from "./deviceChats";
 import { useRecentlyClosed } from "./recentlyClosed";
 import {
-  defaultHarness,
   initialSelection,
   recentChatCards,
   screenRows,
@@ -83,6 +84,12 @@ type Props = NewTabScreenActions & {
   focusField?: boolean;
   /// Which screen template draws the page (newtab/templates.ts); "default" when unset.
   template?: ScreenTemplate;
+  /// Buttons before Send, such as the dictation mic (DictationMic).
+  accessory?: React.ReactNode;
+  /// Why dictation did not run (DictationNotice), under the field.
+  notice?: React.ReactNode;
+  /// Where the page's dictation writes: the field, while the screen shows.
+  dictationField?: React.MutableRefObject<DictationField | null>;
 };
 
 /// The new tab screen, variant B (plans/cmux-next/new-tab.md): the project and model pickers on
@@ -120,24 +127,12 @@ export function NewTabScreen(props: Props) {
     () => snapshot.catalog.map((entry) => ({ id: entry.id, name: entry.name })),
     [snapshot.catalog],
   );
-  // The agent Enter asks: the one picked on the chip (a pick draws it into the summary), else the
-  // remembered one, else the first installed.
-  const harness = snapshot.summary?.harness ?? defaultHarness(agents, lastAgent);
-  const chipSnapshot = useMemo<AcpmuxSnapshot>(
-    () =>
-      snapshot.summary?.harness || !harness
-        ? snapshot
-        : {
-            ...snapshot,
-            summary: {
-              ...snapshot.summary,
-              sessionId: snapshot.summary?.sessionId ?? "",
-              harness,
-              // The agent's default model, named on the chip (its own "default" when none is known yet).
-              model: defaultModel(harness, snapshot.catalog) ?? "default",
-            },
-          },
-    [snapshot, harness],
+  // A real pick names its folder; else the folder the chat really starts in (screenActions onAsk).
+  const chatFolder = project && project !== props.cwd ? project : (props.startCwd ?? project ?? props.cwd);
+  // The agent Enter asks and the chip's model (newTabStart): the chip's pick, else the last pick.
+  const { harness, snapshot: chipSnapshot } = useMemo(
+    () => newTabStart(snapshot, agents, lastAgent, chatFolder),
+    [snapshot, agents, lastAgent, chatFolder],
   );
   const rows = useMemo(
     () => (touched && !shell ? screenRows(text, { omnibar, home }) : []),
@@ -233,6 +228,38 @@ export function NewTabScreen(props: Props) {
     const command = text.trim();
     if (command) props.onShell(command);
   };
+  const sendRef = useRef(send);
+  sendRef.current = send;
+  const editRef = useRef(edit);
+  editRef.current = edit;
+  const { dictationField } = props;
+  useLayoutEffect(() => {
+    if (!dictationField) return undefined;
+    dictationField.current = {
+      focus: () => field.current?.focus(),
+      focused: () => document.activeElement === field.current,
+      element: () => field.current,
+      text: () => {
+        const input = field.current;
+        const value = input?.value ?? "";
+        return {
+          value,
+          selectionStart: input?.selectionStart ?? value.length,
+          selectionEnd: input?.selectionEnd ?? value.length,
+        };
+      },
+      // Dictation splices its words in as typing would, committed at once: its next update reads
+      // the field back, and auto-send sends what it holds.
+      writeText: (value, selectionStart, selectionEnd) => {
+        flushSync(() => editRef.current(value));
+        field.current?.setSelectionRange(selectionStart, selectionEnd);
+      },
+      submit: () => sendRef.current(),
+    };
+    return () => {
+      dictationField.current = null;
+    };
+  }, [dictationField]);
   // A key typed anywhere on the page goes into the field, the first key kept (Lawrence
   // 2026-10-09: "if i just start typing it needs to automatically start typing"). Another field
   // (a picker's search), a menu with its own keys, a chord and IME keep theirs.
@@ -306,9 +333,6 @@ export function NewTabScreen(props: Props) {
       }
     : undefined;
   const Chips = props.chips;
-  // A real pick names its folder; else the folder the chat really starts in (screenActions onAsk).
-  const chatFolder = project && project !== props.cwd ? project : (props.startCwd ?? project ?? props.cwd);
-
   return (
     <div
       ref={screen}
@@ -367,6 +391,7 @@ export function NewTabScreen(props: Props) {
           {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
               switch is the one Enter reuses. */}
           {Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />}
+          {props.accessory}
           {/* Send: a click does what Return does (a prompt, a row, or a shell command). */}
           <button
             type="button"
@@ -380,13 +405,14 @@ export function NewTabScreen(props: Props) {
           </button>
         </div>
       </div>
+      {props.notice}
       {noAgent && (
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
         <div className="nt-no-agent" role="status">
           <span>{t("newtab.noAgent")}</span>
           {props.onAddHarness && (
-            <button type="button" className="nt-tool nt-add-harness" onClick={() => props.onAddHarness?.()}>
-              <span className="nt-tool-icon" aria-hidden="true">
+            <button type="button" className="nt-tool nt-add-harness ui-ghost" onClick={() => props.onAddHarness?.()}>
+              <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
                 {toolIcon("plus")}
               </span>
               <span>{t("newtab.addHarness")}</span>
@@ -491,17 +517,17 @@ function ToolsRow({
 }) {
   const t = useT();
   return (
-    <nav className="nt-tools" aria-label={t("newTabPage.tools")}>
+    <nav className="nt-tools ui-ghost-row" aria-label={t("newTabPage.tools")}>
       {tools.map((tool) => {
         const button = (
           <button
             type="button"
-            className="nt-tool"
+            className="nt-tool ui-ghost"
             // The shortcut in the tooltip: shown inline on hover it moved every later tool.
             title={tool.shortcut ? `${toolTitle(t, tool)}  ${tool.shortcut}` : undefined}
             onClick={() => onRunAction?.(tool.id)}
           >
-            <span className="nt-tool-icon" aria-hidden="true">
+            <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
               {toolIcon(tool.symbol)}
             </span>
             <span>{toolTitle(t, tool)}</span>

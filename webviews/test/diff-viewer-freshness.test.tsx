@@ -82,11 +82,10 @@ function Viewer({
 const shown = () => dom.window.document.querySelector("output")?.textContent;
 const settle = () => act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
 
-test("only the work tree's and the index's diffs are fingerprinted", async () => {
+test("a repository's diffs are fingerprinted, Branch included (the chat's ± opens it; cx-4ukqc)", async () => {
   expect(diffFingerprintReader(page as never, OPS, { kind: "patch", path: "/tmp/x.patch" })).toBeUndefined();
-  expect(
-    diffFingerprintReader(page as never, OPS, { kind: "branch", repoRoot: "/r", baseRef: "main" }),
-  ).toBeUndefined();
+  await diffFingerprintReader(page as never, OPS, { kind: "branch", repoRoot: "/r", baseRef: "main" })!();
+  expect(calls.at(-1)).toEqual(["cmux.diff.git.fingerprint", { scope: "branch" }]);
   expect(diffFingerprintReader(page as never, [], { kind: "unstaged", repoRoot: "/r" })).toBeUndefined();
   await diffFingerprintReader(page as never, OPS, { kind: "branch", repoRoot: "/r", baseRef: "HEAD" })!();
   expect(calls.at(-1)).toEqual(["cmux.diff.git.fingerprint", { scope: "uncommitted" }]);
