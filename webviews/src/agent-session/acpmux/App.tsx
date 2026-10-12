@@ -843,10 +843,12 @@ function scrollRangeIn(scroller: HTMLElement, range: Range) {
   if (box.top < view.top || box.bottom > view.bottom)
     scroller.scrollTop += box.top - view.top - scroller.clientHeight / 3;
 }
-/// How many frames Find keeps a new match in view while its groups open and the rows above it
-/// measure (about 600 ms at 60 Hz). Counted in frames, not time, so a page the machine starves
-/// (fewer frames) still holds the match through the measures that come late.
+/// How long Find keeps a new match in view while its groups open and the rows above it measure:
+/// at least 600 ms and 36 frames, so a page the machine starves (fewer frames) still holds the
+/// match through the measures that come late, and at most 5 s (a hidden page draws no frames).
+const FIND_REVEAL_MS = 600;
 const FIND_REVEAL_FRAMES = 36;
+const FIND_REVEAL_MAX_MS = 5000;
 /// A scroll that rests this long is where the chat reopens (cx-6bgzj), reported once, not per frame.
 export const SCROLL_ANCHOR_SETTLE_MS = 400;
 /// Where a chat's transcript rests: the row at the top of the view and how far into it; null is the
@@ -1460,11 +1462,12 @@ export function VirtualTranscript({
         : undefined,
     [drawnId, drawnCard, findQuery],
   );
-  // Whether the current match's reveal has started counting its frames.
-  const revealCounting = useRef(false);
+  // The current match's reveal window: 0 until it starts, then the window's own number.
+  const revealWindow = useRef(0);
+  const revealWindows = useRef(0);
   useLayoutEffect(() => {
     revealing.current = targetKey;
-    revealCounting.current = false;
+    revealWindow.current = 0;
     const node = ref.current;
     if (!node || !findTarget || !targetKey) return;
     const top = layout.tops[findIndex];
@@ -1487,13 +1490,15 @@ export function VirtualTranscript({
     if (!current || revealing.current !== targetKey) return;
     // A match in a closed group is drawn before the group opens (with no size), and it moves as the
     // opened parts and the rows above it measure, so it is kept in view for a moment once drawn.
-    if (!revealCounting.current) {
-      revealCounting.current = true;
-      const key = targetKey;
+    if (!revealWindow.current) {
+      const opened = (revealWindow.current = ++revealWindows.current);
+      const start = performance.now();
       let frames = 0;
       const tick = () => {
-        if (revealing.current !== key) return;
-        if (++frames >= FIND_REVEAL_FRAMES) revealing.current = undefined;
+        if (revealWindow.current !== opened) return;
+        const elapsed = performance.now() - start;
+        if ((++frames >= FIND_REVEAL_FRAMES && elapsed >= FIND_REVEAL_MS) || elapsed >= FIND_REVEAL_MAX_MS)
+          revealing.current = undefined;
         else requestAnimationFrame(tick);
       };
       requestAnimationFrame(tick);
