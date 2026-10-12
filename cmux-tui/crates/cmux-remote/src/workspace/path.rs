@@ -1,4 +1,4 @@
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
@@ -52,9 +52,11 @@ impl WorkspaceRoot {
         if !supplied.is_absolute() {
             return Err(invalid_path("workspace root must be absolute"));
         }
+        reject_literal_tilde_component(&supplied)?;
         let canonical = tokio::fs::canonicalize(&supplied)
             .await
             .map_err(|error| io_error("open-workspace", &supplied, error))?;
+        reject_literal_tilde_component(&canonical)?;
         let metadata = tokio::fs::metadata(&canonical)
             .await
             .map_err(|error| io_error("open-workspace", &canonical, error))?;
@@ -133,6 +135,7 @@ impl WorkspaceRoot {
                 .await
                 .map_err(|error| io_error("resolve", &candidate, error))?;
             self.require_contained(&resolved)?;
+            reject_resolved_tilde_component(&self.canonical, &resolved)?;
             Ok(resolved)
         }
     }
@@ -206,6 +209,7 @@ impl WorkspaceRoot {
                         .await
                         .map_err(|error| io_error("resolve", &next, error))?;
                     self.require_contained(&resolved)?;
+                    reject_resolved_tilde_component(&self.canonical, &resolved)?;
                     let metadata = tokio::fs::metadata(&resolved)
                         .await
                         .map_err(|error| io_error("resolve", &resolved, error))?;
@@ -225,6 +229,7 @@ impl WorkspaceRoot {
                         .await
                         .map_err(|error| io_error("resolve", &next, error))?;
                     self.require_contained(&resolved)?;
+                    reject_resolved_tilde_component(&self.canonical, &resolved)?;
                     current = resolved;
                 }
                 Err(error) => return Err(io_error("resolve", &next, error)),
@@ -483,7 +488,7 @@ impl UnixWorkspaceRoot {
     fn expand_symlink(
         &self,
         base: &[OsString],
-        target: &std::ffi::OsStr,
+        target: &OsStr,
     ) -> Result<VecDeque<OsString>, RpcError> {
         let target = Path::new(target);
         if target.is_absolute() {
@@ -572,6 +577,9 @@ fn normalize_symlink_components(
 ) -> Result<VecDeque<OsString>, RpcError> {
     for component in target.components() {
         match component {
+            Component::Normal(name) if name == OsStr::new("~") => {
+                return Err(invalid_path("resolved path contains an unexpanded '~' component"));
+            }
             Component::Normal(name) => expanded.push(name.to_owned()),
             Component::CurDir => {}
             Component::ParentDir => {
@@ -715,8 +723,32 @@ fn path_cstring(path: &Path) -> Result<CString, RpcError> {
     CString::new(path.as_os_str().as_bytes()).map_err(|_| invalid_path("path contains a NUL byte"))
 }
 
+fn reject_literal_tilde_component(path: &Path) -> Result<(), RpcError> {
+    if path
+        .components()
+        .any(|component| matches!(component, Component::Normal(name) if name == OsStr::new("~")))
+    {
+        return Err(invalid_path("path contains an unexpanded '~' component"));
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn reject_resolved_tilde_component(root: &Path, resolved: &Path) -> Result<(), RpcError> {
+    let relative = resolved.strip_prefix(root).map_err(|_| {
+        RpcError::new("path-outside-workspace", "resolved path escapes the workspace root")
+    })?;
+    if relative
+        .components()
+        .any(|component| matches!(component, Component::Normal(name) if name == OsStr::new("~")))
+    {
+        return Err(invalid_path("resolved path contains an unexpanded '~' component"));
+    }
+    Ok(())
+}
+
 #[cfg(unix)]
-fn component_cstring(component: &std::ffi::OsStr) -> Result<CString, RpcError> {
+fn component_cstring(component: &OsStr) -> Result<CString, RpcError> {
     CString::new(component.as_bytes()).map_err(|_| invalid_path("path contains a NUL byte"))
 }
 
@@ -815,6 +847,9 @@ pub(crate) fn validate_relative(input: &str) -> Result<PathBuf, RpcError> {
     let mut parts = Vec::<OsString>::new();
     for component in path.components() {
         match component {
+            Component::Normal(part) if part == OsStr::new("~") => {
+                return Err(invalid_path("path contains an unexpanded '~' component"));
+            }
             Component::Normal(part) => parts.push(part.to_owned()),
             Component::CurDir => {}
             Component::ParentDir => {
@@ -888,9 +923,100 @@ mod tests {
         assert!(validate_relative("/etc/passwd").is_err());
         assert!(validate_relative("../secret").is_err());
         assert!(validate_relative("a/../../secret").is_err());
+        assert!(validate_relative("~").is_err());
+        assert!(validate_relative("~/project").is_err());
+        assert!(validate_relative("project/~").is_err());
         assert!(validate_relative("C:\\Windows").is_err());
         assert!(validate_relative("//server/share").is_err());
         assert_eq!(normalize_protocol_path("./src/lib.rs").unwrap(), "src/lib.rs");
+    }
+
+    #[tokio::test]
+    async fn rejects_tilde_path_before_workspace_filesystem_operation() {
+        let directory = tempdir().unwrap();
+        tokio::fs::create_dir(directory.path().join("~")).await.unwrap();
+        let root =
+            WorkspaceRoot::open(WorkspaceId("tilde".into()), directory.path().to_str().unwrap())
+                .await
+                .unwrap();
+
+        let error = root.resolve_existing("~").await.unwrap_err();
+        assert_eq!(error.code, "invalid-path");
+    }
+
+    #[tokio::test]
+    async fn rejects_literal_tilde_workspace_roots_before_canonicalization() {
+        let directory = tempdir().unwrap();
+        let tilde_root = directory.path().join("~");
+        tokio::fs::create_dir(&tilde_root).await.unwrap();
+
+        let error =
+            WorkspaceRoot::open(WorkspaceId("tilde-root".into()), tilde_root.to_str().unwrap())
+                .await
+                .unwrap_err();
+        assert_eq!(error.code, "invalid-path");
+        assert!(!error.message.contains("rm -rf"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn rejects_workspace_roots_that_resolve_to_a_tilde_component() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempdir().unwrap();
+        let tilde_root = directory.path().join("~");
+        tokio::fs::create_dir(&tilde_root).await.unwrap();
+        symlink("~", directory.path().join("alias")).unwrap();
+
+        let error = WorkspaceRoot::open(
+            WorkspaceId("tilde-root-symlink".into()),
+            directory.path().join("alias").to_str().unwrap(),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.code, "invalid-path");
+        assert!(!error.message.contains("rm -rf"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn rejects_tilde_symlink_before_creating_workspace_parents() {
+        use std::os::unix::fs::symlink;
+
+        for target in ["~", "new/~", "new/~/../safe"] {
+            let directory = tempdir().unwrap();
+            symlink(target, directory.path().join("alias")).unwrap();
+            let root = WorkspaceRoot::open(
+                WorkspaceId("tilde-symlink".into()),
+                directory.path().to_str().unwrap(),
+            )
+            .await
+            .unwrap();
+
+            let error = root.unix_root().resolve_target("alias/file", true).unwrap_err();
+            assert_eq!(error.code, "invalid-path", "target: {target}");
+            assert!(!error.message.contains("rm -rf"));
+            assert!(!directory.path().join("~").exists());
+            assert!(!directory.path().join("new").exists());
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn allows_tilde_within_symlink_component_names() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempdir().unwrap();
+        symlink("~alice/project~", directory.path().join("alias")).unwrap();
+        let root = WorkspaceRoot::open(
+            WorkspaceId("tilde-name".into()),
+            directory.path().to_str().unwrap(),
+        )
+        .await
+        .unwrap();
+
+        root.unix_root().resolve_target("alias/file", true).unwrap();
+        assert!(directory.path().join("~alice/project~").is_dir());
     }
 
     #[cfg(unix)]

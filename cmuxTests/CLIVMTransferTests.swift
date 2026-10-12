@@ -1100,6 +1100,229 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(state.snapshot().isEmpty, "local validation must not reach the socket: \(state.snapshot())")
     }
 
+    func testVMPushSecretRejectsLiteralTildeRemotePathBeforeTouchingTheMachine() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-push-tilde")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+        let tempDir = try vmTransferTempDir("tilde")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let localFile = tempDir.appendingPathComponent("payload.txt")
+        try Data("payload\n".utf8).write(to: localFile)
+
+        startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
+            self.v2Response(
+                id: self.jsonObject(line)?["id"] as? String ?? "unknown",
+                ok: false,
+                error: ["code": "unexpected", "message": "literal tilde paths must be rejected locally"]
+            )
+        }
+
+        for destination in ["~", "nested/~", "~/\u{301}child"] {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["vm", "push", "--secret", "brave-otter", localFile.path, destination],
+                environment: vmTransferEnvironment(socketPath: socketPath),
+                timeout: 30
+            )
+
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertNotEqual(result.status, 0, "a literal tilde destination must fail closed")
+            XCTAssertTrue(result.stderr.contains("unexpanded '~'"), result.stderr)
+            XCTAssertFalse(result.stderr.contains("rm -rf"), "rejection must not suggest destructive cleanup")
+            XCTAssertTrue(state.snapshot().isEmpty, "rejected remote paths must not reach the machine")
+        }
+    }
+
+    func testVMPushRejectsTildeArchiveMembersAcrossEntryPoints() throws {
+        let cliPath = try bundledCLIPath()
+        for member in ["~", "nested/~", "line\nbreak/~", "~/́child"] {
+            for entryPoint in ["push", "watch", "agent", "run"] {
+                let socketPath = makeSocketPath("archive-tilde")
+                let listenerFD = try bindUnixSocket(at: socketPath)
+                let state = MockSocketServerState()
+                defer {
+                    Darwin.close(listenerFD)
+                    unlink(socketPath)
+                }
+                let home = try vmTransferTempDir("archive-home")
+                defer { try? FileManager.default.removeItem(at: home) }
+                let source = home.appendingPathComponent("source")
+                try FileManager.default.createDirectory(
+                    at: source.appendingPathComponent(member), withIntermediateDirectories: true
+                )
+                startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
+                    if line.hasPrefix("auth ") { return "OK" }
+                    return self.v2Response(
+                        id: self.jsonObject(line)?["id"] as? String ?? "unknown", ok: false,
+                        error: ["code": "unexpected", "message": "transfer should have been rejected locally"]
+                    )
+                }
+                let arguments: [String]
+                let executablePath = entryPoint == "run" ? "/bin/sh" : cliPath
+                if entryPoint == "run" {
+                    arguments = ["-c", "cd \"$1\" && shift && exec \"$@\"", "cmux-tilde-test",
+                                 source.path, cliPath, "vm", "run", "--machine", "vivid-newt", "--sync", "--", "true"]
+                } else if entryPoint == "agent" {
+                    arguments = ["vm", "agent", "--agent", "claude", "--machine", "vivid-newt",
+                                 "--no-open", "--sync", "--cwd", source.path, "--", "check the cwd"]
+                } else {
+                    arguments = ["vm", "push", "vivid-newt", source.path, "work/safe"]
+                        + (entryPoint == "watch" ? ["--watch"] : [])
+                }
+                let result = runProcess(
+                    executablePath: executablePath, arguments: arguments,
+                    environment: vmTransferEnvironment(socketPath: socketPath, home: home), timeout: 30
+                )
+                XCTAssertFalse(result.timedOut, "\(entryPoint) \(member): \(result.stderr)")
+                XCTAssertNotEqual(result.status, 0, result.stdout)
+                XCTAssertTrue(result.stderr.contains("unexpanded '~'"), "\(entryPoint) \(member): \(result.stderr)")
+                XCTAssertFalse(result.stderr.contains("rm -rf"), "rejection must not suggest destructive cleanup")
+                let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
+                XCTAssertFalse(methods.contains("vm.scp_info"), "invalid archive requested upload access: \(methods)")
+                XCTAssertFalse(methods.contains("surface.new_terminal"), "invalid sync launched an agent")
+            }
+        }
+    }
+
+    func testVMPushRejectsTildeSymlinkTargetsInArchive() throws {
+        let cliPath = try bundledCLIPath()
+        let cases: [(String, String, Bool)] = [
+            ("danger", "new/~", true),
+            ("delimiter", "new/~/target -> ordinary", true),
+            ("ordinary", "~alice", false),
+            ("ordinary-arrow", "new-arrow -> ordinary", false),
+            ("target-arrow", "prefix -> ordinary", false),
+            ("name -> ordinary", "ordinary", false),
+            ("name -> ordinary", "new/~/target -> ordinary", true),
+        ]
+        for (name, target, rejected) in cases {
+            let socketPath = makeSocketPath("archive-symlink-tilde")
+            let listenerFD = try bindUnixSocket(at: socketPath)
+            let state = MockSocketServerState()
+            defer {
+                Darwin.close(listenerFD)
+                unlink(socketPath)
+            }
+            let source = try vmTransferTempDir("archive-symlink-tilde")
+            defer { try? FileManager.default.removeItem(at: source) }
+            try FileManager.default.createSymbolicLink(
+                at: source.appendingPathComponent(name), withDestinationPath: target
+            )
+            startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
+                if line.hasPrefix("auth ") { return "OK" }
+                return self.v2Response(
+                    id: self.jsonObject(line)?["id"] as? String ?? "unknown", ok: false,
+                    error: ["code": "test-stop", "message": "archive passed local validation"]
+                )
+            }
+
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["vm", "push", "vivid-newt", source.path, "work/safe"],
+                environment: vmTransferEnvironment(socketPath: socketPath),
+                timeout: 30
+            )
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertNotEqual(result.status, 0, result.stdout)
+            XCTAssertEqual(result.stderr.contains("unexpanded '~'"), rejected, "\(name) -> \(target): \(result.stderr)")
+            XCTAssertFalse(result.stderr.contains("rm -rf"), result.stderr)
+            if rejected {
+                XCTAssertTrue(state.snapshot().isEmpty, "symlink target validation must precede upload")
+            } else {
+                let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
+                XCTAssertTrue(methods.contains("vm.scp_info"), "ordinary target must reach transfer: \(result.stderr)")
+            }
+        }
+    }
+
+    func testVMPushTildeArchiveValidationRespectsExcludesAndOrdinaryNames() throws {
+        let cliPath = try bundledCLIPath()
+        let cases: [(String, [String], Bool)] = [
+            (".git/~", [], false),
+            ("ignored/~", ["--exclude", "ignored"], false),
+            ("nested/~", ["--exclude", "~"], false),
+            (".git/~", ["--no-default-excludes"], true),
+            ("~alice/file", [], false),
+            ("prefix~/file", [], false),
+            ("line\n~/file", [], false),
+            ("foo\u{2028}~/file", [], false),
+            ("~\u{301}/file", [], false),
+        ]
+        for (member, options, rejected) in cases {
+            let socketPath = makeSocketPath("archive-exclude")
+            let listenerFD = try bindUnixSocket(at: socketPath)
+            let state = MockSocketServerState()
+            defer {
+                Darwin.close(listenerFD)
+                unlink(socketPath)
+            }
+            let source = try vmTransferTempDir("archive-exclude")
+            defer { try? FileManager.default.removeItem(at: source) }
+            try FileManager.default.createDirectory(
+                at: source.appendingPathComponent(member), withIntermediateDirectories: true
+            )
+            startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
+                if line.hasPrefix("auth ") { return "OK" }
+                return self.v2Response(
+                    id: self.jsonObject(line)?["id"] as? String ?? "unknown", ok: false,
+                    error: ["code": "test-stop", "message": "stopped at upload grant"]
+                )
+            }
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["vm", "push", "vivid-newt", source.path, "work/safe"] + options,
+                environment: vmTransferEnvironment(socketPath: socketPath), timeout: 30
+            )
+            XCTAssertFalse(result.timedOut, result.stderr)
+            let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
+            XCTAssertEqual(methods.contains("vm.scp_info"), !rejected, "\(member) \(options): \(result.stderr)")
+            XCTAssertEqual(result.stderr.contains("unexpanded '~'"), rejected, result.stderr)
+        }
+    }
+
+    func testVMAgentExpandsTildeCwdBeforeSavingRouteBinding() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-agent-tilde")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let log = VMTransferRequestLog()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+        let home = try vmTransferTempDir("agent-tilde-home")
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let serverHandled = startVMTransferMethodMock(listenerFD: listenerFD, state: state, log: log) { method, _, _ in
+            guard method == "surface.new_terminal" else { return nil }
+            return ["terminal_id": "term_tilde", "remote_workspace_id": "ws_tilde", "surface_id": ""]
+        }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "agent", "--agent", "claude", "--machine", "vivid-newt", "--no-open", "--cwd", "~", "--json", "--", "check the cwd"],
+            environment: vmTransferEnvironment(socketPath: socketPath, home: home),
+            timeout: 30
+        )
+
+        wait(for: [serverHandled], timeout: 30)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
+        let bindingsURL = home.appendingPathComponent(".cmuxterm/vm-run-bindings.json")
+        let bindingsData = try Data(contentsOf: bindingsURL)
+        let bindings = try XCTUnwrap(JSONSerialization.jsonObject(with: bindingsData) as? [String: [String: Any]])
+        let expandedHome = home.path
+        let expectedKey = Self.vmRunWorkKey(forDirectory: expandedHome)
+        XCTAssertEqual(bindings[expectedKey]?["machine"] as? String, "vivid-newt")
+        let literalKey = Self.vmRunWorkKey(forDirectory: URL(fileURLWithPath: "~").standardizedFileURL.path)
+        XCTAssertNil(bindings[literalKey], "the route binding must not be keyed by a literal tilde directory")
+    }
+
     func testVMAgentWaitPollsExitAndPagesOutput() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("vm-agent-wait")
@@ -1417,11 +1640,21 @@ extension CLINotifyProcessIntegrationRegressionTests {
 @Suite("Cloud SCP with OpenSSH")
 struct CloudSCPIntegrationTests {
     @Test func transferUsesRealSFTPAndChecksTheHostKey() throws {
+        let report = try runTransferHarness()
+        #expect(report.contains("PASS watch and bounded control messages without file bytes"), "\(report)")
+    }
+
+    @Test func rejectsTildeDestinationsAfterSymlinkResolutionBeforeStaging() throws {
+        let report = try runTransferHarness(arguments: ["--symlink-destinations-only"])
+        #expect(report.contains("PASS resolved symlink destinations reject tilde before staging"), "\(report)")
+    }
+
+    private func runTransferHarness(arguments: [String] = []) throws -> String {
         let cli = try BundledCLITestSupport.bundledCLIPath(for: CLINotifyProcessIntegrationRegressionTests.self)
         let script = SwiftTestingAssertions.sourceURL().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("tests/test_vm_scp.py")
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-        process.arguments = [script.path, cli]
+        process.arguments = [script.path, cli] + arguments
         let output = Pipe()
         process.standardOutput = output
         process.standardError = output
@@ -1430,6 +1663,6 @@ struct CloudSCPIntegrationTests {
         process.waitUntilExit()
         let report = String(bytes: data, encoding: .utf8) ?? "Invalid UTF-8 test output"
         #expect(process.terminationStatus == 0, "\(report)")
-        #expect(report.contains("PASS watch and bounded control messages without file bytes"), "\(report)")
+        return report
     }
 }

@@ -36,7 +36,7 @@ def drain_terminal(master, sink):
         sink.extend(chunk)
 
 
-def main(cli):
+def main(cli, symlink_destinations_only=False):
     with tempfile.TemporaryDirectory(prefix="scp-", dir="/tmp") as raw:
         root = Path(raw)
         guest = root / "guest"
@@ -49,13 +49,18 @@ def main(cli):
         host_key = " ".join(key.with_suffix(".pub").read_text().split()[:2])
         sftp = "/usr/libexec/sftp-server"
         assert Path(sftp).is_file(), "macOS OpenSSH SFTP server is required"
-        # The guest is Ubuntu. These two fixture adapters supply GNU utility
+        # The guest is Ubuntu. These fixture adapters supply GNU utility
         # semantics on the Mac; file transfer and host authentication are real.
         (tools / "sha256sum").write_text(
             "#!/bin/sh\nif test -e " + shlex.quote(str(root / "corrupt")) +
             "; then echo 'wrong  -'; else exec /usr/bin/shasum -a 256 \"$@\"; fi\n")
         (tools / "mv").write_text(
             "#!/bin/sh\nif test \"$1\" = -fT; then shift; exec /bin/mv -f \"$@\"; fi\nexec /bin/mv \"$@\"\n")
+        (tools / "realpath").write_text(
+            "#!/usr/bin/python3\nimport os, sys\n"
+            "assert sys.argv[1:3] == ['-mz', '--']\n"
+            "for path in sys.argv[3:]:\n"
+            "    sys.stdout.write(os.path.realpath(path) + '\\0')\n")
         for path in tools.iterdir():
             path.chmod(0o700)
         wrapper = root / "command"
@@ -184,6 +189,43 @@ LogLevel ERROR
             payload = root / "payload.bin"
             payload.write_bytes(os.urandom(2_000_000))
             payload.chmod(0o751)
+            if symlink_destinations_only:
+                tree = root / "tree"
+                tree.mkdir()
+                (tree / "child").write_text("directory payload")
+                (guest / "work").mkdir()
+                (guest / "work/~").mkdir()
+                (guest / "work/alias").symlink_to("~")
+                for local in (payload, tree):
+                    for suffix in ("file", "missing/file"):
+                        result = push(local, "work/alias/" + suffix)
+                        assert result.returncode != 0, result.stdout
+                        assert "unexpanded '~'" in result.stderr, result.stderr
+                        assert list((guest / "work/~").iterdir()) == []
+                        assert not list(guest.rglob(".cmux-push.*"))
+                # A direct directory symlink must also be checked before tar.
+                result = push(tree, "work/alias")
+                assert result.returncode != 0 and "unexpanded '~'" in result.stderr, result.stderr
+                assert list((guest / "work/~").iterdir()) == []
+                (guest / "work/~alice").mkdir()
+                (guest / "work/safe").symlink_to("~alice")
+                for local, suffix in ((payload, "file"), (tree, "tree")):
+                    result = push(local, "work/safe/" + suffix)
+                    assert result.returncode == 0, result.stderr
+                assert (guest / "work/~alice/file").read_bytes() == payload.read_bytes()
+                assert (guest / "work/~alice/tree/child").read_text() == "directory payload"
+                # Canonicalizing the parent must preserve atomic replacement
+                # of a final symlink instead of overwriting its target.
+                (guest / "work/original").write_text("keep target")
+                (guest / "work/final-link").symlink_to("original")
+                result = push(payload, "work/final-link")
+                assert result.returncode == 0, result.stderr
+                assert not (guest / "work/final-link").is_symlink()
+                assert (guest / "work/final-link").read_bytes() == payload.read_bytes()
+                assert (guest / "work/original").read_text() == "keep target"
+                assert not list(guest.rglob(".cmux-push.*"))
+                print("PASS resolved symlink destinations reject tilde before staging", flush=True)
+                return
             remote = "new parent/a '$`% : file"
             result = push(payload, remote)
             assert result.returncode == 0, result.stderr
@@ -340,4 +382,4 @@ LogLevel ERROR
 
 
 if __name__ == "__main__":
-    main(str(Path(sys.argv[1]).resolve()))
+    main(str(Path(sys.argv[1]).resolve()), "--symlink-destinations-only" in sys.argv[2:])
