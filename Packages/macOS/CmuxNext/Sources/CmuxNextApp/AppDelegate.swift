@@ -58,7 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         control.startWatchdog()
         DebugTimings.markLaunch("did_finish_launching_start")
         DebugTimings.install()
-        defer { DebugTimings.markLaunch("did_finish_launching_end") }
+        defer { DebugTimings.markLaunch("did_finish_launching_end"); LaunchRunLoopTurn.give() }
         // Every window, shell or auxiliary, opens by one placement rule.
         WindowPlacement.noActivate = environment.noActivate
         WindowPlacement.testScreen = environment.testWindow?.screen
