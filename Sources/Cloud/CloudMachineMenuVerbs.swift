@@ -10,10 +10,13 @@ struct CloudMachineMenuVerbs {
     var newWorkspace: @MainActor (String) -> Void
     var openDesktop: @MainActor (String) -> Void
     var runCommand: @MainActor (String, [String]) -> Void
-    var promptRename: @MainActor (String, String?) -> Void
+    var promptRename: @MainActor (MachineSnapshot) -> Void
     var copyToPasteboard: @MainActor (String) -> Void
-    var confirmDelete: @MainActor (String) -> Void
+    var confirmDelete: @MainActor (MachineSnapshot) -> Void
     var promptUpgrade: @MainActor () -> Void
+    /// Forks through the shared create coordinator, so every surface shows the
+    /// same pending "Fork of …" row the moment the person picks Fork.
+    var fork: @MainActor (MachineSnapshot) -> Void = { _ in }
 
     /// Connect verbs: Open Shell, New Workspace, Open Desktop, full client.
     /// A machine past its free window offers only the upgrade.
@@ -37,7 +40,7 @@ struct CloudMachineMenuVerbs {
     func manageEntries(_ machine: MachineSnapshot) -> [CloudMenuEntry] {
         let id = machine.id
         var entries = [
-            action("rename", id, String(localized: "machines.menu.rename", defaultValue: "Rename…")) { promptRename(id, machine.label) },
+            action("rename", id, String(localized: "machines.menu.rename", defaultValue: "Rename…")) { promptRename(machine) },
         ]
         if let address = machine.privateAddress {
             entries.append(action("copyIP", id, String(localized: "machines.menu.copyIPAddress", defaultValue: "Copy IP Address")) { copyToPasteboard(address) })
@@ -47,15 +50,15 @@ struct CloudMachineMenuVerbs {
         if machine.capabilities.snapshot {
             entries.append(action("checkpoint", id, String(localized: "machines.menu.checkpoint", defaultValue: "Checkpoint")) { runCommand(id, ["vm", "snapshot"]) })
         }
-        if machine.capabilities.fork {
-            entries.append(action("fork", id, String(localized: "machines.menu.fork", defaultValue: "Fork")) { runCommand(id, ["vm", "fork"]) })
+        if machine.capabilities.canFork {
+            entries.append(action("fork", id, String(localized: "machines.menu.fork", defaultValue: "Fork")) { fork(machine) })
         }
         return entries
     }
 
     func deleteEntries(_ machine: MachineSnapshot) -> [CloudMenuEntry] {
         let id = machine.id
-        return [action("delete", id, String(localized: "machines.menu.delete", defaultValue: "Delete…")) { confirmDelete(id) }]
+        return [action("delete", id, String(localized: "machines.menu.delete", defaultValue: "Delete…")) { confirmDelete(machine) }]
     }
 
     /// The complete machine submenu used outside the sidebar, led by a status line.

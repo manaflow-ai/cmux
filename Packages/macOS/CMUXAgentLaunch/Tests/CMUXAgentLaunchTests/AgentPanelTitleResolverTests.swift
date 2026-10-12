@@ -44,7 +44,7 @@ struct AgentPanelTitleResolverTests {
     func versionedNativeClaudeTeammateUsesAgentName() {
         let title = resolver.title(fromCommands: [
             """
-            cd /tmp/work && env CLAUDECODE=1 /Users/austin/.local/share/claude/versions/2.1.233 \
+            cd /tmp/work && env CLAUDECODE=1 /Users/dev/.local/share/claude/versions/2.1.233 \
               --agent-id PathScout@session-87b88f27 \
               --agent-name PathScout \
               --team-name session-87b88f27 \

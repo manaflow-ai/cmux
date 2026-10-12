@@ -23,10 +23,10 @@ const runRepo = <T>(operation: (repo: VmRepositoryShape) => Effect.Effect<T, unk
 
 describe("independent Cloud VM limits", () => {
   test("retired deployment overrides cannot reduce the advertised paid allowance", () => {
-    const env = { CMUX_VM_PAID_MAX_ACTIVE_VMS: "5", CMUX_VM_PLAN_PRO_MAX_ACTIVE_VMS: "5" };
-    expect(maxActiveVmsForPlan("pro", env)).toBe(50);
-    expect(maxActiveVmsForPlan("founders", env)).toBe(50);
-    expect(maxActiveVmsForPlan("team", env, { seats: 4 })).toBe(200);
+    const env = { CMUX_VM_PAID_MAX_ACTIVE_VMS: "1", CMUX_VM_PLAN_PRO_MAX_ACTIVE_VMS: "1" };
+    expect(maxActiveVmsForPlan("pro", env)).toBe(5);
+    expect(maxActiveVmsForPlan("founders", env)).toBe(5);
+    expect(maxActiveVmsForPlan("team", env, { seats: 4 })).toBe(20);
   });
 
   dbTest("admits the third machine, all 50 sizes, and exactly one concurrent final slot", async () => {

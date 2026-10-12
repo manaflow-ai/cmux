@@ -43,7 +43,7 @@ cleared. Write a different Ghostty binding, such as Ctrl+B followed by a digit.
 
 | Ghostty action | cmux behavior |
 | --- | --- |
-| `new_tab` | New Workspace, using the same placement and configured creation action as Cmd+N. |
+| `new_tab` | New local workspace, using the same placement as Cmd+N. |
 | `goto_tab:N` | Select workspace N in the owning window's complete workspace order (including grouped workspaces), starting at 1; an invalid index does nothing and never creates a window. `goto_tab:9` means the ninth workspace. |
 | `last_tab` | Select the last workspace. |
 | `next_tab`, `previous_tab` | Use cmux's next/previous workspace navigation. |

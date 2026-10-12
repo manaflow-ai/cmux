@@ -234,6 +234,90 @@ struct TerminalSurfaceCommandShimPermissionsTests {
         ))
     }
 
+    /// `cmux claude-teams` needs a per-surface shim root it can validate in both
+    /// toggle states. #13590 removed the Claude shim for integration-off surfaces
+    /// and Teams refused every launch from them in 0.65.0 (#17571). The CLI side of
+    /// this contract is tests/test_cli_claude_teams_integration_disabled.py.
+    @Test("Claude Teams shim-root contract holds for both integration states", arguments: [true, false])
+    func claudeTeamsShimRootContract(claudeIntegrationEnabled: Bool) throws {
+        let fileManager = FileManager.default
+        let root = URL.temporaryDirectory.appending(
+            path: "TerminalSurfaceClaudeTeamsContractTests-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        let wrapperDirectory = root.appending(path: "bin", directoryHint: .isDirectory)
+        defer { try? fileManager.removeItem(at: root) }
+        try fileManager.createDirectory(at: wrapperDirectory, withIntermediateDirectories: true)
+        for definition in TerminalSurfaceAgentCommandShimDefinition.bundled {
+            let wrapper = wrapperDirectory.appending(path: definition.wrapperName, directoryHint: .notDirectory)
+            try "#!/bin/sh\nexit 0\n".write(to: wrapper, atomically: true, encoding: .utf8)
+            try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: wrapper.path)
+        }
+
+        let policy = TerminalSurfaceSpawnPolicy(
+            claudeHooksEnabled: claudeIntegrationEnabled,
+            customClaudePath: nil,
+            subagentNotificationEnvironmentKey: "CMUX_TEST_SUPPRESS_SUBAGENT_NOTIFICATIONS",
+            suppressSubagentNotifications: false,
+            cursorHooksEnabled: true,
+            geminiHooksEnabled: true,
+            kiroHooksEnabled: true,
+            kiroNotificationLevel: "all",
+            ampHooksEnabled: true,
+            shellIntegrationEnabled: false,
+            watchGitStatusEnabled: false,
+            showPullRequestsEnabled: false
+        )
+        let surfaceId = UUID()
+        let shims = try #require(
+            TerminalSurface.installAgentCommandShimsIfPossible(
+                wrapperDirectoryURL: wrapperDirectory,
+                surfaceId: surfaceId,
+                rootDirectory: root,
+                enabledCommands: policy.enabledAgentCommandShims,
+                fileManager: fileManager
+            ),
+            "a surface must get a shim directory whatever the Claude toggle"
+        )
+        let environment = TerminalSurface.agentCommandShimEnvironment(
+            claudeIntegrationEnabled: policy.claudeHooksEnabled,
+            agentCommandShims: shims
+        )
+
+        // The shape Teams validates before writing tmux: cmux-cli-shims/<surface id>.
+        let agentRoot = try #require(environment["CMUX_AGENT_COMMAND_SHIM_ROOT"])
+        let agentRootURL = URL(fileURLWithPath: agentRoot, isDirectory: true)
+        #expect(agentRootURL.lastPathComponent == surfaceId.uuidString)
+        #expect(agentRootURL.deletingLastPathComponent().lastPathComponent == "cmux-cli-shims")
+
+        if claudeIntegrationEnabled {
+            #expect(environment["CMUX_CLAUDE_INTEGRATION_DISABLED"] == "0")
+            #expect(environment["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"] == agentRoot)
+            let claudeShim = try #require(environment["CMUX_CLAUDE_WRAPPER_SHIM"])
+            #expect(claudeShim == agentRootURL.appending(path: "claude", directoryHint: .notDirectory).path)
+            #expect(fileManager.isExecutableFile(atPath: claudeShim))
+        } else {
+            #expect(environment["CMUX_CLAUDE_INTEGRATION_DISABLED"] == "1")
+            #expect(environment["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"] == nil)
+            #expect(environment["CMUX_CLAUDE_WRAPPER_SHIM"] == nil)
+            #expect(!fileManager.fileExists(
+                atPath: agentRootURL.appending(path: "claude", directoryHint: .notDirectory).path
+            ))
+        }
+    }
+
+    @Test("Claude integration flag is exported even without agent shims")
+    func claudeIntegrationFlagWithoutAgentShims() {
+        #expect(TerminalSurface.agentCommandShimEnvironment(
+            claudeIntegrationEnabled: false,
+            agentCommandShims: nil
+        ) == ["CMUX_CLAUDE_INTEGRATION_DISABLED": "1"])
+        #expect(TerminalSurface.agentCommandShimEnvironment(
+            claudeIntegrationEnabled: true,
+            agentCommandShims: nil
+        ) == ["CMUX_CLAUDE_INTEGRATION_DISABLED": "0"])
+    }
+
     @Test("Fallback preserves literal glob characters in PATH entries")
     func fallbackPreservesLiteralGlobCharactersInPathEntries() throws {
         let fileManager = FileManager.default

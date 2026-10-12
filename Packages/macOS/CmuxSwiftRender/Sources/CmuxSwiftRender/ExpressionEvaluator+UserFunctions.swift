@@ -99,7 +99,7 @@ extension ExpressionEvaluator {
                 } else {
                     resolved = nil
                 }
-                guard let value = resolved else { return false }
+                guard let value = resolved, value != .null else { return false }
                 if let name { scope.define(name, value) }
             } else if let expr = element.condition.as(ExprSyntax.self) {
                 if !(eval(expr, scope)?.isTruthy ?? false) { return false }

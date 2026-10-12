@@ -55,8 +55,8 @@ struct CloudMachinesHeaderCountTests {
         #expect(inline <= Self.barContentWidth(420),
                 "The header action row (\(inline)pt) overflows a 420pt sidebar")
         let overflow = try await idealRowWidth(.overflowMenu, teamName: "Team A")
-        #expect(overflow == inline,
-                "The Invite-only header should not change width between layout candidates")
+        #expect(overflow <= inline,
+                "The overflow menu should be no wider than the inline action row")
     }
 
     @Test("A free plan at its limit turns orange and names the upgrade", arguments: [
@@ -97,6 +97,21 @@ struct CloudMachinesHeaderCountTests {
         // Only hidden machines the list still counts come off.
         #expect(MachinesPanelViewModel.usage(usage, machines: fleet, hiding: ["gone"]) == usage)
         #expect(MachinesPanelViewModel.usage(nil, machines: fleet, hiding: ["d"]) == nil)
+    }
+
+    @Test("A scope-checked sheet-cache usage keeps the header visible during a list refresh")
+    func cachedUsageFillsTheListReadGap() throws {
+        let machines = [MachineSnapshot(id: "a", provider: "freestyle", image: "base", isDesktop: false, activity: .ready)]
+        let cached = CloudMachinesUsage(activeCount: 1, maxActiveVms: 5, isPaidPlan: false)
+        let visible = try #require(MachinesPanelViewModel.usage(
+            nil, fallback: cached, machines: machines, hiding: []
+        ))
+        #expect(visible.compactCount == "1/5")
+
+        let current = CloudMachinesUsage(activeCount: 0, maxActiveVms: 5, isPaidPlan: false)
+        #expect(MachinesPanelViewModel.usage(
+            current, fallback: cached, machines: machines, hiding: []
+        ) == current)
     }
 
     @Test("VoiceOver reads the header with its spelled-out usage")
@@ -222,7 +237,7 @@ struct CloudMachinesHeaderCountTests {
         NSHostingView(rootView: CloudTeamPickerHeader(
             accountFlow: nil, presentation: nil, chromeBackgroundColor: .windowBackgroundColor,
             isRefreshing: false, onRefresh: {}, onNewMachine: {},
-            agentMenu: { EmptyView() }, status: status
+            status: status
         )).fittingSize.height
     }
 
@@ -292,7 +307,6 @@ struct CloudMachinesHeaderCountTests {
         let header = CloudTeamPickerHeader(
             accountFlow: flow, presentation: nil, chromeBackgroundColor: .windowBackgroundColor,
             isRefreshing: false, onRefresh: {}, onNewMachine: {},
-            agentMenu: { Image(systemName: "sparkles").frame(width: 22, height: 20) },
             status: { EmptyView() }
         )
         let row = NSHostingView(rootView: header.actionsRow(actions, picker: CloudTeamPickerPresentation()).fixedSize())
@@ -312,7 +326,7 @@ struct CloudMachinesHeaderCountTests {
 
     private func machineActions() -> MachineRowActions {
         MachineRowActions(openShell: { _ in }, openDesktop: { _ in }, runCommand: { _, _ in },
-            confirmDelete: { _ in }, promptRename: { _, _ in }, resizeDisk: { _, _ in }, promptUpgrade: {})
+                    confirmDelete: { _ in }, promptRename: { _ in }, resizeDisk: { _, _ in }, promptUpgrade: {})
     }
 
     private func nodeActions() -> CloudTreeNodeActions {

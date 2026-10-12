@@ -76,8 +76,8 @@ export function signInIsForApp(returnTo: string | null): boolean {
 // MARK: OAuth return marker
 
 /**
- * Set on this page's own URL just before leaving for an OAuth provider. The
- * provider's callback returns to that exact URL, so the landing can tell
+ * Added to this page's URL as the place an OAuth provider returns to (see
+ * `oauthReturnTo`), so the landing can tell
  * "finishing the login started here" from "arrived already signed in".
  * It lives in the query, not in storage, so the server render and the
  * browser make the same decision. A hand-made link with it only skips the
@@ -89,17 +89,18 @@ export function isReturningFromOAuth(params: { get(name: string): string | null 
   return params.get(CONTINUE_PARAM) === "1";
 }
 
-/** The current URL with the OAuth return marker added. */
-export function withContinueMarker(href: string): string {
+/**
+ * Where an OAuth trip returns: this page with the marker. It goes with the
+ * request instead of into this page's URL, so going back from the provider
+ * lands on the page as it was, not on one that reads as a finished sign-in.
+ * A page with no return target keeps the provider's default return, as
+ * before.
+ */
+export function oauthReturnTo(href: string): string | undefined {
   const url = new URL(href);
+  if (!url.searchParams.has("after_auth_return_to")) return undefined;
   url.searchParams.set(CONTINUE_PARAM, "1");
-  return url.toString();
-}
-
-/** The current URL without the marker (an OAuth start that failed). */
-export function withoutContinueMarker(href: string): string {
-  const url = new URL(href);
-  url.searchParams.delete(CONTINUE_PARAM);
+  url.hash = "";
   return url.toString();
 }
 

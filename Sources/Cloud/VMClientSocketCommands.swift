@@ -57,9 +57,17 @@ extension TerminalController {
                         "freeAccessExpiresAt": limits.freeAccessExpiresAt.map { $0 as Any } ?? NSNull(),
                         "imageKinds": limits.imageKinds.map { ["kind": $0.kind.rawValue, "image": $0.image] },
                         "memoryOptionsMb": limits.memoryOptionsMb,
+                        "maxDiskMb": limits.maxDiskMb.map { $0 as Any } ?? NSNull(),
+                        "maxMemoryMb": limits.maxMemoryMb.map { $0 as Any } ?? NSNull(),
+                        "maxVcpus": limits.maxVcpus.map { $0 as Any } ?? NSNull(),
                         "lockedMemoryOptionsMb": limits.lockedMemoryOptionsMb.map { $0 as Any } ?? NSNull(),
                         "memoryUpgradePlanId": limits.memoryUpgradePlanId.map { $0 as Any } ?? NSNull(),
                         "memoryUpgradePlansByMb": limits.memoryUpgradePlansByMb.map { $0 as Any } ?? NSNull(),
+                        "vcpusByMemoryMb": limits.vcpusByMemoryMb.map { $0 as Any } ?? NSNull(),
+                        "poolVcpus": limits.resourcePool.map { $0.poolVcpus as Any } ?? NSNull(),
+                        "poolMemoryMb": limits.resourcePool.map { $0.poolMemoryMb as Any } ?? NSNull(),
+                        "usedVcpus": limits.resourcePool.map { $0.usedVcpus as Any } ?? NSNull(),
+                        "usedMemoryMb": limits.resourcePool.map { $0.usedMemoryMb as Any } ?? NSNull(),
                     ]
                 }
                 return payload
@@ -233,9 +241,37 @@ extension TerminalController {
             let persistentHome = Self.socketWorkerBool(params["persistent_home"]) ?? false
             let perMachineHome = Self.socketWorkerBool(params["per_machine_home"]) ?? false
             let memoryMb = Self.socketWorkerInt(params["memory_mb"])
+            var networkPolicy: CloudNetworkPolicy?
+            if let rawPolicy = params["network_policy"], !(rawPolicy is NSNull) {
+                guard let decoded = try? CloudNetworkPolicy(foundationObject: rawPolicy) else {
+                    return v2Error(
+                        id: id,
+                        code: "invalid_params",
+                        message: String(
+                            localized: "socket.cloudVM.create.invalidNetworkPolicy",
+                            defaultValue: "vm.create `network_policy` must be an object with a mode of full, allowlist, or none."
+                        )
+                    )
+                }
+                networkPolicy = decoded
+            }
+            var agentUpdates: CloudAgentUpdates?
+            if let rawAgentUpdates = params["agent_updates"], !(rawAgentUpdates is NSNull) {
+                guard let decoded = CloudAgentUpdates(wireValue: rawAgentUpdates) else {
+                    return v2Error(
+                        id: id,
+                        code: "invalid_params",
+                        message: String(
+                            localized: "socket.cloudVM.create.invalidAgentUpdates",
+                            defaultValue: "vm.create `agent_updates` must be latest or image."
+                        )
+                    )
+                }
+                agentUpdates = decoded
+            }
             return v2CloudCall(id: id, method: method, params: params) {
                 let scope = await CmuxTuiSurfaceProviderRegistry.shared.creationScope
-                let vm = try await VMClient.shared.create(image: image, kind: kind, provider: provider, persistentHome: persistentHome, perMachineHome: perMachineHome, memoryMb: memoryMb, displayName: Self.socketWorkerString(params["display_name"]), idempotencyKey: idempotencyKey)
+                let vm = try await VMClient.shared.create(image: image, kind: kind, provider: provider, persistentHome: persistentHome, perMachineHome: perMachineHome, memoryMb: memoryMb, displayName: Self.socketWorkerString(params["display_name"]), networkPolicy: networkPolicy, agentUpdates: agentUpdates, idempotencyKey: idempotencyKey)
                 await CmuxTuiSurfaceProviderRegistry.shared.recordCreatedMachine(vm, scope: scope)
                 return Self.socketWorkerVMSummaryPayload(vm)
             }
@@ -332,6 +368,10 @@ extension TerminalController {
                 if let diskUsedMb = stats.diskUsedMb { payload["disk_used_mb"] = diskUsedMb }
                 return payload
             }
+        case "vm.network_get", "vm.network_update":
+            return socketWorkerCloudNetworkResponse(method: method, id: id, params: params)
+        case "vm.agent_updates_get", "vm.agent_updates_set":
+            return socketWorkerCloudAgentUpdatesResponse(method: method, id: id, params: params)
         case "vm.rename":
             guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
                 return v2Error(id: id, code: "invalid_params", message: "vm.rename requires `id`. Run `cmux vm ls` to find one.")
@@ -820,6 +860,23 @@ extension TerminalController {
         }
         if let freeAccessExpiresAt = vm.freeAccessExpiresAt {
             payload["freeAccessExpiresAt"] = freeAccessExpiresAt
+        }
+        if let agentUpdates = vm.agentUpdates {
+            payload["agentUpdates"] = agentUpdates.rawValue
+        }
+        if let claim = vm.resourcePoolClaim ?? vm.resourceReservation {
+            payload["resources"] = [
+                "vcpus": claim.vcpus,
+                "memoryMb": claim.memoryMb,
+                "diskMb": claim.diskMb.map { $0 as Any } ?? NSNull(),
+            ]
+        }
+        if let reservation = vm.resourceReservation {
+            payload["resourceReservation"] = [
+                "vcpus": reservation.vcpus,
+                "memoryMb": reservation.memoryMb,
+                "diskMb": reservation.diskMb.map { $0 as Any } ?? NSNull(),
+            ]
         }
         if vm.addressIPv4 != nil || vm.addressIPv6 != nil {
             var address: [String: Any] = [:]

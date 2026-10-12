@@ -11,20 +11,27 @@ import Observation
 /// the `AccountSection` can drive sign-in / sign-out / team selection without
 /// depending on the auth packages.
 ///
-/// A projection over the coordinator, browser flow, and feature flags. The
-/// stored Pro availability value forwards feature-flag notifications so
-/// SwiftUI views that read this adapter in `body` re-render when remote flags
-/// change after Settings is already open.
+/// A projection over the coordinator and browser flow. Upgrade entrypoints
+/// remain available independently of remote rollout configuration.
 @MainActor
 @Observable
 final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     let coordinator: AuthCoordinator
     private let browserSignIn: HostBrowserSignInFlow
-    private let featureFlags = CmuxFeatureFlags.shared
-    @ObservationIgnored private var featureFlagsObserver: (any NSObjectProtocol)?
-    private(set) var isProUpgradeAvailable: Bool
-    private(set) var isProActive = false
-    private(set) var canManageBilling = false
+    var isProUpgradeAvailable: Bool { true }
+    private(set) var billingPlanState = BillingPlanState.unknown
+    var isProActive: Bool { billingPlanState.isPro }
+    var canManageBilling: Bool { billingPlanState.canManageBilling }
+    /// The account whose plan is known, or nil while the plan is unknown.
+    var billingPlanIdentityID: String? { billingPlanState.accountID }
+    /// The most recent plan request. Only it may write, so an older request
+    /// that finishes late cannot overwrite a newer answer.
+    @ObservationIgnored private var billingPlanRequestID: UUID?
+    /// Whether `isProActive` is a real answer for the signed-in account.
+    var hasLoadedBillingPlan: Bool {
+        guard let billingPlanIdentityID else { return false }
+        return billingPlanIdentityID == currentIdentity?.id
+    }
     var teamObservationRevision: UInt64 = 0
     /// Pending selection is shared by Settings, the menu and socket actions.
     /// Cloud requests keep using the confirmed coordinator scope until success.
@@ -47,23 +54,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     init(coordinator: AuthCoordinator, browserSignIn: HostBrowserSignInFlow) {
         self.coordinator = coordinator
         self.browserSignIn = browserSignIn
-        isProUpgradeAvailable = featureFlags.isProUpgradeUIEnabled
-        featureFlagsObserver = NotificationCenter.default.addObserver(
-            forName: .cmuxFeatureFlagsDidChange,
-            object: featureFlags,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.isProUpgradeAvailable = CmuxFeatureFlags.shared.isProUpgradeUIEnabled
-            }
-        }
         startCoordinatorObservation()
-    }
-
-    deinit {
-        if let featureFlagsObserver {
-            NotificationCenter.default.removeObserver(featureFlagsObserver)
-        }
     }
 
     var currentIdentity: AccountIdentity? {
@@ -164,8 +155,8 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     }
 
     /// Completes an external hosted Stack callback through the shared attempt.
-    func handleCallbackURL(_ url: URL) async -> Bool {
-        await browserSignIn.handleCallbackURL(url)
+    func handleCallbackURL(_ url: URL, delivery: AuthCallbackDelivery) async -> Bool {
+        await browserSignIn.handleCallbackURL(url, delivery: delivery)
     }
 
     func openSignInInDefaultBrowser() {
@@ -186,8 +177,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
 
     func signOut() async {
         await browserSignIn.signOut()
-        isProActive = false
-        canManageBilling = false
+        billingPlanState = .unknown
     }
 
     /// Set for the whole switch so sign-in gates show its progress instead of
@@ -231,8 +221,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     /// caller's deadline expires, matching the browser flow contract.
     func signOut(timeout: TimeInterval) async {
         await browserSignIn.signOut(timeout: timeout)
-        isProActive = false
-        canManageBilling = false
+        billingPlanState = .unknown
     }
 
     func refreshCurrentUser() async {
@@ -242,34 +231,42 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     }
 
     func refreshBillingPlan() async {
-        guard coordinator.currentUser != nil else {
-            isProActive = false
-            canManageBilling = false
-            return
-        }
-        var request = URLRequest(url: AuthEnvironment.apiBaseURL.appendingPathComponent("api/billing/plan"))
-        request.httpMethod = "GET"
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        _ = await refreshBillingPlanAndReportSuccess()
+    }
 
-        if let tokens = try? await coordinator.currentTokens() {
-            request.setValue("Bearer \(tokens.accessToken)", forHTTPHeaderField: "Authorization")
-            request.setValue(tokens.refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
+    @discardableResult
+    func refreshBillingPlanAndReportSuccess() async -> Bool {
+        guard coordinator.currentUser != nil, let identityID = currentIdentity?.id else {
+            billingPlanState = .unknown
+            return false
         }
+        let requestID = UUID()
+        billingPlanRequestID = requestID
+        // Do not project the previous team/account's entitlement while this
+        // request is in flight. Unknown keeps Cloud enabled until a verified
+        // response arrives and avoids a false Free/Upgrade state.
+        billingPlanState = .unknown
+        let tokens = try? await coordinator.currentTokens()
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse,
-                  (200..<300).contains(http.statusCode) else {
-                isProActive = false
-                canManageBilling = false
-                return
-            }
-            let decoded = try JSONDecoder().decode(BillingPlanResponse.self, from: data)
-            isProActive = decoded.isPro
-            canManageBilling = decoded.billingManagement == .stripe
+            let details = try await BillingPlanClient().fetch(
+                from: AuthEnvironment.apiBaseURL.appendingPathComponent("api/billing/plan"),
+                accessToken: tokens?.accessToken,
+                refreshToken: tokens?.refreshToken
+            )
+            guard currentIdentity?.id == identityID, billingPlanRequestID == requestID else { return false }
+            billingPlanState = billingPlanState.applyingSuccess(
+                for: identityID,
+                isPro: details.isPro,
+                canManageBilling: details.canManageBilling
+            )
+            return true
         } catch {
-            isProActive = false
-            canManageBilling = false
+            // A cancelled request (the panel went away) says nothing about the plan.
+            if error is CancellationError || (error as? URLError)?.code == .cancelled { return false }
+            guard currentIdentity?.id == identityID, billingPlanRequestID == requestID else { return false }
+            billingPlanState = billingPlanState.applyingFailure(for: identityID)
+            return false
         }
     }
 
@@ -304,15 +301,4 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
             avatarURL: user.profileImageURL.flatMap(URL.init(string:))
         )
     }
-}
-
-private struct BillingPlanResponse: Decodable {
-    let isPro: Bool
-    let billingManagement: BillingManagement?
-}
-
-private enum BillingManagement: String, Decodable {
-    case stripe
-    case external
-    case none
 }

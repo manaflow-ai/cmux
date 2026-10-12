@@ -22,6 +22,13 @@ packages it depends on) stays within Swift 6.0 syntax:
 macOS 26-only APIs stay behind their `@available` / `#available` checks and are
 unavailable at runtime on macOS 14.
 
+An async `@TaskLocal` binding stores its payload behind `TaskLocalReference`
+(`CmuxFoundation`) and binds it with `withReferencedValue`. On macOS 14 the
+back-deployed `TaskLocal.withValue` built by Xcode 26 aborts with "freed pointer
+was not the last allocation" when the payload's size is only known at run time,
+which includes any struct holding a Foundation `UUID`, `Date` or `URL`.
+Stdlib scalars, `String` and arrays of them are fixed-size and may stay unboxed.
+
 ## Outside the pathway
 
 `cmuxTests/`, `cmuxUITests/` and `Packages/iOS/` may use newer Swift.

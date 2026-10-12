@@ -8,30 +8,39 @@ import SwiftUI
 /// This is the only agent-feed view that retains a store reference.
 struct AgentFeedStoreView: View {
     @Bindable var store: CMUXMobileShellStore
-    let items: [MobileAgentFeedItem]
-    let status: MobileNotificationFeedStatus
-    let pendingReplyRequestIDs: Set<String>
-    let pendingTerminalReplyItemIDs: Set<MobileAgentFeedItemID>
+    let selectionScope: WorkspaceMacSelectionScope
+    var isActive = true
 
     @State private var showsNavigationFailure = false
+    @State private var isFeedVisible = false
     @Bindable var searchCoordinator: MobilePrimarySearchCoordinator
 
     var body: some View {
+        let items = selectionScope.agentFeedItems(from: store.agentFeedItems)
         AgentFeedView(
             items: items,
-            status: status,
-            pendingReplyRequestIDs: pendingReplyRequestIDs,
-            pendingTerminalReplyItemIDs: pendingTerminalReplyItemIDs,
+            itemsRevision: AgentFeedItemsRevision(
+                sourceRevision: store.agentFeedRevision,
+                scopeRevision: selectionScope.agentFeedScopeRevision
+            ),
+            status: store.agentFeedStatus,
+            pendingReplyRequestIDs: store.agentFeedPendingReplyRequestIDs,
+            pendingTerminalReplyItemIDs: store.agentFeedPendingTerminalReplyItemIDs,
             failedTerminalReplies: store.agentFeedFailedTerminalReplies,
             refreshesOnAppear: true,
+            isActive: isActive,
             actions: actions,
-            searchText: searchCoordinator.searchDestinationText(for: .feed)
+            searchText: searchCoordinator.searchDestinationText(for: .feed),
+            performanceObserver: store.feedPerformanceObserver
         )
         .onAppear {
-            store.recordAppEvent(.agentFeedOpened, count: items.count)
+            updateFeedVisibility(isActive)
+        }
+        .onChange(of: isActive) { _, active in
+            updateFeedVisibility(active)
         }
         .onDisappear {
-            store.recordAppEvent(.agentFeedClosed)
+            updateFeedVisibility(false)
         }
         .alert(String(localized: "mobile.agentFeed.openFailed.title", defaultValue: "Couldn’t open event", bundle: .module),
                isPresented: $showsNavigationFailure) {
@@ -94,6 +103,21 @@ struct AgentFeedStoreView: View {
                 store.recordAppEvent(.agentFeedFilterChanged, count: filter == .needsInput ? 1 : 0)
             }
         )
+    }
+
+    private func updateFeedVisibility(_ active: Bool) {
+        if active {
+            guard !isFeedVisible else { return }
+            isFeedVisible = true
+            store.recordAppEvent(
+                .agentFeedOpened,
+                count: selectionScope.agentFeedItems(from: store.agentFeedItems).count
+            )
+        } else {
+            guard isFeedVisible else { return }
+            isFeedVisible = false
+            store.recordAppEvent(.agentFeedClosed)
+        }
     }
 }
 #endif

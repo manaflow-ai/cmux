@@ -31,6 +31,14 @@ import {
 } from "../account/deletionLock";
 import type { ProviderId } from "./drivers";
 import { allocateVmSlug } from "./vmNaming";
+import {
+  beginSnapshotRequest,
+  finishSnapshotRequest,
+  type BeginSnapshotRequestInput,
+  type FinishSnapshotRequestInput,
+  type SnapshotRequestBegin,
+} from "./snapshotRequests";
+import { storedAgentUpdates, type VmAgentUpdatesSetting } from "./agentUpdates";
 import { VM_RESOURCE_USAGE_KEY, VM_RESOURCE_USAGE_MIN_INTERVAL_MS, type VmResourceUsage } from "./resourceUsage";
 import {
   VmCreateDisabledError,
@@ -38,7 +46,9 @@ import {
   VmAccountDeletionInProgressError,
   VmDatabaseError,
   VmLimitExceededError,
+  VmMemoryPlanError,
   VmResizeInProgressError,
+  VmResourcePoolExceededError,
   LEGACY_MODEL_PLANE_ENTITLEMENT_FAILURE_CODE,
   VM_MODEL_PLANE_FAILURE_CODES,
   isVmAccountDeletionInProgressError,
@@ -46,6 +56,7 @@ import {
   isVmCreateInProgressError,
   isVmLimitExceededError,
   isVmResizeInProgressError,
+  isVmResourcePoolExceededError,
 } from "./errors";
 import {
   DEFAULT_VM_RESOURCE_RESERVATION,
@@ -62,6 +73,9 @@ import {
   vmResourceResizePendingFromMetadata,
   vmResourceResizeUnconfirmedFromMetadata,
   withVmResourceReservationMetadata,
+  firstExceededPoolResource,
+  type VmComputeResources,
+  type VmResourcePoolPolicy,
   type VmResourceReservation,
 } from "./machineSpec";
 
@@ -196,6 +210,13 @@ export type VmRepositoryShape = {
    * doubles built before the feature keep compiling; the live layer always
    * provides them and workflows treat absence as "no networking".
    */
+  /**
+   * Idempotency ledger for snapshot create (`snapshotRequests.ts`). Optional so
+   * older test doubles compile; the live layer provides both, and a snapshot
+   * with a key and no ledger fails closed in the workflow.
+   */
+  readonly beginSnapshotRequest?: (input: BeginSnapshotRequestInput) => Effect.Effect<SnapshotRequestBegin, VmDatabaseError>;
+  readonly finishSnapshotRequest?: (input: FinishSnapshotRequestInput) => Effect.Effect<void, VmDatabaseError>;
   /** The owner's private-network row for one provider, or null when they have none yet. */
   readonly findNetwork?: (
     userId: string,
@@ -343,6 +364,20 @@ export type VmRepositoryShape = {
     readonly id: string;
     readonly patch: Readonly<Record<string, unknown>>;
   }) => Effect.Effect<void, VmDatabaseError>;
+  /**
+   * Store a machine's network policy and/or its reconcile status. Either
+   * field may be omitted to leave it unchanged.
+   */
+  readonly setNetworkPolicy?: (input: {
+    readonly id: string;
+    readonly policy?: Readonly<Record<string, unknown>>;
+    readonly status?: Readonly<Record<string, unknown>>;
+  }) => Effect.Effect<void, VmDatabaseError>;
+  /** Store the machine's coding-agent update setting ("image" is stored as null). */
+  readonly setAgentUpdates?: (input: {
+    readonly id: string;
+    readonly agentUpdates: VmAgentUpdatesSetting;
+  }) => Effect.Effect<void, VmDatabaseError>;
   /** Atomically coalesce advisory samples; false also covers a replaced VM. */
   readonly recordResourceUsage?: (input: {
     readonly id: string;
@@ -369,6 +404,9 @@ export type VmRepositoryShape = {
     readonly imageVersion?: string | null;
     readonly maxActiveVms: number | null;
     readonly idempotencyKey?: string;
+    /** Per-machine CPU/RAM ceilings for a newly inserted row. */
+    readonly planMaxMemoryMb?: number;
+    readonly planMaxVcpus?: number;
     readonly displayName?: string | null;
     /** The individual machine shape used for fork, snapshot, and resize recovery. */
     readonly resourceReservation?: VmResourceReservation;
@@ -376,7 +414,18 @@ export type VmRepositoryShape = {
     readonly forkPending?: boolean;
     /** Minimum source shape retained when a temporary fork claim is recovered. */
     readonly forkMinimumResourceReservation?: VmResourceReservation;
-  }) => Effect.Effect<BeginCreateResult, VmDatabaseError | VmCreateDisabledError | VmAccountDeletionInProgressError | VmLimitExceededError>;
+    /** "latest" opts the machine into coding-agent updates; absent keeps the image's pins. */
+    readonly agentUpdates?: VmAgentUpdatesSetting;
+    /** The plan's shared vCPU/memory pool; absent or null when the plan has none. */
+    readonly resourcePool?: VmResourcePoolPolicy | null;
+    /** How a pool refusal names this operation. Defaults to `create`. */
+    readonly resourcePoolPhase?: "create" | "fork";
+  }) => Effect.Effect<BeginCreateResult, VmDatabaseError | VmCreateDisabledError | VmAccountDeletionInProgressError | VmLimitExceededError | VmResourcePoolExceededError | VmMemoryPlanError>;
+  /** Read an idempotent create row before validating a new request shape. */
+  readonly findCreateByIdempotencyKey?: (input: {
+    readonly billingTeamId: string;
+    readonly idempotencyKey: string;
+  }) => Effect.Effect<CloudVmRow | null, VmDatabaseError>;
   readonly beginBaseOpen: (input: {
     readonly userId: string;
     readonly billingTeamId: string;
@@ -388,7 +437,11 @@ export type VmRepositoryShape = {
     readonly maxActiveVms: number | null;
     readonly baseName?: string;
     readonly resourceReservation?: VmResourceReservation;
-  }) => Effect.Effect<BeginBaseCreateResult, VmCreateDisabledError | VmAccountDeletionInProgressError | VmDatabaseError | VmLimitExceededError>;
+    /** Per-machine CPU/RAM ceilings for a new Base generation. */
+    readonly planMaxMemoryMb?: number;
+    readonly planMaxVcpus?: number;
+    readonly resourcePool?: VmResourcePoolPolicy | null;
+  }) => Effect.Effect<BeginBaseCreateResult, VmCreateDisabledError | VmAccountDeletionInProgressError | VmDatabaseError | VmLimitExceededError | VmResourcePoolExceededError | VmMemoryPlanError>;
   readonly beginBaseReset: (input: {
     readonly userId: string;
     readonly billingTeamId: string;
@@ -401,7 +454,11 @@ export type VmRepositoryShape = {
     readonly baseName?: string;
     readonly reason?: string | null;
     readonly resourceReservation?: VmResourceReservation;
-  }) => Effect.Effect<Extract<BeginBaseCreateResult, { readonly kind: "create" }>, VmCreateDisabledError | VmAccountDeletionInProgressError | VmCreateInProgressError | VmDatabaseError | VmLimitExceededError>;
+    /** Per-machine CPU/RAM ceilings for a new Base generation. */
+    readonly planMaxMemoryMb?: number;
+    readonly planMaxVcpus?: number;
+    readonly resourcePool?: VmResourcePoolPolicy | null;
+  }) => Effect.Effect<Extract<BeginBaseCreateResult, { readonly kind: "create" }>, VmCreateDisabledError | VmAccountDeletionInProgressError | VmCreateInProgressError | VmDatabaseError | VmLimitExceededError | VmResourcePoolExceededError | VmMemoryPlanError>;
   readonly markBaseCreateRunning: (input: {
     readonly baseId: string;
     readonly generation: number;
@@ -457,7 +514,32 @@ export type VmRepositoryShape = {
     readonly billingTeamId?: string | null;
     readonly providerVmId: string;
     readonly maxActiveVms: number | null;
-  }) => Effect.Effect<CloudVmRow | null, VmDatabaseError | VmLimitExceededError>;
+    /** Existing grandfathered rows may resume above the current count. */
+    readonly skipActiveLimit?: boolean;
+    /** The plan's shared vCPU/memory pool; absent or null when the plan has none. */
+    readonly resourcePool?: VmResourcePoolPolicy | null;
+  }) => Effect.Effect<CloudVmRow | null, VmDatabaseError | VmLimitExceededError | VmResourcePoolExceededError>;
+  /**
+   * Claim a CPU/memory growth against the shared pool before provider I/O.
+   * Writes the larger shape into the reservation marker under the billing
+   * lock and returns the row with that marker, or null when the VM is gone.
+   */
+  readonly reserveVmComputeResize?: (input: {
+    readonly id: string;
+    readonly userId: string;
+    readonly billingTeamId?: string | null;
+    readonly providerVmId: string;
+    /** Provider-confirmed current shape, used when the row has no valid marker. */
+    readonly current: VmResourceReservation;
+    readonly requested: VmComputeResources;
+    readonly resourcePool: VmResourcePoolPolicy;
+  }) => Effect.Effect<{ readonly vm: CloudVmRow; readonly previous: VmComputeResources; readonly reserved: VmComputeResources } | null, VmDatabaseError | VmResourcePoolExceededError>;
+  /** Undo a compute claim when the provider never applied it (compare-and-set). */
+  readonly restoreVmComputeResize?: (input: {
+    readonly id: string;
+    readonly expected: VmComputeResources;
+    readonly previous: VmComputeResources;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
   /** Reserve a grow-only disk change before provider I/O. Live shape always provides this. */
   readonly reserveVmResize?: (input: {
     readonly id: string;
@@ -1003,6 +1085,23 @@ function idempotencyScopeWhere(input: {
   );
 }
 
+/** Reject a newly allocated machine shape that exceeds its plan's ceilings. */
+function assertCreateReservationFitsPlan(input: {
+  readonly planId: string;
+  readonly resourceReservation?: VmResourceReservation;
+  readonly planMaxMemoryMb?: number;
+  readonly planMaxVcpus?: number;
+}): void {
+  const reservation = input.resourceReservation;
+  if (!reservation || input.planMaxMemoryMb === undefined || input.planMaxVcpus === undefined ||
+    (reservation.memoryMb <= input.planMaxMemoryMb && reservation.vcpus <= input.planMaxVcpus)) return;
+  throw new VmMemoryPlanError({
+    planId: input.planId,
+    memoryMb: Math.max(reservation.memoryMb, reservation.vcpus * 2 * 1024),
+    maxMemoryMb: input.planMaxMemoryMb,
+  });
+}
+
 function accountScopeWhere(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;
@@ -1054,6 +1153,93 @@ function reservationMetadataForInput(
   return forkPending
     ? { ...metadata, [VM_RESOURCE_FORK_PENDING_METADATA_KEY]: forkMinimumReservation ?? reservation }
     : metadata;
+}
+
+/**
+ * One pooled dimension of a live row's reservation. A row without a complete,
+ * bounded marker (legacy rows, or a malformed marker) draws from the pool at
+ * the plan's conservative legacy claim until provider reconciliation records
+ * its actual shape.
+ */
+function pooledResourceFieldSql(key: "vcpus" | "memoryMb", fallback: number) {
+  const markerKey = sql.raw(`'${VM_RESOURCE_RESERVATION_METADATA_KEY}'`);
+  const value = sql<string | null>`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)->${markerKey}->>${sql.raw(`'${key}'`)}`;
+  return sql<number>`case
+    when coalesce((${validResourceReservationMarkerSql()}), false) then (${value})::bigint
+    else ${fallback}::bigint
+  end`;
+}
+
+/** Sum the pooled dimensions of the scope's provisioning and running machines. */
+async function activePoolUsage(
+  tx: CloudDbTransaction,
+  input: {
+    readonly scope: SQL | undefined;
+    readonly legacyReservation: VmComputeResources;
+    readonly excludeVmId?: string;
+  },
+): Promise<VmComputeResources> {
+  const predicates = [inArray(cloudVms.status, ["provisioning", "running"]), input.scope];
+  if (input.excludeVmId) predicates.push(ne(cloudVms.id, input.excludeVmId));
+  const [row] = await tx
+    .select({
+      vcpus: sql<string>`coalesce(sum(${pooledResourceFieldSql("vcpus", input.legacyReservation.vcpus)}), 0)`,
+      memoryMb: sql<string>`coalesce(sum(${pooledResourceFieldSql("memoryMb", input.legacyReservation.memoryMb)}), 0)`,
+    })
+    .from(cloudVms)
+    .where(and(...predicates));
+  return { vcpus: Number(row?.vcpus ?? 0), memoryMb: Number(row?.memoryMb ?? 0) };
+}
+
+/**
+ * Refuse a request that would push the scope past its shared pool. Callers
+ * hold the billing-scope advisory lock taken for the active-count check, so
+ * concurrent creates, resumes, and resizes are serialized against each other.
+ */
+async function assertResourcePoolFits(
+  tx: CloudDbTransaction,
+  input: {
+    readonly pool: VmResourcePoolPolicy | null | undefined;
+    readonly scope: SQL | undefined;
+    readonly billingTeamId: string;
+    readonly requested: VmComputeResources | undefined;
+    readonly phase: VmResourcePoolExceededError["phase"];
+    readonly excludeVmId?: string;
+  },
+): Promise<void> {
+  const pool = input.pool;
+  if (!pool) return;
+  const requested = {
+    vcpus: input.requested?.vcpus ?? pool.legacyReservation.vcpus,
+    memoryMb: input.requested?.memoryMb ?? pool.legacyReservation.memoryMb,
+  };
+  const used = await activePoolUsage(tx, {
+    scope: input.scope,
+    legacyReservation: pool.legacyReservation,
+    excludeVmId: input.excludeVmId,
+  });
+  const resource = firstExceededPoolResource({ capacity: pool.capacity, used, requested });
+  if (!resource) return;
+  throw new VmResourcePoolExceededError({
+    kind: "resource_pool",
+    billingTeamId: input.billingTeamId,
+    phase: input.phase,
+    resource,
+    pool: pool.capacity,
+    used,
+    requested,
+    planId: pool.planId,
+  });
+}
+
+/** A row's pooled share: its valid marker, or the plan's conservative legacy claim. */
+function pooledReservationForRow(
+  row: Pick<CloudVmRow, "providerMetadata">,
+  legacy: VmComputeResources,
+): VmComputeResources {
+  if (!hasVmResourceReservationMetadata(row.providerMetadata)) return legacy;
+  const marker = vmResourceReservationFromMetadata(row.providerMetadata);
+  return { vcpus: marker.vcpus, memoryMb: marker.memoryMb };
 }
 
 /** Provider responses cannot write control-plane reservation markers. */
@@ -1271,6 +1457,8 @@ function networkUpsertLockKey(input: { readonly userId: string; readonly provide
 
 /** The Postgres-backed repository. Workflows wrap it with the analytics sink (see workflows.ts). */
 export const vmRepositoryLiveShape: VmRepositoryShape = {
+  beginSnapshotRequest,
+  finishSnapshotRequest,
   findNetwork: (userId, provider) =>
     dbEffect("findNetwork", async () => {
       const db = cloudDb();
@@ -1652,6 +1840,26 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       return rows.length > 0;
     }),
 
+  setNetworkPolicy: (input) =>
+    dbEffect("setNetworkPolicy", async () => {
+      const db = cloudDb();
+      await db
+        .update(cloudVms)
+        .set({
+          ...(input.policy !== undefined ? { networkPolicy: { ...input.policy } } : {}),
+          ...(input.status !== undefined ? { networkPolicyStatus: { ...input.status } } : {}),
+          updatedAt: new Date(),
+        })
+        .where(eq(cloudVms.id, input.id));
+    }),
+  setAgentUpdates: (input) =>
+    dbEffect("setAgentUpdates", async () => {
+      const db = cloudDb();
+      await db
+        .update(cloudVms)
+        .set({ agentUpdates: storedAgentUpdates(input.agentUpdates), updatedAt: new Date() })
+        .where(eq(cloudVms.id, input.id));
+    }),
   mergeProviderMetadata: (input) =>
     dbEffect("mergeProviderMetadata", async () => {
       const db = cloudDb();
@@ -1805,6 +2013,16 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
               }
             }
 
+            // Idempotent replays return above before this check. A request
+            // that wins the insert race must still be checked atomically so a
+            // plan change cannot turn a new row into an entitlement bypass.
+            assertCreateReservationFitsPlan({
+              planId: input.billingPlanId,
+              resourceReservation: input.resourceReservation,
+              planMaxMemoryMb: input.planMaxMemoryMb,
+              planMaxVcpus: input.planMaxVcpus,
+            });
+
             const [active] = await tx
               .select({ total: count() })
               .from(cloudVms)
@@ -1823,6 +2041,13 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 limit,
               });
             }
+            await assertResourcePoolFits(tx, {
+              pool: input.resourcePool,
+              scope: eq(cloudVms.billingTeamId, input.billingTeamId),
+              billingTeamId: input.billingTeamId,
+              requested: input.resourceReservation,
+              phase: input.resourcePoolPhase ?? "create",
+            });
 
             const [vm] = await tx
               .insert(cloudVms)
@@ -1836,6 +2061,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 status: "provisioning",
                 displayName: input.displayName ?? null,
                 idempotencyKey,
+                agentUpdates: storedAgentUpdates(input.agentUpdates),
                 providerMetadata: reservationMetadataForInput(
                   input.resourceReservation,
                   input.forkPending,
@@ -1856,9 +2082,19 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           throw err;
         }
       },
-      catch: (cause) => isVmCreateDisabledError(cause) || isVmAccountDeletionInProgressError(cause) || isVmLimitExceededError(cause)
+      catch: (cause) => cause instanceof VmMemoryPlanError || isVmCreateDisabledError(cause) || isVmAccountDeletionInProgressError(cause) || isVmLimitExceededError(cause) || isVmResourcePoolExceededError(cause)
         ? cause
         : new VmDatabaseError({ operation: "beginCreate", cause }),
+    }),
+
+  findCreateByIdempotencyKey: (input) =>
+    dbEffect("findCreateByIdempotencyKey", async () => {
+      const [existing] = await cloudDb()
+        .select()
+        .from(cloudVms)
+        .where(idempotencyScopeWhere(input))
+        .limit(1);
+      return existing ?? null;
     }),
 
   beginBaseOpen: (input) =>
@@ -1918,6 +2154,16 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
               };
             }
 
+            // Existing Base machines are grandfathered. Apply the current
+            // per-machine entitlement only when this transaction is about to
+            // allocate a new generation.
+            assertCreateReservationFitsPlan({
+              planId: input.billingPlanId,
+              resourceReservation: input.resourceReservation,
+              planMaxMemoryMb: input.planMaxMemoryMb,
+              planMaxVcpus: input.planMaxVcpus,
+            });
+
             const [active] = await tx
               .select({ total: count() })
               .from(cloudVms)
@@ -1934,6 +2180,13 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 limit,
               });
             }
+            await assertResourcePoolFits(tx, {
+              pool: input.resourcePool,
+              scope: eq(cloudVms.billingTeamId, input.billingTeamId),
+              billingTeamId: input.billingTeamId,
+              requested: input.resourceReservation,
+              phase: "create",
+            });
 
             const now = new Date();
             const previousGeneration = existing?.generation ?? null;
@@ -2069,7 +2322,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           throw err;
         }
       },
-      catch: (cause) => isVmCreateDisabledError(cause) || isVmAccountDeletionInProgressError(cause) || isVmLimitExceededError(cause)
+      catch: (cause) => cause instanceof VmMemoryPlanError || isVmCreateDisabledError(cause) || isVmAccountDeletionInProgressError(cause) || isVmLimitExceededError(cause) || isVmResourcePoolExceededError(cause)
         ? cause
         : new VmDatabaseError({ operation: "beginBaseOpen", cause }),
     }),
@@ -2126,6 +2379,12 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 `base:${scope.scopeType}:${scope.scopeId}:${name}:g${existing?.base.activeGeneration ?? 0}`,
             });
           }
+          assertCreateReservationFitsPlan({
+            planId: input.billingPlanId,
+            resourceReservation: input.resourceReservation,
+            planMaxMemoryMb: input.planMaxMemoryMb,
+            planMaxVcpus: input.planMaxVcpus,
+          });
           const nextGeneration = await nextBaseGenerationInTx(tx, existing?.base.id, existing?.base.activeGeneration ?? 0);
           const idempotencyKey = `base:${scope.scopeType}:${scope.scopeId}:${name}:g${nextGeneration}`;
           const activePredicates = [
@@ -2145,6 +2404,13 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
               limit,
             });
           }
+          await assertResourcePoolFits(tx, {
+            pool: input.resourcePool,
+            scope: and(...activePredicates.slice(1)),
+            billingTeamId: input.billingTeamId,
+            requested: input.resourceReservation,
+            phase: "create",
+          });
 
           const [vm] = await tx
             .insert(cloudVms)
@@ -2242,7 +2508,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           };
         });
       },
-      catch: (cause) => isVmCreateDisabledError(cause) || isVmAccountDeletionInProgressError(cause) || isVmLimitExceededError(cause) || isVmCreateInProgressError(cause)
+      catch: (cause) => cause instanceof VmMemoryPlanError || isVmCreateDisabledError(cause) || isVmAccountDeletionInProgressError(cause) || isVmLimitExceededError(cause) || isVmCreateInProgressError(cause) || isVmResourcePoolExceededError(cause)
         ? cause
         : new VmDatabaseError({ operation: "beginBaseReset", cause }),
     }),
@@ -2577,11 +2843,21 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
             .where(and(inArray(cloudVms.status, ["provisioning", "running"]), teamScope));
           const activeCount = Number(active?.total ?? 0);
           const limit = input.maxActiveVms;
-          if (limit !== null && activeCount >= limit) {
+          if (!input.skipActiveLimit && limit !== null && activeCount >= limit) {
             throw new VmLimitExceededError({
               kind: "active_vms",
               billingTeamId: input.billingTeamId ?? input.userId,
               limit,
+            });
+          }
+          if (input.resourcePool) {
+            await assertResourcePoolFits(tx, {
+              pool: input.resourcePool,
+              scope: teamScope,
+              billingTeamId: input.billingTeamId ?? input.userId,
+              requested: pooledReservationForRow(current, input.resourcePool.legacyReservation),
+              phase: "resume",
+              excludeVmId: current.id,
             });
           }
 
@@ -2600,9 +2876,88 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         });
       },
       catch: (cause) =>
-        isVmLimitExceededError(cause)
+        isVmLimitExceededError(cause) || isVmResourcePoolExceededError(cause)
           ? cause
           : new VmDatabaseError({ operation: "reservePausedResume", cause }),
+    }),
+
+  reserveVmComputeResize: (input) =>
+    Effect.tryPromise({
+      try: async () => {
+        const db = cloudDb();
+        return await db.transaction(async (tx) => {
+          const requestedTeamId = input.billingTeamId?.trim();
+          const lockKey = requestedTeamId || `user:${input.userId}`;
+          await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`);
+          const [current] = await tx
+            .select()
+            .from(cloudVms)
+            .where(and(
+              eq(cloudVms.id, input.id),
+              accountScopeWhere({ userId: input.userId, billingTeamId: requestedTeamId }),
+              eq(cloudVms.providerVmId, input.providerVmId),
+            ))
+            .limit(1);
+          if (!current || current.status === "destroyed" || current.status === "failed") return null;
+          const marker = hasVmResourceReservationMetadata(current.providerMetadata)
+            ? vmResourceReservationFromMetadata(current.providerMetadata)
+            : input.current;
+          const previous = { vcpus: marker.vcpus, memoryMb: marker.memoryMb };
+          // Grow-only: a stale provider read never lowers the claim here.
+          const reserved = {
+            vcpus: Math.max(previous.vcpus, input.requested.vcpus),
+            memoryMb: Math.max(previous.memoryMb, input.requested.memoryMb),
+          };
+          const billingTeamId = current.billingTeamId ?? requestedTeamId ?? input.userId;
+          await assertResourcePoolFits(tx, {
+            pool: input.resourcePool,
+            scope: current.billingTeamId
+              ? eq(cloudVms.billingTeamId, current.billingTeamId)
+              : accountScopeWhere({ userId: input.userId, billingTeamId: requestedTeamId }),
+            billingTeamId,
+            requested: reserved,
+            phase: "resize",
+            excludeVmId: current.id,
+          });
+          const reservation = { ...marker, ...reserved };
+          const [vm] = await tx
+            .update(cloudVms)
+            .set({
+              providerMetadata: sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) || ${reservationMetadataJsonb(reservation)}`,
+              updatedAt: new Date(),
+            })
+            .where(and(eq(cloudVms.id, current.id), ne(cloudVms.status, "destroyed")))
+            .returning();
+          return vm ? { vm, previous, reserved } : null;
+        });
+      },
+      catch: (cause) => isVmResourcePoolExceededError(cause)
+        ? cause
+        : new VmDatabaseError({ operation: "reserveVmComputeResize", cause }),
+    }),
+
+  restoreVmComputeResize: (input) =>
+    dbEffect("restoreVmComputeResize", async () => {
+      const db = cloudDb();
+      const markerKey = sql.raw(`'${VM_RESOURCE_RESERVATION_METADATA_KEY}'`);
+      const marker = sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)->${markerKey}`;
+      const rows = await db
+        .update(cloudVms)
+        .set({
+          providerMetadata: sql`jsonb_set(
+            jsonb_set(${cloudVms.providerMetadata}, '{${sql.raw(VM_RESOURCE_RESERVATION_METADATA_KEY)},vcpus}', to_jsonb(${input.previous.vcpus}::integer)),
+            '{${sql.raw(VM_RESOURCE_RESERVATION_METADATA_KEY)},memoryMb}', to_jsonb(${input.previous.memoryMb}::integer)
+          )`,
+          updatedAt: new Date(),
+        })
+        .where(and(
+          eq(cloudVms.id, input.id),
+          sql`coalesce((${validResourceReservationMarkerSql()}), false)`,
+          sql`${marker}->>'vcpus' = ${String(input.expected.vcpus)}`,
+          sql`${marker}->>'memoryMb' = ${String(input.expected.memoryMb)}`,
+        ))
+        .returning({ id: cloudVms.id });
+      return rows.length > 0;
     }),
 
   reserveVmResize: (input) =>

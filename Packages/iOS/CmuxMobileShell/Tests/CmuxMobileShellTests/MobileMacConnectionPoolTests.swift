@@ -3055,7 +3055,7 @@ import Testing
             runtime: runtime,
             isSignedIn: true
         )
-        weak let weakShell = shell
+        weak var weakShell = shell
         shell?.secondaryMacSubscriptions["mac-retain".pairingKey] = subscription
         shell?.startSecondaryEventConsumer(subscription, displayName: "Retain Mac")
 

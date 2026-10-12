@@ -41,6 +41,7 @@ final class MarkdownWebViewerAssets {
         ("highlight-github-dark", "css"),
         ("github-markdown", "css"),
         ("viewer-navigation", "js"),
+        ("markdown-sanitizer", "js"),
     ]
 
     func shellHTML() -> String? {
@@ -60,7 +61,8 @@ final class MarkdownWebViewerAssets {
               let highlightDark = asset(name: "highlight-github-dark", ext: "css"),
               let marked = asset(name: "marked.min", ext: "js"),
               let highlight = asset(name: "highlight.min", ext: "js"),
-              let viewerNavigation = asset(name: "viewer-navigation", ext: "js") else {
+              let viewerNavigation = asset(name: "viewer-navigation", ext: "js"),
+              let markdownSanitizer = asset(name: "markdown-sanitizer", ext: "js") else {
             return nil
         }
         return shell
@@ -70,6 +72,7 @@ final class MarkdownWebViewerAssets {
             .replacingOccurrences(of: "{{markedJS}}", with: marked)
             .replacingOccurrences(of: "{{highlightJS}}", with: highlight)
             .replacingOccurrences(of: "{{viewerNavigationJS}}", with: viewerNavigation)
+            .replacingOccurrences(of: "{{markdownSanitizerJS}}", with: markdownSanitizer)
             .replacingOccurrences(of: "{{localizedStringsJSON}}", with: Self.localizedStringsJSON())
     }
 

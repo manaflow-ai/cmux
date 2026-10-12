@@ -17,6 +17,8 @@ type Recorded = {
   statusProbes: string[];
   statuses: Array<{ id: string; status: string }>;
   reservations: string[];
+  skipActiveLimits: boolean[];
+  reservationWrites: Array<{ vcpus: number; memoryMb: number; diskMb: number }>;
   events: Array<{ eventType: string; metadata: Record<string, unknown> }>;
 };
 
@@ -42,6 +44,9 @@ function machineRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
     failureCode: null,
     failureMessage: null,
     providerMetadata: {},
+    networkPolicy: null,
+    networkPolicyStatus: null,
+    agentUpdates: null,
     ...overrides,
   };
 }
@@ -51,8 +56,10 @@ function fakes(options: {
   providerStatus?: "running" | "paused";
   withPause?: boolean;
   withResume?: boolean;
+  stats?: { cpus: number; memoryTotalMb: number; diskTotalMb: number };
+  onReservation?: (reservation: { vcpus: number; memoryMb: number; diskMb: number }) => void;
 }) {
-  const recorded: Recorded = { paused: [], resumed: [], statusProbes: [], statuses: [], reservations: [], events: [] };
+  const recorded: Recorded = { paused: [], resumed: [], statusProbes: [], statuses: [], reservations: [], skipActiveLimits: [], reservationWrites: [], events: [] };
   const repo = {
     findUserVm: (input: { providerVmId: string }) =>
       Effect.succeed(input.providerVmId === options.row.providerVmId ? options.row : null),
@@ -64,12 +71,29 @@ function fakes(options: {
       recorded.events.push({ eventType: input.eventType, metadata: input.metadata ?? {} });
       return Effect.void;
     },
-    reservePausedResume: (input: { providerVmId: string }) => {
+    reservePausedResume: (input: { providerVmId: string; skipActiveLimit?: boolean }) => {
       recorded.reservations.push(input.providerVmId);
+      recorded.skipActiveLimits.push(input.skipActiveLimit === true);
       return Effect.succeed({ ...options.row, status: "running" } as CloudVmRow);
     },
+    ...(options.onReservation
+      ? {
+        setResourceReservation: (input: { reservation: { vcpus: number; memoryMb: number; diskMb: number } }) => Effect.sync(() => {
+          recorded.reservationWrites.push(input.reservation);
+          options.onReservation?.(input.reservation);
+          return true;
+        }),
+      }
+      : {}),
   } as unknown as VmRepositoryShape;
   const provider = {
+    getStats: () => Effect.succeed({
+      state: "awake" as const,
+      sampledAt: Date.now(),
+      cpus: options.stats?.cpus ?? 4,
+      memoryTotalMb: options.stats?.memoryTotalMb ?? 8 * 1024,
+      diskTotalMb: options.stats?.diskTotalMb ?? 32768,
+    }),
     ...(options.withPause === false
       ? {}
       : {
@@ -147,9 +171,25 @@ describe("resumeVm", () => {
     expect(result).toEqual({ id: "fs-1", status: "running" });
     expect(recorded.statusProbes).toEqual(["fs-1"]);
     expect(recorded.reservations).toEqual(["fs-1"]);
+    // Markerless legacy rows are grandfathered until reconciliation measures
+    // them; their conservative pool claim still blocks new allocation.
+    expect(recorded.skipActiveLimits).toEqual([true]);
     expect(recorded.resumed).toEqual(["fs-1"]);
     expect(recorded.statuses).toEqual([{ id: "row-1", status: "running" }]);
     expect(recorded.events).toEqual([{ eventType: "vm.resumed", metadata: { source: "user" } }]);
+  });
+
+  test("grandfathered oversized paused machines can resume above the current count", async () => {
+    const { recorded, layer } = fakes({
+      row: machineRow({
+        status: "paused",
+        providerMetadata: { cmuxResourceReservation: { vcpus: 12, memoryMb: 24 * 1024, diskMb: 65536 } },
+      }),
+      providerStatus: "paused",
+    });
+    const result = await Effect.runPromise(resumeVm({ ...resumeCaller, maxActiveVms: 1 }).pipe(Effect.provide(layer)));
+    expect(result).toEqual({ id: "fs-1", status: "running" });
+    expect(recorded.skipActiveLimits).toEqual([true]);
   });
 
   test("is idempotent: a machine the provider reports running answers running without a resume", async () => {
@@ -166,6 +206,20 @@ describe("resumeVm", () => {
     expect(result).toEqual({ id: "fs-1", status: "running" });
     expect(recorded.resumed).toEqual([]);
     expect(recorded.statuses).toEqual([{ id: "row-1", status: "running" }]);
+  });
+
+  test("persists a measured legacy shape before reserving a resume", async () => {
+    const { recorded, layer } = fakes({
+      row: machineRow({ status: "paused" }),
+      providerStatus: "paused",
+      // A legacy Max-sized machine has no cmuxResourceReservation marker.
+      stats: { cpus: 12, memoryTotalMb: 24 * 1024, diskTotalMb: 65536 },
+      onReservation: () => undefined,
+    });
+    const result = await Effect.runPromise(resumeVm({ ...resumeCaller, callerPlanId: "max" }).pipe(Effect.provide(layer)));
+    expect(result).toEqual({ id: "fs-1", status: "running" });
+    expect(recorded.reservationWrites).toEqual([{ vcpus: 12, memoryMb: 24 * 1024, diskMb: 65536 }]);
+    expect(recorded.reservations).toEqual(["fs-1"]);
   });
 
   test("a provider without resume: running rows answer running, paused rows fail as unsupported", async () => {

@@ -24,6 +24,22 @@ final class CloudPlacementCoordinator {
     private var receipts: [SurfaceResourceID: [UUID: SurfaceRemotePlacement]] = [:]
     private var movedTabs: [SurfaceMachineID: [String: String]] = [:]
     private var closedTabs: [SurfaceMachineID: [String: String]] = [:]
+    /// Displays this Mac removed from a Cloud workspace (a closed pane or the
+    /// sidebar's X) whose membership may still be in the accepted graph.
+    /// Reconciliation must not rebuild them from any client's token. An entry
+    /// is released once a fetched graph holds none for that display in that
+    /// workspace, or holds one the removal did not delete (another client put
+    /// it back), or when this Mac opens the display there again.
+    var closedDisplays: [ClosedCloudDisplay: ClosedCloudDisplayRemoval] = [:]
+    /// Bumped whenever this Mac opens a pane of a display, so a close or a
+    /// removal retry that started before the reopen leaves it alone.
+    var displayReopenGenerations: [SurfaceResourceID: UInt64] = [:]
+    var retryingDisplayRemovals: Set<String> = []
+    var displayRemovalAttempts: [String: Int] = [:]
+    /// View IDs of display panes this process recorded. Another cmux on this
+    /// Mac shares the client ID, so only these tokens are this process's to prune.
+    var ownedDisplayViewIDs: Set<String> = []
+    static let maxDisplayRemovalAttempts = 3
     private var confirmationCursors: [SurfaceMachineID: [String: CloudVMCursor]] = [:]
     private(set) var failures: [SurfaceResourceID: String] = [:]
 
@@ -182,6 +198,15 @@ final class CloudPlacementCoordinator {
                   let pane = state.lookupIndex.pane(id: tab.paneID),
                   let screen = state.lookupIndex.screen(id: pane.screenID),
                   projection.remoteWorkspaceID != screen.workspaceID else { continue }
+            // Do not adopt a tab's new workspace until the destination has a
+            // complete resource inventory. The projection coordinator uses the
+            // same fence before retiring or recreating panes, so updating the
+            // remote coordinate here first would make an incomplete move look
+            // accepted and lose the source projection.
+            guard CloudVMGraphCompleteness(
+                state: state,
+                resources: catalog.snapshot.resources(on: state.machine)
+            ).isComplete(workspaceID: screen.workspaceID) else { continue }
             var updated = projection
             updated.remoteWorkspaceID = screen.workspaceID
             replacements[projection] = updated
@@ -192,6 +217,7 @@ final class CloudPlacementCoordinator {
                   let screen = state.lookupIndex.screen(id: pane.screenID) else { return false }
             return screen.workspaceID == workspaceID
         }
+        settleClosedDisplays(state, catalog: catalog)
         // Receipts for panes closed before confirmation need no retained local state.
         let liveTabIDs = Set(catalog.projections.filter { $0.resource.machine == state.machine }.compactMap(\.remoteTabID))
         confirmationCursors[state.machine] = confirmationCursors[state.machine]?.filter { liveTabIDs.contains($0.key) }
@@ -206,7 +232,16 @@ final class CloudPlacementCoordinator {
         }
     }
 
-    func isPendingClose(_ placement: SurfaceResourcePlacement, on machine: SurfaceMachineID) -> Bool {
+    func isPendingClose(
+        _ placement: SurfaceResourcePlacement,
+        on machine: SurfaceMachineID,
+        workspaceID fallbackWorkspaceID: String? = nil
+    ) -> Bool {
+        if placement.resource.kind == .display, placement.remoteTabID == nil || placement.cloudDisplayMembershipViewID != nil,
+           let workspaceID = placement.remoteWorkspaceID ?? fallbackWorkspaceID,
+           closedDisplays[ClosedCloudDisplay(machine: machine, workspaceID: workspaceID, displayID: placement.resource.key)] != nil {
+            return true
+        }
         guard let tabID = placement.remoteTabID, let workspaceID = placement.remoteWorkspaceID else { return false }
         return closedTabs[machine]?[tabID] == workspaceID
     }
@@ -311,7 +346,26 @@ final class CloudPlacementCoordinator {
         presentFailure: Bool = true,
         operation: @escaping @MainActor () async throws -> Bool
     ) -> Task<Void, Never> {
-        let machine = projection.resource.machine
+        var onFailure: (@MainActor (Error, any SurfaceProvider) -> Void)?
+        if presentFailure {
+            onFailure = { [weak self] error, provider in
+                self?.reportFailure(projection, error)
+                self?.refreshAfterFailure(machine: projection.resource.machine, provider: provider, catalog: catalog)
+            }
+        }
+        return enqueue(resource: projection.resource, catalog: catalog, onFailure: onFailure, operation: operation)
+    }
+
+    /// Runs `operation` on `resource`'s machine lane, after every operation
+    /// queued before it. A failure is recorded for `resource`.
+    @discardableResult
+    func enqueue(
+        resource: SurfaceResourceID,
+        catalog: SurfaceCatalog,
+        onFailure: (@MainActor (Error, any SurfaceProvider) -> Void)? = nil,
+        operation: @escaping @MainActor () async throws -> Bool
+    ) -> Task<Void, Never> {
+        let machine = resource.machine
         let previous = lanes[machine]?.task
         let provider = catalog.provider(for: machine)
         let token = UUID()
@@ -331,13 +385,10 @@ final class CloudPlacementCoordinator {
             // A disconnected/replaced provider must never receive a delayed edit.
             guard let provider, catalog.provider(for: machine) === provider else { return }
             do {
-                if try await operation() { self.failures[projection.resource] = nil }
+                if try await operation() { self.failures[resource] = nil }
             } catch {
-                self.failures[projection.resource] = CloudMachineLink.errorText(error)
-                if presentFailure {
-                    self.reportFailure(projection, error)
-                    self.refreshAfterFailure(machine: machine, provider: provider, catalog: catalog)
-                }
+                self.failures[resource] = CloudMachineLink.errorText(error)
+                onFailure?(error, provider)
             }
         }
         lanes[machine] = Lane(token: token, task: task)

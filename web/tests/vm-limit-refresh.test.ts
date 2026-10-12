@@ -31,6 +31,9 @@ function row(overrides: Partial<CloudVmRow>): CloudVmRow {
     failureCode: null,
     failureMessage: null,
     providerMetadata: {},
+    networkPolicy: null,
+    networkPolicyStatus: null,
+    agentUpdates: null,
     ownerTeamId: overrides.ownerTeamId ?? overrides.billingTeamId ?? "team-limit-refresh",
     coderouterPoolId: null,
     ...overrides,
@@ -192,7 +195,7 @@ describe("lazy active-limit provider refresh", () => {
     );
 
     expect(beginReservation).toEqual({
-      vcpus: 4,
+      vcpus: 8,
       memoryMb: 16 * 1024,
       diskMb: 128 * 1024,
     });

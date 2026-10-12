@@ -26,6 +26,8 @@ struct MachineCreateRequest: Equatable {
     /// Machine presentation selects its reserved workspace immediately and
     /// leaves this false so later network callbacks never steal focus.
     let selectsCreatedWorkspace: Bool
+    /// The source machine's display name when this request forks a machine.
+    let forkSourceName: String?
 
     init(
         mode: NewMachineModel.Mode,
@@ -34,7 +36,8 @@ struct MachineCreateRequest: Equatable {
         arguments: [String],
         selectionWindowID: UUID? = nil,
         reservedWorkspaceID: UUID? = nil,
-        selectsCreatedWorkspace: Bool = false
+        selectsCreatedWorkspace: Bool = false,
+        forkSourceName: String? = nil
     ) {
         self.mode = mode
         self.kind = kind
@@ -43,6 +46,28 @@ struct MachineCreateRequest: Equatable {
         self.selectionWindowID = selectionWindowID
         self.reservedWorkspaceID = reservedWorkspaceID
         self.selectsCreatedWorkspace = selectsCreatedWorkspace
+        self.forkSourceName = forkSourceName
+    }
+
+    /// A background fork of `sourceMachineID`, shown as a pending "Fork of …" row
+    /// and a reserved workspace until the copy is up. Every Fork entrypoint
+    /// (row menu, command palette, New Machine's Base selector) builds this.
+    static func fork(
+        sourceMachineID: String,
+        sourceName: String,
+        kind: VMMachineKind,
+        selectionWindowID: UUID?
+    ) -> MachineCreateRequest {
+        var arguments = ["vm", "fork", sourceMachineID, "--focus", "false"]
+        if let selectionWindowID { arguments += ["--window", selectionWindowID.uuidString] }
+        return MachineCreateRequest(
+            mode: .newMachine,
+            kind: kind,
+            name: nil,
+            arguments: arguments,
+            selectionWindowID: selectionWindowID,
+            forkSourceName: sourceName
+        )
     }
 
     /// Domain input without app-specific kind, selection, or localized display values.
@@ -84,7 +109,8 @@ struct MachineCreateRequest: Equatable {
             arguments: nextArguments,
             selectionWindowID: selectionWindowID,
             reservedWorkspaceID: workspaceID,
-            selectsCreatedWorkspace: selectsCreatedWorkspace
+            selectsCreatedWorkspace: selectsCreatedWorkspace,
+            forkSourceName: forkSourceName
         )
     }
 
@@ -92,6 +118,9 @@ struct MachineCreateRequest: Equatable {
     /// the typed label, else the sheet's own title for the flow.
     var displayName: String {
         if let name, !name.isEmpty { return name }
+        if let forkSourceName {
+            return String(format: String(localized: "machines.fork.pending.name", defaultValue: "Fork of %@"), forkSourceName)
+        }
         return isBaseSetup
             ? String(localized: "machines.kind.base", defaultValue: "Base")
             : String(localized: "machines.new.title", defaultValue: "New Machine")
@@ -100,14 +129,16 @@ struct MachineCreateRequest: Equatable {
     /// The sheet's progress wording, reused verbatim by the row so the person
     /// sees the same words move from the sheet to the panel.
     var progressLabel: String {
-        isBaseSetup
+        if forkSourceName != nil { return String(localized: "machines.fork.pending.progress", defaultValue: "Forking…") }
+        return isBaseSetup
             ? String(localized: "machines.new.creating.base", defaultValue: "Setting up Base…")
             : String(localized: "machines.new.creating", defaultValue: "Creating…")
     }
 
     /// The failure headline for the row and the notification title.
     var failureLabel: String {
-        isBaseSetup
+        if forkSourceName != nil { return String(localized: "machines.fork.pending.failed", defaultValue: "Couldn't fork machine") }
+        return isBaseSetup
             ? String(localized: "machines.pending.failed.base", defaultValue: "Couldn't set up Base")
             : String(localized: "machines.pending.failed", defaultValue: "Couldn't create machine")
     }

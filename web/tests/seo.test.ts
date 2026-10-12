@@ -4,7 +4,7 @@ import { createTranslator } from "use-intl/core";
 import { comparePages } from "../app/lib/compare-pages";
 import { blogPostsForLocale } from "../app/[locale]/components/blog-posts";
 import robots from "../app/robots";
-import sitemap from "../app/sitemap";
+import { sitemapEntries as sitemap } from "../app/sitemap";
 import { legalMetadata } from "../app/[locale]/(legal)/legal-metadata";
 import middleware from "../proxy";
 import {

@@ -10,7 +10,7 @@ struct MobileFeedbackRouteTests {
     @Test func privilegedWhenManaflowConnectedAndHostSupportsSink() {
         #expect(
             MobileFeedbackRoute.resolve(
-                email: "lawrence@manaflow.ai",
+                email: "dev@manaflow.ai",
                 hasActiveMacConnection: true,
                 hostSupportsAgentSink: true
             ) == .privilegedAgent
@@ -20,7 +20,7 @@ struct MobileFeedbackRouteTests {
     @Test func emailWhenManaflowButNotConnected() {
         #expect(
             MobileFeedbackRoute.resolve(
-                email: "lawrence@manaflow.ai",
+                email: "dev@manaflow.ai",
                 hasActiveMacConnection: false,
                 hostSupportsAgentSink: true
             ) == .email
@@ -53,7 +53,7 @@ struct MobileFeedbackRouteTests {
         // not take the agent path and fail with `method_not_found`.
         #expect(
             MobileFeedbackRoute.resolve(
-                email: "lawrence@manaflow.ai",
+                email: "dev@manaflow.ai",
                 hasActiveMacConnection: true,
                 hostSupportsAgentSink: false
             ) == .email

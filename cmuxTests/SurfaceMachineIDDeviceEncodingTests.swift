@@ -128,7 +128,7 @@ struct SurfaceMachineIDDeviceEncodingTests {
         #expect(payload["link_error"] as? String == "cloud_api_unavailable")
         #expect(payload["link_error_message"] as? String == "cmux cannot reach the Cloud service for this machine right now.")
 
-        let lines = CMUXCLI.vmTreeLines(
+        let lines = CmuxTuiRemoteRouting.vmTreeLines(
             machine: [
                 "id": "brave-otter",
                 "status": "running",
@@ -141,7 +141,7 @@ struct SurfaceMachineIDDeviceEncodingTests {
         #expect(lines.contains { $0.contains("cmux cannot reach the Cloud service") })
         #expect(!lines.contains { $0.contains("cloud_api_unavailable") })
 
-        let fallbackLines = CMUXCLI.vmTreeLines(
+        let fallbackLines = CmuxTuiRemoteRouting.vmTreeLines(
             machine: [
                 "id": "brave-otter",
                 "status": "running",

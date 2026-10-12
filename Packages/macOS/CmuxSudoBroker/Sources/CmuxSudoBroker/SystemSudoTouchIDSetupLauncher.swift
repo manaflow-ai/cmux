@@ -2,10 +2,19 @@ import Darwin
 import Foundation
 
 /// Runs the bundled PAM setup script through the user's interactive sudo terminal.
+///
+/// The bundle path is never handed to the root shell directly: sudo runs the fixed staging
+/// program, which copies the script into a root-owned directory and verifies its sealed digest.
 struct SystemSudoTouchIDSetupLauncher: SudoTouchIDSetupLaunching {
-    func run(helperURL: URL) throws -> Int32 {
+    var staging = SudoHelperStagingCommand()
+
+    func run(helper: SudoVerifiedHelper) throws -> Int32 {
         let executable = "/usr/bin/sudo"
-        let arguments = [executable, "/bin/bash", helperURL.standardizedFileURL.path]
+        let arguments = [executable] + staging.arguments(
+            helper: helper,
+            failureMarker: Data(),
+            helperArguments: []
+        )
         let environment = SudoProcessEnvironment().entries
         var processIdentifier: Int32 = 0
         let status = try withCStringArray(arguments) { arguments in

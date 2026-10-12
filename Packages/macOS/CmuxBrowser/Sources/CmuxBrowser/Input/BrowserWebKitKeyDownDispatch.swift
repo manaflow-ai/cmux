@@ -36,8 +36,24 @@ public final class BrowserNativeInputDeliveryOwner {
 
     func withDispatch<T>(_ body: () -> T) -> T {
         dispatchDepth += 1
-        defer { dispatchDepth = max(0, dispatchDepth - 1) }
+        Self.activeDispatchCount += 1
+        defer {
+            dispatchDepth = max(0, dispatchDepth - 1)
+            Self.activeDispatchCount = max(0, Self.activeDispatchCount - 1)
+        }
         return body()
+    }
+
+    /// Native key deliveries in progress in any web view.
+    private static var activeDispatchCount = 0
+
+    /// Whether any web view is delivering an automated key right now. WebKit's
+    /// resend of an unhandled key runs on a later turn, outside every delivery.
+    public static var isAnyDispatchActive: Bool { activeDispatchCount > 0 }
+
+    /// Key codes of modifiers currently held by automation.
+    public var heldModifierKeyCodes: [UInt16] {
+        Array(heldModifierKeys.keys)
     }
 
     public func setModifier(_ modifier: BrowserKeyboardNativeModifiers, for keyCode: UInt16) {
@@ -118,12 +134,26 @@ extension WKWebView {
             forBrowserNativeKey: nativeKey,
             additionalModifierFlags: activeModifiers
         )
-        return replayBrowserKeyboardSpecification(
+        let result = replayBrowserKeyboardSpecification(
             specification,
             action: action,
-            characters: nativeKey.characters
+            characters: nativeKey.characters,
+            marksBrowserAutomation: true
         )
+        // WebKit leaves Command+A/C/X/V/Z to the app's Edit menu, which the
+        // resend of an automated key no longer reaches; run the command on
+        // this web view, as the REPL does, never on the key window.
+        if result == .delivered, action != .keyUp,
+           let command = BrowserReplKeyStroke.editingCommand(code: event.code, key: event.key, flags: specification.modifierFlags),
+           Self.menuEditingCommands.contains(command) {
+            let selector = NSSelectorFromString(command)
+            if responds(to: selector) { _ = perform(selector, with: nil) }
+        }
+        return result
     }
+
+    /// Edit menu commands `cmux browser press` runs on the web view itself.
+    static let menuEditingCommands: Set<String> = ["selectAll:", "copy:", "cut:", "paste:", "undo:", "redo:"]
 
     /// Delivers an already-resolved AppKit key specification. The mobile
     /// browser stream and socket automation both use this seam so key-down
@@ -133,25 +163,34 @@ extension WKWebView {
     ///   - specification: AppKit key-code and modifier metadata.
     ///   - action: Whether to send a press, key-down, or key-up.
     ///   - characters: Optional Unicode text to attach to the event.
+    ///   - marksBrowserAutomation: Marks the events as automation's
+    ///     (``NSEvent/isBrowserAutomationKeyEvent``) so the app drops WebKit's
+    ///     resend of one no page handled. The REPL and `cmux browser press`
+    ///     mark their keys; the mobile browser stream, a person's keys from a
+    ///     phone, does not, so its unhandled Command shortcuts still reach the
+    ///     Mac's menus.
     /// - Returns: The native delivery outcome.
     @discardableResult
     public func replayBrowserKeyboardSpecification(
         _ specification: SyntheticKeySpecification,
         action: BrowserKeyboardAction,
-        characters: String? = nil
+        characters: String? = nil,
+        marksBrowserAutomation: Bool = false
     ) -> BrowserKeyboardReplayResult {
         let timestamp = ProcessInfo.processInfo.systemUptime
         let down = SyntheticKeyEventFactory.keyEvent(
             specification: specification,
             keyDown: true,
             timestamp: timestamp,
-            characters: characters
+            characters: characters,
+            marksBrowserAutomation: marksBrowserAutomation
         )
         let up = SyntheticKeyEventFactory.keyEvent(
             specification: specification,
             keyDown: false,
             timestamp: timestamp,
-            characters: characters
+            characters: characters,
+            marksBrowserAutomation: marksBrowserAutomation
         )
 
         switch action {
@@ -213,6 +252,14 @@ extension WKWebView {
             .OBJC_ASSOCIATION_RETAIN_NONATOMIC
         )
         return owner
+    }
+
+    func replayBrowserNativeModifier(
+        _ key: BrowserKeyboardNativeKey,
+        keyDown: Bool
+    ) -> BrowserKeyboardReplayResult {
+        guard let modifierKey = key.modifierKey else { return .unsupported }
+        return replayBrowserModifier(key, modifierKey: modifierKey, action: keyDown ? .keyDown : .keyUp)
     }
 
     private func replayBrowserModifier(
@@ -290,5 +337,30 @@ extension WKWebView {
         case .function: return .function
         default: return nil
         }
+    }
+}
+
+/// Keys browser automation (the REPL, `cmux browser press`) delivers to a
+/// web view; the mobile browser stream's keys, a person's, are not marked. When no page handles such a key,
+/// WebKit sends it back through `NSApp.sendEvent` (WebViewImpl's
+/// doneWithKeyEvent), which hands it to the key window: the user's window,
+/// whose first responder (a terminal) would receive the text and whose menus
+/// would run Command shortcuts. The page has already received the key, so the
+/// app drops that resend (``isResentBrowserAutomationKeyEvent``).
+extension NSEvent {
+    /// `CGEventField.eventSourceUserData` of an automated browser key ("cmuxkeys").
+    static let browserAutomationKeyMark: Int64 = 0x636D_7578_6B65_7973
+
+    /// Whether browser automation created this key event for a web view.
+    public var isBrowserAutomationKeyEvent: Bool {
+        guard type == .keyDown || type == .keyUp || type == .flagsChanged, let cgEvent else { return false }
+        return cgEvent.getIntegerValueField(.eventSourceUserData) == Self.browserAutomationKeyMark
+    }
+
+    /// Whether this is an automated browser key reaching the app outside the
+    /// web view's own delivery: WebKit's resend of a key no page handled.
+    @MainActor
+    public var isResentBrowserAutomationKeyEvent: Bool {
+        isBrowserAutomationKeyEvent && !BrowserNativeInputDeliveryOwner.isAnyDispatchActive
     }
 }

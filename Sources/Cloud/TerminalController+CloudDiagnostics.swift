@@ -42,7 +42,7 @@ extension TerminalController {
                     try await context.withPhase(.operation, work)
                 }
             }
-            return try await recorder.perform(.resolve(method), foreground: !["vm.list", "vm.status", "vm.stats"].contains(method), work)
+            return try await recorder.perform(.resolve(method), foreground: !["vm.list", "vm.status", "vm.stats", "vm.network_get", "vm.agent_updates_get"].contains(method), work)
         }
     }
 }

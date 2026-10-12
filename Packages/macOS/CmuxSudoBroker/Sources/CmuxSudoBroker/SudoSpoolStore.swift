@@ -266,7 +266,8 @@ struct SudoSpoolStore {
                 directoryIdentity: try SudoDirectoryIdentity(
                     path: pending.request.currentDirectory
                 ),
-                deadline: pending.request.approvalDeadline.addingTimeInterval(executionGraceSeconds)
+                deadline: pending.request.approvalDeadline.addingTimeInterval(executionGraceSeconds),
+                reviewedScriptSHA256: SudoSHA256.hex(Data(pending.script.utf8))
             )
             let scriptData = Data(pending.script.utf8)
             let existingApprovedData = try? readData(

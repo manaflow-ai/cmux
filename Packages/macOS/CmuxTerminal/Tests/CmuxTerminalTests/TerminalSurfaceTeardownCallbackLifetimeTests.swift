@@ -211,6 +211,48 @@ import Testing
         #expect(await recorder.waitForEventCount(1), "timed out waiting for native free")
     }
 
+    @Test func explicitTeardownReleasesUnusedAgentHibernationReservation() {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let slotCount = TerminalSurfaceRuntimeTeardownCoordinator
+            .maximumIsolatedHibernationTeardownCount
+        var closedSurfaces: [TerminalSurface] = []
+        for _ in 0..<slotCount {
+            let surface = makeSurface(runtimeTeardown: coordinator)
+            #expect(surface.reserveAgentHibernationRuntimeTeardown())
+            // The terminal is closed while hibernation is still waiting for
+            // the agent to exit, so the reservation is never consumed.
+            surface.teardownSurface()
+            closedSurfaces.append(surface)
+        }
+
+        let nextSurface = makeSurface(runtimeTeardown: coordinator)
+        #expect(nextSurface.reserveAgentHibernationRuntimeTeardown())
+        nextSurface.cancelAgentHibernationRuntimeTeardownReservation()
+        withExtendedLifetime(closedSurfaces) {}
+    }
+
+    @Test func deinitReleasesUnusedAgentHibernationReservation() async {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let slotCount = TerminalSurfaceRuntimeTeardownCoordinator
+            .maximumIsolatedHibernationTeardownCount
+        for _ in 0..<slotCount {
+            var surface: TerminalSurface? = makeSurface(runtimeTeardown: coordinator)
+            #expect(surface?.reserveAgentHibernationRuntimeTeardown() == true)
+            surface = nil
+        }
+
+        // deinit is nonisolated, so the release lands on a later main-actor turn.
+        let nextSurface = makeSurface(runtimeTeardown: coordinator)
+        var reserved = false
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !reserved, ContinuousClock.now < deadline {
+            reserved = nextSurface.reserveAgentHibernationRuntimeTeardown()
+            if !reserved { try? await Task.sleep(for: .milliseconds(10)) }
+        }
+        #expect(reserved)
+        nextSurface.cancelAgentHibernationRuntimeTeardownReservation()
+    }
+
     @Test func agentHibernationEndsCurrentTerminalProcessGeneration() {
         let registry = TerminalSurfaceRegistry()
         let surface = makeSurface(registry: registry)

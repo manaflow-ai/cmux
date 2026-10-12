@@ -8,7 +8,7 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const urls = recentlyModifiedUrls(sitemap(), new Date());
+  const urls = recentlyModifiedUrls(await sitemap(), new Date());
   if (urls.length === 0) {
     return Response.json({ ok: true, submitted: 0 });
   }

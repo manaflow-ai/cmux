@@ -113,6 +113,27 @@ extension TerminalSurface {
         protectedKeys.insert("CMUX_NO_PR_WATCH")
     }
 
+    /// The Claude integration flag and per-surface agent shim keys exported to a spawn.
+    ///
+    /// `cmux claude-teams` installs its tmux shim in a directory named from this
+    /// contract: the Claude wrapper root when the integration is on, otherwise
+    /// `CMUX_AGENT_COMMAND_SHIM_ROOT` with `CMUX_CLAUDE_INTEGRATION_DISABLED=1`.
+    /// The flag is always exported so an inherited value cannot stand in for it
+    /// (#17571).
+    public static func agentCommandShimEnvironment(
+        claudeIntegrationEnabled: Bool,
+        agentCommandShims: AgentCommandShimSet?
+    ) -> [String: String] {
+        var environment = ["CMUX_CLAUDE_INTEGRATION_DISABLED": claudeIntegrationEnabled ? "0" : "1"]
+        guard let agentCommandShims else { return environment }
+        environment["CMUX_AGENT_COMMAND_SHIM_ROOT"] = agentCommandShims.directoryPath
+        for shim in agentCommandShims.shims {
+            environment[shim.wrapperShimEnvironmentKey] = shim.executablePath
+            environment[shim.wrapperShimRootEnvironmentKey] = shim.directoryPath
+        }
+        return environment
+    }
+
     /// Prepends `directory` to a `PATH`-style string exactly once.
     public static func pathByPrependingUniqueDirectory(_ directory: String, to path: String) -> String {
         CmuxPathEnvironment().prependingUniqueDirectory(directory, to: path)

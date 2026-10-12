@@ -191,6 +191,7 @@ public actor CloudMachineLink {
         sshArguments: [String] = [],
         wireguardHubSocket: String? = nil,
         ssh: SSHTuiConnection? = nil,
+        sshUpgrade: Bool = false,
         releaseHubLease: (@Sendable () async -> Void)? = nil
     ) async throws -> Connected {
         if let connected, state == .connected {
@@ -210,7 +211,8 @@ public actor CloudMachineLink {
         process.executableURL = clientURL
         process.arguments = ssh?.arguments(
             stateDirectory: paths.stateDir.path,
-            deviceName: CloudTuiClientPaths.deviceName()
+            deviceName: CloudTuiClientPaths.deviceName(),
+            upgrade: sshUpgrade
         ) ?? CloudTuiCommandLine.linkArguments(
             route: route,
             deviceName: CloudTuiClientPaths.deviceName(),
@@ -220,9 +222,9 @@ public actor CloudMachineLink {
             session: route.hasPrefix("ssh://") ? session : nil,
             sshArguments: sshArguments
         )
-        var environment = ProcessInfo.processInfo.environment
+        var environment = ssh?.sshProcessEnvironment
+            ?? ProcessInfo.processInfo.environment
         environment["CMUX_REMOTE_STATE_DIR"] = paths.stateDir.path
-        if let ssh { environment = environment.merging((ssh.configuration.sshProcessEnvironment ?? [:])) { _, new in new } }
         process.environment = environment
         let stdout = Pipe()
         let stderr = Pipe()
@@ -438,6 +440,16 @@ public actor CloudMachineLink {
         try await CloudOperationContext.phase(.process) {
             let channel = try await self.controlConnection()
             return try await channel.request(arguments, timeout: timeout)
+        }
+    }
+
+    /// Sends a request on the authenticated persistent channel without waiting
+    /// for its response. This is used for PTY input whose ordering and echo are
+    /// owned by the remote terminal itself.
+    public func sendUntrackedTuiCommand(arguments: CloudTuiRequest) async throws {
+        try await CloudOperationContext.phase(.process) {
+            let channel = try await self.controlConnection()
+            try await channel.sendUntracked(arguments)
         }
     }
 

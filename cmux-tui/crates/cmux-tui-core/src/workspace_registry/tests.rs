@@ -1,5 +1,7 @@
+use super::journal_extensions::JOURNAL_LIST_MAX_ITEMS;
 use super::*;
 use crate::resource::FrontendProjectionPublicId;
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
 const TERMINAL_ONE: &str = "00000000000040008000000000000001";
@@ -35,6 +37,99 @@ fn seed_workspace(registry: &mut WorkspaceRegistry, key: &str) {
             &json!({"key":key}),
         )
         .unwrap();
+}
+
+fn test_digest_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+#[test]
+fn journal_lists_are_bounded_by_the_resource_catalog() {
+    let registry = WorkspaceRegistry::in_memory("journal-list-bounds").unwrap();
+    for sequence in 1..=(JOURNAL_LIST_MAX_ITEMS + 1) {
+        let digest_input = json!({
+            "source_sequence": sequence.to_string(),
+            "reducer_version": 1,
+            "state": {},
+            "content_refs": [],
+        });
+        let digest = Sha256::digest(canonical_json(&digest_input).unwrap().as_bytes());
+        let checkpoint_id = format!("checkpoint_{}", test_digest_hex(&digest));
+        registry
+            .connection
+            .execute(
+                "INSERT INTO journal_checkpoints(
+                   checkpoint_id, source_sequence, reducer_version, state_json,
+                   content_refs_json, sha256, created_at_ms
+                 ) VALUES(?1, ?2, 1, '{}', '[]', ?3, ?4)",
+                params![checkpoint_id, sequence as i64, digest.as_slice(), sequence as i64],
+            )
+            .unwrap();
+
+        let segment_digest = Sha256::digest(format!("segment-{sequence}").as_bytes());
+        registry
+            .connection
+            .execute(
+                "INSERT INTO journal_segments(
+                   segment_id, start_sequence, end_sequence, record_count, codec,
+                   content, uncompressed_bytes, sha256, sealed_at_ms
+                 ) VALUES(?1, ?2, ?3, 1, 'gzip', X'01', 1, ?4, ?5)",
+                params![
+                    format!("segment-{sequence}"),
+                    (sequence * 2 - 1) as i64,
+                    (sequence * 2) as i64,
+                    segment_digest.as_slice(),
+                    sequence as i64,
+                ],
+            )
+            .unwrap();
+    }
+
+    let checkpoints = registry.journal_checkpoints().unwrap();
+    assert_eq!(checkpoints.len(), JOURNAL_LIST_MAX_ITEMS);
+    assert_eq!(checkpoints[0].source_sequence, (JOURNAL_LIST_MAX_ITEMS + 1) as u64);
+
+    let segments = registry.journal_segments().unwrap();
+    assert_eq!(segments.len(), JOURNAL_LIST_MAX_ITEMS);
+    assert_eq!(segments[0].start_sequence, 1);
+}
+
+#[test]
+fn existing_registry_migrates_to_incremental_journal_vacuum_once() {
+    let root = temp_root("journal-auto-vacuum-migration");
+    let database = {
+        let registry = WorkspaceRegistry::open(&root, "journal-auto-vacuum").unwrap();
+        let database = registry.session_journal_database_path().unwrap();
+        registry
+            .connection
+            .execute("DELETE FROM meta WHERE key = ?1", [JOURNAL_AUTO_VACUUM_META_KEY])
+            .unwrap();
+        database
+    };
+
+    // Model a registry written before journal maintenance opted into
+    // incremental auto-vacuum.
+    let legacy = Connection::open(&database).unwrap();
+    legacy.execute_batch("PRAGMA auto_vacuum=NONE; VACUUM;").unwrap();
+    drop(legacy);
+
+    let reopened = WorkspaceRegistry::open(&root, "journal-auto-vacuum").unwrap();
+    let mode = reopened
+        .connection
+        .query_row("PRAGMA auto_vacuum", [], |row| row.get::<_, i64>(0))
+        .unwrap();
+    assert_eq!(mode, 0, "legacy migration must not rewrite the registry during open");
+    assert!(meta_value(&reopened.connection, JOURNAL_AUTO_VACUUM_META_KEY).unwrap().is_none());
+    assert!(reopened.migrate_journal_auto_vacuum().unwrap());
+    let mode = reopened
+        .connection
+        .query_row("PRAGMA auto_vacuum", [], |row| row.get::<_, i64>(0))
+        .unwrap();
+    assert_eq!(mode, 2);
+    assert_eq!(required_meta(&reopened.connection, JOURNAL_AUTO_VACUUM_META_KEY).unwrap(), "1");
+    assert!(!reopened.migrate_journal_auto_vacuum().unwrap());
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[cfg(windows)]

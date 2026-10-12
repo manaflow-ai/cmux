@@ -1008,7 +1008,12 @@ extension CMUXCLI {
     /// their own usage fall back to the family text.
     static func vmVerbUsage(_ verb: String) -> String? {
         switch verb.lowercased() {
+        case "new", "create": return vmNewUsage
+        case "ls", "list": return vmListUsage
+        case "ports": return vmPortsUsage
         case "resize": return vmResizeUsage
+        case "network": return vmNetworkUsage
+        case "agent-updates": return vmAgentUpdatesUsage
         case "layout": return vmLayoutUsage
         case "env": return vmEnvUsage
         case "workspace": return vmWorkspaceUsage

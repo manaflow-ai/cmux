@@ -1,8 +1,10 @@
+import * as Effect from "effect/Effect";
 import { preconnectCloudDb } from "../../../../../db/client";
 import { preconnectFreestyle } from "../../../../../services/vms/drivers/freestyle";
 import {
   jsonResponse,
   resolveVmRouteAccountScope,
+  runAfterResponse,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
@@ -73,6 +75,8 @@ export async function POST(
           deviceFingerprint,
           clientCapabilities,
           callerPlanId: account.entitlements.planId,
+          // An opted-in machine's agent-update exec runs after the response.
+          deferAfterResponse: (work) => runAfterResponse(() => Effect.runPromise(work)),
           modelPlane: vmModelPlaneRevoker(),
         }), { request });
         if (!run.ok) return run.response;

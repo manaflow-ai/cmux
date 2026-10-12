@@ -15,6 +15,51 @@ struct SidebarWorkspaceSnapshotFactory {
     let workspace: Workspace
     let settings: SidebarTabItemSettingsSnapshot
     let showsAgentActivity: Bool
+    /// Resolved per-host origin color (hex), or nil when the beta flag is off or
+    /// the workspace has no host. Resolved by the caller above the row boundary
+    /// and passed in as a plain value; a manual `workspace.customColor` still wins.
+    var originColorHex: String? = nil
+    /// Remote host to name after the title because another workspace shares it (beta), else nil.
+    /// Resolved by the caller over the whole workspace list, since it depends on the other titles.
+    var hostTitleSuffix: String? = nil
+    let catalog: SurfaceCatalog
+
+    /// Builds snapshots from the app's shared surface catalog.
+    @MainActor
+    init(
+        workspace: Workspace,
+        settings: SidebarTabItemSettingsSnapshot,
+        showsAgentActivity: Bool,
+        originColorHex: String? = nil,
+        hostTitleSuffix: String? = nil
+    ) {
+        self.init(
+            workspace: workspace,
+            settings: settings,
+            showsAgentActivity: showsAgentActivity,
+            originColorHex: originColorHex,
+            hostTitleSuffix: hostTitleSuffix,
+            catalog: SurfaceCatalog.shared
+        )
+    }
+
+    /// Builds snapshots from an explicit catalog, including isolated test catalogs.
+    @MainActor
+    init(
+        workspace: Workspace,
+        settings: SidebarTabItemSettingsSnapshot,
+        showsAgentActivity: Bool,
+        originColorHex: String? = nil,
+        hostTitleSuffix: String? = nil,
+        catalog: SurfaceCatalog
+    ) {
+        self.workspace = workspace
+        self.settings = settings
+        self.showsAgentActivity = showsAgentActivity
+        self.originColorHex = originColorHex
+        self.hostTitleSuffix = hostTitleSuffix
+        self.catalog = catalog
+    }
 
     /// Creates the current immutable presentation snapshot for the workspace row.
     func makeSnapshot() -> SidebarWorkspaceSnapshotBuilder.Snapshot {
@@ -26,7 +71,14 @@ struct SidebarWorkspaceSnapshotFactory {
         let showsBranchDirectoryRows = detailVisibility.showsBranchDirectory && !settings.compactsAgentStatus
         let showsPullRequestRows = detailVisibility.showsPullRequests && !settings.compactsAgentStatus
         let orderedPanelIds = workspace.sidebarOrderedPanelIds()
-        let cloud = CloudWorkspaceSidebarPresentation(workspace: workspace, orderedPanelIDs: orderedPanelIds, usesLastSegmentPath: settings.usesLastSegmentPath)
+        let cloud = CloudWorkspaceSidebarPresentation(
+            workspace: workspace,
+            orderedPanelIDs: orderedPanelIds,
+            usesLastSegmentPath: settings.usesLastSegmentPath,
+            catalog: catalog
+        )
+        let hasCloudProjection = workspace.cloudVMID != nil
+            || workspace.cloudBindingState.projectedResources.values.contains { $0.machine.cloudMachineID != nil }
         let taskStatusInput = SidebarWorkspaceTaskStatusSnapshot.capture(workspace: workspace, orderedPanelIds: orderedPanelIds)
         let compactGitBranchSummaryText: String? = {
             guard showsBranchDirectoryRows,
@@ -41,7 +93,7 @@ struct SidebarWorkspaceSnapshotFactory {
                   settings.branchDirectory.branchLayout == .inline else {
                 return []
             }
-            return cloud?.directoryCandidates ?? compactDirectoryCandidatesList(orderedPanelIds: orderedPanelIds)
+            return cloud?.directoryCandidates ?? (hasCloudProjection ? [] : compactDirectoryCandidatesList(orderedPanelIds: orderedPanelIds))
         }()
         let compactBranchDirectoryCandidates = compactBranchDirectoryCandidatesList(
             gitSummary: compactGitBranchSummaryText,
@@ -53,6 +105,7 @@ struct SidebarWorkspaceSnapshotFactory {
                 return []
             }
             if let cloud { return [.init(branch: nil, directoryCandidates: cloud.directoryCandidates)] }
+            if hasCloudProjection { return [] }
             return verticalBranchDirectoryLines(orderedPanelIds: orderedPanelIds)
         }()
         let pullRequestRows: [SidebarWorkspaceSnapshotBuilder.PullRequestDisplay] = {
@@ -95,7 +148,7 @@ struct SidebarWorkspaceSnapshotFactory {
                 // The directory toggle itself, like the branch and PR ones, so
                 // the tooltip keeps it under Hide All Details.
                 directory: settings.details.showBranchDirectory
-                    ? (cloud?.directoryCandidates ?? compactDirectoryCandidatesList(orderedPanelIds: orderedPanelIds)).first
+                    ? (cloud?.directoryCandidates ?? (hasCloudProjection ? [] : compactDirectoryCandidatesList(orderedPanelIds: orderedPanelIds))).first
                     : nil,
                 orderedPanelIds: orderedPanelIds
             ))
@@ -106,7 +159,10 @@ struct SidebarWorkspaceSnapshotFactory {
             customDescription: settings.showsWorkspaceDescription ? visibleCustomDescription : nil,
             isPinned: workspace.isPinned,
             isMuted: workspace.isMuted,
-            customColorHex: workspace.customColor,
+            // A manual workspace color always wins; the per-host origin color
+            // (nil when the flag is off) is the fallback.
+            customColorHex: workspace.customColor ?? originColorHex,
+            hasManualCustomColor: workspace.customColor != nil,
             cloudWorkspaceLabel: cloud?.isDeviceWorkspace == true ? nil : cloud?.machineLabel,
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
@@ -155,17 +211,27 @@ struct SidebarWorkspaceSnapshotFactory {
             checklistFirstUncheckedText: checklistProgress.firstUncheckedText,
             taskStatusInput: taskStatusInput,
             deviceWorkspaceLabel: cloud?.deviceLabel,
-            compactStatusGlyph: compactStatusGlyph
+            compactStatusGlyph: compactStatusGlyph,
+            hostTitleSuffix: hostTitleSuffix
         )
     }
 
     private var presentationKey: SidebarWorkspaceSnapshotBuilder.PresentationKey {
-        Self.presentationKey(settings: settings, showsAgentActivity: showsAgentActivity)
+        Self.presentationKey(
+            settings: settings,
+            showsAgentActivity: showsAgentActivity,
+            customColorHex: workspace.customColor ?? originColorHex,
+            hasManualCustomColor: workspace.customColor != nil,
+            hostTitleSuffix: hostTitleSuffix
+        )
     }
 
     static func presentationKey(
         settings: SidebarTabItemSettingsSnapshot,
-        showsAgentActivity: Bool
+        showsAgentActivity: Bool,
+        customColorHex: String?,
+        hasManualCustomColor: Bool = false,
+        hostTitleSuffix: String? = nil
     ) -> SidebarWorkspaceSnapshotBuilder.PresentationKey {
         SidebarWorkspaceSnapshotBuilder.PresentationKey(
             showsWorkspaceDescription: settings.showsWorkspaceDescription,
@@ -175,7 +241,10 @@ struct SidebarWorkspaceSnapshotFactory {
             showsAgentActivity: showsAgentActivity,
             compactsAgentStatus: settings.compactsAgentStatus,
             compactStatusIcons: settings.compactStatusIcons,
-            visibleAuxiliaryDetails: settings.visibleAuxiliaryDetails
+            visibleAuxiliaryDetails: settings.visibleAuxiliaryDetails,
+            customColorHex: customColorHex,
+            hasManualCustomColor: hasManualCustomColor,
+            hostTitleSuffix: hostTitleSuffix
         )
     }
 

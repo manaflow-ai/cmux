@@ -300,12 +300,13 @@ function coalesceWarm(run: () => Promise<void>): () => Promise<void> {
  * first success a no-op for the life of the process, so calling it ahead of
  * auth cannot amplify an unauthenticated burst beyond one pooled connection.
  */
-export function preconnectCloudDb(): void {
+export function preconnectCloudDb(): Promise<void> {
   try {
     cloudDb();
-    void globalForDb.__cmuxCloudDb?.warm().catch(() => undefined);
+    return globalForDb.__cmuxCloudDb?.warm().catch(() => undefined) ?? Promise.resolve();
   } catch {
     // No database configured (tests, offline builds): the first query reports it.
+    return Promise.resolve();
   }
 }
 

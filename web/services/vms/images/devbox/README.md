@@ -47,6 +47,20 @@ tags and packages the image does not bake; the chatmux devbox template
 (`chatmux:infra/sandbox-images/Dockerfile`) is bumped by hand in its own
 repo to keep the parity the header describes.
 
+A machine can instead keep its agents current: with `agentUpdates: "latest"`
+(New Machine's "Keep coding agents up to date", checked by default in the
+sheet, `cmux vm agent-updates <vm> latest`, or `PUT /api/vm/{id}/agent-updates`),
+create and each attach start a detached updater
+(`web/services/vms/guestAgentUpdates.ts`). It never uses npm: for every agent
+it reads the tool's GitHub releases (`web/services/vms/images/agents.ts`) and
+installs the newest x.y.z release that has been public for 3 days and is not
+above the latest release, after checking the download's sha256, at most once a
+day and never as a downgrade. On a machine baked with the npm pins above, the
+first update moves each agent to its standalone release and removes the npm
+copy once no process uses it. Outcome in `/etc/cmux/agent-updates.state`, log
+in `/var/log/cmux-agent-updates.log`. Moving the image recipe itself off npm
+needs a rebake and lands separately.
+
 Two invariants keep the checked-in manifest describing the machine users get
 (`devboxSourceDriftProblems` in `devbox-image-common.ts`, run by
 `devbox:manifest:check`, `vm-image-manifest.test.ts` and `promote` before it
@@ -304,6 +318,23 @@ supervisor and waits for a driver install.
 
 Shells spawned by the daemon get the bash devshell (ble.sh ghost text,
 half-life prompt, seeded history) through the `/etc/bash.bashrc` chain.
+
+The bake also fully allocates a 1 GiB ext4 image at
+`/var/lib/cmux/cmux-tui-state.ext4` and mounts it at the daemon's
+`~/.local/state/cmux-tui` directory before the daemon starts. This gives the
+SQLite registry and journal a reserved filesystem even when general-purpose
+files fill the root filesystem. When the state filesystem falls below its
+headroom threshold, the helper doubles the image online up to 8 GiB, provided
+the root filesystem keeps its safety reserve; a failed or unsafe growth leaves
+the daemon deferred rather than starting against a full database filesystem.
+The image consumes space from the existing root disk; it does not change the
+Freestyle VM size or the image ladder. The bake writes a reservation marker
+only after the image is fully created and seeded. The boot supervisor reads
+that marker and requires the marker, helper, image, and mount after a snapshot
+resume before starting cmux-tui. If any of those checks fail, startup is
+deferred instead of falling back to the root filesystem. Older images without
+the marker continue using their existing state layout until they are replaced
+or upgraded with `bun scripts/upgrade-fleet-cmux-tui.ts`.
 
 ## Sizes: one bake, one snapshot per size
 

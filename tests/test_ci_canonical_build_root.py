@@ -14,6 +14,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ci" / "compile-app-host-test-product.sh"
+ROOT_SCRIPT = ROOT / "scripts" / "ci" / "canonical-build-root.sh"
 
 # The two layouts observed in CI. One underscore is the whole difference, and
 # it was enough to give the nightly seed and pull-request admission different
@@ -113,6 +114,84 @@ class CanonicalFingerprintTests(unittest.TestCase):
         old = self._fp(f"{root}/src", f"{root}/derived-data-compile-admission", xcode="Xcode 26.3", root=root)
         new = self._fp(f"{root}/src", f"{root}/derived-data-compile-admission", xcode="Xcode 27.0", root=root)
         self.assertNotEqual(old, new)
+
+    def test_self_hosted_runners_get_distinct_roots(self):
+        roots = []
+        with tempfile.TemporaryDirectory() as fleet_dir:
+            for name in ("aws-m4pro-9-glaeda", "aws-m4pro-9-glaeda-1"):
+                result = subprocess.run(
+                    [str(ROOT_SCRIPT), "--print-root"],
+                    env={"PATH": "/usr/bin:/bin", "RUNNER_ENVIRONMENT": "self-hosted", "RUNNER_NAME": name,
+                         "CMUX_CI_CANONICAL_ROOT_HELPER": "/nonexistent/glaeda-canonical-root",
+                         "CMUX_CI_FLEET_DIR": fleet_dir},
+                    text=True,
+                    capture_output=True,
+                    check=True,
+                )
+                roots.append(result.stdout.strip())
+        self.assertEqual(roots, [
+            "/private/tmp/cmux-ci-aws-m4pro-9-glaeda",
+            "/private/tmp/cmux-ci-aws-m4pro-9-glaeda-1",
+        ])
+
+    def test_an_ephemeral_self_hosted_runner_keeps_the_shared_default(self):
+        # Blacksmith macOS runners report RUNNER_ENVIRONMENT=self-hosted but run
+        # one job per VM and are not fleet Macs. A per-runner root there made
+        # every build start cold and every seed unadoptable (job 111334766861).
+        result = subprocess.run(
+            [str(ROOT_SCRIPT), "--print-root"],
+            env={"PATH": "/usr/bin:/bin", "RUNNER_ENVIRONMENT": "self-hosted",
+                 "RUNNER_NAME": "blacksmith-12vcpu-macos-26-abc123",
+                 "CMUX_CI_CANONICAL_ROOT_HELPER": "/nonexistent/glaeda-canonical-root",
+                 "CMUX_CI_FLEET_DIR": "/nonexistent/cmux-build-fleet"},
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        self.assertEqual(result.stdout.strip(), "/private/tmp/cmux-ci")
+
+    def test_glaeda_managed_runner_keeps_the_hooks_canonical_root(self):
+        # glaeda's runner hook already isolates roots per job and exports one
+        # (/private/tmp/cmux-ci for root 1, /private/tmp/cmux-ci-N otherwise);
+        # `glaeda-canonical-root take` rejects anything else, so a per-runner
+        # root here fails the job before it builds (main compile probe run
+        # 37157423969).
+        with tempfile.TemporaryDirectory() as tmp:
+            helper = Path(tmp) / "glaeda-canonical-root"
+            helper.write_text("#!/bin/sh\nexit 0\n")
+            helper.chmod(0o755)
+            base_env = {"PATH": "/usr/bin:/bin", "RUNNER_ENVIRONMENT": "self-hosted",
+                        "RUNNER_NAME": "cmux13s-mac-mini-glaeda", "CMUX_CI_CANONICAL_ROOT_HELPER": str(helper)}
+            for exported, expected in (
+                (None, "/private/tmp/cmux-ci"),
+                ("/private/tmp/cmux-ci", "/private/tmp/cmux-ci"),
+                ("/private/tmp/cmux-ci-2", "/private/tmp/cmux-ci-2"),
+            ):
+                env = dict(base_env)
+                if exported is not None:
+                    env["CMUX_CI_CANONICAL_ROOT"] = exported
+                with self.subTest(exported=exported):
+                    result = subprocess.run(
+                        [str(ROOT_SCRIPT), "--print-root"], env=env, text=True, capture_output=True, check=True)
+                    self.assertEqual(result.stdout.strip(), expected)
+
+    def test_hosted_runner_keeps_the_shared_default_and_override_wins(self):
+        hosted = subprocess.run(
+            [str(ROOT_SCRIPT), "--print-root"],
+            env={"PATH": "/usr/bin:/bin", "RUNNER_ENVIRONMENT": "github", "RUNNER_NAME": "GitHub Actions 42"},
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        self.assertEqual(hosted.stdout.strip(), "/private/tmp/cmux-ci")
+        override = subprocess.run(
+            [str(ROOT_SCRIPT), "--print-root"],
+            env={"PATH": "/usr/bin:/bin", "RUNNER_ENVIRONMENT": "self-hosted", "RUNNER_NAME": "aws-m4pro-9-glaeda-1", "CMUX_CI_CANONICAL_ROOT": "/private/tmp/custom"},
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        self.assertEqual(override.stdout.strip(), "/private/tmp/custom")
 
 
 class CanonicalRootMaterializationTests(unittest.TestCase):
@@ -468,6 +547,47 @@ class SeededBuildFileSystemModeTests(unittest.TestCase):
             capture_output=True, text=True, check=True,
         ).stdout[:32]
         self.assertNotEqual(fingerprint, old)
+
+
+class SeedGhosttyPinTests(unittest.TestCase):
+    """A DerivedData seed bakes in the GhosttyKit it compiled against.
+
+    Xcode keeps its processed copy of the prebuilt GhosttyKit.xcframework in
+    DerivedData, so a pull request that adopted a nightly seed from before
+    #19443's ghostty bump compiled against the old headers ("cannot find
+    ghostty_surface_set_link_filter") while main's own CI passed. The ghostty
+    pin is part of the fingerprint every seed and cache key carries.
+    """
+
+    def fingerprint(self, base: Path, ghostty: str, name: str = "checkout") -> str:
+        workspace = base / f"{name}-{ghostty[:4]}"
+        workspace.mkdir(parents=True)
+        git = ["git", "-C", str(workspace)]
+        subprocess.run(git + ["init", "-q"], check=True)
+        subprocess.run(git + ["update-index", "--add", "--cacheinfo", f"160000,{ghostty},ghostty"], check=True)
+        subprocess.run(git + ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "pin"], check=True)
+        bin_dir = base / "bin"
+        bin_dir.mkdir(exist_ok=True)
+        xcode = bin_dir / "xcodebuild"
+        xcode.write_text("#!/bin/sh\necho 'Xcode 26.3'\n")
+        xcode.chmod(0o755)
+        root = base / "canonical"
+        root.mkdir(exist_ok=True)
+        env = dict(os.environ, PATH=f"{bin_dir}:" + os.environ["PATH"], CMUX_CI_CANONICAL_ROOT=str(root))
+        result = subprocess.run([str(SCRIPT), "canonical-fingerprint", str(root / "derived-data-compile-admission")],
+                                cwd=workspace, env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout.strip()
+
+    def test_a_ghostty_bump_changes_the_seed_fingerprint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            before = self.fingerprint(base, "1" * 40)
+            after = self.fingerprint(base, "2" * 40)
+            again = self.fingerprint(base, "2" * 40, name="another-checkout")
+        self.assertRegex(before, r"^[0-9a-f]{32}$")
+        self.assertNotEqual(before, after)
+        self.assertEqual(after, again)
 
 
 class BuildEnvironmentTests(SeededBuildFileSystemModeTests):

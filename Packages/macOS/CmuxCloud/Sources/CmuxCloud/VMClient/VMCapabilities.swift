@@ -17,6 +17,11 @@ public struct VMCapabilities: Equatable, Sendable {
     public var persistentHome: Bool
     public var attachTransports: [String]?
 
+    /// Whether Fork can succeed. `fork` is the provider's native fork; without
+    /// one the backend forks by snapshotting the source and creating a machine
+    /// from that snapshot (the same calls Checkpoint and Restore make).
+    public var canFork: Bool { fork || (snapshot && restore) }
+
     public var ssh: Bool { attachTransports?.contains("ssh") ?? true }
     public var cmuxRemote: Bool { attachTransports?.contains("cmux-remote") ?? true }
 

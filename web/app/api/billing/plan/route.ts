@@ -36,6 +36,8 @@ export async function GET(request: NextRequest) {
       subscriptionPlanId: FREE_PLAN_ID,
       isPro: false,
       billingManagement: "none",
+      billingSource: "none",
+      manageUrl: null,
       teamPlanId: FREE_PLAN_ID,
       teamBillingManagement: "none",
       user: null,
@@ -71,6 +73,8 @@ export async function GET(request: NextRequest) {
       subscriptionPlanId: FREE_PLAN_ID,
       isPro: false,
       billingManagement: "none",
+      billingSource: "none",
+      manageUrl: null,
       teamPlanId: FREE_PLAN_ID,
       teamBillingManagement: "none",
       user: null,
@@ -92,6 +96,10 @@ export async function GET(request: NextRequest) {
     subscriptionPlanId: status.planId,
     isPro: status.isPro,
     billingManagement: status.billingManagement,
+    // Who bills the personal plan ("stripe", "apple", or "none"), and where an
+    // App Store subscriber manages it. `billingManagement` is "external" then.
+    billingSource: status.billingSource,
+    manageUrl: status.manageUrl,
     teamPlanId: teamStatus.planId,
     teamBillingManagement: teamStatus.billingManagement,
     metadataChanged: status.metadataChanged,

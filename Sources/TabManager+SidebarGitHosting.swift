@@ -191,6 +191,20 @@ extension TabManager: SidebarGitHosting {
     func mobileHostQuietDelay(for interval: TimeInterval) -> TimeInterval {
         MobileHostRequestActivity.quietDelay(for: interval)
     }
+
+    /// Reports whether the app-wide terminal input admission window is active.
+    func terminalTypingIsActive(within interval: TimeInterval) -> Bool {
+        terminalTypingQuietDelay(for: interval) > 0
+    }
+
+    /// Returns the remaining terminal input quiet period from the shared typing timestamp.
+    func terminalTypingQuietDelay(for interval: TimeInterval) -> TimeInterval {
+        guard let lastTypingActivityAt = AppDelegate.shared?.lastTypingActivityAt,
+              lastTypingActivityAt > 0 else {
+            return 0
+        }
+        return max(0, interval - (ProcessInfo.processInfo.systemUptime - lastTypingActivityAt))
+    }
 }
 
 extension SidebarPullRequestState {

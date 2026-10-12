@@ -1,3 +1,4 @@
+import CryptoKit
 import Darwin
 import Foundation
 
@@ -22,12 +23,16 @@ struct SudoPrivilegedScriptReceiver {
 
     func withReceivedDescriptor<Value>(
         expectedByteCount: Int,
+        expectedSHA256: String,
         deadline: Date = .distantFuture,
         operation: (Int32) throws -> Value
     ) throws -> Value {
         guard (0...SudoResourcePolicy.standard.maximumScriptBytes)
             .contains(expectedByteCount) else {
             throw Failure.invalidByteCount
+        }
+        guard SudoSHA256.isValidHex(expectedSHA256) else {
+            throw Failure.digestMismatch
         }
 
         var originalTerminal = termios()
@@ -49,12 +54,17 @@ struct SudoPrivilegedScriptReceiver {
         try writeAll(markers.inputReady, to: outputDescriptor)
         let descriptor = try makeAnonymousDescriptor()
         defer { Darwin.close(descriptor) }
-        try copyExactly(
+        let receivedSHA256 = try copyExactly(
             expectedByteCount,
             from: inputDescriptor,
             to: descriptor,
             deadline: deadline
         )
+        // The reviewed bytes are bound to the digest recorded at approval; any
+        // divergence in transit is refused before a root shell sees the script.
+        guard receivedSHA256 == expectedSHA256 else {
+            throw Failure.digestMismatch
+        }
         guard lseek(descriptor, 0, SEEK_SET) == 0 else {
             throw Failure.seek(errno)
         }
@@ -96,7 +106,8 @@ struct SudoPrivilegedScriptReceiver {
         from source: Int32,
         to destination: Int32,
         deadline: Date
-    ) throws {
+    ) throws -> String {
+        var hasher = SHA256()
         let originalFlags = fcntl(source, F_GETFL)
         guard originalFlags >= 0,
               fcntl(source, F_SETFL, originalFlags | O_NONBLOCK) == 0 else {
@@ -134,7 +145,9 @@ struct SudoPrivilegedScriptReceiver {
                 Darwin.read(source, bytes.baseAddress, requestedCount)
             }
             if count > 0 {
-                try writeAll(Data(buffer.prefix(count)), to: destination)
+                let chunk = Data(buffer.prefix(count))
+                hasher.update(data: chunk)
+                try writeAll(chunk, to: destination)
                 remaining -= count
             } else if count < 0, errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK {
                 continue
@@ -142,6 +155,7 @@ struct SudoPrivilegedScriptReceiver {
                 throw Failure.read(count == 0 ? EIO : errno)
             }
         }
+        return SudoSHA256.hex(digest: Data(hasher.finalize()))
     }
 
     private func writeAll(_ data: Data, to descriptor: Int32) throws {
@@ -164,7 +178,7 @@ struct SudoPrivilegedScriptReceiver {
         }
     }
 
-    enum Failure: Error {
+    enum Failure: Error, Equatable {
         case invalidByteCount
         case terminal(Int32)
         case create(Int32)
@@ -174,5 +188,6 @@ struct SudoPrivilegedScriptReceiver {
         case timeout
         case write(Int32)
         case seek(Int32)
+        case digestMismatch
     }
 }

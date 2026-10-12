@@ -50,6 +50,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testCommandPaletteIncludesDefaultRightSidebarModes() throws {
         try withSavedBetaFeatureDefaults {
             let defaults = UserDefaults.standard
@@ -81,24 +82,20 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
                 XCTAssertTrue(contribution.enablement(context))
             }
 
-            // Files/Find/Vault and the graduated Dock are always present;
-            // Machines follows the Cloud Machines beta toggle (pinned off above).
+            // Files/Find/Vault, the graduated Dock, and the Cloud tab are
+            // discoverable before the local activation marker is set.
             let machinesAvailable = RightSidebarMode.machines.isAvailable()
-            XCTAssertFalse(machinesAvailable)
-            XCTAssertEqual(contributions.count, 4)
+            XCTAssertTrue(machinesAvailable)
+            XCTAssertEqual(contributions.count, 5)
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.feed)])
             XCTAssertNotNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.dock)])
-            XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.machines)])
+            XCTAssertNotNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.machines)])
         }
     }
 
     @MainActor
     func testCommandPaletteRightSidebarActionsUseModeShortcutActions() {
         withSavedBetaFeatureDefaults {
-            let definition = CmuxFeatureFlags.cloudMachinesFlag
-            let previousOverride = CmuxFeatureFlags.shared.overrideValue(for: definition)
-            CmuxFeatureFlags.shared.setOverride(true, for: definition)
-            defer { CmuxFeatureFlags.shared.setOverride(previousOverride, for: definition) }
             let defaults = UserDefaults.standard
             defaults.set(true, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             defaults.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
@@ -168,6 +165,8 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
 
         var terminalContext = CommandPaletteContextSnapshot()
         terminalContext.setBool(ContentView.commandPaletteShortcutTerminalFocusedKey, true)
+        var agentTurnsContext = CommandPaletteContextSnapshot()
+        agentTurnsContext.setBool(ContentView.commandPaletteAgentTurnsAvailableKey, true)
         var browserContext = CommandPaletteContextSnapshot()
         browserContext.setBool(CommandPaletteContextKeys.panelIsBrowser, true)
         var workspaceContext = CommandPaletteContextSnapshot()
@@ -186,6 +185,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             XCTAssertFalse(contribution.when(emptyContext), command.rawValue)
             let visibleContext: CommandPaletteContextSnapshot = switch command.scope {
             case .terminal: terminalContext
+            case .agentTurns: agentTurnsContext
             case .browser: browserContext
             case .workspace: workspaceContext
             case .splits: splitsContext
@@ -196,6 +196,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         let covered = Set(ShortcutParityPaletteCommand.allCases.map(\.shortcutAction))
         for action: KeyboardShortcutSettings.Action in [
             .toggleTerminalCopyMode,
+            .previousAgentTurn, .nextAgentTurn,
             .increaseWorkspaceTerminalFontSize,
             .decreaseWorkspaceTerminalFontSize,
             .resetWorkspaceTerminalFontSize,

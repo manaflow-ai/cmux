@@ -16,6 +16,9 @@ public enum GhosttyTerminalOptionChange: Equatable, Sendable {
     case backgroundBlurEnabled(Bool)
     case optionAsAlt(GhosttyOptionAsAlt)
     case scrollbackLimitBytes(Int)
+    /// Whether a middle click pastes. `false` writes `ignore`; programs that
+    /// capture the mouse still receive the click either way.
+    case middleClickPaste(Bool)
 
     /// The Ghostty key this change writes.
     public var key: GhosttyTerminalOptionKey {
@@ -30,6 +33,7 @@ public enum GhosttyTerminalOptionChange: Equatable, Sendable {
         case .backgroundBlurEnabled: return .backgroundBlur
         case .optionAsAlt: return .macosOptionAsAlt
         case .scrollbackLimitBytes: return .scrollbackLimit
+        case .middleClickPaste: return .middleClickAction
         }
     }
 
@@ -59,6 +63,8 @@ public enum GhosttyTerminalOptionChange: Equatable, Sendable {
             return [option.rawValue]
         case .scrollbackLimitBytes(let bytes):
             return [String(max(bytes, 0))]
+        case .middleClickPaste(let pastes):
+            return [pastes ? "primary-paste" : "ignore"]
         }
     }
 }

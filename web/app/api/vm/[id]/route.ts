@@ -43,7 +43,7 @@ export async function GET(
         // A status read is how a gone machine is usually noticed first, and the
         // row it retires is one no destroy or cron pass can revisit.
         modelPlane: vmModelPlaneRevoker(),
-      }), { request });
+      }), { request, readDeadline: { operation: "getVm" } });
       if (!run.ok) return run.response;
       const vm = run.value;
       // The same machine shape `GET /api/vm` lists: `kind` is what the client
@@ -69,6 +69,7 @@ export async function GET(
           caller: user,
         })),
         address: { ipv4: vm.addressIpv4 ?? null, ipv6: vm.addressIpv6 ?? null },
+        agentUpdates: vm.agentUpdates,
         // Contract recorded when the provider attached cmux-tui. This is
         // rollout metadata, not a live daemon probe.
         cmuxTuiContract: vm.cmuxTuiContract,

@@ -1,5 +1,8 @@
+import type { NetworkRulePlan } from "./networkPolicy";
 import * as Context from "effect/Context";
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
+import * as FiberRef from "effect/FiberRef";
 import * as Layer from "effect/Layer";
 import {
   getProvider,
@@ -9,12 +12,17 @@ import {
   type CreateOptions,
   type ExecOptions,
   type ExecResult,
+  type VMFileContents,
+  type VMFileEntry,
+  type VMFileStat,
   type CreateProviderTunnelOptions,
   type ProviderId,
   type ProviderNetwork,
   type ProviderTunnel,
   type ProviderTunnelAttachment,
   type ProviderTunnelCreateResult,
+  type VMFirewallRule,
+  type VMFirewallRuleInput,
   type RestoreOptions,
   type SnapshotRef,
   type SSHEndpoint,
@@ -31,9 +39,12 @@ import {
   type CmuxRemoteAttachOptions,
   type CmuxRemoteEndpoint,
   type VmCapabilities,
+  type EnsureProviderNetworkOptions,
   vmCapabilitiesFor,
 } from "./drivers";
 import { VmOperationUnsupportedError, VmProviderOperationError } from "./errors";
+import { VmProviderReadDeadline } from "./routeDeadline";
+import { ProviderReadDeadlineError, type ProviderReadOptions } from "./drivers/types";
 
 export type VmProviderGatewayShape = {
   readonly create: (provider: ProviderId, options: CreateOptions) => Effect.Effect<VMHandle, VmProviderOperationError>;
@@ -82,6 +93,12 @@ export type VmProviderGatewayShape = {
     command: string,
     options?: ExecOptions,
   ) => Effect.Effect<ExecResult, VmProviderOperationError>;
+  readonly listFiles?: (provider: ProviderId, vmId: string, path: string) => Effect.Effect<VMFileEntry[], VmProviderOperationError>;
+  readonly readFile?: (provider: ProviderId, vmId: string, path: string) => Effect.Effect<VMFileContents, VmProviderOperationError>;
+  readonly writeFile?: (provider: ProviderId, vmId: string, path: string, data: Uint8Array, mode?: number) => Effect.Effect<void, VmProviderOperationError>;
+  readonly makeDirectory?: (provider: ProviderId, vmId: string, path: string) => Effect.Effect<void, VmProviderOperationError>;
+  readonly removeFile?: (provider: ProviderId, vmId: string, path: string) => Effect.Effect<void, VmProviderOperationError>;
+  readonly statFile?: (provider: ProviderId, vmId: string, path: string) => Effect.Effect<VMFileStat, VmProviderOperationError>;
   readonly openPort?: (
     provider: ProviderId,
     vmId: string,
@@ -99,6 +116,11 @@ export type VmProviderGatewayShape = {
     provider: ProviderId,
     vmId: string,
     options: VMResizeOptions,
+  ) => Effect.Effect<void, VmProviderOperationError | VmOperationUnsupportedError>;
+  readonly applyNetworkPolicy?: (
+    provider: ProviderId,
+    vmId: string,
+    plan: NetworkRulePlan,
   ) => Effect.Effect<void, VmProviderOperationError | VmOperationUnsupportedError>;
   /** Session transports the provider serves; undefined = legacy websocket/ssh. */
   readonly attachTransports?: (provider: ProviderId) => readonly AttachTransport[] | undefined;
@@ -136,7 +158,7 @@ export type VmProviderGatewayShape = {
   readonly supportsPrivateNetworking?: (provider: ProviderId) => boolean;
   readonly ensureNetwork?: (
     provider: ProviderId,
-    options: { slug: string; displayName?: string; heal?: boolean; membersRule?: boolean },
+    options: EnsureProviderNetworkOptions,
   ) => Effect.Effect<ProviderNetwork, VmProviderOperationError>;
   /** Read a provider network by id or slug without creating or repairing it. */
   readonly getNetwork?: (
@@ -169,6 +191,10 @@ export type VmProviderGatewayShape = {
   readonly attachTunnelNetwork?: (provider: ProviderId, tunnelId: string, networkId: string) => Effect.Effect<ProviderTunnelAttachment, VmProviderOperationError>;
   readonly detachTunnelNetwork?: (provider: ProviderId, tunnelId: string, networkId: string) => Effect.Effect<void, VmProviderOperationError>;
   readonly listNetworkTunnelIds?: (provider: ProviderId, networkId: string) => Effect.Effect<string[], VmProviderOperationError>;
+  readonly listFirewallRules?: (provider: ProviderId, options?: { vmId?: string; vpcId?: string; tunnelId?: string }) => Effect.Effect<VMFirewallRule[], VmProviderOperationError>;
+  readonly getFirewallRule?: (provider: ProviderId, ruleId: string) => Effect.Effect<VMFirewallRule, VmProviderOperationError>;
+  readonly createFirewallRule?: (provider: ProviderId, options: VMFirewallRuleInput) => Effect.Effect<VMFirewallRule, VmProviderOperationError>;
+  readonly deleteFirewallRule?: (provider: ProviderId, ruleId: string) => Effect.Effect<void, VmProviderOperationError>;
 };
 
 export class VmProviderGateway extends Context.Tag("cmux/VmProviderGateway")<
@@ -188,6 +214,39 @@ function privateNetworking(provider: ProviderId) {
     throw new VmOperationUnsupportedError({ provider, operation: "privateNetworking" });
   }
   return impl;
+}
+
+/**
+ * A provider read a route may bound (routeDeadline.ts). Outside a bounded
+ * route it is a plain provider call. Inside one, it gets the time left
+ * before the route's answer; at that point the call is interrupted, which
+ * aborts the signal the driver passed to every request, and the read fails
+ * with ProviderReadDeadlineError (504 vm_provider_timeout).
+ */
+function boundedProviderRead<A>(
+  provider: ProviderId,
+  operation: string,
+  run: (options: ProviderReadOptions) => Promise<A>,
+): Effect.Effect<A, VmProviderOperationError> {
+  return Effect.flatMap(FiberRef.get(VmProviderReadDeadline), (deadlineAtMs) => {
+    if (deadlineAtMs === null) return providerEffect(provider, operation, () => run({}));
+    return Effect.flatMap(Clock.currentTimeMillis, (nowMs) => {
+      const remainingMs = Math.max(0, deadlineAtMs - nowMs);
+      return Effect.tryPromise({
+        try: (signal) => run({ signal }),
+        catch: (cause) => new VmProviderOperationError({ provider, operation, cause }),
+      }).pipe(
+        Effect.timeoutFail({
+          duration: remainingMs,
+          onTimeout: () => new VmProviderOperationError({
+            provider,
+            operation,
+            cause: new ProviderReadDeadlineError(provider, operation, remainingMs),
+          }),
+        }),
+      );
+    });
+  });
 }
 
 function providerEffect<A>(
@@ -225,10 +284,10 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
       return await impl.listVolumes(options);
     }),
   getStatus: (provider, vmId) =>
-    providerEffect(provider, "getStatus", async () => {
+    boundedProviderRead(provider, "getStatus", async (options) => {
       const driver = getProvider(provider);
       if (!driver.getStatus) return "running" as const;
-      return await driver.getStatus(vmId);
+      return await driver.getStatus(vmId, options);
     }),
   resume: (provider, vmId) =>
     providerEffect(provider, "resume", () => getProvider(provider).resume(vmId)),
@@ -245,13 +304,13 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     providerEffect(provider, "restore", () => getProvider(provider).restore(snapshotId, options)),
   capabilities: (provider) => vmCapabilitiesFor(provider),
   listSnapshots: (provider, vmId) =>
-    providerEffect(provider, "listSnapshots", async () => {
+    boundedProviderRead(provider, "listSnapshots", async (options) => {
       const impl = getProvider(provider);
       if (!impl.listSnapshots) {
         // Typed, so the route answers 501 (cannot) rather than a retryable 502.
         throw new VmOperationUnsupportedError({ provider, operation: "listSnapshots" });
       }
-      return await impl.listSnapshots(vmId);
+      return await impl.listSnapshots(vmId, options);
     }),
   deleteSnapshot: (provider, vmId, snapshotId) =>
     providerEffect(provider, "deleteSnapshot", async () => {
@@ -271,6 +330,36 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     }),
   exec: (provider, vmId, command, options) =>
     providerEffect(provider, "exec", () => getProvider(provider).exec(vmId, command, options)),
+  listFiles: (provider, vmId, path) => boundedProviderRead(provider, "listFiles", async (options) => {
+    const impl = getProvider(provider);
+    if (!impl.listFiles) throw new VmOperationUnsupportedError({ provider, operation: "listFiles" });
+    return impl.listFiles(vmId, path, options);
+  }),
+  readFile: (provider, vmId, path) => boundedProviderRead(provider, "readFile", async (options) => {
+    const impl = getProvider(provider);
+    if (!impl.readFile) throw new VmOperationUnsupportedError({ provider, operation: "readFile" });
+    return impl.readFile(vmId, path, options);
+  }),
+  writeFile: (provider, vmId, path, data, mode) => providerEffect(provider, "writeFile", async () => {
+    const impl = getProvider(provider);
+    if (!impl.writeFile) throw new VmOperationUnsupportedError({ provider, operation: "writeFile" });
+    return impl.writeFile(vmId, path, data, mode);
+  }),
+  makeDirectory: (provider, vmId, path) => providerEffect(provider, "makeDirectory", async () => {
+    const impl = getProvider(provider);
+    if (!impl.makeDirectory) throw new VmOperationUnsupportedError({ provider, operation: "makeDirectory" });
+    return impl.makeDirectory(vmId, path);
+  }),
+  removeFile: (provider, vmId, path) => providerEffect(provider, "removeFile", async () => {
+    const impl = getProvider(provider);
+    if (!impl.removeFile) throw new VmOperationUnsupportedError({ provider, operation: "removeFile" });
+    return impl.removeFile(vmId, path);
+  }),
+  statFile: (provider, vmId, path) => boundedProviderRead(provider, "statFile", async (options) => {
+    const impl = getProvider(provider);
+    if (!impl.statFile) throw new VmOperationUnsupportedError({ provider, operation: "statFile" });
+    return impl.statFile(vmId, path, options);
+  }),
   openPort: (provider, vmId, port) =>
     providerEffect(provider, "openPort", async () => {
       const impl = getProvider(provider);
@@ -280,14 +369,14 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
       return await impl.openPort(vmId, port);
     }),
   getStats: (provider, vmId) =>
-    providerEffect(provider, "getStats", async () => {
+    boundedProviderRead(provider, "getStats", async (options) => {
       const impl = getProvider(provider);
       if (!impl.getStats) {
         // Typed, so the route answers "unsupported" (non-retryable) instead of
         // a retryable 502 the activity panel would poll forever.
         throw new VmOperationUnsupportedError({ provider, operation: "getStats" });
       }
-      return await impl.getStats(vmId);
+      return await impl.getStats(vmId, options);
     }),
   getResourceStats: (provider, vmId) => providerEffect(provider, "getResourceStats", async () => {
     const impl = getProvider(provider);
@@ -300,6 +389,11 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     const impl = getProvider(provider);
     if (!impl.resize) return Effect.fail(new VmOperationUnsupportedError({ provider, operation: "resize" }));
     return providerEffect(provider, "resize", () => impl.resize!(vmId, options));
+  },
+  applyNetworkPolicy: (provider, vmId, plan) => {
+    const impl = getProvider(provider);
+    if (!impl.applyNetworkPolicy) return Effect.fail(new VmOperationUnsupportedError({ provider, operation: "applyNetworkPolicy" }));
+    return providerEffect(provider, "applyNetworkPolicy", () => impl.applyNetworkPolicy!(vmId, plan));
   },
   attachTransports: (provider) => getProvider(provider).attachTransports,
   openAttach: (provider, vmId, options) =>
@@ -401,4 +495,24 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
       if (!networking.listNetworkTunnelIds) throw new VmOperationUnsupportedError({ provider, operation: "listNetworkTunnelIds" });
       return await networking.listNetworkTunnelIds(networkId);
     }),
+  listFirewallRules: (provider, options) => providerEffect(provider, "listFirewallRules", async () => {
+    const networking = getProvider(provider).privateNetworking;
+    if (!networking?.listFirewallRules) throw new VmOperationUnsupportedError({ provider, operation: "listFirewallRules" });
+    return await networking.listFirewallRules(options);
+  }),
+  getFirewallRule: (provider, ruleId) => providerEffect(provider, "getFirewallRule", async () => {
+    const networking = getProvider(provider).privateNetworking;
+    if (!networking?.getFirewallRule) throw new VmOperationUnsupportedError({ provider, operation: "getFirewallRule" });
+    return await networking.getFirewallRule(ruleId);
+  }),
+  createFirewallRule: (provider, options) => providerEffect(provider, "createFirewallRule", async () => {
+    const networking = getProvider(provider).privateNetworking;
+    if (!networking?.createFirewallRule) throw new VmOperationUnsupportedError({ provider, operation: "createFirewallRule" });
+    return await networking.createFirewallRule(options);
+  }),
+  deleteFirewallRule: (provider, ruleId) => providerEffect(provider, "deleteFirewallRule", async () => {
+    const networking = getProvider(provider).privateNetworking;
+    if (!networking?.deleteFirewallRule) throw new VmOperationUnsupportedError({ provider, operation: "deleteFirewallRule" });
+    await networking.deleteFirewallRule(ruleId);
+  }),
 });

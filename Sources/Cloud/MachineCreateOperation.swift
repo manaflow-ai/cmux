@@ -47,6 +47,12 @@ struct MachineCreateOperation: Identifiable, Equatable {
         return nil
     }
 
+    /// The create failed because the plan's active-machine limit is reached
+    /// (the service's `vm_active_limit_exceeded`), so upgrading would let it through.
+    var hitMachineLimit: Bool {
+        failureOutput?.contains("vm_active_limit_exceeded") == true
+    }
+
     /// The one-line status beside the name: the sheet's progress wording
     /// while running, the failure headline once it failed.
     var statusLabel: String {

@@ -10,7 +10,7 @@ public struct SudoCLICommand {
     private let requesterCommand: String
     private let launcher: any SudoAppLaunching
     private let setupLauncher: any SudoTouchIDSetupLaunching
-    private let setupHelperURL: URL
+    private let helperResolver: any SudoBundledHelperResolving
     private let io: SudoCLIIO
     private let messages: SudoCLIMessages
     private let failureMessages: SudoFailureMessages
@@ -25,12 +25,14 @@ public struct SudoCLICommand {
     ///   - currentDirectoryURL: The script working directory.
     ///   - requesterIdentity: The generation-qualified process requesting execution.
     ///   - requesterCommand: The requester name shown during approval.
+    ///   - helperPolicy: The pinned signing identity that authenticates bundled setup helpers.
     public init(
         paths: SudoBrokerPaths,
         appBundleURL: URL,
         currentDirectoryURL: URL,
         requesterIdentity: SudoProcessIdentity,
-        requesterCommand: String
+        requesterCommand: String,
+        helperPolicy: SudoBundledHelperPolicy
     ) {
         let inspector = SystemSudoProcessInspector()
         store = SudoSpoolStore(paths: paths)
@@ -43,10 +45,7 @@ public struct SudoCLICommand {
             signaler: SystemSudoProcessSignaler()
         )
         setupLauncher = SystemSudoTouchIDSetupLauncher()
-        setupHelperURL = appBundleURL.appendingPathComponent(
-            "Contents/Resources/bin/setup-pam-tid.sh",
-            isDirectory: false
-        )
+        helperResolver = SudoBundledHelperResolver(policy: helperPolicy)
         io = .live
         messages = SudoCLIMessages()
         failureMessages = .localized
@@ -62,7 +61,7 @@ public struct SudoCLICommand {
         requesterCommand: String,
         launcher: any SudoAppLaunching,
         setupLauncher: any SudoTouchIDSetupLaunching = SystemSudoTouchIDSetupLauncher(),
-        setupHelperURL: URL? = nil,
+        helperResolver: any SudoBundledHelperResolving = SudoUnavailableHelperResolver(),
         io: SudoCLIIO,
         messages: SudoCLIMessages = SudoCLIMessages(),
         failureMessages: SudoFailureMessages,
@@ -76,10 +75,7 @@ public struct SudoCLICommand {
         self.requesterCommand = requesterCommand
         self.launcher = launcher
         self.setupLauncher = setupLauncher
-        self.setupHelperURL = setupHelperURL ?? appBundleURL.appendingPathComponent(
-            "Contents/Resources/bin/setup-pam-tid.sh",
-            isDirectory: false
-        )
+        self.helperResolver = helperResolver
         self.io = io
         self.messages = messages
         self.failureMessages = failureMessages
@@ -117,7 +113,8 @@ public struct SudoCLICommand {
                 )
             }
             do {
-                return try setupLauncher.run(helperURL: setupHelperURL)
+                let helper = try helperResolver.touchIDSetupScript()
+                return try setupLauncher.run(helper: helper)
             } catch {
                 throw SudoCLICommandError(message: messages.touchIDSetupFailed)
             }

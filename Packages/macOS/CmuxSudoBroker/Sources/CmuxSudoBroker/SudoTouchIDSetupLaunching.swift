@@ -1,5 +1,6 @@
 import Foundation
 
 protocol SudoTouchIDSetupLaunching {
-    func run(helperURL: URL) throws -> Int32
+    /// Runs the authenticated setup script through a root-staged copy.
+    func run(helper: SudoVerifiedHelper) throws -> Int32
 }

@@ -91,7 +91,7 @@ struct WorktreeSeedPatternTests {
     }
 
     @Test func aLeadingSlashIsRejectedBecausePatternsAreAlreadyRelative() throws {
-        let problem = try problem("/Users/leo/.env", number: 4)
+        let problem = try problem("/Users/dev/.env", number: 4)
         #expect(problem.reason == .leadingSlash)
         #expect(problem.line == 4)
         #expect(problem.description.contains("line 4"))

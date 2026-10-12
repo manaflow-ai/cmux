@@ -771,7 +771,7 @@ struct PostHogAnalyticsPropertiesTests {
     func crashExceptionPropertiesSanitizeTokensAndScrubValues() {
         #expect(PostHogAnalytics.sanitizedExceptionToken("EXC_CRASH") == "EXC_CRASH")
         #expect(PostHogAnalytics.sanitizedExceptionToken("NSInternalInconsistencyException") == "NSInternalInconsistencyException")
-        #expect(PostHogAnalytics.sanitizedExceptionToken("bad type /Users/lawrence") == nil)
+        #expect(PostHogAnalytics.sanitizedExceptionToken("bad type /Users/dev") == nil)
         #expect(PostHogAnalytics.sanitizedExceptionToken("   ") == nil)
         #expect(PostHogAnalytics.sanitizedExceptionToken(nil) == nil)
 

@@ -11,8 +11,84 @@ import Testing
 #endif
 
 @MainActor
+private final class CountingCloudDragDestination: NSView {
+    var enteredCount = 0
+    var updatedCount = 0
+    var exitedCount = 0
+
+    /// Records the first native callback and accepts the drag.
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        enteredCount += 1
+        return .move
+    }
+
+    /// Records updates forwarded to the same destination.
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        updatedCount += 1
+        return .move
+    }
+
+    /// Records an unexpected destination transition.
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        exitedCount += 1
+    }
+}
+
+@MainActor
+private final class ChurningCloudDragRootView: NSView {
+    var nextHitTestResult: NSView?
+
+    /// Returns one injected portal hit before restoring normal hit testing.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if let nextHitTestResult {
+            self.nextHitTestResult = nil
+            return nextHitTestResult
+        }
+        return super.hitTest(point)
+    }
+}
+
+@MainActor
 @Suite("Cloud drag validation and feedback", .serialized)
 struct CloudSurfaceDragFeedbackTests {
+    @Test("Cloud pane forwarding stays stable while the pointer remains in one pane")
+    /// Keeps the original pane destination through a transient portal hit-test result.
+    func destinationStaysValidDuringPortalHitTestChurn() throws {
+        let fixture = try CloudSurfaceDragFixture(kind: .display)
+        defer { fixture.finish() }
+        fixture.workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "a", isBase: false)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 240),
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.close() }
+        let root = ChurningCloudDragRootView(frame: window.contentLayoutRect)
+        let destination = CountingCloudDragDestination(frame: NSRect(x: 20, y: 20, width: 120, height: 120))
+        destination.registerForDraggedTypes([DragOverlayRoutingPolicy.bonsplitTabTransferType])
+        root.addSubview(destination)
+        let portalHost = NSView(frame: root.bounds)
+        root.addSubview(portalHost, positioned: .below, relativeTo: destination)
+        let gate = CloudSurfaceDropGateView(frame: root.bounds, sourceResolver: fixture.resolver)
+        gate.workspace = fixture.workspace
+        gate.isActive = true
+        root.addSubview(gate)
+        window.contentView = root
+        window.orderFront(nil)
+
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cloud-drag-stability-\(UUID())"))
+        #expect(fixture.registration.write(to: pasteboard))
+        let sender = CloudSidebarDraggingInfo(source: NSOutlineView(), pasteboard: pasteboard, location: NSPoint(x: 80, y: 80))
+
+        #expect(gate.draggingEntered(sender) == .move)
+        root.nextHitTestResult = portalHost
+        #expect(gate.draggingUpdated(sender) == .move)
+        #expect(destination.enteredCount == 1)
+        #expect(destination.updatedCount == 1)
+        #expect(destination.exitedCount == 0)
+    }
+
     @Test("The pure rule rejects unknown/local/foreign owners and preserves local destinations")
     func policy() {
         let policy = SurfaceOwnershipPolicy(cloudMachine: .cloud("b"))

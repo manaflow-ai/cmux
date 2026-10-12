@@ -4969,3 +4969,6 @@ fn adopted_template_terminal_is_restored_in_place_after_a_daemon_restart() {
     let surface = resolved["data"]["surface"].as_u64().unwrap();
     assert!(wait_for_screen(&harness.socket, surface, &parked.marker).contains(&parked.marker));
 }
+
+#[path = "terminal_host_recovery/idle_template.rs"]
+mod idle_template;

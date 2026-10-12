@@ -408,6 +408,25 @@ import Testing
         ) == false)
     }
 
+    @Test func agentFeedDecisionPreviewCountIsDebugOnlyAndClamped() {
+        let env = ["CMUX_UITEST_FEED_DECISION_PREVIEW_COUNT": "999"]
+        #if DEBUG
+        #expect(UITestConfig.agentFeedDecisionPreviewItemCount(from: env) == 400)
+        #else
+        #expect(UITestConfig.agentFeedDecisionPreviewItemCount(from: env) == nil)
+        #endif
+        #expect(UITestConfig.agentFeedDecisionPreviewItemCount(from: [:]) == nil)
+        #if DEBUG
+        #expect(UITestConfig.agentFeedDecisionPreviewItemCount(from: [
+            "CMUX_UITEST_FEED_DECISION_PREVIEW_COUNT": "0",
+        ]) == 1)
+        #else
+        #expect(UITestConfig.agentFeedDecisionPreviewItemCount(from: [
+            "CMUX_UITEST_FEED_DECISION_PREVIEW_COUNT": "0",
+        ]) == nil)
+        #endif
+    }
+
     @Test func taskComposerPreviewFlagIsDebugOnly() {
         let env = ["CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1"]
         #if DEBUG

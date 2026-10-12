@@ -1,3 +1,4 @@
+import CmuxCloud
 import SwiftUI
 
 /// A truthful reservation surface using the same operation and actions as the machine row.
@@ -33,8 +34,22 @@ struct MachineCreateLoadingContent: View {
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
                 HStack(spacing: 8) {
-                    Button(String(localized: "machines.pending.retry", defaultValue: "Retry")) { actions.retry(operation.id) }
+                    if offersUpgrade {
+                        Button(String(localized: "machines.pending.upgrade", defaultValue: "Upgrade Plan")) {
+                            ProUpgradePresenter.present(source: .createFailedAtLimit)
+                        }
                         .buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier("MachineCreateUpgradeButton")
+                    }
+                    // Upgrading is the way forward at the limit, so it takes
+                    // the prominent style and Retry steps back.
+                    if offersUpgrade {
+                        Button(String(localized: "machines.pending.retry", defaultValue: "Retry")) { actions.retry(operation.id) }
+                            .buttonStyle(.bordered)
+                    } else {
+                        Button(String(localized: "machines.pending.retry", defaultValue: "Retry")) { actions.retry(operation.id) }
+                            .buttonStyle(.borderedProminent)
+                    }
                     Button(String(localized: "machines.pending.dismiss", defaultValue: "Dismiss")) { actions.dismiss(operation.id) }
                         .buttonStyle(.bordered)
                 }
@@ -49,5 +64,11 @@ struct MachineCreateLoadingContent: View {
         .padding(32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: GhosttyApp.shared.defaultBackgroundColor))
+    }
+
+    /// The create hit the plan's machine limit and a plan with more machines
+    /// exists. An unloaded plan still offers it; the plans page shows the rest.
+    private var offersUpgrade: Bool {
+        operation.hitMachineLimit && (NewMachineSheetDataCache.shared?.currentData?.plan?.hasHigherPlan ?? true)
     }
 }

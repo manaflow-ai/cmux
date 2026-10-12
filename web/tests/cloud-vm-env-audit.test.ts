@@ -460,6 +460,8 @@ describe("free-provisioning override audit", () => {
         if (allow !== undefined) env.CMUX_VM_ALLOW_FREE_PROVISIONING = allow;
         if (legacy !== undefined) env.CMUX_VM_REQUIRE_PRO = legacy;
         expect(isFreeProvisioningAllowed(env)).toBe(isVmFreeProvisioningAllowed(env));
+        const production = { ...env, VERCEL_ENV: "production" };
+        expect(isFreeProvisioningAllowed(production)).toBe(isVmFreeProvisioningAllowed(production));
       }
     }
   });
