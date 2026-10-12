@@ -46,7 +46,7 @@ final class CertificateDetailsView: NSView, NSTableViewDataSource, NSTableViewDe
         valueScroll.drawsBackground = false
         valueView.autoresizingMask = [.width]
 
-        let export = NSButton(title: PageInfoStrings.export, target: self, action: #selector(exportChain))
+        let export = ThemedBezelButton(title: PageInfoStrings.export, target: self, action: #selector(exportChain))
         let views: [NSView] = [
             PageInfoWindow.sectionTitle(PageInfoStrings.hierarchy), hierarchy,
             PageInfoWindow.sectionTitle(PageInfoStrings.fields), tableScroll,
