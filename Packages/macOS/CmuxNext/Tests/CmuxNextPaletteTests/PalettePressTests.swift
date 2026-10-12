@@ -56,10 +56,15 @@ struct PalettePressTests {
     /// reader never saw: it runs nothing.
     @Test func releaseOnARowScrolledOutOfViewRunsNothing() {
         let (window, table) = table()
+        // A 30 pt list over a 90 pt table, scrolled to row 1: rows 0 and 2 are out of view.
         let scroll = NSScrollView(frame: NSRect(x: 0, y: 30, width: 200, height: 30))
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 90))
+        content.addSubview(scroll)
+        window.contentView = content
         scroll.documentView = table
-        window.contentView = scroll
-        table.scroll(NSPoint(x: 0, y: table.rect(ofRow: 1).minY))
+        table.frame = NSRect(x: 0, y: 0, width: 200, height: 90)
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: table.rect(ofRow: 1).minY))
+        scroll.reflectScrolledClipView(scroll.contentView)
         var ran: [Int] = []
         table.onClick = { ran.append($0) }
         feed(table, [event(.leftMouseDragged, row: 2, in: table, window: window),
