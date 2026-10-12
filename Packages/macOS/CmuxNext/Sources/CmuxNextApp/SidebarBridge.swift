@@ -32,6 +32,7 @@ final class SidebarBridge {
     private var seed = SidebarSeed()
     /// The one writer of the rows: live rows plus pending edits (cx-odqn).
     lazy var rows = SidebarRows(model: model)
+    lazy var selectionHold = SidebarSelectionHold(model: model)
     /// The saved space bar, shown until the local daemon reports its spaces.
     private var seededProfiles: (profiles: [SidebarProfile], active: SidebarProfileKey?)?
     /// Saves what the sidebar shows (`SidebarSnapshotStore`).
@@ -152,11 +153,7 @@ final class SidebarBridge {
                                                                                 creationRow: state.cloudCreation.flatMap { creations.creation($0)?.rowID },
                                                                                 layout: layout.document, room: state.profileID.rawValue,
                                                                                 refs: WorkspaceLayoutRefs(machines: machines)) }) {
-                guard let self else { return }
-                if self.model.selectedItem != selected {
-                    self.model.selectedItem = selected
-                    self.model.selection = self.model.activeWorkspaceID.map { [$0] } ?? []
-                }
+                self?.selectionHold.offer(selected) // a new workspace's waits for its row (cx-8g3sn)
             }
         }
     }
@@ -197,6 +194,7 @@ final class SidebarBridge {
         model.ungroupedFirst = !usesMixedOrder
         if model.layout != layout { model.layout = layout }
         rows.show(sections)
+        selectionHold.flush()
         organizationQueue.drain(loaded: usesPersonalOrganization, local: services.machines.local, run: handle, refuse: refuseOrganization)
         groupFlow.openPendingEditor()
         if !launching || sections.contains(where: { $0.workspaces.contains { $0.rowState != .placeholder } }) { markReadyForReveal() }

@@ -2,7 +2,10 @@
 // An edit still waiting for its permission is not an edit yet (cx-5rkd2, dogfood run hq #1893).
 // Claude's bridge sends the proposed edit, diff included, before it asks: the transcript drew it as
 // "Edited <file> +3 -5" with View changes while the permission card asked whether to allow it. The
-// call now reads as a plain tool row until the edit runs, and the Edited card follows.
+// call now reads as a plain tool row until the edit runs, and the Edited card follows. A second
+// edit that arrives while the first one's question is open waits too (cx-p5fgx, dogfood run 2):
+// Claude asks one question at a time, so its diff came before its own question and read as
+// "Edited upload_test.sh +1 -1" with nothing on disk.
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in daemon.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -25,6 +28,9 @@ await requireBrowserLane("agent-pane-edit-awaiting-permission.test.ts", async ()
 
   const WAITING = "0190a000-0000-7000-8000-0000000000d1";
   const ALLOWED = "0190a000-0000-7000-8000-0000000000d2";
+  const SECOND = "0190a000-0000-7000-8000-0000000000d3";
+  const FIRST_RAN = "0190a000-0000-7000-8000-0000000000d4";
+  const TEST_FILE = "/home/dev/uploader/install_test.sh";
   const START = Date.UTC(2026, 9, 11, 9, 0, 0);
   const FILE = "/home/dev/uploader/install.sh";
   const update = (update: Record<string, unknown>) => ({
@@ -78,10 +84,43 @@ await requireBrowserLane("agent-pane-edit-awaiting-permission.test.ts", async ()
     ],
     ["mux", "turn_result", { status: "completed" }],
   ];
+  // The test's edit arrives, diff included, while the question about install.sh is still open.
+  const second: Step[] = [
+    ...asking,
+    [
+      "in",
+      "tool_call",
+      update({
+        sessionUpdate: "tool_call",
+        toolCallId: "e2",
+        title: "Edit install_test.sh",
+        kind: "edit",
+        status: "in_progress",
+        content: [{ type: "diff", path: TEST_FILE, oldText: "3\n", newText: "5\n" }],
+      }),
+    ],
+  ];
+  // install.sh is allowed and runs; the test's edit has not asked yet.
+  const firstRan: Step[] = [
+    ...second,
+    ["mux", "permission_decision", { permissionId: "p1", optionId: "allow" }],
+    [
+      "in",
+      "tool_call_update",
+      update({
+        sessionUpdate: "tool_call_update",
+        toolCallId: "e1",
+        status: "completed",
+        content: [{ type: "diff", path: FILE, oldText: "a\nb\n", newText: "a\nretry\nb\n" }],
+      }),
+    ],
+  ];
   const chats = new Map(
     [
       [WAITING, asking],
       [ALLOWED, allowed],
+      [SECOND, second],
+      [FIRST_RAN, firstRan],
     ].map(([sessionId, steps]) => {
       const events = (steps as Step[]).map(([dir, kind, msg], index) => ({
         sessionId,
@@ -97,7 +136,7 @@ await requireBrowserLane("agent-pane-edit-awaiting-permission.test.ts", async ()
         title: "Retry comment",
         harness: "claude",
         family: "claude",
-        status: sessionId === WAITING ? "running" : "idle",
+        status: sessionId === ALLOWED ? "idle" : "running",
         turnCount: 1,
         updatedAt: START,
       };
@@ -177,7 +216,29 @@ await requireBrowserLane("agent-pane-edit-awaiting-permission.test.ts", async ()
     await page.getByText("Tighten the retry comment").waitFor();
     await page.getByText("Edit install.sh").first().waitFor();
     expect(await page.locator(".acpmux-edited").count()).toBe(0);
+    expect(await page.getByText(/^Edited/).count()).toBe(0);
     expect(await page.getByRole("button", { name: "View changes" }).count()).toBe(0);
+    await page.close();
+  });
+
+  test("an edit that arrives while another waits for its permission is not Edited either", async () => {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await page.goto(url(SECOND));
+    await page.getByText("Tighten the retry comment").waitFor();
+    await page.getByText("Edit install_test.sh").first().waitFor();
+    expect(await page.locator(".acpmux-edited").count()).toBe(0);
+    expect(await page.getByText(/^Edited/).count()).toBe(0);
+    await page.close();
+  });
+
+  test("when the first edit runs, only its file reads as Edited", async () => {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await page.goto(url(FIRST_RAN));
+    await page.getByText("Tighten the retry comment").waitFor();
+    const card = page.locator(".acpmux-edited");
+    await card.waitFor();
+    expect(await card.textContent()).toContain("install.sh");
+    expect(await card.textContent()).not.toContain("install_test.sh");
     await page.close();
   });
 

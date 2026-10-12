@@ -41,7 +41,7 @@ import { newTabScreenActions } from "./newtab/screenActions";
 import { newTabChipSnapshot } from "./newtab/chipDefaults";
 import { HarnessesScreen } from "./harnesses/HarnessesScreen";
 import { registerHarnessesPage, useHarnessesPage } from "./harnesses/harnessesPage";
-import { useEarlyNewTabContext, useNewTabAdoption } from "./newtab/adoption";
+import { useEarlyNewTabContext, useNewTabAdoption, useNewTabPlaces } from "./newtab/adoption";
 import { TemplateDots } from "./newtab/TemplateDots";
 import { pickNewTabTemplate, screenTemplate, shownTemplate } from "./newtab/templates";
 import { playTemplateSwitch, templatePlaces } from "./newtab/templateMotion";
@@ -52,7 +52,7 @@ import { paneContext } from "./paneContext";
 import { createPaneQueryClient, followHarnessChanges, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
 import { usePickerCatalog } from "./modelCatalogHost";
 import { isDefaultChoice } from "./defaultChoice";
-import { applySwitch, HarnessSwitch, type SwitchPort } from "./harnessSwitch";
+import { applySwitch, HarnessSwitch, lastOfferedModel, type SwitchPort } from "./harnessSwitch";
 import { harnessProfiles } from "./harnessProfiles";
 import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
 import { BridgeSocket } from "./bridgeSocket";
@@ -90,9 +90,9 @@ import { TurnCountsContext, type TurnCountsFor } from "./changes/TurnCountsConte
 import { useTurnCheckpoints } from "./changes/useTurnCheckpoints";
 import { readTurnFromRows, type CheckpointDiff } from "./changes/turnCheckpointSource";
 import { restoredDecisions, type HunkDecision, type HunkReview } from "./changes/hunkReview";
-import { configureDictation, deliverDictation, useDictation } from "./dictation";
+import { configureDictation, deliverDictation, useDictation, type DictationField } from "./dictation";
 import type { DictationUpdate } from "./dictationText";
-import { DictationButton } from "./DictationButton";
+import { DictationMic } from "./DictationMic";
 import { DictationNotice } from "./DictationNotice";
 import type { MarkdownFieldHandle } from "./MarkdownField";
 import type { ChangesSource } from "./changes/model";
@@ -1726,6 +1726,7 @@ function DefaultComposerChips({
         void callNative("chat.effort", { configId, value });
       }}
       onHarness={(harness, model) => void callNative("chat.new", { harness, ...(model ? { model } : {}), ...inFolder })}
+      {...(cwd ? { folder: cwd } : {})}
       // Sent from the pick's own handler: the host's Enable confirmation needs the gesture.
       onHarnessEnable={(folder, id) => void callNative("chat.harness.enable", { folder, id }).catch(() => undefined)}
       // The rail's + (BRING-YOUR-OWN-HARNESS): Settings > Agents > Add, from this click's gesture.
@@ -2501,6 +2502,7 @@ function AcpmuxPane() {
   const [newTab, setNewTab] = useState<NewTabHost | undefined>();
   // A prewarmed spare page gets its real context when Cmd-T adopts it; the generation remounts the screen.
   const newTabGeneration = useNewTabAdoption(setNewTab);
+  useNewTabPlaces(setNewTab);
   const earlyNewTab = useEarlyNewTabContext(callNative, setNewTab);
   // Agent chats live in the window's one sidebar (Projects and Recents); the pane opens what it picks.
   const selectSession = useCallback((sessionId: string) => {
@@ -2615,7 +2617,18 @@ function AcpmuxPane() {
     prompt.current.focus();
     return true;
   });
-  const dictation = useDictation(prompt, callNative);
+  /// The New Tab page's field, while it shows: dictation writes there then (it has no composer).
+  const newTabDictationField = useRef<DictationField | null>(null);
+  const dictationTarget = useRef<{ readonly current: DictationField | null }>({
+    get current() {
+      return newTabDictationField.current ?? prompt.current;
+    },
+  }).current;
+  const dictation = useDictation(dictationTarget, callNative);
+  const showDictation = useCallback(
+    (show: boolean) => void callNative("pane.showDictation", { show }).catch(() => undefined),
+    [],
+  );
   /// Why the host could not hand this pane acpmux (not installed, a daemon that will not start),
   /// in the host's words; cleared once a handshake succeeds.
   const [hostError, setHostError] = useState<string | undefined>();
@@ -3199,11 +3212,16 @@ function AcpmuxPane() {
           // a chat with no project (`noProject`) or for a peer gets no start folder.
           "chat.new": async ({ harness, cwd, peer, deferred, noProject, model }) => {
             const folder = cwd ? String(cwd) : peer || noProject === true ? undefined : startFolderRef.current;
-            if (harness && !peer && noProject !== true)
+            if (harness && !peer && noProject !== true) {
+              // A new chat starts on its pick, else on the model last picked on that harness here.
+              const picked = model
+                ? String(model)
+                : lastOfferedModel(String(harness), snapshotRef.current?.catalog ?? [], folder);
               return harnessSwitch.switchTo(String(harness), folder, {
                 deferred: deferred === true,
-                ...(model ? { model: String(model) } : {}),
+                ...(picked ? { model: picked } : {}),
               });
+            }
             harnessSwitch.cancel();
             return persistSession(
               await client.create(
@@ -4254,7 +4272,7 @@ function AcpmuxPane() {
           handle={composerRef}
           // No prompt goes while a picked folder waits for the user's answer.
           blocked={pendingFolder ? {} : trustAsk.blocked}
-          accessory={<DictationButton dictation={dictation} />}
+          accessory={<DictationMic dictation={dictation} onShowDictation={showDictation} />}
           onImportFile={importFile}
           onEdit={(command) => ignoreFailure(callNative("pane.edit", { command }))}
         />
@@ -4383,6 +4401,9 @@ function AcpmuxPane() {
           ) : showNewTab && shownTemplate(newTab) !== "classic" ? (
             <NewTabScreen
               key={newTabGeneration}
+              accessory={<DictationMic dictation={dictation} onShowDictation={showDictation} />}
+              dictationField={newTabDictationField}
+              notice={<DictationNotice dictation={dictation} />}
               template={screenTemplate(shownTemplate(newTab))}
               snapshot={composerSnapshot}
               omnibar={newTab.omnibar}
