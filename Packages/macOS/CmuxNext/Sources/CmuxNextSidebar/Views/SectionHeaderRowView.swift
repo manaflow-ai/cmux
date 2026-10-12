@@ -57,7 +57,7 @@ final class SectionHeaderRowView: SidebarRowView {
             title = Strings.pinned
             statusTone = nil
             badgeText = nil
-            toolTip = nil
+            themedToolTip = nil
         case let .machine(machine):
             switch machine.kind {
             case .local: symbol = .machineLocal
@@ -97,7 +97,7 @@ final class SectionHeaderRowView: SidebarRowView {
             case .failed: Strings.statusFailed
             default: nil
             }
-            toolTip = machine.detail
+            themedToolTip = machine.detail
             setAccessibilityLabel(label)
             setAccessibilityHelp(machine.detail)
         }
@@ -107,7 +107,7 @@ final class SectionHeaderRowView: SidebarRowView {
             title = Strings.projects
             statusTone = nil
             badgeText = nil
-            toolTip = nil
+            themedToolTip = nil
             setAccessibilityHelp(nil)
         }
         if section.kind == .pinned || row.titlesProjects { setAccessibilityLabel(title) }

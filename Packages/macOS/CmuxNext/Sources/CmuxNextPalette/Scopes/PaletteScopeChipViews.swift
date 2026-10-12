@@ -79,7 +79,7 @@ final class PaletteScopeChipView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel(PaletteStrings.chipAccessibility(chip.title))
-        toolTip = isTop ? PaletteStrings.chipAccessibility(chip.title) : PaletteStrings.backTo(chip.title)
+        themedToolTip = isTop ? PaletteStrings.chipAccessibility(chip.title) : PaletteStrings.backTo(chip.title)
         setAccessibilityIdentifier("palette.scopeChip.\(chip.scope.rawValue)")
     }
 
