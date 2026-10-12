@@ -62,9 +62,22 @@ public nonisolated struct KeyBindingDefaults {
     /// elsewhere the global key runs. Any page adds its own keys here with a
     /// `when` that names it. (Home's Cmd-Shift-[ / ] went to the Chrome tab
     /// keys, Leo 2026-10-12: Home is a sidebar item too.)
+    ///
+    /// Cmd-K searches the agent chats everywhere but a terminal, as in ChatGPT and Claude
+    /// desktop (Leo 2026-10-12, keyboard parity); a focused terminal keeps Clear (decision K1)
+    /// and the code editor keeps its Cmd-K key sequences.
     @MainActor static func scopedEntries(registry: ActionRegistry) -> [KeyBinding] {
-        []
+        scopedDefaults.filter { binding in
+            registry.disabledFeature(for: binding.command) == nil && registry.shortcutOverrides[binding.command] == nil
+                && registry.chordOverrides[binding.command] == nil
+        }
     }
+
+    /// The scoped defaults without the registry's unbinding applied.
+    public static let scopedDefaults: [KeyBinding] = [
+        KeyBinding(keys: [Shortcut("k", modifiers: [.command])], command: "agentPane.searchChats",
+                   when: .and([notTerminal, .not(.has(KeyContext.codeEditorFocusedKey))])),
+    ]
 
     /// The arrow aliases for pane resize. These are defaults in addition to
     /// each action's catalog Ctrl-Shift H/J/K/L key, and disappear when a user

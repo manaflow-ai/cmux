@@ -17950,7 +17950,17 @@
 
       ],
       "default_aliases" : [
-
+        {
+          "keys" : [
+            {
+              "key" : "k",
+              "modifiers" : [
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "surfaceKind != terminal && !codeEditorFocused"
+        }
       ],
       "default_chord" : null,
       "default_shortcut" : null,
