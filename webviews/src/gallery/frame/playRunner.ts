@@ -287,6 +287,8 @@ function describeElement(element: Element): string {
  */
 function measurePopups(): PopupMeasure[] {
   const found = [...document.querySelectorAll(POPUP_SELECTOR)].filter((element) => {
+    // A popup fading out after a pick is leaving, not open; it lets clicks through.
+    if (element.closest("[data-ending-style]")) return false;
     const rect = element.getBoundingClientRect();
     return rect.width > 0 && rect.height > 0 && getComputedStyle(element).visibility !== "hidden";
   });
