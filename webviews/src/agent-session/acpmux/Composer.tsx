@@ -63,6 +63,7 @@ import { type StringKey, type Translate, useT } from "./i18n";
 import { remoteComposer } from "./remoteEditing";
 import { ChromeArea } from "../../ui/HideableChrome";
 import { useComposerChrome } from "./composerChrome";
+import { usePromptHistory } from "./composer/promptHistory";
 import type { SendBlock } from "./useFolderTrustAsk";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
@@ -290,6 +291,7 @@ export function Composer({
     [prompt],
   );
   const pendingCaret = useRef<number | undefined>(undefined);
+  const prompts = usePromptHistory(snapshot.rows);
   // Send becomes Stop in place once the turn starts; a second click of a
   // double-click, or a click right after Enter, must not cancel the new turn.
   const sentAt = useRef(0);
@@ -449,14 +451,18 @@ export function Composer({
     plan && onMode
       ? { id: `plan:${plan.id}`, name: planning ? "Build" : "Plan", icon: planning ? <BuildIcon /> : <PlanIcon /> }
       : undefined;
+  // A prompt ↑ brought back keeps its arrows for history: a / command or @ mention in it opens no menu.
+  const recalling = prompts.showing(() => field.current?.agentText(text) ?? text);
   const query = slashQuery(text, caret);
-  const open = query !== undefined && dismissed !== text;
+  const open = query !== undefined && dismissed !== text && !recalling;
   const matches = useMemo(() => (open ? matchCommands(commands ?? [], query ?? "") : []), [commands, open, query]);
 
   useEffect(() => setActive(0), [query]);
   // Typing @ at a word start lists the chat's files that match what follows (cx-ncc.68).
   const mentionAt =
-    !open && searchFiles && mentionDismissed !== text ? mentionQuery(text, markdownOffset(text, caret)) : undefined;
+    !open && !recalling && searchFiles && mentionDismissed !== text
+      ? mentionQuery(text, markdownOffset(text, caret))
+      : undefined;
   const mentionState = useMentionSearch(searchFiles, mentionAt?.query);
   const mentionFiles = mentionResults(mentionState);
   const mentionSelected = Math.min(mentionActive, Math.max(mentionFiles.length - 1, 0));
@@ -721,6 +727,26 @@ export function Composer({
       if (last) {
         event.preventDefault();
         last.focus();
+        return;
+      }
+    }
+    // ↑ and ↓ on an empty prompt (or one they brought back) step through the chat's prompts. In a
+    // recalled prompt of several lines they move the caret first, and recall from its first (↑)
+    // or last (↓) line.
+    if ((event.key === "ArrowUp" || event.key === "ArrowDown") && plain && !open && !shell) {
+      const up = event.key === "ArrowUp";
+      const lines = recalling ? field.current?.text() : undefined;
+      const edge =
+        !lines ||
+        (up
+          ? !lines.value.slice(0, lines.selectionStart).includes("\n")
+          : !lines.value.slice(lines.selectionEnd).includes("\n"));
+      const recalled = edge ? prompts.step(up ? -1 : 1, field.current?.agentText(text) ?? text) : undefined;
+      if (recalled !== undefined) {
+        event.preventDefault();
+        if (recalled === null) return;
+        pendingCaret.current = recalled.length;
+        edit(recalled, recalled.length);
         return;
       }
     }
