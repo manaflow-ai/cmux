@@ -1,6 +1,8 @@
-import { useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { cx } from "./cx";
+import { useEscapingPopup } from "./popupHost";
+import { usePopupHost } from "./UiProvider";
 
 /** An action in the standalone context menu. */
 export interface ContextMenuItem {
@@ -61,6 +63,23 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
   const [active, setActive] = useState(0);
   const returnFocus = useRef<HTMLElement | null>(null);
   const menu = useRef<HTMLDivElement | null>(null);
+  const host = usePopupHost();
+  const [shown, setShown] = useState<HTMLDivElement | null>(null);
+  const attach = useCallback(
+    (node: HTMLDivElement | null) => {
+      menu.current = node;
+      if (host) setShown(node);
+    },
+    [host],
+  );
+  // No room above or below the pointer in the page: past the window's edge, as a Mac context menu
+  // (popupHost.ts). The backdrop stays, so a click on the page still closes it.
+  useEscapingPopup(
+    host,
+    shown,
+    () => point && { getBoundingClientRect: () => ({ left: point.x, right: point.x, top: point.y, bottom: point.y }) },
+    { side: "bottom", align: "start", gap: 0, shell: "self" },
+  );
   // Where the menu sits, measured before it paints.
   const [place, setPlace] = useState<{ left: number; top: number } | null>(null);
   useLayoutEffect(() => {
@@ -77,6 +96,10 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
       top: Math.max(4, Math.min(top, window.innerHeight - height - 4)),
     });
   }, [point]);
+  // Takes focus once placed (a hidden menu cannot take it), so Up/Down/Return work.
+  useLayoutEffect(() => {
+    if (place) menu.current?.focus();
+  }, [place]);
   const enabled = items.filter((item) => !item.disabled);
   const close = (restoreFocus = false) => {
     setPoint(null);
@@ -148,11 +171,7 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
               onPointerDown={() => close(true)}
             >
               <div
-                // Takes focus when it opens, so Up/Down/Return work.
-                ref={(node) => {
-                  menu.current = node;
-                  node?.focus();
-                }}
+                ref={attach}
                 className="ui-popup ui-context-menu"
                 role="menu"
                 data-focus-ring="rows"
