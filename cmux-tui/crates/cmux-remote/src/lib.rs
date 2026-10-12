@@ -24,7 +24,9 @@ pub mod service;
 pub mod services;
 pub mod session;
 mod ssh_args;
-pub use ssh_artifacts::{SSH_PAYLOAD_DOWNLOAD_CAPABILITY, SSH_PAYLOAD_MACOS_FROM_CLIENT_CAPABILITY};
+pub use ssh_artifacts::{
+    SSH_PAYLOAD_DOWNLOAD_CAPABILITY, SSH_PAYLOAD_MACOS_FROM_CLIENT_CAPABILITY,
+};
 mod ssh_artifacts;
 pub mod ssh_bootstrap;
 mod ssh_payload_proxy;
