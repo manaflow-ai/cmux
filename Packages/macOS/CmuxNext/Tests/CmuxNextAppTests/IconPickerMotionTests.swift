@@ -33,6 +33,9 @@ import Testing
         panel.onDismiss?()
         #expect(results.count == 1)
         #expect(panel.isVisible, "closed in one frame")
+        // Review: typing after a pick goes back to the window now, not into the fading picker.
+        #expect(!panel.isKeyWindow, "the fading picker still takes keys")
+        #expect(panel.ignoresMouseEvents, "the fading picker still takes clicks")
         try await Task.sleep(for: .milliseconds(600))
         #expect(!panel.isVisible)
         #expect(panel.parent == nil)

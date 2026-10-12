@@ -42,6 +42,9 @@ import Testing
         controller.close()
         #expect(panel.isVisible, "closed in one frame")
         #expect(!controller.isShown, "a closing bubble still counts as shown (the button would not reopen it)")
+        // Review: keys and clicks go back to the page now, not when the fade ends.
+        #expect(!panel.isKeyWindow, "the fading bubble still takes keys")
+        #expect(panel.ignoresMouseEvents, "the fading bubble still takes clicks")
         try await Task.sleep(for: .milliseconds(600))
         #expect(!panel.isVisible)
         #expect(panel.parent == nil)
@@ -59,6 +62,7 @@ import Testing
         #expect(panel.isVisible, "the earlier close took the reopened bubble away")
         #expect(panel.alphaValue == 1)
         #expect(controller.isShown)
+        #expect(!panel.ignoresMouseEvents, "the reopened bubble takes no clicks")
         controller.close()
     }
 }

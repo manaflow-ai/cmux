@@ -47,17 +47,18 @@ await requireBrowserLane("calm-motion.test.ts", async () => {
     return matrix ? Math.hypot(Number(matrix[1]), Number(matrix[2])) : 1;
   };
 
-  test("under Reduce Motion a live transcript row still fades in", async () => {
+  test("under Reduce Motion a live transcript row, new text and a highlighted code card still fade in", async () => {
     const p = await page(
       `:root{--agent-motion-in:120ms}${desktop}${conversation}`,
-      `<div class="cv-enter">reply</div><div class="acpmux-row--enter">tool</div>`,
+      `<div class="cv-enter">reply</div><div class="acpmux-row--enter">tool</div><span class="cv-fresh">new text</span>` +
+        `<div class="cv-code-handoff is-fading"><div class="cv-code-handoff__real">code</div></div>`,
       "reduce",
     );
-    const fades = await p.$$eval(".cv-enter, .acpmux-row--enter", (rows) =>
+    const fades = await p.$$eval(".cv-enter, .acpmux-row--enter, .cv-fresh, .cv-code-handoff__real", (rows) =>
       rows.map((row) => `${getComputedStyle(row).animationName} ${getComputedStyle(row).animationDuration}`),
     );
     await p.close();
-    expect(fades).toEqual(["cv-enter-fade 0.12s", "cv-enter-fade 0.12s"]);
+    expect(fades).toEqual(["cv-enter-fade 0.12s", "cv-enter-fade 0.12s", "cv-enter-fade 0.12s", "cv-enter-fade 0.12s"]);
   });
 
   test("the Jump to Latest pill rises in without growing", async () => {
