@@ -2,14 +2,14 @@
 """Child process crashes on a running tagged cmux-next app (bd cx-d0d.2; crash-elimination.md
 section 3, classes 13 and 14): the app stays up and the page that lost its process says so.
 
-  1. Chromium renderer: SIGKILL the renderer of a Chromium tab. The tab shows the sad tab with
+  1. Agent page WebContent: SIGKILL the WebContent process of the New Tab page (an agent page,
+     `debug.agent_pane` pid). The page reloads in a new process by itself (AgentPaneView+CrashNotice).
+  2. Chromium renderer: SIGKILL the renderer of a Chromium tab. The tab shows the sad tab with
      Reload (`debug.browser.page_status` gone and gone_text); Reload brings the page back.
-  2. Chromium GPU process: SIGKILL it. Chromium starts a new one and the tab's page still answers;
+  3. Chromium GPU process: SIGKILL it. Chromium starts a new one and the tab's page still answers;
      a sad tab, if one shows, reloads.
-  3. WebKit WebContent: SIGKILL the WebContent process of a WebKit tab (page_status page_pid).
-     Same as 1.
-  4. Agent page WebContent: SIGKILL the WebContent process of an agent page (`debug.agent_pane`
-     pid). The page reloads in a new process by itself (AgentPaneView+CrashNotice).
+  4. WebKit WebContent: SIGKILL the WebContent process of a WebKit tab (page_status page_pid).
+     Same as 2.
 
 After each kill the app's process must still run. Every kill names an exact pid: a child of the
 app's process (`--type=renderer`, `--type=gpu-process`) found by its parent pid, or the pid the app
@@ -108,16 +108,26 @@ def children(parent, kind):
 def app_pid():
     if opts.app_pid:
         return opts.app_pid
-    out = subprocess.run(["lsof", "-t", opts.socket], capture_output=True, text=True).stdout.split()
-    return int(out[0]) if out else None
+    # lsof lists a unix socket by the path it is bound to, under the process that holds it.
+    out = subprocess.run(["lsof", "-U", "-Fpn"], capture_output=True, text=True).stdout
+    pid = None
+    for line in out.splitlines():
+        if line.startswith("p"):
+            pid = int(line[1:])
+        elif line.startswith("n") and line[1:] == opts.socket:
+            return pid
+    return None
 
 
 def serve():
     root = tempfile.mkdtemp(prefix="child-crash-e2e-")
     with open(os.path.join(root, "index.html"), "w") as page:
         page.write("<!doctype html><title>crash-e2e</title><p id=alive>alive</p>")
-    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=root)
-    handler.log_message = lambda *args: None
+    class Quiet(http.server.SimpleHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+    handler = functools.partial(Quiet, directory=root)
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return f"http://localhost:{server.server_address[1]}/"
@@ -155,6 +165,46 @@ def main():
     only = set(opts.only.split(","))
     print(f"app pid {pid}, page {url}", flush=True)
 
+    # First, while the window still shows its New Tab page (an agent page).
+    if "agent" in only:
+        # Any agent page: the reply names them when none is focused.
+        probe = rpc("debug.agent_pane", {"action": "pid"}) or {}
+        pane = probe.get("pane") or ((probe.get("agent_panes") or [None])[0])
+        if not pane:
+            run("newTab")  # a new workspace opens on the New Tab page, an agent page
+            probe = wait(lambda: (lambda r: r if r.get("pid") else None)(rpc("debug.agent_pane", {"action": "pid"}) or {}), 30) or {}
+            pane = probe.get("pane")
+        reply = (rpc("debug.agent_pane", {"action": "pid", "pane": pane}) or {}) if pane else probe
+        page = reply.get("pid")
+        if check("agent: an agent page reports its WebContent process", bool(page), reply):
+            os.kill(int(page), signal.SIGKILL)
+            print(f"killed agent WebContent {int(page)}", flush=True)
+            time.sleep(1.0)  # test harness wait: WebKit reports the process ended
+            check("agent: app still runs", alive(pid))
+            fresh = wait(lambda: (lambda p: p if p and p != page else None)((rpc("debug.agent_pane", {"action": "pid", "pane": pane}) or {}).get("pid")), 30)
+            check("agent: the page reloads in a new WebContent process", bool(fresh), fresh)
+            # A page that keeps crashing stops reloading (PageCrashReloads: 3 reloads in 10 minutes)
+            # and offers Reload instead; Reload starts it again.
+            notice, current = None, fresh
+            for crash in range(2, 6):
+                if not current:
+                    break
+                os.kill(int(current), signal.SIGKILL)
+                notice = wait(lambda: (lambda r: r if r.get("shown") else None)(rpc("debug.agent_pane", {"action": "crash_notice", "pane": pane}) or {}), 3)
+                if notice:
+                    break
+                previous = current
+                current = wait(lambda: (lambda p: p if p and p != previous else None)((rpc("debug.agent_pane", {"action": "pid", "pane": pane}) or {}).get("pid")), 30)
+            print(f"agent: notice after crash {crash}", flush=True)
+            texts = (notice or {}).get("texts") or []
+            check("agent: a page that keeps crashing shows the crashed page with Reload", len(texts) == 2 and all(texts), texts)
+            check("agent: app still runs after repeated crashes", alive(pid))
+            if notice:
+                pressed = (rpc("debug.agent_pane", {"action": "crash_notice", "pane": pane, "press": "reload"}) or {}).get("pressed")
+                back = pressed and wait(lambda: (lambda p: p if p and p != current else None)((rpc("debug.agent_pane", {"action": "pid", "pane": pane}) or {}).get("pid")), 30)
+                gone = not (rpc("debug.agent_pane", {"action": "crash_notice", "pane": pane}) or {}).get("shown")
+                check("agent: Reload starts the page again", bool(back) and gone, f"pressed={pressed} pid={back}")
+
     cef_tab = None
     if only & {"renderer", "gpu"}:
         before = set(children(pid, "renderer"))
@@ -190,24 +240,6 @@ def main():
             sad_tab_reloads("webkit", tab, pid)
             fresh = status(tab).get("page_pid")
             check("webkit: the page runs in a new WebContent process", bool(fresh) and fresh != page, fresh)
-
-    if "agent" in only:
-        # Any agent page: the reply names them when none is focused.
-        probe = rpc("debug.agent_pane", {"action": "pid"}) or {}
-        pane = probe.get("pane") or ((probe.get("agent_panes") or [None])[0])
-        if not pane:
-            run("newTab")  # a new workspace opens on the New Tab page, an agent page
-            probe = wait(lambda: (lambda r: r if r.get("pid") else None)(rpc("debug.agent_pane", {"action": "pid"}) or {}), 30) or {}
-            pane = probe.get("pane")
-        reply = (rpc("debug.agent_pane", {"action": "pid", "pane": pane}) or {}) if pane else {}
-        page = reply.get("pid")
-        if check("agent: an agent page reports its WebContent process", bool(page), reply):
-            os.kill(int(page), signal.SIGKILL)
-            print(f"killed agent WebContent {int(page)}", flush=True)
-            time.sleep(1.0)  # test harness wait: WebKit reports the process ended
-            check("agent: app still runs", alive(pid))
-            fresh = wait(lambda: (lambda p: p if p and p != page else None)((rpc("debug.agent_pane", {"action": "pid", "pane": pane}) or {}).get("pid")), 30)
-            check("agent: the page reloads in a new WebContent process", bool(fresh), fresh)
 
     check("app still runs at the end", alive(pid))
     if failures:
