@@ -69,7 +69,7 @@ class SidebarRowView: NSView {
         targetSize = nil
         alphaValue = 1
         setTitleHidden(false)
-        toolTip = nil
+        themedToolTip = nil
     }
 
     /// Buttons that receive clicks directly.

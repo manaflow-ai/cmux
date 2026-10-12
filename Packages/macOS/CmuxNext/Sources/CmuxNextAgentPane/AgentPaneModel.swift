@@ -135,7 +135,7 @@ public final class AgentPaneModel {
     @ObservationIgnored public internal(set) var composer = AgentPaneComposerSetting.fallback
     /// Diff Colors (`diff.colors`) as the page last got it: "theme", "muted" or "standard".
     @ObservationIgnored public internal(set) var diffColors = "theme"
-    @ObservationIgnored public var onShowContextUsage: (@MainActor (Bool) async throws -> Void)?
+    @ObservationIgnored public var onComposerSetting: (@MainActor ([String], Bool) async throws -> Void)?
 
     @ObservationIgnored let host: any AgentPaneHostProviding
     /// The page's host is another machine's (cx-k21v): it never becomes this Mac's prewarmed spare.
@@ -305,7 +305,7 @@ public final class AgentPaneModel {
         case .projectInstructions, .projectAddFiles, .composerCapture: return await AgentPaneProjectFiles.respond(to: request, in: self)
         case .reply(let reply): return await respond(to: reply)
         case .saveFile(let save): return await saveFile(save)
-        case .showContextUsage(let show): return await showContextUsage(show)
+        case .composerSetting(let path, let show): return await setComposer(path, show)
         case .unsupported(let method): return Self.unsupported(method)
         }
     }
