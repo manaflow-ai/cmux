@@ -3819,7 +3819,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          current_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$CHANNEL_RELEASE_TAG" --jq .sha)"
+          # The tag itself: `commits/<name>` resolves the nightly-next branch,
+          # which the promote job moves ahead during a build, and a skipped
+          # republish leaves the feed without its previous item (cx-urd.67).
+          tag_object="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$CHANNEL_RELEASE_TAG" --jq '.object.type + " " + .object.sha')"
+          read -r tag_type current_sha <<< "$tag_object"
+          if [ "$tag_type" = tag ]; then
+            current_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$current_sha" --jq .object.sha)"
+          fi
           # The publication moved the tag to the resolved build commit.
           if [ "$current_sha" != "${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}" ]; then
             echo "Skipping stale delta result: $CHANNEL_RELEASE_TAG is at $current_sha"

@@ -157,31 +157,13 @@ import QuartzCore
             layer.setValue(x, forKeyPath: keyPath)
         }
         guard let spring, Motion.animatesMovement, start != x else {
-            if x != 0 { layer.add(Self.hold(keyPath, at: x), forKey: Self.slideKey) }
+            if x != 0 { layer.add(Motion.hold(keyPath, at: x), forKey: Self.slideKey) }
             return
         }
-        let parameters = Motion.spring(spring)
-        let animation = CASpringAnimation(keyPath: keyPath)
-        animation.mass = 1
-        animation.stiffness = parameters.stiffness
-        animation.damping = parameters.damping
-        animation.duration = parameters.settlingTime(within: 0.002)
-        animation.fromValue = start
-        animation.toValue = x
+        let animation = Motion.springAnimation(spring, keyPath, from: start, to: x)
         animation.fillMode = .forwards
         animation.isRemovedOnCompletion = false
         layer.add(animation, forKey: Self.slideKey)
-    }
-
-    /// A constant animation that keeps `keyPath` at `value` on screen until
-    /// it is replaced or removed, whatever AppKit writes to the model.
-    private static func hold(_ keyPath: String, at value: CGFloat) -> CABasicAnimation {
-        let animation = CABasicAnimation(keyPath: keyPath)
-        animation.fromValue = value
-        animation.toValue = value
-        animation.fillMode = .forwards
-        animation.isRemovedOnCompletion = false
-        return animation
     }
 
     // MARK: Mouse wheel
