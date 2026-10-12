@@ -1109,11 +1109,13 @@ _cmux_reset_terminal_leftover_modes() {
     # A TUI killed mid-run (SIGKILL, a crash) leaves its modes on: mouse
     # reporting types reports like 35;1;13M at the prompt. The shell is the
     # foreground job here, before its line editor turns bracketed paste back
-    # on. A hidden cursor comes back. Cursor-key mode (?1) stays: zle sets
-    # it after this hook anyway. ESC 7 first: leaving the alternate screen
-    # restores a saved cursor, which on the primary screen must be where the
-    # prompt already is.
-    printf '\033[?9l\033[?1000l\033[?1002l\033[?1003l\033[?1005l\033[?1006l\033[?1015l\033[?1016l\033[?1004l\033[?2004l\033[?25h\033\067\033[?1049l'
+    # on. A hidden cursor comes back. Cursor-key mode (?1) stays:
+    # zle sets it after this hook.
+    printf '\033[?9l\033[?1000l\033[?1002l\033[?1003l\033[?1005l\033[?1006l\033[?1015l\033[?1016l\033[?1004l\033[?2004l\033[?25h'
+    # Leaving the alternate screen restores a saved cursor; ESC 7 makes that
+    # the prompt's own spot on Ghostty's primary screen. tmux and screen keep
+    # the 1049 cursor apart from ESC 7, so there the prompt would jump.
+    [[ -n "${TMUX:-}${STY:-}" ]] || printf '\033\067\033[?1049l'
 }
 
 _cmux_ports_kick() {
