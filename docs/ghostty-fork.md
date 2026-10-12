@@ -12,6 +12,32 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### CSI 996 reports the surface's runtime color scheme
+
+- Branch: `cmux-csi996-runtime-scheme`
+  ([manaflow-ai/ghostty#270](https://github.com/manaflow-ai/ghostty/pull/270)),
+  based on the cmux pin `a53c76d06`. It carries only the termio commit of
+  [manaflow-ai/ghostty#231](https://github.com/manaflow-ai/ghostty/pull/231).
+- Commit: `fca69640e`.
+- Summary: `CSI ? 996 n` and mode 2031 reports read a new `Termio.color_scheme`
+  field instead of the parsed config's conditional state. `Surface.init` seeds
+  it from the surface's conditional state and `colorSchemeCallback` updates it
+  under the renderer mutex. Config reloads no longer touch it. Before, a config
+  whose final `theme` is plain (cmux always resolves one) never put `.theme` in
+  `_conditional_set`, so `changeConditionalState` kept the parser default and
+  every dark surface answered light (manaflow-ai/cmux#14155).
+- Coverage: `cmuxTests/GhosttyColorSchemeQueryTests` sends `CSI ? 996 n` to a
+  real surface with a plain dark config. GhosttyKit `fca69640e` was built and
+  published by
+  [run 38302975941](https://github.com/manaflow-ai/cmux/actions/runs/38302975941)
+  ([release](https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-fca69640ecf394f2ef9bd3ca77f2d18ef6f6d991-crashsubdir-cmux-crash-sentry-off-noi18n-v2)).
+  The archive SHA-256 is `eb65ef0727344d8de11f95016c7b54cbe2902c01273271adc622be73561b20e6`.
+- Conflict notes: `DerivedConfig` no longer has `conditional_state`; anything
+  upstream that reads `self.config.conditional_state` in termio should read
+  `self.color_scheme`. `termio.Options` gains a required `color_scheme` field.
+  Independent of #269 (minimum contrast, same base); if both land, pin a fork
+  `main` commit containing both.
+
 ### Link filter: the embedder vetoes hover regex links
 
 - Branch: `link-filter`
