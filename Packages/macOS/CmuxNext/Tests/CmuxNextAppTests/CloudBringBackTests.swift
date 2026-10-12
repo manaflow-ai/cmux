@@ -67,12 +67,15 @@ struct CloudBringBackTests {
     /// it again only opens the tab, without pulling or moving again.
     @Test func aCommittedBringBackWhoseTabFailedStillOpensItAfterARelaunch() async throws {
         try await Self.withRoundTrip("back") { trip in
-            let host = trip.services.agentTabs.localHost
-            trip.services.agentTabs.localHost = nil
+            // No host id for this Mac: the tab can't open (the id file is unreadable).
+            let tabs = trip.services.agentTabs, host = tabs.localHost, resolve = tabs.resolveLocalHost
+            tabs.resolveLocalHost = { nil }
+            tabs.localHost = nil
             #expect(await trip.bringBack() != nil, "the bring back did not report the tab that failed")
             #expect(trip.calls().count == 4, "\(trip.calls())")
             trip.services.cloud.bringBackRetries[trip.machineKey] = nil
-            trip.services.agentTabs.localHost = host
+            tabs.resolveLocalHost = resolve
+            tabs.localHost = host
             let record = try #require(trip.machineChat()?.agentSession)
             #expect(!CloudBringBack.hiddenMenuItems(record, movedChats: trip.services.cloud.movedChats).contains(CloudBringBack.action),
                     "the machine tab lost its Bring Back Local row")
