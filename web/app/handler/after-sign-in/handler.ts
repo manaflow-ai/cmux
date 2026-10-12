@@ -506,6 +506,31 @@ function stackThrottledResponse(
   );
 }
 
+/** Hand fresh tokens back to an allowed native return target, or go home. */
+function nativeReturnFlow(
+  request: NextRequest,
+  stackCookies: CookieStore,
+  nativeReturnTo: string,
+  refreshToken: string,
+  accessCookie: string,
+  localizedMessages: LocalizedAfterSignInMessages,
+): NextResponse {
+  const trustedPurchaseReturnTo = verifiedAppPricingNativeReturnTo(request.nextUrl);
+  if (
+    trustedPurchaseReturnTo === nativeReturnTo ||
+    isAllowedNativeReturnTo(nativeReturnTo, request)
+  ) {
+    const href = buildNativeHref(nativeReturnTo, refreshToken, accessCookie);
+    if (href) {
+      if (verifiedNativeHandoff(request, stackCookies, nativeReturnTo)) {
+        return nativeRedirectResponse(request, href);
+      }
+      return nativeReturnResponse(href, localizedMessages, switchAccountHref(request));
+    }
+  }
+  return NextResponse.redirect(new URL("/", requestOrigin(request)));
+}
+
 export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependencies) {
   return async function GET(request: NextRequest) {
     const projectId = dependencies.projectId;
@@ -534,27 +559,8 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
     }
 
     const nativeReturnTo = request.nextUrl.searchParams.get("native_app_return_to");
-    if (
-      refreshToken &&
-      accessCookie &&
-      nativeReturnTo !== null
-    ) {
-      const trustedPurchaseReturnTo = verifiedAppPricingNativeReturnTo(
-        request.nextUrl,
-      );
-      if (
-        trustedPurchaseReturnTo === nativeReturnTo ||
-        isAllowedNativeReturnTo(nativeReturnTo, request)
-      ) {
-        const href = buildNativeHref(nativeReturnTo, refreshToken, accessCookie);
-        if (href) {
-          if (verifiedNativeHandoff(request, stackCookies, nativeReturnTo)) {
-            return nativeRedirectResponse(request, href);
-          }
-          return nativeReturnResponse(href, localizedMessages, switchAccountHref(request));
-        }
-      }
-      return NextResponse.redirect(new URL("/", requestOrigin(request)));
+    if (refreshToken && accessCookie && nativeReturnTo !== null) {
+      return nativeReturnFlow(request, stackCookies, nativeReturnTo, refreshToken, accessCookie, localizedMessages);
     }
 
     const afterAuth = request.nextUrl.searchParams.get("after_auth_return_to");
