@@ -102,12 +102,33 @@ bun scripts/agent-pane/tailwind-css.mjs "$SRC/acpmux/tailwind.css" >> "$WORK/sty
 # script-src (PageDescriptor.agent, test/fixtures/agent-page-csp.txt).
 CSP="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src data:; media-src 'self'; font-src data:; connect-src 'none'; frame-src cmux-agent://render http://localhost:* http://127.0.0.1:* https://localhost:* https://127.0.0.1:*"
 
+# The chunks pane.js imports statically, and theirs: the page asks for them with pane.js
+# (modulepreload) instead of after pane.js has arrived and parsed, a round trip through the app's
+# main thread that is slow at launch (bd cx-z9kz0). esbuild hoists a module's static imports to
+# its start; dynamic imports (import("./chunks/...")) stay out.
+PRELOADS="$(bun -e '
+const fs = require("node:fs"), path = require("node:path");
+const dir = process.argv.at(-1), seen = new Set(), queue = ["pane.js"];
+while (queue.length) {
+  const name = queue.shift();
+  const text = fs.readFileSync(path.join(dir, name), "utf8");
+  const head = text.match(/^(?:import(?:[^;"]*?from)?"[^"]+";)*/)[0];
+  for (const [, spec] of head.matchAll(/"(\.\/[^"]+\.js)"/g)) {
+    const next = path.posix.join(path.posix.dirname(name), spec);
+    if (!seen.has(next)) { seen.add(next); queue.push(next); }
+  }
+}
+for (const name of seen) console.log(`<link rel="modulepreload" href="${name}" />`);
+' "$WORK/pane")"
+
 {
   printf '<!doctype html>\n<html lang="en">\n<head>\n'
   printf '<meta charset="utf-8" />\n'
   printf '<meta http-equiv="Content-Security-Policy" content="%s" />\n' "$CSP"
   printf '<meta name="viewport" content="width=device-width, initial-scale=1" />\n'
   printf '<title>cmux Agent</title>\n'
+  printf '<link rel="modulepreload" href="pane.js" />\n'
+  [ -z "$PRELOADS" ] || printf '%s\n' "$PRELOADS"
   printf '%s\n' "$LOADER"
   printf '<style>\n'
   cat "$WORK/styles.css"
