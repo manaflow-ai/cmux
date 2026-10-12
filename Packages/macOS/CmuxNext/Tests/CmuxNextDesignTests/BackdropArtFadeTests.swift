@@ -34,7 +34,8 @@ struct BackdropArtFadeTests {
         var fades: [CABasicAnimation] = []
         for _ in 0..<200 where fades.isEmpty {
             try await Task.sleep(for: .milliseconds(10))
-            fades = Self.opacityFades(under: view.layer)
+            // Each part has its own layer; the view itself has none outside a window.
+            fades = view.subviews.flatMap { Self.opacityFades(under: $0.layer) }
         }
         // At speed off the art appears at once (no fade to find).
         if Motion.duration(.fadeIn) > 0 { try #require(!fades.isEmpty, "the art never faded in") }
