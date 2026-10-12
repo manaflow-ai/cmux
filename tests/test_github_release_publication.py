@@ -247,10 +247,25 @@ class PublicationTests(unittest.TestCase):
 
     def test_missing_release_is_created_draft_and_existing_release_is_untouched(self):
         client = publisher.GitHub("owner/repo", "fake-token")
-        with patch.object(client, "request", side_effect=[publisher.RequestError("missing", status=404), {"id": 9}]) as request:
+        with patch.object(client, "request", side_effect=[publisher.RequestError("missing", status=404), [], {"id": 9}]) as request:
             self.assertEqual(client.release_id("nightly"), 9)
         self.assertEqual(request.call_args.args[0], "POST")
         self.assertIn(b'"draft": true', request.call_args.kwargs["body"])
+
+    def test_rerun_adopts_the_existing_draft_instead_of_staging_another(self):
+        # The tags endpoint 404s for drafts. Staging a second draft on a rerun
+        # left two full asset sets: the publish action finalizes the lowest id
+        # while R2 gets this attempt's appcast, signed for DMGs never published.
+        client = publisher.GitHub("owner/repo", "fake-token")
+        listing = [
+            {"id": 11, "tag_name": "v1.2.3", "draft": False},
+            {"id": 8, "tag_name": "v1.2.4", "draft": True},
+            {"id": 7, "tag_name": "v1.2.3", "draft": True},
+            {"id": 5, "tag_name": "v1.2.3", "draft": True},
+        ]
+        with patch.object(client, "request", side_effect=[publisher.RequestError("missing", status=404), listing]) as request:
+            self.assertEqual(client.release_id("v1.2.3"), 5)
+        self.assertNotIn("POST", [call.args[0] for call in request.call_args_list])
 
     def test_asset_listing_is_paginated(self):
         client = publisher.GitHub("owner/repo", "fake-token")
