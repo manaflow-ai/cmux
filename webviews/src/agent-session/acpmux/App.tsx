@@ -3305,6 +3305,11 @@ function AcpmuxPane() {
           },
           "chat.harness.hint": async ({ harness }) => harnessSwitch.hint(harness ? String(harness) : undefined),
           "chat.harness.retry": async () => harnessSwitch.retry(),
+          // The picker's Refresh models: acpmux probes every agent again, then the catalog re-reads.
+          "models.refresh": async () => {
+            await client.refreshModels();
+            await queryClient.invalidateQueries({ queryKey: ["acpmux", "harnesses"] });
+          },
           // Enables a folder profile, then starts the chat on it. The request goes out before any
           // await, inside the click or key handler that called this: the host's confirmation
           // takes that gesture. A Cancel there (`transport.harness_not_confirmed`) changes nothing;
