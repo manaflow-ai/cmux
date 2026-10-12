@@ -173,8 +173,16 @@ const TINT_SCALES: [f64; 6] = [1.0, 0.7, 0.45, 0.25, 0.1, 0.0];
 
 use AppToken as T;
 const PLAIN_SURFACES: [AppToken; 4] = [T::Window, T::Sidebar, T::Content, T::Elevated];
-const TEXT_SURFACES: [AppToken; 8] =
-    [T::Window, T::Sidebar, T::Content, T::Elevated, T::Control, T::Hover, T::Pressed, T::Selection];
+const TEXT_SURFACES: [AppToken; 8] = [
+    T::Window,
+    T::Sidebar,
+    T::Content,
+    T::Elevated,
+    T::Control,
+    T::Hover,
+    T::Pressed,
+    T::Selection,
+];
 const STATUS_SURFACES: [AppToken; 5] = [T::Window, T::Sidebar, T::Content, T::Elevated, T::Hover];
 
 impl AppTheme {
@@ -193,7 +201,11 @@ impl AppTheme {
         add(T::Text, &TEXT_SURFACES, TEXT_MINIMUM);
         add(T::TextSecondary, &TEXT_SURFACES, TEXT_MINIMUM);
         add(T::Icon, &TEXT_SURFACES, UI_MINIMUM);
-        add(T::ControlStroke, &[T::Window, T::Sidebar, T::Content, T::Elevated, T::Control], UI_MINIMUM);
+        add(
+            T::ControlStroke,
+            &[T::Window, T::Sidebar, T::Content, T::Elevated, T::Control],
+            UI_MINIMUM,
+        );
         add(T::Accent, &PLAIN_SURFACES, UI_MINIMUM);
         add(T::FocusRing, &PLAIN_SURFACES, UI_MINIMUM);
         add(T::OnAccent, &[T::Accent], TEXT_MINIMUM);
@@ -217,7 +229,12 @@ impl AppTheme {
 
     /// The tokens of a terminal palette (alpha ignored) with `accent`. Every
     /// contract pair meets its minimum.
-    pub fn derive(background: Rgb, foreground: Rgb, palette: &[Rgb; 16], accent: ThemeAccent) -> Self {
+    pub fn derive(
+        background: Rgb,
+        foreground: Rgb,
+        palette: &[Rgb; 16],
+        accent: ThemeAccent,
+    ) -> Self {
         let (bg, fg) = (background.with_alpha(1.0), foreground.with_alpha(1.0));
         let palette = palette.map(|c| c.with_alpha(1.0));
         let mut theme = derive_at(bg, fg, &palette, accent, TINT_SCALES[0]);
@@ -233,7 +250,11 @@ impl AppTheme {
 
 /// The more colorful of a normal and a bright slot.
 fn colorful(palette: &[Rgb; 16], normal: usize, bright: usize) -> Rgb {
-    if oklch(palette[bright]).c > oklch(palette[normal]).c + 0.02 { palette[bright] } else { palette[normal] }
+    if oklch(palette[bright]).c > oklch(palette[normal]).c + 0.02 {
+        palette[bright]
+    } else {
+        palette[normal]
+    }
 }
 
 /// The accent's starting color (Swift `AppTheme.accentSeed`).
@@ -292,18 +313,23 @@ fn derive_at(bg: Rgb, fg: Rgb, palette: &[Rgb; 16], accent: ThemeAccent, tint: f
 
     let text = fit(fg, &on(&t, &TEXT_SURFACES, TEXT_MINIMUM), None);
     t[T::Text as usize] = text;
-    t[T::TextSecondary as usize] = fit(text.mixed(bg, 0.34), &on(&t, &TEXT_SURFACES, TEXT_MINIMUM), away);
+    t[T::TextSecondary as usize] =
+        fit(text.mixed(bg, 0.34), &on(&t, &TEXT_SURFACES, TEXT_MINIMUM), away);
     t[T::Icon as usize] = fit(text.mixed(bg, 0.3), &on(&t, &TEXT_SURFACES, UI_MINIMUM), away);
     t[T::ControlStroke as usize] = fit(
         bg.mixed(fg, 0.42),
         &on(&t, &[T::Window, T::Sidebar, T::Content, T::Elevated, T::Control], UI_MINIMUM),
         away,
     );
-    let status_and_selection = [T::Window, T::Sidebar, T::Content, T::Elevated, T::Hover, T::Selection];
+    let status_and_selection =
+        [T::Window, T::Sidebar, T::Content, T::Elevated, T::Hover, T::Selection];
     t[T::AccentText as usize] = fit(accent, &on(&t, &status_and_selection, TEXT_MINIMUM), away);
-    t[T::Danger as usize] = fit(colorful(palette, 1, 9), &on(&t, &STATUS_SURFACES, TEXT_MINIMUM), away);
-    t[T::Warning as usize] = fit(colorful(palette, 3, 11), &on(&t, &STATUS_SURFACES, TEXT_MINIMUM), away);
-    t[T::Success as usize] = fit(colorful(palette, 2, 10), &on(&t, &STATUS_SURFACES, TEXT_MINIMUM), away);
+    t[T::Danger as usize] =
+        fit(colorful(palette, 1, 9), &on(&t, &STATUS_SURFACES, TEXT_MINIMUM), away);
+    t[T::Warning as usize] =
+        fit(colorful(palette, 3, 11), &on(&t, &STATUS_SURFACES, TEXT_MINIMUM), away);
+    t[T::Success as usize] =
+        fit(colorful(palette, 2, 10), &on(&t, &STATUS_SURFACES, TEXT_MINIMUM), away);
     AppTheme { is_dark, tokens: t }
 }
 
@@ -418,11 +444,14 @@ fn fit(color: Rgb, constraints: &[Constraint], prefer: Option<Direction>) -> Rgb
     let lch = oklch(start);
     let average =
         constraints.iter().map(|c| luminance(c.on)).sum::<f64>() / constraints.len().max(1) as f64;
-    let first = prefer.unwrap_or(if average < 0.18 { Direction::Lighter } else { Direction::Darker });
+    let first =
+        prefer.unwrap_or(if average < 0.18 { Direction::Lighter } else { Direction::Darker });
     let second = if first == Direction::Lighter { Direction::Darker } else { Direction::Lighter };
     for direction in [first, second] {
         let pole = if direction == Direction::Lighter { 1.0 } else { 0.0 };
-        let at = |t: f64| quantized(from_oklch(Oklch { l: lch.l + (pole - lch.l) * t, c: lch.c, h: lch.h }));
+        let at = |t: f64| {
+            quantized(from_oklch(Oklch { l: lch.l + (pole - lch.l) * t, c: lch.c, h: lch.h }))
+        };
         if !meets(at(1.0), constraints) {
             continue;
         }
@@ -437,7 +466,9 @@ fn fit(color: Rgb, constraints: &[Constraint], prefer: Option<Direction>) -> Rgb
         }
         return at(high);
     }
-    let worst = |pole: Rgb| constraints.iter().map(|c| contrast(pole, c.on)).fold(f64::INFINITY, f64::min);
-    let (white, black) = if constraints.is_empty() { (0.0, 0.0) } else { (worst(Rgb::WHITE), worst(Rgb::BLACK)) };
+    let worst =
+        |pole: Rgb| constraints.iter().map(|c| contrast(pole, c.on)).fold(f64::INFINITY, f64::min);
+    let (white, black) =
+        if constraints.is_empty() { (0.0, 0.0) } else { (worst(Rgb::WHITE), worst(Rgb::BLACK)) };
     if white >= black { Rgb::WHITE } else { Rgb::BLACK }
 }
