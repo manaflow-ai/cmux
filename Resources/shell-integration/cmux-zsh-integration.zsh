@@ -323,7 +323,6 @@ _cmux_now() {
 typeset -g _CMUX_CLAUDE_WRAPPER=""
 typeset -g _CMUX_GROK_WRAPPER=""
 typeset -g _CMUX_MUSE_WRAPPER=""
-typeset -g _CMUX_MUSE_WRAPPER=""
 # Sets REPLY to PATH-style $2 with $1 moved to the front (and $3 dropped),
 # without the subshell a command substitution would fork.
 _cmux_path_prepend_unique_directory_into_reply() {

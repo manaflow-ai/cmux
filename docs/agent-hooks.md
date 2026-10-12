@@ -218,7 +218,7 @@ notification bridge, rebinding, and hibernation integration for that process.
 | Gemini | none | `CMUX_GEMINI_HOOKS_DISABLED=1` |
 | Kiro CLI | `KIRO_HOME` | `CMUX_KIRO_HOOKS_DISABLED=1` |
 | Kimi Code | `KIMI_CODE_HOME`, `KIMI_SHARE_DIR` | `CMUX_KIMI_HOOKS_DISABLED=1` |
-| Muse Code | `XDG_CONFIG_HOME` | `CMUX_MUSE_HOOKS_DISABLED=1` (read by the `muse` wrapper; installed hooks run without cmux variables) |
+| Muse Code | `XDG_CONFIG_HOME` | `CMUX_MUSE_HOOKS_DISABLED=1` stops the `muse` wrapper from installing hooks; Muse hides cmux variables from hooks, so run `cmux hooks muse uninstall` to turn installed hooks off |
 | Rovo Dev | none | `CMUX_ROVODEV_HOOKS_DISABLED=1` |
 | Copilot | `COPILOT_HOME` | `CMUX_COPILOT_HOOKS_DISABLED=1` |
 | CodeBuddy | `CODEBUDDY_CONFIG_DIR` | `CMUX_CODEBUDDY_HOOKS_DISABLED=1` |
@@ -226,7 +226,7 @@ notification bridge, rebinding, and hibernation integration for that process.
 | Qoder | `QODER_CONFIG_DIR` | `CMUX_QODER_HOOKS_DISABLED=1` |
 | Antigravity | none | `CMUX_ANTIGRAVITY_HOOKS_DISABLED=1` |
 
-Muse Code runs hooks with a cleared environment, so the cmux `muse` wrapper installs hooks that carry the installing cmux CLI and socket and find the terminal from the Muse process, like Grok. Muse sessions appear in Vault from Muse's own `session-index.db`.
+Muse Code runs hooks through the user's login shell with a cleared environment, so the cmux `muse` wrapper installs each hook as a `#!/bin/sh` script under `~/.cmux/hooks/muse/` that carries the installing cmux CLI and socket and finds the terminal from the Muse process, like Grok. Muse sessions appear in Vault from Muse's own `session-index.db`.
 
 Pi uses Pi's extension system, not the legacy Pi hooks API. The installed extension is auto-discovered from `~/.pi/agent/extensions/` or `$PI_CODING_AGENT_DIR/extensions/`.
 
