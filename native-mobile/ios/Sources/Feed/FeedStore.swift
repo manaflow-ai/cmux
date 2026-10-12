@@ -149,7 +149,7 @@ final class FeedStore {
         guard let connection, let index = items.firstIndex(where: { $0.id == id }), let surface = items[index].surface else { return }
         let text = await connection.scrollback(surface: surface)
         guard !text.isEmpty, let current = items.firstIndex(where: { $0.id == id }) else { return }
-        let parsed = FeedTextParser.parse(text)
+        let parsed = FeedTextParser.parse(text, columns: connection.tab(surface: surface)?.size?.cols)
         if items[current].quote == nil { items[current].quote = parsed.lastPrompt }
         if items[current].body.count < 40, let reply = parsed.lastReply { items[current].body = reply }
         if items[current].options.isEmpty { items[current].options = parsed.options }

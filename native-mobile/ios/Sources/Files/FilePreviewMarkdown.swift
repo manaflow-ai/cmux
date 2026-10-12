@@ -63,12 +63,14 @@ enum FilePreviewMarkdown {
 
             // Raw HTML blocks (GitHub READMEs: centered logos, badges) pass
             // through as written; the preview web view runs no JavaScript.
-            if trimmed.hasPrefix("<"), trimmed.range(of: #"^</?[A-Za-z][A-Za-z0-9-]*[\s>/]"#, options: .regularExpression) != nil {
+            if trimmed.hasPrefix("<"), trimmed.hasSuffix(">"), trimmed.range(of: #"^</?[A-Za-z][A-Za-z0-9-]*[\s>/]"#, options: .regularExpression) != nil {
                 flushParagraph()
+                var block = ""
                 while i < lines.count, !lines[i].trimmingCharacters(in: .whitespaces).isEmpty {
-                    html += lines[i] + "\n"
+                    block += lines[i] + "\n"
                     i += 1
                 }
+                html += sanitizeHTML(block)
                 continue
             }
 
@@ -168,6 +170,22 @@ enum FilePreviewMarkdown {
     }
 
     // MARK: - Blocks
+
+    /// Raw HTML from a file: drop scripts, frames, inline handlers and
+    /// `javascript:` URLs (defense in depth; the preview runs no JavaScript).
+    static func sanitizeHTML(_ html: String) -> String {
+        var out = html
+        let rules: [(String, String)] = [
+            (#"(?is)<script\b.*?</script\s*>"#, ""),
+            (#"(?is)<(script|iframe|object|embed)\b[^>]*>"#, ""),
+            (#"(?i)\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)"#, ""),
+            (#"(?i)(href|src)\s*=\s*(["'])\s*javascript:[^"']*\2"#, "$1=\"#\""),
+        ]
+        for (pattern, template) in rules {
+            out = out.replacingOccurrences(of: pattern, with: template, options: .regularExpression)
+        }
+        return out
+    }
 
     static func headingLevel(_ line: String) -> Int? {
         let hashes = line.prefix(while: { $0 == "#" }).count

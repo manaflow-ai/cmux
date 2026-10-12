@@ -15,15 +15,16 @@ enum FeedTextParser {
     /// Reply markers: Claude Code `⏺`, Codex `•`, Gemini `✦`.
     private static let replyMarkers: [Character] = ["⏺", "•", "✦", "●"]
 
-    static func parse(_ text: String) -> Result {
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map { stripBox(String($0)) }
+    static func parse(_ text: String, columns: Int? = nil) -> Result {
+        let lines = unwrap(text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init), columns: columns)
+            .map(stripBox)
         var lastPrompt: String?
         var lastReply: String?
         var index = 0
         while index < lines.count {
             let line = lines[index]
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if let first = trimmed.first, promptMarkers.contains(first), !isMenuLine(trimmed) {
+            if let first = trimmed.first, promptMarkers.contains(first), !isMenuLine(trimmed), !isSelectionMenu(lines, at: index) {
                 let body = trimmed.dropFirst().trimmingCharacters(in: .whitespaces)
                 var block = [body]
                 var next = index + 1
@@ -69,6 +70,36 @@ enum FeedTextParser {
         }
         // A menu is at least two consecutive choices starting at 1.
         return found.count >= 2 && found.first?.key == "1" ? found : []
+    }
+
+    /// Rejoins rows the terminal soft-wrapped: a row that fills the whole
+    /// width continues on the next one.
+    static func unwrap(_ rows: [String], columns: Int?) -> [String] {
+        guard let columns, columns > 10 else { return rows }
+        var result: [String] = []
+        var carry = ""
+        for row in rows {
+            carry += row
+            if row.count >= columns { continue }
+            result.append(carry)
+            carry = ""
+        }
+        if !carry.isEmpty { result.append(carry) }
+        return result
+    }
+
+    /// A `❯` cursor inside a selection menu (Claude Code's trust and
+    /// permission dialogs), recognized by the footer that follows it.
+    private static func isSelectionMenu(_ lines: [String], at index: Int) -> Bool {
+        // Options sit on the very next row; a submitted prompt is followed
+        // by a blank row or its own wrapped text.
+        guard index + 1 < lines.count, lines[index + 1].hasPrefix("  "),
+              !lines[index + 1].trimmingCharacters(in: .whitespaces).isEmpty else { return false }
+        let window = lines[(index + 1)..<min(lines.count, index + 8)]
+        return window.contains { line in
+            let lower = line.lowercased()
+            return lower.contains("enter to confirm") || lower.contains("esc to cancel") || lower.contains("esc to go back")
+        }
     }
 
     private static func isMenuLine(_ line: String) -> Bool {
