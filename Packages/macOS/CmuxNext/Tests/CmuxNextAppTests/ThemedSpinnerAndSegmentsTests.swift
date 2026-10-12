@@ -106,9 +106,6 @@ import Testing
         }
     }
 
-    // MARK: Helpers
-
-    /// WCAG contrast of two opaque sRGB colors.
     /// The selected label is drawn in `selectedLabelInk` (read from the control's own drawing),
     /// and a disabled control's label dims as AppKit's does instead of keeping the full ink.
     @Test func theSelectedSegmentsLabelDrawsInItsInkAndDimsWhenDisabled() throws {
@@ -131,6 +128,8 @@ import Testing
         let dimmed = try #require(Self.nearest(ink, in: tabs, segment: 0), "the disabled control draws")
         #expect(dimmed >= 0.12, "a disabled label dims: no pixel is the full ink (nearest is \(dimmed) off)")
     }
+
+    // MARK: Helpers
 
     /// How close the closest opaque pixel in `segment`'s share of the control comes to `color`
     /// (0 for an exact match), read from the control's own drawing; infinity when nothing there is
@@ -156,6 +155,7 @@ import Testing
                    abs(a.blueComponent - b.blueComponent)))
     }
 
+    /// WCAG contrast of two opaque sRGB colors.
     private static func contrast(_ a: NSColor, _ b: NSColor) -> Double {
         func channel(_ c: CGFloat) -> Double {
             let c = Double(c)

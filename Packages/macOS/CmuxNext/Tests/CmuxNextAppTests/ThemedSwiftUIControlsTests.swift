@@ -87,6 +87,60 @@ import Testing
         #expect(ThemedOverlayColorsTests.same(loading, scope.perform { Palette.textSecondary }), "\(loading)")
     }
 
+    /// A search that took the keyboard when it first appeared takes it again when its view comes
+    /// back to the window (its tab shown again), as SwiftUI's `.onAppear` focus did.
+    @Test func aSearchTakesTheKeyboardAgainWhenItComesBack() throws {
+        let scope = try ThemedOverlayColorsTests.purpleRoom()
+        let (window, root) = try Self.host(HistoryPageView(model: HistoryPageModel(), appearance: HistoryPageAppearance()), scope)
+        defer { window.contentView = nil; window.close() }
+        let field = try #require(HomeSheetThemeTests.editableFields(in: root).first)
+        #expect(Self.isEditing(field, in: window), "the search takes the keyboard when it appears")
+
+        window.contentView = nil
+        window.makeFirstResponder(nil)
+        window.contentView = root
+        root.layoutSubtreeIfNeeded()
+        #expect(Self.isEditing(field, in: window), "and again when it comes back")
+    }
+
+    /// A field's box follows a height change (a live density change of `Metrics.tabHeight`).
+    @Test func aFieldsBoxFollowsItsHeight() throws {
+        let scope = try ThemedOverlayColorsTests.purpleRoom()
+        let text = Binding.constant("")
+        let hosting = NSHostingView(rootView: ThemedField(text: text, height: 24).frame(width: 200, height: 60))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 60), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.close() }
+        window.contentView = hosting
+        scope.root(hosting)
+        hosting.layoutSubtreeIfNeeded()
+        let box = try #require(Self.all(ThemedFieldBox.self, in: hosting).first)
+        #expect(box.frame.height == 24)
+
+        hosting.rootView = ThemedField(text: text, height: 32).frame(width: 200, height: 60)
+        hosting.layoutSubtreeIfNeeded()
+        #expect(box.frame.height == 32, "the box resizes: \(box.frame.height)")
+    }
+
+    /// Choosing a folder from the pop-up's menu, as a click does, updates the binding.
+    @Test func choosingAFolderUpdatesTheBinding() throws {
+        let scope = try ThemedOverlayColorsTests.purpleRoom()
+        let model = BookmarkEditModel(isNew: true, title: "Docs", folder: "bar", folders: [
+            BookmarkFolderChoice(id: "bar", title: "Bookmarks Bar", depth: 0),
+            BookmarkFolderChoice(id: "other", title: "Other Bookmarks", depth: 0),
+        ])
+        let (window, root) = try Self.host(BookmarkEditView(model: model), scope)
+        defer { window.contentView = nil; window.close() }
+        let popup = try #require(Self.all(NSPopUpButton.self, in: root).first)
+        let menu = try #require(popup.menu)
+        menu.performActionForItem(at: 1)
+        #expect(model.folder == "other", "the chosen folder reaches the model")
+    }
+
+    private static func isEditing(_ field: NSTextField, in window: NSWindow) -> Bool {
+        window.firstResponder === field || (window.firstResponder as? NSTextView)?.delegate === field
+    }
+
     private static func all<T: NSView>(_ type: T.Type, in view: NSView) -> [T] {
         var found: [T] = []
         if let match = view as? T { found.append(match) }
