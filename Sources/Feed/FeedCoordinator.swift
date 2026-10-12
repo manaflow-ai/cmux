@@ -70,6 +70,7 @@ final class FeedCoordinator: @unchecked Sendable {
     /// Main-actor isolated: read/written only from the `@MainActor` attention
     /// methods.
     @MainActor private var pendingAttentionStates: [FeedAttentionTarget: AttentionOverlayState] = [:]
+    @MainActor private var pendingAttentionTargetsBySurfaceID: [UUID: Set<FeedAttentionTarget>] = [:]
     /// Codex owns its TUI approval prompt, so its zero-wait PermissionRequest
     /// telemetry has no Feed waiter to clear the needs-input overlay. Keep one
     /// transient target per agent session and retire it on the next event.
@@ -842,10 +843,20 @@ extension FeedCoordinator {
                 .dock(id: owner.id, statusKey: statusKey)
             }
         }
-        let attentionState = pendingAttentionStates[target] ?? AttentionOverlayState(owner: owner)
+        let attentionState: AttentionOverlayState
+        if let existing = pendingAttentionStates[target] {
+            attentionState = existing
+            existing.fallbackOwner = owner
+            existing.surfaceID = resolved.surfaceId ?? existing.surfaceID
+        } else {
+            attentionState = AttentionOverlayState(owner: owner, surfaceID: resolved.surfaceId)
+        }
         attentionState.fallbackOwner = owner
         attentionState.count += 1
         pendingAttentionStates[target] = attentionState
+        if let surfaceID = attentionState.surfaceID {
+            pendingAttentionTargetsBySurfaceID[surfaceID, default: []].insert(target)
+        }
 
         // Needs-input lifecycle drives the sidebar badge + hibernation state.
         owner.setAgentLifecycle(key: statusKey, panelId: panelId, lifecycle: .needsInput)
@@ -858,6 +869,63 @@ extension FeedCoordinator {
         ), key: statusKey, panelId: panelId)
 
         return target
+    }
+
+    /// Optimistically clears the Feed-owned needs-input overlay when the user
+    /// sends input to its terminal. Hook delivery remains authoritative and
+    /// will replace or remove this transient running state on the next event.
+    @MainActor
+    func noteExplicitInput(surfaceID: UUID, at: Date = Date()) {
+        for target in pendingAttentionTargetsBySurfaceID[surfaceID] ?? [] {
+            guard let attentionState = pendingAttentionStates[target] else { continue }
+            let owner = liveAttentionOwner(for: target, fallback: attentionState.fallbackOwner)
+            let ownsSurface: Bool
+            switch owner {
+            case .workspace(let workspace):
+                ownsSurface = target.panelId == surfaceID
+                    || workspace.surfaceOwnershipTarget(for: surfaceID)?.containerPanelID == target.panelId
+            case .dock:
+                ownsSurface = target.panelId == surfaceID
+            }
+            guard ownsSurface else { continue }
+
+            owner.setAgentLifecycle(
+                key: target.statusKey,
+                panelId: target.panelId,
+                lifecycle: .running
+            )
+            owner.setStatusEntry(
+                SidebarStatusEntry(
+                    key: target.statusKey,
+                    value: String(localized: "agent.generic.status.running", defaultValue: "Running"),
+                    icon: "bolt.fill",
+                    color: CmuxAccentColor.builtInAgentStatusHex,
+                    timestamp: at
+                ),
+                key: target.statusKey,
+                panelId: target.panelId
+            )
+            if let baseStatusKey = Self.baseStatusKey(forAttentionStatusKey: target.statusKey) {
+                owner.setAgentLifecycle(key: baseStatusKey, panelId: target.panelId, lifecycle: .running)
+                owner.setStatusEntry(
+                    SidebarStatusEntry(
+                        key: baseStatusKey,
+                        value: String(localized: "agent.generic.status.running", defaultValue: "Running"),
+                        icon: "bolt.fill",
+                        color: CmuxAccentColor.builtInAgentStatusHex,
+                        timestamp: at
+                    ),
+                    key: baseStatusKey,
+                    panelId: target.panelId
+                )
+            }
+            #if DEBUG
+            cmuxDebugLog(
+                "feed.attention.input surface=\(surfaceID.uuidString.prefix(8)) "
+                + "target=\(target.statusKey) state=running"
+            )
+            #endif
+        }
     }
 
     @MainActor
@@ -895,6 +963,12 @@ extension FeedCoordinator {
             return
         }
         pendingAttentionStates.removeValue(forKey: target)
+        if let surfaceID = attentionState.surfaceID {
+            pendingAttentionTargetsBySurfaceID[surfaceID]?.remove(target)
+            if pendingAttentionTargetsBySurfaceID[surfaceID]?.isEmpty == true {
+                pendingAttentionTargetsBySurfaceID.removeValue(forKey: surfaceID)
+            }
+        }
         let owner = liveAttentionOwner(for: target, fallback: attentionState.fallbackOwner)
 
         // Lifecycle is per-panel, so clearing this Feed-owned slot is safe even
@@ -925,6 +999,12 @@ extension FeedCoordinator {
         if !sharedWorkspaceStatusStillPending {
             owner.clearStatusEntry(key: target.statusKey, panelId: target.panelId)
         }
+    }
+
+    private static func baseStatusKey(forAttentionStatusKey key: String) -> String? {
+        let prefix = "cmux.feed.attention:"
+        guard key.hasPrefix(prefix) else { return nil }
+        return String(key.dropFirst(prefix.count))
     }
 
     /// Resolves a pending overlay's current mutation owner. A panel target is
@@ -1074,10 +1154,12 @@ extension FeedCoordinator {
 private final class AttentionOverlayState {
     var count: Int
     var fallbackOwner: ControlSidebarPanelOwner
+    var surfaceID: UUID?
 
-    init(owner: ControlSidebarPanelOwner) {
+    init(owner: ControlSidebarPanelOwner, surfaceID: UUID?) {
         self.count = 0
         self.fallbackOwner = owner
+        self.surfaceID = surfaceID
     }
 }
 

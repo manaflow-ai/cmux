@@ -205,6 +205,16 @@ public final class ControlCommandCoordinator {
         handles.uuid(forRef: ref)
     }
 
+    /// Returns the ref already minted for an object, without minting one.
+    ///
+    /// - Parameters:
+    ///   - kind: The handle kind.
+    ///   - uuid: The object identity.
+    /// - Returns: The existing ref, or `nil` if none was minted or it was removed.
+    public func existingRef(kind: ControlHandleKind, uuid: UUID) -> String? {
+        handles.existingRef(kind: kind, uuid: uuid)
+    }
+
     /// Drops the ref for an identifier (without reusing its ordinal).
     ///
     /// - Parameters:

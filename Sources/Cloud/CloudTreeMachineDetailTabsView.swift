@@ -17,7 +17,9 @@ struct CloudTreeMachineDetailTabsView: View {
     /// Where the strip starts (`CloudTreeHoverStyle.leading`), already scaled.
     var leading: CGFloat = CloudTreeHoverStyle.horizontalInset
     let select: (CloudTreeMachineDetailTab) -> Void
+    @Namespace private var selectionNamespace
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var magnification
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         // The roomiest strip that fits wins, so a narrow sidebar tightens the
@@ -41,13 +43,15 @@ struct CloudTreeMachineDetailTabsView: View {
     @ViewBuilder
     private func strip(_ density: CloudTreeMachineDetailTabDensity) -> some View {
         let row = HStack(spacing: density.spacing) {
-            ForEach(tabs.tabs, id: \.self) { tab in
+            ForEach(Array(tabs.tabs.enumerated()), id: \.element) { index, tab in
                 CloudTreeMachineDetailTabButton(
                     tab: tab,
                     count: density.showsCounts ? tabs.count(for: tab) : nil,
                     isSelected: tabs.selected == tab,
                     style: style,
-                    horizontalPadding: density.horizontalPadding
+                    horizontalPadding: density.horizontalPadding,
+                    selectionNamespace: selectionNamespace,
+                    tabIndex: index
                 ) { select(tab) }
             }
         }
@@ -57,11 +61,17 @@ struct CloudTreeMachineDetailTabsView: View {
             CloudTreeMachineDetailTabButtonMetrics.horizontalPadding - density.horizontalPadding,
             percent: magnification
         ))
-        if density.truncates {
-            row
-        } else {
-            row.fixedSize(horizontal: true, vertical: false)
+        Group {
+            if density.truncates {
+                row
+            } else {
+                row.fixedSize(horizontal: true, vertical: false)
+            }
         }
+        .animation(
+            reduceMotion ? nil : .spring(response: 0.34, dampingFraction: 0.88),
+            value: tabs.selected
+        )
     }
 
     /// Space between the rows above and the tabs.
@@ -92,6 +102,8 @@ private struct CloudTreeMachineDetailTabButton: View {
     let isSelected: Bool
     let style: CloudTreeStyle
     var horizontalPadding = CloudTreeMachineDetailTabButtonMetrics.horizontalPadding
+    let selectionNamespace: Namespace.ID
+    let tabIndex: Int
     let action: () -> Void
     @State private var isHovered = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -114,8 +126,10 @@ private struct CloudTreeMachineDetailTabButton: View {
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
                         .fixedSize()
+                        .contentTransition(.interpolate)
                 }
             }
+            .scaleEffect(isSelected ? 1 : 0.97, anchor: .leading)
             .padding(.horizontal, GlobalFontMagnification.scaledSize(horizontalPadding, percent: magnification))
             .frame(height: GlobalFontMagnification.scaledSize(Self.height, percent: magnification))
             .background(segment)
@@ -124,7 +138,10 @@ private struct CloudTreeMachineDetailTabButton: View {
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
         .animation(reduceMotion ? nil : .easeOut(duration: isHovered ? CloudTreeHoverStyle.fadeIn : CloudTreeHoverStyle.fadeOut), value: isHovered)
-        .animation(reduceMotion ? nil : .easeOut(duration: CloudTreeHoverStyle.fadeIn), value: isSelected)
+        .animation(
+            reduceMotion ? nil : .easeOut(duration: 0.28).delay(Double(tabIndex) * 0.035),
+            value: isSelected
+        )
         .help(tab.title)
         .accessibilityLabel(tab.title)
         .accessibilityValue(count.map { String($0) } ?? "")
@@ -133,10 +150,16 @@ private struct CloudTreeMachineDetailTabButton: View {
     }
 
     private var segment: some View {
-        RoundedRectangle(cornerRadius: CloudTreeHoverStyle.cornerRadius, style: .continuous)
-            .fill(Color.primary.opacity(
-                isSelected ? CloudTreeHoverStyle.selectedOpacity : (isHovered ? CloudTreeHoverStyle.hoverOpacity : 0)
-            ))
+        ZStack {
+            if isSelected {
+                RoundedRectangle(cornerRadius: CloudTreeHoverStyle.cornerRadius, style: .continuous)
+                    .fill(Color.primary.opacity(CloudTreeHoverStyle.selectedOpacity))
+                    .matchedGeometryEffect(id: "machine-detail-tab-selection", in: selectionNamespace)
+            } else if isHovered {
+                RoundedRectangle(cornerRadius: CloudTreeHoverStyle.cornerRadius, style: .continuous)
+                    .fill(Color.primary.opacity(CloudTreeHoverStyle.hoverOpacity))
+            }
+        }
     }
 }
 

@@ -35,10 +35,13 @@ import {
 import {
   defaultMemoryMbForPlan,
   lockedMemoryOptionsMbForPlan,
+  legacyPoolReservationForPlan,
   memoryOptionsMbForPlan,
   isPaidVmPlan,
   isVmBillingTeamResolutionError,
   maxMemoryMbForPlan,
+  maxDiskMbForPlan,
+  maxVcpusForPlan,
   upgradePlanForMemory,
   resolveVmEntitlements,
   type VmEntitlements,
@@ -169,6 +172,11 @@ export async function GET(request: Request): Promise<Response> {
       // with nothing else to show for it. This, with the lookup error above,
       // separates that from nobody having set a name.
       setSpanAttributes(span, { "cmux.vm.creator_names": creatorNames.size });
+      // A legacy row without a reservation marker reserves the provider
+      // maximum until reconciliation measures it, exactly as the repository
+      // counts it.
+      const legacyPoolShare = legacyPoolReservationForPlan(listEntitlements?.planId ?? null, process.env);
+      const poolShare = (entry: (typeof entries)[number]) => entry.resourceReservation ?? legacyPoolShare;
       const vms = entries.map((entry) => ({
         id: entry.providerVmId,
         provider: entry.provider,
@@ -199,11 +207,24 @@ export async function GET(request: Request): Promise<Response> {
         // Contract recorded when the provider attached cmux-tui. This is
         // rollout metadata, not a live daemon probe.
         cmuxTuiContract: entry.cmuxTuiContract,
+        // `resources` remains the server-authoritative pool claim used by
+        // limits.used*. Legacy rows conservatively claim the provider
+        // maximum until reconciliation. The explicit marker is separate so
+        // clients can use the measured live shape for grow-only checks.
+        resources: poolShare(entry),
+        ...(entry.resourceReservation ? { resourceReservation: entry.resourceReservation } : {}),
       }));
+      const activeEntries = entries.filter((vm) => vm.status === "running" || vm.status === "provisioning");
       const limits = listEntitlements
         ? {
           maxActiveVms: listEntitlements.maxActiveVms,
-          activeVmCount: entries.filter((vm) => vm.status === "running" || vm.status === "provisioning").length,
+          activeVmCount: activeEntries.length,
+          // The plan's shared pool (null when the plan has none) and what the
+          // active machines draw from it. Paused machines do not count.
+          poolVcpus: listEntitlements.resourcePool?.vcpus ?? null,
+          poolMemoryMb: listEntitlements.resourcePool?.memoryMb ?? null,
+          usedVcpus: activeEntries.reduce((sum, entry) => sum + poolShare(entry).vcpus, 0),
+          usedMemoryMb: activeEntries.reduce((sum, entry) => sum + poolShare(entry).memoryMb, 0),
           planId: listEntitlements.planId,
           freeAccessWindowDays,
           ...(listEntitlements.planId === "go" ? {
@@ -222,6 +243,12 @@ export async function GET(request: Request): Promise<Response> {
             null,
           ),
           memoryOptionsMb: memoryOptionsMbForPlan(listEntitlements.planId, process.env),
+          // Resize ceilings are part of the same plan contract as the create
+          // ladder. Native clients use these values to avoid offering a
+          // provider-valid size that the caller's plan cannot use.
+          maxDiskMb: maxDiskMbForPlan(listEntitlements.planId, process.env),
+          maxMemoryMb: maxMemoryMbForPlan(listEntitlements.planId, process.env),
+          maxVcpus: maxVcpusForPlan(listEntitlements.planId, process.env),
           // Ladder sizes the plan does not include, and the plan that sells
           // them, so a "new machine" dialog shows them locked with an upgrade
           // instead of hiding that larger machines exist.
@@ -262,15 +289,11 @@ export async function POST(request: Request): Promise<Response> {
     async ({ user: initialUser, span, authDurationMs, routeStartedAtMs, setResponseFinalizer }) => {
       const timing = new VmTimingRecorder(span, "create", { startedAt: routeStartedAtMs });
       timing.record("auth", authDurationMs);
-      // Start the provider probe only after authentication. It is shared by
-      // concurrent creates, so the first authenticated request pays the cold
-      // connection once and unauthenticated traffic cannot consume provider
-      // capacity. The await below is bounded by the probe's own timeout.
-      const warmupStartedAt = performance.now();
-      const freestyleWarmup = preconnectFreestyle();
-      const connectionInitDuration = freestyleWarmup.then(
-        () => ({ durationMs: performance.now() - warmupStartedAt, endedAtMs: Date.now() }),
-      );
+      // Start the provider probe after authentication, but never make machine
+      // creation wait for it. The provider request owns its connection setup;
+      // a best-effort probe cannot guarantee socket reuse and otherwise adds
+      // its full latency to the first create.
+      void preconnectFreestyle();
       let admissionRecorded = false;
       let admissionStartedAt = performance.now();
       /** Records request validation even when it exits before provisioning. */
@@ -306,7 +329,10 @@ export async function POST(request: Request): Promise<Response> {
       if (!scope.ok) return scope.response;
       const { user, entitlements } = scope;
 
-      const memory = await resolveCreateMemory(span, entitlements.planId, candidate.memoryMb as number | undefined, request);
+      // Let the workflow inspect an idempotent existing row before rejecting
+      // an old, now-over-limit shape. New allocations still receive the same
+      // typed plan error from createVm.
+      const memory = await resolveCreateMemory(span, entitlements.planId, candidate.memoryMb as number | undefined, request, !!idempotencyKey);
       if (!memory.ok) return memory.response;
       const memoryMb = memory.memoryMb;
       const machineOptions = parseCreateMachineOptions(candidate);
@@ -337,16 +363,9 @@ export async function POST(request: Request): Promise<Response> {
         "cmux.idempotency_key_set": !!idempotencyKey,
       });
 
-      // Only Freestyle creation needs this probe. Other providers must not
-      // wait behind an unrelated connection check, while the Freestyle path
-      // still overlaps the probe with authentication and request parsing.
-      if (provider === "freestyle") {
-        const connectionInit = await connectionInitDuration;
-        timing.record("connection_init", connectionInit.durationMs, { endedAtMs: connectionInit.endedAtMs });
-      }
-      // Admission starts after provider-specific connection readiness. Its
-      // budget describes only request validation; the durable begin_create
-      // phase is recorded inside the workflow and remains authoritative.
+      // Admission starts after request validation. Its budget describes only
+      // request validation; the durable begin_create phase is recorded inside
+      // the workflow and remains authoritative.
       admissionStartedAt = performance.now();
       recordAdmission();
 
@@ -752,14 +771,16 @@ async function resolveCreateMemory(
   planId: string,
   requestedMemoryMb: number | undefined,
   request: Request,
+  deferLockedPlanCheck = false,
 ): Promise<{ readonly ok: true; readonly memoryMb: number } | { readonly ok: false; readonly response: Response }> {
   const maxMemoryMb = maxMemoryMbForPlan(planId, process.env);
   const memoryOptionsMb = memoryOptionsMbForPlan(planId, process.env);
   const planMemoryMb = defaultMemoryMbForPlan(planId, process.env);
   const locked = lockedMemoryOptionsMbForPlan(planId, process.env);
+  const requestedLockedMemory = requestedMemoryMb !== undefined && locked.memoryOptionsMb.includes(requestedMemoryMb);
   if (
-    requestedMemoryMb !== undefined &&
-    locked.memoryOptionsMb.includes(requestedMemoryMb)
+    !deferLockedPlanCheck &&
+    requestedLockedMemory
   ) {
     const upgradePlanId = upgradePlanForMemory(requestedMemoryMb, planId);
     if (!upgradePlanId) return { ok: false, response: await vmMemoryUnavailableResponse(maxMemoryMb, vmRequestLocale(request)) };
@@ -780,7 +801,7 @@ async function resolveCreateMemory(
     };
   }
   const memoryMb =
-    requestedMemoryMb === undefined || memoryOptionsMb.includes(requestedMemoryMb)
+    requestedMemoryMb === undefined || memoryOptionsMb.includes(requestedMemoryMb) || (deferLockedPlanCheck && requestedLockedMemory)
       ? requestedMemoryMb ?? planMemoryMb
       : planMemoryMb;
   setSpanAttributes(span, {

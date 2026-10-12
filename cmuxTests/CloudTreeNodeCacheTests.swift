@@ -25,7 +25,7 @@ struct CloudTreeNodeCacheTests {
         let first = try #require(cache.nodes(ifChanged: inputs, now: now))
         #expect(presentations == 1, "Machine identity is not a resource-formatting input")
         let section = try #require(first.first?.resourceSection)
-        #expect(first.allSatisfy { $0.resourceSection === section })
+        #expect(first.withoutCoderouterSection.allSatisfy { $0.resourceSection === section })
         #expect(cache.nodes(ifChanged: inputs, now: now.addingTimeInterval(1)) == nil)
         #expect(presentations == 1)
 

@@ -1,0 +1,665 @@
+{
+ "url": "https://www.bbc.com/news",
+ "interactive": [
+  {
+   "role": "link",
+   "name": "Skip to content",
+   "path": "1.0.0.1.0"
+  },
+  {
+   "role": "button",
+   "name": "Open menu",
+   "path": "1.0.0.3.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Watch Live",
+   "path": "1.0.0.3.0.0.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "British Broadcasting Corporation",
+   "path": "1.0.0.3.0.1.0.0.0"
+  },
+  {
+   "role": "button",
+   "name": "Subscribe",
+   "path": "1.0.0.3.0.2.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Sign In",
+   "path": "1.0.0.3.0.2.0.1.0"
+  },
+  {
+   "role": "button",
+   "name": "Sign In",
+   "path": "1.0.0.3.0.2.0.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Home",
+   "path": "1.0.0.4.0.0.0.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "News",
+   "path": "1.0.0.4.0.0.0.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Sport",
+   "path": "1.0.0.4.0.0.0.2.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Business",
+   "path": "1.0.0.4.0.0.0.3.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Technology",
+   "path": "1.0.0.4.0.0.0.4.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Health",
+   "path": "1.0.0.4.0.0.0.5.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Culture",
+   "path": "1.0.0.4.0.0.0.6.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Arts",
+   "path": "1.0.0.4.0.0.0.7.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Travel",
+   "path": "1.0.0.4.0.0.0.8.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Earth",
+   "path": "1.0.0.4.0.0.0.9.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Audio",
+   "path": "1.0.0.4.0.0.0.10.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Video",
+   "path": "1.0.0.4.0.0.0.11.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Live",
+   "path": "1.0.0.4.0.0.0.12.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Documentaries",
+   "path": "1.0.0.4.0.0.0.13.0.0"
+  },
+  {
+   "role": "link",
+   "name": "US & Canada",
+   "path": "1.0.0.4.1.0.0.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "UK",
+   "path": "1.0.0.4.1.0.0.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Africa",
+   "path": "1.0.0.4.1.0.0.2.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Asia",
+   "path": "1.0.0.4.1.0.0.3.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Australia",
+   "path": "1.0.0.4.1.0.0.4.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Europe",
+   "path": "1.0.0.4.1.0.0.5.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Latin America",
+   "path": "1.0.0.4.1.0.0.6.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Middle East",
+   "path": "1.0.0.4.1.0.0.7.0.0"
+  },
+  {
+   "role": "link",
+   "name": "In Pictures",
+   "path": "1.0.0.4.1.0.0.8.0.0"
+  },
+  {
+   "role": "link",
+   "name": "BBC InDepth",
+   "path": "1.0.0.4.1.0.0.9.0.0"
+  },
+  {
+   "role": "link",
+   "name": "BBC Verify",
+   "path": "1.0.0.4.1.0.0.10.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Aerial footage shows white vans in Whelford, near RAF Fairford.",
+   "path": "1.0.0.7.0.2.0.0.0.0.0.0.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "One of the five men arrested near RAF Fairford called 999 himself He made the call almost an hour before a farmer also called police after seeing men in balaclavas. 4 hrs ago UK",
+   "path": "1.0.0.7.0.2.0.0.0.0.0.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Moonshot AI logo on a smartphone Chinese AI tool told researchers how to make bioweapons Mindgard said it discovered in July that Kimi models K2.6 and K3 Swarm could evade developer's safety limits. 5 hrs ago Technology",
+   "path": "1.0.0.7.0.2.0.0.1.0.0.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Former American Idol contestant and pastor found guilty of murdering wife Caleb Flynn weeps in court as he is convicted of shooting his wife, Ashley, dead in their Ohio home. 6 hrs ago US & Canada",
+   "path": "1.0.0.7.0.2.0.0.1.0.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "US Supreme Court denies Christa Pike's last-ditch bid to halt execution The Tennessee inmate has been awaiting execution since she was sentenced to death in 1996 for the murder of a teenage classmate. 4 hrs ago US & Canada",
+   "path": "1.0.0.7.0.2.0.0.1.0.2.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "US President Donald Trump and SpacexAI Founder and CEO Elon Musk speak to the media at the White House driveway following a luncheon for tech leaders in the East Room, in Washington, DC, US, 29 September 29, 2026. Three takeaways from Trump's 'Super Intelligence' summit The president also signed an executive order requiring his government to refer to AI as Super Intelligence. 26 mins ago Business",
+   "path": "1.0.0.7.0.2.0.0.2.0.0.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "A man in a silver cloak stands near a blazing furnace holding a metal prod Ukraine's prized steel industry left in ruins by Russian missile campaign Ukraine's remaining steelworks, a vital part of its economy, have all but ground to a halt because of relentless attacks. 4 hrs ago Europe",
+   "path": "1.0.0.7.0.2.0.0.2.0.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Manchester City celebration winning the Premier League title The intricate web Man City spun to con the Premier League The 40-page document which confirmed Manchester City were found guilty of inflating sponsorship income makes fascinating reading. Here's what it sets out. 7 hrs ago Man City",
+   "path": "1.0.0.7.0.2.0.0.2.0.2.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Spain announces ban on evictions after protests over 87-year-old woman's removal from flat",
+   "path": "1.0.0.7.0.3.0.0.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Six Flags shuts down X2 rollercoaster after more than 100 allege brain injuries",
+   "path": "1.0.0.7.0.3.0.0.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "South Africa to clean up high-risk areas after 12 women killed",
+   "path": "1.0.0.7.0.3.0.0.3.0.0"
+  },
+  {
+   "role": "link",
+   "name": "More than 400 detained as France student protests escalate",
+   "path": "1.0.0.7.0.3.0.0.4.0.0"
+  },
+  {
+   "role": "link",
+   "name": "A person stands in front of William Turner’s 1835 painting “Rome, from Mount Aventine”",
+   "path": "1.0.0.7.0.4.1.0.0.0.0.0.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Close-up look at Turner's '£50m' Rome painting on show in the city Turner’s early 19th century painting - Rome, from Mount Aventine - will be on display in the Italian capital for the first time ahead of an auction in London in December. 14 hrs ago Europe",
+   "path": "1.0.0.7.0.4.1.0.0.0.0.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Three university students sitting on concrete stairs, talking and smiling while looking at a digital tablet and laptop. There are two women to the left both looking at a male student to the right. Hidden habits that make your social anxiety worse - and how to break them Social anxiety is more common than many think. Here's what you need to know about the condition. 3 hrs ago Health",
+   "path": "1.0.0.7.0.4.1.0.1.0.0.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "How did the RAF Fairford incident go from 'suspected bomb plot' to police bail? Detectives are entering a vital stage of the investigation, with a number of options still open, the BBC's Daniel Sandford writes. 8 hrs ago UK",
+   "path": "1.0.0.7.0.4.1.0.1.0.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Are Trump's US government funded ads illegal? President Trump has faced criticism after fronting adverts which were paid for by the US government. 1 day ago BBC Verify",
+   "path": "1.0.0.7.0.4.1.0.1.0.2.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Perez leaning against a blue Honda car in a parking lot, smiling Venezuelan man shot by ICE in Texas is charged with assault Wilber Rafael Garces-Perez is accused of striking an agent with his car's side-view mirror while driving away. 4 hrs ago US & Canada",
+   "path": "1.0.0.7.0.4.1.0.2.0.0.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Gyanesh Kumar, Chief Election Commissioner (CEC) of India, addresses a press conference in New Delhi on August 17, 2025. (Photo by Sajjad HUSSAIN / AFP) (Photo by SAJJAD HUSSAIN/AFP via Getty Images) How India's election chief became embroiled in a crisis of trust Praised as a tough administrator, Gyanesh Kumar now finds himself at the centre of election-related controversy. 6 hrs ago India",
+   "path": "1.0.0.7.0.4.1.0.2.0.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Several pinned beetle specimens in a museum-style display tray. Their oval wing cases shine metallic gold, green and bronze under bright light, with fine ridges running lengthways along their backs. The largest beetle, on the right, has six dark grey legs spread outward and curved, claw-like feet. Smaller beetles lie nearby, partly cropped by the frame. Each specimen is mounted on a thin pin above a small white identification label, some with tiny printed codes. The tray has white sides and a pale grey base. The bright reflections make the insects appear almost jewel-like, although they are preserved scientific specimens. How AI is creating a UK super-museum and revealing our planet's history More than 70 million specimens from 100 UK collections will be put into an online digital museum 3 hrs ago Science & Environment",
+   "path": "1.0.0.7.0.4.1.0.2.0.2.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Ferran Soriano questioned Man City CEO refuses to answer questions on guilty verdict Manchester City chief executive Ferran Soriano refused to answer questions about the Premier League charges from BBC Sports Editor Dan Roan at a conference of top European clubs in Copenhagen. 13 hrs ago",
+   "path": "1.0.0.7.0.4.1.0.2.0.3.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "1 Why an investigation into alleged frat house gang rape is reopening",
+   "path": "1.0.0.7.0.6.0.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "4 Fires and blockades as students stage school protests across France",
+   "path": "1.0.0.7.0.6.0.1.3.0.0"
+  },
+  {
+   "role": "link",
+   "name": "5 Would you pay for this robot to clean your house?",
+   "path": "1.0.0.7.0.6.0.1.4.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Clancy in court on Tuesday",
+   "path": "1.0.0.7.0.7.1.0.0.0.0.0.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Lindsay Clancy appears in court as her lawyer pushes for murder case dismissal Clancy's defence lawyer wants her to be cleared of murdering her three children in 2023 but prosecutors say the state proved guilt. 10 hrs ago US & Canada",
+   "path": "1.0.0.7.0.7.1.0.0.0.0.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "A stock picture of students walking in the Cornell university campus US prosecutors reopen case of alleged gang rape at Cornell University It comes after the woman filed a civil lawsuit alleging she was drugged and raped at a fraternity house in 2024. 7 hrs ago US & Canada",
+   "path": "1.0.0.7.0.7.1.0.1.0.0.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Israeli security forces and journalists inspect a destroyed car and a fire-damaged home belonging to the al-Tubasi family, following an Israeli settler attack in Jalud, in the occupied West Bank (29 September 2026) Israeli settlers attack West Bank village and block Palestinian family's return home Two homes belonging to the al-Tubasi family were set on fire and Israeli security forces were also targeted by settlers. 15 hrs ago Middle East",
+   "path": "1.0.0.7.0.7.1.0.1.0.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Hindu monks stand in front of the Eiffel Tower wearing traditional orange robes. Eiffel Tower chief to quit after female staff replaced by men during religious visit The company that runs the Eiffel Tower said the removal of female staff during the visit earlier this month was \"unacceptable\". 11 hrs ago Europe",
+   "path": "1.0.0.7.0.7.1.0.2.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "An FBI agent stands near a security point at Los Angeles Stadium (SoFi Stadium) ahead of the 2026 World Cup Group G football match between Iran and New Zealand in Inglewood, California, on June 15, 2026. Dutch police arrest suspected member of group that claimed FBI hack The suspect, 24, was arrested before the alleged cyber attack took place. 12 hrs ago Technology",
+   "path": "1.0.0.7.0.7.1.0.3.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "1 US prosecutors reopen case of alleged gang rape at Cornell University",
+   "path": "1.0.0.7.0.9.0.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "2 One of the five men arrested near RAF Fairford called 999 himself",
+   "path": "1.0.0.7.0.9.0.1.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "3 Former American Idol contestant and pastor found guilty of murdering wife",
+   "path": "1.0.0.7.0.9.0.1.2.0.0"
+  },
+  {
+   "role": "link",
+   "name": "4 Six Flags shuts down X2 rollercoaster after more than 100 allege brain injuries",
+   "path": "1.0.0.7.0.9.0.1.3.0.0"
+  },
+  {
+   "role": "link",
+   "name": "5 Three takeaways from Trump's 'Super Intelligence' summit",
+   "path": "1.0.0.7.0.9.0.1.4.0.0"
+  },
+  {
+   "role": "link",
+   "name": "6 US Supreme Court denies Christa Pike's last-ditch bid to halt execution",
+   "path": "1.0.0.7.0.9.0.1.5.0.0"
+  },
+  {
+   "role": "link",
+   "name": "7 Chinese AI tool told researchers how to make bioweapons",
+   "path": "1.0.0.7.0.9.0.1.6.0.0"
+  },
+  {
+   "role": "link",
+   "name": "8 Ukraine's prized steel industry left in ruins by Russian missile campaign",
+   "path": "1.0.0.7.0.9.0.1.7.0.0"
+  },
+  {
+   "role": "link",
+   "name": "9 Spain announces ban on evictions after protests over 87-year-old woman's removal from flat",
+   "path": "1.0.0.7.0.9.0.1.8.0.0"
+  },
+  {
+   "role": "link",
+   "name": "10 Felled Sycamore Gap stump has 'encouraging' growth",
+   "path": "1.0.0.7.0.9.0.1.9.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Manchester City celebration winning the Premier League title",
+   "path": "1.0.0.7.0.10.1.0.0.0.0.0.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "The intricate web Man City spun to con the Premier League The 40-page document which confirmed Manchester City were found guilty of inflating sponsorship income makes fascinating reading. Here's what it sets out. 7 hrs ago Man City",
+   "path": "1.0.0.7.0.10.1.0.0.0.0.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Trent Alexander-Arnold Time for Tuchel to offer Alexander-Arnold some trust Having been overlooked for so long, Trent Alexander-Arnold produced a world-class moment on his return, writes Phil McNulty. 6 hrs ago England Men",
+   "path": "1.0.0.7.0.10.1.0.1.0.0.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Man City guilty of 'sham' contracts and £830m 'disguised funding scheme' The Premier League confirms that Manchester City have been found guilty of all charges related to breaches of Premier League financial rules between 2009-10 and 2017-18. 10 hrs ago Man City",
+   "path": "1.0.0.7.0.10.1.0.1.0.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Saracens face fines over 'wine consultant' Venter's media no-shows Saracens are facing fines from Prem Rugby for director of rugby Brendan Venter's failure to fulfil media commitments. 12 hrs ago Saracens",
+   "path": "1.0.0.7.0.10.1.0.1.0.2.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Billy Gilmour of Scotland New coach, new players, but same old failings hamper Scotland Self-inflicted wounds cost Scotland on Sebastien Pocognoli's Hampden debut, writes Tom English. 5 hrs ago Scotland Men",
+   "path": "1.0.0.7.0.10.1.0.2.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Morgan Rogers celebrates with Anthony Gordon. Who continues to show how important they are? England player ratings How the England players rated following their Nations League match. 7 hrs ago England Men",
+   "path": "1.0.0.7.0.10.1.0.3.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Roy Keane working as a pundit I'd stick my Man City medals in bin - Keane Roy Keane says he would throw his \"medals in the bin\" if he were a Manchester City player after the club were found guilty of all charges relating to breaches of Premier League financial rules. 5 hrs ago Football",
+   "path": "1.0.0.7.0.10.1.0.4.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "British Broadcasting Corporation",
+   "path": "1.0.0.9.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Home",
+   "path": "1.0.0.9.1.0.0.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "News",
+   "path": "1.0.0.9.1.0.0.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Sport",
+   "path": "1.0.0.9.1.0.0.2.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Business",
+   "path": "1.0.0.9.1.0.0.3.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Technology",
+   "path": "1.0.0.9.1.0.0.4.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Health",
+   "path": "1.0.0.9.1.0.0.5.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Culture",
+   "path": "1.0.0.9.1.0.0.6.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Arts",
+   "path": "1.0.0.9.1.0.0.7.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Travel",
+   "path": "1.0.0.9.1.0.0.8.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Earth",
+   "path": "1.0.0.9.1.0.0.9.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Audio",
+   "path": "1.0.0.9.1.0.0.10.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Video",
+   "path": "1.0.0.9.1.0.0.11.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Live",
+   "path": "1.0.0.9.1.0.0.12.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Documentaries",
+   "path": "1.0.0.9.1.0.0.13.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Weather",
+   "path": "1.0.0.9.1.0.0.14.0.0"
+  },
+  {
+   "role": "link",
+   "name": "BBC Shop",
+   "path": "1.0.0.9.1.0.0.15.0.0"
+  },
+  {
+   "role": "link",
+   "name": "BritBox",
+   "path": "1.0.0.9.1.0.0.16.0.0"
+  },
+  {
+   "role": "button",
+   "name": "BBC in other languages",
+   "path": "1.0.0.9.2.0.0"
+  },
+  {
+   "role": "button",
+   "name": "Follow BBC on x",
+   "path": "1.0.0.9.3.1.0"
+  },
+  {
+   "role": "button",
+   "name": "Follow BBC on facebook",
+   "path": "1.0.0.9.3.1.1"
+  },
+  {
+   "role": "button",
+   "name": "Follow BBC on instagram",
+   "path": "1.0.0.9.3.1.2"
+  },
+  {
+   "role": "button",
+   "name": "Follow BBC on tiktok",
+   "path": "1.0.0.9.3.1.3"
+  },
+  {
+   "role": "button",
+   "name": "Follow BBC on linkedin",
+   "path": "1.0.0.9.3.1.4"
+  },
+  {
+   "role": "button",
+   "name": "Follow BBC on youtube",
+   "path": "1.0.0.9.3.1.5"
+  },
+  {
+   "role": "link",
+   "name": "Terms of Use",
+   "path": "1.0.0.9.4.0.0.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Subscription Terms",
+   "path": "1.0.0.9.4.0.0.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "About the BBC",
+   "path": "1.0.0.9.4.0.0.2.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Privacy Policy",
+   "path": "1.0.0.9.4.0.0.3.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Cookies",
+   "path": "1.0.0.9.4.0.0.4.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Do not share or sell my info",
+   "path": "1.0.0.9.4.0.0.5.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Accessibility Help",
+   "path": "1.0.0.9.4.0.0.6.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Contact the BBC",
+   "path": "1.0.0.9.4.0.0.7.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Advertise with us",
+   "path": "1.0.0.9.4.0.0.8.0.0"
+  },
+  {
+   "role": "link",
+   "name": "BBC.com Help & FAQs",
+   "path": "1.0.0.9.4.0.0.9.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Content Index",
+   "path": "1.0.0.9.4.0.0.10.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Set Preferred Source",
+   "path": "1.0.0.9.4.0.0.11.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Read about our approach to external linking.",
+   "path": "1.0.0.9.5.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Terms of Use",
+   "path": null
+  },
+  {
+   "role": "link",
+   "name": "Privacy Policy",
+   "path": null
+  },
+  {
+   "role": "link",
+   "name": "Advertising FAQs",
+   "path": null
+  },
+  {
+   "role": "link",
+   "name": "here",
+   "path": null
+  },
+  {
+   "role": "button",
+   "name": "Accept and Continue",
+   "path": null
+  }
+ ],
+ "hiddenInChrome": 4,
+ "hidden": [
+  "The BBC is in multiple languages",
+  "Read the BBC In your own language",
+  "BBC News Mundo (Spanish)",
+  "BBC News မြန်မာ (Burmese)",
+  "BBC News 中文 (Chinese)",
+  "BBC News Indonesia",
+  "BBC News 코리아 (Korean)",
+  "BBC News ไทย (Thai)",
+  "BBC News Tiếng Việt (Vietnamese)",
+  "BBC News Azərbaycanca (Azeri)",
+  "BBC News Magyarul (Hungarian)",
+  "BBC News Кыргыз Кызматы (Kyrgyz)",
+  "BBC News Polska (Polish)",
+  "BBC News România (Romanian)",
+  "BBC News Русская служба (Russian)",
+  "BBC News na srpskom (Serbian)",
+  "BBC News Україна (Ukrainian)",
+  "BBC News O'zbek (Uzbek)",
+  "BBC News عربي (Arabic)",
+  "BBC News فارسی (Persian)",
+  "BBC News Türkçe (Turkish)",
+  "BBC News বাংলা (Bengali)",
+  "BBC News دری (Dari)",
+  "BBC News ગુજરાતી (Gujarati)",
+  "BBC News हिन्दी (Hindi)",
+  "BBC News मराठी (Marathi)",
+  "BBC News नेपाली (Nepali)",
+  "BBC News සිංහල (Sinhala)",
+  "BBC News پښتو (Pashto)",
+  "BBC News ਪੰਜਾਬੀ (Punjabi)",
+  "BBC News Afaan Oromoo",
+  "BBC News አማርኛ (Amharic)",
+  "BBC News Afrique (French)",
+  "BBC News Gaelic NAIDHEACHDAN",
+  "BBC News Japanese 日本語",
+  "BBC News Swahili",
+  "BBC News தமிழ் (Tamil)",
+  "BBC News తెలుగు (Telugu)",
+  "BBC News ትግርኛ (Tigrinya)",
+  "BBC News اردو (Urdu)",
+  "BBC News World Service"
+ ],
+ "chromeAiSnapshotBytes": 48959
+}

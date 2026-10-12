@@ -471,7 +471,7 @@ struct CloudTreeRowToolTipTests {
     private static func machineActions() -> MachineRowActions {
         MachineRowActions(
             openShell: { _ in }, openDesktop: { _ in }, runCommand: { _, _ in },
-            confirmDelete: { _ in }, promptRename: { _, _ in }, resizeDisk: { _, _ in },
+            confirmDelete: { _ in }, promptRename: { _ in }, resizeDisk: { _, _ in },
             resizeCPU: { _, _ in }, resizeMemory: { _, _ in }, promptUpgrade: {}
         )
     }

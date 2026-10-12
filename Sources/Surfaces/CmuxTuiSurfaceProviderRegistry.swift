@@ -10,8 +10,8 @@ import Foundation
 /// cadence the Machines panel uses. Signing out tears everything down.
 ///
 /// Authenticated fleet discovery also prepares the shared terminal carrier, even for
-/// an empty fleet. Both follow the Cloud rollout and activation marker; disabling
-/// Cloud or signing out stops the carrier without deleting persisted identities.
+/// an empty fleet. Both follow the managed Cloud policy and local activation marker;
+/// disabling Cloud or signing out stops the carrier without deleting persisted identities.
 @MainActor
 final class CmuxTuiSurfaceProviderRegistry {
     static let shared = CmuxTuiSurfaceProviderRegistry()
@@ -50,6 +50,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// Owning teams persisted with restored panes and workspaces, by machine
     /// id. A registered provider's own team takes precedence.
     private var adoptedOwnerTeams: [String: String] = [:]
+    private var adoptedPrivateAddresses: [String: String] = [:]
     /// Whether an account is signed in. Activation prepares the carrier before
     /// the fleet read only for a signed-in account; a signed-out Mac must not
     /// enroll or start a hub from a config a previous account left on disk.
@@ -491,6 +492,20 @@ final class CmuxTuiSurfaceProviderRegistry {
         Task { [weak self] in _ = await self?.refresh(force: false) }
     }
 
+    /// Retains the private route saved with a restored Cloud URL until the
+    /// control plane supplies a fresher address for the machine.
+    func adoptPrivateAddress(_ address: String?, forMachineID machineID: String) {
+        guard let address, !address.isEmpty,
+              WorkspaceCloudVMBinding.normalizedVMID(machineID) != nil else { return }
+        adoptedPrivateAddresses[machineID] = address
+        Task { [weak self] in
+            guard let self else { return }
+            await self.links.setPrivateAddresses([address], for: machineID)
+            guard let provider = self.providers[machineID], !self.isRetired else { return }
+            _ = await provider.refreshCurrentGraph(force: true)
+        }
+    }
+
     /// Registers and updates machines of teams other than the selected one
     /// that back an open or restoring pane, reading each with its own team.
     /// A permanent access loss ends the machine's panes in a visible card.
@@ -675,7 +690,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         return candidates.first { $0.caseInsensitiveCompare(rawID) == .orderedSame } ?? rawID
     }
 
-    /// Cancels Cloud-only transport work when the remote gate closes while
+    /// Cancels Cloud-only transport work when the activation policy closes while
     /// retaining providers, catalog resources, and persisted pane identities.
     /// Re-enabling the gate reuses those providers on the next discovery pass.
     private func suspendCloudTransportsIfNeeded() {
@@ -703,6 +718,10 @@ final class CmuxTuiSurfaceProviderRegistry {
         if allowsBackgroundWork() { await wireGuardHub?.prepareForCloudUse() }
         guard !isRetired, generation == refreshGeneration, isCloudEnabled(), !Task.isCancelled else { return nil }
         let seen = Set(page.vms.map(\.id))
+        // Session restore can precede a successful fleet read. Rehydrate a
+        // provider from persisted machine metadata so a restored browser can
+        // reconnect instead of being pruned when the first page is empty.
+        await registerPendingRestoredMachines(pageTeamID: pageTeamID, generation: generation)
         // This page is the authoritative positive observation for any receipt
         // it contains. Once observed, normal stale pruning may own that ID.
         pendingMachineCreationIDs.subtract(seen)
@@ -720,10 +739,17 @@ final class CmuxTuiSurfaceProviderRegistry {
             .subtracting(pendingMachineCreationIDs)
             .subtracting(seen)
             .subtracting(retainedForeignIDs)
+            // A restored projection is itself an ownership claim. Keep its
+            // machine registered until its provider resolves the projection
+            // or reports access loss, even when discovery returns a partial
+            // page that omits the machine.
+            .subtracting(catalog.pendingRestoredMachineIDs)
         for id in staleIDs {
             unregisterMachine(id)
         }
-        await links.retainAddresses(machineIDs: seen.union(retainedForeignIDs))
+        await links.retainAddresses(
+            machineIDs: seen.union(retainedForeignIDs).union(catalog.pendingRestoredMachineIDs)
+        )
         guard !isRetired, generation == refreshGeneration else { return nil }
         for summary in page.vms {
             guard !isRetired else { return nil }
@@ -767,6 +793,54 @@ final class CmuxTuiSurfaceProviderRegistry {
             }
         }
         return page.vms.compactMap { providers[$0.id] }
+    }
+
+    private func registerPendingRestoredMachines(pageTeamID: String?, generation: UInt64) async {
+        guard let catalog else { return }
+        for machineID in catalog.pendingRestoredMachineIDs where providers[machineID] == nil {
+            let info = catalog.machineInfo(for: .cloud(machineID))
+            guard let ownerTeamID = adoptedOwnerTeams[machineID] ?? pageTeamID,
+                  !ownerTeamID.isEmpty,
+                  !isRetired, generation == refreshGeneration,
+                  isCloudEnabled(), !Task.isCancelled else { continue }
+            let fetchedSummary: VMSummary?
+            do {
+                fetchedSummary = try await loadMachineStatus(machineID, ownerTeamID)
+            } catch where CloudMachineAccessLoss(error: error) != nil {
+                guard !isRetired, generation == refreshGeneration else { return }
+                // Access is gone: the restored panes leave instead of reconnecting
+                // through a provider built from persisted metadata.
+                adoptedOwnerTeams[machineID] = nil
+                unregisterMachine(machineID)
+                continue
+            } catch {
+                fetchedSummary = nil
+            }
+            let address = fetchedSummary?.addressIPv4
+                ?? info?.privateAddress
+                ?? adoptedPrivateAddresses[machineID]
+            await links.setPrivateAddresses([address].compactMap { $0 }, for: machineID)
+            await links.setOwnerTeam(ownerTeamID, for: machineID)
+            guard !isRetired, generation == refreshGeneration, providers[machineID] == nil else { continue }
+            var summary = fetchedSummary ?? VMSummary(
+                id: machineID, provider: "freestyle", status: info?.status ?? "running",
+                image: info?.image ?? "", createdAt: 0,
+                kind: info?.hasDesktop == false ? .base : .desktop,
+                capabilities: .all, displayName: info?.name ?? "Cloud machine",
+                addressIPv4: address
+            )
+            // A status read can omit the address; keep the restored route.
+            if summary.addressIPv4 == nil { summary.addressIPv4 = address }
+            let provider = CmuxTuiSurfaceProvider(
+                summary: summary,
+                fileAccessTeamScope: AppDelegate.shared?.auth?.coordinator.authenticatedTeamScope,
+                ownerTeamID: ownerTeamID, links: links, catalog: catalog,
+                portForwards: portForwards, portAccessStore: portAccess
+            )
+            providers[machineID] = provider
+            catalog.register(provider)
+            Task { [weak provider] in _ = await provider?.refreshCurrentGraph(force: true) }
+        }
     }
 
     /// Notification-driven teardown. Ignored when it belongs to a registry

@@ -268,12 +268,21 @@ struct CloudCreateMachineSheet: View {
                     }
                 }
 
-                if let machineUsageText {
+                if machineUsageText != nil || poolUsageText != nil {
                     Section {
-                        Text(machineUsageText)
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(.secondary)
-                            .accessibilityIdentifier("CloudCreateMachineUsage")
+                        if let machineUsageText {
+                            Text(machineUsageText)
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(.secondary)
+                                .accessibilityIdentifier("CloudCreateMachineUsage")
+                        }
+                        if let poolUsageText {
+                            Text(poolUsageText)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityIdentifier("CloudCreateMachinePoolUsage")
+                        }
                     }
                 }
 
@@ -439,6 +448,22 @@ struct CloudCreateMachineSheet: View {
                 defaultValue: "%d machines in use"
             ),
             activeCount
+        )
+    }
+
+    /// The shared pool's usage, "16 of 20 vCPUs · 32 of 40 GB RAM in use";
+    /// nil for plans without a pool and control planes that predate it.
+    private var poolUsageText: String? {
+        guard let pool = limits?.resourcePool else { return nil }
+        return String(
+            format: L10n.string(
+                "cloud.pool.usage",
+                defaultValue: "%1$lld of %2$lld vCPUs · %3$lld of %4$lld GB RAM in use"
+            ),
+            Int64(pool.usedVcpus),
+            Int64(pool.poolVcpus),
+            Int64(pool.usedMemoryMb / 1024),
+            Int64(pool.poolMemoryMb / 1024)
         )
     }
 

@@ -14,6 +14,8 @@ enum CloudTreeCreateAction: Equatable {
     /// display discovery is pending; the row looks the same, does nothing,
     /// and its tooltip says why.
     case newDisplay(SurfaceMachineID, canCreate: Bool)
+    /// Leads an account type's group in the CodeRouter section.
+    case newCoderouterAccount(CoderouterProvider)
 
     var title: String {
         switch self {
@@ -23,6 +25,8 @@ enum CloudTreeCreateAction: Equatable {
             return String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")
         case .newDisplay:
             return String(localized: "cloudTree.menu.newDisplay", defaultValue: "New Display")
+        case .newCoderouterAccount(let provider):
+            return provider.newAccountTitle
         }
     }
 
@@ -31,12 +35,14 @@ enum CloudTreeCreateAction: Equatable {
         case .newWorkspace: return "CloudMachineNewWorkspaceAction"
         case .newTerminal: return "CloudMachineNewTerminalAction"
         case .newDisplay: return "CloudMachineNewDisplayAction"
+        case .newCoderouterAccount(let provider): return "CoderouterNew\(provider.title)AccountAction"
         }
     }
 
     var machine: SurfaceMachineID {
         switch self {
         case .newWorkspace(let machine), .newTerminal(let machine), .newDisplay(let machine, _): return machine
+        case .newCoderouterAccount: return .cloud("coderouter-section")
         }
     }
 
@@ -61,6 +67,8 @@ enum CloudTreeCreateAction: Equatable {
             CloudTreeRowHoverButtons.performDisplayCreationIfAvailable(canCreate) {
                 actions.newDisplay(machine)
             }
+        case .newCoderouterAccount(let provider):
+            actions.addCoderouterAccount(provider)
         }
     }
 }

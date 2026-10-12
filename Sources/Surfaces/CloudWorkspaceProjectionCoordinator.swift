@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxCloudTui
 import CmuxSurfaceCatalogModel
 import Foundation
 
@@ -167,7 +168,7 @@ final class CloudWorkspaceProjectionCoordinator {
             }
             let group = try? catalog.remoteWorkspaceGroup(machine: machine, workspaceID: remoteID)
             let desired = (group?.placements ?? []).filter {
-                !catalog.cloudPlacementCoordinator.isPendingClose($0, on: machine)
+                !catalog.cloudPlacementCoordinator.isPendingClose($0, on: machine, workspaceID: remoteID)
             }
             let existing = catalog.projections.filter { $0.workspaceID == workspaceID && $0.resource.machine == machine }
             let plan = CloudWorkspaceProjectionPlan(desired: desired, existing: Array(existing))
@@ -181,8 +182,9 @@ final class CloudWorkspaceProjectionCoordinator {
                         for: placement,
                         fallbackWorkspaceID: remoteID
                     )
-                    _ = try await catalog.project(placement.resource, into: .workspace(id: workspaceID, placement: .tab),
+                    let (projection, _) = try await catalog.project(placement.resource, into: .workspace(id: workspaceID, placement: .tab),
                                                   focus: false, reuseExisting: true, reuseInWorkspace: workspaceID, remoteView: view)
+                    adoptOrphanedDisplayMembership(placement, replacedBy: projection, state: state, catalog: catalog)
                 }
                 guard isCurrent(state, catalog: catalog), environment.bindings()[workspaceID] == binding else {
                     if !Task.isCancelled { requested.insert(machine) }
@@ -201,6 +203,7 @@ final class CloudWorkspaceProjectionCoordinator {
                     let live = catalog.projections.filter { $0.workspaceID == workspaceID && $0.resource.machine == machine }
                     environment.applyLayout(workspaceID, layout, Array(live))
                 }
+                pruneOrphanedDisplayMemberships(remoteWorkspaceID: remoteID, machine: machine, state: state, catalog: catalog)
                 failures[workspaceID] = nil
             } catch is CancellationError {
                 return
@@ -240,5 +243,55 @@ struct CloudWorkspaceReconcileBudget {
         passes += 1
         last = mark
         return idlePasses < Self.maxIdlePasses && passes <= Self.maxPassesPerState
+    }
+}
+
+@MainActor
+extension CloudWorkspaceProjectionCoordinator {
+    /// A membership token names the local panel that showed the display. When
+    /// that panel is gone (an app restart, or a close whose removal never
+    /// landed), the rebuilt pane registers its own token; the old one would
+    /// otherwise keep resurrecting the display after every close.
+    fileprivate func adoptOrphanedDisplayMembership(
+        _ placement: SurfaceResourcePlacement,
+        replacedBy projection: SurfaceProjection,
+        state: CloudVMState,
+        catalog: SurfaceCatalog
+    ) {
+        guard let viewID = placement.cloudDisplayMembershipViewID,
+              viewID != projection.panelID.uuidString.lowercased(),
+              let token = state.displayMemberships.first(where: {
+                  $0.viewID == viewID && $0.displayID == placement.resource.key
+              }),
+              // Only this Mac's tokens can be removed; another Mac's view is its own.
+              token.clientID == CloudTuiClientPaths().notificationClientID(),
+              let provider = catalog.provider(for: placement.resource.machine) as? any CloudDisplayMembershipSyncing
+        else { return }
+        catalog.cloudPlacementCoordinator.removeOrphanedDisplayMembership(token, provider: provider)
+    }
+
+    /// Keeps this Mac's display memberships for an open Cloud workspace equal
+    /// to its live display panes. A token whose pane is gone (an old close
+    /// whose removal never landed, a crash, a pane rebuilt under a new id)
+    /// otherwise shows as a duplicate display row and resurrects the display
+    /// after it is closed. Runs only once this machine's restore has settled,
+    /// so a pane still being restored keeps its token.
+    fileprivate func pruneOrphanedDisplayMemberships(
+        remoteWorkspaceID: String,
+        machine: SurfaceMachineID,
+        state: CloudVMState,
+        catalog: SurfaceCatalog
+    ) {
+        guard !catalog.pendingRestoredProjections.machineIDs.contains(machine),
+              let provider = catalog.provider(for: machine) as? any CloudDisplayMembershipSyncing else { return }
+        let clientID = CloudTuiClientPaths().notificationClientID()
+        let live = Set(catalog.projections
+            .filter { $0.resource.machine == machine && $0.resource.kind == .display }
+            .map { $0.panelID.uuidString.lowercased() })
+        for token in state.displayMemberships
+        where token.workspaceID == remoteWorkspaceID && token.clientID == clientID && !live.contains(token.viewID)
+            && catalog.cloudPlacementCoordinator.ownedDisplayViewIDs.contains(token.viewID) {
+            catalog.cloudPlacementCoordinator.removeOrphanedDisplayMembership(token, provider: provider)
+        }
     }
 }

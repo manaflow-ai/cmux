@@ -396,20 +396,6 @@ public protocol SettingsHostActions: AnyObject, CloudMachinesSettingsActions {
     /// Opens the Screen Recording pane in System Settings.
     func openComputerUseScreenRecordingSettings()
 
-    /// The release app the App section offers to switch to, or `nil` to hide the row
-    /// (tagged development builds and package-only hosts).
-    func appChannelSwitchTarget() -> SettingsAppChannelSwitchTarget?
-
-    /// Opens the other release app, downloading and installing it first when missing.
-    func switchAppChannel()
-}
-
-/// The release app a cmux build can switch to from Settings.
-public enum SettingsAppChannelSwitchTarget: Equatable, Sendable {
-    /// cmux NIGHTLY, offered by the stable app.
-    case nightly
-    /// The stable app, offered by cmux NIGHTLY.
-    case stable
 }
 
 /// Host-provided summary of the existing config-backed automation rules.
@@ -501,10 +487,6 @@ public extension SettingsHostActions {
     func rightSidebarTabsUpdates() -> AsyncStream<[RightSidebarTabSettingsItem]> {
         AsyncStream { $0.finish() }
     }
-
-    /// No release-app switch for previews, tests, and package-only hosts.
-    func appChannelSwitchTarget() -> SettingsAppChannelSwitchTarget? { nil }
-    func switchAppChannel() {}
 
     /// Default no-op for package-only settings hosts without Ghostty.
     func terminalAdaptiveDefaultThemeDidChange() {}

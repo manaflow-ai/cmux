@@ -232,6 +232,71 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
+    @Test("Preserves Copilot value options instead of truncating at their values")
+    func preservesCopilotValueOptions() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "/tmp/copilot",
+                    "--no-auto-update",
+                    "--log-dir",
+                    "/tmp/logs",
+                    "-C",
+                    "/tmp/repo",
+                    "--allow-all",
+                    "--model",
+                    "claude-opus-4.5",
+                    "--context",
+                    "long_context",
+                    "--auto-tier",
+                    "balanced",
+                    "--reasoning-effort",
+                    "high",
+                    "--max-ai-credits",
+                    "50"
+                ],
+                launcher: "copilot",
+                fallbackKind: "copilot"
+            ) == [
+                "/tmp/copilot",
+                "--no-auto-update",
+                "--log-dir",
+                "/tmp/logs",
+                "-C",
+                "/tmp/repo",
+                "--allow-all",
+                "--model",
+                "claude-opus-4.5",
+                "--context",
+                "long_context",
+                "--auto-tier",
+                "balanced",
+                "--reasoning-effort",
+                "high",
+                "--max-ai-credits",
+                "50"
+            ]
+        )
+    }
+
+    @Test("Drops Copilot session id selector before preserving later options")
+    func dropsCopilotSessionIdBeforePreservingLaterOptions() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["copilot", "--session-id", "old-session", "--model", "gpt-5.4"],
+                launcher: "copilot",
+                fallbackKind: "copilot"
+            ) == ["copilot", "--model", "gpt-5.4"]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["copilot", "--session-id=old-session", "--model", "gpt-5.4"],
+                launcher: "copilot",
+                fallbackKind: "copilot"
+            ) == ["copilot", "--model", "gpt-5.4"]
+        )
+    }
+
     @Test("Drops Gemini worktree value before preserving later options")
     func dropsGeminiWorktreeValueBeforePreservingLaterOptions() {
         #expect(

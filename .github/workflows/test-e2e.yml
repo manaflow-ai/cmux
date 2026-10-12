@@ -698,10 +698,10 @@ jobs:
           # build-slot lays it out; packages hold no build paths, so every
           # root shares the Mac's.
           packages=/Users/Shared/cmux-build-fleet/ci
-          root="$CMUX_CI_CANONICAL_ROOT"
+          root="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
           case "$root" in
             /private/tmp/cmux-ci) store="$packages" ;;
-            /private/tmp/cmux-ci-*) store="$packages/${root##*/}" ;;
+            /private/tmp/cmux-ci-[0-9]|/private/tmp/cmux-ci-[0-9][0-9]) store="$packages/${root##*/}" ;;
             *) echo "::error::unexpected CMUX_CI_CANONICAL_ROOT $root"; exit 1 ;;
           esac
           tools="$RUNNER_TEMP/owned-state-tools"

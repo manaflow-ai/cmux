@@ -40,6 +40,10 @@ import {
   DEVBOX_WORK_USER,
 } from "../services/vms/images/workUser";
 import {
+  CMUX_TUI_STATE_IMAGE_PATH,
+  CMUX_TUI_STATE_MOUNT_HELPER_PATH,
+  CMUX_TUI_STATE_RESERVATION_MARKER_PATH,
+  CMUX_TUI_STATE_RESERVATION_BYTES,
   DEVBOX_DESKTOP_INSTALLS,
   DEVBOX_INSTANCE_ID_COMMAND,
   devboxAgentPins,
@@ -117,6 +121,10 @@ const CHECKS: readonly string[] = [
   // Ghost-text smoke under a real PTY: type "cl" and expect ble.sh to render
   // the seeded claude command as the history suggestion.
   "tmux new-session -d -s ghost -x 100 -y 24 && sleep 2 && tmux send-keys -t ghost cl && sleep 2 && tmux capture-pane -pt ghost | grep -o 'claude --dangerously-skip-permissions' | head -1; rc=$?; tmux kill-session -t ghost 2>/dev/null; exit $rc",
+  // ble.sh ghost text runs programmable completion per keystroke; the stock
+  // python helper imported every package for a dotted word (~5 s per key on
+  // `python -m http.`). The baked override must answer fast and correctly.
+  "cd /tmp && bash -c 'source /usr/share/bash-completion/bash_completion; __load_completion python3; COMP_LINE=\"python3 -m http.\"; COMP_POINT=${#COMP_LINE}; COMP_WORDS=(python3 -m http.); COMP_CWORD=2; COMPREPLY=(); s=$(date +%s%N); _python python3 http. -m; e=$(date +%s%N); ms=$(( (e-s)/1000000 )); echo \"ms=$ms ${COMPREPLY[*]}\"; [ $ms -lt 1000 ] && [[ \" ${COMPREPLY[*]} \" == *\" http.server \"* ]]' && echo python-module-completion-fast",
   // Quiet-marks smoke: the bashrc blanks ble.sh's status marks and pins USER
   // so no [ble: ...] or "insane environment" text ever renders.
   "tmux new-session -d -s marks -x 100 -y 24 && sleep 3 && tmux send-keys -t marks not-a-command Enter && sleep 2 && tmux send-keys -t marks 'printf no-newline' Enter && sleep 2 && out=$(tmux capture-pane -pt marks); tmux kill-session -t marks 2>/dev/null; printf '%s\\n' \"$out\" | grep -E '\\[ble:|ble\\.sh:' && exit 1; echo no-ble-marks",
@@ -162,6 +170,7 @@ const DAEMON_CHECKS: readonly string[] = [
   `test -s ${REMOTE_IDENTITY} && echo daemon-identity-present`,
   `test "$(cat /etc/cmux/daemon-instance-id)" = "$(${INSTANCE_ID})" && echo daemon-identity-bound-to-this-instance`,
   `test -s /etc/cmux/bake-instance-id && test "$(cat /etc/cmux/bake-instance-id)" != "$(${INSTANCE_ID})" && echo builder-instance-differs`,
+  `test -f ${CMUX_TUI_STATE_RESERVATION_MARKER_PATH} && test -x ${CMUX_TUI_STATE_MOUNT_HELPER_PATH} && test -f ${CMUX_TUI_STATE_IMAGE_PATH} && mountpoint -q ${DEVBOX_WORK_HOME}/.local/state/cmux-tui && test "$(stat -c %s ${CMUX_TUI_STATE_IMAGE_PATH})" = ${CMUX_TUI_STATE_RESERVATION_BYTES} && echo daemon-state-reservation-ok`,
   // The static model-plane env is baked; a shell with no boot env sources it.
   `test -s /etc/cmux/model-plane.env && grep -q "^export OPENAI_BASE_URL='https://" /etc/cmux/model-plane.env && ! grep -q crt_ /etc/cmux/model-plane.env && env -i HOME=/tmp/mp-verify bash -c '. /etc/cmux/agent-config.sh; printf %s "$OPENAI_BASE_URL"' | grep -q '^https://' && rm -rf /tmp/mp-verify && echo model-plane-env-baked`,
   "systemctl is-active cmux-tui-daemon >/dev/null && echo systemd-supervisor-active",

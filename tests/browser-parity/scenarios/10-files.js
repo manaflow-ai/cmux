@@ -1,0 +1,34 @@
+// Uploads from the session directory and the temporary directory, the file
+// chooser event, and downloads.
+await page.goto(`${PRIMARY}/files.html`);
+fs.mkdirSync("./artifacts", { recursive: true });
+fs.writeFileSync("./artifacts/a.txt", "alpha");
+fs.writeFileSync("./artifacts/b.txt", "beta");
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "parity-"));
+fs.writeFileSync(path.join(tmp, "t.txt"), "from temp");
+const filesStartWith = (prefix) => page.waitForFunction((p) => document.getElementById("files").textContent.startsWith(p), prefix);
+await page.locator("#one").setInputFiles("./artifacts/a.txt");
+await filesStartWith("one:");
+emit("single", await page.locator("#files").textContent());
+await page.locator("#many").setInputFiles(["./artifacts/a.txt", path.join(tmp, "t.txt")]);
+await filesStartWith("many:");
+emit("multiple-with-temp", await page.locator("#files").textContent());
+await page.locator("#one").setInputFiles({ name: "mem.txt", mimeType: "text/plain", buffer: Buffer.from("in memory") });
+await filesStartWith("one: mem");
+emit("buffer", await page.locator("#files").textContent());
+const chooserP = page.waitForEvent("filechooser");
+await page.locator("#picker").click();
+const chooser = await chooserP;
+emit("chooser-multiple", chooser.isMultiple());
+await chooser.setFiles("./artifacts/b.txt");
+await filesStartWith("hidden-file:");
+emit("chooser", await page.locator("#files").textContent());
+const dlP = page.waitForEvent("download");
+await page.locator("#dl").click();
+const dl = await dlP;
+emit("download-name", dl.suggestedFilename());
+emit("download-url", dl.url());
+emit("download-body", fs.readFileSync(await dl.path(), "utf8"));
+await dl.saveAs("./artifacts/saved.txt");
+emit("download-saved", fs.readFileSync("./artifacts/saved.txt", "utf8"));
+fs.rmSync(tmp, { recursive: true, force: true });

@@ -77,17 +77,26 @@ extension TerminalSurface {
         return debugForceRefreshCountValue
     }
 
+    /// The reasons of the force refreshes since the last reset, oldest first.
+    public func debugForceRefreshReasons() -> [String] {
+        debugForceRefreshCountLock.lock()
+        defer { debugForceRefreshCountLock.unlock() }
+        return debugForceRefreshReasonsValue
+    }
+
     /// Resets the force-refresh counter.
     @MainActor
     public func resetDebugForceRefreshCount() {
         debugForceRefreshCountLock.lock()
         debugForceRefreshCountValue = 0
+        debugForceRefreshReasonsValue.removeAll()
         debugForceRefreshCountLock.unlock()
     }
 
-    func recordDebugForceRefresh() {
+    func recordDebugForceRefresh(reason: String) {
         debugForceRefreshCountLock.lock()
         debugForceRefreshCountValue += 1
+        debugForceRefreshReasonsValue.append(reason)
         debugForceRefreshCountLock.unlock()
     }
 
@@ -194,6 +203,8 @@ extension TerminalSurface {
         let retiredRemoteOutputLane = retireRemoteOutputLane()
         registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         surface = nil
+        runtimeDisplayLayer?.detachRendererDisplayCallback()
+        runtimeDisplayLayer = nil
         retiredRemoteOutputLane.drainSynchronouslyForTesting()
         ghostty_surface_free(surfaceToFree)
         callbackContext?.release()
@@ -216,6 +227,8 @@ extension TerminalSurface {
 
         let retiredRemoteOutputLane = retireRemoteOutputLane()
         registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
+        runtimeDisplayLayer?.detachRendererDisplayCallback()
+        runtimeDisplayLayer = nil
         retiredRemoteOutputLane.drainSynchronouslyForTesting()
         ghostty_surface_free(surfaceToFree)
         runtimeSurfaceFreedOutOfBandForTesting = true
@@ -252,6 +265,8 @@ extension TerminalSurface {
             surfaceCallbackContext = callbackContext
         }
         surface = runtimeSurface
+        // Mirror `createSurface`: capture a Ghostty layer the test hosted.
+        runtimeDisplayLayer = TerminalSurfaceRuntimeDisplayLayer(hostingLayerOf: surfaceView)
         portalLifecycleState = .live
         runtimeSurfaceFreedOutOfBandForTesting = false
         guard configureNativeCallbacks else { return }

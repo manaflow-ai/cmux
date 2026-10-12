@@ -195,7 +195,7 @@ describe("lazy active-limit provider refresh", () => {
     );
 
     expect(beginReservation).toEqual({
-      vcpus: 4,
+      vcpus: 8,
       memoryMb: 16 * 1024,
       diskMb: 128 * 1024,
     });

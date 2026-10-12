@@ -16,6 +16,70 @@ import Testing
 @MainActor
 @Suite("Cloud tree reveals a created workspace", .serialized)
 struct CloudTreeCreationRevealTests {
+    @Test("Focused Cloud workspace changes move the native highlight without stealing later row selections")
+    func focusedWorkspaceSelectionFollowsFocusChangesOnly() throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let first = UUID(), second = UUID()
+        let unprojected = UUID()
+        var snapshot = fixture.snapshot()
+        snapshot.projections = snapshot.resources.enumerated().map { index, resource in
+            let remoteWorkspaceID = "ws_\(index + 1)"
+            let localWorkspaceID = index == 0 ? first : second
+            return SurfaceProjection(
+                resource: resource.id, workspaceID: localWorkspaceID, panelID: UUID(),
+                remoteWorkspaceID: remoteWorkspaceID, remoteTabID: "tab_\(remoteWorkspaceID)"
+            )
+        }
+        let makeInputs: (UUID, String) -> CloudTreeBuildInputs = { focused, suffix in
+            .init(
+                machines: [], snapshot: snapshot,
+                localWorkspaces: [
+                    .init(id: first, title: "first", isSelected: focused == first),
+                    .init(id: second, title: "second", isSelected: focused == second),
+                    .init(id: unprojected, title: "unprojected\(suffix)", isSelected: focused == unprojected),
+                ], source: .cloud
+            )
+        }
+
+        fixture.coordinator.update(inputs: makeInputs(first, ""))
+        let outline = try #require(fixture.coordinator.outlineView)
+        #expect((outline.item(atRow: outline.selectedRow) as? CloudTreeNode)?.id == fixture.folderID("ws_1"))
+
+        fixture.coordinator.update(inputs: makeInputs(second, ""))
+        #expect((outline.item(atRow: outline.selectedRow) as? CloudTreeNode)?.id == fixture.folderID("ws_2"))
+
+        fixture.coordinator.update(inputs: makeInputs(unprojected, ""))
+        #expect(outline.selectedRow == -1)
+
+        let machineCandidate = CloudTreeNodeBuilder.flattened(fixture.coordinator.nodes).first(where: \.isMachineRow)
+        let machine = try #require(machineCandidate)
+        let machineRow = outline.row(forItem: machine)
+        outline.selectRowIndexes(IndexSet(integer: machineRow), byExtendingSelection: false)
+        fixture.coordinator.update(inputs: makeInputs(unprojected, " refreshed"))
+        #expect((outline.item(atRow: outline.selectedRow) as? CloudTreeNode)?.id == machine.id)
+    }
+
+    @Test("The Cloud tree can resolve the focused local workspace to its remote row")
+    func resolvesFocusedCloudWorkspaceRow() {
+        let machine = SurfaceMachineID.cloud("new-machine")
+        let localWorkspaceID = UUID()
+        let remoteWorkspace = SurfaceRemoteWorkspace(id: "workspace-1", name: "workspace-1", index: 0, focused: true)
+        let node = CloudTreeNode(
+            id: CloudTreeNodeBuilder.nodeID(workspace: remoteWorkspace.id, machine: machine),
+            kind: .workspace(
+                machine: machine, remoteWorkspace, terminalCount: 1, hiddenTabCount: 0,
+                openIn: localWorkspaceID
+            )
+        )
+
+        #expect(
+            CloudTreeOutlineView.Coordinator.selectedCloudWorkspaceNodeID(
+                in: [node], focusedWorkspaceID: localWorkspaceID
+            ) == node.id
+        )
+    }
+
     @Test("A focused create selects, expands to and scrolls to its row without taking focus, and holds it once confirmed")
     func focusedCreateRevealsThePendingRowAndHoldsItThroughConfirmation() throws {
         let tree = Tree()

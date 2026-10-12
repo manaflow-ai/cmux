@@ -83,7 +83,7 @@ enum CloudTreeRowToolTip {
                 toolTip: joined([placeholder.text], beyond: node.searchableTitle),
                 accessibilityLabel: node.searchableTitle
             )
-        case .cloudMachinesSection(_, let usage?):
+        case .cloudMachinesSection(_, let usage?, _):
             // The count's display host never hit-tests, so the plan's help rides
             // on the row, and the row's label keeps VoiceOver from reading the
             // visible "1/50" as "1 slash 50".
@@ -98,7 +98,7 @@ enum CloudTreeRowToolTip {
         case .machineEndSpacer:
             return .init(toolTip: nil, accessibilityLabel: "")
         case .terminalsPool, .displaysPool, .workspacesGroup, .browsersGroup, .portsGroup,
-             .resourcesPool, .devicesSection, .cloudMachinesSection, .devicesEmpty:
+             .resourcesPool, .devicesSection, .cloudMachinesSection, .coderouterSection, .coderouterProviderGroup, .coderouterAccount, .devicesEmpty:
             // Fixed section labels: they never truncate, so hover text would only
             // repeat what the row already reads. `.devicesEmpty` never reaches a
             // `CloudTreeCellView`, it has its own cell class; it is here so the

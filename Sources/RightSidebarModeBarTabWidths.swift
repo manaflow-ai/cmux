@@ -7,6 +7,15 @@ import CoreGraphics
 struct RightSidebarModeBarTabWidths {
     let widths: [CGFloat]
 
+    /// The tabs' width with one tab showing its full label and the rest at
+    /// their floor (their icon): the widest such row, so the result does not
+    /// change as the selection moves.
+    static func oneLabelWidth(natural: [CGFloat], floors: [CGFloat]) -> CGFloat {
+        precondition(natural.count == floors.count)
+        let extra = zip(natural, floors).map { max(0, $0 - $1) }.max() ?? 0
+        return floors.reduce(0, +) + extra
+    }
+
     /// - Parameters:
     ///   - natural: Each tab's width with its full label.
     ///   - floors: Each tab's smallest width.

@@ -26,14 +26,9 @@ final class SettingsComputersBehaviorUITests: SettingsUITestCase {
         super.tearDown()
     }
 
-    /// Forces the Cloud Machines flag on and sets the activation marker.
-    /// Plist-typed booleans: the flag reader accepts only real booleans, so a
-    /// bare "YES" string via the argument domain never enables it. The
-    /// argument domain also reaches a tagged bundle's defaults, which a write
-    /// to a fixed suite would miss.
+    /// Sets the local Cloud activation marker in the launch argument domain.
     private func cloudArguments(betaEnabled: Bool) -> [String] {
         [
-            "-cmux.flags.override.cloud-machines-enabled-release", "<true/>",
             "-cloud.beta.machines.enabled", betaEnabled ? "<true/>" : "<false/>",
         ]
     }
@@ -62,7 +57,7 @@ final class SettingsComputersBehaviorUITests: SettingsUITestCase {
         let incomingAccess = toggle(window, id: incomingAccessToggleID)
         let refresh = window.buttons[refreshButtonID]
         XCTAssertTrue(window.descendants(matching: .any)["SettingsComputersHeading"].exists)
-        XCTAssertTrue(poll(timeout: 4) { self.isVisible(discovery, in: window) }, "the Devices page should show Discover other Macs")
+        XCTAssertTrue(poll(timeout: 4) { self.isVisible(discovery, in: window) }, "the Devices page should show Discover other devices")
         XCTAssertTrue(poll(timeout: 4) { self.isVisible(incomingAccess, in: window) }, "the Devices page should show Make this Mac discoverable")
         XCTAssertTrue(poll(timeout: 4) { self.isVisible(refresh, in: window) }, "the Devices page should show Refresh")
 
@@ -71,10 +66,10 @@ final class SettingsComputersBehaviorUITests: SettingsUITestCase {
         after.lifetime = .keepAlways
         add(after)
 
-        XCTAssertTrue(poll(timeout: 4) { discovery.isEnabled }, "Discover other Macs should be switchable while Cloud Machines is on")
-        XCTAssertTrue(poll(timeout: 4) { !self.isToggleOn(discovery) }, "Discover other Macs should start off")
+        XCTAssertTrue(poll(timeout: 4) { discovery.isEnabled }, "Discover other devices should be switchable while Cloud Machines is on")
+        XCTAssertTrue(poll(timeout: 4) { !self.isToggleOn(discovery) }, "Discover other devices should start off")
         discovery.click()
-        XCTAssertTrue(poll(timeout: 4) { self.isToggleOn(discovery) }, "Discover other Macs should read on after a click")
+        XCTAssertTrue(poll(timeout: 4) { self.isToggleOn(discovery) }, "Discover other devices should read on after a click")
 
         // The switch writes the shared My Devices preference, so a fresh
         // Settings window reads the new value back.
@@ -83,7 +78,7 @@ final class SettingsComputersBehaviorUITests: SettingsUITestCase {
         defer { closeSettings(app, window) }
         navigate(window, to: "Devices")
         let reopened = toggle(window, id: discoveryToggleID)
-        XCTAssertTrue(poll(timeout: 4) { self.isToggleOn(reopened) }, "Discover other Macs should stay on after reopening Settings")
+        XCTAssertTrue(poll(timeout: 4) { self.isToggleOn(reopened) }, "Discover other devices should stay on after reopening Settings")
     }
 
     /// Settings shows one section at a time, so with Mobile selected the
@@ -102,7 +97,7 @@ final class SettingsComputersBehaviorUITests: SettingsUITestCase {
             "Mobile's content should be the shown pane"
         )
         let controls = [
-            ("Discover other Macs", window.descendants(matching: .any)[discoveryToggleID]),
+            ("Discover other devices", window.descendants(matching: .any)[discoveryToggleID]),
             ("Make this Mac discoverable", window.descendants(matching: .any)[incomingAccessToggleID]),
             ("Refresh", window.buttons[refreshButtonID]),
         ]
@@ -217,7 +212,7 @@ final class SettingsComputersBehaviorUITests: SettingsUITestCase {
         screenshot.lifetime = .keepAlways
         add(screenshot)
 
-        XCTAssertTrue(poll(timeout: 4) { !discovery.isEnabled }, "Discover other Macs should be disabled while Cloud Machines is off")
+        XCTAssertTrue(poll(timeout: 4) { !discovery.isEnabled }, "Discover other devices should be disabled while Cloud Machines is off")
         XCTAssertTrue(poll(timeout: 4) { !incomingAccess.isEnabled }, "Make this Mac discoverable should be disabled while Cloud Machines is off")
     }
 

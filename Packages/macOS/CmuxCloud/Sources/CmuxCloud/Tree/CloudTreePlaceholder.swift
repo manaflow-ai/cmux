@@ -4,9 +4,10 @@ public struct CloudTreePlaceholder: Equatable, Sendable {
         case dimmed
         case connecting
         case error
-        /// An action row that opens the New Machine sheet: the empty state of
-        /// the Cloud Machines section.
+        /// An action row that opens the New Machine sheet.
         case createMachine
+        /// Plain guidance with no icon or action, like "No cloud machines yet".
+        case empty
     }
 
     public let text: String

@@ -65,7 +65,7 @@ bool ghostty_surface_set_font_size_action_callback(
     void *userdata);
 void ghostty_surface_config_new(void);
 void ghostty_surface_free(void *surface);
-void ghostty_surface_free_text(void);
+void ghostty_surface_free_text(void *surface, ghostty_text_s *text);
 float ghostty_surface_font_size(void *surface);
 bool ghostty_surface_font_size_adjusted(void *surface);
 uint64_t ghostty_surface_foreground_pid(void *surface);
@@ -89,7 +89,11 @@ void ghostty_surface_new(void);
 bool ghostty_surface_process_exited(void *surface);
 void ghostty_surface_process_output(void *surface, const char *data, uintptr_t len);
 void ghostty_surface_quicklook_font(void);
-void ghostty_surface_read_screen_tail_vt(void);
+bool ghostty_surface_read_screen_tail_vt(
+    void *surface,
+    uintptr_t max_rows,
+    uintptr_t max_bytes,
+    ghostty_text_s *text);
 void ghostty_surface_read_text(void);
 void ghostty_surface_refresh(void);
 bool ghostty_surface_set_render_presented_callback(

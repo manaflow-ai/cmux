@@ -11,6 +11,30 @@ import Testing
 @Suite("Cloud cwd and machine identity", .serialized)
 @MainActor
 struct CloudDirectoryLifecycleTests {
+    @Test("A terminal finishing launch wakes the sidebar even when its cwd is unchanged")
+    func launchCompletionWakesSidebar() throws {
+        let fixture = try CloudDirectoryTestFixture()
+        defer { fixture.close() }
+        try fixture.install(paths: ["/home/cmux/first", "/home/cmux/second"], revision: 2,
+                            lifecycles: ["launching", "launching"])
+        #expect(try fixture.sidebarText().isEmpty)
+        let directories = fixture.workspace.panelDirectories
+        let launching = fixture.workspace.cloudBindingState.revision
+
+        // The daemon reports readiness as a delta that repeats the same cwd.
+        try fixture.changeDirectory("/home/cmux/first", terminal: 0)
+
+        #expect(fixture.workspace.panelDirectories == directories)
+        #expect(fixture.workspace.cloudBindingState.revision > launching,
+                "The sidebar row only rebuilds when the Cloud binding stream fires")
+        #expect(try fixture.sidebarText().contains("cwd-machine · /home/cmux/first"))
+
+        let ready = fixture.workspace.cloudBindingState.revision
+        try fixture.changeDirectory("/home/cmux/first", terminal: 0)
+        #expect(fixture.workspace.cloudBindingState.revision == ready,
+                "An unchanged presentation must not rebuild the row again")
+    }
+
     @Test("Terminal-only cd deltas update focused and background panels without title changes")
     func liveDirectoryDelta() throws {
         let fixture = try CloudDirectoryTestFixture()

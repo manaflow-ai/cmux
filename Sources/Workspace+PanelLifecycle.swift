@@ -216,6 +216,9 @@ extension Workspace {
             if refreshPorts { refreshTrackedAgentPorts() }
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id)
         }
+        if let store = AppDelegate.shared?.notificationStore {
+            pruneOrphanedRestoredAgentNotifications(store: store)
+        }
         return didChange
     }
 
@@ -469,6 +472,8 @@ extension Workspace {
         }
         clearCloudMaterializationFailure(surfaceID: panelId)
         cancelReservedCloudTerminalPane(panelID: panelId)
+        cloudBrowserCreationTasks.removeValue(forKey: panelId)?.cancel()
+        pendingCloudBrowserPanelIDs.remove(panelId)
         appLinkHandoffCoordinator.cancel(sourcePanelID: panelId)
         if publishSurfaceClosedEvent {
             publishCmuxSurfaceClosed(panelId, paneId: paneId, panel: panel, origin: origin)
@@ -551,11 +556,13 @@ extension Workspace {
         panelTitles.removeValue(forKey: panelId)
         panelCustomTitles.removeValue(forKey: panelId)
         panelCustomTitleSources.removeValue(forKey: panelId)
+        panelAutomationLabels.removeValue(forKey: panelId)
         pinnedPanelIds.remove(panelId)
         pinMutationTokensByPanelId.removeValue(forKey: panelId)
         manualUnreadPanelIds.remove(panelId)
         manualUnreadMarkedAt.removeValue(forKey: panelId)
         panelShellActivityStates.removeValue(forKey: panelId)
+        clearProgramStatusPanel(panelId: panelId)
         agentStatusEntriesByPanelId.removeValue(forKey: panelId)
         restoredPanelTitleBoundariesByPanelId.removeValue(forKey: panelId)
         clearAgentLifecycleStates(panelId: panelId)

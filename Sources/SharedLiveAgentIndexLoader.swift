@@ -87,12 +87,28 @@ struct SharedLiveAgentIndexLoader {
                 agentProcessIDs: detected.agentProcessIDs
             )
         }
+        // Hook-backed agents such as Claude Code are never process-detected,
+        // so scope their recorded PID against the same process snapshot.
+        let scopedProcessIDsByPanelKey = processSnapshot.cmuxScopedProcessIDsByPanelKey()
         let index = RestorableAgentSessionIndex.load(
             homeDirectory: homeDirectory,
             fileManager: fileManager,
             registry: resolvedRegistry,
             detectedSnapshots: detectedSnapshots,
             hibernationProcessScopes: hibernationProcessScopes,
+            hookProcessScopeProvider: { key, agentProcessID in
+                guard let panelProcessIDs = scopedProcessIDsByPanelKey[key],
+                      panelProcessIDs.contains(agentProcessID) else {
+                    return nil
+                }
+                return (
+                    processIDs: panelProcessIDs,
+                    scope: processSnapshot.agentHibernationProcessScope(
+                        panelProcessIDs: panelProcessIDs,
+                        agentProcessIDs: [agentProcessID]
+                    )
+                )
+            },
             processArgumentsProvider: processArgumentsProvider,
             processIdentityProvider: processIdentityProvider
         )

@@ -118,6 +118,31 @@ struct CloudSidebarOrderingTests {
         #expect(drag.string(forType: .cloudSidebarRow) == folder.id)
     }
 
+    @Test("A lifted workspace drop commits the slot the rows show, inside its pin tier")
+    func liftedWorkspaceDropUsesSlot() throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let nodes = fixture.nodes()
+        let first = fixture.folderID("ws_1"), second = fixture.folderID("ws_2")
+        let owner = fixture.catalog.sidebarOrganization
+        func drop(_ id: String, slot: Int) -> CloudSidebarOrganizationAction? {
+            let drop = CloudSidebarOrganizationDrop(
+                sourceID: id, nodes: nodes, state: owner.state, proposedItem: nil,
+                proposedChildIndex: NSOutlineViewDropOnItemIndex, dropAfterItem: false, liftSlot: slot
+            )
+            guard case .organization(let action) = drop?.operation else { return nil }
+            return action
+        }
+        #expect(drop(first, slot: 1) == .after(second))
+        #expect(drop(second, slot: 0) == .before(first))
+        // The row's own slot, or one past the tier, is not a move.
+        #expect(drop(first, slot: 0) == nil)
+        #expect(drop(first, slot: 2) == nil)
+        #expect(owner.perform(.pin, id: second, nodes: nodes))
+        // Alone in its tier, a pinned row has nowhere to go.
+        #expect(drop(second, slot: 0) == nil)
+    }
+
     @Test("A remote workspace keeps organization dragging when pane projection is unavailable")
     func remoteWorkspaceFallsBackToOrganizationWithoutProjectionRegistry() throws {
         let fixture = CloudSidebarOrderingFixture()
@@ -218,7 +243,7 @@ final class CloudSidebarOrderingFixture {
             machineActions: MachineRowActions(
                 openShell: { _ in }, openDesktop: { _ in },
                 runCommand: { _, _ in }, confirmDelete: { _ in },
-                promptRename: { _, _ in }, resizeDisk: { _, _ in }, promptUpgrade: {}
+                promptRename: { _ in }, resizeDisk: { _, _ in }, promptUpgrade: {}
             ),
             nodeActions: CloudTreeNodeActions.bound(
                 navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),
@@ -229,6 +254,8 @@ final class CloudSidebarOrderingFixture {
             expansionStore: CloudTreeExpansionStore(defaults: defaults), organization: catalog.sidebarOrganization,
             tabDragTransferRegistry: { [transferRegistry] in transferRegistry }
         )
+        // These tests drive AppKit's row proposals and the insertion line.
+        coordinator.machineLiftEnabled = false
         container = CloudTreeContainerView(coordinator: coordinator)
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 380, height: 560), styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView = container

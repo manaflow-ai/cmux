@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import unittest
 from pathlib import Path
@@ -33,11 +34,37 @@ MACOS_15_FORK_JOBS = {
 # app-host shards over macos-15 and macos-26. Accepted only when every
 # `hosted_runner:` value in the workflow is a GitHub-hosted macOS label.
 FORK_MACOS_MATRIX_BRANCH = "github.repository_owner != 'manaflow-ai' && matrix.hosted_runner"
+# Windows and ARM64 Linux jobs run on Blacksmith in manaflow-ai; a fork takes
+# GitHub's image of the same OS.
+FORK_WINDOWS_BRANCH = "github.repository_owner != 'manaflow-ai' && 'windows-2025'"
+FORK_LINUX_ARM64_BRANCH = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04-arm'"
 HOSTED_MACOS_LABELS = {"macos-15", "macos-26"}
 # Any Blacksmith runner label. Script names such as
 # scripts/blacksmith-bounded-command.sh have no `-Nvcpu-` part.
 BLACKSMITH_LABEL = re.compile(r"blacksmith-\d+vcpu-[a-z0-9]+(?:[.-][a-z0-9]+)*")
-FORK_BRANCHES = (FORK_LINUX_BRANCH, FORK_MACOS_BRANCH, FORK_MACOS_15_BRANCH, FORK_MACOS_MATRIX_BRANCH)
+# A runner identity guard compares runner.name with a Blacksmith scale set's
+# VM-name prefix ('<label>-'; VMs are named '<label>-<id>'). It selects no
+# runner, so it is not a label a fork could queue on.
+BLACKSMITH_RUNNER_NAME_CHECK = re.compile(
+    r"startsWith\(runner\.name, '" + BLACKSMITH_LABEL.pattern + r"-'\)"
+)
+# The CLA jobs' runner identity guard (validate-cla-policy.rb is the
+# authority): fail unless GitHub-hosted or a Blacksmith VM for an allowlisted
+# label, and always fail on an owned glaeda host.
+CLA_EPHEMERAL_RUNNER_GUARD_IF = (
+    "(runner.environment != 'github-hosted'"
+    " && !startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-')"
+    " && !startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-'))"
+    " || contains(runner.name, 'glaeda')"
+)
+FORK_BRANCHES = (
+    FORK_LINUX_BRANCH,
+    FORK_MACOS_BRANCH,
+    FORK_MACOS_15_BRANCH,
+    FORK_MACOS_MATRIX_BRANCH,
+    FORK_WINDOWS_BRANCH,
+    FORK_LINUX_ARM64_BRANCH,
+)
 OWNER_ONLY_JOB_IF = "if: github.repository_owner == 'manaflow-ai'"
 EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}")
 JOB_HEADER = re.compile(r"^  ([A-Za-z0-9_-]+):\s*(?:#.*)?$")
@@ -46,6 +73,12 @@ INPUT_HEADER = re.compile(r"^      ([A-Za-z0-9_-]+):\s*$")
 UNGATED_BLACKSMITH_ALLOWED = {
     ("reload-build.yml", "macOS runner label to build on. Blacksmith (blacksmith-6vcpu-macos-26),"): (
         "description text of the runner input, not a value"
+    ),
+    ("ci-health-report.yml", "MACOS_RUNNER_BACKGROUND=${{ vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}"): (
+        "report text that prints the lane's effective label, not a runs-on value"
+    ),
+    ("ci-repo-variables.yml", "MACOS_RUNNER_BACKGROUND=${{ vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}"): (
+        "report text that prints the lane's effective label, not a runs-on value"
     ),
 }
 # (workflow, dispatch input) -> why its Blacksmith default and choices may be
@@ -66,6 +99,27 @@ OUTSIDER_TRIGGER = re.compile(
 )
 HOSTED_LITERAL_RUNNER = re.compile(
     r"^\s*runs-on:\s*(?:ubuntu-\d+\.\d+|ubuntu-latest|macos-\d+)\s*(?:#.*)?$"
+)
+# The one runner selector a trusted-token job may use. CI_TRUSTED_RUNNER can
+# only choose among ephemeral labels listed here, in the base-branch workflow:
+# GitHub-hosted, or a Blacksmith VM that runs one job and is destroyed. Any
+# other value, including a persistent mini's label, falls back to Blacksmith,
+# and a fork running its own CI gets GitHub-hosted. Either provider can then
+# carry the merge-gating checks while the other is down.
+TRUSTED_RUNNER_LABELS = ("ubuntu-24.04", "blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404")
+TRUSTED_RUNNER_EXPRESSION = (
+    "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('"
+    + json.dumps(list(TRUSTED_RUNNER_LABELS), separators=(",", ":"))
+    + "'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
+)
+TRUSTED_RUNNER_LINE = re.compile(r"^\s*runs-on:\s*" + re.escape(TRUSTED_RUNNER_EXPRESSION) + r"\s*(?:#.*)?$")
+# Merge-gating checks: a ruleset requires them, so they must not depend on one runner provider.
+TRUSTED_RUNNER_JOBS = (
+    ("backend-migrations.yml", "plan"),
+    ("backend-migrations.yml", "apply-staging"),
+    ("backend-migrations.yml", "apply-production"),
+    ("backend-migrations.yml", "gate"),
+    ("web-complexity-trusted.yml", "complexity"),
 )
 
 # A fork pull request into manaflow-ai runs with repository_owner ==
@@ -278,6 +332,33 @@ def parse_expression(source: str) -> tuple:
     return _Parser(source).parse()
 
 
+def evaluate_runner_condition(node: tuple, context: dict[str, str]) -> bool | str:
+    """Evaluate a runner-identity condition whose refs are strings.
+
+    Covers the subset the CLA runner guard uses. As in GitHub Actions,
+    comparisons, startsWith and contains ignore case.
+    """
+    kind = node[0]
+    if kind == "or":
+        return any(evaluate_runner_condition(child, context) for child in node[1])
+    if kind == "and":
+        return all(evaluate_runner_condition(child, context) for child in node[1])
+    if kind == "not":
+        return not evaluate_runner_condition(node[1], context)
+    if kind == "literal" and node[1].startswith("'"):
+        return node[1][1:-1].replace("''", "'")
+    if kind == "ref":
+        return context[node[1]]
+    if kind == "cmp" and node[1] in ("==", "!="):
+        left = str(evaluate_runner_condition(node[2], context)).lower()
+        right = str(evaluate_runner_condition(node[3], context)).lower()
+        return (left == right) == (node[1] == "==")
+    if kind == "call" and node[1] in ("startsWith", "contains") and len(node[2]) == 2:
+        haystack, needle = (str(evaluate_runner_condition(arg, context)).lower() for arg in node[2])
+        return haystack.startswith(needle) if node[1] == "startsWith" else needle in haystack
+    raise ExpressionSyntaxError(f"unsupported runner condition {node!r}")
+
+
 def _refs(node: tuple) -> list[str]:
     kind = node[0]
     if kind == "ref":
@@ -470,14 +551,15 @@ def outsider_triggered_workflows() -> list[Path]:
 
 
 def outsider_runner_errors(name: str, text: str) -> list[str]:
-    """Every runner must be a hosted literal; no runner selector may appear."""
+    """Every runner must be a hosted literal or the trusted ephemeral selector."""
     errors: list[str] = []
     for number, line in enumerate(text.splitlines(), start=1):
         if line.lstrip().startswith("#"):
             continue
         if OWNED_RUNNER_SELECTOR.search(line):
             errors.append(f"{name}:{number} reads a runner selector: {line.strip()}")
-        elif re.match(r"^\s*runs-on:", line) and not HOSTED_LITERAL_RUNNER.match(line):
+        elif (re.match(r"^\s*runs-on:", line) and not HOSTED_LITERAL_RUNNER.match(line)
+              and not TRUSTED_RUNNER_LINE.match(line)):
             errors.append(f"{name}:{number} is not a GitHub-hosted label: {line.strip()}")
     return errors
 
@@ -570,7 +652,7 @@ def ungated_blacksmith_labels(name: str, text: str) -> list[str]:
             continue
         if in_options and not stripped.startswith("- "):
             in_options = False
-        if stripped.startswith("#") or not BLACKSMITH_LABEL.search(raw):
+        if stripped.startswith("#") or not BLACKSMITH_LABEL.search(BLACKSMITH_RUNNER_NAME_CHECK.sub("", raw)):
             continue
         if job in owner_only_jobs or (name, stripped) in UNGATED_BLACKSMITH_ALLOWED:
             continue
@@ -863,7 +945,12 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                 # condition selects, not a label appearing later on the line.
                 pull_request_linux = pull_request_selects(line, "ubuntu")
                 pull_request_macos = pull_request_selects(line, "macos")
-                hosted_linux = FORK_LINUX_BRANCH in line or pull_request_linux
+                hosted_linux = (
+                    FORK_LINUX_BRANCH in line
+                    or FORK_LINUX_ARM64_BRANCH in line
+                    or FORK_WINDOWS_BRANCH in line
+                    or pull_request_linux
+                )
                 hosted_macos = (
                     FORK_MACOS_BRANCH in line
                     or FORK_MACOS_15_BRANCH in line
@@ -946,6 +1033,28 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         self.assertEqual([error.split(" ", 1)[0] for error in errors],
                          ["x.yml:5", "x.yml:7", "x.yml:9", "x.yml:11", "x.yml:15", "x.yml:16"])
 
+    def test_merge_gating_checks_route_through_the_trusted_runner(self) -> None:
+        """A GitHub Actions outage must not stop every merge; Blacksmith carries them."""
+        for workflow, job in TRUSTED_RUNNER_JOBS:
+            with self.subTest(workflow=workflow, job=job):
+                text = (WORKFLOWS / workflow).read_text(encoding="utf-8")
+                block = re.search(rf"(?ms)^  {re.escape(job)}:\n(.*?)(?=^  \S|\Z)", text)
+                self.assertIsNotNone(block, f"{workflow} has no job {job}")
+                runs_on = [line for line in block.group(1).splitlines() if re.match(r"^    runs-on:", line)]
+                self.assertEqual(len(runs_on), 1, runs_on)
+                self.assertRegex(runs_on[0], TRUSTED_RUNNER_LINE)
+
+    def test_trusted_runner_selector_admits_only_ephemeral_labels(self) -> None:
+        self.assertEqual(outsider_runner_errors("x.yml", f"jobs:\n  a:\n    runs-on: {TRUSTED_RUNNER_EXPRESSION}\n"), [])
+        for label in TRUSTED_RUNNER_LABELS:
+            self.assertTrue(label == "ubuntu-24.04" or label.startswith("blacksmith-"), label)
+        widened = TRUSTED_RUNNER_EXPRESSION.replace('"ubuntu-24.04",', '"ubuntu-24.04","glaeda-std-xcode-26.6",')
+        renamed = TRUSTED_RUNNER_EXPRESSION.replace("vars.CI_TRUSTED_RUNNER", "vars.LINUX_RUNNER")
+        unforked = TRUSTED_RUNNER_EXPRESSION.replace("github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || ", "")
+        for variant in (widened, renamed, unforked):
+            with self.subTest(variant=variant):
+                self.assertNotEqual(outsider_runner_errors("x.yml", f"jobs:\n  a:\n    runs-on: {variant}\n"), [])
+
     def test_no_workflow_falls_back_to_blacksmith_outside_manaflow_ai(self) -> None:
         """Scheduled, dispatched and push-only workflows need a fork branch too.
 
@@ -984,6 +1093,42 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         # a, b, c, and the dispatch default and option that d reads before
         # the fork branch. d itself passes: an explicitly chosen input wins.
         self.assertEqual(len(ungated_blacksmith_labels("x.yml", text)), 5)
+
+    def test_runner_name_guards_are_not_selectable_labels(self) -> None:
+        guard = "        if: " + CLA_EPHEMERAL_RUNNER_GUARD_IF + "\n"
+        text = "jobs:\n  a:\n    runs-on: ubuntu-24.04\n    steps:\n      - name: guard\n" + guard
+        self.assertEqual(ungated_blacksmith_labels("x.yml", text), [])
+        # The same label outside a runner.name prefix check is still selectable.
+        for line in (
+            "        if: startsWith(runner.name, 'x') && 'blacksmith-4vcpu-ubuntu-2404'\n",
+            "    runs-on: blacksmith-4vcpu-ubuntu-2404\n",
+            "        if: startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404')\n",
+        ):
+            with self.subTest(line=line):
+                self.assertEqual(len(ungated_blacksmith_labels("x.yml", "jobs:\n  a:\n" + line)), 1)
+
+    def test_cla_runner_guard_admits_blacksmith_vm_names(self) -> None:
+        guard = parse_expression(CLA_EPHEMERAL_RUNNER_GUARD_IF)
+        # (runner.environment, runner.name) -> whether the guard step fails the job.
+        cases = {
+            # Blacksmith VM names since October 2026, and the earlier form.
+            ("self-hosted", "blacksmith-4vcpu-ubuntu-2404-56ere4cqq7ryjqvc"): False,
+            ("self-hosted", "blacksmith-2vcpu-ubuntu-2404-56ere4cqq7ryjqvc"): False,
+            ("self-hosted", "blacksmith-4vcpu-ubuntu-2404-Runner-337101a82d"): False,
+            ("github-hosted", "GitHub Actions 12"): False,
+            # Owned glaeda hosts, even under a Blacksmith-looking name.
+            ("self-hosted", "cmuxs-mac-mini-5-glaeda-1"): True,
+            ("self-hosted", "blacksmith-4vcpu-ubuntu-2404-glaeda"): True,
+            ("github-hosted", "x-glaeda-1"): True,
+            # Labels outside the runs-on allowlist, and the bare label.
+            ("self-hosted", "blacksmith-8vcpu-ubuntu-2404-56ere4cqq7ryjqvc"): True,
+            ("self-hosted", "blacksmith-4vcpu-ubuntu-2204-56ere4cqq7ryjqvc"): True,
+            ("self-hosted", "blacksmith-4vcpu-ubuntu-2404"): True,
+        }
+        for (environment, name), fails in cases.items():
+            with self.subTest(name=name, environment=environment):
+                context = {"runner.environment": environment, "runner.name": name}
+                self.assertIs(evaluate_runner_condition(guard, context), fails)
 
     def test_owner_gated_blacksmith_fallbacks_pass(self) -> None:
         text = (

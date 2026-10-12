@@ -51,6 +51,14 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     private(set) var lifecycleGeneration: UInt64 = 0
     /// Invalidates an older refresh before it can publish over a newer one.
     var refreshGeneration: UInt64 = 0
+    /// Member-display discovery in flight, and attempts made in the current
+    /// lifecycle generation (a launch-time refresh can cancel an attempt).
+    var memberDisplayDiscovery: Task<Void, Never>?
+    /// Display names last applied to display rows and pane titles.
+    var appliedDisplayNames: [String: String]?
+    /// Display renames from pane tabs, in the order they were typed.
+    var displayRenameLane: Task<Void, Never>?
+    var memberDisplayDiscoveryAttempts: (generation: UInt64, count: Int) = (0, 0)
     let refreshCoordinator = CloudProviderRefreshCoordinator()
     let terminalMutationQueue = CloudTerminalMutationQueue()
     /// The only installed daemon graph for this machine. The catalog receives the
@@ -586,6 +594,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                refreshedPorts != publishedPorts, let cloudState = self.cloudState {
                 let current = self.catalog.cloudStateObservations[self.machine] ?? observation
                 self.publish(cloudState, ports: refreshedPorts, reconcileTitles: false, observation: current)
+                // The graph snapshot intentionally publishes before the guest
+                // port scan. A restored browser whose port was absent from the
+                // first publication must be reprojected when that inventory
+                // becomes authoritative, otherwise it remains on the stale
+                // unavailable card forever.
+                self.reprojectRestoredPanes(generation: lifecycle)
             }
         }
         Task { [weak self] in
@@ -831,6 +845,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             catalog.reconcileCloudRemoteState(machine: machine, state: state, observation: acceptedObservation)
         }
         closePanesForVanishedRemoteTerminals(observation: observation)
+        discoverMemberDisplaysIfNeeded(state)
+        applyDisplayNamesIfChanged(state)
     }
     func publishDelta(
         _ state: CloudVMState,
@@ -879,6 +895,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             reprojectRestoredPanes(generation: lifecycleGeneration)
         }
         closePanesForVanishedRemoteTerminals(observation: .current)
+        // Membership and name rows arrive as projection deltas, not full rebuilds.
+        discoverMemberDisplaysIfNeeded(state)
+        applyDisplayNamesIfChanged(state)
     }
     /// Closes the panes of terminals the resolver reported as exited. The
     /// graph-driven sweep covers the usual case; this covers a daemon that
@@ -1542,7 +1561,19 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         return updated
     }
 
+    /// A forwarded-port pane, live or staged by session restore, is standing
+    /// scan demand: a restored port resource exists only after a scan
+    /// publishes it, so without this the staged pane can never resolve.
+    private var hasProjectedPortPanes: Bool {
+        catalog.pendingRestoredProjections.projections.contains { $0.resource.machine == machine && $0.resource.isForwardedPort }
+            || catalog.projections.contains { $0.resource.machine == machine && $0.resource.isForwardedPort }
+    }
+
     private func ports(link: CloudMachineLink, socketPath: String, force: Bool, lifecycle: UInt64, privateAddress: String?, displayPortsOwned: Bool) async -> [Int]? {
+#if DEBUG
+        cmuxDebugLog("cloud.portScan.begin machine=\(machineID) requested=\(portDiscovery.wasRequested) force=\(force)")
+#endif
+        if !portDiscovery.wasRequested, hasProjectedPortPanes { requestPortDiscovery() }
         guard portDiscovery.mayScan else { return portsCache?.ports }
         let previousState = portDiscovery.state
         if let cached = portDiscovery.cachedScan(at: Date.now, socketPath: socketPath, force: force) {
@@ -1561,6 +1592,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
               let data = try? await link.run(arguments: arguments),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let stdout = object["stdout"] as? String else {
+#if DEBUG
+            cmuxDebugLog("cloud.portScan.failed machine=\(machineID) reason=transport")
+#endif
             // A cancelled scan belongs to whichever pass cancelled it.
             guard isCurrentLifecycleGeneration(lifecycle), !Task.isCancelled else { return nil }
             if portDiscovery.complete(nil, request: request, at: Date.now, socketPath: socketPath) {
@@ -1571,9 +1605,13 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         guard isCurrentLifecycleGeneration(lifecycle) else { return nil }
         let result = VMExecResult(exitCode: 0, stdout: stdout, stderr: "")
         let scan = Self.portScan(from: result, privateAddress: privateAddress, displayPortsOwned: displayPortsOwned)
+#if DEBUG
+        cmuxDebugLog("cloud.portScan.result machine=\(machineID) ports=\(scan?.ports.map(String.init).joined(separator: ",") ?? "nil") bytes=\(stdout.utf8.count)")
+#endif
         guard portDiscovery.complete(scan, request: request, at: Date.now, socketPath: socketPath) else { return nil }
         publishPortDiscovery()
         guard let scan else { return nil }
+        settleRestoredPortPanes(scannedPorts: scan.ports)
         portsCache = (scan.ports, Date.now)
         return scan.ports
     }

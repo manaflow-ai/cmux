@@ -172,6 +172,18 @@ struct SSHConnectionSharingOptionsTests {
         })
     }
 
+    @Test("Opaque route markers survive the app boundary without reaching OpenSSH")
+    func routeMarkerIsConsumedDuringOptionMerging() throws {
+        let routeIdentifier = String(repeating: "a", count: 64)
+        let marker = try #require(options.routeSensitiveOption(for: routeIdentifier))
+        #expect(options.routeSensitiveIdentifier(in: [marker]) == routeIdentifier)
+
+        let merged = options.mergingDefaults(into: [marker])
+        #expect(!merged.contains(marker))
+        #expect(merged.contains("ControlMaster=auto"))
+        #expect(merged.contains { $0.hasPrefix("ControlPath=\(socketDirectory)/") })
+    }
+
     @Test("Legacy cmux control paths are isolated before route-specific reuse")
     func legacyControlPathGetsRouteSpecificReplacement() {
         let merged = options.mergingDefaults(

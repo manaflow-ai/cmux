@@ -307,6 +307,11 @@ final class SurfaceCatalog {
         resourceIDsByMachine[resource.machine, default: []].insert(resource.id)
         let restoredProjectionIDs = resolvePendingRestoredProjections(on: resource.machine)
         syncCloudTerminalTabIcons(on: resource.machine, affected: [resource.id])
+        // Incremental cloud graph updates can be the first place a projected
+        // terminal (and its cwd) becomes visible. Keep the local workspace's
+        // machine label and directory projection in sync with the same
+        // authoritative resource update used by full snapshots.
+        updateCloudDirectoryMetadata(on: resource.machine, affectedResourceIDs: [resource.id])
         notifyChange(for: resource.machine)
         if !restoredProjectionIDs.isEmpty { providers[resource.machine]?.projectionsRestored(resources: restoredProjectionIDs) }
     }
@@ -320,6 +325,7 @@ final class SurfaceCatalog {
             resourceIDsByMachine[id.machine] = nil
         }
         syncCloudTerminalTabIcons(on: id.machine, affected: [id])
+        updateCloudDirectoryMetadata(on: id.machine, affectedResourceIDs: [id])
         notifyChange(for: id.machine)
     }
 

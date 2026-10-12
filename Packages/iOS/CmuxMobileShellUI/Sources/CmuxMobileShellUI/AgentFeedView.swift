@@ -1,5 +1,7 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxMobileShellModel
+import CmuxMobileSupport
 import SwiftUI
 
 /// The Feed tab's visible filter: everything, or only rows awaiting input.
@@ -25,6 +27,7 @@ struct AgentFeedItemsRevision: Equatable, Sendable {
 /// activity with inline output and inline decision controls. Distinct from
 /// the Notifications tab, which stays a read/unread notification list.
 struct AgentFeedView: View {
+    let performanceObserver: (any MobileFeedPerformanceObserving)?
     let items: [MobileAgentFeedItem]
     let itemsRevision: AgentFeedItemsRevision
     let status: MobileNotificationFeedStatus
@@ -51,8 +54,10 @@ struct AgentFeedView: View {
         refreshesOnAppear: Bool,
         isActive: Bool = true,
         actions: AgentFeedActions,
-        searchText: String = ""
+        searchText: String = "",
+        performanceObserver: (any MobileFeedPerformanceObserving)? = nil
     ) {
+        self.performanceObserver = performanceObserver
         self.items = items
         self.itemsRevision = itemsRevision
         self.status = status
@@ -66,7 +71,8 @@ struct AgentFeedView: View {
         _projection = State(initialValue: AgentFeedProjection(
             items: items,
             itemsRevision: itemsRevision,
-            searchText: searchText
+            searchText: searchText,
+            performanceObserver: performanceObserver
         ))
     }
 
@@ -97,6 +103,7 @@ struct AgentFeedView: View {
                 feedList
             }
         }
+        .overlay { MobileReplayPrivacyMask().allowsHitTesting(false) }
         // The shell supplies the shared computer and settings toolbar.
         .mobileInlineNavigationTitle()
         .toolbar {
@@ -112,10 +119,19 @@ struct AgentFeedView: View {
             }
         }
         .sheet(item: $composeContext) { context in
-            AgentFeedReplyComposer(context: context, actions: actions)
+            Group {
+                switch context.kind {
+                case .question:
+                    AgentFeedQuestionComposer(context: context, actions: actions)
+                case .terminalReply, .planRevise:
+                    AgentFeedReplyComposer(context: context, actions: actions)
+                }
+            }
+            .overlay { MobileReplayPrivacyMask().allowsHitTesting(false) }
         }
         .sheet(item: $readingItem) { item in
             AgentFeedFullTextView(item: item, load: actions.loadFullText)
+                .overlay { MobileReplayPrivacyMask().allowsHitTesting(false) }
         }
         .onAppear {
             now = Date()
@@ -220,6 +236,11 @@ struct AgentFeedView: View {
                 }
             }
         }
+        .modifier(AgentFeedPerformanceModifier(
+            observer: performanceObserver,
+            isActive: isActive && composeContext == nil && readingItem == nil,
+            itemCount: items.count
+        ))
         .listStyle(.plain)
         .accessibilityIdentifier("AgentFeedScrollContainer")
         // Swiping the feed lowers the keyboard, so an abandoned inline reply

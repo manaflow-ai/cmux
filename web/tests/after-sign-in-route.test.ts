@@ -182,6 +182,21 @@ describe("after sign-in native handoff", () => {
     expect(callbackURL.searchParams.get("cmux_auth_state")).toBe("state-rc");
   });
 
+  test("redirects verified cmux NEXT handoffs directly to cmux-next", async () => {
+    // nightly-next installs beside classic NIGHTLY as cmux NEXT with its own
+    // scheme, so its sign-in never lands in the NIGHTLY app.
+    handoffCookie = "handoff-nonce";
+    const nativeReturnTo = "cmux-next://auth-callback?cmux_auth_state=state-next";
+
+    const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce"));
+
+    expect(response.status).toBe(307);
+    const callbackURL = new URL(response.headers.get("location")!);
+    expect(callbackURL.protocol).toBe("cmux-next:");
+    expect(callbackURL.hostname).toBe("auth-callback");
+    expect(callbackURL.searchParams.get("cmux_auth_state")).toBe("state-next");
+  });
+
   test("keeps the manual return page when the handoff nonce is not verified", async () => {
     handoffCookie = "different-nonce";
     const nativeReturnTo = "cmux://auth-callback?cmux_auth_state=state-123";

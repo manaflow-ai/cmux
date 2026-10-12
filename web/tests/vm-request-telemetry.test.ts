@@ -280,7 +280,10 @@ describe("cloud_vm_request capture", () => {
       $exception_level: "error",
       $exception_fingerprint: "cmux-vm-error:vm_cloud_service_unavailable",
     });
-    const list = JSON.parse(String(exception.properties.$exception_list)) as Array<{ type: string; value: string }>;
+    // PostHog Error Tracking rejects a string here ("expected a sequence") and
+    // drops the exception type, so the list must be sent as a JSON array.
+    expect(Array.isArray(exception.properties.$exception_list)).toBe(true);
+    const list = exception.properties.$exception_list as Array<{ type: string; value: string }>;
     expect(list[0].type).toBe("vm_cloud_service_unavailable");
     expect(list[0].value).toContain("upstream 503");
     expect(attributes["cmux.vm.request_success"]).toBe(false);
@@ -290,27 +293,42 @@ describe("cloud_vm_request capture", () => {
     expect(attributes["cmux.client.request_id"]).toBe("req-1");
   });
 
-  test("a user-fault failure is a warning-level exception", () => {
-    const ctx = context({ operation: "status", method: "GET", route: "/api/vm/[id]" });
-    const response = runWithVmRequestContext(ctx, () => vmErrorResponse({
-      error: "vm_not_found",
-      status: 404,
-      message: "not found",
-      action: "list",
-      phase: "status",
-    }));
-    const { body } = capture(ctx, response);
-    expect(body?.batch).toHaveLength(2);
-    expect(body?.batch[0].properties.operator_fault).toBe(false);
-    expect(body?.batch[1].properties.$exception_level).toBe("warning");
+  test("a user-fault failure ships only cloud_vm_request, never an exception", () => {
+    const reported = spyOn(report, "reportError").mockImplementation(() => undefined);
+    try {
+      for (const [error, status, operation] of [
+        ["vm_not_found", 404, "status"],
+        ["vm_access_grant_busy", 409, "enroll_tunnel"],
+        ["vm_requires_pro", 402, "create"],
+        ["vm_command_too_large", 413, "exec"],
+        ["vm_resource_pool_exceeded", 402, "create"],
+      ] as const) {
+        const ctx = context({ operation, route: "/api/vm/[id]" });
+        const response = runWithVmRequestContext(ctx, () => vmErrorResponse({
+          error,
+          status,
+          message: "expected condition",
+          action: "fix the request",
+        }));
+        expect(response.status).toBe(status);
+        const { body } = capture(ctx, response);
+        expect({ error, events: body?.batch.map((entry) => entry.event) }).toEqual({ error, events: [VM_REQUEST_POSTHOG_EVENT] });
+        expect(body?.batch[0].properties).toMatchObject({ operator_fault: false, error_code: error, status, operation });
+      }
+      expect(reported).not.toHaveBeenCalled();
+    } finally {
+      reported.mockRestore();
+    }
   });
 
   test("an error that bypassed vmErrorResponse is still captured by status", () => {
     const ctx = context({ operation: "open_attach" });
     const { body } = capture(ctx, new Response('{"error":"invalid_request"}', { status: 400 }));
+    expect(body?.batch).toHaveLength(1);
     expect(body?.batch[0].properties).toMatchObject({ success: false, status: 400, operator_fault: false });
     expect(body?.batch[0].properties.error_code).toBeUndefined();
-    expect(body?.batch[1].properties.error_code).toBe("http_400");
+    const failed = capture(ctx, new Response("{}", { status: 500 })).body;
+    expect(failed?.batch[1].properties.error_code).toBe("http_500");
   });
 
   test("a create success ships one cloud_vm_request with its latency and no exception", () => {
@@ -337,9 +355,10 @@ describe("cloud_vm_request capture", () => {
     expect(body?.batch).toHaveLength(2);
   });
 
-  test("an unauthenticated failure uses the anonymous distinct id", () => {
+  test("an unauthenticated failure uses the anonymous distinct id and is not an exception", () => {
     const ctx = context({ userId: undefined });
     const { body } = capture(ctx, new Response('{"error":"unauthorized"}', { status: 401 }));
+    expect(body?.batch.map((entry) => entry.event)).toEqual([VM_REQUEST_POSTHOG_EVENT]);
     expect(body?.batch[0].distinct_id).toBe("cmux-vm-anonymous");
   });
 

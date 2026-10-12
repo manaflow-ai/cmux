@@ -66,6 +66,11 @@ if [[ "$derived_data" != /* ]]; then
   exit 1
 fi
 cli_path="${derived_data}/Build/Products/Debug/cmux DEV ${tag_slug}.app/Contents/Resources/bin/cmux"
+# reload.sh --release builds the same tagged app under Build/Products/Release.
+release_cli_path="${derived_data}/Build/Products/Release/cmux DEV ${tag_slug}.app/Contents/Resources/bin/cmux"
+if [[ ! -x "$cli_path" && -x "$release_cli_path" ]]; then
+  cli_path="$release_cli_path"
+fi
 # A fleet build restored with `cmux-ci publish-hq` lives in the HQ Tag Opener cache.
 cached_cli_path="${HOME}/Library/Application Support/cmux/tag-app-cache/cmux-${tag_slug}/cmux DEV ${tag_slug}.app/Contents/Resources/bin/cmux"
 if [[ ! -x "$cli_path" && -x "$cached_cli_path" ]]; then

@@ -33,8 +33,8 @@ public struct DeviceAccessControl {
         switch preference {
         case .discovery:
             return isOn
-                ? String(localized: "devices.discovery.stop", defaultValue: "Stop discovering other Macs", bundle: .module)
-                : String(localized: "devices.discovery.toggle", defaultValue: "Discover other Macs")
+                ? String(localized: "devices.discovery.stop", defaultValue: "Stop discovering other devices", bundle: .module)
+                : String(localized: "devices.discovery.toggle", defaultValue: "Discover other devices")
         case .incomingAccess:
             return isOn
                 ? String(localized: "devices.incoming.hide", defaultValue: "Hide this Mac from My Devices", bundle: .module)

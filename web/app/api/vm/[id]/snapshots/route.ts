@@ -30,7 +30,7 @@ export async function GET(
         billingTeamId: account.entitlements.billingTeamId,
         teamIds: user.teamIds,
         providerVmId: id,
-      }), { request });
+      }), { request, readDeadline: { operation: "snapshotList" } });
       if (!run.ok) return run.response;
       return jsonResponse({
         id,

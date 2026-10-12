@@ -215,6 +215,10 @@ extension GhosttyTerminalView {
             visible: snapshot.showsInactiveOverlay
         )
         hostedView.setSearchOverlay(searchState: snapshot.searchState)
+        hostedView.installAgentTurnRail(
+            surfaceID: terminalSurface.id,
+            source: TerminalController.shared.agentChatTranscriptService
+        )
         hostedView.syncKeyStateIndicator(text: terminalSurface.currentKeyStateIndicatorText)
         hostedView.setDropZoneOverlay(zone: snapshot.dropZone)
     }

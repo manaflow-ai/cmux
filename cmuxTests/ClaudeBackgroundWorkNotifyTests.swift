@@ -13,7 +13,7 @@ struct ClaudeBackgroundWorkNotifyTests {
         (snapshot.compactMap(AgentHookTestNotificationPipeline.candidatePresentation) + snapshot).first { $0.hasPrefix("notify_target_async ") && $0.contains(needle) }
     }
 
-    @Test func stopHookContinuationDoesNotPoisonTheLaterIdleSignal() throws {
+    @Test func reentrantStopWithoutBackgroundWorkSettlesIdle() throws {
         let result = try runStopHook(name: "stop-continuation", sessionId: "continued-session", stdin: """
         {"session_id":"continued-session","hook_event_name":"Stop","stop_hook_active":true,"last_assistant_message":"Intermediate response","background_tasks":[],"session_crons":[]}
         """)
@@ -22,9 +22,11 @@ struct ClaudeBackgroundWorkNotifyTests {
         // must not mark the completion as pending or poison the later idle signal.
         #expect(notifyLine(result.snapshot, containing: "c=turn-complete;p=0") != nil)
         #expect(journalEvent(result.snapshot, kind: "agent.turn.completed", pendingWork: false) != nil)
-        // A re-entrant Stop is the agent itself still going, not a pane parked
-        // on a deterministic wakeup, so it stays Running.
-        #expect(statusLine(result.snapshot, value: "Running") != nil)
+        // Hook recursion is not evidence of live work. The final re-entrant
+        // Stop must settle the pane so it cannot remain stuck on Running until
+        // another user prompt arrives.
+        #expect(statusLine(result.snapshot, value: "Idle") != nil)
+        #expect(statusLine(result.snapshot, value: "Running") == nil)
         #expect(statusLine(result.snapshot, value: "Waiting") == nil)
     }
 

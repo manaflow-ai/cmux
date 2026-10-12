@@ -72,11 +72,14 @@ public struct RightSidebarModeBarDragLayout: Equatable {
         return result
     }
 
-    /// True once the pointer is far enough above or below the bar that the
-    /// tab is being carried out of it, toward a pane.
-    public static func leavesBar(pointerY: CGFloat, tabFrame: CGRect, barHeight: CGFloat) -> Bool {
+    /// True once the pointer is outside the mode bar, toward a pane. The main
+    /// workspace is to the left of the right sidebar, so crossing x = 0 must
+    /// hand off just like leaving vertically does.
+    public static func leavesBar(pointer: CGPoint, tabFrame: CGRect, barHeight: CGFloat) -> Bool {
         let margin = max(barHeight, tabFrame.height) / 2
-        return pointerY < tabFrame.minY - margin || pointerY > tabFrame.maxY + margin
+        return pointer.x < 0
+            || pointer.y < tabFrame.minY - margin
+            || pointer.y > tabFrame.maxY + margin
     }
 
     private func heldOffset(_ translation: CGFloat) -> CGFloat {

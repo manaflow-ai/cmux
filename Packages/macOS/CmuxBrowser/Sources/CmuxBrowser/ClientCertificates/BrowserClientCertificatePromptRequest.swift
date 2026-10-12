@@ -2,7 +2,7 @@ import Foundation
 
 @MainActor final class BrowserClientCertificatePromptRequest {
     typealias Completion = BrowserClientCertificateAuthenticationHandler.Completion
-    typealias PromptCancellation = () -> Void
+    typealias PromptCancellation = @MainActor () -> Void
     typealias PromptCancellationRegistration = BrowserClientCertificateAuthenticationHandler.PromptCancellationRegistration
     typealias PromptCancellationCheck = BrowserClientCertificateAuthenticationHandler.PromptCancellationCheck
 
