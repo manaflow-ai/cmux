@@ -647,8 +647,11 @@ fn abandoned_receives_free_their_slots_once_aborted() {
     let aborted =
         client.request(json!({"cmd":"agent-transfer-receive-abort","receive_id":"rcv_3"}));
     assert_eq!(ok_data(&aborted)["dropped"], json!(true));
+    let _ = fake.frame();
+    // Asked again (a lost answer), acpmux forgets the same move again.
     let again = client.request(json!({"cmd":"agent-transfer-receive-abort","receive_id":"rcv_3"}));
-    assert_code(&again, "agent_transfer.unknown_receive");
+    assert_eq!(ok_data(&again)["forgotten"], json!(true));
+    let _ = fake.frame();
     assert_eq!(ok_data(&take(&mut client, 16))["receive_id"], json!("rcv_16"));
 }
 
