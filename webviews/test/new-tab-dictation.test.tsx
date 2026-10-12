@@ -127,3 +127,83 @@ test("right-click Hide dictation button hides the mic in every composer until Se
   await act(async () => setComposerSettings({ showContextUsage: true, showDictation: true }));
   expect(mic()).not.toBeNull();
 });
+
+test("updates that arrive before a render still land once each (review: the field reads back what was written)", async () => {
+  await renderNewTab([]);
+  const { deliverDictation } = await import("../src/agent-session/acpmux/dictation");
+  await act(async () => {
+    deliverDictation({ state: "starting", text: "", level: 0, cancelled: false });
+    deliverDictation({ state: "listening", text: "fix the", level: 0.4, cancelled: false });
+    deliverDictation({ state: "listening", text: "fix the upload", level: 0.4, cancelled: false });
+    deliverDictation({ state: "idle", text: "fix the upload test", level: 0, cancelled: false });
+  });
+  expect(host.querySelector<HTMLInputElement>(".nt-field")!.value).toBe("fix the upload test");
+});
+
+test("a session whose New Tab field goes away ends, and never writes into the chat composer", async () => {
+  const calls: [string, unknown][] = [];
+  const { createRoot } = await import("react-dom/client");
+  const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
+  const { useDictation, deliverDictation } = await import("../src/agent-session/acpmux/dictation");
+  type Field = import("../src/agent-session/acpmux/dictation").DictationField;
+  const call = async (method: string, params?: Record<string, unknown>) => {
+    calls.push([method, params]);
+    return null;
+  };
+  let leave = noop;
+  /// The pane's routing: the New Tab field while it shows, else the chat composer (a plain field).
+  function Pane() {
+    const [newTab, setNewTab] = React.useState(true);
+    leave = () => setNewTab(false);
+    const newTabField = useRef<Field | null>(null);
+    const chat = useRef<HTMLTextAreaElement>(null);
+    const target = useRef({
+      get current(): Field | null {
+        const element = chat.current;
+        return (
+          newTabField.current ??
+          (element && {
+            focus: () => element.focus(),
+            focused: () => document.activeElement === element,
+            element: () => element,
+            text: () => ({
+              value: element.value,
+              selectionStart: element.value.length,
+              selectionEnd: element.value.length,
+            }),
+            writeText: (value: string) => void (element.value = value),
+          })
+        );
+      },
+    }).current;
+    useDictation(target, call);
+    return newTab ? (
+      <NewTabScreen
+        snapshot={noChat()}
+        lastAgent="claude"
+        cwd="/Users/you/src/app"
+        dictationField={newTabField}
+        onAsk={noop}
+        onOpen={noop}
+        onSearch={noop}
+        onShell={noop}
+        onJump={noop}
+        onOpenSession={noop}
+        onShowAll={noop}
+      />
+    ) : (
+      <textarea className="chat" aria-label="Chat" ref={chat} defaultValue="" />
+    );
+  }
+  root?.unmount();
+  root = createRoot(host);
+  await act(async () => root!.render(<Pane />));
+  await act(async () => deliverDictation({ state: "starting", text: "", level: 0, cancelled: false }));
+  await act(async () => deliverDictation({ state: "listening", text: "fix the", level: 0.4, cancelled: false }));
+  expect(host.querySelector<HTMLInputElement>(".nt-field")!.value).toBe("fix the");
+  await act(async () => leave());
+  await act(async () => deliverDictation({ state: "listening", text: "fix the upload", level: 0.4, cancelled: false }));
+  await act(async () => deliverDictation({ state: "idle", text: "fix the upload test", level: 0, cancelled: false }));
+  expect(host.querySelector<HTMLTextAreaElement>(".chat")!.value).toBe("");
+  expect(calls.map(([method]) => method)).toContain("dictation.cancel");
+});
