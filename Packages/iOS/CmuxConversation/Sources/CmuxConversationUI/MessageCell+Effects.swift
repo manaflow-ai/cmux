@@ -54,7 +54,10 @@ extension MessageCell {
             replayButton.isHidden = false
             let size = replayButton.intrinsicContentSize
             let x = model.isOutgoing ? frame.maxX - size.width : frame.minX
-            replayButton.frame = CGRect(x: x, y: frame.midY - 14, width: size.width, height: 28)
+            // At least 28 pt to tap; taller at the accessibility sizes, where
+            // the caption outgrows it and was cut off.
+            let height = max(28, size.height)
+            replayButton.frame = CGRect(x: x, y: frame.midY - height / 2, width: size.width, height: height)
         } else {
             replayButtonIfLoaded?.isHidden = true
         }
