@@ -199,6 +199,39 @@ final class FlowTests: XCTestCase {
         snap(app, "56-followup-reply")
     }
 
+    /// Messages parity run: new conversation, two sends, reply, back to list.
+    func testMessagesParity() throws {
+        let app = launchSignedIn()
+        pause(4)
+        snap(app, "60-home")
+        app.buttons["home.compose"].tap()
+        let field = app.textFields["conversation.field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 15))
+        pause(1.2)
+        snap(app, "61-new-conversation")
+        field.tap()
+        pause(1.0)
+        snap(app, "62-keyboard")
+        field.typeText("Running a bit late")
+        pause(0.5)
+        snap(app, "63-typed")
+        app.buttons["conversation.send"].tap()
+        pause(1.5)
+        field.typeText("Can you check on the demo-app agent?")
+        pause(0.4)
+        app.buttons["conversation.send"].tap()
+        pause(1.5)
+        snap(app, "64-two-sent")
+        pause(25)
+        snap(app, "65-reply")
+        app.swipeDown()
+        pause(1)
+        snap(app, "66-keyboard-down")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        pause(1.5)
+        snap(app, "67-list")
+    }
+
     /// Forces TURN relay and checks the Mac connects through it.
     func testRelayConnection() throws {
         let app = launchSignedIn(arguments: ["-cnm-relay-only"])

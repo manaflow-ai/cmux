@@ -28,3 +28,18 @@ cmux: the prompt shows immediately (before the Mac echoes it), the latest turn i
 viewport's height, and the prompt scrolls to the top with `.spring(response: 0.35, dampingFraction: 1.0)`.
 Run r11 (`testAgentPermission` follow-up, screenshots 54–56): prompt pinned at top, reply streaming
 under it, send ↔ stop swap. No auto-scroll while the reply streams (T3's fix).
+
+## Messages send (reference: iMessage capture, docs/IMESSAGE-SPEC.md §3.5)
+
+Tracked with `tools/anim/track_bubble.py` (lowest blue bubble bbox per frame, pt).
+
+| Phase | iMessage | cmux r15 (before) | cmux r16 |
+| --- | --- | --- | --- |
+| Starts as the field rect under the composer glass | yes | yes | yes |
+| Width phase before rising | ~130 ms | rose immediately | ~75 ms (now 150 ms delay) |
+| Leading edge slides, slight scale overshoot | 0.79 → 1.0 | x0 76 → 108 | x0 80 → 108 → 102 |
+| Rise overshoot above slot | ~2.7 pt | ~8 pt (scroll + offset springs stacked) | ~2 pt |
+| Tap → rest | ~680 ms | ~610 ms | ~500 ms (+ delay tuning) |
+
+Fixes: one rise spring shared by the scroll and the row; rows keyed by client id so the
+pending → confirmed swap doesn't replay the send (the "ghost bubble" in r14).

@@ -78,7 +78,8 @@ struct HomeView: View {
                     .contentShape(.rect)
                     .onTapGesture { open(item) }
                     .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                    .alignmentGuide(.listRowSeparatorLeading) { _ in 80 }
+                    .alignmentGuide(.listRowSeparatorLeading) { _ in 83 }
+                    .alignmentGuide(.listRowSeparatorTrailing) { dimensions in dimensions.width - 16 }
                     .swipeActions(edge: .leading, allowsFullSwipe: true) {
                         Button {
                             model.host(item.host)?.setPinned(item.info.id, !item.info.pinned)
@@ -137,17 +138,19 @@ struct ConversationRow: View {
     let typing: Bool
     let showHost: Bool
 
+    // Measured Messages list row (docs/IMESSAGE-SPEC.md §1.1): 86.67 pt tall,
+    // 45 pt avatar at x 26, text column at x 83, time ending at x 365.7.
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
             Circle()
-                .fill(item.info.unreadCount > 0 ? Color(.systemBlue) : .clear)
+                .fill(item.info.unreadCount > 0 ? Messages.accent : .clear)
                 .frame(width: 10, height: 10)
-                .frame(width: 20)
-                .padding(.top, 24)
-            ChiefAvatar(size: 44)
-                .padding(.top, 10)
+                .frame(width: 26)
+                .padding(.top, 38)
+            ChiefAvatar(size: 45)
+                .padding(.top, 20)
                 .padding(.trailing, 12)
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(showHost ? "\(item.info.title) · \(item.hostName)" : item.info.title)
                         .font(.system(size: 17, weight: .semibold))
@@ -155,11 +158,14 @@ struct ConversationRow: View {
                     Spacer(minLength: 4)
                     Text(item.info.updatedAt.listStamp)
                         .font(.system(size: 15))
-                        .foregroundStyle(.secondary)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(Color(light: 0x8B8B8F, dark: 0x8B8B91))
+                    Image(systemName: "chevron.forward")
+                        .font(.system(size: 15, weight: .semibold))
+                        .imageScale(.small)
+                        .foregroundStyle(Color(light: 0xC6C6C8, dark: 0x454548))
+                        .padding(.leading, 4)
                 }
+                .frame(height: 20.3)
                 Group {
                     if typing {
                         Text("Typing…").italic()
@@ -168,13 +174,14 @@ struct ConversationRow: View {
                     }
                 }
                 .font(.system(size: 15))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Messages.secondary)
                 .lineLimit(2, reservesSpace: true)
+                .padding(.top, 1.4)
             }
-            .padding(.top, 10)
-            .padding(.bottom, 11)
+            .padding(.top, 12)
             .padding(.trailing, 16)
         }
+        .frame(height: 86.67, alignment: .top)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("home.row.\(item.info.id)")
     }
