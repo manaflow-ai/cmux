@@ -418,8 +418,8 @@ workspace as a new workspace. `delete` and `clear` remove groups for good (and
 their terminal archives; the journals keep what they already recorded). `delete
 --members` removes only those members; `clear --since-ms` removes only the
 groups closed at or after that time, `--before-ms` only those closed before it,
-and `--keep-newest` every group but the newest n. The app applies
-`history.closed.maxAgeDays` and `history.closed.maxGroups` through these.
+and `--keep-newest` every group but the newest n (retention by age and by
+count; the app is to apply its closed-history limits through these).
 
 ### Other daemon scopes
 

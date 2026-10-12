@@ -2,13 +2,13 @@
 //! (plans/cmux-next/reopen-closed.md, S1b). A group, chosen members of a
 //! group, every group, or every group closed at or after `since_ms` leave
 //! the history for good: they cannot be reopened, and their terminal
-//! archives go with them. Retention (`history.closed.maxAgeDays` and
-//! `maxGroups`, applied by the app like `history.commandRetentionDays`)
-//! uses the same op: `before_ms` deletes the groups closed before it and
-//! `keep_newest` every group but the newest N, or both in one pass. Their
-//! archives go with them. The resource and session journals keep what they
-//! already recorded (names, screen output) until their own retention. The
-//! request's key records the result, so a retry replays it.
+//! archives go with them. Retention uses the same op: `before_ms` deletes
+//! the groups closed before it and `keep_newest` every group but the newest
+//! N, or both in one pass (the app is to apply `history.closed.maxAgeDays`
+//! and `maxGroups` through them, like `history.commandRetentionDays`). The
+//! resource and session journals keep what they already recorded (names,
+//! screen output) until their own retention. The request's key records the
+//! result, so a retry replays it.
 
 use rusqlite::{Transaction, params};
 
@@ -85,9 +85,10 @@ struct Deleted {
     changes: Vec<Value>,
 }
 
-/// The groups an `all` request deletes, newest first: those closed at or
-/// after `since_ms` and before `before_ms`, plus, with `keep_newest`, every
-/// group but the newest N. With neither bound nor `keep_newest`: every group.
+/// The groups an `all` request deletes: those closed at or after `since_ms`
+/// and before `before_ms` (newest first), then, with `keep_newest`, the rest
+/// of every group but the newest N. With neither bound nor `keep_newest`:
+/// every group.
 fn groups_to_clear(
     transaction: &Transaction<'_>,
     request: &DeleteRequest,

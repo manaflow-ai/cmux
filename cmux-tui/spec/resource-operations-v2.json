@@ -13498,7 +13498,7 @@
               "kind": "primitive",
               "name": "decimal"
             },
-            "description": "With all: delete only groups closed before this Unix time in milliseconds (retention by age, history.closed.maxAgeDays)."
+            "description": "With all: delete only groups closed before this Unix time in milliseconds (retention by age)."
           },
           "keep_newest": {
             "required": false,
@@ -13507,7 +13507,7 @@
               "name": "uint32",
               "minimum": 1
             },
-            "description": "With all: delete every group but the newest N (retention by count, history.closed.maxGroups). With before_ms, one pass deletes both sets. Not with since_ms."
+            "description": "With all: delete every group but the newest N (retention by count). With before_ms, one pass deletes both sets. Not with since_ms."
           },
           "expected_revision": {
             "required": false,
