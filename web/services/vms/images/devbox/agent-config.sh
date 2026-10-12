@@ -30,6 +30,13 @@ if [ -z "${NODE_EXTRA_CA_CERTS-}" ] && [ -f /usr/local/share/ca-certificates/fre
 fi
 
 cmux_write_agent_configs() {
+  # A shell that sourced this file before set Claude's model-plane pair aside
+  # (cmux_claude_set_team_env_aside below); restore it under its model-plane
+  # names so the persisted file and the seed below still see it.
+  if [ -z "${ANTHROPIC_BASE_URL-}" ] && [ -z "${ANTHROPIC_API_KEY-}" ] && [ -n "${CMUX_CLAUDE_TEAM_BASE_URL-}" ]; then
+    ANTHROPIC_BASE_URL=$CMUX_CLAUDE_TEAM_BASE_URL
+    ANTHROPIC_API_KEY=${CMUX_CLAUDE_TEAM_API_KEY-}
+  fi
   # Every model-plane var, persisted generically; OPENAI_BASE_URL is the
   # anchor: its presence means a boot env is present.
   cmux_model_plane_vars="OPENAI_BASE_URL OPENAI_API_KEY CMUX_CODEROUTER_URL ANTHROPIC_BASE_URL ANTHROPIC_API_KEY CMUX_VM_ID"
@@ -132,8 +139,9 @@ CMUX_TOML_CHECK
     } > "$HOME/.pi/agent/models.json" 2>/dev/null
   fi
 
-  # claude: ANTHROPIC_BASE_URL and the placeholder ANTHROPIC_API_KEY in the
-  # env are all Claude Code needs for the model plane. A fresh HOME still
+  # claude: ANTHROPIC_BASE_URL and the placeholder ANTHROPIC_API_KEY are all
+  # Claude Code needs for the model plane; the claude launcher adds them per
+  # launch in team mode (cmux_claude_set_team_env_aside). A fresh HOME still
   # blocks an interactive run on three first-run gates before the prompt is
   # usable: the theme/onboarding wizard, the folder-trust dialog, and the
   # --dangerously-skip-permissions confirmation. Seed the flags those gates
@@ -328,5 +336,22 @@ x-cmux-surface-id: $CMUX_SURFACE_ID"
   export ANTHROPIC_CUSTOM_HEADERS
 fi
 
+# claude sign-in precedence: Claude Code ranks ANTHROPIC_API_KEY above its own
+# /login, so a shell-wide model-plane key would override a user's own Claude
+# account and send it to CodeRouter. Keep the pair out of the shell under
+# CMUX_CLAUDE_TEAM_*; the claude launcher (/etc/cmux/claude) puts it back only
+# in team mode (/etc/cmux/agent-auth.sh, `cr use`). The pair is the model
+# plane's when its base URL is the CodeRouter origin; a user-set endpoint or
+# key is left exactly as it is.
+cmux_claude_set_team_env_aside() {
+  if [ -n "${ANTHROPIC_BASE_URL-}" ] && [ "$ANTHROPIC_BASE_URL" = "${CMUX_CODEROUTER_URL-}" ]; then
+    CMUX_CLAUDE_TEAM_BASE_URL=$ANTHROPIC_BASE_URL
+    CMUX_CLAUDE_TEAM_API_KEY=${ANTHROPIC_API_KEY-}
+    export CMUX_CLAUDE_TEAM_BASE_URL CMUX_CLAUDE_TEAM_API_KEY
+    unset ANTHROPIC_BASE_URL ANTHROPIC_API_KEY
+  fi
+}
+
 cmux_write_agent_configs
-unset -f cmux_write_agent_configs
+cmux_claude_set_team_env_aside
+unset -f cmux_write_agent_configs cmux_claude_set_team_env_aside

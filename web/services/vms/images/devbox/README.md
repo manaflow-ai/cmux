@@ -198,6 +198,16 @@ on 6901. The contract (`web/services/vms/images/desktop.ts`;
   `DISABLE_AUTOUPDATER=1` so the pinned Claude Code does not reinstall itself
   on first launch;
   `managed-settings.json` sets `skipDangerousModePermissionPrompt`.
+- Claude Code signs in one of two ways per machine (per HOME): the team's
+  CodeRouter accounts or the user's own `/login`. Claude Code ranks
+  `ANTHROPIC_API_KEY` above its own login, so `agent-config.sh` keeps the
+  model-plane pair out of every shell (as `CMUX_CLAUDE_TEAM_*`), and the
+  `/usr/local/bin/claude` launcher (`cmux-claude`, exec'ing
+  `/usr/local/libexec/cmux-claude-real`) adds it per launch in team mode only.
+  `agent-auth.sh` resolves the mode: the `cr use own|team` choice in
+  `~/.config/cmux/agent-auth/claude`; else own when Claude Code has its own
+  sign-in; else team when the team has an active Claude account; else own.
+  Image-only: older machines keep exporting the pair in every shell.
 - Ghostty comes from a pinned community `.deb` for Ubuntu 24.04
   (`ARG CMUX_IMAGE_GHOSTTY_DEB_URL` in the Dockerfile, verified against
   `ARG CMUX_IMAGE_GHOSTTY_DEB_SHA256` before dpkg runs); the apt list is

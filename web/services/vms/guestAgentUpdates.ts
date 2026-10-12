@@ -14,9 +14,10 @@ import {
  *
  * Every agent comes from its own GitHub release asset (services/vms/images/agents.ts).
  * A version unpacks to /opt/cmux-agents/<binary>/<version>/, and
- * /usr/local/bin/<binary> links to the executable inside it. opencode's
- * /usr/local/bin entry stays the /etc/cmux/opencode wrapper, which execs
- * /usr/local/libexec/cmux-opencode-real, the link that moves instead.
+ * /usr/local/bin/<binary> links to the executable inside it. The
+ * /usr/local/bin entries of opencode and claude stay their /etc/cmux/<binary>
+ * launchers, which exec /usr/local/libexec/cmux-<binary>-real, the link that
+ * moves instead.
  *
  * One script does both jobs:
  *
@@ -110,7 +111,8 @@ root = options["root"]
 setting_path = os.path.join(config_dir, "agent-updates")
 state_path = os.path.join(config_dir, "agent-updates.state")
 lock_path = os.path.join(config_dir, ".agent-updates.lock")
-wrapper = os.path.join(config_dir, "opencode")
+# Agents whose /usr/local/bin entry is a cmux launcher (/etc/cmux/<binary>).
+wrapped = ("opencode", "claude")
 release = re.compile(r"^\d+\.\d+\.\d+$")
 reported_version = re.compile(r"(\d+\.\d+\.\d+)")
 sha256_digest = re.compile(r"^sha256:([0-9a-f]{64})$")
@@ -175,16 +177,19 @@ def standalone_versions(agent):
         return []
     return sorted((name for name in names if release.match(name) and complete(agent, name)), key=release_key)
 
+def wrapper(agent):
+    return os.path.join(config_dir, agent["binary"])
+
 def uses_wrapper(agent):
-    return agent["binary"] == "opencode" and os.path.isfile(wrapper)
+    return agent["binary"] in wrapped and os.path.isfile(wrapper(agent))
 
 def entry(agent):
     return os.path.join(options["binDir"], agent["binary"])
 
 def real_link(agent):
-    # The link whose target is the tool itself: opencode's sits behind the wrapper.
+    # The link whose target is the tool itself: a wrapped agent's sits behind its launcher.
     if uses_wrapper(agent):
-        return os.path.join(options["libexecDir"], "cmux-opencode-real")
+        return os.path.join(options["libexecDir"], "cmux-" + agent["binary"] + "-real")
     return entry(agent)
 
 def probe_version(path):
@@ -200,7 +205,7 @@ def link(agent, version):
     if uses_wrapper(agent):
         os.makedirs(options["libexecDir"], exist_ok=True)
         link_atomic(target, real_link(agent))
-        link_atomic(wrapper, entry(agent))
+        link_atomic(wrapper(agent), entry(agent))
     else:
         link_atomic(target, entry(agent))
 
@@ -213,7 +218,7 @@ def installed(agent):
     if real.startswith(prefix):
         version = real[len(prefix):].split(os.sep)[0]
         if release.match(version) and complete(agent, version) and os.path.isfile(real):
-            if uses_wrapper(agent) and os.path.realpath(entry(agent)) != os.path.realpath(wrapper):
+            if uses_wrapper(agent) and os.path.realpath(entry(agent)) != os.path.realpath(wrapper(agent)):
                 link(agent, version)
             return "standalone", version
     if not os.path.isfile(real):

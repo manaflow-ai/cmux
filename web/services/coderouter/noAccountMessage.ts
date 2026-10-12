@@ -21,8 +21,19 @@ export function noAccountConfiguredMessage(
   identity: Parameters<typeof accountAccessForIdentity>[0],
 ): string {
   const { name, hostAdd, vmAdd } = FAMILY[family];
-  if (accountAccessForIdentity(identity).kind === "vm" && identity.teamId !== identity.stackUserId) {
-    return `No ${name} account is shared with this Cloud machine's team. If one was added as private, the person who added it can choose Share with team at coderouter.dev, or add one here with ${vmAdd} (accounts added on a Cloud machine are shared with its team).`;
-  }
-  return `No ${name} account is configured for this team or shared with this caller. Add one with ${hostAdd} or at coderouter.dev.`;
+  const vm = accountAccessForIdentity(identity).kind === "vm";
+  const message = vm && identity.teamId !== identity.stackUserId
+    ? `No ${name} account is shared with this Cloud machine's team. If one was added as private, the person who added it can choose Share with team at coderouter.dev, or add one here with ${vmAdd} (accounts added on a Cloud machine are shared with its team).`
+    : `No ${name} account is configured for this team or shared with this caller. Add one with ${vm ? vmAdd : hostAdd} or at coderouter.dev.`;
+  // Claude Code on a Cloud machine can sign in with the user's own account
+  // instead; `cr use own` stops the machine from sending it through CodeRouter.
+  return vm && family === "claude" ? `${message} ${OWN_CLAUDE_LOGIN_HINT}` : message;
 }
+
+/**
+ * The second way out of a Claude refusal on a Cloud machine. Machines from
+ * images before the sign-in switch export the CodeRouter pair in every shell
+ * and have no `cr use`; unsetting the pair is their equivalent.
+ */
+export const OWN_CLAUDE_LOGIN_HINT =
+  "Or use your own Claude account on this machine: run `cr use own` (on older machines, `unset ANTHROPIC_API_KEY ANTHROPIC_BASE_URL` in the terminal instead), then restart claude and sign in with /login.";

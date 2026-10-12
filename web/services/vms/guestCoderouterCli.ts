@@ -42,3 +42,65 @@ guest_coderouter_org() {
   fi
 }
 `;
+
+/**
+ * `cr use [own|team|auto] [--json]`: how Claude Code signs in on this machine.
+ * The mode itself is resolved by the image's /etc/cmux/agent-auth.sh, the same
+ * file the claude launcher reads at every launch, so the report here and the
+ * launch can never disagree. This only records the choice.
+ */
+export const GUEST_CODEROUTER_USE_SHELL = `guest_coderouter_use() {
+  cmux_use_mode=""
+  cmux_use_json=false
+  for cmux_arg in "\$@"; do
+    case "\$cmux_arg" in
+      own|team|auto) [ -z "\$cmux_use_mode" ] || die_message 2 useUnknown "\$cmux_arg"; cmux_use_mode="\$cmux_arg" ;;
+      status|show|claude) ;;
+      --json) cmux_use_json=true ;;
+      --help|-h|help) cmux_message useHelp; return 0 ;;
+      *) die_message 2 useUnknown "\$cmux_arg" ;;
+    esac
+  done
+  [ "\${CMUX_OUTPUT:-}" != json ] || cmux_use_json=true
+  cmux_use_lib="\${CMUX_AGENT_AUTH_LIB:-/etc/cmux/agent-auth.sh}"
+  [ -f "\$cmux_use_lib" ] || die_message 2 useUnsupported
+  . "\$cmux_use_lib"
+  cmux_use_file="\$(cmux_agent_auth_file claude)"
+  case "\$cmux_use_mode" in
+    own|team)
+      mkdir -p "\${cmux_use_file%/*}"
+      printf '%s\\n' "\$cmux_use_mode" > "\$cmux_use_file.tmp" && mv -f "\$cmux_use_file.tmp" "\$cmux_use_file"
+      ;;
+    auto) rm -f "\$cmux_use_file" ;;
+  esac
+  # The account check reads the model-plane origin; a missing plane answers
+  # "unknown", never an error, so the switch works offline.
+  if [ -f "\$HOME/.config/cmux/model-plane.env" ] || [ -f /etc/cmux/model-plane.env ]; then load_model_env; fi
+  cmux_agent_auth_resolve claude
+  if [ "\$cmux_use_json" = true ]; then
+    printf '{"agent":"claude","mode":"%s","reason":"%s","chosen":%s}\\n' "\$cmux_agent_auth_mode" "\$cmux_agent_auth_reason" \\
+      "\$([ "\$cmux_agent_auth_reason" = chosen ] && echo true || echo false)"
+    return 0
+  fi
+  case "\$cmux_agent_auth_reason" in
+    chosen) cmux_use_reason="\$(cmux_message useReasonChosen)" ;;
+    login) cmux_use_reason="\$(cmux_message useReasonLogin)" ;;
+    team-account) cmux_use_reason="\$(cmux_message useReasonTeamAccount)" ;;
+    no-team-account) cmux_use_reason="\$(cmux_message useReasonNoTeamAccount)" ;;
+    *) cmux_use_reason="\$(cmux_message useReasonTeamUnknown)" ;;
+  esac
+  if [ "\$cmux_agent_auth_mode" = own ]; then
+    cmux_message useModeOwn "\$cmux_use_reason"
+  else
+    cmux_message useModeTeam "\$cmux_use_reason"
+  fi
+  if [ -n "\$cmux_use_mode" ]; then cmux_message useNextLaunch; fi
+  if [ "\$cmux_agent_auth_mode" = own ] && [ "\$cmux_agent_auth_reason" != login ]; then
+    cmux_message useOwnLogin
+  fi
+  if [ "\$cmux_agent_auth_mode" = team ] && [ "\$cmux_agent_auth_reason" = chosen ]; then
+    if cmux_claude_team_upstream; then cmux_use_rc=0; else cmux_use_rc=\$?; fi
+    [ "\$cmux_use_rc" -ne 1 ] || cmux_message useTeamNoAccount
+  fi
+}
+`;
