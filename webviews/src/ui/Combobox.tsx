@@ -25,10 +25,12 @@ export interface ComboboxProps {
   listClassName?: string;
   itemClassName?: string;
   inputRef?: React.Ref<HTMLInputElement>;
-  /** Render the suggestions under the field in place (inside a popover) instead of in a popup.
-   * The list keeps its tallest height while it is mounted, so narrowing it never resizes the
-   * popover and the field never moves under the caret (cx-6k6cg). */
+  /** Render the suggestions under the field in place (inside a popover) instead of in a popup. */
   inline?: boolean;
+  /** With `inline`: the list keeps its tallest height while mounted (until the window resizes), so
+   * narrowing it never resizes the popover and a field above it never moves under the caret
+   * (cx-6k6cg). For a list with no empty-state message of its own after it. */
+  keepHeight?: boolean;
   /** Keep a multi-control panel open when focus moves to its buttons. */
   cancelOnBlur?: boolean;
   /** Disabled rows remain visible but cannot be highlighted or submitted. */
@@ -59,6 +61,7 @@ export function Combobox({
   itemClassName,
   inputRef,
   inline = false,
+  keepHeight = false,
   cancelOnBlur = true,
   isItemDisabled,
   autoHighlight = false,
@@ -71,12 +74,21 @@ export function Combobox({
   const [value, setValue] = useState(defaultValue);
   const [highlighted, setHighlighted] = useState<string | undefined>(undefined);
   const listRef = useRef<HTMLDivElement>(null);
+  const keep = inline && keepHeight;
   const [tallest, setTallest] = useState(0);
   useLayoutEffect(() => {
-    if (!inline) return;
-    const height = listRef.current?.offsetHeight ?? 0;
-    if (height > tallest) setTallest(height);
-  }, [inline, suggestions, tallest]);
+    if (!keep) return;
+    const height = listRef.current?.getBoundingClientRect().height ?? 0;
+    if (height > tallest + 0.5) setTallest(height);
+  }, [keep, suggestions, tallest]);
+  // A resized window may cap the list lower (max-height from the room left): measure again.
+  useLayoutEffect(() => {
+    if (!keep) return;
+    const reset = () => setTallest(0);
+    window.addEventListener("resize", reset);
+    return () => window.removeEventListener("resize", reset);
+  }, [keep]);
+  const held = keep && tallest > 0;
   const update = (next: string) => {
     setValue(next);
     onQuery(next);
@@ -110,8 +122,9 @@ export function Combobox({
       ref={listRef}
       className={cx("ui-combobox-list", listClassName)}
       render={<ul />}
-      hidden={suggestions.length === 0 && !(inline && tallest > 0)}
-      style={inline && tallest > 0 ? { minHeight: tallest } : undefined}
+      hidden={suggestions.length === 0 && !held}
+      aria-hidden={held && suggestions.length === 0 ? true : undefined}
+      style={held ? { minHeight: tallest, boxSizing: "border-box" } : undefined}
     >
       <Autocomplete.Collection>
         {(item: string) => (

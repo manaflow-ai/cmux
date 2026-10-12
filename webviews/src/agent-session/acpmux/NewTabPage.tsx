@@ -289,7 +289,11 @@ export function NewTabPage({
   const field = useRef<HTMLInputElement>(null);
   const composing = useRef(false);
   const recent = useMemo(() => recentSessions(snapshot.sessions), [snapshot.sessions]);
-  const rows = useMemo(
+  // The suggestions float over the page under the field (cx-6k6cg), so they show only while the
+  // field has the keyboard and something is typed: at rest nothing covers the page below.
+  const [focused, setFocused] = useState(false);
+  const open = focused && query.trim() !== "";
+  const suggestions = useMemo(
     () =>
       omnibarRows(query, kind, {
         ...omnibar,
@@ -302,6 +306,7 @@ export function NewTabPage({
       }),
     [query, kind, omnibar, recent],
   );
+  const rows = useMemo(() => (open ? suggestions : []), [open, suggestions]);
   useEffect(() => setSelected(defaultRow(rows, kind, query)), [rows, kind, query]);
   useEffect(() => {
     list.current?.querySelector<HTMLElement>(`#acpmux-omni-${selected}`)?.scrollIntoView?.({ block: "nearest" });
@@ -415,6 +420,8 @@ export function NewTabPage({
               autoCapitalize="off"
               autoCorrect="off"
               onChange={(event) => edit(event.target.value)}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
               onKeyDown={keyDown}
               onCompositionStart={() => {
                 composing.current = true;

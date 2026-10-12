@@ -74,9 +74,17 @@ await requireBrowserLane("suggestion-lists-float.test.ts", async () => {
   test("the classic New Tab page's suggestions float over the actions under the field", async () => {
     const page = await stage("agent-pane.new-tab", "template-classic");
     const under = [".acpmux-newtab-box", ".acpmux-newtab-actions"];
-    const before = await boxes(page, under);
-    expect(before[".acpmux-newtab-actions"]).not.toBeNull();
+    // "All sessions" takes a click at rest: no list covers it.
+    const reachable = () =>
+      page.evaluate(() => {
+        const button = document.querySelector(".acpmux-newtab-all")!;
+        const box = button.getBoundingClientRect();
+        return button.contains(document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2));
+      });
     await page.click(".acpmux-newtab-field");
+    expect(await page.locator(".acpmux-omni").count()).toBe(0);
+    expect(await reachable()).toBe(true);
+    const before = await boxes(page, under);
     await page.keyboard.type("a");
     await page.waitForSelector(".acpmux-omni [role=option]");
     expect(await boxes(page, under)).toEqual(before);
@@ -84,6 +92,10 @@ await requireBrowserLane("suggestion-lists-float.test.ts", async () => {
     const first = await selected();
     await page.keyboard.press("ArrowDown");
     expect(await selected()).not.toBe(first);
+    // Leaving the field closes the list; the page under it is reachable again.
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.waitForSelector(".acpmux-omni", { state: "detached" });
+    expect(await reachable()).toBe(true);
     await page.close();
   });
 
