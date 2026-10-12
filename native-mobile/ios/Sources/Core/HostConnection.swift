@@ -40,7 +40,13 @@ final class HostConnection {
     init(host: APIClient.Host, link: any HostLink) {
         self.host = host
         self.link = link
+        // Last known workspaces, shown while the link connects.
+        if let data = UserDefaults.standard.data(forKey: cacheKey) {
+            tree = try? JSONDecoder().decode(DaemonTree.self, from: data)
+        }
     }
+
+    private var cacheKey: String { "tree.\(host.id)" }
 
     var workspaces: [DaemonWorkspace] { tree?.workspaces ?? [] }
 
@@ -116,7 +122,9 @@ final class HostConnection {
     func refresh() async {
         guard let control else { return }
         do {
-            tree = try await control.listWorkspaces()
+            let fresh = try await control.listWorkspaces()
+            tree = fresh
+            UserDefaults.standard.set(try? JSONEncoder().encode(fresh), forKey: cacheKey)
             let agentList = (try? await control.listAgents()) ?? []
             agents = Dictionary(agentList.map { ($0.surface, $0) }, uniquingKeysWith: { $1 })
             notifications = try await control.listNotifications()

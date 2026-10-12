@@ -3,7 +3,7 @@ import Foundation
 /// `list-workspaces` (cmux-tui protocol v12). Only the fields the phone
 /// shows are decoded; everything is optional because the daemon adds
 /// fields behind capabilities.
-struct DaemonTree: Decodable, Sendable, Hashable {
+struct DaemonTree: Codable, Sendable, Hashable {
     var workspaceRevision: Int?
     var workspaces: [DaemonWorkspace]
 
@@ -13,7 +13,7 @@ struct DaemonTree: Decodable, Sendable, Hashable {
     }
 }
 
-struct DaemonWorkspace: Decodable, Sendable, Hashable, Identifiable {
+struct DaemonWorkspace: Codable, Sendable, Hashable, Identifiable {
     var id: Int
     var name: String
     var title: String?
@@ -38,14 +38,14 @@ struct DaemonWorkspace: Decodable, Sendable, Hashable, Identifiable {
     }
 }
 
-struct DaemonScreen: Decodable, Sendable, Hashable {
+struct DaemonScreen: Codable, Sendable, Hashable {
     var id: Int
     var name: String?
     var active: Bool?
     var panes: [DaemonPane]
 }
 
-struct DaemonPane: Decodable, Sendable, Hashable {
+struct DaemonPane: Codable, Sendable, Hashable {
     var id: Int
     var name: String?
     var activeTab: Int?
@@ -58,8 +58,8 @@ struct DaemonPane: Decodable, Sendable, Hashable {
     }
 }
 
-struct DaemonTab: Decodable, Sendable, Hashable, Identifiable {
-    struct Size: Decodable, Sendable, Hashable { var cols: Int; var rows: Int }
+struct DaemonTab: Codable, Sendable, Hashable, Identifiable {
+    struct Size: Codable, Sendable, Hashable { var cols: Int; var rows: Int }
 
     var surface: Int
     var kind: String?

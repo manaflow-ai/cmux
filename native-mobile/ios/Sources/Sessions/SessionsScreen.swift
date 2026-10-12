@@ -41,6 +41,8 @@ struct SessionsScreen: View {
             switch connection.phase {
             case .connected, .reconnecting:
                 list(connection)
+            case .connecting where !connection.workspaces.isEmpty:
+                list(connection)
             case .connecting:
                 ConnectingState(hostName: connection.host.name, path: nil)
             case .offline(let message):
@@ -53,8 +55,9 @@ struct SessionsScreen: View {
 
     private func list(_ connection: HostConnection) -> some View {
         List {
-            if case .reconnecting = connection.phase {
-                Label(String(localized: "Reconnecting…"), systemImage: "arrow.triangle.2.circlepath")
+            if connection.phase == .reconnecting || connection.phase == .connecting {
+                Label(connection.phase == .connecting ? String(localized: "Connecting…") : String(localized: "Reconnecting…"),
+                      systemImage: "arrow.triangle.2.circlepath")
                     .font(.footnote).foregroundStyle(.secondary)
                     .listRowBackground(Color.clear)
             }

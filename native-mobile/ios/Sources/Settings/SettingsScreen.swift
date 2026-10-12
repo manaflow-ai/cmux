@@ -58,7 +58,9 @@ struct SettingsScreen: View {
                     Text(String(localized: "Macs"))
                 } footer: {
                     if let path = app.connection?.path, !path.isEmpty {
-                        Text(String(localized: "Connected over \(path)."))
+                        Text(path == "relay"
+                            ? String(localized: "Connected through an encrypted relay.")
+                            : String(localized: "Connected directly to your Mac, end-to-end encrypted."))
                     }
                 }
 

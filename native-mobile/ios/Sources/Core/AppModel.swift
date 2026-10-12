@@ -38,19 +38,27 @@ final class AppModel {
             do { try await signInDev(email: devEmail, secret: devSecret) } catch { Logger(subsystem: "dev.cmux.next.native", category: "auth").error("dev sign-in failed: \(String(describing: error), privacy: .public)") }
         }
         guard token != nil else { phase = .signedOut; return }
+        // Signed in before: show the app at once (like Claude/ChatGPT) and
+        // confirm the session in the background.
+        phase = .ready
+        // Connect to the last Mac right away from the cached list.
+        if hosts.isEmpty, let data = UserDefaults.standard.data(forKey: "cachedHosts"),
+           let cached = try? JSONDecoder().decode([APIClient.Host].self, from: data) {
+            hosts = cached
+            if let host = cached.first(where: { $0.id == selectedHostID }) ?? cached.first { connect(host) }
+        }
+        async let hosts: Void = reloadHosts()
         do {
             user = try await api.me()
-            phase = .ready
-            await reloadHosts()
+            await hosts
         } catch let error as APIClient.APIError where error.status == 401 {
-            tokenStore.value = nil
-            phase = .signedOut
+            await hosts
+            signOut()
         } catch {
             // Offline or a transient failure: keep the session and keep
             // trying to load the Macs.
             Self.log.error("launch me() failed: \(String(describing: error), privacy: .public)")
-            phase = .ready
-            await reloadHosts()
+            await hosts
         }
     }
 
@@ -81,6 +89,7 @@ final class AppModel {
         user = nil
         hosts = []
         selectedHostID = nil
+        UserDefaults.standard.removeObject(forKey: "cachedHosts")
         phase = .signedOut
     }
 
@@ -88,6 +97,7 @@ final class AppModel {
         do {
             hosts = try await api.hosts()
             hostsLoaded = true
+            UserDefaults.standard.set(try? JSONEncoder().encode(hosts), forKey: "cachedHosts")
             if connection == nil, let host = hosts.first(where: { $0.id == selectedHostID }) ?? hosts.first {
                 connect(host)
             }
