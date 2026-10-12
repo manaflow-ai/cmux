@@ -1085,11 +1085,16 @@ export function Composer({
                       : id === "attach"
                         ? chooser.current?.click()
                         : id === "screenshot" || id === "window"
-                          ? // Back to the prompt either way: the + menu doesn't take focus back.
-                            void capture?.(id === "window" ? "window" : "screen").then(async (file) => {
-                              if (file) await attach.current([file]);
-                              field.current?.focus();
-                            })
+                          ? // Back to the prompt either way (the + menu doesn't take focus back),
+                            // unless the person moved focus elsewhere while the capture ran.
+                            void capture?.(id === "window" ? "window" : "screen")
+                              .then(async (file) => {
+                                if (file) await attach.current([file]);
+                              })
+                              .finally(() => {
+                                const focused = document.activeElement;
+                                if (!focused || focused === document.body) field.current?.focus();
+                              })
                           : id === "mention"
                             ? mention()
                             : id === "files"
