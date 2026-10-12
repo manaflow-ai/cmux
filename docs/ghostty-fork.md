@@ -35,8 +35,12 @@ When we change the fork, update this document and the parent submodule SHA.
 - Conflict notes: `DerivedConfig` no longer has `conditional_state`; anything
   upstream that reads `self.config.conditional_state` in termio should read
   `self.color_scheme`. `termio.Options` gains a required `color_scheme` field.
-  Independent of #269 (minimum contrast, same base); if both land, pin a fork
-  `main` commit containing both.
+  Independent of #269 (minimum contrast, same `a53c76d06` base). Fork `main`
+  is far ahead of classic's pin, so never pin fork `main` for classic. If both
+  land, branch from one fix commit, merge the other (they merge cleanly), merge
+  that branch into fork `main` so it stays reachable, build GhosttyKit for it,
+  and repin to that combined commit, keeping both checksum lines and both
+  entries here.
 
 ### Link filter: the embedder vetoes hover regex links
 
