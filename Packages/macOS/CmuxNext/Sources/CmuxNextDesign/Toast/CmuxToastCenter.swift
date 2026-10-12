@@ -56,7 +56,10 @@ public final class CmuxToastCenter {
         // repeated toast never blinks out and fades back in.
         let inPlace = newest.map { replaced.contains($0) && entries[$0]?.handle.toast.id == toast.id } ?? false
         for old in replaced {
-            end(old, .replaced, relayout: false, animated: entries[old]?.handle.toast.id != toast.id)
+            let fades = entries[old]?.handle.toast.id != toast.id
+            // One pushed out fades a slot above the stack, clear of the toast moving into its slot.
+            if fades, let view = entries[old]?.view { host.move(view, to: stack.serials.count) }
+            end(old, .replaced, relayout: false, animated: fades)
         }
         host.show(view, in: window, slot: 0, appearing: !inPlace) { [weak self] in self?.windowClosed(key) }
         relayout(key)
