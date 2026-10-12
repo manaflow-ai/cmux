@@ -1,0 +1,43 @@
+name: nightly-next feed watch
+
+# feat-cmux-next work must reach the nightly-next feed (appcast-arm64.xml),
+# which Lawrence and Leo daily-drive. nightly.yml's own alarm runs only inside
+# nightly-next push runs, so a stall before promotion (a red Release compile,
+# an unpublished cmux-tui tree) never raised it. A schedule runs only from the
+# default branch, so this lives on main. Every 30 minutes it measures how long
+# feat-cmux-next pushes have waited for the feed and keeps one
+# `nightly-next-feed-stale` issue naming the stuck stage
+# (scripts/ci/nightly_next_feed_watch.py, tested by
+# tests/test_nightly_next_feed_watch.py).
+on:
+  schedule:
+    - cron: "7,37 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: nightly-next-feed-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    if: github.repository_owner == 'manaflow-ai'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      actions: read # nightly-next, artifacts and cmux-next runs
+      contents: read # the nightly-next release body's published commit
+      issues: write # the nightly-next-feed-stale issue
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Check how long feat-cmux-next pushes have waited for the feed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          MAX_LAG_HOURS: ${{ vars.NIGHTLY_NEXT_MAX_FEED_LAG_HOURS || '4' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python3 scripts/ci/nightly_next_feed_watch.py --repo "$REPOSITORY" --max-lag-hours "$MAX_LAG_HOURS" --run-url "$RUN_URL"

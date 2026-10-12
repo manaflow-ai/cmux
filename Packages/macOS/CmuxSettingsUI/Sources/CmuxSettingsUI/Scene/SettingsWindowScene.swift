@@ -175,10 +175,11 @@ public struct SettingsWindowRoot: View {
         // and publish the active highlight so the matching row pulses.
         .environment(\.settingsSearchIndex, searchIndex)
         .environment(\.settingsSearchHighlightState, searchHighlight)
-        // Legacy SettingsRootView pins the window minimum to
-        // SettingsWindowPresenter.minimumSize (820 x 540); mirror that
-        // so the package window can shrink to the same lower bound.
-        .frame(minWidth: 820, minHeight: 540)
+        // The AppKit host owns the Settings window minimum. Keeping a second
+        // SwiftUI minimum here makes NavigationSplitView retain an 820 x 540
+        // layout when its actual proposal is narrower, leaving the detail
+        // column outside the viewport instead of reflowing or scrolling.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .settingsErrorAlert(log: runtime.errorLog)
         .onAppear {
             // Legacy SettingsRootView resyncs the sidebar entry to the
@@ -410,6 +411,10 @@ public struct SettingsWindowRoot: View {
                 applyScrollNavigation(notification, proxy: proxy)
             }
             .navigationTitle(activeSection.title)
+            // Keep the detail column flexible when a section has a larger
+            // ideal width. Its scroll view can then expose genuinely wide
+            // editors without widening the split view beyond the viewport.
+            .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 

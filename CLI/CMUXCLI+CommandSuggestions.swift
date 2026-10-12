@@ -119,6 +119,7 @@ extension CMUXCLI {
         "is-webview-focused",
         "ios",
         "join-pane",
+        "jump-to-last-prompt",
         "jump-to-unread",
         "last-pane",
         "last-window",

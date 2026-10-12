@@ -7,6 +7,11 @@ on:
         description: Failed nightly workflow run that uploaded the recovery artifact
         required: true
         type: string
+      artifact_run_id:
+        description: Optional workflow run that owns the named artifact (for outer-DMG continuation artifacts)
+        required: false
+        default: ""
+        type: string
       recovery_artifact:
         description: Exact recovery artifact name from that run
         required: true
@@ -43,12 +48,14 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+      ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
       RECOVERY_ARTIFACT: ${{ inputs.recovery_artifact }}
       REQUESTED_CHANNEL: ${{ inputs.channel }}
       REQUESTED_VARIANT: ${{ inputs.variant }}
       ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
       ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
       ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
     steps:
       - name: Checkout trusted continuation tools
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -58,6 +65,47 @@ jobs:
 
       - name: Select pinned Xcode
         run: ./scripts/select-ci-xcode.sh
+
+      - name: Set up Node for recovered DMG packaging
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "20"
+
+      - name: Install recovered DMG packaging tools
+        env:
+          CREATE_DMG_VERSION: 8.0.0
+        run: |
+          set -euo pipefail
+          npm_config_prefix="$RUNNER_TEMP/npm-global"
+          mkdir -p "$npm_config_prefix"
+          npm install --global "create-dmg@${CREATE_DMG_VERSION}"
+          wrapper_dir="$RUNNER_TEMP/create-dmg-wrapper"
+          mkdir -p "$wrapper_dir"
+          cat > "$wrapper_dir/create-dmg" <<EOF
+          #!/usr/bin/env bash
+          exec "$(command -v node)" "$npm_config_prefix/lib/node_modules/create-dmg/cli.js" "\$@"
+          EOF
+          chmod +x "$wrapper_dir/create-dmg"
+          echo "$wrapper_dir" >> "$GITHUB_PATH"
+
+      - name: Import signing certificate for recovered DMG
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          [ -n "$APPLE_CERTIFICATE_BASE64" ] || { echo "Missing APPLE_CERTIFICATE_BASE64" >&2; exit 1; }
+          [ -n "$APPLE_CERTIFICATE_PASSWORD" ] || { echo "Missing APPLE_CERTIFICATE_PASSWORD" >&2; exit 1; }
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > /tmp/cert.p12
+          security delete-keychain build.keychain >/dev/null 2>&1 || true
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security import /tmp/cert.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          ./scripts/import-apple-developer-id-intermediates.sh build.keychain
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          security list-keychains -d user -s build.keychain
 
       - name: Verify trusted source workflow run
         run: |
@@ -105,9 +153,11 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$RECOVERY_ARTIFACT" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "invalid recovery artifact name" >&2; exit 2; }
+          artifact_run_id="${ARTIFACT_RUN_ID:-$SOURCE_RUN_ID}"
+          [[ "$artifact_run_id" =~ ^[0-9]+$ ]] || { echo "artifact_run_id must be numeric" >&2; exit 2; }
           rm -rf recovery
           mkdir -p recovery
-          gh run download "$SOURCE_RUN_ID" \
+          gh run download "$artifact_run_id" \
             --repo "$GITHUB_REPOSITORY" \
             --name "$RECOVERY_ARTIFACT" \
             --dir recovery
@@ -129,10 +179,21 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p verified
-          CMUX_CHANNEL="$REQUESTED_CHANNEL" \
-          CMUX_NOTARY_EVIDENCE_FILE="$EVIDENCE_FILE" \
-          ./scripts/ci/resume-nightly-notarization.sh \
-            "$STATE_FILE" "$APP_PATH" "$DMG_RELEASE" "verified/$IMMUTABLE_NAME"
+          if [ "${RECOVERY_KIND:-dmg}" = "computer-use-helper" ]; then
+            outer_state="$RUNNER_TEMP/cmux-outer-dmg-notarization.state"
+            CMUX_CHANNEL="$REQUESTED_CHANNEL" \
+            NIGHTLY_VARIANT="$REQUESTED_VARIANT" \
+            CHANNEL_RELEASE_TAG="$REQUESTED_CHANNEL" \
+            CHANNEL_DMG_PREFIX="cmux-$REQUESTED_CHANNEL-macos" \
+            ./scripts/ci/resume-helper-notarization.sh \
+              "$HELPER_STATE_FILE" "$APP_PATH" "$DMG_RELEASE" "verified/$IMMUTABLE_NAME" \
+              "${APP_ENTITLEMENTS:-cmux.$REQUESTED_CHANNEL.entitlements}" "$APPLE_SIGNING_IDENTITY" "$outer_state"
+          else
+            CMUX_CHANNEL="$REQUESTED_CHANNEL" \
+            CMUX_NOTARY_EVIDENCE_FILE="$EVIDENCE_FILE" \
+            ./scripts/ci/resume-nightly-notarization.sh \
+              "$STATE_FILE" "$APP_PATH" "$DMG_RELEASE" "verified/$IMMUTABLE_NAME"
+          fi
 
       - name: Upload verified recovery artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -143,3 +204,9 @@ jobs:
             verified
           if-no-files-found: error
           retention-days: 14
+
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          security delete-keychain build.keychain >/dev/null 2>&1 || true
+          rm -f /tmp/cert.p12

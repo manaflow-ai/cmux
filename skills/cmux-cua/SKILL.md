@@ -297,9 +297,10 @@ Settings → cmux Computer Use.
   onboarding. The wrappers set `CMUX_CUA_MCP_FORCE_PROXY=1` and preserve
   the external-flow contract in the proxy process so protected calls wait for
   cmux's post-verification readiness signal.
-  There is no ambient executable override. Both profiles resolve the app-bundled
-  `cmux-cua` executable and the tag-scoped helper only; missing ownership fails
-  closed instead of running a user-supplied executable.
+  There is no ambient executable override. Both profiles resolve the
+  tag-scoped installed helper's `cmux-cua` executable only, through the shared
+  `client-policy.sh`; missing ownership fails closed instead of running a
+  user-supplied executable.
 - If the cmux-owned daemon is unavailable, do **not** invoke `cmux-cua`
   directly through Bash and do not start its default socket. Tell the user to
   open Settings → cmux Computer Use or restart the tagged cmux build, then retry the

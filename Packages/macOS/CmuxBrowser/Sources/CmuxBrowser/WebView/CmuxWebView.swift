@@ -251,20 +251,41 @@ public final class CmuxWebView: CmuxUndoableWebView {
     })();
     """
     private final class PasteAsPlainTextFocusMessageHandler: NSObject, WKScriptMessageHandler {
-        func userContentController(
+        // WebKit invokes script-message handlers on the main thread, but it
+        // does not install Swift's MainActor executor token before entering
+        // the Objective-C callback. A default-isolated method therefore
+        // traps in `_checkExpectedExecutor` before it can schedule the
+        // state update (Sentry CMUXTERM-MACOS-3YKT).
+        /// Bridges WebKit's callback into the actor-isolated paste target state.
+        nonisolated func userContentController(
             _ userContentController: WKUserContentController,
             didReceive message: WKScriptMessage
         ) {
             guard let webView = message.webView as? CmuxWebView else {
                 return
             }
-            guard let body = message.body as? [String: Any],
-                  let canPaste = body["canPaste"] as? Bool else {
-                return
-            }
-            Task { @MainActor [weak webView] in
+            CmuxWebView.schedulePasteAsPlainTextTargetUpdate(from: message.body) { [weak webView] canPaste in
                 webView?.updatePasteAsPlainTextTargetAvailable(canPaste)
             }
+        }
+    }
+
+    /// Parses the tiny payload accepted from the isolated paste-focus script.
+    /// Keeping this validation separate makes the WebKit boundary testable
+    /// without constructing framework-owned ``WKScriptMessage`` instances.
+    nonisolated static func pasteAsPlainTextTargetAvailable(from body: Any) -> Bool? {
+        guard let body = body as? [String: Any] else { return nil }
+        return body["canPaste"] as? Bool
+    }
+
+    /// Validates a WebKit payload and schedules its state update on MainActor.
+    nonisolated static func schedulePasteAsPlainTextTargetUpdate(
+        from body: Any,
+        update: @escaping @MainActor @Sendable (Bool) -> Void
+    ) {
+        guard let canPaste = pasteAsPlainTextTargetAvailable(from: body) else { return }
+        Task { @MainActor in
+            update(canPaste)
         }
     }
 
@@ -331,6 +352,10 @@ public final class CmuxWebView: CmuxUndoableWebView {
     /// its restored-session history fallback instead of raw WKWebView history.
     public var onMouseBackButton: (() -> Void)?
     public var onMouseForwardButton: (() -> Void)?
+
+    /// Physical page input hands dialog presentation back to the user. Native
+    /// automation delivers directly to WebKit and bypasses these overrides.
+    public var onPhysicalUserInteraction: (() -> Void)?
     public var contextMenuLinkURLProvider: ((CmuxWebView, NSPoint, @escaping (URL?) -> Void) -> Void)?
     public var contextMenuDefaultBrowserOpener: ((URL) -> Bool)?
     public var contextMenuCanMoveTabToNewWorkspace: (() -> Bool)?
@@ -894,6 +919,9 @@ public final class CmuxWebView: CmuxUndoableWebView {
     }
 
     public override func keyDown(with event: NSEvent) {
+        if !event.isBrowserAutomationKeyEvent, !browserNativeInputDeliveryOwner.isDispatchActive {
+            onPhysicalUserInteraction?()
+        }
 #if DEBUG
         let typingTimingStart = host?.typingTimingStart()
         var route = "super"
@@ -995,6 +1023,7 @@ public final class CmuxWebView: CmuxUndoableWebView {
     // NSView (WKWebView), not to sibling SwiftUI overlays. Notify the panel system so
     // bonsplit focus tracks which pane the user clicked in.
     public override func mouseDown(with event: NSEvent) {
+        if !browserNativeInputDeliveryOwner.isDispatchActive { onPhysicalUserInteraction?() }
         if diffViewerDocumentState.documentConfirmed {
             diffViewerDocumentState.invalidateFocusConfirmation()
         }
@@ -1023,6 +1052,7 @@ public final class CmuxWebView: CmuxUndoableWebView {
     // this and before willOpenMenu, so clearing here guarantees the menu can
     // only ever pair with a link captured by this exact click.
     public override func rightMouseDown(with event: NSEvent) {
+        if !browserNativeInputDeliveryOwner.isDispatchActive { onPhysicalUserInteraction?() }
         contextMenuCapturedLink = nil
         // A physical right click always gets its menu, even if an automated
         // right click earlier left a suppression pending (page prevented it).
@@ -1067,6 +1097,7 @@ public final class CmuxWebView: CmuxUndoableWebView {
     }
 
     public override func otherMouseDown(with event: NSEvent) {
+        if !browserNativeInputDeliveryOwner.isDispatchActive { onPhysicalUserInteraction?() }
         if event.buttonNumber == 2 {
             Self.recordMiddleClickIntent(for: self)
         }

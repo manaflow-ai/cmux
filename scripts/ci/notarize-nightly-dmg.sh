@@ -21,18 +21,19 @@ VERIFY_LICENSES_TOOL="${CMUX_VERIFY_LICENSES_TOOL:-$ROOT_DIR/scripts/verify-app-
 NOTARIZE_COMPUTER_USE_HELPER_TOOL="${CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL:-$ROOT_DIR/scripts/ci/notarize-computer-use-helper.sh}"
 COMPUTER_USE_NOTARY_SUBMISSION_FILE="${CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE:-}"
 SKIP_NOTARIZATION="${CMUX_SKIP_NOTARIZATION:-false}"
-# Release channel of the app being packaged: `nightly` (default) or `rc`. It
-# selects the entitlements file and the bundle-metadata check; the packaging,
-# notarization, and stapling steps are identical for both.
+# Release channel of the app being packaged: `nightly` (default), `rc` or
+# `stable`. It selects the entitlements file and the bundle-metadata check; the
+# packaging, notarization, and stapling steps are identical for every channel.
 CHANNEL="${CMUX_CHANNEL:-nightly}"
 case "$CHANNEL" in
-  nightly|rc) ;;
+  nightly|rc) DEFAULT_ENTITLEMENTS="$ROOT_DIR/cmux.${CHANNEL}.entitlements" ;;
+  stable) DEFAULT_ENTITLEMENTS="$ROOT_DIR/cmux.release.entitlements" ;;
   *)
-    echo "Unsupported CMUX_CHANNEL: $CHANNEL (expected nightly or rc)" >&2
+    echo "Unsupported CMUX_CHANNEL: $CHANNEL (expected nightly, rc or stable)" >&2
     exit 2
     ;;
 esac
-APP_ENTITLEMENTS="${CMUX_APP_ENTITLEMENTS:-$ROOT_DIR/cmux.${CHANNEL}.entitlements}"
+APP_ENTITLEMENTS="${CMUX_APP_ENTITLEMENTS:-$DEFAULT_ENTITLEMENTS}"
 # shellcheck source=lib/notary-auth.sh
 source "$ROOT_DIR/scripts/ci/lib/notary-auth.sh"
 
@@ -73,6 +74,8 @@ fi
 
 if [ "$SKIP_NOTARIZATION" = true ]; then
   echo "Skipping Computer Use and outer notarization for internal dogfood artifact"
+elif [ "${CMUX_COMPUTER_USE_HELPER_ALREADY_FINISHED:-false}" = true ]; then
+  echo "Computer Use helper was finished by the recovery continuation"
 elif [ -n "$COMPUTER_USE_NOTARY_SUBMISSION_FILE" ]; then
   "$NOTARIZE_COMPUTER_USE_HELPER_TOOL" \
     --finish "$COMPUTER_USE_NOTARY_SUBMISSION_FILE" \
@@ -202,7 +205,7 @@ save_notary_output() {
   # evidence needed to resume the exact Apple submission in a follow-up job.
   umask 077
   /bin/cp "$NOTARY_SUBMIT_OUTPUT" "$NOTARY_OUTPUT_FILE"
-  if [ -n "$DMG_SUBMIT_ID" ]; then
+  if [ -n "$DMG_SUBMIT_ID" ] && [ "${CMUX_SKIP_NOTARY_LOG:-false}" != true ]; then
     {
       printf '\n--- notarytool log for submission %s ---\n' "$DMG_SUBMIT_ID"
       "$XCRUN_TOOL" notarytool log "$DMG_SUBMIT_ID" "${NOTARY_AUTH_ARGS[@]}" || true

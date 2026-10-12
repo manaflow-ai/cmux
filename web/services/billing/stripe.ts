@@ -73,7 +73,7 @@ export function stripe(): Stripe {
   return stripeClient;
 }
 
-/** Pro is the only plan sold yearly as well as monthly. */
+/** Pro is sold monthly or yearly. */
 export async function resolveProPrice(interval: BillingInterval): Promise<string> {
   return resolvePlanPrice(
     PRO_PRICING_USD[interval],
@@ -84,12 +84,12 @@ export async function resolveProPrice(interval: BillingInterval): Promise<string
   );
 }
 
-/** Max is sold monthly only; there is no yearly Price to resolve. */
-export async function resolveMaxPrice(): Promise<string> {
+/** Max is sold monthly or yearly. */
+export async function resolveMaxPrice(interval: BillingInterval): Promise<string> {
   return resolvePlanPrice(
-    MAX_PRICING_USD.month,
-    "month",
-    env.STRIPE_MAX_MONTHLY_200_PRICE_ID,
+    MAX_PRICING_USD[interval],
+    interval,
+    interval === "year" ? env.STRIPE_MAX_YEARLY_1920_PRICE_ID : env.STRIPE_MAX_MONTHLY_200_PRICE_ID,
     resolvedMaxPriceIds,
     "max",
   );

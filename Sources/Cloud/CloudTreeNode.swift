@@ -93,7 +93,7 @@ final class CloudTreeNode: NSObject {
         case coderouterProviderGroup(CoderouterProvider, count: Int)
         case coderouterAccount(CoderouterAccount)
         /// The collapsible Cloud Machines section header. `canCreateMachine` shows its
-        /// hover "+" (New Machine, Cmd-Y), false while Cloud Machines is off and the
+        /// hover "+" (New Machine, Cmd-Shift-Y), false while Cloud Machines is off and the
         /// header stands alone; `usage` is the plan's count (nil until it loads), `refresh` its refresh icon.
         case cloudMachinesSection(canCreateMachine: Bool, usage: CloudMachinesUsage? = nil, refresh: CloudTreeSectionRefresh? = nil)
         case createAction(CloudTreeCreateAction)
@@ -105,6 +105,20 @@ final class CloudTreeNode: NSObject {
         case machineDetailTabs(CloudTreeMachineDetailTabs)
         /// The gap after a Cloud machine's last row, before the next machine.
         case machineEndSpacer(machine: SurfaceMachineID)
+        /// Rows whose open verb is the disclosure itself. These rows must still
+        /// consume a fast second or third pointer click: AppKit can deliver
+        /// the row action with a click count greater than one when clicks are
+        /// close enough to be coalesced into a multi-click gesture.
+        var togglesOnActivation: Bool {
+            switch self {
+            case .machine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup,
+                 .browsersGroup, .portsGroup, .resourcesPool, .device, .devicesSection,
+                 .cloudMachinesSection, .coderouterSection, .coderouterProviderGroup:
+                true
+            default:
+                false
+            }
+        }
         /// Port discovery is demand-driven when the user opens the Ports group.
         var refreshesOnExpansion: Bool { switch self { case .portsGroup, .displaysPool: true; default: false } }
         /// The identity glyph a top-level section header carries once for all of
@@ -272,7 +286,7 @@ final class CloudTreeNode: NSObject {
         case .machineDetailTabs, .machineEndSpacer: return ""
         case .devicesEmpty(let section):
             return section.count == 0
-                ? String(localized: "devices.empty.title", defaultValue: "No other devices yet")
+                ? String(localized: "cloudTree.devices.empty", defaultValue: "No devices yet")
                 : String(localized: "devices.manage", defaultValue: "Manage My Devices")
         }
     }

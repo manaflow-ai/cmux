@@ -583,7 +583,9 @@ import Testing
             for mirror in controller.sessionMirrors.values {
                 mirror.detachObserver()
             }
-            controller.sessionMirrors.removeAll()
+            for key in Array(controller.sessionMirrors.keys) {
+                _ = controller.removeSessionMirror(forKey: key)
+            }
             controller.detachAll()
             appDelegate.unregisterMainWindowContextForTesting(windowId: targetWindow)
             appDelegate.unregisterMainWindowContextForTesting(windowId: sourceWindowB)

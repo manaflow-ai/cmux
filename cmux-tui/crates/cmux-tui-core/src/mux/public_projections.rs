@@ -37,17 +37,16 @@ pub(super) fn restore_public_projections(
                 .or_else(|| state.terminal_catalog.get(terminal_id).map(|surface| surface.id))
         });
         let level = notification_level(&notification.level)?;
-        if notification.unread {
-            let terminal_id = notification
-                .terminal_id
-                .clone()
-                .context("terminal notification omitted its terminal identity")?;
-            if surface.is_some() {
-                terminal_notifications.insert(
-                    terminal_id,
-                    SurfaceNotification { notification: numeric_id, level, unread: true },
-                );
-            }
+        // Durable notifications can outlive their terminal. Keep their
+        // history, but only restore an unread marker while its terminal exists.
+        if notification.unread
+            && surface.is_some()
+            && let Some(terminal_id) = notification.terminal_id.clone()
+        {
+            terminal_notifications.insert(
+                terminal_id,
+                SurfaceNotification { notification: numeric_id, level, unread: true },
+            );
         }
         if !notification.read_by.is_empty() {
             notification_reads.insert(
@@ -262,7 +261,7 @@ mod tests {
     }
 
     #[test]
-    fn unread_projection_without_terminal_identity_is_rejected() {
+    fn unread_projection_without_terminal_identity_restores_history_without_badge() {
         let projections = RegistryPublicProjections {
             notifications: vec![RegistryNotificationProjection {
                 id: NotificationPublicId::parse("notification_00000000000000000000000000000002")
@@ -282,8 +281,10 @@ mod tests {
             frontend_projections: Vec::new(),
         };
 
-        let error = restore_public_projections(&empty_state(), projections).unwrap_err();
-        assert!(error.to_string().contains("omitted its terminal identity"));
+        let restored = restore_public_projections(&empty_state(), projections).unwrap();
+        assert_eq!(restored.notification_ledger.len(), 1);
+        assert_eq!(restored.notification_ledger[0].terminal_id, None);
+        assert!(restored.terminal_notifications.is_empty());
     }
 
     #[test]

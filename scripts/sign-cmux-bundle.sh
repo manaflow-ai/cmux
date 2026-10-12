@@ -16,6 +16,8 @@
 #                              (default: TunnelExtension/cmuxTunnelExtension.<release|nightly|rc>.entitlements,
 #                              picked from the app entitlements file name)
 #   CMUX_TIMESTAMP             set to "none" for un-timestamped local sigs
+#   CMUX_SIGN_SKIP_NUCLEO_FFI  set to "1" for an app that embeds no command palette
+#                              Nucleo FFI (cmux NEXT DEV: cmux-next removed it)
 #   CMUX_SIGN_MODE             "all" (default), "all-except-computer-use", or
 #                              "main-only". The split Computer Use notarization
 #                              flow uses all-except-computer-use while Apple's
@@ -207,7 +209,9 @@ echo "==> verifying"
 if [[ -d "$COMPUTER_USE_HELPER" ]]; then
   /usr/bin/codesign --verify --strict --verbose=2 "$COMPUTER_USE_HELPER"
 fi
-"$SCRIPT_DIR/verify-command-palette-nucleo-ffi-artifact.sh" "$APP_PATH"
+if [[ "${CMUX_SIGN_SKIP_NUCLEO_FFI:-}" != 1 ]]; then
+  "$SCRIPT_DIR/verify-command-palette-nucleo-ffi-artifact.sh" "$APP_PATH"
+fi
 # The sidecar must carry exactly the slices the app does: universal for stable
 # and the transitional nightly, one architecture for thinned nightlies.
 "$SCRIPT_DIR/verify-diff-sidecar-artifact.sh" \

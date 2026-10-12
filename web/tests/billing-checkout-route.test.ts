@@ -68,7 +68,7 @@ const resolveProPrice = mock(async (interval: unknown) =>
 const resolveTeamPrice = mock(async (interval: unknown) =>
   interval === "month" ? "price_team_month" : "price_team_year",
 );
-const resolveMaxPrice = mock(async () => "price_max_month");
+const resolveMaxPrice = mock(async (interval: unknown) => interval === "year" ? "price_max_year" : "price_max_month");
 const resolveGoPrice = mock(async () => "price_go_month");
 const stripeLimit = mock(async () => []);
 let useStubDb = false;
@@ -172,7 +172,7 @@ afterAll(() => {
 });
 
 describe("billing checkout route", () => {
-  test.each(["go", "max", "team"])("refuses a new annual %s checkout without creating Stripe state", async (plan) => {
+  test.each(["go", "team"])("refuses a new annual %s checkout without creating Stripe state", async (plan) => {
     stripeConfigured = true;
     const response = await GET(new NextRequest(`https://cmux.test/api/billing/checkout?plan=${plan}&interval=year`));
     expect(response.headers.get("location")).toBe("https://cmux.test/pricing?billing=annual_unavailable");
@@ -696,13 +696,30 @@ describe("billing checkout route", () => {
     );
 
     expect(response.headers.get("location")).toBe("https://checkout.stripe.com/c/session");
-    expect(resolveMaxPrice).toHaveBeenCalledTimes(1);
+    expect(resolveMaxPrice).toHaveBeenCalledWith("month");
     expect(resolveProPrice).not.toHaveBeenCalled();
     expect(createdStripeSessions[0]).toMatchObject({
       mode: "subscription",
       line_items: [{ price: "price_max_month", quantity: 1 }],
       metadata: expect.objectContaining({ plan: "max", billingInterval: "month" }),
       subscription_data: { metadata: expect.objectContaining({ plan: "max" }) },
+    });
+  });
+
+  test("creates a yearly Max checkout at the annual price", async () => {
+    stripeConfigured = true;
+    userResponses = [{ ...signedInUser, clientReadOnlyMetadata: {} }];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout?plan=max&interval=year"),
+    );
+
+    expect(response.headers.get("location")).toBe("https://checkout.stripe.com/c/session");
+    expect(resolveMaxPrice).toHaveBeenCalledWith("year");
+    expect(createdStripeSessions[0]).toMatchObject({
+      line_items: [{ price: "price_max_year", quantity: 1 }],
+      metadata: expect.objectContaining({ plan: "max", billingInterval: "year" }),
+      subscription_data: { metadata: expect.objectContaining({ billingInterval: "year" }) },
     });
   });
 

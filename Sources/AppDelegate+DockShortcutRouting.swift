@@ -37,7 +37,6 @@ extension KeyboardShortcutSettings.Action {
         DockShortcutRoutingDisposition {
         switch self {
         case .triggerFlash,
-             .nextSurface, .prevSurface,
              .moveSurfaceLeft, .moveSurfaceRight,
              .moveSurfaceToPreviousPane, .moveSurfaceToNextPane,
              .moveSurfaceToPaneLeft, .moveSurfaceToPaneRight,
@@ -99,11 +98,11 @@ extension KeyboardShortcutSettings.Action {
         case .openSettings, .openTeamPicker, .reloadConfiguration,
              .showHideAllWindows, .globalSearch,
              .newWindow, .closeWindow, .toggleFullScreen, .quit,
-             .toggleSidebar, .newTab, .newBrowserWorkspace, .newCloudWorkspace, .newCloudMachine,
+             .toggleSidebar, .focusSidebar, .showWindowHints, .newTab, .newLocalWorkspace, .newBrowserWorkspace, .newCloudWorkspace, .newCloudMachine,
              .saveLayoutTemplate, .openFolder,
              .reopenPreviousSession, .goToWorkspace,
              .commandPalette, .agentInbox, .sendFeedback,
-             .showNotifications, .jumpToUnread, .toggleUnread,
+             .showNotifications, .jumpToUnread, .jumpToLastPrompt, .toggleUnread,
              .markOldestUnreadAndJumpNext,
              .markAllNotificationsRead, .clearAllNotifications,
              .focusRightSidebar,
@@ -114,6 +113,7 @@ extension KeyboardShortcutSettings.Action {
              .switchRightSidebarToDock,
              .switchRightSidebarToMachines,
              .nextSidebarTab, .prevSidebarTab,
+             .nextSurface, .prevSurface,
              .nextSidebarTabInGroup, .prevSidebarTabInGroup,
              .moveWorkspaceUp, .moveWorkspaceDown,
              .selectWorkspaceByNumber,
@@ -137,8 +137,10 @@ extension KeyboardShortcutSettings.Action {
              .canvasDistributeHorizontally,
              .canvasDistributeVertically,
              .toggleRightSidebar,
+             .focusPaneByNumber,
              .findInDirectory,
-             .openDiffViewer:
+             .openDiffViewer,
+             .previousAgentTurn, .nextAgentTurn:
             .mainContainer
         }
     }

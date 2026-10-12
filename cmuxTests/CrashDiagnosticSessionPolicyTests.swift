@@ -716,6 +716,7 @@ private final class PersistenceQueueProbeStore: SessionSnapshotStoring, @uncheck
     }
     func preserveNewerSchemaSnapshot(fileURL: URL) -> URL? { nil }
     func preserveNewerSchemaSnapshotBeforeReplacing(fileURL: URL) -> Bool { true }
+    func preserveUnusableSnapshot(fileURL: URL) -> URL? { nil }
     func archiveSnapshotToHistory(
         fileURL: URL,
         richness: SessionSnapshotRichness,

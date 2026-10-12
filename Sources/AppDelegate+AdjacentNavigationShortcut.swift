@@ -7,25 +7,11 @@ extension AppDelegate {
         let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager
             ?? tabManager
         if matchConfiguredShortcut(event: event, action: .nextSurface) {
-            if performFocusedDockShortcut(
-                .selectNextSurface,
-                action: .nextSurface,
-                event: event
-            ) {
-                return true
-            }
-            routedTabs?.selectNextSurface()
+            routedTabs?.stepTabOrWorkspace(forward: true)
             return true
         }
         if matchConfiguredShortcut(event: event, action: .prevSurface) {
-            if performFocusedDockShortcut(
-                .selectPreviousSurface,
-                action: .prevSurface,
-                event: event
-            ) {
-                return true
-            }
-            routedTabs?.selectPreviousSurface()
+            routedTabs?.stepTabOrWorkspace(forward: false)
             return true
         }
         if matchConfiguredShortcut(event: event, action: .moveSurfaceLeft) {
