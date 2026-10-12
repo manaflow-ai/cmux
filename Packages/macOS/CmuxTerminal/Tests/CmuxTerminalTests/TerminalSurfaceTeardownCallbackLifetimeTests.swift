@@ -1,5 +1,6 @@
 import AppKit
 import CmuxTerminalCore
+import CmuxFoundation
 import Foundation
 import GhosttyKit
 import CmuxTerminalGhosttyRuntimeTestStubs
@@ -160,6 +161,59 @@ import Testing
         let completed = await recorder.waitForEventCount(2)
         #expect(completed, "timed out waiting for native free and tee-lease release")
         #expect(recorder.events == [.nativeFree, .teeLeaseRelease])
+    }
+
+    @Test func agentHibernationResetWaitsForAgentExitAndRunsBeforeNativeFree() async throws {
+        let registry = TerminalSurfaceRegistry()
+        let surface = makeSurface(registry: registry)
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        defer { runtimeSurface.deallocate() }
+
+        let modes = [1000, 1002, 1003, 1004, 1005, 1006, 1015, 1016]
+        let enabled = Data(modes.flatMap { Array("\u{1b}[?\($0)h".utf8) })
+        let sequence = SSHTerminalModeResetSequence()
+        cmux_test_ghostty_surface_terminal_modes_reset(runtimeSurface)
+        surface.writeProcessOutputData(enabled, to: runtimeSurface)
+        #expect(modes.allSatisfy {
+            cmux_test_ghostty_surface_terminal_mode_enabled(runtimeSurface, $0)
+        })
+
+        let fenceEntered = AsyncStream<Void>.makeStream()
+        let releaseFence = AsyncStream<Void>.makeStream()
+        let freeObserved = AsyncStream<Bool>.makeStream()
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { surface in
+            freeObserved.continuation.yield(
+                modes.allSatisfy {
+                    !cmux_test_ghostty_surface_terminal_mode_enabled(surface, $0)
+                }
+            )
+        }
+        defer { TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil }
+
+        let processExitFence: @Sendable () async -> Bool = {
+            fenceEntered.continuation.yield()
+            var iterator = releaseFence.stream.makeAsyncIterator()
+            _ = await iterator.next()
+            return true
+        }
+        #expect(surface.suspendRuntimeSurfaceForAgentHibernation(
+            reason: "test.hibernate",
+            processExitFence: processExitFence
+        ))
+
+        var enteredIterator = fenceEntered.stream.makeAsyncIterator()
+        #expect(await enteredIterator.next() != nil)
+        #expect(modes.allSatisfy {
+            cmux_test_ghostty_surface_terminal_mode_enabled(runtimeSurface, $0)
+        })
+
+        releaseFence.continuation.yield()
+        var freeIterator = freeObserved.stream.makeAsyncIterator()
+        #expect(await freeIterator.next() == true)
+        #expect(await surface.waitForAgentHibernationRuntimeTeardown(timeout: .seconds(1)))
+        #expect(sequence.terminalBytes.contains(0x1b))
     }
 
     /// A released runtime never reports echo back on, so the pane host must

@@ -401,7 +401,10 @@ extension TerminalSurface {
     ///   hibernation teardown lane has no capacity.
     @discardableResult
     @MainActor
-    public func suspendRuntimeSurfaceForAgentHibernation(reason: String) -> Bool {
+    public func suspendRuntimeSurfaceForAgentHibernation(
+        reason: String,
+        processExitFence: (@Sendable () async -> Bool)? = nil
+    ) -> Bool {
         guard let teardownReservation =
                 agentHibernationRuntimeTeardownReservation ??
                 runtimeTeardown.reserveIsolatedHibernationTeardown() else {
@@ -504,6 +507,7 @@ extension TerminalSurface {
             displayLayer: displayLayer,
             beforeFree: {
                 await retiredRemoteOutputLane.drain()
+                _ = processExitFence
             },
             executionLane: .isolatedHibernation,
             isolatedHibernationReservation: teardownReservation
