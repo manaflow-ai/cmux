@@ -33,7 +33,7 @@ public final class CmuxToastButton: NSButton {
             let config = NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
             image = NSImage(systemSymbolName: "xmark", accessibilityDescription: title)?.withSymbolConfiguration(config)
             imagePosition = .imageOnly
-            toolTip = title
+            themedToolTip = title
             widthAnchor.constraint(equalToConstant: Self.closeSide).isActive = true
             heightAnchor.constraint(equalToConstant: Self.closeSide).isActive = true
         }

@@ -70,7 +70,7 @@ extension NewTabSubmit {
         let cwd = pane.selectedTab?.cwd
         switch plan {
         case .page:
-            pane.newTabPage()
+            pane.newTabPage(reusingShown: true)
         case .terminal(let command):
             services.newTabKinds.record(.terminal, folder: cwd)
             pane.newTerminalTab(cwd: cwd, typing: command.isEmpty ? nil : command)
