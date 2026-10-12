@@ -190,7 +190,7 @@ impl Supervisor {
                     told += 1;
                 }
                 Err(HostLinkError::UnsafeFolder(reason)) => {
-                    self.stop_for_unsafe_folder(&app, &reason)
+                    self.stop_for_unsafe_folder(&app, &reason);
                 }
                 // Nothing known: no event (a server keeps its last details).
                 Err(HostLinkError::ProbeTimeout) => {}
