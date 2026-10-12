@@ -90,9 +90,9 @@ import { TurnCountsContext, type TurnCountsFor } from "./changes/TurnCountsConte
 import { useTurnCheckpoints } from "./changes/useTurnCheckpoints";
 import { readTurnFromRows, type CheckpointDiff } from "./changes/turnCheckpointSource";
 import { restoredDecisions, type HunkDecision, type HunkReview } from "./changes/hunkReview";
-import { configureDictation, deliverDictation, useDictation } from "./dictation";
+import { configureDictation, deliverDictation, useDictation, type DictationField } from "./dictation";
 import type { DictationUpdate } from "./dictationText";
-import { DictationButton } from "./DictationButton";
+import { DictationMic } from "./DictationMic";
 import { DictationNotice } from "./DictationNotice";
 import type { MarkdownFieldHandle } from "./MarkdownField";
 import type { ChangesSource } from "./changes/model";
@@ -2614,7 +2614,18 @@ function AcpmuxPane() {
     prompt.current.focus();
     return true;
   });
-  const dictation = useDictation(prompt, callNative);
+  /// The New Tab page's field, while it shows: dictation writes there then (it has no composer).
+  const newTabDictationField = useRef<DictationField | null>(null);
+  const dictationTarget = useRef<{ readonly current: DictationField | null }>({
+    get current() {
+      return newTabDictationField.current ?? prompt.current;
+    },
+  }).current;
+  const dictation = useDictation(dictationTarget, callNative);
+  const showDictation = useCallback(
+    (show: boolean) => void callNative("pane.showDictation", { show }).catch(() => undefined),
+    [],
+  );
   /// Why the host could not hand this pane acpmux (not installed, a daemon that will not start),
   /// in the host's words; cleared once a handshake succeeds.
   const [hostError, setHostError] = useState<string | undefined>();
@@ -4258,7 +4269,7 @@ function AcpmuxPane() {
           handle={composerRef}
           // No prompt goes while a picked folder waits for the user's answer.
           blocked={pendingFolder ? {} : trustAsk.blocked}
-          accessory={<DictationButton dictation={dictation} />}
+          accessory={<DictationMic dictation={dictation} onShowDictation={showDictation} />}
           onImportFile={importFile}
           onEdit={(command) => ignoreFailure(callNative("pane.edit", { command }))}
         />
@@ -4387,6 +4398,9 @@ function AcpmuxPane() {
           ) : showNewTab && shownTemplate(newTab) !== "classic" ? (
             <NewTabScreen
               key={newTabGeneration}
+              accessory={<DictationMic dictation={dictation} onShowDictation={showDictation} />}
+              dictationField={newTabDictationField}
+              notice={<DictationNotice dictation={dictation} />}
               template={screenTemplate(shownTemplate(newTab))}
               snapshot={composerSnapshot}
               omnibar={newTab.omnibar}

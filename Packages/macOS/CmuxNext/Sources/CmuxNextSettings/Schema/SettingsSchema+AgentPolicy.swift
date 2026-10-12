@@ -37,7 +37,7 @@ extension SettingsSchema {
         // The edited-files card (looks only).
         .union(AgentPaneEditedFilesSettingsSchema.agentSettableKeys)
 .union(["agentPane.zoom"]) // display-only agent surface zoom
-        .union(AgentPaneComposerSettingsSchema.agentSettableKeys) // the composer's context ring (looks only)
+        .union(AgentPaneComposerSettingsSchema.agentSettableKeys) // the composer's context ring and mic (looks only)
 
     private static let agentSettableTable: Set<String> = [
         "window.titlebar",
