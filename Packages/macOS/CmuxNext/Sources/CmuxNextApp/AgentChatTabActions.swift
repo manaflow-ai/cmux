@@ -14,6 +14,8 @@ struct AgentChatTabActions {
     var files: @MainActor (_ folder: String, _ target: String?) -> Void = { _, _ in }
     /// The empty-space menu's rows that don't apply to this chat now (Move to Cloud on a chat of another machine).
     var hidden: @MainActor () -> Set<ActionID> = { [] }
+    /// Ghostty's `split-inherit-working-directory` (NewTerminalStart, cx-zld.1).
+    var splitInherits: @MainActor () -> Bool = { NewTerminalStart.inherits(.split) }
 
     /// A header action, with the folder it names when it names one, on the chat's tab or on tab
     /// `target` (a header split opening right of the one before it, AgentChatSplitToggles).
