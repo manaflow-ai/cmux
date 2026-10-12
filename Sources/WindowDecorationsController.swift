@@ -479,6 +479,10 @@ final class WindowDecorationsController {
         if window.isSheet {
             return true
         }
+        // The Cloud welcome's own × (and Escape) closes it.
+        if window.identifier?.rawValue == "cmux.cloud.welcome" {
+            return true
+        }
         if window.styleMask.contains(.docModalWindow) {
             return true
         }

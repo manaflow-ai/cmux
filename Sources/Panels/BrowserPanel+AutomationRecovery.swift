@@ -106,6 +106,7 @@ extension BrowserPanel {
         to targetURL: URL,
         recordTypedNavigation: Bool
     ) -> BrowserAutomationNavigationTicket {
+        takeBrowserDialogOwnership(.automation)
         let ticket = automationNavigationCoordinator.begin(
             instanceID: webViewInstanceID,
             targetURL: targetURL,
@@ -142,7 +143,7 @@ extension BrowserPanel {
         }
 
         if !retryFailedNavigationForReload(mode: .soft, onNavigationStarted: navigationStarted) {
-            if let navigation = reload() {
+            if let navigation = reload(dialogOwner: .automation) {
                 navigationStarted(navigation)
             } else {
                 automationNavigationCoordinator.didReturnNoNavigation(
@@ -229,6 +230,7 @@ extension BrowserPanel {
     var canRecoverFromAutomationTimeout: Bool {
         !isClosingWebViewLifecycle &&
             activeInteractiveBrowserPromptIDs.isEmpty &&
+            mobileBrowserDialogBroker.pendingDialogs.isEmpty &&
             activeVisualAutomationCaptureCount == 0
     }
 
@@ -238,6 +240,7 @@ extension BrowserPanel {
     /// reveal could replace. The command also counts as use of the pane, so hidden-pane discards
     /// do not unload a page an agent is driving.
     func webViewForAutomationCommand(now: Date = Date()) -> WKWebView {
+        takeBrowserDialogOwnership(.automation)
         webViewLastAutomationCommandAt = now
         discardWebViewTerminatedWhileHidden(now: now)
         if !isWebViewVisibleInUI {
