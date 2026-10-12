@@ -27,7 +27,10 @@ public struct ConversationRunPlan: Sendable, Equatable {
     /// Same-sender messages further apart than this start a new run.
     public static let runGap: TimeInterval = 5 * 60
 
-    public init(messages: [ConversationMessage], meID: String?, typingParticipantIDs: [String] = []) {
+    /// `limit` plans only the first `limit` messages (the entries the whole
+    /// plan gives them): an older page needs entries for itself and the
+    /// message under it, not for the whole transcript.
+    public init(messages: [ConversationMessage], meID: String?, typingParticipantIDs: [String] = [], limit: Int? = nil) {
         // Status sits under the newest delivered/read message of mine; it moves
         // only once a newer one is delivered, never while that one is in flight.
         var lastAckedOutgoing = messages.lastIndex { message in
@@ -43,14 +46,15 @@ public struct ConversationRunPlan: Sendable, Equatable {
             lastAckedOutgoing = nil
         }
         var entries: [Entry] = []
-        entries.reserveCapacity(messages.count)
+        let planned = min(limit ?? messages.count, messages.count)
+        entries.reserveCapacity(planned)
         // Send Later messages trail the transcript, each its own tailed bubble
         // under a "Send Later" header the renderer draws; the history above
         // groups as if they were not there.
         let firstScheduled = messages.firstIndex(where: \.isScheduled) ?? messages.count
         // Neighbors are read in place: copying whole messages into optionals
         // dominated this pass, which runs over every loaded message per update.
-        for index in messages.indices {
+        for index in 0..<planned {
             let message = messages[index]
             if index >= firstScheduled {
                 let failed = message.delivery?.isFailed == true
