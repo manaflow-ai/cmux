@@ -148,10 +148,7 @@ impl Dir {
         };
         match check(result) {
             // dev_t and ino_t differ in width and sign across platforms.
-            Ok(_) => Ok(Some((
-                widen_u64(stat.st_dev),
-                widen_u64(stat.st_ino),
-            ))),
+            Ok(_) => Ok(Some((widen_u64(stat.st_dev), widen_u64(stat.st_ino)))),
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(error),
         }
@@ -317,14 +314,16 @@ impl Transaction {
         let mut left = Vec::new();
         while let Some(undo) = self.undo.pop() {
             let undone = match &undo {
-                Undo::Placed { relative, aside, placed } => self.at(relative).and_then(|(dir, name)| {
-                    // A file saved over it since stays, and so does the aside.
-                    if placed.is_none() || dir.inode(&name)? != *placed {
-                        return Err(io::Error::from(io::ErrorKind::AlreadyExists));
-                    }
-                    dir.unlink(&name, false)?;
-                    aside.as_ref().map_or(Ok(()), |aside| self.put_back(&dir, &name, aside))
-                }),
+                Undo::Placed { relative, aside, placed } => {
+                    self.at(relative).and_then(|(dir, name)| {
+                        // A file saved over it since stays, and so does the aside.
+                        if placed.is_none() || dir.inode(&name)? != *placed {
+                            return Err(io::Error::from(io::ErrorKind::AlreadyExists));
+                        }
+                        dir.unlink(&name, false)?;
+                        aside.as_ref().map_or(Ok(()), |aside| self.put_back(&dir, &name, aside))
+                    })
+                }
                 Undo::Removed { relative, aside } => {
                     self.at(relative).and_then(|(dir, name)| self.put_back(&dir, &name, aside))
                 }
@@ -347,8 +346,8 @@ impl Transaction {
     /// folders the deletes left empty go too (never the top folder).
     pub(super) fn finish(mut self) {
         for undo in std::mem::take(&mut self.undo) {
-            if let Undo::Placed { relative, aside: Some(aside), .. } | Undo::Removed { relative, aside } =
-                undo
+            if let Undo::Placed { relative, aside: Some(aside), .. }
+            | Undo::Removed { relative, aside } = undo
                 && !aside.in_staging
                 && let Ok((dir, _)) = self.at(&relative)
             {

@@ -26,8 +26,8 @@ use anyhow::{Context as _, bail};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
-use super::{Manifest, names};
 use super::remote::Remote;
+use super::{Manifest, names};
 
 /// Most bytes one object file or pack of the machine may have; streamed to
 /// disk, never held in memory.
