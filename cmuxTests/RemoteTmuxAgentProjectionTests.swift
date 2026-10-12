@@ -63,7 +63,7 @@ import Testing
         let firstPanelID = try #require(workspace.panels.keys.first)
         let secondPanel = try #require(workspace.createReplacementTerminalPanel())
         let projector = RemoteTmuxAgentStatusProjector()
-        let key = RemoteAgentSidebarStatus.statusKeyPrefix + "codex"
+        let key = "cmux.remote.agent:codex"
         let working = try #require(RemoteTmuxAgentStatus.parse(#"{"agent":"codex","state":"working"}"#))
         let blocked = try #require(RemoteTmuxAgentStatus.parse(#"{"agent":"codex","state":"blocked"}"#))
 
