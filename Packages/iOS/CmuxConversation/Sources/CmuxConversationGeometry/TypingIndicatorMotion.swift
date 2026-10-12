@@ -16,5 +16,5 @@ public struct TypingIndicatorRemoval: Equatable, Sendable {
         self.heldDotOpacity = heldDotOpacity
     }
 
-    public static let messages = TypingIndicatorRemoval(keepsPulse: true, heldDotOpacity: nil)
+    public static let messages = TypingIndicatorRemoval(keepsPulse: false, heldDotOpacity: 0.45)
 }

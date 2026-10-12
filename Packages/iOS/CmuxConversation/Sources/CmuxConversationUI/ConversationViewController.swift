@@ -931,6 +931,12 @@ public final class ConversationViewController: UIViewController {
             }
         }
 
+        // A leaving typing indicator stops breathing before its row fades.
+        for indexPath in deleted where indexPath.item < rows.count {
+            guard case .typing = rows[indexPath.item] else { continue }
+            (collectionView.cellForItem(at: indexPath) as? TypingCell)?.indicator.settleForRemoval()
+        }
+
         layoutCache.forget(rowIDs: deleted.lazy.map { oldIDs[$0.item] })
         let carriedMetrics = diff.metrics
         let updates = {
