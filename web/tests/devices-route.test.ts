@@ -168,6 +168,32 @@ describe("device registry route", () => {
     expect(after.devices[0]?.instances[0]?.routes).toHaveLength(1);
   });
 
+  dbTest("withdrawing another owner's device answers exactly like withdrawing a device that does not exist", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await POST(registerRequest({ deviceId: DEVICE_A, platform: "mac", tag: "default", routes: [legacyTailscaleRoute] }));
+    currentUserId = "registry-user-2";
+    const answer = async (deviceId: string) => {
+      const response = await PATCH(withdrawRequest({ deviceId, tag: "default" }));
+      return {
+        status: response.status,
+        headers: [...response.headers.entries()].sort(([a], [b]) => a.localeCompare(b)),
+        body: await response.text(),
+      };
+    };
+    const otherOwner = await answer(DEVICE_A);
+    const nonexistent = await answer(DEVICE_B);
+    // No ownership or existence oracle: status, every header, and the body
+    // bytes match. Both run the same single owner-scoped lookup, so there is
+    // no second query or write whose cost could separate them.
+    expect(otherOwner).toEqual(nonexistent);
+    expect(otherOwner.status).toBe(200);
+    expect(otherOwner.body).toBe(JSON.stringify({ ok: true, withdrawn: false }));
+    currentUserId = "registry-user-1";
+    const listed = await GET(new Request("https://cmux.test/api/devices", { headers: authHeaders() }));
+    const devices = (await listed.json() as { devices: Array<{ instances: Array<{ routes: unknown[] }> }> }).devices;
+    expect(devices[0]?.instances[0]?.routes).toHaveLength(1);
+  });
+
   test("withdrawal requires native authentication", async () => {
     const response = await PATCH(new Request("https://cmux.test/api/devices", {
       method: "PATCH",
