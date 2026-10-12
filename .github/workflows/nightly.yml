@@ -2524,6 +2524,22 @@ jobs:
             --assets-dir remote-daemon-assets \
             --app "$CHANNEL_APP_PATH" --embed "${bundle_args[@]}"
 
+      # Read-only: can this ASC key register nightly-next's own App ID
+      # (com.cmuxterm.app.next) and fetch its Developer ID profile? It reports
+      # and never writes or fails the build.
+      - name: Probe the cmux NEXT App ID and profile (read-only)
+        if: needs.decide.outputs.track == 'nightly-next'
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+        run: |
+          python3 scripts/ci/asc_developer_id_app.py check \
+            --bundle-id com.cmuxterm.app.next --name "cmux NEXT" --profile-name "cmux NEXT Developer ID" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Import signing cert
         env:
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
