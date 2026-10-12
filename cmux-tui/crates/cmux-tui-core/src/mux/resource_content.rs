@@ -14,8 +14,7 @@ use crate::resource_api::{public_terminal_snapshot, terminal_tab_ids_in_canonica
 use crate::workspace_registry::{
     RegistryBrowser, RegistryBrowserLaunch, RegistryBrowserSource, RegistryBrowserStatus,
     RegistryLayoutNode, RegistryPane, RegistryTab, RegistryWorkspace, ResourceChange,
-    ResourcePatch, ResourcePatchCommit, ResourceTopologySnapshot, WorkspaceMutation,
-    WorkspaceRegistry,
+    ResourcePatch, ResourcePatchCommit, WorkspaceMutation, WorkspaceRegistry,
 };
 use crate::{ResourceSelectors, ResourceTarget, SurfaceId};
 use live_screen::registry_screen_from_live;
@@ -393,7 +392,10 @@ impl Mux {
                         source_pane_slot,
                         target_pane_slot,
                         index,
-                        json!({"terminal":terminal_id,"value":terminal_snapshot(&topology.tabs)?}),
+                        |after| {
+                            let value = terminal_snapshot(&after.tabs)?;
+                            Ok(json!({"terminal":terminal_id,"value":value}))
+                        },
                     );
                 }
                 let mut source_pane = topology
@@ -533,20 +535,16 @@ impl Mux {
                     .collect::<Vec<_>>();
                 let terminal_value = terminal_snapshot(&moved_tabs)?;
                 after.tabs = moved_tabs;
-                // The source and destination screens list the moved tab in
-                // their layouts, and a focus change unfocuses the screen that
-                // was focused: the delta restates them first, as a tab
-                // create's projection does (cx-gzh.25).
-                let mut restated = vec![source_pane.screen_id.clone(), target_screen_public];
-                if let Some(workspace) = &topology.active_workspace
-                    && let Some((_, Some(screen))) =
-                        topology.active_screens.iter().find(|(candidate, _)| candidate == workspace)
-                {
-                    restated.push(screen.clone());
-                }
-                let mut seen = HashSet::new();
-                restated.retain(|screen| seen.insert(screen.clone()));
-                let mut deltas = screen_upserts(&after, &restated)?;
+                // The focus change and the source and destination screens,
+                // whose layouts list the moved tab, come first (cx-gzh.25,
+                // cx-gzh.26).
+                let mut deltas = super::resource_topology::focus_change_deltas(
+                    state,
+                    &topology,
+                    &after,
+                    &[source_pane.screen_id.clone(), target_screen_public],
+                    &[&source_pane.public_id, &target_pane.public_id],
+                )?;
                 let source_public = source_pane.public_id.clone();
                 let target_public = target_pane.public_id.clone();
                 let source_delta_tabs = source_tabs.clone();
@@ -887,40 +885,6 @@ fn push_pane_delta(changes: &mut Vec<Value>, pane: &RegistryPane, focused: bool)
             "zoomed": false,
         },
     }));
-}
-
-/// Upserts of `screens` as `topology` holds them, from the one screen
-/// builder, so each equals the session snapshot at the delta's revision.
-fn screen_upserts(
-    topology: &ResourceTopologySnapshot,
-    screens: &[crate::resource::ScreenPublicId],
-) -> anyhow::Result<Vec<Value>> {
-    let tabs_by_pane = crate::resource_screen::tabs_by_pane(&topology.tabs);
-    let panes_by_id = crate::resource_screen::panes_by_id(&topology.panes);
-    screens
-        .iter()
-        .enumerate()
-        .map(|(sequence, id)| {
-            let screen = topology
-                .screens
-                .iter()
-                .find(|screen| &screen.public_id == id)
-                .context("restated screen is absent from durable topology")?;
-            let value = crate::resource_screen::public_screen_value(
-                topology,
-                screen,
-                &tabs_by_pane,
-                &panes_by_id,
-            )?;
-            Ok(json!({
-                "kind": "upsert",
-                "sequence": sequence,
-                "resource": "screen",
-                "id": id,
-                "value": value,
-            }))
-        })
-        .collect()
 }
 
 /// `terminal`'s tab ids in canonical order among `tabs`.

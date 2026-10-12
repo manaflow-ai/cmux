@@ -1276,7 +1276,7 @@ export function VirtualTranscript({
     previousLayout.current = layout;
     previousRows.current = rows;
     previousViewport.current = { height, width };
-    if (node) scrolledTo.current = scrollPosition(node, layout.totalHeight);
+    if (node && node.clientHeight > 0) scrolledTo.current = scrollPosition(node, layout.totalHeight);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
   }, [layout, rows, range.first, height, width]);
   // Commit before this frame paints; deferring to the next animation frame left the edge blank.
@@ -1363,9 +1363,14 @@ export function VirtualTranscript({
   const latestLayout = useRef({ layout, rows });
   latestLayout.current = { layout, rows };
   useEffect(() => () => clearTimeout(anchorTimer.current), []);
+  // A report that came due while the pane was hidden, sent once it has a viewport again.
+  const anchorDeferred = useRef(false);
   const reportAnchor = () => {
     const node = ref.current;
     if (!node || !onAnchor) return;
+    // A hidden pane (Home shown in its place) has no viewport: nothing it reads is where the reader is.
+    anchorDeferred.current = node.clientHeight === 0;
+    if (anchorDeferred.current) return;
     const { layout: placed, rows: shown } = latestLayout.current;
     const index = visibleLayoutRange(placed, node.scrollTop, 0, 0).first;
     const row = shown[index];
@@ -1376,8 +1381,14 @@ export function VirtualTranscript({
     reportedAnchor.current = key;
     onAnchor(anchor);
   };
+  useEffect(() => {
+    if (height > 0 && anchorDeferred.current) reportAnchor();
+  });
   const onScroll = (event: React.UIEvent<HTMLDivElement>) => {
     pacing.scrolled();
+    // A hidden scroller has no height, so every offset would read as scrolled up (cx-t0zqt): the view
+    // keeps following until the reader scrolls a visible one.
+    if (event.currentTarget.clientHeight === 0) return;
     const next = event.currentTarget.scrollTop;
     scrolledTo.current = scrollPosition(event.currentTarget, layout.totalHeight);
     flushSync(() => {
@@ -4258,6 +4269,13 @@ function AcpmuxPane() {
                       folder={localCwd ?? (remoteChat ? undefined : startFolder)}
                       readStatus={readFolderStatus}
                       statusKey={snapshot.isWorking}
+                      // Apply brings a worktree chat's work to its main checkout (cx-lyqio.4); a new chat has none yet.
+                      onApplyWorktree={
+                        snapshot.sessionId && localCwd
+                          ? (key: string) =>
+                              callNative("git.worktree.apply", { session_id: snapshot.sessionId, idempotency_key: key })
+                          : undefined
+                      }
                       // A merge asks the header again, so the chip shows the pull request merged.
                       onMergePullRequest={
                         localCwd
