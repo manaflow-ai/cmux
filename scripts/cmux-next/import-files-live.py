@@ -24,7 +24,8 @@ synthetic exports in a scratch folder (no real passwords):
   0. first, in light and dark (window snapshots in --out): the browser sheet; 1Password's and
      Bitwarden's steps (passwords only); Arc's steps (its password page, no bookmarks step); the
      Import step of the onboarding window opens the same browser sheet from its button; the
-     Passwords page's Import from Another Browser… button opens it too.
+     Passwords page shows Import from Another Browser…, and a page-script click on it opens
+     nothing (person-only; a real click needs the input lane).
 
 Quits the app by PID and stops the tag's daemons at the end.
 """
@@ -171,8 +172,12 @@ def bookmark_urls():
 
 
 def snapshot(name, kind="main"):
+    """The window that shows the open import sheet (its own window number), else the `kind` window."""
     path = os.path.join(opts.out, f"{name}.png")
-    reply = rpc("debug.window_snapshot", {"kind": kind, "path": path})
+    shown = [d for d in rpc("debug.dialog").get("dialogs", []) if d.get("visible", True) and d.get("window")]
+    target = {"window": shown[-1]["window"]} if shown else {"kind": kind}
+    reply = rpc("debug.window_snapshot", {**target, "path": path})
+    print(f"note: snapshot {name} {target} {reply.get('kind')}", flush=True)
     check(os.path.exists(path), f"snapshot {name} ({reply.get('method') or reply.get('error')})")
 
 
@@ -225,13 +230,14 @@ def entries_and_steps():
     rpc("debug.dialog", {"press": "cancel"})
     rpc("debug.onboarding", {"action": "close"})
     rpc("debug.appearance", {"mode": "light"})
-    # The Passwords page's button (a click in the page, which the host takes as the person's).
-    # passwords.open is person-only: a palette run, as the person's.
+    # The Passwords page shows the button. A click from page script is not the person's (the host
+    # tracks real AppKit events), so the person-only action must refuse it: no sheet opens.
     print("note: passwords.open", rpc("debug.toast", {"perform": "passwords.open"}), flush=True)
     clicked = wait_for(lambda: (rpc("debug.page", {"page": "cmux.passwords", "action": "click", "selector": ".pw-import-files"}) or {})
                        .get("clicked") or None, "the Passwords page's import button", 30)
-    check(clicked is not None and wait_for(lambda: dialog("cmux.dialog.importFiles.browser"), "the browser sheet from the page") is not None,
-          "the Passwords page's Import from Another Browser… opens the browser sheet")
+    check(clicked is not None, "the Passwords page shows Import from Another Browser…")
+    time.sleep(2)  # a refused run shows nothing; give a wrongly allowed one time to open its sheet
+    check(dialog("cmux.dialog.importFiles.browser") is None, "a page-script click does not open the person-only import")
     rpc("debug.dialog", {"press": "cancel"})
 
 
