@@ -18,8 +18,11 @@ final class DaemonConnectingView: NSView {
     private let copyDetailsButton = NSButton(title: "", target: nil, action: nil)
     /// The failure's raw text, for Copy Details.
     private var failureDetails = ""
-    /// Where Copy Details writes (tests pass their own).
-    var pasteboard: NSPasteboard = .general
+    /// Copy Details' write (tests read it instead of the clipboard).
+    var copyToClipboard: (String) -> Void = { text in
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
     private(set) var state: DaemonStartupState = .connecting
     private let markTimer: DemandTimer
     private let statusTimer: DemandTimer
@@ -156,7 +159,6 @@ final class DaemonConnectingView: NSView {
     }
 
     @objc private func copyDetails() {
-        pasteboard.clearContents()
-        pasteboard.setString(failureDetails, forType: .string)
+        copyToClipboard(failureDetails)
     }
 }

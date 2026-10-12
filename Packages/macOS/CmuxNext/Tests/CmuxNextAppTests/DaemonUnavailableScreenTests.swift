@@ -45,13 +45,12 @@ struct DaemonUnavailableScreenTests {
     @Test func copyDetailsHandsOverTheRawError() throws {
         let error = DaemonError.connectFailed(path: "/tmp/cmux-501/tui.sock", errno: ECONNREFUSED)
         let view = screen(error)
-        let board = NSPasteboard(name: NSPasteboard.Name("cmux-tests-\(UUID().uuidString)"))
-        defer { board.releaseGlobally() }
-        view.pasteboard = board
+        var copied: [String] = []
+        view.copyToClipboard = { copied.append($0) }
         // The button's own target and action: a click outside a window may never dispatch.
         let button = try #require(buttons(in: view).first { !$0.isHidden })
         let action = try #require(button.action)
         _ = (try #require(button.target) as AnyObject).perform(action, with: button)
-        #expect(board.string(forType: .string) == String(describing: error))
+        #expect(copied == [String(describing: error)])
     }
 }
