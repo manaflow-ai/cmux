@@ -2943,7 +2943,12 @@ final class BrowserPanel: Panel, ObservableObject {
         )
     }
 
-    var hasPendingRemoteNavigation: Bool { pendingRemoteNavigation != nil }
+    /// A navigation waiting on something other than WebKit: a remote proxy
+    /// endpoint or the native app-session exchange. Heal, restore and
+    /// automation must not restart it.
+    var hasPendingRemoteNavigation: Bool {
+        pendingRemoteNavigation != nil || appSessionBootstrapTask != nil
+    }
 
     @discardableResult
     func reactivateDiscardedWebViewWithoutNavigation(reason: String) -> Bool {
@@ -4018,6 +4023,13 @@ final class BrowserPanel: Panel, ObservableObject {
             return browserFallbackInteractiveModalHostWindow()
         }
 
+        // A tab duplicated from an app-session panel shares its store; Dock
+        // panels never pass through a workspace's registration, so register
+        // here so sign-out resets every panel showing those cookies.
+        if preservesExplicitEphemeralWebsiteDataStore {
+            AppDelegate.shared?.auth?.browserAppSession.register(self)
+        }
+
         if let initialRequest {
             hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
             currentURL = initialRequest.url
@@ -4460,7 +4472,13 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     var explicitEphemeralWebsiteDataStoreForSibling: WKWebsiteDataStore? {
-        preservesExplicitEphemeralWebsiteDataStore ? websiteDataStore : nil
+        // A store emptied by sign-out must not be copied: the sibling would
+        // skip the session exchange and show cmux app pages signed out.
+        guard preservesExplicitEphemeralWebsiteDataStore,
+              !appSessionStoreNeedsBootstrap else {
+            return nil
+        }
+        return websiteDataStore
     }
 
     func reattachToWorkspace(
@@ -4495,6 +4513,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     @discardableResult
     func switchToProfile(_ requestedProfileID: UUID) -> Bool {
+        cancelAppSessionBootstrap()
         guard !preservesExplicitEphemeralWebsiteDataStore else {
             return false
         }
@@ -5928,7 +5947,10 @@ final class BrowserPanel: Panel, ObservableObject {
             self.appSessionBootstrapTask = nil
             self.appSessionBootstrapNavigationStarted = nil
             if case let .navigation(navigation) = outcome {
-                self.adoptAppSessionStore(navigation.websiteDataStore)
+                self.adoptAppSessionStore(
+                    navigation.websiteDataStore,
+                    preservingRestoredSessionHistory: preserveRestoredSessionHistory
+                )
             }
             self.performNavigation(
                 request: request,
@@ -5953,8 +5975,12 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// Moves the panel into the controller-owned store that received the
     /// session cookies. The store is registered so sign-out clears it.
-    private func adoptAppSessionStore(_ store: WKWebsiteDataStore) {
+    private func adoptAppSessionStore(
+        _ store: WKWebsiteDataStore,
+        preservingRestoredSessionHistory: Bool
+    ) {
         guard store !== WKWebsiteDataStore.default(), store.identifier == nil else { return }
+        let restoredHistory = restoredSessionHistory
         closeAllPopupControllers()
         websiteDataStore = store
         preservesExplicitEphemeralWebsiteDataStore = true
@@ -5964,6 +5990,10 @@ final class BrowserPanel: Panel, ObservableObject {
             reason: "appSessionBootstrap",
             forceWebViewReplacement: true
         )
+        if preservingRestoredSessionHistory {
+            restoredSessionHistory = restoredHistory
+            refreshNavigationAvailability()
+        }
         AppDelegate.shared?.auth?.browserAppSession.register(self)
     }
 
@@ -6321,7 +6351,7 @@ extension BrowserPanel: BrowserHiddenWebViewDiscardManagerDelegate {
             isClosing: isClosingWebViewLifecycle,
             isVisibleInUI: isWebViewVisibleInUI,
             shouldRenderWebView: shouldRenderWebView,
-            hasPendingRemoteNavigation: pendingRemoteNavigation != nil,
+            hasPendingRemoteNavigation: hasPendingRemoteNavigation,
             hasCurrentURL: (
                 currentURL
                     ?? pendingWebContentRecoveryURL
@@ -6601,6 +6631,7 @@ extension BrowserPanel {
     func goBack(dialogOwner: BrowserDialogOwner = .user) {
         takeBrowserDialogOwnership(dialogOwner)
         guard canGoBack else { return }
+        cancelAppSessionBootstrap()
         reactivateDiscardedWebViewWithoutNavigation(reason: "goBack")
         cancelInFlightNavigationBeforeHistoryTraversal()
         if usesRestoredSessionHistory {
@@ -6640,6 +6671,7 @@ extension BrowserPanel {
     func goForward(dialogOwner: BrowserDialogOwner = .user) {
         takeBrowserDialogOwnership(dialogOwner)
         guard canGoForward else { return }
+        cancelAppSessionBootstrap()
         reactivateDiscardedWebViewWithoutNavigation(reason: "goForward")
         cancelInFlightNavigationBeforeHistoryTraversal()
         if usesRestoredSessionHistory {
@@ -6818,6 +6850,8 @@ extension BrowserPanel {
             cloudAccess.retry()
             return nil
         }
+        // The pending exchange is already loading the intended page.
+        if appSessionBootstrapTask != nil { return nil }
         if prepareForReload(reason: "reload", mode: .soft) {
             return nil
         }
@@ -6832,6 +6866,7 @@ extension BrowserPanel {
             cloudAccess.retry()
             return
         }
+        if appSessionBootstrapTask != nil { return }
         if prepareForReload(reason: "hardReload", mode: .hard) {
             return
         }
@@ -6842,6 +6877,7 @@ extension BrowserPanel {
     /// Stop loading
     func stopLoading() {
         cloudAccess.didCancel()
+        cancelAppSessionBootstrap()
         // Fail closed: a reveal must never blank-shell-heal over an explicit Stop.
         userStoppedLoadSinceWebViewReplacement = true
         webView.stopLoading()

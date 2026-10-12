@@ -356,13 +356,53 @@ struct BrowserWebContentProcessTests {
         }
         let pricingURL = AuthEnvironment.appSessionHandoffOrigin
             .appendingPathComponent("app-pricing")
+        var startedNavigations: [WKNavigation?] = []
 
-        panel.navigate(to: pricingURL)
+        panel.navigate(to: pricingURL) { startedNavigations.append($0) }
+        #expect(startedNavigations.isEmpty)
         await panel.appSessionBootstrapTask?.value
 
         #expect(requestCount == 1)
         #expect(panel.websiteDataStore === profileStore)
-        #expect(panel.currentURL == pricingURL)
+        #expect(startedNavigations.count == 1)
+        #expect(startedNavigations.first.flatMap { $0 } != nil)
+    }
+
+    @Test
+    func newerNavigationCancelsAPendingAppSessionExchange() async {
+        let sessionStore = WKWebsiteDataStore.nonPersistent()
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        let profileStore = panel.websiteDataStore
+        var releaseExchange: CheckedContinuation<Void, Never>?
+        panel.appSessionRequestProvider = { url in
+            await withCheckedContinuation { releaseExchange = $0 }
+            return .navigation(BrowserAppSessionNavigation(
+                request: URLRequest(url: url),
+                websiteDataStore: sessionStore,
+                generation: 1,
+                authSessionGeneration: 1
+            ))
+        }
+        var startedNavigations: [WKNavigation?] = []
+        panel.navigate(
+            to: AuthEnvironment.appSessionHandoffOrigin.appendingPathComponent("app-pricing")
+        ) { startedNavigations.append($0) }
+        let exchange = panel.appSessionBootstrapTask
+        while releaseExchange == nil { await Task.yield() }
+
+        // Heal, restore and automation see the exchange as a pending navigation.
+        #expect(panel.hasPendingRemoteNavigation)
+
+        panel.navigate(to: recoveryURL)
+        releaseExchange?.resume()
+        await exchange?.value
+
+        #expect(startedNavigations.count == 1)
+        #expect(startedNavigations.first.flatMap { $0 } == nil)
+        #expect(!panel.hasPendingRemoteNavigation)
+        #expect(panel.websiteDataStore === profileStore)
+        #expect(panel.webView.configuration.websiteDataStore === profileStore)
     }
 
     @Test
