@@ -249,8 +249,8 @@ final class LocalSurfaceProvider: SurfaceProvider {
         // that remote workspace before projection moved the pane.
         let workspace: Workspace
         if let existing = candidates.first(where: {
-            $0.owningTabManager?.selectedTabId == $0.id && !$0.usesRemoteDirectoryProvenance
-        }) ?? candidates.first(where: { !$0.usesRemoteDirectoryProvenance }) {
+            $0.owningTabManager?.selectedTabId == $0.id && Self.canHostLocalTerminal($0)
+        }) ?? candidates.first(where: { Self.canHostLocalTerminal($0) }) {
             workspace = existing
         } else {
             // A remote-only window is a supported state: the user can close
@@ -269,7 +269,7 @@ final class LocalSurfaceProvider: SurfaceProvider {
                 shouldBringToFront: false,
                 debugSource: "surface.localTerminalFallback"
             )
-            guard let created, !created.usesRemoteDirectoryProvenance else {
+            guard let created, Self.canHostLocalTerminal(created) else {
                 throw SurfaceCatalogError.destinationNotFound("a local workspace")
             }
             workspace = created
@@ -292,6 +292,10 @@ final class LocalSurfaceProvider: SurfaceProvider {
         catalog.upsert(resource)
         catalog.record(SurfaceProjection(resource: id, workspaceID: made.workspaceID, panelID: made.panelID))
         return resource
+    }
+
+    private static func canHostLocalTerminal(_ workspace: Workspace) -> Bool {
+        !workspace.isRemoteWorkspace && !workspace.isRemoteTmuxMirror && workspace.cloudVMBinding == nil
     }
 
     static func shellQuote(_ value: String) -> String {

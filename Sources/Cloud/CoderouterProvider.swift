@@ -239,11 +239,12 @@ struct CoderouterSetupWorkspaceCoordinator {
         return (workspace, manager)
     }
 
-    /// Ownership comes from the workspace's binding/projection state rather
-    /// than its visible title. This also treats unavailable remote state as
-    /// unsafe for a local CLI process.
+    /// Ownership comes from the workspace's binding state rather than its
+    /// visible title. An intentionally mixed local/cloud workspace remains a
+    /// valid local destination for a new local pane; only fully remote or
+    /// cloud-bound workspaces are excluded.
     private static func isLocal(_ workspace: Workspace) -> Bool {
-        !workspace.usesRemoteDirectoryProvenance
+        !workspace.isRemoteWorkspace && !workspace.isRemoteTmuxMirror && workspace.cloudVMBinding == nil
     }
 }
 
