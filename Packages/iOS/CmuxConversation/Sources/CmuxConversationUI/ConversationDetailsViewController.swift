@@ -19,7 +19,7 @@ final class ConversationDetailsViewController: UIViewController, UIScrollViewDel
     private var backgroundsPage: ConversationDetailsBackgroundsPage?
 
     /// Messages' backdrop: the transcript blurred at radius 16 under a 60 %
-    /// wash of the background color.
+    /// wash of the background color (`ConversationVeilBlur.details`).
     private let blur = UIVisualEffectView(effect: nil)
     private var blurAnimator: UIViewPropertyAnimator?
     private let wash = UIView()
@@ -66,7 +66,10 @@ final class ConversationDetailsViewController: UIViewController, UIScrollViewDel
         view.addSubview(blur)
         wash.frame = view.bounds
         wash.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        wash.backgroundColor = UIColor { ($0.userInterfaceStyle == .dark ? UIColor.black : UIColor.white).withAlphaComponent(0.6) }
+        wash.backgroundColor = UIColor {
+            let veil = ConversationVeilBlur.details(dark: $0.userInterfaceStyle == .dark)
+            return UIColor(white: veil.washWhite, alpha: veil.washAlpha)
+        }
         wash.isUserInteractionEnabled = false
         view.addSubview(wash)
 
@@ -159,23 +162,17 @@ final class ConversationDetailsViewController: UIViewController, UIScrollViewDel
         }
     }
 
-    /// UIKit has no public blur radius; a paused animator holds the dark
-    /// (light) blur at the share of its strength that is radius 16.
+    /// UIKit has no public pure blur; a paused animator holds the
+    /// ultra-thin material at the share that matches Messages' radius 16.
     private func applyBlur() {
         guard blurAnimator == nil else { return }
-        blurAnimator = Self.pausedBlur(blur, style: traitCollection.userInterfaceStyle == .dark ? .dark : .light)
-    }
-
-    private static func pausedBlur(_ view: UIVisualEffectView, style: UIBlurEffect.Style) -> UIViewPropertyAnimator {
+        let veil = ConversationVeilBlur.details(dark: traitCollection.userInterfaceStyle == .dark)
         let animator = UIViewPropertyAnimator(duration: 1, curve: .linear)
-        animator.addAnimations { view.effect = UIBlurEffect(style: style) }
+        animator.addAnimations { [blur] in blur.effect = UIBlurEffect(style: .systemUltraThinMaterial) }
         animator.pausesOnCompletion = true
-        animator.fractionComplete = blurShareOfStyle
-        return animator
+        animator.fractionComplete = veil.materialShare
+        blurAnimator = animator
     }
-
-    /// Radius 16 of the style's ~30 (see `ConversationViewController.blurShareOfStyle`).
-    static let blurShareOfStyle: CGFloat = 16.0 / 30.0
 
     deinit {
         MainActor.assumeIsolated {
