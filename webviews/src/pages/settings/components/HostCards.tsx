@@ -58,7 +58,9 @@ export function Backdrops({ focus = null }: { focus?: string | null }) {
     store.previewEnd(BACKGROUND_KEY);
   };
   // Closing Settings or leaving Appearance mid-preview restores the saved background.
-  useEffect(() => endPreview, []);
+  const endOnLeave = useRef(endPreview);
+  endOnLeave.current = endPreview;
+  useEffect(() => () => endOnLeave.current(), []);
   if (backdrops.length === 0) return null;
   const background = rows.get(BACKGROUND_KEY);
   const current = ((background?.value ?? background?.default) as string | undefined) ?? "none";

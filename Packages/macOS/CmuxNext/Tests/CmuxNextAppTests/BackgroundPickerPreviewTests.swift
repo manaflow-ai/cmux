@@ -79,7 +79,7 @@ import Testing
 }
 
 /// The entry point: a right-click on the window's background (the gaps between panes, an empty
-/// workspace) or the sidebar's empty space offers Change Background….
+/// workspace) offers Change Background….
 @MainActor @Suite struct ChangeBackgroundMenuTests {
     static func titles(_ menu: NSMenu?) -> [String] { menu?.items.map(\.title) ?? [] }
 
@@ -91,10 +91,5 @@ import Testing
                                                      timestamp: 0, windowNumber: 0, context: nil, eventNumber: 0,
                                                      clickCount: 1, pressure: 1))
         #expect(Self.titles(view.menu(for: event)).contains("Change Background…"))
-    }
-
-    @Test func theSidebarsEmptySpaceOffersChangeBackground() {
-        let menu = ActionRegistry.standard().makeContextMenu(for: .sidebarBackground)
-        #expect(Self.titles(menu).contains("Change Background…"))
     }
 }

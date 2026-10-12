@@ -1,5 +1,5 @@
-// The window backdrop (background art), reached by right-clicking the window's background, the
-// sidebar's empty space or an agent chat's empty space.
+// The window backdrop (background art), reached by right-clicking the window's background or an
+// agent chat's empty space.
 
 nonisolated enum BackdropActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
@@ -12,7 +12,6 @@ nonisolated enum BackdropActionCatalog: ActionCatalogGroup {
                 cliName: "settings change-background",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [
                     ContextMenuPlacement(.agentChat, .identity, 0), ContextMenuPlacement(.windowBackground, .identity, 0),
-                    ContextMenuPlacement(.sidebarBackground, .view, 400),
                 ])
             ),
         ]

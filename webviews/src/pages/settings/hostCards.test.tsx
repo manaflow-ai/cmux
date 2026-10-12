@@ -28,7 +28,10 @@ test("Change Background… shows the picker on Appearance: resting previews, lea
     await new Promise((resolve) => setTimeout(resolve, 200));
   });
   await settle();
-  expect(runs(page, "cmux.settings.preview").at(-1)).toMatchObject({ key: "appearance.background", value: "starryNight" });
+  expect(runs(page, "cmux.settings.preview").at(-1)).toMatchObject({
+    key: "appearance.background",
+    value: "starryNight",
+  });
   expect(runs(page, "cmux.settings.set").length).toBe(0);
   await act(async () => tile.dispatchEvent(new PointerEvent("pointerout", { bubbles: true })));
   await settle();
