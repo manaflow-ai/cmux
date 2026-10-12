@@ -286,17 +286,21 @@ fn terminal_move_to_another_pane_publishes_the_changed_screen() {
     let before = tab_ids(&server);
     state_cli(&server, None, &["tab", "create", "terminal", "--pane", &source]);
     let moved = new_tab(&before, &tab_ids(&server));
-    let before = state_cli_topology(&server)["panes"].as_array().unwrap().clone();
+    let pane_ids = |snapshot: &serde_json::Value| -> Vec<String> {
+        snapshot["panes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|pane| pane["id"].as_str().unwrap().to_string())
+            .collect()
+    };
+    let before = pane_ids(&state_cli_topology(&server));
     state_cli(&server, None, &["pane", &source, "split", "--right"]);
     let snapshot = state_cli_topology(&server);
-    let target = snapshot["panes"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|pane| !before.contains(pane) && pane["id"] != source.as_str())
-        .and_then(|pane| pane["id"].as_str())
-        .expect("the split made no pane")
-        .to_string();
+    let target = pane_ids(&snapshot)
+        .into_iter()
+        .find(|pane| !before.contains(pane))
+        .expect("the split made no pane");
     let find = |kind: &str, field: &str, value: &str| {
         snapshot[kind]
             .as_array()

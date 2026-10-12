@@ -356,18 +356,22 @@ impl Mux {
                     .find(|tab| tab.public_id == source_tab_id)
                     .cloned()
                     .context("selected terminal view has no durable tab")?;
+                // The result is the terminal's public snapshot (the catalog's
+                // TerminalSnapshot), from the one terminal builder, read from
+                // the terminal's runtime as the session snapshot reads it.
                 let terminal_surface = state
-                    .surfaces
-                    .get(&surface)
+                    .terminal_catalog
+                    .get(&terminal_id)
+                    .or_else(|| state.surfaces.get(&surface))
                     .cloned()
                     .context("terminal selector resolved a missing surface")?;
-                // The result is the terminal's public snapshot (the catalog's
-                // TerminalSnapshot), from the one terminal builder.
-                let host = self
+                let host_id = self
                     .resource_terminal_host_identity(&terminal_surface)
-                    .context("terminal has no host identity")?;
+                    .map(|host| host.terminal_id)
+                    .or_else(|| source_tab.terminal_id.clone())
+                    .context("terminal omitted its durable host identity")?;
                 let durable_terminal = registry
-                    .terminal_record(&host.terminal_id)?
+                    .terminal_record(&host_id)?
                     .context("terminal has no durable host")?;
                 let terminal_snapshot = |tabs: &[RegistryTab]| {
                     public_terminal_snapshot(
