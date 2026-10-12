@@ -25,6 +25,9 @@ public final class MobileBrowserDialogBroker {
 
     public var currentDialog: MobileBrowserDialogEvent? { queue.current }
 
+    /// Every unresolved dialog, including dialogs whose native presentation is deferred.
+    public var pendingDialogs: [MobileBrowserDialogEvent] { queue.pending }
+
     @discardableResult
     public func begin(
         kind: MobileBrowserDialogKind,

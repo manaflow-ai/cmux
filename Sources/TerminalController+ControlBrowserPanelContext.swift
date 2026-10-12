@@ -52,24 +52,28 @@ extension TerminalController: ControlBrowserPanelContext {
 
     func controlBrowserPanelNavigate(panelID: UUID, urlString: String) -> Bool {
         guard let panel = browserPanelV1Panel(panelID: panelID) else { return false }
+        panel.browserDialogsOwnedByCLI = true
         panel.navigateSmart(urlString)
         return true
     }
 
     func controlBrowserPanelGoBack(panelID: UUID) -> Bool {
         guard let panel = browserPanelV1Panel(panelID: panelID) else { return false }
+        panel.browserDialogsOwnedByCLI = true
         panel.goBack()
         return true
     }
 
     func controlBrowserPanelGoForward(panelID: UUID) -> Bool {
         guard let panel = browserPanelV1Panel(panelID: panelID) else { return false }
+        panel.browserDialogsOwnedByCLI = true
         panel.goForward()
         return true
     }
 
     func controlBrowserPanelReload(panelID: UUID) -> Bool {
         guard let panel = browserPanelV1Panel(panelID: panelID) else { return false }
+        panel.browserDialogsOwnedByCLI = true
         panel.reload()
         return true
     }

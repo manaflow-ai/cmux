@@ -1,5 +1,6 @@
 import AppKit
 import CMUXMobileCore
+import CmuxBrowser
 import Testing
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -15,6 +16,8 @@ struct BrowserCLIDialogTests {
         try await withPanel { panel, params in
             var answers: [Bool] = []
             enqueue(panel, kind: .javaScriptConfirm) { button, _ in answers.append(button == "ok") }
+            #expect(panel.activeInteractiveBrowserPromptIDs.isEmpty)
+            #expect(!panel.canRecoverFromAutomationTimeout)
             let response = try await request(accept ? "browser.dialog.accept" : "browser.dialog.dismiss", params)
             #expect(response["ok"] as? Bool == true)
             #expect(answers == [accept])
@@ -63,6 +66,54 @@ struct BrowserCLIDialogTests {
             #expect(answers == ["first:ok"])
             panel.tearDownWebViewBeforeReplacement(panel.webView, reason: "dialog-test")
             #expect(answers == ["first:ok", "second:cancel"])
+            #expect(panel.mobileBrowserDialogBroker.currentDialog == nil)
+        }
+    }
+
+    @Test func promptAcceptUsesDefaultWhenTextIsOmitted() async throws {
+        try await withPanel { panel, params in
+            var answer: String?
+            enqueue(panel, kind: .javaScriptPrompt) { _, text in answer = text }
+            let response = try await request("browser.dialog.accept", params)
+            #expect(response["ok"] as? Bool == true)
+            #expect(answer == "default")
+        }
+    }
+
+    @Test func queuedUIDialogCanBeAnsweredWithoutPageScript() async throws {
+        try await withPanel { panel, params in
+            panel.browserDialogsOwnedByCLI = false
+            var answers: [Bool] = []
+            enqueue(panel, kind: .javaScriptConfirm) { button, _ in answers.append(button == "ok") }
+            #expect(panel.activeInteractiveBrowserPromptIDs.count == 1)
+            let response = try await request("browser.dialog.accept", params)
+            #expect(response["ok"] as? Bool == true)
+            #expect(answers == [true])
+            #expect(panel.activeInteractiveBrowserPromptIDs.isEmpty)
+            panel.cancelPendingInteractiveBrowserPrompts(reason: "test")
+            #expect(answers == [true])
+        }
+    }
+
+    @Test func userInteractionRestoresUIPresentationForSubsequentDialogs() async throws {
+        try await withPanel { panel, _ in
+            let webView = try #require(panel.webView as? CmuxWebView)
+            webView.onPhysicalUserInteraction?()
+            enqueue(panel, kind: .javaScriptConfirm) { _, _ in }
+            #expect(panel.activeInteractiveBrowserPromptIDs.count == 1)
+        }
+    }
+
+    @Test func navigationAndProcessTerminationClearPendingCompletions() async throws {
+        try await withPanel { panel, _ in
+            var answers: [String] = []
+            enqueue(panel, kind: .javaScriptConfirm) { button, _ in answers.append(button) }
+            panel.cancelPendingJavaScriptDialogs()
+            #expect(answers == ["cancel"])
+            #expect(panel.mobileBrowserDialogBroker.currentDialog == nil)
+            enqueue(panel, kind: .javaScriptConfirm) { button, _ in answers.append(button) }
+            panel.handleWebContentProcessTermination(for: panel.webView)
+            #expect(answers == ["cancel", "cancel"])
             #expect(panel.mobileBrowserDialogBroker.currentDialog == nil)
         }
     }

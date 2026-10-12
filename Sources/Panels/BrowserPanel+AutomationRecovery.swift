@@ -229,6 +229,7 @@ extension BrowserPanel {
     var canRecoverFromAutomationTimeout: Bool {
         !isClosingWebViewLifecycle &&
             activeInteractiveBrowserPromptIDs.isEmpty &&
+            mobileBrowserDialogBroker.pendingDialogs.isEmpty &&
             activeVisualAutomationCaptureCount == 0
     }
 
@@ -238,6 +239,7 @@ extension BrowserPanel {
     /// reveal could replace. The command also counts as use of the pane, so hidden-pane discards
     /// do not unload a page an agent is driving.
     func webViewForAutomationCommand(now: Date = Date()) -> WKWebView {
+        browserDialogsOwnedByCLI = true
         webViewLastAutomationCommandAt = now
         discardWebViewTerminatedWhileHidden(now: now)
         if !isWebViewVisibleInUI {
