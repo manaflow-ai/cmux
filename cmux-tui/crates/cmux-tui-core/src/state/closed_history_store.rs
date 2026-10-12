@@ -386,8 +386,11 @@ fn insert_group(
             record[key] = value;
         }
         // A deleted space with no workspace left to close is still a
-        // workspace-level group: reopening it restores the space.
-        if record["members"].as_array().is_some_and(Vec::is_empty) {
+        // workspace-level group: reopening it restores the space. An
+        // ungrouped tab group stays a tab-level one.
+        if record["members"].as_array().is_some_and(Vec::is_empty)
+            && record.get("tab_group").is_none()
+        {
             record["kind"] = json!("workspace");
         }
     }
@@ -476,6 +479,27 @@ pub(crate) fn workspace_name(
         })
         .optional()?
         .flatten())
+}
+
+/// Ungroup of a tab group (`archive`: its id, pane, workspace, name, color
+/// and tabs in order): one group with no member, since its tabs stay open,
+/// in the window that lists its workspace. Reopening it forms the group
+/// again around those tabs. An incognito workspace records nothing.
+pub(crate) fn record_ungrouped_tab_group(
+    transaction: &Transaction<'_>,
+    archive: &Value,
+) -> anyhow::Result<()> {
+    let Some(workspace_id) = archive["workspace_id"].as_str() else { return Ok(()) };
+    if !super::store::state_tables_ready(transaction)? || is_ephemeral(transaction, workspace_id)? {
+        return Ok(());
+    }
+    let window = window_of_workspace(transaction, workspace_id)?;
+    pend_group(
+        transaction,
+        &new_closed_id(),
+        &json!({"name": archive["name"], "tab_group": archive}),
+    )?;
+    insert_group(transaction, Vec::new(), window)
 }
 
 /// A new closed group id.

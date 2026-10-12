@@ -418,3 +418,74 @@ fn a_closed_incognito_window_is_never_recorded() {
     let groups = window_groups(closed_list(&harness, "remote-list"));
     assert!(groups.iter().any(|group| group["window"] == "reopen-kinds/win-remote"), "{groups:?}");
 }
+
+/// The live tab groups the daemon lists.
+fn tab_groups(harness: &RecoveryHarness, request: &str) -> Vec<serde_json::Value> {
+    let reply = resource_request(
+        &harness.socket,
+        request,
+        "tab_group.list",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    reply.as_array().or_else(|| reply["value"].as_array()).cloned().unwrap_or_default()
+}
+
+/// Ungroup (cx-gzh.10, RECOVERABLE-BY-DEFAULT) is one closed-history group:
+/// its tabs stay open, and Cmd-Shift-T in the window forms the group again
+/// with its id, name, color and members in order.
+#[test]
+fn an_ungrouped_tab_group_reopens_whole() {
+    let _exclusive = exclusive_process_test();
+    let (harness, mut app, pane) = start("reopen-ungroup");
+    let key = app.send(serde_json::json!({"cmd":"list-workspaces"}))["workspaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|workspace| workspace["name"] == "kinds")
+        .and_then(|workspace| workspace["key"].as_str().map(str::to_string))
+        .expect("the workspace has a key");
+    put_window(&harness, "win-u", Some(&key), true, "win-u-open");
+    let tabs = (0..2)
+        .map(|_| {
+            let surface = app.send(serde_json::json!({"cmd":"new-tab","pane":pane}))["surface"]
+                .as_u64()
+                .unwrap();
+            app.tab(surface)["tab_resource_id"].as_str().expect("the tab has an id").to_string()
+        })
+        .collect::<Vec<_>>();
+    resource_request(
+        &harness.socket,
+        "ungroup-create",
+        "tab_group.create",
+        serde_json::json!({"machine":"current","session":"current",
+                           "tabs":tabs,"name":"Build","color":"blue"}),
+        Some("ungroup-create"),
+    );
+    let created = tab_groups(&harness, "ungroup-list-1");
+    assert_eq!(created.len(), 1, "{created:?}");
+    let group_id = created[0]["id"].as_str().expect("the group has an id").to_string();
+    let before = closed_list(&harness, "ungroup-closed-1").len();
+
+    resource_request(
+        &harness.socket,
+        "ungroup",
+        "tab_group.ungroup",
+        serde_json::json!({"machine":"current","session":"current","tab_group":group_id}),
+        Some("ungroup"),
+    );
+    assert!(tab_groups(&harness, "ungroup-list-2").is_empty());
+    let closed = closed_list(&harness, "ungroup-closed-2");
+    assert_eq!(closed.len(), before + 1, "the ungroup was not recorded: {closed:?}");
+    assert_eq!(closed[0]["window"], "reopen-kinds/win-u", "{closed:?}");
+
+    let reply = reopen_from(&harness, "reopen-kinds/win-u", "ungroup-reopen");
+    assert_eq!(reply["ok"], true, "{reply}");
+    let groups = tab_groups(&harness, "ungroup-list-3");
+    assert_eq!(groups.len(), 1, "{groups:?}");
+    assert_eq!(groups[0]["id"], group_id.as_str());
+    assert_eq!(groups[0]["name"], "Build");
+    assert_eq!(groups[0]["color"], "blue");
+    assert_eq!(groups[0]["tab_ids"], serde_json::json!(tabs));
+    assert_eq!(closed_list(&harness, "ungroup-closed-3").len(), before);
+}
