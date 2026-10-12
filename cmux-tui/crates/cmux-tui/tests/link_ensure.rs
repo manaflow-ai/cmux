@@ -439,6 +439,21 @@ fn link_status_and_stop_find_the_link_from_another_tmpdir() {
     let again = app.cmux_in(&other, &["link", "ensure", "--state-dir", d]);
     let again: Value = serde_json::from_slice(again.stdout.trim_ascii()).unwrap();
     assert_eq!(again["status"], "running", "a second link started: {again}");
+    // A registered socket whose folder others may open is not used.
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let socket = PathBuf::from(first["socket"].as_str().unwrap());
+        let folder = socket.parent().unwrap().to_path_buf();
+        std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let open = app.cmux_in(&other, &["link", "status", "--state-dir", d]);
+        let open: Value = serde_json::from_slice(open.stdout.trim_ascii()).unwrap();
+        let refused = app.cmux_in(&other, &["link", "stop", "--state-dir", d]);
+        let refused: Value = serde_json::from_slice(refused.stdout.trim_ascii()).unwrap();
+        std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(open["running"], false, "a socket in an open folder was used: {open}");
+        assert_eq!(refused["stopped"], false, "a socket in an open folder was stopped: {refused}");
+        assert!(alive(pid(&first)));
+    }
     let stopped = app.cmux_in(&other, &["link", "stop", "--state-dir", d]);
     let stopped: Value = serde_json::from_slice(stopped.stdout.trim_ascii()).unwrap();
     assert_eq!(stopped["stopped"], true, "{stopped}");
