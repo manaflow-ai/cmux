@@ -46,6 +46,7 @@ extension AppDelegate {
             )
         }
         let manager = context.tabManager
+        let managerReference = RemoteTmuxWeakTabManager(manager)
         manager.recordCloudWorkspaceSelection()
         let selection = manager.rememberedCloudWorkspaceSelection
         let revision = manager.cloudWorkspaceSelection.revision
@@ -55,17 +56,17 @@ extension AppDelegate {
         // window's manager alive.
         return operationController.start(
             key: "new-cloud-workspace.resolved.\(windowID.uuidString)",
-            makeOperation: { [weak self, weak manager] in
-                guard let manager else { return {} }
+            makeOperation: { [weak self, managerReference] in
+                guard let manager = managerReference.value else { return {} }
                 let token = reveals.begin(in: manager)
-                return { [weak self, weak manager] in
-                    let fallbackToNewMachine: @MainActor () -> Void = { [weak self, weak manager] in
+                return { [weak self, managerReference] in
+                    let fallbackToNewMachine: @MainActor () -> Void = { [weak self, managerReference] in
                         guard let self, !Task.isCancelled else { return }
                         let fallbackWindow = self.mainWindowContexts.values
                             .first(where: { $0.windowId == windowID })
                             .flatMap { self.resolvedWindow(for: $0) }
                         _ = self.performNewCloudMachineAction(
-                            tabManager: manager,
+                            tabManager: managerReference.value,
                             preferredWindow: fallbackWindow,
                             debugSource: "\(debugSource).fallback"
                         )
@@ -95,7 +96,7 @@ extension AppDelegate {
                             guard !Task.isCancelled else { return }
                             destination?.apply(workspaceID: workspaceID)
                             selectedWorkspace = self?.focusCreatedCloudWorkspace(
-                                workspaceID, manager: manager, revision: revision, windowID: windowID
+                                workspaceID, manager: managerReference.value, revision: revision, windowID: windowID
                             )
                         }
                         // Losing access mid-create falls back to New Machine only
@@ -141,12 +142,13 @@ extension AppDelegate {
             machineID: vmID, scopeID: scopeID, windowID: context.windowId, selectionRevision: revision
         )
         let reveals = SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals
+        let managerReference = RemoteTmuxWeakTabManager(tabManager)
         return operationController.start(
             key: "new-cloud-workspace.\(vmID).\(context.windowId.uuidString)",
-            makeOperation: { [weak tabManager] in
-                guard let tabManager else { return {} }
+            makeOperation: { [managerReference] in
+                guard let tabManager = managerReference.value else { return {} }
                 let token = reveals.begin(in: tabManager)
-                return { [weak self, weak tabManager] in
+                return { [weak self, managerReference] in
                     var selectedWorkspace: Workspace?
                     defer {
                         if let selectedWorkspace {
@@ -159,7 +161,7 @@ extension AppDelegate {
                           !Task.isCancelled, coordinator.isAvailable, coordinator.scopeIdentifier == scopeID else { return }
                     resolvedDestination?.apply(workspaceID: workspaceID)
                     selectedWorkspace = self?.focusCreatedCloudWorkspace(
-                        workspaceID, manager: tabManager, revision: revision, windowID: request.windowID
+                        workspaceID, manager: managerReference.value, revision: revision, windowID: request.windowID
                     )
                 }
             }
