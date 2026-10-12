@@ -212,6 +212,31 @@ test("Install runs the install command in place, shows its progress, then checks
   expect(refreshed).toEqual(["catalog"]);
 });
 
+test("an install acpmux still cannot find afterwards says so, never offers Install again", async () => {
+  const container = await renderPage([], [], { shell: { output: ["added 1 package in 3s\n"], code: 0 } });
+  await act(async () => row(container, "OpenCode")!.querySelector<HTMLButtonElement>("button")!.click());
+  await settle(20);
+  const after = row(container, "OpenCode")!;
+  expect(after.dataset.harnessStatus).toBe("failed");
+  expect(after.querySelector(".acpmux-harness-status")?.textContent).toBe("Finished, but cmux can't run it yet");
+  expect([...after.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Setup guide"]);
+});
+
+test("unmounting the page stops an install it started", async () => {
+  const calls: Call[] = [];
+  let end = () => {};
+  const ends = new Promise<void>((resolve) => (end = resolve));
+  const container = await renderPage(calls, [], { shell: { output: ["fetching\n"], code: 0, ends } });
+  await act(async () => row(container, "OpenCode")!.querySelector<HTMLButtonElement>("button")!.click());
+  await settle(20);
+  await act(async () => root!.unmount());
+  root = undefined;
+  end();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(calls.some((call) => call.method === "shell.stop")).toBe(true);
+  expect(calls.some((call) => call.params.rescan === true)).toBe(false);
+});
+
 test("an install that fails says why and offers one fix: the setup page", async () => {
   const calls: Call[] = [];
   const container = await renderPage(calls, [], {
