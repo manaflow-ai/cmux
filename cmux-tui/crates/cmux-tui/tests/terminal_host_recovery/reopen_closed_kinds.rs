@@ -326,3 +326,95 @@ fn another_live_window_never_reopens_a_windows_closed_tab() {
     assert_eq!(from_a["ok"], true, "{from_a}");
     assert_eq!(from_a["result"]["value"]["tab_ids"].as_array().map(Vec::len), Some(1), "{from_a}");
 }
+
+/// Secrets in a closed browser tab's URL never reach closed history
+/// (reopen-closed.md 7.17): query keys on the deny-list (tokens, codes,
+/// signatures, keys, passwords) are dropped from the URL and from every
+/// back/forward entry before the group is stored; the rest of the query,
+/// the path and the fragment come back on reopen.
+#[test]
+fn a_closed_browser_tab_keeps_no_secret_query_keys() {
+    let _exclusive = exclusive_process_test();
+    let (harness, mut app, pane) = start("reopen-browser-secrets");
+    let url = "https://example.com/cb?page=2&access_token=abc&q=a%20b&code=oauth&X-Amz-Signature=s1&api_key=k&PHPSESSID=p9#top";
+    let created = app.send(serde_json::json!({
+        "cmd":"new-frontend-browser-tab","pane":pane,"url":url,"engine":"webkit",
+    }));
+    let surface = created["surface"].as_u64().expect("no browser surface");
+    let history = serde_json::json!({
+        "entries":[
+            {"url":"https://example.com/login?next=%2Fhome&password=hunter2","title":"Login"},
+            {"url":url,"title":"Callback"},
+            {"url":"https://docs.example.com/d/1/edit?authuser=1&pageToken=pg2&sort_key=name&accessKey=ak7","title":"Doc"},
+        ],
+        "index":1,"scroll":{"x":0,"y":40},
+    });
+    app.send(serde_json::json!({"cmd":"set-frontend-browser-history","surface":surface,"history":history}));
+    let back = close_and_reopen(&harness, &mut app, surface, "browser-secrets");
+    // Kept query bytes stay exactly as they were (no re-encoding).
+    assert_eq!(back["url"], "https://example.com/cb?page=2&q=a%20b#top", "{back}");
+    let surface = back["surface"].as_u64().expect("the reopened tab has a surface");
+    let restored =
+        app.send(serde_json::json!({"cmd":"get-frontend-browser-history","surface":surface}));
+    let text = restored.to_string();
+    for secret in
+        ["abc", "oauth", "s1", "hunter2", "api_key", "access_token", "password", "p9", "ak7"]
+    {
+        assert!(!text.contains(secret), "{secret} reached closed history: {restored}");
+    }
+    assert!(text.contains("next=%2Fhome"), "a harmless query key was dropped: {restored}");
+    // Account choice, pagination and sort keys are not secrets.
+    assert!(
+        text.contains("edit?authuser=1&pageToken=pg2&sort_key=name"),
+        "a harmless query key was dropped: {restored}"
+    );
+    assert!(text.contains("\"y\":40"), "the scroll position was lost: {restored}");
+}
+
+/// An incognito window (its workspaces are ephemeral) leaves no closed
+/// history (reopen-closed.md 7.5): closing it records no `window` group,
+/// while a normal window that closes still does.
+#[test]
+fn a_closed_incognito_window_is_never_recorded() {
+    let _exclusive = exclusive_process_test();
+    let (harness, mut app, _) = start("reopen-incognito-window");
+    resource_request(
+        &harness.socket,
+        "incognito-create",
+        "workspace.create",
+        serde_json::json!({"machine":"current","session":"current","name":"secret",
+                           "initial_content":"empty","ephemeral":true}),
+        Some("incognito-create"),
+    );
+    let key_of = |app: &mut AppConnection, name: &str| -> String {
+        app.send(serde_json::json!({"cmd":"list-workspaces"}))["workspaces"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|workspace| workspace["name"] == name)
+            .and_then(|workspace| workspace["key"].as_str().map(str::to_string))
+            .unwrap_or_else(|| panic!("no workspace {name}"))
+    };
+    let secret = key_of(&mut app, "secret");
+    let kinds = key_of(&mut app, "kinds");
+    put_window(&harness, "win-private", Some(&secret), true, "private-open");
+    put_window(&harness, "win-private", Some(&secret), false, "private-close");
+    let window_groups = |list: Vec<serde_json::Value>| -> Vec<serde_json::Value> {
+        list.into_iter().filter(|item| item["kind"] == "window").collect()
+    };
+    assert!(
+        window_groups(closed_list(&harness, "private-list")).is_empty(),
+        "an incognito window was recorded"
+    );
+    put_window(&harness, "win-normal", Some(&kinds), true, "normal-open");
+    put_window(&harness, "win-normal", Some(&kinds), false, "normal-close");
+    let groups = window_groups(closed_list(&harness, "normal-list"));
+    assert_eq!(groups.len(), 1, "{groups:?}");
+    assert_eq!(groups[0]["window"], "reopen-kinds/win-normal");
+    // A window listing only workspaces this daemon does not know (another
+    // machine's, or not loaded yet) is not incognito: it is recorded.
+    put_window(&harness, "win-remote", Some("ws-key-on-another-machine"), true, "remote-open");
+    put_window(&harness, "win-remote", Some("ws-key-on-another-machine"), false, "remote-close");
+    let groups = window_groups(closed_list(&harness, "remote-list"));
+    assert!(groups.iter().any(|group| group["window"] == "reopen-kinds/win-remote"), "{groups:?}");
+}
