@@ -123,7 +123,7 @@ public final class ThemeStore {
         accentFollowsArt = follows
         generation += 1
         if publishesGlobally {
-            ThemeScope.app.storeDidChange()
+            ThemeScope.app.accentSourceDidChange()
             repaintAll()
         }
         return true

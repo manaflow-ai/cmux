@@ -180,6 +180,8 @@ public final class ThemeScope {
         ownTokens = parent.ownTokens
         displayed = ownTokens
         parent.children.add(self)
+        // Art Color: the parent's input carries its own art's hue, not this scope's.
+        if ThemeStore.shared.accentFollowsArt { update(animated: false, repaint: false) }
     }
 
     /// The spec in effect here: this scope's, else the nearest ancestor's.
@@ -279,6 +281,13 @@ public final class ThemeScope {
     /// store repaints every window itself, so scopes only recompute.
     func storeDidChange() {
         update(animated: false, repaint: false)
+    }
+
+    /// Art Color turned on or off: the config's own colors did not change, so every scope below
+    /// re-derives its accent itself.
+    func accentSourceDidChange() {
+        update(animated: false, repaint: false)
+        for child in children.allObjects { child.accentSourceDidChange() }
     }
 
     private func update(animated: Bool, repaint: Bool) {

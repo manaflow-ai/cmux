@@ -80,9 +80,10 @@ final class ThemeCoordinator {
         ThemeStore.shared.setAccent(settings.applied.accent)
         ThemeStore.shared.setAccentFollowsArt(AccentSetting.followsArt(settings.applied.root))
         applyChromeTheme()
-        artAccentObservation = Task {
+        artAccentObservation = Task { [weak self] in
             for await follows in ObservationStream({ AccentSetting.followsArt(settings.applied.root) }) {
-                ThemeStore.shared.setAccentFollowsArt(follows)
+                guard ThemeStore.shared.setAccentFollowsArt(follows) else { continue }
+                self?.applyChromeTheme()
             }
         }
         // `appearance.accent` re-derives the terminal-theme tokens (the store) and the app theme.
@@ -106,6 +107,8 @@ final class ThemeCoordinator {
         ThemeStore.shared.setAppTheme(resolved.map {
             var input = $0.input
             input.accent = ThemeStore.shared.accent
+            // Art Color: pages take the app's art hue (a workspace's own art tints its chrome only).
+            if ThemeStore.shared.accentFollowsArt, let hue = ThemeScope.app.backdropArt?.accentColor { input.accentColor = hue }
             return AppTheme.derive(from: input)
         })
     }
