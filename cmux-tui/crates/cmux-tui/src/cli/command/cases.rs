@@ -209,7 +209,6 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
         (vec!["workspace", WORKSPACE, "move", "--index", "2"], "workspace.move"),
         (vec!["workspace", WORKSPACE, "focus"], "workspace.focus"),
         (vec!["workspace", WORKSPACE, "close"], "workspace.close"),
-        (vec!["workspace", WORKSPACE, "close", "--others", "--end-terminals"], "layout.bulk"),
         (
             vec![
                 "workspace",
@@ -246,7 +245,6 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
         (vec!["screen", SCREEN, "rename", "--name", "tests"], "screen.rename"),
         (vec!["screen", SCREEN, "focus"], "screen.focus"),
         (vec!["screen", SCREEN, "close"], "screen.close"),
-        (vec!["screen", SCREEN, "close", "--to-right"], "layout.bulk"),
         (vec!["screen", SCREEN, "layout", "export"], "screen.layout.export"),
         (
             vec![
@@ -354,7 +352,6 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
             "pane.viewport_width.set",
         ),
         (vec!["pane", PANE, "close"], "pane.close"),
-        (vec!["pane", PANE, "close", "--all"], "layout.bulk"),
         (
             vec![
                 "pane",

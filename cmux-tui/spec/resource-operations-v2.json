@@ -17283,7 +17283,7 @@
         "constraints": [
           "One call is one commit and one closed group: Reopen Closed restores every object it closed.",
           "Containers the close empties close in the same commit and join the group.",
-          "The home workspace never closes. A selection with nothing to close commits nothing.",
+          "The home workspace anchors a selector but never closes; an object with no tab has nothing to close and is not reported. A call with nothing to close commits nothing and keeps no idempotency receipt.",
           "`to_right` and `to_left` are refused at level `pane`.",
           "At most 4096 tabs per call."
         ]

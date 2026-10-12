@@ -15,8 +15,10 @@
 //! names the objects (any container), for a client that knows a scope the
 //! daemon does not, such as the workspaces of the current space in sidebar
 //! order. Pinned tabs and screens are skipped by every selector but `this`
-//! and `selection`, unless `include_pinned`. The home workspace never closes.
-//! A selection with nothing to close commits nothing and writes no group.
+//! and `selection`, unless `include_pinned`. The home workspace anchors a
+//! selector but never closes; an object with no tab has nothing to close.
+//! A call with nothing to close commits nothing, writes no group and keeps
+//! no idempotency receipt (a retry chooses again).
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -101,12 +103,14 @@ impl BulkRequest {
 }
 
 /// An object a selector can choose: its public id, its container (the
-/// anchored selectors stay in it), its tabs and whether it is pinned.
+/// anchored selectors stay in it), its tabs, whether it is pinned, and
+/// whether it may close (the home workspace anchors but never closes).
 struct Item {
     id: String,
     container: u64,
     tabs: Vec<SurfaceId>,
     pinned: bool,
+    closable: bool,
 }
 
 fn pane_tabs(state: &State, pane: PaneId) -> Vec<SurfaceId> {
@@ -125,19 +129,17 @@ fn items(state: &State, presentation: &PresentationSnapshot, level: BulkLevel) -
     for workspace in &state.workspaces {
         let home = presentation.home_workspace.as_deref() == Some(workspace.key.as_str());
         if level == BulkLevel::Workspace {
-            // The home workspace never closes: it is not an object here.
-            if !home {
-                items.push(Item {
-                    id: workspace.public_id.to_string(),
-                    container: 0,
-                    tabs: workspace
-                        .screens
-                        .iter()
-                        .flat_map(|screen| screen_tabs(state, screen))
-                        .collect(),
-                    pinned: false,
-                });
-            }
+            items.push(Item {
+                id: workspace.public_id.to_string(),
+                container: 0,
+                tabs: workspace
+                    .screens
+                    .iter()
+                    .flat_map(|screen| screen_tabs(state, screen))
+                    .collect(),
+                pinned: false,
+                closable: !home,
+            });
             continue;
         }
         for screen in &workspace.screens {
@@ -147,6 +149,7 @@ fn items(state: &State, presentation: &PresentationSnapshot, level: BulkLevel) -
                     container: workspace.id,
                     tabs: screen_tabs(state, screen),
                     pinned: presentation.screens.is_pinned(screen.public_id.as_str()),
+                    closable: true,
                 });
                 continue;
             }
@@ -160,6 +163,7 @@ fn items(state: &State, presentation: &PresentationSnapshot, level: BulkLevel) -
                         container: screen.id,
                         tabs: pane_tabs(state, pane),
                         pinned: false,
+                        closable: true,
                     });
                     continue;
                 }
@@ -170,6 +174,7 @@ fn items(state: &State, presentation: &PresentationSnapshot, level: BulkLevel) -
                         container: pane,
                         tabs: vec![tab],
                         pinned: presentation.pinned_tabs.contains(id.as_str()),
+                        closable: true,
                     });
                 }
             }
@@ -211,8 +216,11 @@ fn selected_anchor(
     }
 }
 
-/// The objects `request` chooses relative to `anchor`, in container order.
+/// The objects `request` chooses relative to `anchor`, in container order,
+/// that the call closes: never the home workspace, nor an object with no
+/// tab (it has nothing to close and stays).
 fn choose(request: &BulkRequest, anchor: &str, items: Vec<Item>) -> anyhow::Result<Vec<Item>> {
+    let closes = |item: &Item| item.closable && !item.tabs.is_empty();
     let level = level_name(request.level);
     if request.selector == BulkSelector::Selection {
         let ids = request.ids.as_deref().unwrap_or_default();
@@ -221,7 +229,10 @@ fn choose(request: &BulkRequest, anchor: &str, items: Vec<Item>) -> anyhow::Resu
                 return Err(crate::state::commit::state_not_found(level, id));
             }
         }
-        return Ok(items.into_iter().filter(|item| ids.contains(&item.id)).collect());
+        return Ok(items
+            .into_iter()
+            .filter(|item| ids.contains(&item.id) && closes(item))
+            .collect());
     }
     let Some(position) = items.iter().position(|item| item.id == anchor) else {
         return Err(crate::state::commit::state_not_found(level, anchor));
@@ -242,6 +253,7 @@ fn choose(request: &BulkRequest, anchor: &str, items: Vec<Item>) -> anyhow::Resu
             BulkSelector::Selection => false,
         })
         .map(|(_, item)| item)
+        .filter(closes)
         .collect();
     Ok(chosen)
 }
@@ -282,7 +294,7 @@ impl Mux {
                         .resolve_in_state(state, target, selectors)
                         .map_err(anyhow::Error::new)?;
                     selected_anchor(state, &slots, request.level)
-                        .context("the selectors name no object at the level")?
+                        .context("bad request: the selectors name no object at the level")?
                 }
             };
             let chosen = choose(request, &anchor, items(state, &presentation, request.level))?;

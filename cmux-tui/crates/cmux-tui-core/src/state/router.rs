@@ -378,7 +378,14 @@ pub(crate) fn dispatch(
         }
         // One bulk preset: one commit, one closed group (cx-gzh.5).
         Op::LayoutBulk => {
-            ensure_session(mux, selectors)?;
+            // The level's selectors may name the anchor; the session check
+            // takes only machine and session.
+            let session = crate::ResourceSelectors {
+                machine: selectors.machine.clone(),
+                session: selectors.session.clone(),
+                ..crate::ResourceSelectors::default()
+            };
+            ensure_session(mux, &session)?;
             let bulk =
                 crate::state::layout_bulk::BulkRequest::from_fields(fields).map_err(state_error)?;
             let commit = mux

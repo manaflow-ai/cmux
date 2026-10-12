@@ -1906,6 +1906,7 @@ fn supports_expected_revision(operation: ResourceOperation) -> bool {
                 | ResourceOperation::SessionJournalHookPut
                 | ResourceOperation::SessionJournalProducerPut
                 | ResourceOperation::SessionJournalSegmentSeal
+                | ResourceOperation::LayoutBulk
         )
 }
 
