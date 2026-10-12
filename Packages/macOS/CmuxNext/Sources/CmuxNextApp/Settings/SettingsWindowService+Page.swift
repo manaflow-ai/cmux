@@ -45,8 +45,16 @@ extension SettingsWindowService {
             // Computer Use Setup (Agents): the helper's grants, the same state as the palette action.
             "computer_use": services.onboarding.computerUseSetup.pageJSON,
             "settings_file": services.settings.map { .string($0.file.url.path(percentEncoded: false)) } ?? .null,
-            "backdrops": .array(Self.backdrops.choices.map { choice in
-                ["id": .string(choice.id), "title": .string(choice.title), "attribution": .string(choice.attribution)]
+            // Art carries its picker collection (Dark Art, Museum Icons, Calm, Doré); the page
+            // groups the grid by it.
+            "backdrops": .array(Self.backdrops.choices.map { choice -> JSONValue in
+                var row: [String: JSONValue] = ["id": .string(choice.id), "title": .string(choice.title),
+                                                "attribution": .string(choice.attribution)]
+                if case .art(let art) = choice {
+                    row["collection"] = .string(art.collection.rawValue)
+                    row["collection_title"] = .string(art.collection.title)
+                }
+                return .object(row)
             }),
             "derived": .object(pageDerivedNumbers()),
         ]

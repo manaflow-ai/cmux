@@ -25,10 +25,10 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         }
     }
 
-    /// The short title shown in the wallpaper grid.
+    /// The short title shown in the wallpaper grid: "Title — Artist" for art.
     public var title: String {
         switch self {
-        case .art(let art): return art.title
+        case .art(let art): return art.label
         case .system(let path): return URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
         case .desktop: return String(localized: "backdrop.desktop.title", defaultValue: "Desktop Wallpaper", bundle: .module)
         }
@@ -52,6 +52,24 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         case .art(let art): return art.sourceURL
         case .system, .desktop: return nil
         }
+    }
+
+    /// The tint the selected work looks best under, replacing the theme's; nil for other sources.
+    public var preferredTintOpacity: Double? {
+        if case .art(let art) = self { return art.metadata.preferredTintOpacity }
+        return nil
+    }
+
+    /// The selected work's measured darkest and lightest colors; nil when unknown.
+    public var artRange: BackdropArtRange? {
+        if case .art(let art) = self { return art.metadata.range }
+        return nil
+    }
+
+    /// A small image of the selection that is always here: the bundled thumbnail for art.
+    public var thumbnailURL: URL? {
+        if case .art(let art) = self { return art.thumbnailURL }
+        return imageURL
     }
 
     /// The least theme tint over this image at full opacity (``BackdropArtMetadata/minimumTintOpacity``).
@@ -83,7 +101,7 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
 
     /// Decodes a persisted selection, accepting the legacy `backdropArt` value.
     public init?(id: String) {
-        if let art = BackdropArt(rawValue: id) {
+        if let art = BackdropArt(id: id) {
             self = .art(art)
         } else if id == Self.desktopID {
             self = .desktop

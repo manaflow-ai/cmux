@@ -5682,17 +5682,175 @@
     {
       "accepts" : [
         "none",
-        "wheat-field-with-cypresses",
-        "met-saint-catherine-436908",
-        "met-woman-man-casement-436896",
-        "met-women-picking-olives-436536",
-        "met-sunflowers-436524",
-        "nga-degas-halevy-standing-66489",
-        "nga-degas-dancer-from-behind-32137",
-        "nga-carpaccio-groups-of-male-figures-73858",
-        "nga-perino-del-vaga-figure-studies-57613",
-        "nga-rubens-battle-of-nude-men-63034",
-        "nga-teniers-market-figures-62615"
+        "david-death-of-marat",
+        "goya-saturn",
+        "velde-small-ship-storm",
+        "bosch-garden-right",
+        "bosch-ascent-blessed",
+        "goya-witches-flight",
+        "bocklin-self-portrait-death",
+        "caravaggio-medusa",
+        "martin-pandemonium",
+        "moran-burning-philadelphia",
+        "goya-burial-sardine",
+        "arbo-wild-hunt",
+        "caravaggio-david-goliath",
+        "van-gogh-skeleton-cigarette",
+        "altdorfer-battle-of-issus",
+        "gentileschi-judith",
+        "munch-madonna",
+        "bocklin-isle-of-the-dead",
+        "klee-fish-magic",
+        "friedrich-forest-moonlight",
+        "goya-witches-sabbath",
+        "bosch-garden-left",
+        "rembrandt-storm-galilee",
+        "cole-voyage-manhood",
+        "fuseli-nightmare-2",
+        "hiremy-hirschl-souls-of-acheron",
+        "munch-scream",
+        "klimt-judith",
+        "repin-ivan",
+        "millais-ophelia",
+        "bruegel-fall-rebel-angels",
+        "fuseli-nightmare",
+        "bundy-death-general",
+        "wright-vesuvius",
+        "gerome-botsaris",
+        "durer-knight-death-devil",
+        "martin-joshua",
+        "velde-gale",
+        "hogai-nio",
+        "klimt-death-and-life",
+        "klimt-medicine",
+        "bosch-garden-central",
+        "martin-great-day-wrath",
+        "bonheur-wounded-eagle",
+        "gerome-pollice-verso",
+        "cole-voyage-old-age",
+        "friedrich-abbey-oakwood",
+        "goya-sleep-of-reason",
+        "bosch-garden-fragment",
+        "bruegel-triumph-death",
+        "spilliaert-vertigo",
+        "rothaug-melpomene",
+        "schiele-death-and-the-maiden",
+        "aivazovsky-ship-stormy-seas",
+        "vereshchagin-apotheosis-war",
+        "ensor-skeleton-painter",
+        "cabanel-fallen-angel",
+        "spilliaert-woman-shoreline",
+        "rembrandt-prodigal-son",
+        "velazquez-las-meninas",
+        "matejko-stanczyk",
+        "sargent-madame-x",
+        "millais-joan-of-arc",
+        "cot-storm",
+        "rembrandt-night-watch",
+        "vigee-lebrun-madame-grand",
+        "waterhouse-lady-shalott",
+        "draper-lament-icarus",
+        "fragonard-swing",
+        "rubens-st-francis-xavier",
+        "vermeer-pearl-earring",
+        "danielson-gambogi-self",
+        "beard-his-majesty",
+        "marc-foxes",
+        "degas-green-dancers",
+        "modigliani-nude-divan",
+        "raphael-sistine-madonna",
+        "bouguereau-virgin-lilies",
+        "wood-american-gothic",
+        "steinlen-chat-noir",
+        "degas-blue-dancers",
+        "botticelli-primavera",
+        "van-gogh-cafe-terrace",
+        "matisse-red-room",
+        "kandinsky-deepened-impulse",
+        "friedrich-wanderer",
+        "klimt-adele",
+        "mucha-job",
+        "van-gogh-starry-night",
+        "klimt-tree-of-life",
+        "klimt-the-kiss",
+        "van-gogh-starry-night-rhone",
+        "delacroix-liberty",
+        "van-gogh-sunflowers",
+        "klimt-mada-primavesi",
+        "schiele-kneeling-orange",
+        "van-gogh-sunflowers-munich",
+        "michelangelo-sistine-ceiling",
+        "mondrian-composition-red-plane",
+        "lemoyne-apotheosis-hercules",
+        "schiele-moa",
+        "aivazovsky-ninth-wave",
+        "popova-painterly-architectonic",
+        "bruegel-tower-babel",
+        "botticelli-birth-of-venus",
+        "kandinsky-yellow-red-blue",
+        "kandinsky-composition-viii",
+        "kramskoi-unknown-woman",
+        "michelangelo-creation-of-adam",
+        "hokusai-great-wave",
+        "brueghel-wooden-vessel",
+        "dahl-dresden-moonlight",
+        "bosschaert-wan-li-vase",
+        "cot-springtime",
+        "ruysch-flowers",
+        "van-gogh-flowering-plum",
+        "toulmouche-reluctant-bride",
+        "rosso-musical-angel",
+        "grimshaw-blackman-street",
+        "waterhouse-ophelia",
+        "biard-magdalena-bay",
+        "renoir-vase-roses",
+        "roerich-himalayas",
+        "velde-close-hauled",
+        "sohlberg-flower-meadow",
+        "dahl-cloud-study",
+        "friedrich-two-men-moon",
+        "monet-waterlily-pond",
+        "hesselbom-dusk",
+        "toulmouche-vanity",
+        "hiroshige-zoshigaya",
+        "monet-water-lilies",
+        "monet-water-lilies-1907",
+        "bierstadt-storm-rockies",
+        "korovin-place-opera",
+        "klimt-garden-sunflowers",
+        "redon-butterflies",
+        "aivazovsky-winter-landscape",
+        "aivazovsky-along-coast",
+        "grimshaw-silver-moonlight",
+        "monet-water-lilies-setting-sun",
+        "hiroshige-hota-coast",
+        "durer-praying-hands",
+        "cole-voyage-childhood",
+        "monet-impression-sunrise",
+        "monet-woman-parasol",
+        "velde-cannon-shot",
+        "cross-pink-cloud",
+        "laurence-mckinley",
+        "van-gogh-irises",
+        "kramskoi-christ-in-the-desert",
+        "turner-temeraire",
+        "leonardo-vitruvian-man",
+        "bruegel-hunters-snow",
+        "cole-voyage-youth",
+        "friedrich-monk-by-the-sea",
+        "van-gogh-wheat-field-cypresses",
+        "monet-cliff-pourville",
+        "van-gogh-almond-blossom",
+        "van-gogh-fishing-boats",
+        "hokusai-umezawa",
+        "dore-fall-of-satan",
+        "dore-flood",
+        "dore-wolves-sheep",
+        "dore-leviathan",
+        "dore-paradise-lost-book-vi",
+        "dore-moses-tables",
+        "dore-empyrean",
+        "dore-raven"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -5707,79 +5865,1185 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Wheat Field with Cypresses"
+            "text" : "The Death of Marat — Jacques-Louis David"
           },
-          "value" : "wheat-field-with-cypresses"
+          "value" : "david-death-of-marat"
         },
         {
           "title" : {
             "key" : null,
-            "text" : "Saint Catherine of Alexandria"
+            "text" : "Saturn Devouring His Son — Francisco Goya"
           },
-          "value" : "met-saint-catherine-436908"
+          "value" : "goya-saturn"
         },
         {
           "title" : {
             "key" : null,
-            "text" : "Portrait at a Casement"
+            "text" : "A Small Dutch Ship Riding Out a Storm — Willem van de Velde the Younger"
           },
-          "value" : "met-woman-man-casement-436896"
+          "value" : "velde-small-ship-storm"
         },
         {
           "title" : {
             "key" : null,
-            "text" : "Women Picking Olives"
+            "text" : "The Garden of Earthly Delights: Hell — Hieronymus Bosch"
           },
-          "value" : "met-women-picking-olives-436536"
+          "value" : "bosch-garden-right"
         },
         {
           "title" : {
             "key" : null,
-            "text" : "Sunflowers"
+            "text" : "Ascent of the Blessed — Hieronymus Bosch"
           },
-          "value" : "met-sunflowers-436524"
+          "value" : "bosch-ascent-blessed"
         },
         {
           "title" : {
             "key" : null,
-            "text" : "Three Studies of Ludovic Halévy Standing"
+            "text" : "Witches' Flight — Francisco Goya"
           },
-          "value" : "nga-degas-halevy-standing-66489"
+          "value" : "goya-witches-flight"
         },
         {
           "title" : {
             "key" : null,
-            "text" : "Dancer Seen from Behind"
+            "text" : "Self-Portrait with Death Playing the Fiddle — Arnold Böcklin"
           },
-          "value" : "nga-degas-dancer-from-behind-32137"
+          "value" : "bocklin-self-portrait-death"
         },
         {
           "title" : {
             "key" : null,
-            "text" : "Groups of Male Figures"
+            "text" : "Medusa — Caravaggio"
           },
-          "value" : "nga-carpaccio-groups-of-male-figures-73858"
+          "value" : "caravaggio-medusa"
         },
         {
           "title" : {
             "key" : null,
-            "text" : "Figure Studies"
+            "text" : "Pandemonium — John Martin"
           },
-          "value" : "nga-perino-del-vaga-figure-studies-57613"
+          "value" : "martin-pandemonium"
         },
         {
           "title" : {
             "key" : null,
-            "text" : "Battle of Nude Men"
+            "text" : "Burning of the Frigate Philadelphia — Edward Moran"
           },
-          "value" : "nga-rubens-battle-of-nude-men-63034"
+          "value" : "moran-burning-philadelphia"
         },
         {
           "title" : {
             "key" : null,
-            "text" : "Studies of Market Figures"
+            "text" : "The Burial of the Sardine — Francisco Goya"
           },
-          "value" : "nga-teniers-market-figures-62615"
+          "value" : "goya-burial-sardine"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Wild Hunt of Odin — Peter Nicolai Arbo"
+          },
+          "value" : "arbo-wild-hunt"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "David with the Head of Goliath — Caravaggio"
+          },
+          "value" : "caravaggio-david-goliath"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Skeleton with a Burning Cigarette — Vincent van Gogh"
+          },
+          "value" : "van-gogh-skeleton-cigarette"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Battle of Alexander at Issus — Albrecht Altdorfer"
+          },
+          "value" : "altdorfer-battle-of-issus"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Judith Slaying Holofernes — Artemisia Gentileschi"
+          },
+          "value" : "gentileschi-judith"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Madonna — Edvard Munch"
+          },
+          "value" : "munch-madonna"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Isle of the Dead — Arnold Böcklin"
+          },
+          "value" : "bocklin-isle-of-the-dead"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Fish Magic — Paul Klee"
+          },
+          "value" : "klee-fish-magic"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Forest Interior by Moonlight — Caspar David Friedrich"
+          },
+          "value" : "friedrich-forest-moonlight"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Witches' Sabbath — Francisco Goya"
+          },
+          "value" : "goya-witches-sabbath"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Garden of Earthly Delights: Paradise — Hieronymus Bosch"
+          },
+          "value" : "bosch-garden-left"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Storm on the Sea of Galilee — Rembrandt van Rijn"
+          },
+          "value" : "rembrandt-storm-galilee"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Voyage of Life: Manhood — Thomas Cole"
+          },
+          "value" : "cole-voyage-manhood"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Nightmare (1791) — Henry Fuseli"
+          },
+          "value" : "fuseli-nightmare-2"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Souls of Acheron — Adolf Hirémy-Hirschl"
+          },
+          "value" : "hiremy-hirschl-souls-of-acheron"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Scream — Edvard Munch"
+          },
+          "value" : "munch-scream"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Judith I — Gustav Klimt"
+          },
+          "value" : "klimt-judith"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Ivan the Terrible and His Son Ivan — Ilya Repin"
+          },
+          "value" : "repin-ivan"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Ophelia — John Everett Millais"
+          },
+          "value" : "millais-ophelia"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Fall of the Rebel Angels — Pieter Bruegel the Elder"
+          },
+          "value" : "bruegel-fall-rebel-angels"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Nightmare — Henry Fuseli"
+          },
+          "value" : "fuseli-nightmare"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Death as General — Edgar Bundy"
+          },
+          "value" : "bundy-death-general"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Vesuvius in Eruption — Joseph Wright of Derby"
+          },
+          "value" : "wright-vesuvius"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Markos Botsaris — Jean-Léon Gérôme"
+          },
+          "value" : "gerome-botsaris"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Knight, Death and the Devil — Albrecht Dürer"
+          },
+          "value" : "durer-knight-death-devil"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Joshua Commanding the Sun to Stand Still — John Martin"
+          },
+          "value" : "martin-joshua"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Gust — Willem van de Velde the Younger"
+          },
+          "value" : "velde-gale"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Niō Seizing an Evil Spirit — Kanō Hōgai"
+          },
+          "value" : "hogai-nio"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Death and Life — Gustav Klimt"
+          },
+          "value" : "klimt-death-and-life"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Medicine — Gustav Klimt"
+          },
+          "value" : "klimt-medicine"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Garden of Earthly Delights — Hieronymus Bosch"
+          },
+          "value" : "bosch-garden-central"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Great Day of His Wrath — John Martin"
+          },
+          "value" : "martin-great-day-wrath"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Wounded Eagle — Rosa Bonheur"
+          },
+          "value" : "bonheur-wounded-eagle"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Pollice Verso — Jean-Léon Gérôme"
+          },
+          "value" : "gerome-pollice-verso"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Voyage of Life: Old Age — Thomas Cole"
+          },
+          "value" : "cole-voyage-old-age"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Abbey in the Oakwood — Caspar David Friedrich"
+          },
+          "value" : "friedrich-abbey-oakwood"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Sleep of Reason Produces Monsters — Francisco Goya"
+          },
+          "value" : "goya-sleep-of-reason"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Garden of Earthly Delights (Detail) — Hieronymus Bosch"
+          },
+          "value" : "bosch-garden-fragment"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Triumph of Death — Pieter Bruegel the Elder"
+          },
+          "value" : "bruegel-triumph-death"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Vertigo — Léon Spilliaert"
+          },
+          "value" : "spilliaert-vertigo"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Melpomene — Alexander Rothaug"
+          },
+          "value" : "rothaug-melpomene"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Death and the Maiden — Egon Schiele"
+          },
+          "value" : "schiele-death-and-the-maiden"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Ship on Stormy Seas — Ivan Aivazovsky"
+          },
+          "value" : "aivazovsky-ship-stormy-seas"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Apotheosis of War — Vasily Vereshchagin"
+          },
+          "value" : "vereshchagin-apotheosis-war"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Skeleton Painter — James Ensor"
+          },
+          "value" : "ensor-skeleton-painter"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Fallen Angel — Alexandre Cabanel"
+          },
+          "value" : "cabanel-fallen-angel"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Woman at the Shoreline — Léon Spilliaert"
+          },
+          "value" : "spilliaert-woman-shoreline"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Return of the Prodigal Son — Rembrandt van Rijn"
+          },
+          "value" : "rembrandt-prodigal-son"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Las Meninas — Diego Velázquez"
+          },
+          "value" : "velazquez-las-meninas"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Stańczyk — Jan Matejko"
+          },
+          "value" : "matejko-stanczyk"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Madame X — John Singer Sargent"
+          },
+          "value" : "sargent-madame-x"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Joan of Arc — John Everett Millais"
+          },
+          "value" : "millais-joan-of-arc"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Storm — Pierre Auguste Cot"
+          },
+          "value" : "cot-storm"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Night Watch — Rembrandt van Rijn"
+          },
+          "value" : "rembrandt-night-watch"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Madame Grand — Élisabeth Vigée Le Brun"
+          },
+          "value" : "vigee-lebrun-madame-grand"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Lady of Shalott — John William Waterhouse"
+          },
+          "value" : "waterhouse-lady-shalott"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Lament for Icarus — Herbert James Draper"
+          },
+          "value" : "draper-lament-icarus"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Swing — Jean-Honoré Fragonard"
+          },
+          "value" : "fragonard-swing"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Miracles of St Francis Xavier — Peter Paul Rubens"
+          },
+          "value" : "rubens-st-francis-xavier"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Girl with a Pearl Earring — Johannes Vermeer"
+          },
+          "value" : "vermeer-pearl-earring"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Self-Portrait — Elin Danielson-Gambogi"
+          },
+          "value" : "danielson-gambogi-self"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "His Majesty Receives — William Holbrook Beard"
+          },
+          "value" : "beard-his-majesty"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Foxes — Franz Marc"
+          },
+          "value" : "marc-foxes"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Dancer in Green — Edgar Degas"
+          },
+          "value" : "degas-green-dancers"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Nude Sitting on a Divan — Amedeo Modigliani"
+          },
+          "value" : "modigliani-nude-divan"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Sistine Madonna — Raphael"
+          },
+          "value" : "raphael-sistine-madonna"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Virgin of the Lilies — William-Adolphe Bouguereau"
+          },
+          "value" : "bouguereau-virgin-lilies"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "American Gothic — Grant Wood"
+          },
+          "value" : "wood-american-gothic"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Tournée du Chat Noir — Théophile Alexandre Steinlen"
+          },
+          "value" : "steinlen-chat-noir"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Blue Dancers — Edgar Degas"
+          },
+          "value" : "degas-blue-dancers"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Primavera — Sandro Botticelli"
+          },
+          "value" : "botticelli-primavera"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Café Terrace at Night — Vincent van Gogh"
+          },
+          "value" : "van-gogh-cafe-terrace"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Red Room — Henri Matisse"
+          },
+          "value" : "matisse-red-room"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Deepened Impulse — Wassily Kandinsky"
+          },
+          "value" : "kandinsky-deepened-impulse"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Wanderer above the Sea of Fog — Caspar David Friedrich"
+          },
+          "value" : "friedrich-wanderer"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Adele Bloch-Bauer I — Gustav Klimt"
+          },
+          "value" : "klimt-adele"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Job — Alphonse Mucha"
+          },
+          "value" : "mucha-job"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Starry Night — Vincent van Gogh"
+          },
+          "value" : "van-gogh-starry-night"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Tree of Life — Gustav Klimt"
+          },
+          "value" : "klimt-tree-of-life"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Kiss — Gustav Klimt"
+          },
+          "value" : "klimt-the-kiss"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Starry Night over the Rhône — Vincent van Gogh"
+          },
+          "value" : "van-gogh-starry-night-rhone"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Liberty Leading the People — Eugène Delacroix"
+          },
+          "value" : "delacroix-liberty"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Sunflowers — Vincent van Gogh"
+          },
+          "value" : "van-gogh-sunflowers"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Mäda Primavesi — Gustav Klimt"
+          },
+          "value" : "klimt-mada-primavesi"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Kneeling Woman in Orange-Red Dress — Egon Schiele"
+          },
+          "value" : "schiele-kneeling-orange"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Vase with Twelve Sunflowers — Vincent van Gogh"
+          },
+          "value" : "van-gogh-sunflowers-munich"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Sistine Chapel Ceiling — Michelangelo"
+          },
+          "value" : "michelangelo-sistine-ceiling"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Composition with Large Red Plane — Piet Mondrian"
+          },
+          "value" : "mondrian-composition-red-plane"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Apotheosis of Hercules — François Lemoyne"
+          },
+          "value" : "lemoyne-apotheosis-hercules"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Moa — Egon Schiele"
+          },
+          "value" : "schiele-moa"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Ninth Wave — Ivan Aivazovsky"
+          },
+          "value" : "aivazovsky-ninth-wave"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Painterly Architectonic — Lyubov Popova"
+          },
+          "value" : "popova-painterly-architectonic"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Tower of Babel — Pieter Bruegel the Elder"
+          },
+          "value" : "bruegel-tower-babel"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Birth of Venus — Sandro Botticelli"
+          },
+          "value" : "botticelli-birth-of-venus"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Yellow-Red-Blue — Wassily Kandinsky"
+          },
+          "value" : "kandinsky-yellow-red-blue"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Composition VIII — Wassily Kandinsky"
+          },
+          "value" : "kandinsky-composition-viii"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Unknown Woman — Ivan Kramskoi"
+          },
+          "value" : "kramskoi-unknown-woman"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Creation of Adam — Michelangelo"
+          },
+          "value" : "michelangelo-creation-of-adam"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Great Wave off Kanagawa — Katsushika Hokusai"
+          },
+          "value" : "hokusai-great-wave"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Flowers in a Wooden Vessel — Jan Brueghel the Elder"
+          },
+          "value" : "brueghel-wooden-vessel"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "View of Dresden by Moonlight — Johan Christian Dahl"
+          },
+          "value" : "dahl-dresden-moonlight"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Flowers in a Wan-Li Vase — Ambrosius Bosschaert the Elder"
+          },
+          "value" : "bosschaert-wan-li-vase"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Springtime — Pierre Auguste Cot"
+          },
+          "value" : "cot-springtime"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Still Life with Flowers — Rachel Ruysch"
+          },
+          "value" : "ruysch-flowers"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Flowering Plum Orchard — Vincent van Gogh"
+          },
+          "value" : "van-gogh-flowering-plum"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Reluctant Bride — Auguste Toulmouche"
+          },
+          "value" : "toulmouche-reluctant-bride"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Musical Angel — Rosso Fiorentino"
+          },
+          "value" : "rosso-musical-angel"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Blackman Street, London — John Atkinson Grimshaw"
+          },
+          "value" : "grimshaw-blackman-street"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Ophelia — John William Waterhouse"
+          },
+          "value" : "waterhouse-ophelia"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Magdalena Bay — François-Auguste Biard"
+          },
+          "value" : "biard-magdalena-bay"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Roses in a Vase — Pierre-Auguste Renoir"
+          },
+          "value" : "renoir-vase-roses"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Himalayas — Nicholas Roerich"
+          },
+          "value" : "roerich-himalayas"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "A Small Dutch Vessel Close-hauled — Willem van de Velde the Younger"
+          },
+          "value" : "velde-close-hauled"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Flower Meadow in the North — Harald Sohlberg"
+          },
+          "value" : "sohlberg-flower-meadow"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Cloud Study by Moonlight — Johan Christian Dahl"
+          },
+          "value" : "dahl-cloud-study"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Two Men Contemplating the Moon — Caspar David Friedrich"
+          },
+          "value" : "friedrich-two-men-moon"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Water-Lily Pond — Claude Monet"
+          },
+          "value" : "monet-waterlily-pond"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Dusk — Otto Hesselbom"
+          },
+          "value" : "hesselbom-dusk"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Vanity — Auguste Toulmouche"
+          },
+          "value" : "toulmouche-vanity"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Fuji-view Teahouse at Zōshigaya — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-zoshigaya"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Water Lilies (1906) — Claude Monet"
+          },
+          "value" : "monet-water-lilies"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Water Lilies (1907) — Claude Monet"
+          },
+          "value" : "monet-water-lilies-1907"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "A Storm in the Rocky Mountains — Albert Bierstadt"
+          },
+          "value" : "bierstadt-storm-rockies"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Paris at Night — Konstantin Korovin"
+          },
+          "value" : "korovin-place-opera"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Farm Garden with Sunflowers — Gustav Klimt"
+          },
+          "value" : "klimt-garden-sunflowers"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Butterflies — Odilon Redon"
+          },
+          "value" : "redon-butterflies"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Winter Landscape — Ivan Aivazovsky"
+          },
+          "value" : "aivazovsky-winter-landscape"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Along the Coast — Ivan Aivazovsky"
+          },
+          "value" : "aivazovsky-along-coast"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Silver Moonlight — John Atkinson Grimshaw"
+          },
+          "value" : "grimshaw-silver-moonlight"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Water Lilies, Setting Sun — Claude Monet"
+          },
+          "value" : "monet-water-lilies-setting-sun"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Coast at Hota — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-hota-coast"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Praying Hands — Albrecht Dürer"
+          },
+          "value" : "durer-praying-hands"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Voyage of Life: Childhood — Thomas Cole"
+          },
+          "value" : "cole-voyage-childhood"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Impression, Sunrise — Claude Monet"
+          },
+          "value" : "monet-impression-sunrise"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Woman with a Parasol — Claude Monet"
+          },
+          "value" : "monet-woman-parasol"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Cannon Shot — Willem van de Velde the Younger"
+          },
+          "value" : "velde-cannon-shot"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Pink Cloud — Henri-Edmond Cross"
+          },
+          "value" : "cross-pink-cloud"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Mt. McKinley — Sydney Laurence"
+          },
+          "value" : "laurence-mckinley"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Irises — Vincent van Gogh"
+          },
+          "value" : "van-gogh-irises"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Christ in the Desert — Ivan Kramskoi"
+          },
+          "value" : "kramskoi-christ-in-the-desert"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Fighting Temeraire — J. M. W. Turner"
+          },
+          "value" : "turner-temeraire"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Vitruvian Man — Leonardo da Vinci"
+          },
+          "value" : "leonardo-vitruvian-man"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Hunters in the Snow — Pieter Bruegel the Elder"
+          },
+          "value" : "bruegel-hunters-snow"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Voyage of Life: Youth — Thomas Cole"
+          },
+          "value" : "cole-voyage-youth"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Monk by the Sea — Caspar David Friedrich"
+          },
+          "value" : "friedrich-monk-by-the-sea"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Wheat Field with Cypresses — Vincent van Gogh"
+          },
+          "value" : "van-gogh-wheat-field-cypresses"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Cliff Walk at Pourville — Claude Monet"
+          },
+          "value" : "monet-cliff-pourville"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Almond Blossom — Vincent van Gogh"
+          },
+          "value" : "van-gogh-almond-blossom"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Fishing Boats at Saintes-Maries — Vincent van Gogh"
+          },
+          "value" : "van-gogh-fishing-boats"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Umezawa Manor in Sagami — Katsushika Hokusai"
+          },
+          "value" : "hokusai-umezawa"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Fall of Satan — Gustave Doré"
+          },
+          "value" : "dore-fall-of-satan"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Deluge — Gustave Doré"
+          },
+          "value" : "dore-flood"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Wolves and the Sheep — Gustave Doré"
+          },
+          "value" : "dore-wolves-sheep"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Destruction of Leviathan — Gustave Doré"
+          },
+          "value" : "dore-leviathan"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Paradise Lost, Book VI — Gustave Doré"
+          },
+          "value" : "dore-paradise-lost-book-vi"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Moses Breaks the Tables of the Law — Gustave Doré"
+          },
+          "value" : "dore-moses-tables"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Empyrean — Gustave Doré"
+          },
+          "value" : "dore-empyrean"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Raven — Gustave Doré"
+          },
+          "value" : "dore-raven"
         }
       ],
       "consumers" : [
@@ -5831,17 +7095,175 @@
       "accepts" : [
         "none",
         "desktop",
-        "wheat-field-with-cypresses",
-        "met-saint-catherine-436908",
-        "met-woman-man-casement-436896",
-        "met-women-picking-olives-436536",
-        "met-sunflowers-436524",
-        "nga-degas-halevy-standing-66489",
-        "nga-degas-dancer-from-behind-32137",
-        "nga-carpaccio-groups-of-male-figures-73858",
-        "nga-perino-del-vaga-figure-studies-57613",
-        "nga-rubens-battle-of-nude-men-63034",
-        "nga-teniers-market-figures-62615",
+        "david-death-of-marat",
+        "goya-saturn",
+        "velde-small-ship-storm",
+        "bosch-garden-right",
+        "bosch-ascent-blessed",
+        "goya-witches-flight",
+        "bocklin-self-portrait-death",
+        "caravaggio-medusa",
+        "martin-pandemonium",
+        "moran-burning-philadelphia",
+        "goya-burial-sardine",
+        "arbo-wild-hunt",
+        "caravaggio-david-goliath",
+        "van-gogh-skeleton-cigarette",
+        "altdorfer-battle-of-issus",
+        "gentileschi-judith",
+        "munch-madonna",
+        "bocklin-isle-of-the-dead",
+        "klee-fish-magic",
+        "friedrich-forest-moonlight",
+        "goya-witches-sabbath",
+        "bosch-garden-left",
+        "rembrandt-storm-galilee",
+        "cole-voyage-manhood",
+        "fuseli-nightmare-2",
+        "hiremy-hirschl-souls-of-acheron",
+        "munch-scream",
+        "klimt-judith",
+        "repin-ivan",
+        "millais-ophelia",
+        "bruegel-fall-rebel-angels",
+        "fuseli-nightmare",
+        "bundy-death-general",
+        "wright-vesuvius",
+        "gerome-botsaris",
+        "durer-knight-death-devil",
+        "martin-joshua",
+        "velde-gale",
+        "hogai-nio",
+        "klimt-death-and-life",
+        "klimt-medicine",
+        "bosch-garden-central",
+        "martin-great-day-wrath",
+        "bonheur-wounded-eagle",
+        "gerome-pollice-verso",
+        "cole-voyage-old-age",
+        "friedrich-abbey-oakwood",
+        "goya-sleep-of-reason",
+        "bosch-garden-fragment",
+        "bruegel-triumph-death",
+        "spilliaert-vertigo",
+        "rothaug-melpomene",
+        "schiele-death-and-the-maiden",
+        "aivazovsky-ship-stormy-seas",
+        "vereshchagin-apotheosis-war",
+        "ensor-skeleton-painter",
+        "cabanel-fallen-angel",
+        "spilliaert-woman-shoreline",
+        "rembrandt-prodigal-son",
+        "velazquez-las-meninas",
+        "matejko-stanczyk",
+        "sargent-madame-x",
+        "millais-joan-of-arc",
+        "cot-storm",
+        "rembrandt-night-watch",
+        "vigee-lebrun-madame-grand",
+        "waterhouse-lady-shalott",
+        "draper-lament-icarus",
+        "fragonard-swing",
+        "rubens-st-francis-xavier",
+        "vermeer-pearl-earring",
+        "danielson-gambogi-self",
+        "beard-his-majesty",
+        "marc-foxes",
+        "degas-green-dancers",
+        "modigliani-nude-divan",
+        "raphael-sistine-madonna",
+        "bouguereau-virgin-lilies",
+        "wood-american-gothic",
+        "steinlen-chat-noir",
+        "degas-blue-dancers",
+        "botticelli-primavera",
+        "van-gogh-cafe-terrace",
+        "matisse-red-room",
+        "kandinsky-deepened-impulse",
+        "friedrich-wanderer",
+        "klimt-adele",
+        "mucha-job",
+        "van-gogh-starry-night",
+        "klimt-tree-of-life",
+        "klimt-the-kiss",
+        "van-gogh-starry-night-rhone",
+        "delacroix-liberty",
+        "van-gogh-sunflowers",
+        "klimt-mada-primavesi",
+        "schiele-kneeling-orange",
+        "van-gogh-sunflowers-munich",
+        "michelangelo-sistine-ceiling",
+        "mondrian-composition-red-plane",
+        "lemoyne-apotheosis-hercules",
+        "schiele-moa",
+        "aivazovsky-ninth-wave",
+        "popova-painterly-architectonic",
+        "bruegel-tower-babel",
+        "botticelli-birth-of-venus",
+        "kandinsky-yellow-red-blue",
+        "kandinsky-composition-viii",
+        "kramskoi-unknown-woman",
+        "michelangelo-creation-of-adam",
+        "hokusai-great-wave",
+        "brueghel-wooden-vessel",
+        "dahl-dresden-moonlight",
+        "bosschaert-wan-li-vase",
+        "cot-springtime",
+        "ruysch-flowers",
+        "van-gogh-flowering-plum",
+        "toulmouche-reluctant-bride",
+        "rosso-musical-angel",
+        "grimshaw-blackman-street",
+        "waterhouse-ophelia",
+        "biard-magdalena-bay",
+        "renoir-vase-roses",
+        "roerich-himalayas",
+        "velde-close-hauled",
+        "sohlberg-flower-meadow",
+        "dahl-cloud-study",
+        "friedrich-two-men-moon",
+        "monet-waterlily-pond",
+        "hesselbom-dusk",
+        "toulmouche-vanity",
+        "hiroshige-zoshigaya",
+        "monet-water-lilies",
+        "monet-water-lilies-1907",
+        "bierstadt-storm-rockies",
+        "korovin-place-opera",
+        "klimt-garden-sunflowers",
+        "redon-butterflies",
+        "aivazovsky-winter-landscape",
+        "aivazovsky-along-coast",
+        "grimshaw-silver-moonlight",
+        "monet-water-lilies-setting-sun",
+        "hiroshige-hota-coast",
+        "durer-praying-hands",
+        "cole-voyage-childhood",
+        "monet-impression-sunrise",
+        "monet-woman-parasol",
+        "velde-cannon-shot",
+        "cross-pink-cloud",
+        "laurence-mckinley",
+        "van-gogh-irises",
+        "kramskoi-christ-in-the-desert",
+        "turner-temeraire",
+        "leonardo-vitruvian-man",
+        "bruegel-hunters-snow",
+        "cole-voyage-youth",
+        "friedrich-monk-by-the-sea",
+        "van-gogh-wheat-field-cypresses",
+        "monet-cliff-pourville",
+        "van-gogh-almond-blossom",
+        "van-gogh-fishing-boats",
+        "hokusai-umezawa",
+        "dore-fall-of-satan",
+        "dore-flood",
+        "dore-wolves-sheep",
+        "dore-leviathan",
+        "dore-paradise-lost-book-vi",
+        "dore-moses-tables",
+        "dore-empyrean",
+        "dore-raven",
         "system:/System/Library/Desktop Pictures/Solid Colors/Blue.heic"
       ],
       "agent_refusal" : null,
@@ -5857,79 +7279,1185 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Three Studies of Ludovic Halévy Standing"
+            "text" : "The Death of Marat — Jacques-Louis David"
           },
-          "value" : "nga-degas-halevy-standing-66489"
+          "value" : "david-death-of-marat"
         },
         {
           "title" : {
             "key" : null,
-            "text" : "Dancer Seen from Behind"
+            "text" : "Saturn Devouring His Son — Francisco Goya"
           },
-          "value" : "nga-degas-dancer-from-behind-32137"
+          "value" : "goya-saturn"
         },
         {
           "title" : {
             "key" : null,
-            "text" : "Groups of Male Figures"
+            "text" : "A Small Dutch Ship Riding Out a Storm — Willem van de Velde the Younger"
           },
-          "value" : "nga-carpaccio-groups-of-male-figures-73858"
+          "value" : "velde-small-ship-storm"
         },
         {
           "title" : {
             "key" : null,
-            "text" : "Figure Studies"
+            "text" : "The Garden of Earthly Delights: Hell — Hieronymus Bosch"
           },
-          "value" : "nga-perino-del-vaga-figure-studies-57613"
+          "value" : "bosch-garden-right"
         },
         {
           "title" : {
             "key" : null,
-            "text" : "Battle of Nude Men"
+            "text" : "Ascent of the Blessed — Hieronymus Bosch"
           },
-          "value" : "nga-rubens-battle-of-nude-men-63034"
+          "value" : "bosch-ascent-blessed"
         },
         {
           "title" : {
             "key" : null,
-            "text" : "Studies of Market Figures"
+            "text" : "Witches' Flight — Francisco Goya"
           },
-          "value" : "nga-teniers-market-figures-62615"
+          "value" : "goya-witches-flight"
         },
         {
           "title" : {
             "key" : null,
-            "text" : "Wheat Field with Cypresses"
+            "text" : "Self-Portrait with Death Playing the Fiddle — Arnold Böcklin"
           },
-          "value" : "wheat-field-with-cypresses"
+          "value" : "bocklin-self-portrait-death"
         },
         {
           "title" : {
             "key" : null,
-            "text" : "Saint Catherine of Alexandria"
+            "text" : "Medusa — Caravaggio"
           },
-          "value" : "met-saint-catherine-436908"
+          "value" : "caravaggio-medusa"
         },
         {
           "title" : {
             "key" : null,
-            "text" : "Portrait at a Casement"
+            "text" : "Pandemonium — John Martin"
           },
-          "value" : "met-woman-man-casement-436896"
+          "value" : "martin-pandemonium"
         },
         {
           "title" : {
             "key" : null,
-            "text" : "Women Picking Olives"
+            "text" : "Burning of the Frigate Philadelphia — Edward Moran"
           },
-          "value" : "met-women-picking-olives-436536"
+          "value" : "moran-burning-philadelphia"
         },
         {
           "title" : {
             "key" : null,
-            "text" : "Sunflowers"
+            "text" : "The Burial of the Sardine — Francisco Goya"
           },
-          "value" : "met-sunflowers-436524"
+          "value" : "goya-burial-sardine"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Wild Hunt of Odin — Peter Nicolai Arbo"
+          },
+          "value" : "arbo-wild-hunt"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "David with the Head of Goliath — Caravaggio"
+          },
+          "value" : "caravaggio-david-goliath"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Skeleton with a Burning Cigarette — Vincent van Gogh"
+          },
+          "value" : "van-gogh-skeleton-cigarette"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Battle of Alexander at Issus — Albrecht Altdorfer"
+          },
+          "value" : "altdorfer-battle-of-issus"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Judith Slaying Holofernes — Artemisia Gentileschi"
+          },
+          "value" : "gentileschi-judith"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Madonna — Edvard Munch"
+          },
+          "value" : "munch-madonna"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Isle of the Dead — Arnold Böcklin"
+          },
+          "value" : "bocklin-isle-of-the-dead"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Fish Magic — Paul Klee"
+          },
+          "value" : "klee-fish-magic"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Forest Interior by Moonlight — Caspar David Friedrich"
+          },
+          "value" : "friedrich-forest-moonlight"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Witches' Sabbath — Francisco Goya"
+          },
+          "value" : "goya-witches-sabbath"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Garden of Earthly Delights: Paradise — Hieronymus Bosch"
+          },
+          "value" : "bosch-garden-left"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Storm on the Sea of Galilee — Rembrandt van Rijn"
+          },
+          "value" : "rembrandt-storm-galilee"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Voyage of Life: Manhood — Thomas Cole"
+          },
+          "value" : "cole-voyage-manhood"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Nightmare (1791) — Henry Fuseli"
+          },
+          "value" : "fuseli-nightmare-2"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Souls of Acheron — Adolf Hirémy-Hirschl"
+          },
+          "value" : "hiremy-hirschl-souls-of-acheron"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Scream — Edvard Munch"
+          },
+          "value" : "munch-scream"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Judith I — Gustav Klimt"
+          },
+          "value" : "klimt-judith"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Ivan the Terrible and His Son Ivan — Ilya Repin"
+          },
+          "value" : "repin-ivan"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Ophelia — John Everett Millais"
+          },
+          "value" : "millais-ophelia"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Fall of the Rebel Angels — Pieter Bruegel the Elder"
+          },
+          "value" : "bruegel-fall-rebel-angels"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Nightmare — Henry Fuseli"
+          },
+          "value" : "fuseli-nightmare"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Death as General — Edgar Bundy"
+          },
+          "value" : "bundy-death-general"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Vesuvius in Eruption — Joseph Wright of Derby"
+          },
+          "value" : "wright-vesuvius"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Markos Botsaris — Jean-Léon Gérôme"
+          },
+          "value" : "gerome-botsaris"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Knight, Death and the Devil — Albrecht Dürer"
+          },
+          "value" : "durer-knight-death-devil"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Joshua Commanding the Sun to Stand Still — John Martin"
+          },
+          "value" : "martin-joshua"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Gust — Willem van de Velde the Younger"
+          },
+          "value" : "velde-gale"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Niō Seizing an Evil Spirit — Kanō Hōgai"
+          },
+          "value" : "hogai-nio"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Death and Life — Gustav Klimt"
+          },
+          "value" : "klimt-death-and-life"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Medicine — Gustav Klimt"
+          },
+          "value" : "klimt-medicine"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Garden of Earthly Delights — Hieronymus Bosch"
+          },
+          "value" : "bosch-garden-central"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Great Day of His Wrath — John Martin"
+          },
+          "value" : "martin-great-day-wrath"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Wounded Eagle — Rosa Bonheur"
+          },
+          "value" : "bonheur-wounded-eagle"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Pollice Verso — Jean-Léon Gérôme"
+          },
+          "value" : "gerome-pollice-verso"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Voyage of Life: Old Age — Thomas Cole"
+          },
+          "value" : "cole-voyage-old-age"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Abbey in the Oakwood — Caspar David Friedrich"
+          },
+          "value" : "friedrich-abbey-oakwood"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Sleep of Reason Produces Monsters — Francisco Goya"
+          },
+          "value" : "goya-sleep-of-reason"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Garden of Earthly Delights (Detail) — Hieronymus Bosch"
+          },
+          "value" : "bosch-garden-fragment"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Triumph of Death — Pieter Bruegel the Elder"
+          },
+          "value" : "bruegel-triumph-death"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Vertigo — Léon Spilliaert"
+          },
+          "value" : "spilliaert-vertigo"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Melpomene — Alexander Rothaug"
+          },
+          "value" : "rothaug-melpomene"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Death and the Maiden — Egon Schiele"
+          },
+          "value" : "schiele-death-and-the-maiden"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Ship on Stormy Seas — Ivan Aivazovsky"
+          },
+          "value" : "aivazovsky-ship-stormy-seas"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Apotheosis of War — Vasily Vereshchagin"
+          },
+          "value" : "vereshchagin-apotheosis-war"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Skeleton Painter — James Ensor"
+          },
+          "value" : "ensor-skeleton-painter"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Fallen Angel — Alexandre Cabanel"
+          },
+          "value" : "cabanel-fallen-angel"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Woman at the Shoreline — Léon Spilliaert"
+          },
+          "value" : "spilliaert-woman-shoreline"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Return of the Prodigal Son — Rembrandt van Rijn"
+          },
+          "value" : "rembrandt-prodigal-son"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Las Meninas — Diego Velázquez"
+          },
+          "value" : "velazquez-las-meninas"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Stańczyk — Jan Matejko"
+          },
+          "value" : "matejko-stanczyk"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Madame X — John Singer Sargent"
+          },
+          "value" : "sargent-madame-x"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Joan of Arc — John Everett Millais"
+          },
+          "value" : "millais-joan-of-arc"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Storm — Pierre Auguste Cot"
+          },
+          "value" : "cot-storm"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Night Watch — Rembrandt van Rijn"
+          },
+          "value" : "rembrandt-night-watch"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Madame Grand — Élisabeth Vigée Le Brun"
+          },
+          "value" : "vigee-lebrun-madame-grand"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Lady of Shalott — John William Waterhouse"
+          },
+          "value" : "waterhouse-lady-shalott"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Lament for Icarus — Herbert James Draper"
+          },
+          "value" : "draper-lament-icarus"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Swing — Jean-Honoré Fragonard"
+          },
+          "value" : "fragonard-swing"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Miracles of St Francis Xavier — Peter Paul Rubens"
+          },
+          "value" : "rubens-st-francis-xavier"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Girl with a Pearl Earring — Johannes Vermeer"
+          },
+          "value" : "vermeer-pearl-earring"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Self-Portrait — Elin Danielson-Gambogi"
+          },
+          "value" : "danielson-gambogi-self"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "His Majesty Receives — William Holbrook Beard"
+          },
+          "value" : "beard-his-majesty"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Foxes — Franz Marc"
+          },
+          "value" : "marc-foxes"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Dancer in Green — Edgar Degas"
+          },
+          "value" : "degas-green-dancers"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Nude Sitting on a Divan — Amedeo Modigliani"
+          },
+          "value" : "modigliani-nude-divan"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Sistine Madonna — Raphael"
+          },
+          "value" : "raphael-sistine-madonna"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Virgin of the Lilies — William-Adolphe Bouguereau"
+          },
+          "value" : "bouguereau-virgin-lilies"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "American Gothic — Grant Wood"
+          },
+          "value" : "wood-american-gothic"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Tournée du Chat Noir — Théophile Alexandre Steinlen"
+          },
+          "value" : "steinlen-chat-noir"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Blue Dancers — Edgar Degas"
+          },
+          "value" : "degas-blue-dancers"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Primavera — Sandro Botticelli"
+          },
+          "value" : "botticelli-primavera"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Café Terrace at Night — Vincent van Gogh"
+          },
+          "value" : "van-gogh-cafe-terrace"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Red Room — Henri Matisse"
+          },
+          "value" : "matisse-red-room"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Deepened Impulse — Wassily Kandinsky"
+          },
+          "value" : "kandinsky-deepened-impulse"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Wanderer above the Sea of Fog — Caspar David Friedrich"
+          },
+          "value" : "friedrich-wanderer"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Adele Bloch-Bauer I — Gustav Klimt"
+          },
+          "value" : "klimt-adele"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Job — Alphonse Mucha"
+          },
+          "value" : "mucha-job"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Starry Night — Vincent van Gogh"
+          },
+          "value" : "van-gogh-starry-night"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Tree of Life — Gustav Klimt"
+          },
+          "value" : "klimt-tree-of-life"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Kiss — Gustav Klimt"
+          },
+          "value" : "klimt-the-kiss"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Starry Night over the Rhône — Vincent van Gogh"
+          },
+          "value" : "van-gogh-starry-night-rhone"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Liberty Leading the People — Eugène Delacroix"
+          },
+          "value" : "delacroix-liberty"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Sunflowers — Vincent van Gogh"
+          },
+          "value" : "van-gogh-sunflowers"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Mäda Primavesi — Gustav Klimt"
+          },
+          "value" : "klimt-mada-primavesi"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Kneeling Woman in Orange-Red Dress — Egon Schiele"
+          },
+          "value" : "schiele-kneeling-orange"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Vase with Twelve Sunflowers — Vincent van Gogh"
+          },
+          "value" : "van-gogh-sunflowers-munich"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Sistine Chapel Ceiling — Michelangelo"
+          },
+          "value" : "michelangelo-sistine-ceiling"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Composition with Large Red Plane — Piet Mondrian"
+          },
+          "value" : "mondrian-composition-red-plane"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Apotheosis of Hercules — François Lemoyne"
+          },
+          "value" : "lemoyne-apotheosis-hercules"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Moa — Egon Schiele"
+          },
+          "value" : "schiele-moa"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Ninth Wave — Ivan Aivazovsky"
+          },
+          "value" : "aivazovsky-ninth-wave"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Painterly Architectonic — Lyubov Popova"
+          },
+          "value" : "popova-painterly-architectonic"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Tower of Babel — Pieter Bruegel the Elder"
+          },
+          "value" : "bruegel-tower-babel"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Birth of Venus — Sandro Botticelli"
+          },
+          "value" : "botticelli-birth-of-venus"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Yellow-Red-Blue — Wassily Kandinsky"
+          },
+          "value" : "kandinsky-yellow-red-blue"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Composition VIII — Wassily Kandinsky"
+          },
+          "value" : "kandinsky-composition-viii"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Unknown Woman — Ivan Kramskoi"
+          },
+          "value" : "kramskoi-unknown-woman"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Creation of Adam — Michelangelo"
+          },
+          "value" : "michelangelo-creation-of-adam"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Great Wave off Kanagawa — Katsushika Hokusai"
+          },
+          "value" : "hokusai-great-wave"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Flowers in a Wooden Vessel — Jan Brueghel the Elder"
+          },
+          "value" : "brueghel-wooden-vessel"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "View of Dresden by Moonlight — Johan Christian Dahl"
+          },
+          "value" : "dahl-dresden-moonlight"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Flowers in a Wan-Li Vase — Ambrosius Bosschaert the Elder"
+          },
+          "value" : "bosschaert-wan-li-vase"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Springtime — Pierre Auguste Cot"
+          },
+          "value" : "cot-springtime"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Still Life with Flowers — Rachel Ruysch"
+          },
+          "value" : "ruysch-flowers"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Flowering Plum Orchard — Vincent van Gogh"
+          },
+          "value" : "van-gogh-flowering-plum"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Reluctant Bride — Auguste Toulmouche"
+          },
+          "value" : "toulmouche-reluctant-bride"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Musical Angel — Rosso Fiorentino"
+          },
+          "value" : "rosso-musical-angel"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Blackman Street, London — John Atkinson Grimshaw"
+          },
+          "value" : "grimshaw-blackman-street"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Ophelia — John William Waterhouse"
+          },
+          "value" : "waterhouse-ophelia"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Magdalena Bay — François-Auguste Biard"
+          },
+          "value" : "biard-magdalena-bay"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Roses in a Vase — Pierre-Auguste Renoir"
+          },
+          "value" : "renoir-vase-roses"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Himalayas — Nicholas Roerich"
+          },
+          "value" : "roerich-himalayas"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "A Small Dutch Vessel Close-hauled — Willem van de Velde the Younger"
+          },
+          "value" : "velde-close-hauled"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Flower Meadow in the North — Harald Sohlberg"
+          },
+          "value" : "sohlberg-flower-meadow"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Cloud Study by Moonlight — Johan Christian Dahl"
+          },
+          "value" : "dahl-cloud-study"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Two Men Contemplating the Moon — Caspar David Friedrich"
+          },
+          "value" : "friedrich-two-men-moon"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Water-Lily Pond — Claude Monet"
+          },
+          "value" : "monet-waterlily-pond"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Dusk — Otto Hesselbom"
+          },
+          "value" : "hesselbom-dusk"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Vanity — Auguste Toulmouche"
+          },
+          "value" : "toulmouche-vanity"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Fuji-view Teahouse at Zōshigaya — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-zoshigaya"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Water Lilies (1906) — Claude Monet"
+          },
+          "value" : "monet-water-lilies"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Water Lilies (1907) — Claude Monet"
+          },
+          "value" : "monet-water-lilies-1907"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "A Storm in the Rocky Mountains — Albert Bierstadt"
+          },
+          "value" : "bierstadt-storm-rockies"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Paris at Night — Konstantin Korovin"
+          },
+          "value" : "korovin-place-opera"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Farm Garden with Sunflowers — Gustav Klimt"
+          },
+          "value" : "klimt-garden-sunflowers"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Butterflies — Odilon Redon"
+          },
+          "value" : "redon-butterflies"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Winter Landscape — Ivan Aivazovsky"
+          },
+          "value" : "aivazovsky-winter-landscape"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Along the Coast — Ivan Aivazovsky"
+          },
+          "value" : "aivazovsky-along-coast"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Silver Moonlight — John Atkinson Grimshaw"
+          },
+          "value" : "grimshaw-silver-moonlight"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Water Lilies, Setting Sun — Claude Monet"
+          },
+          "value" : "monet-water-lilies-setting-sun"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Coast at Hota — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-hota-coast"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Praying Hands — Albrecht Dürer"
+          },
+          "value" : "durer-praying-hands"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Voyage of Life: Childhood — Thomas Cole"
+          },
+          "value" : "cole-voyage-childhood"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Impression, Sunrise — Claude Monet"
+          },
+          "value" : "monet-impression-sunrise"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Woman with a Parasol — Claude Monet"
+          },
+          "value" : "monet-woman-parasol"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Cannon Shot — Willem van de Velde the Younger"
+          },
+          "value" : "velde-cannon-shot"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Pink Cloud — Henri-Edmond Cross"
+          },
+          "value" : "cross-pink-cloud"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Mt. McKinley — Sydney Laurence"
+          },
+          "value" : "laurence-mckinley"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Irises — Vincent van Gogh"
+          },
+          "value" : "van-gogh-irises"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Christ in the Desert — Ivan Kramskoi"
+          },
+          "value" : "kramskoi-christ-in-the-desert"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Fighting Temeraire — J. M. W. Turner"
+          },
+          "value" : "turner-temeraire"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Vitruvian Man — Leonardo da Vinci"
+          },
+          "value" : "leonardo-vitruvian-man"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Hunters in the Snow — Pieter Bruegel the Elder"
+          },
+          "value" : "bruegel-hunters-snow"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Voyage of Life: Youth — Thomas Cole"
+          },
+          "value" : "cole-voyage-youth"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Monk by the Sea — Caspar David Friedrich"
+          },
+          "value" : "friedrich-monk-by-the-sea"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Wheat Field with Cypresses — Vincent van Gogh"
+          },
+          "value" : "van-gogh-wheat-field-cypresses"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Cliff Walk at Pourville — Claude Monet"
+          },
+          "value" : "monet-cliff-pourville"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Almond Blossom — Vincent van Gogh"
+          },
+          "value" : "van-gogh-almond-blossom"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Fishing Boats at Saintes-Maries — Vincent van Gogh"
+          },
+          "value" : "van-gogh-fishing-boats"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Umezawa Manor in Sagami — Katsushika Hokusai"
+          },
+          "value" : "hokusai-umezawa"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Fall of Satan — Gustave Doré"
+          },
+          "value" : "dore-fall-of-satan"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Deluge — Gustave Doré"
+          },
+          "value" : "dore-flood"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Wolves and the Sheep — Gustave Doré"
+          },
+          "value" : "dore-wolves-sheep"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Destruction of Leviathan — Gustave Doré"
+          },
+          "value" : "dore-leviathan"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Paradise Lost, Book VI — Gustave Doré"
+          },
+          "value" : "dore-paradise-lost-book-vi"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Moses Breaks the Tables of the Law — Gustave Doré"
+          },
+          "value" : "dore-moses-tables"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Empyrean — Gustave Doré"
+          },
+          "value" : "dore-empyrean"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Raven — Gustave Doré"
+          },
+          "value" : "dore-raven"
         },
         {
           "title" : {
@@ -5950,7 +8478,7 @@
       },
       "help" : {
         "key" : "settings.appearance.background.help",
-        "text" : "Choose a public-domain figure drawing or painting, your desktop wallpaper, or a macOS system wallpaper behind the window material."
+        "text" : "Choose a public-domain painting, your desktop wallpaper, or a macOS system wallpaper behind the window material."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.background",
@@ -5961,9 +8489,9 @@
         "backdrop",
         "desktop",
         "attribution",
-        "drawing",
-        "figure",
-        "sketch"
+        "museum",
+        "dark",
+        "doré"
       ],
       "kind" : "choice",
       "page_hidden" : false,
@@ -19290,7 +21818,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "c36e57dee8678b5ff0d3d9bebc8f0ae18e6fcd0d45ed12f188dbf3ce2b9a2176",
+  "schema_hash" : "e69a9c7313c5992195b547c429133bfb90890d67a8c1e26a2337f3e540940647",
   "sections" : [
     {
       "id" : "general",
