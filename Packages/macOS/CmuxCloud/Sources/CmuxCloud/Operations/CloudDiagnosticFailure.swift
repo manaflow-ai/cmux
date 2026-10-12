@@ -3,7 +3,7 @@ import CmuxSurfaceCatalogModel
 import Foundation
 
 public enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
-    case authentication, sessionRefresh = "session_refresh", permission, plan, capacity
+    case authentication, sessionRefresh = "session_refresh", permission, plan
     case rateLimit = "rate_limit", conflict, network, timeout, server, response, unsupported
     case process, `protocol`, notFound = "not_found", placement, resourceLimit = "resource_limit"
     case storage, cancelled, unknown
@@ -16,8 +16,6 @@ public enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
             return String(localized: "cloud.operation.failure.permission", defaultValue: "Cloud access was denied. Check your permissions.")
         case .plan:
             return String(localized: "cloud.operation.failure.plan", defaultValue: "Your plan does not allow this Cloud operation.")
-        case .capacity:
-            return String(localized: "cloud.operation.failure.capacity", defaultValue: "Your team's running machines are using all of the plan's Cloud capacity. Pause or delete a running machine, then try again.")
         case .rateLimit:
             return String(localized: "cloud.operation.failure.rateLimit", defaultValue: "Cloud received too many requests. Wait before you retry.")
         case .network, .timeout, .sessionRefresh:

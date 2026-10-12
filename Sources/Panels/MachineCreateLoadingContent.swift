@@ -70,11 +70,12 @@ struct MachineCreateLoadingContent: View {
     }
 
     /// The create hit the plan's machine limit or its shared vCPU and memory
-    /// pool, and a larger plan exists. An unloaded plan still offers it; the
-    /// plans page shows the rest.
+    /// pool, and a larger plan exists. At the machine limit an unloaded plan
+    /// still offers it; a full pool waits for the plan, so Max never sees it.
     private var offersUpgrade: Bool {
-        (operation.hitMachineLimit || operation.hitResourcePool)
-            && (NewMachineSheetDataCache.shared?.currentData?.plan?.hasHigherPlan ?? true)
+        let hasHigherPlan = NewMachineSheetDataCache.shared?.currentData?.plan?.hasHigherPlan
+        if operation.hitMachineLimit { return hasHigherPlan ?? true }
+        return operation.hitResourcePool && hasHigherPlan == true
     }
 
     private var upgradeIsPrimary: Bool { offersUpgrade && operation.hitMachineLimit }

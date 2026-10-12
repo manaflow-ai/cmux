@@ -71,11 +71,12 @@ public struct CloudPlanRefusal: Equatable, Sendable {
         }
     }
 
-    /// The diagnostic class: a full pool or full set of active slots is
-    /// capacity the team already uses; the rest is what the plan includes.
+    /// The diagnostic class: a full pool or full set of active slots is a
+    /// limit the team's own machines hold; the rest is what the plan includes.
+    /// Only classes the telemetry contract accepts may be returned here.
     public var diagnosticFailure: CloudDiagnosticFailure {
         switch kind {
-        case .resourcePool, .activeLimit: return .capacity
+        case .resourcePool, .activeLimit: return .resourceLimit
         case .createCredits, .memoryRequiresPlan, .other: return .plan
         }
     }
@@ -90,7 +91,7 @@ public struct CloudPlanRefusal: Equatable, Sendable {
         case .resourcePool(let shortfall?):
             return CloudVMResourcePool.shortfallText(shortfall, offersUpgrade: offersUpgrade)
         case .resourcePool(nil):
-            return CloudDiagnosticFailure.capacity.label
+            return Self.capacityMessage
         case .activeLimit:
             return String(
                 localized: "cloud.operation.failure.activeLimit",
@@ -109,6 +110,14 @@ public struct CloudPlanRefusal: Equatable, Sendable {
         case .other:
             return serverMessage ?? CloudDiagnosticFailure.plan.label
         }
+    }
+
+    /// A full pool whose answer did not name the numbers.
+    public static var capacityMessage: String {
+        String(
+            localized: "cloud.operation.failure.capacity",
+            defaultValue: "Your team's running machines are using all of the plan's Cloud capacity. Pause or delete a running machine, then try again."
+        )
     }
 
     /// The overflow named by a pool answer's `resource`, `pool`, `used`, and

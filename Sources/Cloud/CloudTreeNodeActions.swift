@@ -642,7 +642,7 @@ struct CloudTreeNodeActions {
                     }
                 )
             }, failureDescription: { error in
-                CloudDiagnosticFailure.message(for: error)
+                CloudVMActionLauncher.displayableFailureMessage(for: error)
             })
         }
         actions.organize = { action, id, _ in catalog().organizeSidebar(action, nodeID: id) }

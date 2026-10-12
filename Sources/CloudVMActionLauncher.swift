@@ -523,6 +523,16 @@ final class CloudVMActionLauncher {
         )
     }
 
+    /// The sentence a person sees for a Cloud failure: the server's explained
+    /// refusal when it named one, else the class label. A server sentence the
+    /// output redaction would hide falls back to the class label too.
+    nonisolated static func displayableFailureMessage(for error: Error) -> String {
+        let message = CloudDiagnosticFailure.message(for: error)
+        let safe = sanitizedCloudVMStartOutput(message)
+        guard safe.isEmpty || safe == hiddenOutputPlaceholder else { return message }
+        return CloudDiagnosticFailure.classify(error).label
+    }
+
     /// The first line of CLI output that passes the same redaction as the full
     /// transcript, with an "Error:" prefix dropped. Nil when no line is safe.
     nonisolated static func firstSafeLine(of output: String) -> String? {

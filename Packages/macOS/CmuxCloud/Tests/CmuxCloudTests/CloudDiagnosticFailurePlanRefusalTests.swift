@@ -13,7 +13,7 @@ struct CloudDiagnosticFailurePlanRefusalTests {
          "requested":{"vcpus":4,"memoryMb":8192},"upgradePlanId":"max"}
         """
 
-    @Test("A full shared pool is classified as capacity, not as the plan")
+    @Test("A full shared pool is classified as a resource limit, not as the plan")
     func poolExceededIsNotPlan() {
         let error = VMClientError.httpStatus(402, Self.poolExceededBody)
         let failure = CloudDiagnosticFailure.classify(error)
@@ -47,21 +47,21 @@ extension CloudDiagnosticFailurePlanRefusalTests {
         let refusal = try #require(CloudPlanRefusal(status: 402, body: body))
         #expect(refusal.kind == .resourcePool(.memory(requestedMb: 32_768, freeMb: 16_384, poolMb: 163_840)))
         #expect(!refusal.offersUpgrade)
-        #expect(refusal.diagnosticFailure == .capacity)
+        #expect(refusal.diagnosticFailure == .resourceLimit)
     }
 
-    @Test("A pool refusal without numbers still reads as capacity")
+    @Test("A pool refusal without numbers still names the pool")
     func poolExceededWithoutNumbers() throws {
         let refusal = try #require(CloudPlanRefusal(status: 402, body: #"{"error":"vm_resource_pool_exceeded"}"#))
         #expect(refusal.kind == .resourcePool(nil))
-        #expect(refusal.message == CloudDiagnosticFailure.capacity.label)
+        #expect(refusal.message == CloudPlanRefusal.capacityMessage)
     }
 
     @Test("Each recognised 402 code maps to its own class and sentence")
     func recognisedCodes() throws {
         let active = try #require(CloudPlanRefusal(status: 402, body: #"{"error":"vm_active_limit_exceeded","limit":5}"#))
         #expect(active.kind == .activeLimit)
-        #expect(active.diagnosticFailure == .capacity)
+        #expect(active.diagnosticFailure == .resourceLimit)
         let credits = try #require(CloudPlanRefusal(status: 402, body: #"{"error":"vm_create_credits_insufficient","amount":1}"#))
         #expect(credits.kind == .createCredits)
         #expect(credits.diagnosticFailure == .plan)
@@ -99,7 +99,7 @@ extension CloudDiagnosticFailurePlanRefusalTests {
         #expect(CloudPlanRefusal(status: 409, body: #"{"error":"vm_resource_pool_exceeded"}"#) == nil)
         #expect(CloudDiagnosticFailure.classify(VMClientError.httpStatus(402, "")) == .plan)
         #expect(CloudDiagnosticFailure.message(for: VMClientError.httpStatus(402, "")) == CloudDiagnosticFailure.plan.label)
-        #expect(CloudDiagnosticFailure.classify(MachineUsageClientError.httpStatus(402, Self.poolExceededBody)) == .capacity)
+        #expect(CloudDiagnosticFailure.classify(MachineUsageClientError.httpStatus(402, Self.poolExceededBody)) == .resourceLimit)
         #expect(CloudDiagnosticFailure.classify(VMClientError.httpStatus(503, Self.poolExceededBody)) == .server)
     }
 }
