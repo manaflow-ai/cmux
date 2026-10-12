@@ -42,6 +42,9 @@ impl Hub {
                         self.append(&session, "mux", "stderr", json!({"text": line}));
                     }
                 }
+                Inbound::Barrier(done) => {
+                    let _ = done.send(());
+                }
                 Inbound::Exited { pid, code, host_seq } => {
                     {
                         let mut slot = session.child.lock().await;
