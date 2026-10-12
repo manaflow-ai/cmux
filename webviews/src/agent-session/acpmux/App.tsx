@@ -1273,7 +1273,7 @@ export function VirtualTranscript({
     previousLayout.current = layout;
     previousRows.current = rows;
     previousViewport.current = { height, width };
-    if (node) scrolledTo.current = scrollPosition(node, layout.totalHeight);
+    if (node && node.clientHeight > 0) scrolledTo.current = scrollPosition(node, layout.totalHeight);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
   }, [layout, rows, range.first, height, width]);
   // Commit before this frame paints; deferring to the next animation frame left the edge blank.
@@ -1362,7 +1362,8 @@ export function VirtualTranscript({
   useEffect(() => () => clearTimeout(anchorTimer.current), []);
   const reportAnchor = () => {
     const node = ref.current;
-    if (!node || !onAnchor) return;
+    // A hidden pane (Home shown in its place) has no viewport: nothing it reads is where the reader is.
+    if (!node || !onAnchor || node.clientHeight === 0) return;
     const { layout: placed, rows: shown } = latestLayout.current;
     const index = visibleLayoutRange(placed, node.scrollTop, 0, 0).first;
     const row = shown[index];
@@ -1375,6 +1376,9 @@ export function VirtualTranscript({
   };
   const onScroll = (event: React.UIEvent<HTMLDivElement>) => {
     pacing.scrolled();
+    // A hidden scroller has no height, so every offset would read as scrolled up (cx-t0zqt): the view
+    // keeps following until the reader scrolls a visible one.
+    if (event.currentTarget.clientHeight === 0) return;
     const next = event.currentTarget.scrollTop;
     scrolledTo.current = scrollPosition(event.currentTarget, layout.totalHeight);
     flushSync(() => {
@@ -2791,7 +2795,11 @@ function AcpmuxPane() {
         pendingPrompt = composerDraft(host.prompt) ?? pendingPrompt;
         // A prompt a person's action seeded has a single-use host ticket bound to its promptId
         // (cx-k21v gap 4); a CLI, MCP or script seed has none and the host refuses its send.
-        if (host.prompt && typeof host.promptTicket?.promptId === "string" && typeof host.promptTicket.ticket === "string")
+        if (
+          host.prompt &&
+          typeof host.promptTicket?.promptId === "string" &&
+          typeof host.promptTicket.ticket === "string"
+        )
           pendingTicket = { promptId: host.promptTicket.promptId, ticket: host.promptTicket.ticket };
         if (typeof host.harness === "string" && host.harness) pendingHarness = host.harness;
         // Mock mode runs this same client against an in-page daemon.
