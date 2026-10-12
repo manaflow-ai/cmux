@@ -66,23 +66,34 @@ extension AppDelegate {
             }
             let reveals = SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals
             let token = manager.map { reveals.begin(in: $0) }
+            var selectedWorkspace: Workspace?
+            defer {
+                guard let token else { return }
+                if let selectedWorkspace {
+                    reveals.receive(token, revealing: selectedWorkspace)
+                } else {
+                    reveals.withdraw(token)
+                }
+            }
             var accessBecameUnavailable = false
             do {
-                try await reveals.revealing(token) { [weak self, weak manager] in
-                    guard let workspaceID = try await coordinator.createOnResolvedMachine(
-                        selection: selection, windowID: windowID, scopeID: scopeID, selectionRevision: revision
-                    ) else {
-                        accessBecameUnavailable = !coordinator.isAvailable
-                            || coordinator.scopeIdentifier != scopeID
-                        return nil
-                    }
+                let workspaceID = try await coordinator.createOnResolvedMachine(
+                    selection: selection, windowID: windowID, scopeID: scopeID, selectionRevision: revision
+                )
+                if workspaceID == nil {
+                    accessBecameUnavailable = !coordinator.isAvailable
+                        || coordinator.scopeIdentifier != scopeID
+                }
+                if let workspaceID {
                     // A successful create is already committed on the Cloud
                     // machine. Availability can change while the result is
                     // being projected into the sidebar; that must not turn a
                     // completed workspace into a spurious New Machine flow.
-                    guard !Task.isCancelled else { return nil }
+                    guard !Task.isCancelled else { return }
                     destination?.apply(workspaceID: workspaceID)
-                    return self?.focusCreatedCloudWorkspace(workspaceID, manager: manager, revision: revision, windowID: windowID)
+                    selectedWorkspace = self?.focusCreatedCloudWorkspace(
+                        workspaceID, manager: manager, revision: revision, windowID: windowID
+                    )
                 }
                 // Losing access mid-create falls back to New Machine only
                 // while Cloud can still run; the welcome is for a direct press.
@@ -127,12 +138,21 @@ extension AppDelegate {
         return operationController.start(key: "new-cloud-workspace.\(vmID).\(context.windowId.uuidString)") { [weak self, weak tabManager] in
             let reveals = SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals
             let token = tabManager.map { reveals.begin(in: $0) }
-            try await reveals.revealing(token) { [weak self, weak tabManager] in
-                guard let workspaceID = try await coordinator.createOnMachine(request),
-                      !Task.isCancelled, coordinator.isAvailable, coordinator.scopeIdentifier == scopeID else { return nil }
-                resolvedDestination?.apply(workspaceID: workspaceID)
-                return self?.focusCreatedCloudWorkspace(workspaceID, manager: tabManager, revision: revision, windowID: request.windowID)
+            var selectedWorkspace: Workspace?
+            defer {
+                guard let token else { return }
+                if let selectedWorkspace {
+                    reveals.receive(token, revealing: selectedWorkspace)
+                } else {
+                    reveals.withdraw(token)
+                }
             }
+            guard let workspaceID = try await coordinator.createOnMachine(request),
+                  !Task.isCancelled, coordinator.isAvailable, coordinator.scopeIdentifier == scopeID else { return }
+            resolvedDestination?.apply(workspaceID: workspaceID)
+            selectedWorkspace = self?.focusCreatedCloudWorkspace(
+                workspaceID, manager: tabManager, revision: revision, windowID: request.windowID
+            )
         }
     }
 
