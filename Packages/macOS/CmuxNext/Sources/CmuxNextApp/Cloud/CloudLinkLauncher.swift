@@ -126,22 +126,23 @@ nonisolated struct CloudLinkLauncher: Sendable {
         return ensured
     }
 
-    /// Stops the link (sign-out, session end). A failure is logged only.
-    @concurrent func stop() async {
+    /// Stops the link (sign-out, session end, policy). A failure is logged
+    /// with the install id only (the old config then stays).
+    @concurrent func stop(install: String? = nil) async {
         do {
             _ = try await run(stopArguments())
         } catch {
-            Self.logger.error("cloud link stop failed: \(String(describing: error), privacy: .public)")
+            Self.logger.error("cloud link stop failed for install \(install ?? "unknown", privacy: .public): \(String(describing: error), privacy: .public)")
         }
     }
 
     /// Archives the signed-out install's key and peers (`link archive`). A
     /// failure is logged only.
-    @concurrent func archive() async {
+    @concurrent func archive(install: String? = nil) async {
         do {
             _ = try await run(archiveArguments())
         } catch {
-            Self.logger.error("cloud link archive failed: \(String(describing: error), privacy: .public)")
+            Self.logger.error("cloud link archive failed for install \(install ?? "unknown", privacy: .public): \(String(describing: error), privacy: .public)")
         }
     }
 
