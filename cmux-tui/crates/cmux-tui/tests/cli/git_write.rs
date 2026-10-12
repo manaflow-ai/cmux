@@ -1,7 +1,8 @@
-//! `cmux git commit`, `cmux git push` and `cmux git worktree create` through
-//! a real daemon: the session host commits and pushes in a real repository
-//! with a local bare remote, and makes a chat's worktree on a new branch
-//! beside the user's checkout, which it leaves untouched.
+//! `cmux git commit`, `cmux git push` and `cmux git worktree create|apply`
+//! through a real daemon: the session host commits and pushes in a real
+//! repository with a local bare remote, makes a chat's worktree on a new
+//! branch beside the user's checkout, which it leaves untouched, and applies
+//! that worktree's work back to the checkout as uncommitted changes.
 #![cfg(unix)]
 
 use super::*;
@@ -260,5 +261,92 @@ fn a_worktree_chats_status_and_branch_diff_follow_its_recorded_base() {
     let past = home.join(".cmux/worktrees/project/past");
     let status = json_output(&git_cli(&server, &past, &["status"]));
     assert_eq!(status["base"], first.trim(), "{status}");
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn a_worktree_chats_work_applies_to_the_main_checkout_as_uncommitted_changes() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-git-worktree-apply-{}-{:x}",
+        std::process::id(),
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let home = root.join("home");
+    let repo = root.join("project");
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(&repo).unwrap();
+    let server = HeadlessServer::start_with_options(
+        "git-worktree-apply",
+        None,
+        None,
+        &[("HOME", home.to_str().unwrap())],
+    );
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["config", "user.name", "cmux test"]);
+    git(&repo, &["config", "user.email", "cmux@example.invalid"]);
+    git(&repo, &["config", "commit.gpgsign", "false"]);
+    fs::write(repo.join("a.txt"), "one\n").unwrap();
+    fs::write(repo.join("gone.txt"), "old\n").unwrap();
+    git(&repo, &["add", "a.txt", "gone.txt"]);
+    git(&repo, &["commit", "-q", "-m", "first"]);
+    let head = git(&repo, &["rev-parse", "HEAD"]);
+
+    let args = ["worktree", "create", "--name", "chat", "--idempotency-key", "c1"];
+    assert_success(&git_cli(&server, &repo, &args));
+    let worktree = home.join(".cmux/worktrees/project/chat");
+    // The chat's work: a commit, an uncommitted edit, a deletion and a new file it never added.
+    fs::write(worktree.join("a.txt"), "two\n").unwrap();
+    git(&worktree, &["commit", "-q", "-am", "work"]);
+    fs::write(worktree.join("a.txt"), "three\n").unwrap();
+    fs::remove_file(worktree.join("gone.txt")).unwrap();
+    fs::write(worktree.join("new.txt"), "new\n").unwrap();
+
+    let apply = ["worktree", "apply", "--idempotency-key", "a1"];
+    let applied = git_cli(&server, &worktree, &apply);
+    assert_success(&applied);
+    let value = json_output(&applied);
+    assert_eq!(value["replayed"], false, "{value}");
+    let main = fs::canonicalize(&repo).unwrap();
+    assert_eq!(value["value"]["main_root"], main.to_str().unwrap(), "{value}");
+    let mut files: Vec<&str> = value["value"]["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|file| file.as_str())
+        .collect();
+    files.sort_unstable();
+    assert_eq!(files, ["a.txt", "gone.txt", "new.txt"], "{value}");
+
+    // The main checkout has the chat's work as changes of its own: HEAD and the index stay.
+    assert_eq!(fs::read_to_string(repo.join("a.txt")).unwrap(), "three\n");
+    assert!(!repo.join("gone.txt").exists());
+    assert_eq!(fs::read_to_string(repo.join("new.txt")).unwrap(), "new\n");
+    assert_eq!(git(&repo, &["rev-parse", "HEAD"]), head);
+    assert_eq!(git(&repo, &["diff", "--cached", "--name-only"]), "");
+    // The worktree is as the chat left it: its new file is still its own, never added.
+    assert_eq!(git(&worktree, &["status", "--porcelain", "--", "new.txt"]), "?? new.txt");
+
+    // A lost reply's retry replays; it does not apply twice.
+    let again = json_output(&git_cli(&server, &worktree, &apply));
+    assert_eq!(again["replayed"], true, "{again}");
+    assert_eq!(fs::read_to_string(repo.join("a.txt")).unwrap(), "three\n");
+
+    // A main checkout with its own changes to those files is refused and left as it was.
+    git(&repo, &["checkout", "-q", "--", "."]);
+    fs::remove_file(repo.join("new.txt")).unwrap();
+    fs::write(repo.join("a.txt"), "mine\n").unwrap();
+    let args = ["worktree", "apply", "--idempotency-key", "a2"];
+    let refused = git_cli(&server, &worktree, &args);
+    assert!(!refused.status.success(), "an apply over the user's own edits was accepted");
+    let reason = String::from_utf8_lossy(&refused.stderr).to_string();
+    assert!(reason.contains("main_checkout_changed"), "{reason}");
+    assert_eq!(fs::read_to_string(repo.join("a.txt")).unwrap(), "mine\n");
+    assert!(repo.join("gone.txt").exists());
+    assert!(!repo.join("new.txt").exists());
+
+    // The main checkout itself has no worktree to apply.
+    let args = ["worktree", "apply", "--idempotency-key", "a3"];
+    let refused = git_cli(&server, &repo, &args);
+    assert!(!refused.status.success(), "the main checkout applied to itself");
     let _ = fs::remove_dir_all(root);
 }
