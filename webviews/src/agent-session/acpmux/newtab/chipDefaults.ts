@@ -1,10 +1,12 @@
 // The New Tab chip before a pick (cx-e2aa decision, chief 2026-10-09): it names the shown agent's
 // default model from the model catalog, never a bare "Model" or "Default".
+import { useMemo } from "react";
 import { isDefaultChoice } from "../defaultChoice";
 import { defaultModel } from "../harnessSwitch";
 import { type LastPick, lastPick } from "../lastPick";
 import type { AcpmuxSnapshot } from "../model";
-import type { PickerCatalog } from "../modelCatalogData";
+import { buildPickerCatalog, type PickerCatalog } from "../modelCatalogData";
+import { useModelCatalogState } from "../modelCatalogHost";
 import { defaultHarness, type ScreenAgent } from "./screenModel";
 
 /// The New Tab page's agent and model before a pick: the chip's pick (drawn into the summary), else
@@ -59,4 +61,18 @@ export function newTabChipSnapshot(snapshot: AcpmuxSnapshot, catalog: PickerCata
       : agent,
   );
   return { ...snapshot, catalog: sessionCatalog, summary: { ...summary, model, confirmedModel: model } };
+}
+
+/// The model the New Tab chip names for `snapshot` (newTabChipSnapshot over the model catalog), the
+/// one Return asks the agent on: else the chat started on the agent's own default, which can be
+/// another model than the chip promised (cx-sljrg). Undefined when the chip names only "default".
+export function useNewTabChipModel(snapshot: AcpmuxSnapshot): string | undefined {
+  const { catalog, user, provisional } = useModelCatalogState();
+  const harness = snapshot.summary?.harness;
+  const picker = useMemo(
+    () => buildPickerCatalog({ catalog, user, acpmux: snapshot.catalog, session: { harness }, provisional }),
+    [catalog, user, snapshot.catalog, harness, provisional],
+  );
+  const model = newTabChipSnapshot(snapshot, picker).summary?.model;
+  return model && !isDefaultChoice({ id: model }) ? model : undefined;
 }

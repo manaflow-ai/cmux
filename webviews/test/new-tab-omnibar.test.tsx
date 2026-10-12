@@ -149,5 +149,6 @@ test("a prompt's top row asks the agent, with a web search under it", async () =
   expect(shown[0]!.getAttribute("aria-selected")).toBe("true");
   expect(shown.map(label)).toContain("Search the web for why is the reddit scraper slow");
   await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
-  expect(calls).toEqual([["ask", "claude", "why is the reddit scraper slow", undefined]]);
+  // On the model the chip names (cx-sljrg).
+  expect(calls).toEqual([["ask", "claude", "why is the reddit scraper slow", undefined, "claude-opus-5-5"]]);
 });
