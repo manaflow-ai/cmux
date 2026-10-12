@@ -650297,6 +650297,131 @@
           }
         }
       }
+    },
+    "remoteSession.parked.sshAuthenticationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH authentication failed. Automatic reconnect paused; use Reconnect to try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 認証に失敗しました。自動再接続を一時停止しました。「再接続」で再試行してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 身份验证失败。自动重连已暂停；请使用“重新连接”再试。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die SSH-Authentifizierung ist fehlgeschlagen. Die automatische Wiederverbindung ist pausiert; verwenden Sie „Wieder verbinden“, um es erneut zu versuchen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’authentification SSH a échoué. La reconnexion automatique est en pause ; utilisez Reconnecter pour réessayer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشلت مصادقة SSH. تم إيقاف إعادة الاتصال التلقائي مؤقتًا؛ استخدم \"أعد الاتصال\" للمحاولة مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La autenticación SSH falló. La reconexión automática está pausada; usa Reconectar para volver a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 驗證失敗。自動重新連線已暫停；請使用「重新連接」重試。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 인증에 실패했습니다. 자동 재연결이 일시 중지되었습니다. '재연결'을 사용하여 다시 시도하세요."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH provjera autentičnosti nije uspjela. Automatsko ponovno povezivanje je pauzirano; koristite Ponovo poveži da pokušate ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-godkendelse mislykkedes. Automatisk genforbindelse er sat på pause; brug Forbind igen for at prøve igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autenticazione SSH non riuscita. La riconnessione automatica è in pausa; usa Riconnetti per riprovare."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការផ្ទៀងផ្ទាត់ SSH បានបរាជ័យ។ ការភ្ជាប់ឡើងវិញដោយស្វ័យប្រវត្តិត្រូវបានផ្អាក។ ប្រើ «ភ្ជាប់ឡើងវិញ» ដើម្បីព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-autentisering mislyktes. Automatisk tilkobling på nytt er satt på pause; bruk Koble til på nytt for å prøve igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uwierzytelnianie SSH nie powiodło się. Automatyczne ponowne łączenie jest wstrzymane; użyj opcji Połącz ponownie, aby spróbować jeszcze raz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falha na autenticação SSH. A reconexão automática está pausada; use Reconectar para tentar novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось выполнить аутентификацию SSH. Автоматическое переподключение приостановлено; нажмите «Подключиться снова», чтобы повторить попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การตรวจสอบสิทธิ์ SSH ล้มเหลว การเชื่อมต่ออัตโนมัติถูกหยุดชั่วคราว ใช้ “เชื่อมต่อใหม่” เพื่อลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH kimlik doğrulaması başarısız oldu. Otomatik yeniden bağlanma duraklatıldı; yeniden denemek için Yeniden Bağlan'ı kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося автентифікуватися через SSH. Автоматичне повторне підключення призупинено; натисніть «Підключитися знову», щоб спробувати ще раз."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
