@@ -135,9 +135,17 @@ const modelFocus: Play = async (ctx) => {
 const modelPressDragRelease: Play = async (ctx) => {
   await ctx.pointer.down({ role: "button", name: "Model" });
   await ctx.waitFor(() => ctx.document.querySelector('[role="dialog"]') !== null);
-  await ctx.pointer.move({ selector: '[role="option"][data-key="model:gpt-6-astra"]' });
-  await ctx.pointer.up({ selector: '[role="option"][data-key="model:gpt-6-astra"]' });
-  await ctx.waitFor(() => !ctx.document.querySelector('[role="dialog"]'));
+  // Astra is folded under Older models in this fixture. Drag to the visible current model row;
+  // the gesture still exercises the picker trigger's press-drag-release path without inventing a
+  // click on a row that is not mounted.
+  const visibleModel = '[role="option"][data-key="model:gpt-6.1-sol"]';
+  await ctx.pointer.move({ selector: visibleModel });
+  await ctx.pointer.up({ selector: visibleModel });
+  await ctx.waitFor(
+    () =>
+      !ctx.document.querySelector('[role="dialog"]') &&
+      ctx.document.activeElement === ctx.find({ role: "button", name: "Model" }),
+  );
 };
 
 const openEffort: Play = async (ctx) => {
