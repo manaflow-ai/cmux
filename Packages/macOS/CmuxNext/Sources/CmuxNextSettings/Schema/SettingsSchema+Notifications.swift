@@ -25,6 +25,7 @@ nonisolated enum NotificationSettingsSchema {
                 ["notifications", "timeoutSeconds"], section: .notifications, group: dismissal,
                 title: SettingsText.keyed("settings.notifications.timeoutSeconds", "Timeout"),
                 help: SettingsText.keyed("settings.notifications.timeoutSeconds.help", "Used when a source clears after a timeout."),
+                summary: SettingsText.keyed("settings.notifications.timeoutSeconds.summary", "For sources that clear after a timeout"),
                 kind: .number(SettingNumber(NotificationPreferences.timeoutRange, step: 5, unit: .seconds)),
                 default: .number(defaults.timeoutSeconds)
             ),
@@ -62,6 +63,7 @@ nonisolated enum NotificationSettingsSchema {
                 ["notifications", "suppressWhileTypingSeconds"], section: .notifications, group: banners,
                 title: SettingsText.keyed("settings.notifications.suppressWhileTyping", "Quiet After Typing"),
                 help: SettingsText.keyed("settings.notifications.suppressWhileTyping.help", "A pane typed into this recently is marked read at once. 0 turns it off."),
+                summary: SettingsText.keyed("settings.notifications.suppressWhileTyping.summary", "Marks alerts read in panes you just typed in"),
                 kind: .number(SettingNumber(NotificationPreferences.typingRange, step: 1, unit: .seconds)),
                 default: .number(defaults.suppressWhileTypingSeconds)
             ),
@@ -70,6 +72,7 @@ nonisolated enum NotificationSettingsSchema {
                 title: SettingsText.keyed("settings.status.runNotifyMinimumSeconds", "Notify When a Run Takes"),
                 help: SettingsText.keyed("settings.status.runNotifyMinimumSeconds.help",
                                         "cmux status run notifies when the command took at least this long."),
+                summary: SettingsText.keyed("settings.status.runNotifyMinimumSeconds.summary", "For commands run with cmux status run"),
                 kind: .number(SettingNumber(StatusBehaviorSettings.runNotifyRange, step: 1, unit: .seconds)),
                 default: .number(StatusBehaviorSettings().runNotifyMinimumSeconds)
             ),
@@ -95,6 +98,7 @@ nonisolated enum NotificationSettingsSchema {
                 title: SettingsText.keyed("settings.feed.mirrorTerminal", "Copy Terminal Notifications to the Feed"),
                 help: SettingsText.keyed("settings.feed.mirrorTerminal.help",
                                         "Notifications that programs send through the terminal can contain secrets. Off sends nothing to your cmux account."),
+                summary: SettingsText.keyed("settings.feed.mirrorTerminal.summary", "Terminal output can contain secrets"),
                 kind: .choice([
                     SettingChoice(FeedTerminalMirror.off.rawValue, SettingsText.keyed("settings.choice.feedMirror.off", "Off")),
                     SettingChoice(FeedTerminalMirror.title.rawValue, SettingsText.keyed("settings.choice.feedMirror.title", "Title Only")),

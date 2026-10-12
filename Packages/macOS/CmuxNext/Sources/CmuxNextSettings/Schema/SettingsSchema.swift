@@ -80,6 +80,7 @@ public nonisolated enum SettingsSchema {
                 title: SettingsText.keyed("settings.history.terminalCommands", "Record Terminal Commands"),
                 help: SettingsText.keyed("settings.history.terminalCommands.help",
                                         "Lists finished shell commands in History. Command lines can contain secrets."),
+                summary: SettingsText.keyed("settings.history.terminalCommands.summary", "Shows finished commands in History"),
                 kind: .toggle, default: .bool(TerminalCommandHistorySetting.fallback),
                 keywords: ["history", "commands", "shell", "privacy", "osc 133"]
             ),
@@ -101,6 +102,7 @@ public nonisolated enum SettingsSchema {
                 title: SettingsText.keyed("settings.navigation.historySteps", "Back and Forward Steps"),
                 help: SettingsText.keyed("settings.navigation.historySteps.help",
                                         "Workspaces: Go Back and Go Forward move between workspaces and top pages, and return to the tab each one last had focused. Everything: they also step through tabs and panes inside a workspace."),
+                summary: SettingsText.keyed("settings.navigation.historySteps.summary", "What Go Back and Go Forward step through"),
                 kind: .choice([
                     SettingChoice("workspaces", SettingsText.keyed("settings.navigation.historySteps.workspaces", "Workspaces")),
                     SettingChoice("everything", SettingsText.keyed("settings.navigation.historySteps.everything", "Everything")),
@@ -145,6 +147,7 @@ public nonisolated enum SettingsSchema {
                 title: SettingsText.keyed("settings.app.globalHotKey", "Global Hot Key"),
                 help: SettingsText.keyed("settings.app.globalHotKey.help",
                                         "Show/Hide All Windows (⌃⌥⌘.) works while another app is in front."),
+                summary: SettingsText.keyed("settings.app.globalHotKey.summary", "Show or hide all windows with ⌃⌥⌘."),
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.globalHotKeyFallback),
                 keywords: ["global", "hotkey", "hot key", "summon", "show", "hide", "windows", "system-wide"]
@@ -154,6 +157,7 @@ public nonisolated enum SettingsSchema {
                 title: SettingsText.keyed("settings.app.startAgentGlobalHotKey", "Start Agent from Any App"),
                 help: SettingsText.keyed("settings.app.startAgentGlobalHotKey.help",
                                         "Start Agent (⌃⌥⌘Space) works while another app is in front. Change its key in Keyboard Shortcuts."),
+                summary: SettingsText.keyed("settings.app.startAgentGlobalHotKey.summary", "Start an agent with ⌃⌥⌘Space"),
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.startAgentGlobalHotKeyFallback),
                 keywords: ["global", "hotkey", "hot key", "summon", "start agent", "agent", "quick", "chat", "launcher", "system-wide"]
@@ -186,6 +190,7 @@ public nonisolated enum SettingsSchema {
                 DefaultColumnWidthSetting.configPath, section: .general, group: columns,
                 title: SettingsText.keyed("settings.layout.fixedColumnWidth", "Fixed Column Width"),
                 help: SettingsText.keyed("settings.layout.fixedColumnWidth.help", "A share of the window width, for Fixed Width new columns."),
+                summary: SettingsText.keyed("settings.layout.fixedColumnWidth.summary", "Share of the window width"),
                 kind: .number(SettingNumber(DefaultColumnWidthSetting.range, step: 0.05, unit: .fraction)),
                 default: .number(DefaultColumnWidthSetting.fallback), keywords: ["width"]
             ),

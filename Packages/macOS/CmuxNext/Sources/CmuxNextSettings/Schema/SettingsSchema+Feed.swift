@@ -11,6 +11,7 @@ nonisolated enum FeedSettingsSchema {
                 title: SettingsText.keyed("settings.feed.github.enabled", "Connect GitHub"),
                 help: SettingsText.keyed("settings.feed.github.enabled.help",
                                         "Uses your gh login to read notifications and review requests on this Mac. Sign in with gh auth login first."),
+                summary: SettingsText.keyed("settings.feed.github.enabled.summary", "Uses your gh login on this Mac"),
                 kind: .toggle, default: .bool(defaults.enabled),
                 keywords: ["github", "inbox", "review", "pull request", "connection", "gh"]
             ),

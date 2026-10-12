@@ -36,6 +36,7 @@ test("every key the page uses exists in all 21 locales", () => {
     for (const value of [
       row.title,
       row.help,
+      row.summary,
       row.group,
       row.default_label,
       ...(row.choices ?? []).map((c) => c.title),

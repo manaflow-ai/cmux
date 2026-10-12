@@ -12,7 +12,7 @@ import { ResetButton } from "./ResetButton";
 import { RowNotice } from "./RowNotice";
 
 /**
- * The menu of a setting's title and help (right-click): copy its cmux.json key, or reset it (the
+ * The menu of a setting's title and summary (right-click): copy its cmux.json key, or reset it (the
  * row's Reset control's path). Every row that edits a setting uses it, including the Theme page's
  * own rows (cx-64hi).
  */
@@ -37,7 +37,7 @@ export function useRowMenu(key: string): ContextMenuItem[] {
 const TEXT_FIELDS =
   'input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea, [contenteditable]:not([contenteditable="false"])';
 
-/** One setting: title and one-line help on the left, its editor on the right. */
+/** One setting: title and its one short summary line on the left, its editor on the right. */
 export function SettingRow({
   row,
   query = "",
@@ -77,9 +77,9 @@ export function SettingRow({
           <div className="row-title" id={labelId}>
             <Highlight text={text(row.title)} query={query} />
           </div>
-          {row.help && (
-            <div className="row-help" title={text(row.help)}>
-              <Highlight text={text(row.help)} query={query} />
+          {row.summary && (
+            <div className="row-help">
+              <Highlight text={text(row.summary)} query={query} />
             </div>
           )}
           {query && (

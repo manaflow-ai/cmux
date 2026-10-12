@@ -41,7 +41,8 @@ test("a theme search that matches nothing says so", async () => {
   expect(document.querySelector(".theme-popover")?.textContent).toContain("No themes match.");
 });
 
-test("a setting's help and a folder's path carry their full text for when they are cut short", async () => {
+// A row's summary line is short enough never to be cut (rowSummary.test.tsx), so it has no hover title.
+test("a folder's path carries its full text for when it is cut short", async () => {
   page = await renderPage({
     path: "/settings/general",
     mock: {
@@ -52,8 +53,6 @@ test("a setting's help and a folder's path carry their full text for when they a
       ],
     },
   });
-  const help = page.container.querySelector<HTMLElement>("[data-row-key] .row-help")!;
-  expect(help.title).toBe(help.textContent!);
   const roots = rowElement(page.container, "agents.chats.roots");
   expect(roots.querySelector<HTMLElement>('[data-folder="/opt/user"] .folder-path')?.title).toBe("/opt/user");
   // The refusal is its own line, not clipped inside the one-line path.
