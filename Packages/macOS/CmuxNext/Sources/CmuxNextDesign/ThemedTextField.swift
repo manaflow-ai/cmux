@@ -1,15 +1,17 @@
 public import AppKit
 
-/// A text field for short-lived editors (inline renames) that keeps its
-/// colors in its theme scope while it is open: a theme change repaints the
-/// scope and calls `viewDidChangeEffectiveAppearance`, which re-applies the
-/// field's colors and those of its active field editor (text, caret,
-/// selection). It draws no focus ring: it sits inside a styled container
-/// whose own state shows focus, and AppKit's ring is a system-blue square
-/// around the field (cx-ncc.57).
+/// A text field for short-lived editors (inline renames, dialog fields) that keeps its colors in
+/// its theme scope while it is open: a theme change repaints the scope and calls
+/// `viewDidChangeEffectiveAppearance`, which re-applies the field's colors and those of its
+/// active field editor (text, caret, selection). Its placeholder is the scope's hint ink, never
+/// macOS's gray. It draws no focus ring: it sits inside a styled container whose own state shows
+/// focus, and AppKit's ring is a system-blue square around the field (cx-ncc.57).
 public final class ThemedTextField: NSTextField {
     /// The fill behind the text, resolved in the field's scope.
     public var fill: @MainActor () -> NSColor = { Palette.windowBackground }
+    private var placeholderText: String?
+    /// AppKit's own placeholder bookkeeping while the themed one is set is not the caller's.
+    private var applyingColors = false
 
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -19,6 +21,16 @@ public final class ThemedTextField: NSTextField {
     public required init?(coder: NSCoder) {
         super.init(coder: coder)
         focusRingType = .none
+    }
+
+    /// Drawn in the scope's hint ink (`Palette.textTertiary`).
+    public override var placeholderString: String? {
+        get { placeholderText }
+        set {
+            guard !applyingColors else { return }
+            placeholderText = newValue
+            applyThemeColors()
+        }
     }
 
     public override func viewDidMoveToWindow() {
@@ -38,13 +50,101 @@ public final class ThemedTextField: NSTextField {
     }
 
     public func applyThemeColors() {
-        performWithTheme {
-            backgroundColor = fill()
-            textColor = Palette.textPrimary
-            guard let editor = currentEditor() as? NSTextView else { return }
-            editor.textColor = Palette.textPrimary
-            editor.insertionPointColor = Palette.caret
-            editor.selectedTextAttributes = [.backgroundColor: Palette.textSelection]
+        guard !applyingColors else { return }
+        applyingColors = true
+        defer { applyingColors = false }
+        performWithTheme { applyThemedFieldColors(fill: fill(), placeholder: placeholderText) }
+    }
+}
+
+/// `ThemedTextField`'s colors on a secure field (a dialog's password or token): its characters
+/// never reach the screen or the pasteboard.
+public final class ThemedSecureTextField: NSSecureTextField {
+    /// The fill behind the text, resolved in the field's scope.
+    public var fill: @MainActor () -> NSColor = { Palette.windowBackground }
+    private var placeholderText: String?
+    /// AppKit's own placeholder bookkeeping while the themed one is set is not the caller's.
+    private var applyingColors = false
+
+    public override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        focusRingType = .none
+    }
+
+    public required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        focusRingType = .none
+    }
+
+    /// Drawn in the scope's hint ink (`Palette.textTertiary`).
+    public override var placeholderString: String? {
+        get { placeholderText }
+        set {
+            guard !applyingColors else { return }
+            placeholderText = newValue
+            applyThemeColors()
         }
+    }
+
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyThemeColors()
+    }
+
+    public override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyThemeColors()
+    }
+
+    public override func becomeFirstResponder() -> Bool {
+        let became = super.becomeFirstResponder()
+        applyThemeColors()
+        return became
+    }
+
+    public func applyThemeColors() {
+        guard !applyingColors else { return }
+        applyingColors = true
+        defer { applyingColors = false }
+        performWithTheme { applyThemedFieldColors(fill: fill(), placeholder: placeholderText) }
+    }
+}
+
+extension NSTextField {
+    /// Sets `placeholder` as the field's placeholder in the active scope's hint ink
+    /// (`Palette.textTertiary`) and the field's font, for a stock field whose host re-applies its
+    /// colors on a theme change; nil removes it. theme-scoped
+    public func applyThemedPlaceholder(_ placeholder: String?) {
+        guard let placeholder, !placeholder.isEmpty else {
+            setPlaceholderKeepingEdit(nil)
+            return
+        }
+        setPlaceholderKeepingEdit(NSAttributedString(string: placeholder, attributes: [
+            .foregroundColor: Palette.textTertiary,
+            .font: font ?? Typography.body,
+        ]))
+    }
+
+    /// The field's setter ends and restarts an active edit, which runs the end-editing and focus
+    /// paths mid-typing; the cell's only redraws.
+    public func setPlaceholderKeepingEdit(_ placeholder: NSAttributedString?) {
+        guard currentEditor() != nil, let cell = cell as? NSTextFieldCell else {
+            placeholderAttributedString = placeholder
+            return
+        }
+        cell.placeholderAttributedString = placeholder
+        needsDisplay = true
+    }
+
+    /// Text, placeholder, fill and the active field editor's caret and selection in the active
+    /// scope. theme-scoped
+    func applyThemedFieldColors(fill: NSColor, placeholder: String?) {
+        backgroundColor = fill
+        textColor = Palette.textPrimary
+        applyThemedPlaceholder(placeholder)
+        guard let editor = currentEditor() as? NSTextView else { return }
+        editor.textColor = Palette.textPrimary
+        editor.insertionPointColor = Palette.caret
+        editor.selectedTextAttributes = [.backgroundColor: Palette.textSelection]
     }
 }
