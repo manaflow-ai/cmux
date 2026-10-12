@@ -86,6 +86,12 @@ enum DebugDialog {
             }),
         ]
         if let origin = record.spec.origin { object["origin"] = .string(origin) }
+        // Each choice field's options (label and value), so a check can read what a menu offers.
+        var options: [String: JSONValue] = [:]
+        for case .choice(let id, _, let choices, _) in record.spec.fields {
+            options[id] = .array(choices.map { .object(["label": .string($0.label), "value": .string($0.value)]) })
+        }
+        if !options.isEmpty { object["options"] = .object(options) }
         if let view, view.window != nil {
             let frame = view.convert(view.bounds, to: nil)
             object["frame"] = .array([frame.minX, frame.minY, frame.width, frame.height].map { .number(Double($0)) })

@@ -115,6 +115,7 @@ import { PreviewCard } from "./conversation/PreviewCard";
 import { turnPreviewUrl } from "./conversation/previewUrl";
 import {
   canFork,
+  forksAnyTurn,
   latestForkSeq,
   messageMenuTarget,
   openReportedImage,
@@ -293,6 +294,13 @@ const saveDocumentNatively: SaveDocument = async (text, suggestedName, kind) => 
     return "unavailable";
   }
 };
+
+/// A start the host refused with a typed code: a chat on another machine (`agent_session.*`, the
+/// session daemon's agent-session-start). A trust refusal has its own question.
+function isStartRefusal(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === "string" && code.startsWith("agent_session.") && !isTrustRefusal(error);
+}
 
 /// The machine a refused handshake names (`details.machineName`), for the composer's chip.
 function refusedMachine(error: unknown): string | undefined {
@@ -1273,7 +1281,7 @@ export function VirtualTranscript({
     previousLayout.current = layout;
     previousRows.current = rows;
     previousViewport.current = { height, width };
-    if (node) scrolledTo.current = scrollPosition(node, layout.totalHeight);
+    if (node && node.clientHeight > 0) scrolledTo.current = scrollPosition(node, layout.totalHeight);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
   }, [layout, rows, range.first, height, width]);
   // Commit before this frame paints; deferring to the next animation frame left the edge blank.
@@ -1360,9 +1368,14 @@ export function VirtualTranscript({
   const latestLayout = useRef({ layout, rows });
   latestLayout.current = { layout, rows };
   useEffect(() => () => clearTimeout(anchorTimer.current), []);
+  // A report that came due while the pane was hidden, sent once it has a viewport again.
+  const anchorDeferred = useRef(false);
   const reportAnchor = () => {
     const node = ref.current;
     if (!node || !onAnchor) return;
+    // A hidden pane (Home shown in its place) has no viewport: nothing it reads is where the reader is.
+    anchorDeferred.current = node.clientHeight === 0;
+    if (anchorDeferred.current) return;
     const { layout: placed, rows: shown } = latestLayout.current;
     const index = visibleLayoutRange(placed, node.scrollTop, 0, 0).first;
     const row = shown[index];
@@ -1373,8 +1386,14 @@ export function VirtualTranscript({
     reportedAnchor.current = key;
     onAnchor(anchor);
   };
+  useEffect(() => {
+    if (height > 0 && anchorDeferred.current) reportAnchor();
+  });
   const onScroll = (event: React.UIEvent<HTMLDivElement>) => {
     pacing.scrolled();
+    // A hidden scroller has no height, so every offset would read as scrolled up (cx-t0zqt): the view
+    // keeps following until the reader scrolls a visible one.
+    if (event.currentTarget.clientHeight === 0) return;
     const next = event.currentTarget.scrollTop;
     scrolledTo.current = scrollPosition(event.currentTarget, layout.totalHeight);
     flushSync(() => {
@@ -1753,6 +1772,7 @@ function AcpmuxPane() {
   const connected = snapshot.connection !== "disconnected" && !snapshot.connection.startsWith("connecting");
   const forkable = canFork(snapshot);
   const forkSeq = latestForkSeq(snapshot.rows);
+  const forkAny = forksAnyTurn(snapshot.summary?.family);
   // Edit and resend (cx-ncc.60): rebuilt when the editable prompts change, not on every streamed row.
   const editSeqs = editableTurns(forkable ? snapshot.rows : [], snapshot.summary?.family);
   const editSeqsKey = editableKey(editSeqs);
@@ -2140,6 +2160,7 @@ function AcpmuxPane() {
       ...(forkable && {
         fork: (throughSeq: number) => void callNative("chat.fork", { throughSeq }).catch(() => undefined),
         forkSeq,
+        forkAny,
       }),
       ...(stableEditSeqs.size > 0 && {
         edit: {
@@ -2189,6 +2210,7 @@ function AcpmuxPane() {
       stableBranches,
       forkable,
       forkSeq,
+      forkAny,
       stableEditSeqs,
       connected,
       hunkReview,
@@ -2690,6 +2712,7 @@ function AcpmuxPane() {
     // A seeded first prompt (onboarding's first task). Swift hands it out once, so it is kept
     // here until a connect succeeds: a first connect that fails retries without it.
     let pendingPrompt: string | undefined;
+    let pendingTicket: { promptId: string; ticket: string } | undefined;
     // The harness that seeded prompt starts on (`newTab.submit --agent`), kept with it.
     let pendingHarness: string | undefined;
     /// The connected client as the harness switch sees it.
@@ -2726,6 +2749,7 @@ function AcpmuxPane() {
           cwd?: string;
           draft?: string;
           prompt?: string;
+          promptTicket?: { promptId?: unknown; ticket?: unknown };
           harness?: string;
           adopt?: unknown;
           surface?: unknown;
@@ -2787,6 +2811,14 @@ function AcpmuxPane() {
         const seeded = composerDraft(host.draft);
         if (seeded) setDraft(seeded);
         pendingPrompt = composerDraft(host.prompt) ?? pendingPrompt;
+        // A prompt a person's action seeded has a single-use host ticket bound to its promptId
+        // (cx-k21v gap 4); a CLI, MCP or script seed has none and the host refuses its send.
+        if (
+          host.prompt &&
+          typeof host.promptTicket?.promptId === "string" &&
+          typeof host.promptTicket.ticket === "string"
+        )
+          pendingTicket = { promptId: host.promptTicket.promptId, ticket: host.promptTicket.ticket };
         if (typeof host.harness === "string" && host.harness) pendingHarness = host.harness;
         // Mock mode runs this same client against an in-page daemon.
         const mock = host.transport === "mock";
@@ -2878,6 +2910,7 @@ function AcpmuxPane() {
           attachments: import("./attachments").ComposerAttachment[] = [],
           accepted?: () => void,
           steer = false,
+          promptId?: string,
         ) => {
           // acpmux holds the prompt while the folder's trust question is open (on session/new
           // or session/prompt): the question shows for the folder acpmux named, and Trust sends
@@ -2894,7 +2927,7 @@ function AcpmuxPane() {
           };
           // A harness switch holds the prompt in its own row until its session is ready, and
           // hands it back to the composer when the switch fails.
-          const held = harnessSwitch.send(text, attachments, () => promptLanded.current());
+          const held = harnessSwitch.send(text, attachments, () => promptLanded.current(), promptId);
           if (held) {
             accepted?.();
             return held.catch((error: unknown) =>
@@ -2906,6 +2939,9 @@ function AcpmuxPane() {
           const sessionId = await client.ensureSession().catch((error: unknown) => {
             // A folder harness that waits for Enable or Trust says so on its own card.
             setBlockedHarness(harnessBlock(error));
+            // A refused start (a chat on another machine, cx-k21v) says why in this page's own
+            // view: the host's typed refusal, already localized, under the localized "Not sent".
+            if (isStartRefusal(error)) client.notice(translate("prompt.notSent", { reason: errorMessage(error) }));
             return refused(error, Boolean(accepted));
           });
           await persistSession(sessionId);
@@ -3188,14 +3224,18 @@ function AcpmuxPane() {
         // the prompt waits in the composer instead of vanishing.
         const prompt = pendingPrompt;
         const harness = pendingHarness;
+        const ticket = pendingTicket;
         pendingPrompt = undefined;
         pendingHarness = undefined;
+        pendingTicket = undefined;
+        // The seeded prompt goes with its ticket, under the ticket's promptId.
+        if (prompt && ticket) heldPrompt.keep(ticket);
         // A chat seeded with an agent starts on it, the prompt queued on the switch; a switch
         // that fails hands it back to the composer.
         if (harness && prompt) {
           void harnessSwitch.switchTo(harness, host.cwd);
-          void send(prompt).catch(() => undefined);
-        } else if (prompt) void send(prompt).catch(() => setDraft(prompt));
+          void send(prompt, [], undefined, false, ticket?.promptId).catch(() => undefined);
+        } else if (prompt) void send(prompt, [], undefined, false, ticket?.promptId).catch(() => setDraft(prompt));
       } catch (error) {
         if (!cancelled) {
           acpWire.lifecycle("handshake failed", { message: String(error) });
@@ -4234,6 +4274,13 @@ function AcpmuxPane() {
                       folder={localCwd ?? (remoteChat ? undefined : startFolder)}
                       readStatus={readFolderStatus}
                       statusKey={snapshot.isWorking}
+                      // Apply brings a worktree chat's work to its main checkout (cx-lyqio.4); a new chat has none yet.
+                      onApplyWorktree={
+                        snapshot.sessionId && localCwd
+                          ? (key: string) =>
+                              callNative("git.worktree.apply", { session_id: snapshot.sessionId, idempotency_key: key })
+                          : undefined
+                      }
                       // A merge asks the header again, so the chip shows the pull request merged.
                       onMergePullRequest={
                         localCwd

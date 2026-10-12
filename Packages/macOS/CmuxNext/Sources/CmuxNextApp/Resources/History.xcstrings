@@ -4978,6 +4978,399 @@
           }
         }
       }
+    },
+    "history.commands.deleteTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete recorded terminal commands?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هل تريد حذف أوامر الطرفية المسجلة؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Izbrisati snimljene komande terminala?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slet registrerede terminalkommandoer?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aufgezeichnete Terminalbefehle löschen?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "¿Eliminar los comandos de terminal registrados?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Supprimer les commandes du terminal enregistrées ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eliminare i comandi del terminale registrati?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "記録済みのターミナルコマンドを削除しますか？"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លុបពាក្យបញ្ជាទែមីណាល់ដែលបានកត់ត្រា?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "기록된 터미널 명령을 삭제할까요?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slette registrerte terminalkommandoer?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usunąć zapisane polecenia terminala?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Excluir os comandos de terminal registrados?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Удалить записанные команды терминала?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลบคำสั่งเทอร์มินัลที่บันทึกไว้หรือไม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kaydedilen terminal komutları silinsin mi?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Видалити записані команди термінала?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xóa các lệnh terminal đã ghi?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "删除已记录的终端命令？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "刪除已記錄的終端機指令？"
+          }
+        }
+      }
+    },
+    "history.commands.deleteButton": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Existing History"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حذف السجل الحالي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Izbriši postojeću historiju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slet eksisterende historik"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vorhandenen Verlauf löschen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eliminar historial existente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Supprimer l’historique existant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Elimina cronologia esistente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "既存の履歴を削除"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លុបប្រវត្តិដែលមានស្រាប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "기존 기록 삭제"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slett eksisterende historikk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usuń istniejącą historię"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Excluir histórico existente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Удалить существующую историю"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลบประวัติที่มีอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mevcut geçmişi sil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Видалити наявну історію"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xóa lịch sử hiện có"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "删除现有历史记录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "刪除現有記錄"
+          }
+        }
+      }
+    },
+    "history.commands.deleteBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recording is off. Each connected machine keeps the commands it already recorded until they are %lld days old."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التسجيل متوقف. يحتفظ كل جهاز متصل بالأوامر التي سجّلها بالفعل حتى يصبح عمرها %lld يومًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Snimanje je isključeno. Svaka povezana mašina čuva već snimljene komande dok ne postanu stare %lld dana."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Registrering er slået fra. Hver tilsluttet maskine beholder de kommandoer, den allerede har registreret, indtil de er %lld dage gamle."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Aufzeichnung ist aus. Jeder verbundene Rechner behält bereits aufgezeichnete Befehle, bis sie %lld Tage alt sind."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La grabación está desactivada. Cada máquina conectada conserva los comandos ya registrados hasta que tengan %lld días."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’enregistrement est désactivé. Chaque machine connectée conserve les commandes déjà enregistrées jusqu’à ce qu’elles aient %lld jours."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La registrazione è disattivata. Ogni macchina connessa conserva i comandi già registrati finché non hanno %lld giorni."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "記録はオフです。接続中の各マシンは、記録済みのコマンドを %lld 日経過するまで保持します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការកត់ត្រាត្រូវបានបិទ។ ម៉ាស៊ីនដែលបានភ្ជាប់នីមួយៗរក្សាពាក្យបញ្ជាដែលបានកត់ត្រារួច រហូតដល់ពួកវាមានអាយុ %lld ថ្ងៃ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "기록이 꺼져 있습니다. 연결된 각 머신은 이미 기록한 명령을 %lld일이 지날 때까지 보관합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Registrering er av. Hver tilkoblet maskin beholder kommandoene den allerede har registrert til de er %lld dager gamle."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zapisywanie jest wyłączone. Każda połączona maszyna przechowuje już zapisane polecenia, dopóki nie będą miały %lld dni."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A gravação está desativada. Cada máquina conectada mantém os comandos já registrados até que tenham %lld dias."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запись выключена. Каждая подключённая машина хранит уже записанные команды, пока им не исполнится %lld дн."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปิดการบันทึกแล้ว แต่ละเครื่องที่เชื่อมต่อจะเก็บคำสั่งที่บันทึกไว้แล้วจนกว่าจะมีอายุ %lld วัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kayıt kapalı. Bağlı her makine, kaydettiği komutları %lld günlük olana kadar saklar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запис вимкнено. Кожна підключена машина зберігає вже записані команди, доки їм не виповниться %lld дн."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã tắt ghi. Mỗi máy đã kết nối giữ các lệnh đã ghi cho đến khi chúng được %lld ngày."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "记录已关闭。每台已连接的机器会保留已记录的命令，直到它们满 %lld 天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "記錄已關閉。每台已連線的機器會保留已記錄的指令，直到它們滿 %lld 天。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

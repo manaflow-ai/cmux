@@ -12,6 +12,8 @@ struct AgentChatTabActions {
     let registry: @MainActor () -> ActionRegistry?
     /// Opens the Files tree of a folder beside the chat (AgentTabStore.openFiles), on tab `target` or in a new column.
     var files: @MainActor (_ folder: String, _ target: String?) -> Void = { _, _ in }
+    /// The empty-space menu's rows that don't apply to this chat now (Move to Cloud on a chat of another machine).
+    var hidden: @MainActor () -> Set<ActionID> = { [] }
 
     /// A header action, with the folder it names when it names one, on the chat's tab or on tab
     /// `target` (a header split opening right of the one before it, AgentChatSplitToggles).
@@ -61,7 +63,8 @@ struct AgentChatTabActions {
     /// The empty-space menu's items, detached for the pane's menu to take.
     func menuItems() -> [NSMenuItem] {
         guard let registry = registry() else { return [] }
-        let menu = registry.makeContextMenu(for: .agentChat, target: ActionTargetRef(kind: .tab, id: tab()))
+        let menu = registry.makeContextMenu(for: .agentChat, target: ActionTargetRef(kind: .tab, id: tab()),
+                                            entries: ContextMenuCatalog.shared.entries(for: .agentChat, removing: hidden()))
         let items = menu.items
         menu.removeAllItems()
         return items

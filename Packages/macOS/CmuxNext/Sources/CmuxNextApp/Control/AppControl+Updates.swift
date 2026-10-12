@@ -2,6 +2,10 @@ import CmuxNextControl
 import CmuxNextSettings
 import CmuxNextUpdater
 import Foundation
+#if DEBUG
+import AppKit
+import WebKit
+#endif
 
 // `updates.status`: the updater's state (channel, feed, Sparkle phase,
 // automatic-check settings, last probe). `updates.check`: a read-only probe
@@ -88,13 +92,28 @@ extension AppControl {
         }
         #if DEBUG
         service?.router.register([
-            // `debug.update_surfaces {action: "show-popover"}`: opens the active
-            // window's staged-update highlights popover (the React surface) for proofs.
-            .mainActor("debug.update_surfaces") { [weak services = appServices] _ in
-                guard let sidebar = services?.windows.active?.sidebar.container.sidebarView else {
+            // `debug.update_surfaces {action}`: for proofs, on the active window's
+            // sidebar. "show-popover" (default) opens the staged-update highlights
+            // popover (the React surface); "state" reads which update pages the
+            // sidebar holds and the web views under it; "dismiss-updated" runs
+            // the Updated card's x (cx-asynu).
+            .mainActor("debug.update_surfaces") { [weak services = appServices] call in
+                guard let services, let sidebar = services.windows.active?.sidebar.container.sidebarView else {
                     throw ControlError.invalidParams("debug.update_surfaces: no active window")
                 }
-                return .value(.object(sidebar.debugShowUpdateHighlights().mapValues { JSONValue.string($0) }))
+                switch call.params["action"]?.stringValue ?? "show-popover" {
+                case "show-popover":
+                    return .value(.object(sidebar.debugShowUpdateHighlights().mapValues { JSONValue.string($0) }))
+                case "state":
+                    var state = sidebar.debugUpdateSurfaceState().mapValues { JSONValue.string($0) }
+                    state["sidebarWebViews"] = .number(Double(Self.webViewCount(in: sidebar)))
+                    return .value(.object(state))
+                case "dismiss-updated":
+                    services.updater.whatsNew.dismissUpdated()
+                    return .value(.null)
+                case let action:
+                    throw ControlError.invalidParams("debug.update_surfaces: unknown action \(action)")
+                }
             },
             .mainActor("debug.update_indicator") { call in
                 updater.debugIndicatorPhase = UpdateIndicatorPhase(debugParams: call.params)
@@ -103,6 +122,13 @@ extension AppControl {
         ])
         #endif
     }
+
+    #if DEBUG
+    /// The web views under `view` (an open popover's page is in its own window).
+    private static func webViewCount(in view: NSView) -> Int {
+        view.subviews.reduce(view is WKWebView ? 1 : 0) { $0 + webViewCount(in: $1) }
+    }
+    #endif
 
     static func json(_ status: UpdaterStatus, log: [String]) -> JSONValue {
         .object([

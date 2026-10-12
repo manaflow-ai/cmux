@@ -127,7 +127,7 @@ export class MockPasswordsProvider implements PageClient {
     if (op === "cmux.app.action.run") {
       // The app's import actions: the mock records the run (in `calls`) and checks the gesture.
       this.gate();
-      if (p.action !== "importFromBrowser" && p.action !== "password.importCSV") {
+      if (p.action !== "importFromBrowser" && p.action !== "browser.importFromFiles") {
         throw pageError("cmux.app.action_refused", `${String(p.action)} is not an action of this page`);
       }
       return { ran: true };

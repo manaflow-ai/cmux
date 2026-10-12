@@ -17,7 +17,7 @@ use sha2::{Digest, Sha256};
 use super::*;
 
 use crate::resource::{
-    AgentPublicId, FrontendProjectionPublicId, NotificationPublicId, WireDecimal,
+    AgentPublicId, BrowserPublicId, FrontendProjectionPublicId, NotificationPublicId, WireDecimal,
 };
 use crate::{CursorShape, DefaultColors, Rgb};
 
@@ -38,6 +38,9 @@ pub struct RegistryNotificationProjection {
     /// `extra.source`, or derived from the idempotency key for receipts
     /// written before sources existed.
     pub source: crate::NotificationSource,
+    /// `extra.browser_id`: the content of the non-terminal tab it was
+    /// posted on (an agent chat).
+    pub browser_id: Option<BrowserPublicId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -355,6 +358,12 @@ impl WorkspaceRegistry {
                 .and_then(Value::as_str)
                 .and_then(crate::NotificationSource::parse)
                 .unwrap_or_else(|| crate::NotificationSource::from_legacy_key(&idempotency_key));
+            let browser_id = stored
+                .extra
+                .as_ref()
+                .and_then(|extra| extra.get("browser_id"))
+                .and_then(Value::as_str)
+                .and_then(|id| BrowserPublicId::parse(id).ok());
             let _ = stored.read_by;
             let read_by = reads.remove(stored.id.as_str()).unwrap_or_default();
             // A closed terminal's notification has no ring to restore.
@@ -373,6 +382,7 @@ impl WorkspaceRegistry {
                 unread,
                 read_by,
                 source,
+                browser_id,
             });
         }
         notifications.reverse();

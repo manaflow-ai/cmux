@@ -29,22 +29,79 @@
 //! `CMUX_AGENT_START_HOST` (`team-vm` or `unknown-cloud`), read once at
 //! daemon start, can only make the kind stricter; the socket tests use it.
 //! Any other value is ignored.
+//!
+//! Test seam, debug builds only (`#[cfg(debug_assertions)]`; a release binary
+//! has no trace of it): `CMUX_TEST_CLOUD_ETC=<absolute dir>`, read once at
+//! daemon start ([`cloud_etc`]), stands in for `/etc/cmux` for the image
+//! stamp, `vm-kind` and `bake-instance-id`, here and in `link/cloud_fs.rs`.
+//! Under it a record must be owned by the daemon's own uid instead of root,
+//! and the ownership walk stops at that folder instead of `/`; the
+//! group/other-write and no-symlink rules, the stamp prefix, the model plane
+//! identity and the `owner`/`team` reading stay as they are. The team files
+//! root `/srv/team` is not moved. The Linux journey
+//! (`tests/cloud_move_journey.rs`) makes a daemon a personal Cloud VM this way.
 
 use std::io::Read as _;
 use std::os::unix::fs::MetadataExt as _;
-use std::path::Path;
-use std::sync::Arc;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, OnceLock};
 
 use cmux_tui_core::server::{AgentStartHost, AgentStartHostSource};
 
-const VM_KIND_FILE: &str = "/etc/cmux/vm-kind";
+/// The machine's Cloud records, in [`CloudEtc::dir`] (`/etc/cmux`).
+const VM_KIND_FILE: &str = "vm-kind";
+const BAKE_INSTANCE_FILE: &str = "bake-instance-id";
+/// The Cloud image stamp (link/cloud_fs.rs reads it too).
+pub(crate) const IMAGE_STAMP_FILE: &str = "image-stamp";
 const TEAM_FILES_ROOT: &str = "/srv/team";
 const TEAM_LOGIN_GROUP: &str = "cmux-ssh";
-const BAKE_INSTANCE_FILE: &str = "/etc/cmux/bake-instance-id";
-/// The Cloud image stamp (link/cloud_fs.rs `IMAGE_STAMP`).
-const IMAGE_STAMP: &str = "/etc/cmux/image-stamp";
 const VM_ID_VAR: &str = "CMUX_VM_ID";
 const HOST_OVERRIDE_VAR: &str = "CMUX_AGENT_START_HOST";
+/// The debug-only seam (module docs).
+#[cfg(debug_assertions)]
+const TEST_CLOUD_ETC_VAR: &str = "CMUX_TEST_CLOUD_ETC";
+
+/// Where this machine's Cloud records live and who must own them.
+pub(crate) struct CloudEtc {
+    /// `/etc/cmux`: the image stamp, `vm-kind` and `bake-instance-id`.
+    pub(crate) dir: PathBuf,
+    /// The uid a record and every folder above it must belong to (root).
+    pub(crate) owner: u32,
+    /// Where the ownership walk stops (`/`).
+    pub(crate) top: PathBuf,
+}
+
+impl CloudEtc {
+    pub(crate) fn file(&self, name: &str) -> PathBuf {
+        self.dir.join(name)
+    }
+}
+
+/// The Cloud records' place, settled once (at daemon start: the first call
+/// is the daemon's host gate and link entry setup).
+pub(crate) fn cloud_etc() -> &'static CloudEtc {
+    static ETC: OnceLock<CloudEtc> = OnceLock::new();
+    ETC.get_or_init(|| {
+        #[cfg(debug_assertions)]
+        if let Some(etc) = test_cloud_etc() {
+            return etc;
+        }
+        CloudEtc { dir: PathBuf::from("/etc/cmux"), owner: 0, top: PathBuf::from("/") }
+    })
+}
+
+/// Debug builds only: `CMUX_TEST_CLOUD_ETC`, an absolute folder owned by
+/// this user, stands in for `/etc/cmux` (module docs).
+#[cfg(debug_assertions)]
+fn test_cloud_etc() -> Option<CloudEtc> {
+    let dir = PathBuf::from(std::env::var_os(TEST_CLOUD_ETC_VAR)?);
+    if !dir.is_absolute() {
+        return None;
+    }
+    // SAFETY: getuid has no preconditions and cannot fail.
+    let owner = unsafe { libc::getuid() };
+    Some(CloudEtc { top: dir.clone(), dir, owner })
+}
 
 /// The daemon's source: the environment is read once here, the files at
 /// every call.
@@ -57,15 +114,18 @@ pub(crate) fn source() -> AgentStartHostSource {
         _ => AgentStartHost::Allowed,
     };
     let team_gid = group_id(TEAM_LOGIN_GROUP);
-    Arc::new(move || detect(vm_id, team_gid).max(requested))
+    let etc = cloud_etc();
+    Arc::new(move || detect(etc, vm_id, team_gid).max(requested))
 }
 
-fn detect(vm_id: bool, team_gid: Option<u32>) -> AgentStartHost {
+fn detect(etc: &CloudEtc, vm_id: bool, team_gid: Option<u32>) -> AgentStartHost {
     // Team markers first: a team VM is refused whatever else this machine
     // shows (also with no Cloud marker at all).
-    let team_files = team_gid
-        .is_some_and(|gid| trusted(TEAM_FILES_ROOT, true).is_some_and(|meta| meta.gid() == gid));
-    let kind = read_kind();
+    let root = Path::new("/");
+    let team_files = team_gid.is_some_and(|gid| {
+        trusted(Path::new(TEAM_FILES_ROOT), true, 0, root).is_some_and(|meta| meta.gid() == gid)
+    });
+    let kind = read_kind(etc);
     if team_files || kind.as_deref() == Some("team") {
         return AgentStartHost::TeamVm;
     }
@@ -73,11 +133,11 @@ fn detect(vm_id: bool, team_gid: Option<u32>) -> AgentStartHost {
     // tampered one makes the kind stricter (unknown), never looser.
     // An error other than "not found" (a folder the daemon cannot search)
     // counts as present too.
-    let present = |path: &str| {
-        std::fs::symlink_metadata(path)
+    let present = |name: &str| {
+        std::fs::symlink_metadata(etc.file(name))
             .map_or_else(|error| error.kind() != std::io::ErrorKind::NotFound, |_| true)
     };
-    let cloud = present(IMAGE_STAMP) || present(BAKE_INSTANCE_FILE) || vm_id;
+    let cloud = present(IMAGE_STAMP_FILE) || present(BAKE_INSTANCE_FILE) || vm_id;
     match (cloud, kind.as_deref()) {
         (false, _) => AgentStartHost::Allowed,
         (true, Some("owner")) => AgentStartHost::Allowed,
@@ -85,21 +145,27 @@ fn detect(vm_id: bool, team_gid: Option<u32>) -> AgentStartHost {
     }
 }
 
-/// The metadata of `path` when it and every folder above it are owned by
-/// root, not writable by group or others, and not symlinks (a user cannot
-/// plant or swap it); `dir` says which kind `path` must be.
-fn trusted(path: &str, dir: bool) -> Option<std::fs::Metadata> {
-    let path = Path::new(path);
+/// The metadata of `path` when it and every folder above it up to `top`
+/// are owned by `owner` (root), not writable by group or others, and not
+/// symlinks (a user cannot plant or swap it); `dir` says which kind `path`
+/// must be.
+fn trusted(path: &Path, dir: bool, owner: u32, top: &Path) -> Option<std::fs::Metadata> {
+    if !path.starts_with(top) {
+        return None;
+    }
     let mut current = Some(path);
     let mut leaf = None;
     while let Some(at) = current {
         let meta = std::fs::symlink_metadata(at).ok()?;
         let kind_ok = if at == path && !dir { meta.file_type().is_file() } else { meta.is_dir() };
-        if !kind_ok || meta.uid() != 0 || meta.mode() & 0o022 != 0 {
+        if !kind_ok || meta.uid() != owner || meta.mode() & 0o022 != 0 {
             return None;
         }
         if leaf.is_none() {
             leaf = Some(meta);
+        }
+        if at == top {
+            break;
         }
         current = at.parent();
     }
@@ -109,16 +175,14 @@ fn trusted(path: &str, dir: bool) -> Option<std::fs::Metadata> {
 /// The recorded kind, trimmed (at most 64 bytes), when the record is
 /// trusted. Opened without following a symlink and checked again on the
 /// open file, so a swap between the checks is refused.
-fn read_kind() -> Option<String> {
+fn read_kind(etc: &CloudEtc) -> Option<String> {
     use std::os::unix::fs::OpenOptionsExt as _;
-    trusted(VM_KIND_FILE, false)?;
-    let file = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(VM_KIND_FILE)
-        .ok()?;
+    let path = etc.file(VM_KIND_FILE);
+    trusted(&path, false, etc.owner, &etc.top)?;
+    let file =
+        std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW).open(&path).ok()?;
     let meta = file.metadata().ok()?;
-    if !meta.file_type().is_file() || meta.uid() != 0 || meta.mode() & 0o022 != 0 {
+    if !meta.file_type().is_file() || meta.uid() != etc.owner || meta.mode() & 0o022 != 0 {
         return None;
     }
     let mut text = String::new();
