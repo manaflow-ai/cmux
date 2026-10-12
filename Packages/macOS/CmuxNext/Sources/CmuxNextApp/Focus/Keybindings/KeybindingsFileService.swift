@@ -20,6 +20,10 @@ final class KeybindingsFileService {
     private var observation: Task<Void, Never>?
     /// Entries the catalog refused at the last load.
     private(set) var issues: [KeyBindingIssue] = []
+    /// Each loaded entry as the file writes it (command, keys and `when`
+    /// text): an edit names the entry so, since the daemon matches the text
+    /// and the table holds canonical ids and `when` clauses.
+    private var written: [KeyBinding: KeybindingsFileClient.Binding] = [:]
 
     init(services: AppServices) {
         self.services = services
@@ -60,13 +64,13 @@ final class KeybindingsFileService {
     func set(command: ActionID, key: String, when: String?, args: [String: JSONValue], replaces: KeyBinding?) async throws {
         let client = try client()
         let binding = KeybindingsFileClient.Binding(command: command.rawValue, key: key, when: when)
-        try await client.set(binding, args: args, replaces: replaces.map(Self.binding), idempotencyKey: Self.key())
+        try await client.set(binding, args: args, replaces: replaces.map(self.binding), idempotencyKey: Self.key())
         await read().value
     }
 
     /// Unbinds one table entry.
     func remove(_ entry: KeyBinding) async throws {
-        try await client().remove(Self.binding(entry), idempotencyKey: Self.key())
+        try await client().remove(binding(entry), idempotencyKey: Self.key())
         await read().value
     }
 
@@ -103,6 +107,7 @@ final class KeybindingsFileService {
     /// Loads `entries` as the table's user layer; the app layer stays.
     private func load(_ entries: [KeybindingsFileClient.Entry]) {
         var user: [KeyBinding] = [], removals: [KeyBindingRemoval] = []
+        var texts: [KeybindingsFileClient.Binding] = []
         for entry in entries {
             let command = ActionID(rawValue: entry.command)
             if entry.removal {
@@ -113,12 +118,16 @@ final class KeybindingsFileService {
                 guard let keys = KeybindingReports.keys(from: entry.keys.joined(separator: " ")), let when = Self.when(entry.when),
                       let arguments = Self.arguments(entry.args ?? [:]) else { continue }
                 user.append(KeyBinding(keys: keys, command: command, arguments: arguments, when: when, source: .user))
+                texts.append(KeybindingsFileClient.Binding(command: entry.command, key: entry.keys.joined(separator: " "), when: entry.when))
             }
         }
         guard let registry = services?.registry else { return }
         let layers = registry.keyBindingLayers
-        guard layers.user != user || layers.removals != removals else { return notify() }
         issues = KeyBindingLoader(registry).load(KeyBindingLayers(app: layers.app, user: user, removals: removals))
+        // The loader keeps the entries that pass, in order, canonicalized.
+        let refused = Set(issues.filter { $0.source == .user && !$0.isRemoval }.map(\.index))
+        let kept = texts.enumerated().filter { !refused.contains($0.offset) }.map(\.element)
+        written = Dictionary(zip(registry.keyBindingLayers.user, kept), uniquingKeysWith: { first, _ in first })
         notify()
     }
 
@@ -133,15 +142,26 @@ final class KeybindingsFileService {
         return KeybindingsFileClient(connection: connection)
     }
 
-    /// The binding an edit names: the entry's keys and `when` text.
-    private static func binding(_ entry: KeyBinding) -> KeybindingsFileClient.Binding {
-        KeybindingsFileClient.Binding(command: entry.command.rawValue, key: KeybindingReports.text(entry.keys), when: entry.when?.text)
+    /// The table entry is one of keybindings.json's.
+    func isFromFile(_ entry: KeyBinding) -> Bool {
+        written[entry] != nil
+    }
+
+    /// The binding an edit names: a file entry as written, any other entry
+    /// by its keys and canonical `when` text.
+    private func binding(_ entry: KeyBinding) -> KeybindingsFileClient.Binding {
+        written[entry] ?? KeybindingsFileClient.Binding(command: entry.command.rawValue, key: KeybindingReports.text(entry.keys),
+                                                        when: entry.when?.text)
     }
 
     /// A parsed `when` (`.some(nil)`: none), or nil when it does not parse.
     private static func when(_ text: String?) -> WhenClause?? {
         guard let text else { return .some(nil) }
-        return try? WhenClause.parse(text)
+        do {
+            return .some(try WhenClause.parse(text))
+        } catch {
+            return nil
+        }
     }
 
     /// File arguments as action values (the loader converts them to the

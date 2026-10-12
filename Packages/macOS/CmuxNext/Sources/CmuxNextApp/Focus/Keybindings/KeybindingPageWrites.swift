@@ -114,7 +114,8 @@ struct KeybindingPageWrites {
         }
         try assess(keys[0], for: id)
         try await daemon {
-            try await file.set(command: id, key: KeybindingReports.text(keys), when: when,
+            // The canonical text: the page lists it, and a later edit names the entry by it.
+            try await file.set(command: id, key: KeybindingReports.text(keys), when: clause?.text,
                                args: args.mapValues { AppJSON($0).daemonValue }, replaces: target)
         }
     }
@@ -122,7 +123,7 @@ struct KeybindingPageWrites {
     /// The entry is keybindings.json's (cmux.json overrides are user entries too).
     private func isFromFile(_ entry: KeyBinding?) -> Bool {
         guard let entry, entry.source == .user else { return false }
-        return registry.keyBindingLayers.user.contains(entry)
+        return file.isFromFile(entry)
     }
 
     /// Writes keybindings.json through the daemon; its refusal is the page's error.
