@@ -906,6 +906,32 @@ describe("team tunnel reconciliation", () => {
     }).pipe(Effect.provide(layerFor(repo, gateway))));
   }
 
+  test("releases the Mac mutation lease before attaching team networks", async () => {
+    // Every build and tunnel role on one Mac shares this lease. Holding it
+    // across per-team provider calls answered them all 409 vm_access_grant_busy.
+    const events: string[] = [];
+    const repo = {
+      ...testRepo({ network: networkRow() }),
+      claimAccessGrantMutation: () => Effect.sync(() => {
+        events.push("claim");
+        return true;
+      }),
+      releaseAccessGrantMutation: () => Effect.sync(() => {
+        events.push("release");
+      }),
+    } as VmRepositoryShape;
+    const gateway = testGateway({
+      teamNetworks: [TEAM_NETWORK],
+      attachTunnelNetwork: (networkId) => Effect.sync(() => {
+        events.push(`attach:${networkId}`);
+        return { networkId, addressV4: "10.50.0.2", addressV6: "fd50::2" };
+      }),
+    });
+    const result = await enroll(["team-1"], repo, gateway);
+    expect(events).toEqual(["claim", "release", `attach:${TEAM_NETWORK.id}`]);
+    expect(result.networks.map((network) => network.id)).toEqual([NETWORK.id, TEAM_NETWORK.id]);
+  });
+
   test("a new tunnel is attached to the caller's team network and lists it after the home network", async () => {
     const calls = newGatewayCalls();
     const result = await enroll(["team-1"], testRepo({ network: networkRow() }), testGateway({ calls, teamNetworks: [TEAM_NETWORK] }));

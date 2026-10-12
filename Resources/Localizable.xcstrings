@@ -651019,6 +651019,124 @@
           }
         }
       }
+    },
+    "cloud.overlay.signInRevoked.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud access for this Mac sign-in was revoked. Sign out of cmux, then sign in again to reconnect this machine."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أُلغي الوصول السحابي لتسجيل الدخول هذا على جهاز Mac. سجّل الخروج من cmux، ثم سجّل الدخول مرة أخرى لإعادة الاتصال بهذا الجهاز."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Cloud-Zugriff für diese Mac-Anmeldung wurde widerrufen. Melde dich bei cmux ab und erneut an, um die Verbindung zu dieser Maschine wiederherzustellen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se revocó el acceso a Cloud de este inicio de sesión en el Mac. Cierra sesión en cmux y vuelve a iniciarla para reconectar esta máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’accès Cloud de cette connexion Mac a été révoqué. Déconnectez-vous de cmux, puis reconnectez-vous pour rétablir la connexion à cette machine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac のサインインに対する Cloud アクセスが取り消されました。cmux からサインアウトして再度サインインすると、このマシンに再接続できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac 로그인의 Cloud 접근 권한이 취소되었습니다. cmux에서 로그아웃한 후 다시 로그인하여 이 머신에 다시 연결하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 登录的 Cloud 访问权限已被撤销。请退出 cmux 后重新登录，以重新连接到这台机器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 登入的 Cloud 存取權已被撤銷。請登出 cmux 後重新登入，以重新連線到這台機器。"
+          }
+        }
+      }
+    },
+    "cloud.overlay.signInRevoked.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in again to reconnect"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سجّل الدخول مرة أخرى لإعادة الاتصال"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erneut anmelden, um die Verbindung herzustellen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vuelve a iniciar sesión para reconectar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnectez-vous pour rétablir la connexion"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再接続するには再度サインインしてください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 연결하려면 다시 로그인하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请重新登录以重新连接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請重新登入以重新連線"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
