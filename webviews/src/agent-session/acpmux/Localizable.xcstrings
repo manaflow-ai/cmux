@@ -53989,6 +53989,402 @@
         }
       }
     },
+    "header.worktreeApplyInterrupted": {
+      "comment": "Chat header: why the worktree pill's Apply did not apply; {main} is the main checkout's folder, {files} paths",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توقف تطبيق سابق في منتصفه: قد يحتوي {main} على جزء من {files}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ranija primjena je stala na pola: {main} možda ima dio od {files}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En tidligere anvendelse stoppede halvvejs: {main} kan have en del af {files}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine frühere Anwendung brach mittendrin ab: {main} enthält eventuell einen Teil von {files}"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An earlier apply stopped partway: {main} may have part of {files}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una aplicación anterior se detuvo a medias: {main} puede tener parte de {files}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une application précédente s'est arrêtée en cours : {main} contient peut-être une partie de {files}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un'applicazione precedente si è interrotta a metà: {main} potrebbe contenere parte di {files}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前の適用が途中で止まりました: {main} に {files} の一部が含まれている可能性があります"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការអនុវត្តមុននេះបានឈប់ពាក់កណ្ដាលទី៖ {main} អាចមានផ្នែកខ្លះនៃ {files}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이전 적용이 중간에 멈췄습니다: {main}에 {files}의 일부가 있을 수 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En tidligere bruk stoppet halvveis: {main} kan ha en del av {files}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wcześniejsze zastosowanie przerwało się w połowie: {main} może zawierać część {files}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma aplicação anterior parou no meio: {main} pode ter parte de {files}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предыдущее применение прервалось: в {main} может быть часть {files}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การนำไปใช้ครั้งก่อนหยุดกลางคัน: {main} อาจมีบางส่วนของ {files}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Önceki bir uygulama yarıda kaldı: {main} içinde {files} dosyalarının bir kısmı olabilir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Попереднє застосування зупинилося на півдорозі: у {main} може бути частина {files}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lần áp dụng trước đã dừng giữa chừng: {main} có thể chứa một phần của {files}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "之前的应用中途停止：{main} 可能包含 {files} 的一部分"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "之前的套用中途停止：{main} 可能包含 {files} 的一部分"
+          }
+        }
+      }
+    },
+    "header.worktreeApplyUnmerged": {
+      "comment": "Chat header: why the worktree pill's Apply did not apply; {main} is the main checkout's folder, {files} paths",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أكمل الدمج أو إعادة التأسيس في شجرة العمل هذه أولاً"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prvo završi spajanje ili rebase u ovom radnom stablu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afslut først merge eller rebase i denne worktree"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schließe zuerst den Merge oder Rebase in diesem Worktree ab"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finish the merge or rebase in this worktree first"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Primero termina el merge o rebase en este worktree"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminez d'abord la fusion ou le rebase dans ce worktree"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Completa prima il merge o il rebase in questo worktree"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先にこのワークツリーのマージまたはリベースを完了してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សូមបញ្ចប់ merge ឬ rebase នៅក្នុង worktree នេះជាមុនសិន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "먼저 이 워크트리의 병합 또는 리베이스를 완료하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fullfør merge eller rebase i denne worktree først"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Najpierw dokończ scalanie lub rebase w tym drzewie roboczym"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Primeiro termine o merge ou rebase neste worktree"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сначала завершите слияние или перебазирование в этом рабочем дереве"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทำการ merge หรือ rebase ในเวิร์กทรีนี้ให้เสร็จก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Önce bu çalışma ağacındaki birleştirmeyi veya rebase işlemini bitirin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спершу завершіть злиття або перебазування в цьому робочому дереві"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hãy hoàn tất merge hoặc rebase trong worktree này trước"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先完成此工作树中的合并或变基"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請先完成此工作樹中的合併或重定基底"
+          }
+        }
+      }
+    },
+    "header.worktreeApplyNoBase": {
+      "comment": "Chat header: why the worktree pill's Apply did not apply; {main} is the main checkout's folder, {files} paths",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تحتوي شجرة العمل هذه على أساس مسجل للمقارنة به"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovo radno stablo nema zabilježenu osnovu za poređenje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne worktree har ingen registreret base at sammenligne med"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Worktree hat keine gespeicherte Basis zum Vergleichen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This worktree has no recorded base to compare with"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este worktree no tiene una base registrada con la que comparar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce worktree n'a aucune base enregistrée à laquelle se comparer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo worktree non ha una base registrata con cui confrontarsi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークツリーには比較する記録済みのベースがありません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "worktree នេះគ្មានមូលដ្ឋានដែលបានកត់ត្រាសម្រាប់ប្រៀបធៀបទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 워크트리에는 비교할 기록된 베이스가 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne worktree har ingen registrert base å sammenligne med"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To drzewo robocze nie ma zapisanej bazy do porównania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este worktree não tem uma base registrada para comparar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У этого рабочего дерева нет записанной базы для сравнения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เวิร์กทรีนี้ไม่มีฐานที่บันทึกไว้สำหรับเปรียบเทียบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu çalışma ağacının karşılaştırılacak kayıtlı bir tabanı yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Це робоче дерево не має записаної бази для порівняння"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Worktree này không có base đã ghi để so sánh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此工作树没有可用于比较的已记录基准"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此工作樹沒有可用於比較的已記錄基準"
+          }
+        }
+      }
+    },
     "header.worktreeFrom": {
       "comment": "Chat header: tooltip of a worktree chat's branch pill; {main} is the main checkout's folder, {base} the branch it started from",
       "extractionState": "manual",

@@ -24,7 +24,7 @@ type HeaderToolsProps = {
   onExpanded?: () => void;
   folder?: string;
   readStatus?: () => Promise<unknown>;
-  onApplyWorktree?: () => Promise<unknown>;
+  onApplyWorktree?: (key: string) => Promise<unknown>;
 };
 
 const menuRows = (): ChatMenuItem[] => [
@@ -326,7 +326,7 @@ export default componentEntry<HeaderToolsProps>({
           branch: "cmux/fix-login",
           base: "main",
           detached: false,
-          "worktree-apply": { main_root: "/Users/me/Projects/cmux" },
+          worktree: { main_root: "/Users/me/Projects/cmux" },
         }),
       },
       play: worktreeApplied,

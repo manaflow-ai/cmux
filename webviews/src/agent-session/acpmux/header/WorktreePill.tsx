@@ -57,7 +57,7 @@ export function WorktreePill({
 }: {
   worktree: HeaderWorktree;
   /// Apply (WorktreeApply.tsx, cx-lyqio.4); absent for a chat with nothing to apply yet.
-  onApply?: () => Promise<unknown>;
+  onApply?: (key: string) => Promise<unknown>;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);

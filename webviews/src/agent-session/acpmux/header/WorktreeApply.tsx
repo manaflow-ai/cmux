@@ -3,13 +3,17 @@
 // (`git.worktree.apply`). It says how much landed, or inline why nothing did; the session host
 // changes nothing when it refuses. The pill keeps where it stands, so closing the popover mid-apply
 // never offers a second one.
-import { useT, type StringKey } from "../i18n";
+import { useT } from "../i18n";
 import type { HeaderWorktree } from "./WorktreePill";
 
+/// Where Apply stands. `key` is the action's idempotency key, kept until the host answers that it
+/// applied: a retry after a reply that never came (or a timeout) is the same action, so the host
+/// replays or finishes it instead of seeing the user's checkout already changed.
 export type Applying =
-  | { step: "idle" | "applying" }
+  | { step: "idle"; key?: string }
+  | { step: "applying"; key: string }
   | { step: "applied"; count: number }
-  | { step: "failed"; message: string };
+  | { step: "failed"; message: string; key: string };
 
 /// The session host's MutationResult for an apply: how many files landed.
 function appliedCount(value: unknown): number | undefined {
@@ -17,23 +21,42 @@ function appliedCount(value: unknown): number | undefined {
   return Array.isArray(raw.value?.files) ? raw.value.files.length : undefined;
 }
 
+/// The paths a refusal names: the first few, then how many more.
+const MAX_NAMED_FILES = 5;
+function named(files: string[]): string {
+  const shown = files.slice(0, MAX_NAMED_FILES).join(", ");
+  return files.length > MAX_NAMED_FILES ? `${shown} +${files.length - MAX_NAMED_FILES}` : shown;
+}
+
 /// Why an apply was refused, in the pane's words: the host's machine reason, its paths and base.
 function refusal(error: unknown, worktree: HeaderWorktree, t: ReturnType<typeof useT>): string {
   const details = ((error as { details?: unknown } | null)?.details ?? {}) as {
     reason?: unknown;
-    extra?: { files?: unknown };
+    extra?: { files?: unknown; base?: unknown };
   };
   const files = Array.isArray(details.extra?.files)
-    ? details.extra.files.filter((file) => typeof file === "string")
+    ? details.extra.files.filter((file): file is string => typeof file === "string")
     : [];
-  const keys: Record<string, StringKey> = {
-    does_not_apply: "header.worktreeApplyConflicts",
-    nothing_to_apply: "header.worktreeApplyNothing",
-  };
-  if (details.reason === "main_checkout_changed" && files.length > 0)
-    return t("header.worktreeApplyChanged", { main: worktree.mainRoot, files: files.join(", ") });
-  const key = typeof details.reason === "string" ? keys[details.reason] : undefined;
-  return key ? t(key, { main: worktree.mainRoot, base: worktree.base }) : t("header.worktreeApplyFailed");
+  const base = typeof details.extra?.base === "string" ? details.extra.base : worktree.base;
+  const main = worktree.mainRoot;
+  switch (details.reason) {
+    case "main_checkout_changed":
+      return files.length > 0
+        ? t("header.worktreeApplyChanged", { main, files: named(files) })
+        : t("header.worktreeApplyFailed");
+    case "interrupted":
+      return t("header.worktreeApplyInterrupted", { main, files: named(files) });
+    case "does_not_apply":
+      return t("header.worktreeApplyConflicts", { main });
+    case "nothing_to_apply":
+      return base ? t("header.worktreeApplyNothing", { base }) : t("header.worktreeApplyFailed");
+    case "unmerged":
+      return t("header.worktreeApplyUnmerged");
+    case "no_base":
+      return t("header.worktreeApplyNoBase");
+    default:
+      return t("header.worktreeApplyFailed");
+  }
 }
 
 export function WorktreeApply({
@@ -45,30 +68,38 @@ export function WorktreeApply({
   worktree: HeaderWorktree;
   applying: Applying;
   setApplying: (applying: Applying) => void;
-  apply: () => Promise<unknown>;
+  apply: (key: string) => Promise<unknown>;
 }) {
   const t = useT();
   const run = () => {
     if (applying.step === "applying") return;
-    setApplying({ step: "applying" });
-    apply().then(
-      (value) => setApplying({ step: "applied", count: appliedCount(value) ?? 0 }),
-      (error: unknown) => setApplying({ step: "failed", message: refusal(error, worktree, t) }),
+    const key = (applying.step === "applied" ? undefined : applying.key) ?? crypto.randomUUID();
+    setApplying({ step: "applying", key });
+    apply(key).then(
+      (value) => {
+        const count = appliedCount(value);
+        setApplying(
+          count === undefined
+            ? { step: "failed", message: t("header.worktreeApplyFailed"), key }
+            : { step: "applied", count },
+        );
+      },
+      (error: unknown) => setApplying({ step: "failed", message: refusal(error, worktree, t), key }),
     );
   };
   return (
     <div className="acpmux-worktree-apply">
-      {applying.step === "applied" ? (
+      {applying.step === "applied" && (
         <output>
           {applying.count === 1
             ? t("header.worktreeApplied.one", { main: worktree.mainRoot })
             : t("header.worktreeApplied.other", { main: worktree.mainRoot, count: applying.count })}
         </output>
-      ) : (
-        <button type="button" disabled={applying.step === "applying"} onClick={run}>
-          {applying.step === "applying" ? t("header.worktreeApplying") : t("header.worktreeApply")}
-        </button>
       )}
+      {/* Work the agent does later applies again, as a new action. */}
+      <button type="button" disabled={applying.step === "applying"} onClick={run}>
+        {applying.step === "applying" ? t("header.worktreeApplying") : t("header.worktreeApply")}
+      </button>
       {applying.step === "failed" && <span role="alert">{applying.message}</span>}
     </div>
   );

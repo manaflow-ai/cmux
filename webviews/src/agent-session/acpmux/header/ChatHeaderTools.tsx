@@ -139,7 +139,7 @@ export function ChatHeaderTools({
   readStatus?: (cwd: string) => Promise<unknown>;
   statusKey?: unknown;
   /// Apply on the worktree pill (cx-lyqio.4): `git.worktree.apply` for the chat's session.
-  onApplyWorktree?: () => Promise<unknown>;
+  onApplyWorktree?: (key: string) => Promise<unknown>;
 }) {
   const t = useT();
   const terminalKey = useShortcut(HEADER_ACTIONS.terminal);
