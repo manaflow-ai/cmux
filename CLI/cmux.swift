@@ -3018,6 +3018,12 @@ final class SocketClient {
 
     private static let coderouterArmServerSigningRequirement =
         #"anchor apple generic and identifier "com.cmuxterm.app" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "7WLXT3NR37""#
+    // Local tagged Release bundles are signed with the shared Apple
+    // Development identity when the Developer ID private key is unavailable.
+    // This fallback is gated by the enclosing bundle ID below; the stable
+    // production bundle remains Developer ID only.
+    private static let coderouterTaggedDevelopmentSigningRequirement =
+        #"anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.12] exists and certificate leaf[subject.OU] = "7WLXT3NR37""#
     private static let codeSigningValidFlag: UInt32 = 0x0000_0001
     private static let codeSigningHardFlag: UInt32 = 0x0000_0100
     private static let codeSigningKillFlag: UInt32 = 0x0000_0200
@@ -3399,16 +3405,22 @@ final class SocketClient {
         } else {
             hasReleaseIdentity = false
         }
+        #if DEBUG
         guard hasReleaseIdentity else {
-            #if DEBUG
             return coderouterDebugArmServerIdentityIsAllowed(
                 identity,
                 dynamicCode: dynamicCode
             )
-            #else
-            return false
-            #endif
         }
+        #else
+        if !hasReleaseIdentity {
+            guard coderouterTaggedReleaseArmServerIdentityIsAllowed(
+                dynamicCode: dynamicCode
+            ) else {
+                return false
+            }
+        }
+        #endif
 
         var dynamicStatus: UInt32 = 0
         var auditToken = audit_token_t()
@@ -3539,6 +3551,66 @@ final class SocketClient {
             teamIdentifier: teamIdentifier,
             expectedBundleIdentifier: expectedBundleIdentifier
         )
+    }
+    #endif
+
+    #if !DEBUG && os(macOS) && canImport(Security)
+    /// Allow the Apple Development signature used by a local tagged Release
+    /// artifact, while keeping the stable production bundle Developer ID only.
+    private static func coderouterTaggedReleaseArmServerIdentityIsAllowed(
+        dynamicCode: SecCode
+    ) -> Bool {
+        guard let expectedBundleIdentifier = CLIExecutableLocator
+            .enclosingAppBundle()?
+            .bundleIdentifier,
+            expectedBundleIdentifier.hasPrefix("com.cmuxterm.app.debug."),
+            expectedBundleIdentifier.count > "com.cmuxterm.app.debug.".count,
+            SecCodeCheckValidity(
+                dynamicCode,
+                SecCSFlags(rawValue: UInt32(kSecCSStrictValidate)),
+                nil
+            ) == errSecSuccess else {
+            return false
+        }
+
+        var staticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(
+            dynamicCode,
+            SecCSFlags(),
+            &staticCode
+        ) == errSecSuccess,
+        let staticCode else {
+            return false
+        }
+        var developmentRequirement: SecRequirement?
+        guard SecRequirementCreateWithString(
+            coderouterTaggedDevelopmentSigningRequirement as CFString,
+            SecCSFlags(),
+            &developmentRequirement
+        ) == errSecSuccess,
+        let developmentRequirement,
+        SecStaticCodeCheckValidity(
+            staticCode,
+            SecCSFlags(rawValue: UInt32(kSecCSStrictValidate)),
+            developmentRequirement
+        ) == errSecSuccess else {
+            return false
+        }
+        var signingInformation: CFDictionary?
+        guard SecCodeCopySigningInformation(
+            staticCode,
+            SecCSFlags(rawValue: UInt32(kSecCSSigningInformation)),
+            &signingInformation
+        ) == errSecSuccess,
+        let information = signingInformation as? [String: Any],
+        information[kSecCodeInfoIdentifier as String] as? String
+            == expectedBundleIdentifier,
+        information[kSecCodeInfoTeamIdentifier as String] as? String
+            == "7WLXT3NR37" else {
+            return false
+        }
+
+        return true
     }
     #endif
 
@@ -4633,8 +4705,18 @@ struct CMUXCLI {
     private static let coderouterCapabilityProbeMaximumBytes = 16 * 1024
     private static let coderouterHandoffProtocolVersion =
         CodeRouterHandoffProtocol.protocolVersion
-    private static let coderouterSigningRequirement =
-        #"anchor apple generic and identifier "com.cmuxterm.coderouter" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "7WLXT3NR37""#
+    private static let coderouterSigningRequirement: String = {
+#if DEBUG
+        // Tagged Debug builds use the shared Apple Development identity. Keep
+        // the identifier and team pinned while accepting only that Debug
+        // certificate family; Release retains the Developer ID requirement.
+        return #"anchor apple generic and identifier "com.cmuxterm.coderouter" and certificate leaf[field.1.2.840.113635.100.6.1.12] exists and certificate leaf[subject.OU] = "7WLXT3NR37""#
+#else
+        return #"anchor apple generic and identifier "com.cmuxterm.coderouter" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "7WLXT3NR37""#
+#endif
+    }()
+    private static let coderouterTaggedDevelopmentSigningRequirement =
+        #"anchor apple generic and identifier "com.cmuxterm.coderouter" and certificate leaf[field.1.2.840.113635.100.6.1.12] exists and certificate leaf[subject.OU] = "7WLXT3NR37""#
     /// `kSecCodeSignatureRuntime` is not imported by Swift from CSCommon.h.
     private static let coderouterHardenedRuntimeFlag: UInt32 = 0x0001_0000
 
@@ -4680,13 +4762,18 @@ struct CMUXCLI {
         let requirement else {
             return false
         }
-        guard SecStaticCodeCheckValidity(
+        let hasReleaseIdentity = SecStaticCodeCheckValidity(
             staticCode,
             SecCSFlags(rawValue: UInt32(kSecCSStrictValidate)),
             requirement
-        ) == errSecSuccess else {
-            return false
-        }
+        ) == errSecSuccess
+        #if DEBUG
+        guard hasReleaseIdentity else { return false }
+        #else
+        guard hasReleaseIdentity || coderouterTaggedReleaseCoderouterIdentityIsAllowed(
+            staticCode: staticCode
+        ) else { return false }
+        #endif
 
         var signingInformation: CFDictionary?
         guard SecCodeCopySigningInformation(
@@ -4706,6 +4793,37 @@ struct CMUXCLI {
         false
         #endif
     }
+
+    #if !DEBUG && canImport(Security)
+    /// Local tagged Release artifacts may use the shared Apple Development
+    /// identity. The app bundle ID gate keeps this out of production builds.
+    private static func coderouterTaggedReleaseCoderouterIdentityIsAllowed(
+        staticCode: SecStaticCode
+    ) -> Bool {
+        guard let bundleIdentifier = CLIExecutableLocator
+            .enclosingAppBundle()?
+            .bundleIdentifier,
+            bundleIdentifier.hasPrefix("com.cmuxterm.app.debug."),
+            bundleIdentifier.count > "com.cmuxterm.app.debug.".count else {
+            return false
+        }
+        var requirement: SecRequirement?
+        guard SecRequirementCreateWithString(
+            coderouterTaggedDevelopmentSigningRequirement as CFString,
+            SecCSFlags(),
+            &requirement
+        ) == errSecSuccess,
+        let requirement,
+        SecStaticCodeCheckValidity(
+            staticCode,
+            SecCSFlags(rawValue: UInt32(kSecCSStrictValidate)),
+            requirement
+        ) == errSecSuccess else {
+            return false
+        }
+        return true
+    }
+    #endif
 
     private enum NotifyTargetResolution {
         case surface(
@@ -5614,7 +5732,6 @@ struct CMUXCLI {
                 strictFrameMaximumRawBytes: Self
                     .coderouterHandoffMaximumRawFrameBytes
             )
-
             guard let verified = CodeRouterHandoffProtocol().verifyResponse(
                 responseEnvelope,
                 context: proofContext

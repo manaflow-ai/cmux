@@ -18,8 +18,15 @@ struct CodeRouterSocketPeerVerifier: Sendable {
         productionValidation(token)
     }
 
-    private static let signingRequirement =
-        #"anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and identifier "com.cmuxterm.coderouter" and certificate leaf[subject.OU] = "7WLXT3NR37""#
+    private static let signingRequirement: String = {
+#if DEBUG
+        return #"anchor apple generic and identifier "com.cmuxterm.coderouter" and certificate leaf[field.1.2.840.113635.100.6.1.12] exists and certificate leaf[subject.OU] = "7WLXT3NR37""#
+#else
+        return #"anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and identifier "com.cmuxterm.coderouter" and certificate leaf[subject.OU] = "7WLXT3NR37""#
+#endif
+    }()
+    private static let taggedDevelopmentSigningRequirement =
+        #"anchor apple generic and identifier "com.cmuxterm.coderouter" and certificate leaf[field.1.2.840.113635.100.6.1.12] exists and certificate leaf[subject.OU] = "7WLXT3NR37""#
     private static let validFlag: UInt32 = 0x0000_0001
     private static let hardFlag: UInt32 = 0x0000_0100
     private static let killFlag: UInt32 = 0x0000_0200
@@ -57,17 +64,24 @@ struct CodeRouterSocketPeerVerifier: Sendable {
         }
 
         var requirement: SecRequirement?
-        guard SecRequirementCreateWithString(
+        let hasReleaseIdentity: Bool
+        if SecRequirementCreateWithString(
             signingRequirement as CFString,
             SecCSFlags(),
             &requirement
         ) == errSecSuccess,
-              let requirement,
-              SecCodeCheckValidity(
-                  dynamicCode,
-                  SecCSFlags(rawValue: kSecCSStrictValidate),
-                  requirement
-              ) == errSecSuccess else {
+           let requirement {
+            hasReleaseIdentity = SecCodeCheckValidity(
+                dynamicCode,
+                SecCSFlags(rawValue: kSecCSStrictValidate),
+                requirement
+            ) == errSecSuccess
+        } else {
+            hasReleaseIdentity = false
+        }
+        guard hasReleaseIdentity || taggedDevelopmentIdentityIsAllowed(
+            dynamicCode: dynamicCode
+        ) else {
             return false
         }
 
@@ -137,5 +151,32 @@ struct CodeRouterSocketPeerVerifier: Sendable {
             }
         }
         return true
+    }
+
+    private static func taggedDevelopmentIdentityIsAllowed(
+        dynamicCode: SecCode
+    ) -> Bool {
+#if DEBUG
+        return false
+#else
+        guard Bundle.main.bundleIdentifier?.hasPrefix("com.cmuxterm.app.debug.") == true else {
+            return false
+        }
+        var requirement: SecRequirement?
+        guard SecRequirementCreateWithString(
+            taggedDevelopmentSigningRequirement as CFString,
+            SecCSFlags(),
+            &requirement
+        ) == errSecSuccess,
+              let requirement,
+              SecCodeCheckValidity(
+                  dynamicCode,
+                  SecCSFlags(rawValue: kSecCSStrictValidate),
+                  requirement
+              ) == errSecSuccess else {
+            return false
+        }
+        return true
+#endif
     }
 }
