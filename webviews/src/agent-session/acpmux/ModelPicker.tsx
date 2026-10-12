@@ -50,6 +50,8 @@ type HarnessChoice = {
   folder?: ModelPickerProps["catalog"][number]["folder"];
   /** The brand the row's mark draws (a folder profile's icon or family, else its id). */
   mark?: string;
+  /** The curated models listed first (topModels/); the rest fold under More models. */
+  top?: readonly string[];
 };
 
 type ModelChoice = {
@@ -61,8 +63,8 @@ type ModelChoice = {
   fast?: boolean;
 };
 
-/// A harness's models, each once, newest first: each family's newest models (`latest`), then
-/// every older version (`older`, folded in the list). The agent-owned default sentinel is not a
+/// A harness's models, each once: its curated top models, else each family's newest (`latest`),
+/// then every other model (`older`, folded under More models). The agent-owned default sentinel is not a
 /// user-selectable model row. A catalog model names
 /// itself by its short name under its harness ("Opus 5.5"). Choices are memoized per harness
 /// entry, so the owner map keys stay the same objects between renders.
@@ -87,9 +89,31 @@ function sectionsFor(entry: HarnessChoice | undefined): { latest: ModelChoice[];
       },
     ];
   });
-  const sections = modelSections(choices, entry.name);
+  const sections = curatedSections(modelSections(choices, entry.name), entry.top);
   choiceCache.set(entry, sections);
   return sections;
+}
+
+/// With a curated list: its models first, in its order, each followed by its variants ("Fable 5.1 ·
+/// 1M context"), and every other model under More models, newest family first, then older ones. Without one, or when
+/// the harness offers none of it, the catalog's newest family stays first.
+function curatedSections(
+  sections: { latest: ModelChoice[]; older: ModelChoice[] },
+  top: readonly string[] | undefined,
+): { latest: ModelChoice[]; older: ModelChoice[] } {
+  if (!top) return sections;
+  const all = [...sections.latest, ...sections.older];
+  const latest: ModelChoice[] = [];
+  for (const id of top) {
+    const model = all.find((choice) => choice.id === id);
+    if (!model) continue;
+    const variants = all.filter(
+      (choice) => choice !== model && (choice.id.startsWith(`${id}[`) || choice.name.startsWith(`${model.name} · `)),
+    );
+    for (const choice of [model, ...variants]) if (!latest.includes(choice)) latest.push(choice);
+  }
+  if (latest.length === 0) return sections;
+  return { latest, older: all.filter((choice) => !latest.includes(choice)) };
 }
 
 /// Every model of a harness, newest first, older versions included.
@@ -123,6 +147,7 @@ function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] 
       unavailable: entry.unavailable,
       acpmuxHarness: entry.id,
       pickable: entry.pickable !== false,
+      ...(entry.top ? { top: entry.top } : {}),
     }));
   const result: HarnessChoice[] = [];
   const byName = new Map<string, HarnessChoice>();
@@ -138,6 +163,7 @@ function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] 
         unavailable: entry.unavailable,
         acpmuxHarness: entry.acpmuxHarness,
         pickable: entry.pickable,
+        ...(entry.top ? { top: entry.top } : {}),
       };
       result.push(next);
       byName.set(name, next);
@@ -149,6 +175,7 @@ function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] 
     const known = new Set(existing.models.map((model) => model.id));
     for (const model of entry.models) if (!known.has(model.id)) existing.models.push(model);
     existing.unavailable ??= entry.unavailable;
+    existing.top ??= entry.top;
   }
   return [...result, ...profiles];
 }
@@ -262,7 +289,7 @@ export function ModelPicker(props: ModelPickerProps) {
       for (const entry of harnesses)
         for (const model of choicesFor(entry)) if (favorites.has(model.id)) owner.set(model, entry);
     } else if (selected) {
-      // Older versions fold under one row until it opens (cx-jqkx).
+      // Every model past the top ones folds under More models until it opens (cx-jqkx, cx-espus).
       const { latest, older } = sectionsFor(selected);
       for (const model of olderOpen ? [...latest, ...older] : latest) owner.set(model, selected);
     }
@@ -323,7 +350,7 @@ export function ModelPicker(props: ModelPickerProps) {
       ),
     );
     setQuery("");
-    // A session on an older version opens with the fold open, its row highlighted.
+    // A session on a folded model opens with the fold open, its row highlighted.
     const { latest, older } = sectionsFor(current);
     const runsOlder = older.some((model) => model.id === props.model);
     setOlderOpen(runsOlder);
@@ -433,7 +460,7 @@ export function ModelPicker(props: ModelPickerProps) {
       return next;
     });
   };
-  /// Shows a rail tab's models (hover or click); the typed query stays.
+  /// Shows a rail tab's models (click or arrow key); `clear` drops the typed query.
   const showTab = (id: string | undefined, index: number, clear = false) => {
     if (clear && query) setQuery("");
     else if (searching) return;
@@ -477,7 +504,7 @@ export function ModelPicker(props: ModelPickerProps) {
     }
   };
   const move = (step: number) => {
-    // Moving down past the last row opens the "Older models" fold, so keys reach every model.
+    // Moving down past the last row opens the More models fold, so keys reach every model.
     if (step > 0 && !olderOpen && olderCount > 0 && active >= visible.length - 1) {
       setOlderOpen(true);
       setActive(visible.length);
@@ -583,7 +610,7 @@ export function ModelPicker(props: ModelPickerProps) {
           aria-label={modelText}
           style={{ ...menuStyle, ...(openHeight == null ? {} : { height: openHeight }) }}
         >
-          {/* The rail: Starred, then one icon per harness; hovering a tab shows its models. */}
+          {/* The rail: Starred, then one icon per harness; a click or arrow key shows its models. */}
           <ScrollArea
             className="acpmux-mp-rail-scroll w-11 flex-none border-r-[0.5px] border-edge"
             viewportClassName="acpmux-mp-rail-viewport"
@@ -614,7 +641,6 @@ export function ModelPicker(props: ModelPickerProps) {
                     search.current?.focus();
                   }
                 }}
-                onPointerEnter={() => showTab(STARRED, -1)}
                 onClick={() => showTab(STARRED, -1, true)}
               >
                 <StarGlyph filled={false} size={15} />
@@ -649,10 +675,9 @@ export function ModelPicker(props: ModelPickerProps) {
                       search.current?.focus();
                     }
                   }}
-                  onPointerEnter={() => {
-                    onHarnessHint?.(entry.acpmuxHarness ?? entry.id);
-                    if (entry.pickable) showTab(entry.id, index);
-                  }}
+                  // Hover only warms the harness; its models show on a click or an arrow key
+                  // (Leo 2026-10-11: a list that swaps under the pointer picks the wrong row).
+                  onPointerEnter={() => onHarnessHint?.(entry.acpmuxHarness ?? entry.id)}
                   onClick={() => {
                     if (enableProfile(entry)) return;
                     showTab(entry.id, index, true);
@@ -817,7 +842,7 @@ export function ModelPicker(props: ModelPickerProps) {
                     aria-expanded={olderOpen}
                     onClick={() => setOlderOpen((value) => !value)}
                   >
-                    <span className="acpmux-menu-label min-w-0 flex-1 truncate">{t("picker.olderModels")}</span>
+                    <span className="acpmux-menu-label min-w-0 flex-1 truncate">{t("picker.moreModels")}</span>
                     <span className="flex-none text-detail text-dim">{olderCount}</span>
                     <span className={`flex-none ${olderOpen ? "rotate-180" : ""}`} aria-hidden="true">
                       <ChevronIcon />

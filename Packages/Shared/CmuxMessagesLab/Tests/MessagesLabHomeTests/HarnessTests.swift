@@ -214,13 +214,47 @@ import Testing
     /// bubble.width.oneLine and bubble.right.oneLine). The test above compares Home with MessagesLab on the same vendored code, so
     /// a new pin that changes this motion keeps it green; this one fails until the golden is
     /// recorded again on purpose (HOME_HARNESS_WRITE_GOLDEN=1, named in the pin's commit).
-    /// Recorded with the harness host's OS (scripts/cmux-next/home-messageslab-harness.sh).
+    /// Recorded with the harness host's OS (scripts/cmux-next/home-messageslab-harness.sh). The typing
+    /// line also carries the presented row[typing] layers over 3.2-5.15 s (its breathing, 7cdd49b).
     static let motionTransitions = ["delivered", "delivered -> read", "typing indicator", "send (1 line, morph)"]
+
+    /// The indicator shows at 0.50 s in `typingOnly` and stays: ticks 0.50 s to 2.70 s (2.2 s, more than
+    /// the bubble's 1.906 s breathing period and both discs' periods), every 2nd: only row[typing] layers.
+    static let typingWindowTicks = stride(from: Int((0.50 * 120).rounded()), through: Int((2.70 * 120).rounded()), by: 2)
+
+    /// The Home path with the base conversation and the Chief typing from 0.50 s on (no reply).
+    static func typingOnly() -> Run {
+        var core = ProjectionCore(me: me)
+        let (conv, w) = core.install(id, items: base, summary: summary(lastSeq: 30))
+        let store = Store(conversation: conv, baseDate: Replay.base, windowStart: w.start, total: w.total)
+        store.responder = nil
+        return run(store, [(0.50, { s in core.typing(s.state, wanted: [them]).forEach(s.dispatch) })])
+    }
+
+    static func typingWindow(_ frames: [String]) -> [String] {
+        typingWindowTicks.compactMap { k -> String? in
+            guard let line = frames[checked: k],
+                  let o = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+                  let layers = o["L"] as? [String: Any] else { return nil }
+            let typing = layers.filter { $0.key.hasPrefix("row[typing]") }
+            let obj: [String: Any] = ["t": o["t"] ?? 0, "L": typing]
+            guard let d = try? JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys]) else { return nil }
+            return String(data: d, encoding: .utf8)
+        }
+    }
 
     @Test func theHomePathKeepsItsTypingAndReceiptMotion() throws {
         let b = Self.home()
-        let lines = Self.motionTransitions.compactMap { name in
+        var lines = Self.motionTransitions.compactMap { name in
             Self.transitions.firstIndex { $0.name == name }.flatMap { b.animations[checked: $0] }
+        }
+        // The typing line also holds the indicator's motion over a window (MessagesLab 7cdd49b: it breathes
+        // with additive repeating keyframes, which one committed snapshot does not show). The main script's
+        // reply ends the indicator 1.2 s after it shows, so the window comes from a run of its own
+        // (`typingOnly`, the same Home path): every 2nd tick of the presented row[typing] layers for more
+        // than one bubble breathing period (1.906 s). The main script and lines 1, 2 and 4 stay as they were.
+        if let i = Self.motionTransitions.firstIndex(of: "typing indicator"), let line = lines[checked: i] {
+            lines[i] = "{\"animations\":" + line + ",\"window\":[" + Self.typingWindow(Self.typingOnly().frames).joined(separator: ",") + "]}"
         }
         #expect(lines.count == Self.motionTransitions.count)
         let golden = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Golden/home-motion.ndjson")
@@ -258,7 +292,10 @@ enum LayerDump {
             out += [(p + "/cell", cell.layer), (p + "/content", cell.contentView.layer), (p + "/bitmap", cell.bitmap),
                     (p + "/fill", cell.fillContainer), (p + "/connector", cell.connector), (p + "/connectorLine", cell.connectorLine),
                     (p + "/typing", cell.typingContainer), (p + "/receiptOld", cell.receiptOld)]
-            for (i, d) in cell.dots.enumerated() { out.append((p + "/dot\(i)", d)) }
+            for (i, d) in cell.dots.enumerated() {
+                out.append((p + "/dot\(i)", d))
+                if let hi = d.sublayers?.first { out.append((p + "/dot\(i)/hi", hi)) } // as MessagesLab's harness names it
+            }
             // MessagesLab 5f885ea's harness names the typing bubble's tail discs too.
             for (i, d) in cell.typingDiscs.enumerated() { out.append((p + "/disc\(i)", d)) }
         }
