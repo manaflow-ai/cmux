@@ -1,0 +1,130 @@
+"""Pixel reads of Swift Home window snapshots (stdlib only), for the tagged-app checks
+home-typing-still.py and home-hidden-messages.py.
+
+read_png decodes a window snapshot. row_edges reads the straight edges of the message rows
+that `debug.home.drive {action: rows}` reports (window points, bottom-left origin) and counts
+partial pixels: on a straight edge that lies on whole device pixels, the last pixel outside the
+bubble is the background and the first pixel inside is the fill; an edge that lies on a
+fraction of a device pixel blends one pixel row (or column) of the two along its whole length.
+"""
+import struct, zlib
+
+
+def read_png(path):
+    """8-bit RGB or RGBA, non-interlaced PNG (window snapshots): (width, height, (rows of bytes, 3 or 4 per pixel))."""
+    data = open(path, "rb").read()
+    pos, idat, w, h, bpp = 8, b"", 0, 0, 3
+    while pos < len(data):
+        n, kind = struct.unpack(">I4s", data[pos:pos + 8])
+        body = data[pos + 8:pos + 8 + n]
+        if kind == b"IHDR":
+            w, h, depth, ctype, _, _, interlace = struct.unpack(">IIBBBBB", body)
+            if depth != 8 or ctype not in (2, 6) or interlace:
+                raise ValueError(f"unsupported PNG depth {depth} colour type {ctype} interlace {interlace}")
+            bpp = 4 if ctype == 6 else 3
+        elif kind == b"IDAT":
+            idat += body
+        pos += 12 + n
+    raw, stride, rows, prev = zlib.decompress(idat), w * bpp, [], bytearray(w * bpp)
+    for y in range(h):
+        f, line = raw[y * (stride + 1)], bytearray(raw[y * (stride + 1) + 1:(y + 1) * (stride + 1)])
+        for i in range(stride):
+            a = line[i - bpp] if i >= bpp else 0
+            b = prev[i]
+            c = prev[i - bpp] if i >= bpp else 0
+            if f == 1: line[i] = (line[i] + a) & 255
+            elif f == 2: line[i] = (line[i] + b) & 255
+            elif f == 3: line[i] = (line[i] + (a + b) // 2) & 255
+            elif f == 4:
+                p = a + b - c; pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+                line[i] = (line[i] + (a if pa <= pb and pa <= pc else b if pb <= pc else c)) & 255
+        rows.append(line); prev = line
+    return w, h, (rows, bpp)
+
+
+def mean_rgb(px, w, h, x0, y0, x1, y1):
+    rows, bpp = px
+    xs = range(max(0, int(x0)), min(w, int(x1))); ys = range(max(0, int(y0)), min(h, int(y1)))
+    n = max(1, len(xs) * len(ys)); sums = [0, 0, 0]
+    for y in ys:
+        r = rows[y]
+        for x in xs:
+            for k in range(3): sums[k] += r[x * bpp + k]
+    return [round(v / n, 1) for v in sums]
+
+
+def _pixel(px, w, h, x, y):
+    rows, bpp = px
+    if not (0 <= x < w and 0 <= y < h):
+        return None
+    return rows[y][x * bpp:x * bpp + 3]
+
+
+def _dist(a, b):
+    return sum(abs(a[k] - b[k]) for k in range(3)) / 3
+
+
+def _edge(px, w, h, samples, contrast_min=24):
+    """samples: per line across the edge, the pixel places (outside far, last outside, first inside, inside far).
+    A crisp edge: the last outside pixel is the far outside colour and the first inside pixel the far inside
+    colour (within a quarter of their contrast). Returns (measured, partial)."""
+    measured = partial = 0
+    for far_out, last_out, first_in, far_in in samples:
+        o, lo, fi, i = (_pixel(px, w, h, *p) for p in (far_out, last_out, first_in, far_in))
+        if None in (o, lo, fi, i):
+            continue
+        contrast = _dist(o, i)
+        if contrast < contrast_min:
+            continue
+        measured += 1
+        tol = max(6, contrast * 0.25)
+        if _dist(lo, o) > tol or _dist(fi, i) > tol:
+            partial += 1
+    return measured, partial
+
+
+def row_edges(px, w, h, scale, frame, window_height):
+    """The straight edges of one row's bubble (frame: window points, bottom-left origin): top and bottom
+    over the middle 40 % of its width; left and right over the middle 40 % of its height when the bubble is
+    at least 60 pt tall (shorter bubbles have no straight side between their corners). Returns
+    {edge: (device px place, measured lines, partial lines)}."""
+    x0 = frame["x"] * scale; x1 = (frame["x"] + frame["width"]) * scale
+    top = (window_height - frame["y"] - frame["height"]) * scale; bottom = (window_height - frame["y"]) * scale
+    out = {}
+    T, B, L, R = round(top), round(bottom), round(x0), round(x1)
+    xs = range(int(x0 + (x1 - x0) * 0.3), int(x0 + (x1 - x0) * 0.7))
+    out["top"] = (top,) + _edge(px, w, h, [((x, T - 3), (x, T - 1), (x, T), (x, T + 2)) for x in xs])
+    out["bottom"] = (bottom,) + _edge(px, w, h, [((x, B + 2), (x, B), (x, B - 1), (x, B - 3)) for x in xs])
+    if frame["height"] >= 60:
+        ys = range(int(top + (bottom - top) * 0.3), int(top + (bottom - top) * 0.7))
+        out["left"] = (x0,) + _edge(px, w, h, [((L - 3, y), (L - 1, y), (L, y), (L + 2, y)) for y in ys])
+        out["right"] = (x1,) + _edge(px, w, h, [((R + 2, y), (R, y), (R - 1, y), (R - 3, y)) for y in ys])
+    return out
+
+
+def check_rows(check, name, report, path, keys=None, min_rows=3):
+    """check(name, ok, detail): the caller's check. Text rows fully inside the transcript area (not under the title bar or the composer): left and top on
+    whole device pixels (the row's snapped content; the bottom follows the bubble's height), and at most 10 %
+    partial lines along each straight edge in the snapshot. `keys`: only these rows."""
+    w, h, px = read_png(path)
+    scale = w / report["windowWidth"]; wh = report["windowHeight"]
+    rows = [r for r in report["rows"] if r["kind"] == "text" and (keys is None or r["key"] in keys)
+            and r["y"] >= 64 and r["y"] + r["height"] <= wh - 90]
+    check(f"{name}: at least {min_rows} text rows to measure", len(rows) >= min_rows, report["rows"][:12])
+    bad_place, bad_edges, total = [], [], 0
+    for r in rows:
+        left, top = r["x"] * scale, (wh - r["y"] - r["height"]) * scale
+        if abs(left - round(left)) > 0.01 or abs(top - round(top)) > 0.01:
+            bad_place.append({r["key"]: [round(left, 3), round(top, 3)]})
+        edges = row_edges(px, w, h, scale, r, wh)
+        line = []
+        for edge, (place, measured, partial) in edges.items():
+            total += measured
+            line.append(f"{edge} {place:.2f}px {partial}/{measured}")
+            if measured >= 8 and partial > measured * 0.1:
+                bad_edges.append({r["key"]: edge, "partial": partial, "measured": measured, "place": round(place, 3)})
+        print(f"     {name} {r['key']} ({'out' if r['outgoing'] else 'in'}): " + ", ".join(line), flush=True)
+    check(f"{name}: every text row's left and top edges are on whole device pixels", not bad_place, bad_place)
+    check(f"{name}: the straight edges were measured", total >= 8 * len(rows) > 0, total)
+    check(f"{name}: no straight row edge has partial pixels (at most 10 % of its lines)", not bad_edges, bad_edges)
+    return rows
