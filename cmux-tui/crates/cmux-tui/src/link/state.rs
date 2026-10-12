@@ -143,8 +143,8 @@ impl LinkState {
                 check_private_file(archive_new)?;
             }
         }
-        let mut done: Vec<(std::path::PathBuf, std::path::PathBuf)> = Vec::new();
-        let undo = |done: &mut Vec<(std::path::PathBuf, std::path::PathBuf)>| {
+        let mut done: Vec<(PathBuf, PathBuf)> = Vec::new();
+        let undo = |done: &mut Vec<(PathBuf, PathBuf)>| {
             while let Some((from, to)) = done.pop() {
                 let _ = std::fs::rename(&to, &from);
             }

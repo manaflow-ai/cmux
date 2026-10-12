@@ -437,7 +437,7 @@ fn a_link_probe_that_times_out_is_unknown_not_no_link() {
         }
         addr
     };
-    let len = std::mem::size_of::<libc::sockaddr_un>() as libc::socklen_t;
+    let len = size_of::<libc::sockaddr_un>() as libc::socklen_t;
     let socket = |flags: libc::c_int| {
         // SAFETY: a new socket descriptor this test owns.
         let fd = unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_STREAM | flags, 0) };
@@ -468,7 +468,7 @@ fn a_link_probe_that_times_out_is_unknown_not_no_link() {
     }
     cmux_link::registration::write(
         &apps.dir.join("state"),
-        &cmux_link::registration::Registration::new(hub.clone(), std::process::id()),
+        &cmux_link::registration::Registration::new(hub, std::process::id()),
     )
     .unwrap();
     write_probe_app(&apps);
