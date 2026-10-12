@@ -22,7 +22,7 @@ import Testing
     }
 
     @Test func aWindowsAccentTakesTheHueOfTheWorkItShows() throws {
-        let hue = try #require(Self.work.accentColor)
+        let hue = try #require(Self.work.accentHue)
         let room = ThemeScope(level: .room)
         let workspace = ThemeScope(level: .workspace, parent: room)
         workspace.pinBackdrop(.selection(.art(Self.work)))
@@ -47,7 +47,7 @@ import Testing
     /// A window opened while Art Color is on draws the app's art hue on its own chrome (a top page,
     /// or a workspace of the other light or dark).
     @Test func aNewWindowTakesTheAppsArtHue() throws {
-        let hue = try #require(Self.work.accentColor)
+        let hue = try #require(Self.work.accentHue)
         ThemeScope.app.setBackdropSelection(.art(Self.work))
         defer { ThemeScope.app.setBackdropSelection(nil) }
         ThemeStore.shared.setAccentFollowsArt(true)
@@ -63,7 +63,7 @@ import Testing
         var light = dark
         light.background = ThemeRGB(hex: 0xFAFAFA)
         light.foreground = ThemeRGB(hex: 0x1D1F21)
-        let hues = BackdropArt.allCases.compactMap(\.accentColor)
+        let hues = BackdropArt.allCases.compactMap(\.accentHue)
         // Most works are colorful enough to lend a hue; the rest keep the neutral accent.
         #expect(hues.count * 2 > BackdropArt.allCases.count)
         for hue in hues {

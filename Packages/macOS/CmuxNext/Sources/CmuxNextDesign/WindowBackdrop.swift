@@ -31,6 +31,11 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
     /// (``ThemeTokens/legibleTintOpacity(over:requested:)``); 0 without art. Neither the opacity setting
     /// nor the tuner thins the glass below it.
     public var legibleTintOpacity: Double = 0
+    /// The art's own opacity: 1, or ``windowGlassArtOpacity`` under Window Glass (the Clear Glass
+    /// material over art, cx-t2x.6), so the desktop and the windows behind read through it.
+    public var artOpacity: Double = 1
+    /// How much of the art covers what is behind a Window Glass window.
+    public static let windowGlassArtOpacity = 0.55
     /// Live experimental adjustments applied to the tint.
     public var tuning: AppearanceTuning = .identity
     /// The one-time texture pass applied when artwork is loaded.
@@ -112,8 +117,13 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
         }
         self.init(backgroundOpacity: opacity, backgroundBlur: tokens.backgroundBlur,
                   reduceTransparency: reduceTransparency)
+        // Window Glass: the Clear Glass setting (`background-blur` -2, frosted where Liquid Glass
+        // is missing) over art. Behind the art is then anything, so the floor assumes any colors.
+        let windowGlass = resolvedSelection != nil && !isOpaque && tokens.backgroundBlur == -2
+        if windowGlass { artOpacity = Self.windowGlassArtOpacity }
         if resolvedSelection != nil, !isOpaque {
-            legibleTintOpacity = tokens.legibleTintOpacity(over: resolvedSelection?.artRange ?? .any, requested: 0)
+            let range = windowGlass ? .any : resolvedSelection?.artRange ?? .any
+            legibleTintOpacity = tokens.legibleTintOpacity(over: range, requested: 0)
             tintOpacity = max(tintOpacity, legibleTintOpacity)
         }
         self.art = art
