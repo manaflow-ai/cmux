@@ -1036,7 +1036,7 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
             if let Some(owner) = owner {
                 wait_for_parent_exit(owner).await;
             } else {
-                std::future::pending().await
+                std::future::pending().await;
             }
         };
         tokio::pin!(parent_exit);
