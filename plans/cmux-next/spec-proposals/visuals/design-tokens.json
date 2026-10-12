@@ -5,7 +5,7 @@
   "branch": "feat-cmux-next",
   "sha": "1824883286a321a607429054cfde0469f588c3fb",
   "sourceRefsSha": "82209ab8050ffe693991fc3c0beec0ed992930cd",
-  "note": "Images are from the tagged build of sha (1824883286a); they predate the sidebar tonal step and the ChromeHover pressed fills. Source refs are path:line (Type.member) at sourceRefsSha; the symbol is the stable anchor when lines drift. Colors are formulas over the terminal theme (theme.formulas sources re-read at sourceRefsSha on 2026-10-12, cx-jdb.2); the resolved tables under themes.* are computed by tools/derive_theme_tokens.py, a line-for-line port of ThemeTokens.derive."
+  "note": "Images are from the tagged build of sha (1824883286a); they predate the sidebar tonal step and the ChromeHover pressed fills. Source refs are path:line (Type.member) at sourceRefsSha; the symbol is the stable anchor when lines drift. Colors are formulas over the terminal theme (theme.formulas sources re-read at sourceRefsSha on 2026-10-12, cx-jdb.2); the resolved tables under themes.* are computed by tools/derive_theme_tokens.py, a line-for-line port of ThemeTokens.derive and AppTheme.derive (appearance.accent cases added 2026-10-12, cx-jdb.6)."
  },
  "conventions": {
   "units": "pt = macOS points (1 CSS px at devicePixelRatio 1; screenshots are 2x). Times in seconds.",
@@ -322,7 +322,8 @@
      "#BF5AF2",
      "#76D6FF",
      "#FFFFFF"
-    ]
+    ],
+    "cursor": "#98989D"
    },
    "tokens": {
     "windowBackground": "#1E1E1E",
@@ -353,7 +354,8 @@
     "highlight": "#0869CB",
     "highlightText": "#FFFFFF",
     "accent": "#FFFFFF",
-    "onAccent": "#1E1E1E"
+    "onAccent": "#1E1E1E",
+    "caret": "#98989D"
    },
    "composited": {
     "sidebarStep": "#272727",
@@ -421,7 +423,8 @@
      "#BF5AF2",
      "#69C9F2",
      "#FFFFFF"
-    ]
+    ],
+    "cursor": "#98989D"
    },
    "tokens": {
     "windowBackground": "#FEFFFF",
@@ -452,7 +455,8 @@
     "highlight": "#0869CB",
     "highlightText": "#FEFFFF",
     "accent": "#000000",
-    "onAccent": "#FEFFFF"
+    "onAccent": "#FEFFFF",
+    "caret": "#929297"
    },
    "composited": {
     "sidebarStep": "#F4F5F5",
@@ -551,7 +555,8 @@
     "highlight": "#81A2BE",
     "highlightText": "#282C34",
     "accent": "#FFFFFF",
-    "onAccent": "#282C34"
+    "onAccent": "#282C34",
+    "caret": "#FFFFFF"
    },
    "composited": {
     "sidebarStep": "#31343C",
@@ -650,7 +655,8 @@
     "highlight": "#FD971F",
     "highlightText": "#272822",
     "accent": "#FDFFF1",
-    "onAccent": "#272822"
+    "onAccent": "#272822",
+    "caret": "#FDFFF1"
    },
    "composited": {
     "sidebarStep": "#30312A",
@@ -749,7 +755,8 @@
     "highlight": "#0969DA",
     "highlightText": "#FFFFFF",
     "accent": "#1F2328",
-    "onAccent": "#FFFFFF"
+    "onAccent": "#FFFFFF",
+    "caret": "#1F2328"
    },
    "composited": {
     "sidebarStep": "#F6F6F6",
@@ -790,6 +797,712 @@
      "textTertiary": "#98999C",
      "selectionFill": "#1F232800",
      "hoverFill": "#1F23280D"
+    }
+   }
+  },
+  "appleSystemDarkRed": {
+   "name": "Apple System Colors (cmux default, dark appearance), appearance.accent = red",
+   "isDark": true,
+   "input": {
+    "background": "#1E1E1E",
+    "foreground": "#FFFFFF",
+    "selectionBackground": "#3F638B",
+    "palette": [
+     "#1A1A1A",
+     "#CC372E",
+     "#26A439",
+     "#CDAC08",
+     "#0869CB",
+     "#9647BF",
+     "#479EC2",
+     "#98989D",
+     "#464646",
+     "#FF453A",
+     "#32D74B",
+     "#FFD60A",
+     "#0A84FF",
+     "#BF5AF2",
+     "#76D6FF",
+     "#FFFFFF"
+    ],
+    "cursor": "#98989D",
+    "accent": "red"
+   },
+   "tokens": {
+    "windowBackground": "#1E1E1E",
+    "sidebarBackground": "#1E1E1E",
+    "contentBackground": "#1E1E1E",
+    "chromeBackground": "#292929",
+    "elevatedBackground": "#2E2E2E",
+    "stripBackground": "#1E1E1E",
+    "sidebarStep": "#FFFFFF0A",
+    "stripStep": "#00000038",
+    "textPrimary": "#FFFFFF",
+    "textSecondary": "#AAAAAA",
+    "textTertiary": "#888888",
+    "hoverFill": "#FFFFFF0F",
+    "selectionFill": "#FF453A42",
+    "secondarySelectionFill": "#FFFFFF12",
+    "pressedFill": "#FFFFFF24",
+    "badgeFill": "#FFFFFF24",
+    "separator": "#FFFFFF14",
+    "paneBorder": "#FFFFFF12",
+    "focusRing": "#FF453A",
+    "glassTint": "#1E1E1E66",
+    "shadow": "#050505",
+    "textSelection": "#3F638B",
+    "attention": "#CDAC08",
+    "danger": "#CC372E",
+    "success": "#26A439",
+    "highlight": "#FF453A",
+    "highlightText": "#1E1E1E",
+    "accent": "#FF453A",
+    "onAccent": "#1E1E1E",
+    "caret": "#98989D"
+   },
+   "composited": {
+    "sidebarStep": "#272727",
+    "stripStep": "#171717",
+    "hoverFill": "#2C2C2C",
+    "selectionFill": "#592825",
+    "secondarySelectionFill": "#2E2E2E",
+    "pressedFill": "#3E3E3E",
+    "badgeFill": "#3E3E3E",
+    "separator": "#303030",
+    "paneBorder": "#2E2E2E",
+    "glassTint": "#1E1E1E"
+   },
+   "focusRing": {
+    "subtle": "#FF453A33",
+    "standard": "#FF453A8C",
+    "strong": "#FF453AD9"
+   },
+   "inactiveTabs": {
+    "fade": {
+     "textPrimary": "#B0B0B0",
+     "textSecondary": "#797979",
+     "textTertiary": "#636363",
+     "selectionFill": "#FF453A2B",
+     "hoverFill": "#FFFFFF0A"
+    },
+    "tonal": {
+     "textPrimary": "#AAAAAA",
+     "textSecondary": "#888888",
+     "textTertiary": "#757575",
+     "selectionFill": "#FFFFFF0D",
+     "hoverFill": "#FFFFFF0F"
+    },
+    "quiet": {
+     "textPrimary": "#AAAAAA",
+     "textSecondary": "#757575",
+     "textTertiary": "#757575",
+     "selectionFill": "#FF453A00",
+     "hoverFill": "#FFFFFF0F"
+    }
+   }
+  },
+  "appleSystemDarkGreen": {
+   "name": "Apple System Colors (cmux default, dark appearance), appearance.accent = green",
+   "isDark": true,
+   "input": {
+    "background": "#1E1E1E",
+    "foreground": "#FFFFFF",
+    "selectionBackground": "#3F638B",
+    "palette": [
+     "#1A1A1A",
+     "#CC372E",
+     "#26A439",
+     "#CDAC08",
+     "#0869CB",
+     "#9647BF",
+     "#479EC2",
+     "#98989D",
+     "#464646",
+     "#FF453A",
+     "#32D74B",
+     "#FFD60A",
+     "#0A84FF",
+     "#BF5AF2",
+     "#76D6FF",
+     "#FFFFFF"
+    ],
+    "cursor": "#98989D",
+    "accent": "green"
+   },
+   "tokens": {
+    "windowBackground": "#1E1E1E",
+    "sidebarBackground": "#1E1E1E",
+    "contentBackground": "#1E1E1E",
+    "chromeBackground": "#292929",
+    "elevatedBackground": "#2E2E2E",
+    "stripBackground": "#1E1E1E",
+    "sidebarStep": "#FFFFFF0A",
+    "stripStep": "#00000038",
+    "textPrimary": "#FFFFFF",
+    "textSecondary": "#B3B3B3",
+    "textTertiary": "#919191",
+    "hoverFill": "#FFFFFF0F",
+    "selectionFill": "#32D74B42",
+    "secondarySelectionFill": "#FFFFFF12",
+    "pressedFill": "#FFFFFF24",
+    "badgeFill": "#FFFFFF24",
+    "separator": "#FFFFFF14",
+    "paneBorder": "#FFFFFF12",
+    "focusRing": "#32D74B",
+    "glassTint": "#1E1E1E66",
+    "shadow": "#050505",
+    "textSelection": "#3F638B",
+    "attention": "#CDAC08",
+    "danger": "#CC372E",
+    "success": "#26A439",
+    "highlight": "#32D74B",
+    "highlightText": "#1E1E1E",
+    "accent": "#32D74B",
+    "onAccent": "#1E1E1E",
+    "caret": "#98989D"
+   },
+   "composited": {
+    "sidebarStep": "#272727",
+    "stripStep": "#171717",
+    "hoverFill": "#2C2C2C",
+    "selectionFill": "#234E2A",
+    "secondarySelectionFill": "#2E2E2E",
+    "pressedFill": "#3E3E3E",
+    "badgeFill": "#3E3E3E",
+    "separator": "#303030",
+    "paneBorder": "#2E2E2E",
+    "glassTint": "#1E1E1E"
+   },
+   "focusRing": {
+    "subtle": "#32D74B33",
+    "standard": "#32D74B8C",
+    "strong": "#32D74BD9"
+   },
+   "inactiveTabs": {
+    "fade": {
+     "textPrimary": "#B0B0B0",
+     "textSecondary": "#7F7F7F",
+     "textTertiary": "#696969",
+     "selectionFill": "#32D74B2B",
+     "hoverFill": "#FFFFFF0A"
+    },
+    "tonal": {
+     "textPrimary": "#B3B3B3",
+     "textSecondary": "#919191",
+     "textTertiary": "#7D7D7D",
+     "selectionFill": "#FFFFFF0D",
+     "hoverFill": "#FFFFFF0F"
+    },
+    "quiet": {
+     "textPrimary": "#B3B3B3",
+     "textSecondary": "#7D7D7D",
+     "textTertiary": "#7D7D7D",
+     "selectionFill": "#32D74B00",
+     "hoverFill": "#FFFFFF0F"
+    }
+   }
+  },
+  "appleSystemDarkBlue": {
+   "name": "Apple System Colors (cmux default, dark appearance), appearance.accent = blue",
+   "isDark": true,
+   "input": {
+    "background": "#1E1E1E",
+    "foreground": "#FFFFFF",
+    "selectionBackground": "#3F638B",
+    "palette": [
+     "#1A1A1A",
+     "#CC372E",
+     "#26A439",
+     "#CDAC08",
+     "#0869CB",
+     "#9647BF",
+     "#479EC2",
+     "#98989D",
+     "#464646",
+     "#FF453A",
+     "#32D74B",
+     "#FFD60A",
+     "#0A84FF",
+     "#BF5AF2",
+     "#76D6FF",
+     "#FFFFFF"
+    ],
+    "cursor": "#98989D",
+    "accent": "blue"
+   },
+   "tokens": {
+    "windowBackground": "#1E1E1E",
+    "sidebarBackground": "#1E1E1E",
+    "contentBackground": "#1E1E1E",
+    "chromeBackground": "#292929",
+    "elevatedBackground": "#2E2E2E",
+    "stripBackground": "#1E1E1E",
+    "sidebarStep": "#FFFFFF0A",
+    "stripStep": "#00000038",
+    "textPrimary": "#FFFFFF",
+    "textSecondary": "#AAAAAA",
+    "textTertiary": "#888888",
+    "hoverFill": "#FFFFFF0F",
+    "selectionFill": "#0A84FF42",
+    "secondarySelectionFill": "#FFFFFF12",
+    "pressedFill": "#FFFFFF24",
+    "badgeFill": "#FFFFFF24",
+    "separator": "#FFFFFF14",
+    "paneBorder": "#FFFFFF12",
+    "focusRing": "#0A84FF",
+    "glassTint": "#1E1E1E66",
+    "shadow": "#050505",
+    "textSelection": "#3F638B",
+    "attention": "#CDAC08",
+    "danger": "#CC372E",
+    "success": "#26A439",
+    "highlight": "#0A84FF",
+    "highlightText": "#1E1E1E",
+    "accent": "#0A84FF",
+    "onAccent": "#1E1E1E",
+    "caret": "#98989D"
+   },
+   "composited": {
+    "sidebarStep": "#272727",
+    "stripStep": "#171717",
+    "hoverFill": "#2C2C2C",
+    "selectionFill": "#193959",
+    "secondarySelectionFill": "#2E2E2E",
+    "pressedFill": "#3E3E3E",
+    "badgeFill": "#3E3E3E",
+    "separator": "#303030",
+    "paneBorder": "#2E2E2E",
+    "glassTint": "#1E1E1E"
+   },
+   "focusRing": {
+    "subtle": "#0A84FF33",
+    "standard": "#0A84FF8C",
+    "strong": "#0A84FFD9"
+   },
+   "inactiveTabs": {
+    "fade": {
+     "textPrimary": "#B0B0B0",
+     "textSecondary": "#797979",
+     "textTertiary": "#636363",
+     "selectionFill": "#0A84FF2B",
+     "hoverFill": "#FFFFFF0A"
+    },
+    "tonal": {
+     "textPrimary": "#AAAAAA",
+     "textSecondary": "#888888",
+     "textTertiary": "#757575",
+     "selectionFill": "#FFFFFF0D",
+     "hoverFill": "#FFFFFF0F"
+    },
+    "quiet": {
+     "textPrimary": "#AAAAAA",
+     "textSecondary": "#757575",
+     "textTertiary": "#757575",
+     "selectionFill": "#0A84FF00",
+     "hoverFill": "#FFFFFF0F"
+    }
+   }
+  },
+  "appleSystemLightRed": {
+   "name": "Apple System Colors Light (cmux default, light appearance), appearance.accent = red",
+   "isDark": false,
+   "input": {
+    "background": "#FEFFFF",
+    "foreground": "#000000",
+    "selectionBackground": "#ABD8FF",
+    "palette": [
+     "#1A1A1A",
+     "#CC372E",
+     "#26A439",
+     "#CDAC08",
+     "#0869CB",
+     "#9647BF",
+     "#479EC2",
+     "#98989D",
+     "#464646",
+     "#FF453A",
+     "#32D74B",
+     "#E5BC00",
+     "#0A84FF",
+     "#BF5AF2",
+     "#69C9F2",
+     "#FFFFFF"
+    ],
+    "cursor": "#98989D",
+    "accent": "red"
+   },
+   "tokens": {
+    "windowBackground": "#FEFFFF",
+    "sidebarBackground": "#FEFFFF",
+    "contentBackground": "#FEFFFF",
+    "chromeBackground": "#F5F6F6",
+    "elevatedBackground": "#F9FAFA",
+    "stripBackground": "#FEFFFF",
+    "sidebarStep": "#0000000A",
+    "stripStep": "#0000000D",
+    "textPrimary": "#000000",
+    "textSecondary": "#616161",
+    "textTertiary": "#7F8080",
+    "hoverFill": "#0000000D",
+    "selectionFill": "#E5272229",
+    "secondarySelectionFill": "#0000000E",
+    "pressedFill": "#0000001C",
+    "badgeFill": "#0000001A",
+    "separator": "#00000012",
+    "paneBorder": "#00000017",
+    "focusRing": "#E52722",
+    "glassTint": "#FEFFFF4D",
+    "shadow": "#262626",
+    "textSelection": "#ABD8FF",
+    "attention": "#AC9007",
+    "danger": "#CC372E",
+    "success": "#26A439",
+    "highlight": "#E52722",
+    "highlightText": "#000000",
+    "accent": "#E52722",
+    "onAccent": "#FFFFFF",
+    "caret": "#929297"
+   },
+   "composited": {
+    "sidebarStep": "#F4F5F5",
+    "stripStep": "#F1F2F2",
+    "hoverFill": "#F1F2F2",
+    "selectionFill": "#FADCDC",
+    "secondarySelectionFill": "#F0F1F1",
+    "pressedFill": "#E2E3E3",
+    "badgeFill": "#E5E6E6",
+    "separator": "#ECEDED",
+    "paneBorder": "#E7E8E8",
+    "glassTint": "#FEFFFF"
+   },
+   "focusRing": {
+    "subtle": "#E5272233",
+    "standard": "#E527228C",
+    "strong": "#E52722D9"
+   },
+   "inactiveTabs": {
+    "fade": {
+     "textPrimary": "#595959",
+     "textSecondary": "#989898",
+     "textTertiary": "#ABACAC",
+     "selectionFill": "#E527221B",
+     "hoverFill": "#00000008"
+    },
+    "tonal": {
+     "textPrimary": "#616161",
+     "textSecondary": "#7F8080",
+     "textTertiary": "#959696",
+     "selectionFill": "#0000000B",
+     "hoverFill": "#0000000D"
+    },
+    "quiet": {
+     "textPrimary": "#616161",
+     "textSecondary": "#959696",
+     "textTertiary": "#959696",
+     "selectionFill": "#E5272200",
+     "hoverFill": "#0000000D"
+    }
+   }
+  },
+  "appleSystemLightGreen": {
+   "name": "Apple System Colors Light (cmux default, light appearance), appearance.accent = green",
+   "isDark": false,
+   "input": {
+    "background": "#FEFFFF",
+    "foreground": "#000000",
+    "selectionBackground": "#ABD8FF",
+    "palette": [
+     "#1A1A1A",
+     "#CC372E",
+     "#26A439",
+     "#CDAC08",
+     "#0869CB",
+     "#9647BF",
+     "#479EC2",
+     "#98989D",
+     "#464646",
+     "#FF453A",
+     "#32D74B",
+     "#E5BC00",
+     "#0A84FF",
+     "#BF5AF2",
+     "#69C9F2",
+     "#FFFFFF"
+    ],
+    "cursor": "#98989D",
+    "accent": "green"
+   },
+   "tokens": {
+    "windowBackground": "#FEFFFF",
+    "sidebarBackground": "#FEFFFF",
+    "contentBackground": "#FEFFFF",
+    "chromeBackground": "#F5F6F6",
+    "elevatedBackground": "#F9FAFA",
+    "stripBackground": "#FEFFFF",
+    "sidebarStep": "#0000000A",
+    "stripStep": "#0000000D",
+    "textPrimary": "#000000",
+    "textSecondary": "#616161",
+    "textTertiary": "#7F8080",
+    "hoverFill": "#0000000D",
+    "selectionFill": "#008A2329",
+    "secondarySelectionFill": "#0000000E",
+    "pressedFill": "#0000001C",
+    "badgeFill": "#0000001A",
+    "separator": "#00000012",
+    "paneBorder": "#00000017",
+    "focusRing": "#008A23",
+    "glassTint": "#FEFFFF4D",
+    "shadow": "#262626",
+    "textSelection": "#ABD8FF",
+    "attention": "#AC9007",
+    "danger": "#CC372E",
+    "success": "#26A439",
+    "highlight": "#008A23",
+    "highlightText": "#000000",
+    "accent": "#008A23",
+    "onAccent": "#FFFFFF",
+    "caret": "#929297"
+   },
+   "composited": {
+    "sidebarStep": "#F4F5F5",
+    "stripStep": "#F1F2F2",
+    "hoverFill": "#F1F2F2",
+    "selectionFill": "#D5ECDC",
+    "secondarySelectionFill": "#F0F1F1",
+    "pressedFill": "#E2E3E3",
+    "badgeFill": "#E5E6E6",
+    "separator": "#ECEDED",
+    "paneBorder": "#E7E8E8",
+    "glassTint": "#FEFFFF"
+   },
+   "focusRing": {
+    "subtle": "#008A2333",
+    "standard": "#008A238C",
+    "strong": "#008A23D9"
+   },
+   "inactiveTabs": {
+    "fade": {
+     "textPrimary": "#595959",
+     "textSecondary": "#989898",
+     "textTertiary": "#ABACAC",
+     "selectionFill": "#008A231B",
+     "hoverFill": "#00000008"
+    },
+    "tonal": {
+     "textPrimary": "#616161",
+     "textSecondary": "#7F8080",
+     "textTertiary": "#959696",
+     "selectionFill": "#0000000B",
+     "hoverFill": "#0000000D"
+    },
+    "quiet": {
+     "textPrimary": "#616161",
+     "textSecondary": "#959696",
+     "textTertiary": "#959696",
+     "selectionFill": "#008A2300",
+     "hoverFill": "#0000000D"
+    }
+   }
+  },
+  "appleSystemLightBlue": {
+   "name": "Apple System Colors Light (cmux default, light appearance), appearance.accent = blue",
+   "isDark": false,
+   "input": {
+    "background": "#FEFFFF",
+    "foreground": "#000000",
+    "selectionBackground": "#ABD8FF",
+    "palette": [
+     "#1A1A1A",
+     "#CC372E",
+     "#26A439",
+     "#CDAC08",
+     "#0869CB",
+     "#9647BF",
+     "#479EC2",
+     "#98989D",
+     "#464646",
+     "#FF453A",
+     "#32D74B",
+     "#E5BC00",
+     "#0A84FF",
+     "#BF5AF2",
+     "#69C9F2",
+     "#FFFFFF"
+    ],
+    "cursor": "#98989D",
+    "accent": "blue"
+   },
+   "tokens": {
+    "windowBackground": "#FEFFFF",
+    "sidebarBackground": "#FEFFFF",
+    "contentBackground": "#FEFFFF",
+    "chromeBackground": "#F5F6F6",
+    "elevatedBackground": "#F9FAFA",
+    "stripBackground": "#FEFFFF",
+    "sidebarStep": "#0000000A",
+    "stripStep": "#0000000D",
+    "textPrimary": "#000000",
+    "textSecondary": "#616161",
+    "textTertiary": "#7F8080",
+    "hoverFill": "#0000000D",
+    "selectionFill": "#0074E529",
+    "secondarySelectionFill": "#0000000E",
+    "pressedFill": "#0000001C",
+    "badgeFill": "#0000001A",
+    "separator": "#00000012",
+    "paneBorder": "#00000017",
+    "focusRing": "#0074E5",
+    "glassTint": "#FEFFFF4D",
+    "shadow": "#262626",
+    "textSelection": "#ABD8FF",
+    "attention": "#AC9007",
+    "danger": "#CC372E",
+    "success": "#26A439",
+    "highlight": "#0074E5",
+    "highlightText": "#000000",
+    "accent": "#0074E5",
+    "onAccent": "#FFFFFF",
+    "caret": "#929297"
+   },
+   "composited": {
+    "sidebarStep": "#F4F5F5",
+    "stripStep": "#F1F2F2",
+    "hoverFill": "#F1F2F2",
+    "selectionFill": "#D5E9FB",
+    "secondarySelectionFill": "#F0F1F1",
+    "pressedFill": "#E2E3E3",
+    "badgeFill": "#E5E6E6",
+    "separator": "#ECEDED",
+    "paneBorder": "#E7E8E8",
+    "glassTint": "#FEFFFF"
+   },
+   "focusRing": {
+    "subtle": "#0074E533",
+    "standard": "#0074E58C",
+    "strong": "#0074E5D9"
+   },
+   "inactiveTabs": {
+    "fade": {
+     "textPrimary": "#595959",
+     "textSecondary": "#989898",
+     "textTertiary": "#ABACAC",
+     "selectionFill": "#0074E51B",
+     "hoverFill": "#00000008"
+    },
+    "tonal": {
+     "textPrimary": "#616161",
+     "textSecondary": "#7F8080",
+     "textTertiary": "#959696",
+     "selectionFill": "#0000000B",
+     "hoverFill": "#0000000D"
+    },
+    "quiet": {
+     "textPrimary": "#616161",
+     "textSecondary": "#959696",
+     "textTertiary": "#959696",
+     "selectionFill": "#0074E500",
+     "hoverFill": "#0000000D"
+    }
+   }
+  },
+  "monokaiClassicTheme": {
+   "name": "Monokai Classic (test fixture), appearance.accent = theme",
+   "isDark": true,
+   "input": {
+    "background": "#272822",
+    "foreground": "#FDFFF1",
+    "selectionBackground": "#57584F",
+    "palette": [
+     "#272822",
+     "#F92672",
+     "#A6E22E",
+     "#E6DB74",
+     "#FD971F",
+     "#AE81FF",
+     "#66D9EF",
+     "#FDFFF1",
+     "#6E7066",
+     "#F92672",
+     "#A6E22E",
+     "#E6DB74",
+     "#FD971F",
+     "#AE81FF",
+     "#66D9EF",
+     "#FDFFF1"
+    ],
+    "accent": "theme"
+   },
+   "tokens": {
+    "windowBackground": "#272822",
+    "sidebarBackground": "#272822",
+    "contentBackground": "#272822",
+    "chromeBackground": "#32332C",
+    "elevatedBackground": "#363730",
+    "stripBackground": "#272822",
+    "sidebarStep": "#FDFFF10A",
+    "stripStep": "#00000038",
+    "textPrimary": "#FDFFF1",
+    "textSecondary": "#B2B4A9",
+    "textTertiary": "#92938A",
+    "hoverFill": "#FDFFF10F",
+    "selectionFill": "#AE81FF42",
+    "secondarySelectionFill": "#FDFFF112",
+    "pressedFill": "#FDFFF124",
+    "badgeFill": "#FDFFF124",
+    "separator": "#FDFFF114",
+    "paneBorder": "#FDFFF112",
+    "focusRing": "#AE81FF",
+    "glassTint": "#27282266",
+    "shadow": "#060605",
+    "textSelection": "#57584F",
+    "attention": "#E6DB74",
+    "danger": "#F92672",
+    "success": "#A6E22E",
+    "highlight": "#AE81FF",
+    "highlightText": "#272822",
+    "accent": "#AE81FF",
+    "onAccent": "#272822",
+    "caret": "#FDFFF1"
+   },
+   "composited": {
+    "sidebarStep": "#30312A",
+    "stripStep": "#1E1F1B",
+    "hoverFill": "#34352E",
+    "selectionFill": "#4A3F5B",
+    "secondarySelectionFill": "#363730",
+    "pressedFill": "#45463F",
+    "badgeFill": "#45463F",
+    "separator": "#383933",
+    "paneBorder": "#363730",
+    "glassTint": "#272822"
+   },
+   "focusRing": {
+    "subtle": "#AE81FF33",
+    "standard": "#AE81FF8C",
+    "strong": "#AE81FFD9"
+   },
+   "inactiveTabs": {
+    "fade": {
+     "textPrimary": "#B2B4A9",
+     "textSecondary": "#818379",
+     "textTertiary": "#6D6E65",
+     "selectionFill": "#AE81FF2B",
+     "hoverFill": "#FDFFF10A"
+    },
+    "tonal": {
+     "textPrimary": "#B2B4A9",
+     "textSecondary": "#92938A",
+     "textTertiary": "#7F8177",
+     "selectionFill": "#FDFFF10D",
+     "hoverFill": "#FDFFF10F"
+    },
+    "quiet": {
+     "textPrimary": "#B2B4A9",
+     "textSecondary": "#7F8177",
+     "textTertiary": "#7F8177",
+     "selectionFill": "#AE81FF00",
+     "hoverFill": "#FDFFF10F"
     }
    }
   }

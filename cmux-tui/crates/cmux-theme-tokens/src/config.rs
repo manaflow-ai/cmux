@@ -480,6 +480,15 @@ fn apply(input: &mut ThemeInput, e: &Entry, diagnostics: &mut Vec<String>) {
                 *slot = c;
             }
         }
+        "cursor-color" => {
+            // Only a plain color (Swift GhosttyRuntime+Theme `color`):
+            // `cell-foreground` / `cell-background` follow the cell.
+            input.cursor = if e.value.is_empty() || e.value.starts_with("cell-") {
+                None
+            } else {
+                color(diagnostics)
+            };
+        }
         "selection-background" | "selection-foreground" => {
             // `cell-foreground` / `cell-background` follow the cell: no fixed color.
             let c = if e.value.is_empty() || e.value.starts_with("cell-") {
