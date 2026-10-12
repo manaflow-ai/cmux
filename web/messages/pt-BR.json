@@ -2220,6 +2220,13 @@
           "indentGuides": "Marca cada nível de indentação com uma linha vertical fina no editor de arquivos integrado.",
           "currentLineHighlight": "Destaca com cor a linha que contém o cursor de texto enquanto nada estiver selecionado.",
           "tabWidth": "Quantas colunas uma parada de tabulação ocupa. As guias de indentação usam o mesmo espaçamento."
+        },
+        "remoteTmux": {
+          "beta": {
+            "newWorkspaceOnHost": {
+              "enabled": "Com um espaço de trabalho tmux remoto selecionado, “Novo espaço de trabalho” inicia uma sessão tmux no host desse espaço."
+            }
+          }
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

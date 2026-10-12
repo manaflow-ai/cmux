@@ -2220,6 +2220,13 @@
           "indentGuides": "تمييز كل مستوى إزاحة بخط عمودي رفيع في محرر الملفات المدمج.",
           "currentLineHighlight": "تلوين السطر الذي يوجد فيه المؤشر عندما لا يكون هناك أي تحديد.",
           "tabWidth": "عدد الأعمدة التي يمتد عليها موضع جدولة واحد. تستخدم أدلة الإزاحة التباعد نفسه."
+        },
+        "remoteTmux": {
+          "beta": {
+            "newWorkspaceOnHost": {
+              "enabled": "عند تحديد مساحة عمل tmux بعيدة، يبدأ «مساحة عمل جديدة» جلسة tmux على مضيف مساحة العمل تلك."
+            }
+          }
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

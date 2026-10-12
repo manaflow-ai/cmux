@@ -352,9 +352,10 @@ final class WindowDecorationsController {
                 ) ?? anchorView
                 appDelegate.toggleNotificationsPopover(animated: true, anchorView: resolvedAnchorView)
             case .newTab:
-                _ = appDelegate.performNewLocalWorkspaceAction(
+                _ = appDelegate.performNewWorkspaceAction(
                     tabManager: context.tabManager,
-                    debugSource: "titlebar.minimalSidebarControl"
+                    debugSource: "titlebar.minimalSidebarControl",
+                    skipConfiguredAction: true
                 )
             case .newWorkspaceMenu:
                 if let anchorView {
