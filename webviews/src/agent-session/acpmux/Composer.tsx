@@ -9,6 +9,7 @@ import React, {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import { useEscapingList } from "../../ui/popupHost";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import {
   filesFrom,
@@ -1400,6 +1401,15 @@ function SlashMenu({
 }) {
   const t = useT();
   const list = useRef<HTMLDivElement>(null);
+  // Above the composer, or past the window's edge when the pane has no room there (cx-6k6cg).
+  const escape = useEscapingList("top", 6);
+  const setList = useCallback(
+    (node: HTMLDivElement | null) => {
+      list.current = node;
+      escape?.(node);
+    },
+    [escape],
+  );
   useLayoutEffect(() => {
     list.current?.querySelector<HTMLElement>(`#acpmux-slash-${active}`)?.scrollIntoView?.({ block: "nearest" });
   }, [active]);
@@ -1418,7 +1428,7 @@ function SlashMenu({
     );
   return (
     <div
-      ref={list}
+      ref={setList}
       className="ui-popup acpmux-slash-menu"
       id="acpmux-slash-menu"
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
