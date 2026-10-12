@@ -3,9 +3,23 @@
 // composer in the place of the private-folder line, before any chat starts there. The host answers
 // `workspace.useFolder` with the question; Send waits until the user answers.
 import { agentPaneEntry } from "../../gallery/format";
+import type { Play } from "../../gallery/play";
 import { noChat, session } from "../../gallery/fixtures/acpmux";
 
 const AGENT_HOME = "/Users/you/Library/Application Support/cmux/agent-home/6b16a112-289d-4467-9675-8e6feee99481";
+
+const WORKTREE = "/Users/you/.cmux/worktrees/cmux/fix-sidebar";
+
+/// A new chat in a project folder: its folder menu offers New Worktree (cx-lyqio.2).
+const inProject = noChat([session({ sessionId: "cmux", title: "Fix the sidebar", cwd: "/Users/you/src/cmux" })], {
+  summary: { sessionId: "", cwd: "/Users/you/src/cmux", harness: "claude", model: "claude-opus-5-5", effort: "high" },
+});
+
+const newWorktree: Play = async (ctx) => {
+  await ctx.click({ selector: '[aria-label="Folder"]' });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu"));
+  await ctx.click({ role: "menuitem", name: "New Worktree" });
+};
 
 const fresh = noChat(
   [
@@ -33,7 +47,10 @@ export default agentPaneEntry({
       reason: "The question appears above the composer after the pick, a bounded shift by design.",
     },
   },
-  covers: ["agent-session/acpmux/startFolder.tsx#StartFolderAsk"],
+  covers: [
+    "agent-session/acpmux/startFolder.tsx#StartFolderAsk",
+    "agent-session/acpmux/startFolder.tsx#WorktreeFailure",
+  ],
   variants: {
     "home-question": {
       note: "Play: pick ~ from the folder menu; the question replaces the private-folder line, with Use Home Folder and Use Private Folder.",
@@ -57,6 +74,33 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu"));
         await ctx.click({ role: "menuitemradio", name: /\/Users\/you$/ });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-start-folder-ask"));
+      },
+    },
+    "new-worktree": {
+      note: "Play: New Worktree in a new chat's folder menu; the host makes the worktree on its own branch and the chat starts there (the folder chip names it).",
+      ready: { newSession: true },
+      native: {
+        "git.worktree.create": {
+          value: { root: WORKTREE, branch: "cmux/fix-sidebar", base: "main", base_commit: "4f2a9c1" },
+          replayed: false,
+        },
+        "workspace.useFolder": { status: "ok", cwd: WORKTREE },
+      },
+      snapshot: inProject,
+      play: async (ctx) => {
+        await newWorktree(ctx);
+        await ctx.waitFor(() =>
+          ctx.document.querySelector('[aria-label="Folder"]')?.textContent?.includes("fix-sidebar"),
+        );
+      },
+    },
+    "worktree-refused": {
+      note: "Play: a New Worktree the host does not make: the chat keeps its folder and the line above the composer says why, with Dismiss.",
+      ready: { newSession: true },
+      snapshot: inProject,
+      play: async (ctx) => {
+        await newWorktree(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector('[role="alert"]'));
       },
     },
   },

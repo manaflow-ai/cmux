@@ -295,7 +295,7 @@ public final class AgentPaneModel {
                 return AgentPaneReply.failure(code: "open_failed", message: Self.openPreviewFailedMessage)
             }
             return AgentPaneReply.success()
-        case .gitWrite(let write): return await respondToGitWrite(write)
+        case .gitWrite(let write): return await AgentPaneGitWriteReply.reply(to: write, in: self)
         case .git, .invalidGit, .githubRepository, .gitStage, .gitPullRequest, .transportOpen, .transportSend, .transportGesture, .transportGestureRelease, .transportClose:
             return await AgentPaneTransportReply.reply(to: request, in: self)
         case .turnUndo(let undo): return await AgentPaneTurnUndo.reply(to: undo, in: self)
