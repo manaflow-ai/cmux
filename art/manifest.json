@@ -13,7 +13,19 @@
     "zh-Hant": "馬拉之死",
     "zh-Hans": "马拉之死",
     "ko": "마라의 죽음",
-    "ja": "マラーの死"
+    "ja": "マラーの死",
+    "bs": "Maratova smrt",
+    "da": "Marats død",
+    "it": "La morte di Marat",
+    "km": "មរណភាពរបស់ម៉ារ៉ាត់",
+    "nb": "Marats død",
+    "pl": "Śmierć Marata",
+    "pt-BR": "A Morte de Marat",
+    "ru": "Смерть Марата",
+    "th": "การตายของมาราต์",
+    "tr": "Marat'nın Ölümü",
+    "uk": "Смерть Марата",
+    "vi": "Cái chết của Marat"
    },
    "fullTitle": "The Death of Marat",
    "artist": "Jacques-Louis David",
@@ -39,8 +51,8 @@
     "#252019",
     "#493D24"
    ],
-   "darkest": "#080808",
-   "lightest": "#7C6B3C",
+   "darkest": "#030000",
+   "lightest": "#AAA062",
    "tint": 0.31
   },
   {
@@ -54,7 +66,19 @@
     "zh-Hant": "農神吞噬其子",
     "zh-Hans": "农神吞噬其子",
     "ko": "자식을 잡아먹는 사투르누스",
-    "ja": "我が子を食らうサトゥルヌス"
+    "ja": "我が子を食らうサトゥルヌス",
+    "bs": "Saturn proždire svog sina",
+    "da": "Saturn fortærer sin søn",
+    "it": "Saturno che divora un figlio",
+    "km": "សាទូរ៉នស៊ីកូនប្រុសរបស់ខ្លួន",
+    "nb": "Saturn fortærer sin sønn",
+    "pl": "Saturn pożerający swego syna",
+    "pt-BR": "Saturno Devorando um Filho",
+    "ru": "Сатурн, пожирающий своего сына",
+    "th": "แซตเทิร์นกินบุตรของตน",
+    "tr": "Oğlunu Yiyen Satürn",
+    "uk": "Сатурн, що пожирає свого сина",
+    "vi": "Saturn ăn thịt con trai"
    },
    "fullTitle": "Saturn Devouring His Son",
    "artist": "Francisco Goya",
@@ -80,8 +104,8 @@
     "#191A1A",
     "#3F3B31"
    ],
-   "darkest": "#040609",
-   "lightest": "#AC9C65",
+   "darkest": "#000002",
+   "lightest": "#FAF5CB",
    "tint": 0.3
   },
   {
@@ -95,7 +119,19 @@
     "zh-Hant": "風暴中的荷蘭小船",
     "zh-Hans": "风暴中的荷兰小船",
     "ko": "폭풍을 견디는 네덜란드 작은 배",
-    "ja": "嵐を乗り切るオランダの小型船"
+    "ja": "嵐を乗り切るオランダの小型船",
+    "bs": "Mali holandski brod u oluji",
+    "da": "Et lille hollandsk skib i storm",
+    "it": "Una piccola nave olandese nella tempesta",
+    "km": "កប៉ាល់ហូឡង់តូចមួយក្នុងព្យុះ",
+    "nb": "Et lite nederlandsk skip i storm",
+    "pl": "Mały holenderski statek w czasie sztormu",
+    "pt-BR": "Um Pequeno Navio Holandês na Tempestade",
+    "ru": "Маленький голландский корабль в шторм",
+    "th": "เรือดัตช์ลำเล็กฝ่าพายุ",
+    "tr": "Fırtınada Küçük Bir Hollanda Gemisi",
+    "uk": "Маленький голландський корабель у шторм",
+    "vi": "Con tàu Hà Lan nhỏ vượt bão"
    },
    "fullTitle": "A Small Dutch Ship Riding Out a Storm",
    "artist": "Willem van de Velde the Younger",
@@ -121,8 +157,8 @@
     "#1E1C11",
     "#494225"
    ],
-   "darkest": "#060604",
-   "lightest": "#938B63",
+   "darkest": "#010302",
+   "lightest": "#FFFCCC",
    "tint": 0.3
   },
   {
@@ -136,7 +172,19 @@
     "zh-Hant": "人間樂園：地獄",
     "zh-Hans": "人间乐园：地狱",
     "ko": "쾌락의 정원: 지옥",
-    "ja": "快楽の園：地獄"
+    "ja": "快楽の園：地獄",
+    "bs": "Vrt zemaljskih užitaka: Pakao",
+    "da": "Lysternes have: Helvede",
+    "it": "Il Giardino delle delizie: l'Inferno",
+    "km": "សួនសុខារម្មណ៍លោកិយ៖ នរក",
+    "nb": "Lystenes hage: Helvete",
+    "pl": "Ogród rozkoszy ziemskich: Piekło",
+    "pt-BR": "O Jardim das Delícias Terrenas: Inferno",
+    "ru": "Сад земных наслаждений: Ад",
+    "th": "สวนแห่งความสุขทางโลก: นรก",
+    "tr": "Dünyevi Zevkler Bahçesi: Cehennem",
+    "uk": "Сад земних насолод: Пекло",
+    "vi": "Khu vườn khoái lạc trần thế: Địa ngục"
    },
    "fullTitle": "The Garden of Earthly Delights (right panel, Hell)",
    "artist": "Hieronymus Bosch",
@@ -162,8 +210,8 @@
     "#17140F",
     "#4B3F2C"
    ],
-   "darkest": "#040302",
-   "lightest": "#C39E7F",
+   "darkest": "#000000",
+   "lightest": "#F8F2E2",
    "tint": 0.3
   },
   {
@@ -177,7 +225,19 @@
     "zh-Hant": "升往淨土",
     "zh-Hans": "升入天堂",
     "ko": "축복받은 자들의 승천",
-    "ja": "天上界への上昇"
+    "ja": "天上界への上昇",
+    "bs": "Uzašašće blaženih",
+    "da": "De saliges opstigning",
+    "it": "Ascesa all'Empireo",
+    "km": "ការឡើងទៅស្ថានសួគ៌របស់អ្នកមានពរ",
+    "nb": "De saliges oppstigning",
+    "pl": "Wstąpienie do Empireum",
+    "pt-BR": "Ascensão ao Empíreo",
+    "ru": "Восхождение в Эмпирей",
+    "th": "การขึ้นสู่สวรรค์ของผู้ได้รับพร",
+    "tr": "Kutsanmışların Yükselişi",
+    "uk": "Сходження до Емпірею",
+    "vi": "Sự thăng thiên của những người được phúc"
    },
    "fullTitle": "Ascent of the Blessed (Visions of the Hereafter)",
    "artist": "Hieronymus Bosch",
@@ -203,8 +263,8 @@
     "#0E0E0E",
     "#3D403E"
    ],
-   "darkest": "#050302",
-   "lightest": "#AFB9AD",
+   "darkest": "#010000",
+   "lightest": "#F7FFF2",
    "tint": 0.3
   },
   {
@@ -218,7 +278,19 @@
     "zh-Hant": "女巫飛行",
     "zh-Hans": "女巫飞行",
     "ko": "마녀들의 비행",
-    "ja": "魔女たちの飛翔"
+    "ja": "魔女たちの飛翔",
+    "bs": "Let vještica",
+    "da": "Heksenes flugt",
+    "it": "Volo di streghe",
+    "km": "ការហោះហើររបស់មេធ្មប់",
+    "nb": "Heksenes flukt",
+    "pl": "Lot czarownic",
+    "pt-BR": "Voo das Bruxas",
+    "ru": "Полёт ведьм",
+    "th": "การบินของแม่มด",
+    "tr": "Cadıların Uçuşu",
+    "uk": "Політ відьом",
+    "vi": "Chuyến bay của các phù thủy"
    },
    "fullTitle": "Witches' Flight",
    "artist": "Francisco Goya",
@@ -244,8 +316,8 @@
     "#0D0E0B",
     "#51472F"
    ],
-   "darkest": "#060707",
-   "lightest": "#B6945B",
+   "darkest": "#0A0300",
+   "lightest": "#FDF9E0",
    "tint": 0.31
   },
   {
@@ -259,7 +331,19 @@
     "zh-Hant": "與拉小提琴的死神的自畫像",
     "zh-Hans": "与拉小提琴的死神的自画像",
     "ko": "바이올린을 켜는 죽음과 함께 있는 자화상",
-    "ja": "ヴァイオリンを弾く死神のいる自画像"
+    "ja": "ヴァイオリンを弾く死神のいる自画像",
+    "bs": "Autoportret sa smrću koja svira violinu",
+    "da": "Selvportræt med Døden, der spiller violin",
+    "it": "Autoritratto con la morte che suona il violino",
+    "km": "រូបខ្លួនឯងជាមួយមច្ចុរាជលេងវីយូឡុង",
+    "nb": "Selvportrett med Døden som spiller fiolin",
+    "pl": "Autoportret ze śmiercią grającą na skrzypcach",
+    "pt-BR": "Autorretrato com a Morte Tocando Violino",
+    "ru": "Автопортрет со смертью, играющей на скрипке",
+    "th": "ภาพเหมือนตนเองกับมัจจุราชสีไวโอลิน",
+    "tr": "Keman Çalan Ölümle Otoportre",
+    "uk": "Автопортрет зі смертю, що грає на скрипці",
+    "vi": "Chân dung tự họa với Thần Chết chơi vĩ cầm"
    },
    "fullTitle": "Self-Portrait with Death Playing the Fiddle",
    "artist": "Arnold Böcklin",
@@ -285,8 +369,8 @@
     "#080A0A",
     "#564832"
    ],
-   "darkest": "#030505",
-   "lightest": "#BFB995",
+   "darkest": "#000102",
+   "lightest": "#FFFDE5",
    "tint": 0.3
   },
   {
@@ -300,7 +384,19 @@
     "zh-Hant": "美杜莎",
     "zh-Hans": "美杜莎",
     "ko": "메두사",
-    "ja": "メドゥーサ"
+    "ja": "メドゥーサ",
+    "bs": "Meduza",
+    "da": "Medusa",
+    "it": "Medusa",
+    "km": "មេឌូសា",
+    "nb": "Medusa",
+    "pl": "Meduza",
+    "pt-BR": "Medusa",
+    "ru": "Медуза",
+    "th": "เมดูซา",
+    "tr": "Medusa",
+    "uk": "Медуза",
+    "vi": "Medusa"
    },
    "fullTitle": "Medusa",
    "artist": "Caravaggio",
@@ -326,8 +422,8 @@
     "#271F16",
     "#554925"
    ],
-   "darkest": "#0C0803",
-   "lightest": "#E3BD7A",
+   "darkest": "#060000",
+   "lightest": "#FFFFF3",
    "tint": 0.31
   },
   {
@@ -341,7 +437,19 @@
     "zh-Hant": "萬魔殿",
     "zh-Hans": "万魔殿",
     "ko": "판데모니움",
-    "ja": "万魔殿"
+    "ja": "万魔殿",
+    "bs": "Pandemonij",
+    "da": "Pandæmonium",
+    "it": "Pandemonio",
+    "km": "ផេនដេម៉ូញ៉ូម",
+    "nb": "Pandemonium",
+    "pl": "Pandemonium",
+    "pt-BR": "Pandemônio",
+    "ru": "Пандемониум",
+    "th": "แพนดีโมเนียม",
+    "tr": "Pandemonium",
+    "uk": "Пандемоніум",
+    "vi": "Pandemonium"
    },
    "fullTitle": "Pandemonium",
    "artist": "John Martin",
@@ -367,8 +475,8 @@
     "#392926",
     "#5F4335"
    ],
-   "darkest": "#090909",
-   "lightest": "#AE5843",
+   "darkest": "#000000",
+   "lightest": "#FFFDCC",
    "tint": 0.32
   },
   {
@@ -382,7 +490,19 @@
     "zh-Hant": "費城號巡防艦焚燒",
     "zh-Hans": "费城号护卫舰焚毁",
     "ko": "프리깃 필라델피아호의 화재",
-    "ja": "フリゲート艦フィラデルフィアの炎上"
+    "ja": "フリゲート艦フィラデルフィアの炎上",
+    "bs": "Paljenje fregate Philadelphia",
+    "da": "Fregatten Philadelphias brand",
+    "it": "L'incendio della fregata Philadelphia",
+    "km": "ការដុតនាវាហ្វ្រេហ្គាតហ្វីឡាដែលហ្វៀ",
+    "nb": "Brannen på fregatten Philadelphia",
+    "pl": "Spalenie fregaty Philadelphia",
+    "pt-BR": "O Incêndio da Fragata Philadelphia",
+    "ru": "Сожжение фрегата «Филадельфия»",
+    "th": "การเผาเรือฟริเกตฟิลาเดลเฟีย",
+    "tr": "Philadelphia Firkateyninin Yakılışı",
+    "uk": "Спалення фрегата «Філадельфія»",
+    "vi": "Vụ đốt khinh hạm Philadelphia"
    },
    "fullTitle": "Burning of the Frigate Philadelphia in the Harbor of Tripoli (study)",
    "artist": "Edward Moran",
@@ -408,8 +528,8 @@
     "#1C2226",
     "#50493C"
    ],
-   "darkest": "#020A11",
-   "lightest": "#EDB350",
+   "darkest": "#080806",
+   "lightest": "#FFFFDF",
    "tint": 0.31
   },
   {
@@ -423,7 +543,19 @@
     "zh-Hant": "埋葬沙丁魚",
     "zh-Hans": "埋葬沙丁鱼",
     "ko": "정어리의 매장",
-    "ja": "鰯の埋葬"
+    "ja": "鰯の埋葬",
+    "bs": "Sahrana sardine",
+    "da": "Sardinens begravelse",
+    "it": "La sepoltura della sardina",
+    "km": "ពិធីបញ្ចុះត្រីសាឌីន",
+    "nb": "Sardinens begravelse",
+    "pl": "Pogrzeb sardynki",
+    "pt-BR": "O Enterro da Sardinha",
+    "ru": "Похороны сардинки",
+    "th": "พิธีฝังปลาซาร์ดีน",
+    "tr": "Sardalyanın Gömülüşü",
+    "uk": "Похорон сардини",
+    "vi": "Đám tang con cá mòi"
    },
    "fullTitle": "The Burial of the Sardine",
    "artist": "Francisco Goya",
@@ -449,8 +581,8 @@
     "#24221A",
     "#515244"
    ],
-   "darkest": "#0A0907",
-   "lightest": "#AAA997",
+   "darkest": "#010103",
+   "lightest": "#D7CBA5",
    "tint": 0.31
   },
   {
@@ -464,7 +596,19 @@
     "zh-Hant": "奧丁的狂獵",
     "zh-Hans": "奥丁的狂猎",
     "ko": "오딘의 와일드 헌트",
-    "ja": "オーディンのワイルドハント"
+    "ja": "オーディンのワイルドハント",
+    "bs": "Odinov divlji lov",
+    "da": "Odins vilde jagt",
+    "it": "La caccia selvaggia di Odino",
+    "km": "ការបរបាញ់ដ៏សាហាវរបស់អូឌីន",
+    "nb": "Åsgårdsreien",
+    "pl": "Dziki gon Odyna",
+    "pt-BR": "A Caçada Selvagem de Odin",
+    "ru": "Дикая охота Одина",
+    "th": "การล่าป่าของโอดิน",
+    "tr": "Odin'in Vahşi Avı",
+    "uk": "Дике полювання Одіна",
+    "vi": "Cuộc săn hoang dã của Odin"
    },
    "fullTitle": "The Wild Hunt of Odin (Åsgårdsreien)",
    "artist": "Peter Nicolai Arbo",
@@ -490,8 +634,8 @@
     "#302F26",
     "#4E4935"
    ],
-   "darkest": "#1A1917",
-   "lightest": "#9E783D",
+   "darkest": "#10110B",
+   "lightest": "#E5D3A2",
    "tint": 0.33
   },
   {
@@ -505,7 +649,19 @@
     "zh-Hant": "手提歌利亞頭的大衛",
     "zh-Hans": "手提歌利亚头的大卫",
     "ko": "골리앗의 머리를 든 다윗",
-    "ja": "ゴリアテの首を持つダヴィデ"
+    "ja": "ゴリアテの首を持つダヴィデ",
+    "bs": "David s Golijatovom glavom",
+    "da": "David med Goliats hoved",
+    "it": "Davide con la testa di Golia",
+    "km": "ដាវីឌជាមួយក្បាលកូលីយ៉ាត",
+    "nb": "David med Goliats hode",
+    "pl": "Dawid z głową Goliata",
+    "pt-BR": "Davi com a Cabeça de Golias",
+    "ru": "Давид с головой Голиафа",
+    "th": "ดาวิดกับศีรษะของโกลิอัท",
+    "tr": "Golyat'ın Başıyla Davut",
+    "uk": "Давид з головою Голіафа",
+    "vi": "David với đầu của Goliath"
    },
    "fullTitle": "David with the Head of Goliath",
    "artist": "Caravaggio",
@@ -531,8 +687,8 @@
     "#1F1612",
     "#674E3D"
    ],
-   "darkest": "#020302",
-   "lightest": "#E1C690",
+   "darkest": "#080000",
+   "lightest": "#FFFCED",
    "tint": 0.3
   },
   {
@@ -546,7 +702,19 @@
     "zh-Hant": "叼著煙的骷髏",
     "zh-Hans": "叼着烟的骷髅",
     "ko": "불붙은 담배를 문 해골",
-    "ja": "火のついた煙草をくわえた骸骨"
+    "ja": "火のついた煙草をくわえた骸骨",
+    "bs": "Lobanja kostura sa zapaljenom cigaretom",
+    "da": "Kranium af et skelet med brændende cigaret",
+    "it": "Teschio con sigaretta accesa",
+    "km": "គ្រោងឆ្អឹងជាមួយបារីកំពុងឆេះ",
+    "nb": "Hodeskalle med brennende sigarett",
+    "pl": "Czaszka szkieletu z płonącym papierosem",
+    "pt-BR": "Crânio de Esqueleto com Cigarro Aceso",
+    "ru": "Череп скелета с горящей сигаретой",
+    "th": "โครงกระดูกกับบุหรี่ที่ลุกไหม้",
+    "tr": "Yanan Sigaralı İskelet Kafatası",
+    "uk": "Череп скелета з палаючою цигаркою",
+    "vi": "Đầu lâu với điếu thuốc đang cháy"
    },
    "fullTitle": "Head of a Skeleton with a Burning Cigarette",
    "artist": "Vincent van Gogh",
@@ -572,8 +740,8 @@
     "#232015",
     "#60593C"
    ],
-   "darkest": "#050503",
-   "lightest": "#BCB48F",
+   "darkest": "#000300",
+   "lightest": "#FFFFD7",
    "tint": 0.31
   },
   {
@@ -587,7 +755,19 @@
     "zh-Hant": "亞歷山大在伊蘇斯之戰",
     "zh-Hans": "亚历山大在伊苏斯之战",
     "ko": "이수스에서의 알렉산드로스 전투",
-    "ja": "アレクサンダー大王の戦い"
+    "ja": "アレクサンダー大王の戦い",
+    "bs": "Aleksandrova bitka kod Isa",
+    "da": "Alexanderslaget",
+    "it": "La battaglia di Alessandro a Isso",
+    "km": "សមរភូមិរបស់អាឡិចសាន់ឌ័រនៅអ៊ីស៊ុស",
+    "nb": "Aleksanderslaget",
+    "pl": "Bitwa Aleksandra pod Issos",
+    "pt-BR": "A Batalha de Alexandre em Isso",
+    "ru": "Битва Александра при Иссе",
+    "th": "ยุทธการของอเล็กซานเดอร์ที่อิสซัส",
+    "tr": "İskender'in İssos Savaşı",
+    "uk": "Битва Александра при Іссі",
+    "vi": "Trận chiến của Alexander tại Issus"
    },
    "fullTitle": "The Battle of Alexander at Issus",
    "artist": "Albrecht Altdorfer",
@@ -613,8 +793,8 @@
     "#332B29",
     "#5B5B5B"
    ],
-   "darkest": "#0B0907",
-   "lightest": "#BBA78B",
+   "darkest": "#010000",
+   "lightest": "#FEF7E5",
    "tint": 0.31
   },
   {
@@ -628,7 +808,19 @@
     "zh-Hant": "朱迪斯斬殺赫羅弗尼斯",
     "zh-Hans": "朱迪斯斩杀荷罗孚尼",
     "ko": "홀로페르네스의 목을 베는 유디트",
-    "ja": "ホロフェルネスの首を斬るユディト"
+    "ja": "ホロフェルネスの首を斬るユディト",
+    "bs": "Judita ubija Holoferna",
+    "da": "Judith halshugger Holofernes",
+    "it": "Giuditta che decapita Oloferne",
+    "km": "យូឌីតសម្លាប់ហូឡូហ្វឺណេស",
+    "nb": "Judit halshugger Holofernes",
+    "pl": "Judyta odcinająca głowę Holofernesowi",
+    "pt-BR": "Judite Decapitando Holofernes",
+    "ru": "Юдифь, обезглавливающая Олоферна",
+    "th": "จูดิธสังหารโฮโลเฟอร์เนส",
+    "tr": "Holofernes'in Başını Kesen Judith",
+    "uk": "Юдиф, що обезголовлює Олоферна",
+    "vi": "Judith chém đầu Holofernes"
    },
    "fullTitle": "Judith Slaying Holofernes",
    "artist": "Artemisia Gentileschi",
@@ -654,8 +846,8 @@
     "#271C15",
     "#6B5532"
    ],
-   "darkest": "#040306",
-   "lightest": "#FCEB6F",
+   "darkest": "#020001",
+   "lightest": "#FFFFDD",
    "tint": 0.31
   },
   {
@@ -669,7 +861,19 @@
     "zh-Hant": "聖母",
     "zh-Hans": "圣母",
     "ko": "마돈나",
-    "ja": "マドンナ"
+    "ja": "マドンナ",
+    "bs": "Madona",
+    "da": "Madonna",
+    "it": "Madonna",
+    "km": "ម៉ាដូណា",
+    "nb": "Madonna",
+    "pl": "Madonna",
+    "pt-BR": "Madona",
+    "ru": "Мадонна",
+    "th": "มาดอนนา",
+    "tr": "Madonna",
+    "uk": "Мадонна",
+    "vi": "Madonna"
    },
    "fullTitle": "Madonna",
    "artist": "Edvard Munch",
@@ -695,8 +899,8 @@
     "#39332D",
     "#645946"
    ],
-   "darkest": "#0F0F0F",
-   "lightest": "#B19369",
+   "darkest": "#0E0E0E",
+   "lightest": "#B8AD99",
    "tint": 0.31
   },
   {
@@ -710,7 +914,19 @@
     "zh-Hant": "死亡之島",
     "zh-Hans": "死亡之岛",
     "ko": "죽음의 섬",
-    "ja": "死の島"
+    "ja": "死の島",
+    "bs": "Ostrvo mrtvih",
+    "da": "De dødes ø",
+    "it": "L'isola dei morti",
+    "km": "កោះនៃមនុស្សស្លាប់",
+    "nb": "De dødes øy",
+    "pl": "Wyspa umarłych",
+    "pt-BR": "A Ilha dos Mortos",
+    "ru": "Остров мёртвых",
+    "th": "เกาะแห่งความตาย",
+    "tr": "Ölüler Adası",
+    "uk": "Острів мертвих",
+    "vi": "Hòn đảo của người chết"
    },
    "fullTitle": "Isle of the Dead (first version)",
    "artist": "Arnold Böcklin",
@@ -736,8 +952,8 @@
     "#353532",
     "#635640"
    ],
-   "darkest": "#0A1410",
-   "lightest": "#E1C463",
+   "darkest": "#040100",
+   "lightest": "#FFFFF3",
    "tint": 0.33
   },
   {
@@ -751,7 +967,19 @@
     "zh-Hant": "魚的魔法",
     "zh-Hans": "鱼的魔法",
     "ko": "물고기 마술",
-    "ja": "魚の魔術"
+    "ja": "魚の魔術",
+    "bs": "Riblja magija",
+    "da": "Fiskemagi",
+    "it": "Magia dei pesci",
+    "km": "មន្តអាគមត្រី",
+    "nb": "Fiskemagi",
+    "pl": "Magia ryb",
+    "pt-BR": "Magia dos Peixes",
+    "ru": "Рыбное волшебство",
+    "th": "มนตร์ปลา",
+    "tr": "Balık Büyüsü",
+    "uk": "Рибне чаклунство",
+    "vi": "Phép thuật cá"
    },
    "fullTitle": "Fish Magic",
    "artist": "Paul Klee",
@@ -777,8 +1005,8 @@
     "#313220",
     "#665639"
    ],
-   "darkest": "#0A140F",
-   "lightest": "#9DA96C",
+   "darkest": "#010000",
+   "lightest": "#FFFFF4",
    "tint": 0.34
   },
   {
@@ -792,7 +1020,19 @@
     "zh-Hant": "月光下的森林",
     "zh-Hans": "月光下的森林",
     "ko": "달빛 아래 숲속",
-    "ja": "月明かりの森"
+    "ja": "月明かりの森",
+    "bs": "Unutrašnjost šume pod mjesečinom",
+    "da": "Skovinteriør i måneskin",
+    "it": "Interno di bosco al chiaro di luna",
+    "km": "ក្នុងព្រៃក្រោមពន្លឺព្រះចន្ទ",
+    "nb": "Skoginteriør i måneskinn",
+    "pl": "Wnętrze lasu w świetle księżyca",
+    "pt-BR": "Interior de Floresta ao Luar",
+    "ru": "Лес в лунном свете",
+    "th": "ภายในป่ายามแสงจันทร์",
+    "tr": "Ay Işığında Orman İçi",
+    "uk": "Ліс у місячному світлі",
+    "vi": "Trong rừng dưới ánh trăng"
    },
    "fullTitle": "Forest Interior by Moonlight",
    "artist": "Caspar David Friedrich",
@@ -818,8 +1058,8 @@
     "#2A282A",
     "#615F6B"
    ],
-   "darkest": "#0B0A09",
-   "lightest": "#A4AAD6",
+   "darkest": "#000000",
+   "lightest": "#FDFFFA",
    "tint": 0.31
   },
   {
@@ -833,7 +1073,19 @@
     "zh-Hant": "女巫的安息日",
     "zh-Hans": "女巫的安息日",
     "ko": "마녀들의 집회",
-    "ja": "魔女の夜宴"
+    "ja": "魔女の夜宴",
+    "bs": "Vještičji sabat",
+    "da": "Heksesabbat",
+    "it": "Il sabba delle streghe",
+    "km": "ពិធីជួបជុំរបស់មេធ្មប់",
+    "nb": "Heksesabbat",
+    "pl": "Sabat czarownic",
+    "pt-BR": "O Sabá das Bruxas",
+    "ru": "Шабаш ведьм",
+    "th": "ชุมนุมแม่มด",
+    "tr": "Cadılar Sabbatı",
+    "uk": "Шабаш відьом",
+    "vi": "Hội phù thủy"
    },
    "fullTitle": "Witches' Sabbath (The Great He-Goat)",
    "artist": "Francisco Goya",
@@ -859,8 +1111,8 @@
     "#201B17",
     "#65583B"
    ],
-   "darkest": "#08080B",
-   "lightest": "#B1A170",
+   "darkest": "#000002",
+   "lightest": "#FFF0B9",
    "tint": 0.36
   },
   {
@@ -874,7 +1126,19 @@
     "zh-Hant": "人間樂園：天堂",
     "zh-Hans": "人间乐园：天堂",
     "ko": "쾌락의 정원: 낙원",
-    "ja": "快楽の園：楽園"
+    "ja": "快楽の園：楽園",
+    "bs": "Vrt zemaljskih užitaka: Raj",
+    "da": "Lysternes have: Paradis",
+    "it": "Il Giardino delle delizie: il Paradiso",
+    "km": "សួនសុខារម្មណ៍លោកិយ៖ ឋានសួគ៌",
+    "nb": "Lystenes hage: Paradis",
+    "pl": "Ogród rozkoszy ziemskich: Raj",
+    "pt-BR": "O Jardim das Delícias Terrenas: Paraíso",
+    "ru": "Сад земных наслаждений: Рай",
+    "th": "สวนแห่งความสุขทางโลก: สวรรค์",
+    "tr": "Dünyevi Zevkler Bahçesi: Cennet",
+    "uk": "Сад земних насолод: Рай",
+    "vi": "Khu vườn khoái lạc trần thế: Thiên đường"
    },
    "fullTitle": "The Garden of Earthly Delights (left panel, Paradise)",
    "artist": "Hieronymus Bosch",
@@ -900,8 +1164,8 @@
     "#282518",
     "#65633B"
    ],
-   "darkest": "#07090B",
-   "lightest": "#B9BA96",
+   "darkest": "#020001",
+   "lightest": "#F8EDBF",
    "tint": 0.31
   },
   {
@@ -915,7 +1179,19 @@
     "zh-Hant": "加利利海上的風暴",
     "zh-Hans": "加利利海上的风暴",
     "ko": "갈릴리 바다의 폭풍",
-    "ja": "ガリラヤの海の嵐"
+    "ja": "ガリラヤの海の嵐",
+    "bs": "Oluja na Galilejskom moru",
+    "da": "Stormen på Genesaret Sø",
+    "it": "Cristo nella tempesta sul mare di Galilea",
+    "km": "ព្យុះនៅលើសមុទ្រកាលីឡេ",
+    "nb": "Stormen på Genesaretsjøen",
+    "pl": "Burza na Jeziorze Galilejskim",
+    "pt-BR": "Tempestade no Mar da Galileia",
+    "ru": "Христос во время шторма на море Галилейском",
+    "th": "พายุบนทะเลกาลิลี",
+    "tr": "Celile Denizi'nde Fırtına",
+    "uk": "Буря на Галілейському морі",
+    "vi": "Cơn bão trên biển Galilê"
    },
    "fullTitle": "The Storm on the Sea of Galilee",
    "artist": "Rembrandt van Rijn",
@@ -941,8 +1217,8 @@
     "#1C1A1B",
     "#676058"
    ],
-   "darkest": "#080706",
-   "lightest": "#D8D6D3",
+   "darkest": "#000100",
+   "lightest": "#F5FFFF",
    "tint": 0.32
   },
   {
@@ -956,7 +1232,19 @@
     "zh-Hant": "生命之旅：壯年",
     "zh-Hans": "生命之旅：壮年",
     "ko": "인생의 항해: 장년기",
-    "ja": "人生の航路：壮年期"
+    "ja": "人生の航路：壮年期",
+    "bs": "Putovanje života: Zrelost",
+    "da": "Livets rejse: Manddom",
+    "it": "Il viaggio della vita: l'età adulta",
+    "km": "ដំណើរជីវិត៖ វ័យពេញវ័យ",
+    "nb": "Livets reise: Manndom",
+    "pl": "Podróż życia: Dojrzałość",
+    "pt-BR": "A Viagem da Vida: Idade Adulta",
+    "ru": "Путешествие жизни: Зрелость",
+    "th": "การเดินทางของชีวิต: วัยผู้ใหญ่",
+    "tr": "Hayatın Yolculuğu: Yetişkinlik",
+    "uk": "Подорож життя: Зрілість",
+    "vi": "Hành trình cuộc đời: Tuổi trưởng thành"
    },
    "fullTitle": "The Voyage of Life: Manhood",
    "artist": "Thomas Cole",
@@ -982,8 +1270,8 @@
     "#4C3A27",
     "#7A6045"
    ],
-   "darkest": "#281509",
-   "lightest": "#B0C598",
+   "darkest": "#0C0200",
+   "lightest": "#FAFFD9",
    "tint": 0.35
   },
   {
@@ -997,7 +1285,19 @@
     "zh-Hant": "夢魘 (1791)",
     "zh-Hans": "梦魇 (1791)",
     "ko": "악몽 (1791)",
-    "ja": "夢魔 (1791)"
+    "ja": "夢魔 (1791)",
+    "bs": "Noćna mora (1791)",
+    "da": "Mareridtet (1791)",
+    "it": "L'incubo (1791)",
+    "km": "សុបិន្តអាក្រក់ (1791)",
+    "nb": "Marerittet (1791)",
+    "pl": "Koszmar nocny (1791)",
+    "pt-BR": "O Pesadelo (1791)",
+    "ru": "Ночной кошмар (1791)",
+    "th": "ฝันร้าย (1791)",
+    "tr": "Kâbus (1791)",
+    "uk": "Нічний кошмар (1791)",
+    "vi": "Cơn ác mộng (1791)"
    },
    "fullTitle": "The Nightmare (second version)",
    "artist": "Henry Fuseli",
@@ -1023,8 +1323,8 @@
     "#2F221E",
     "#7F7762"
    ],
-   "darkest": "#070105",
-   "lightest": "#F0E6D3",
+   "darkest": "#060002",
+   "lightest": "#FDFFF2",
    "tint": 0.31
   },
   {
@@ -1038,7 +1338,19 @@
     "zh-Hant": "阿刻戎河畔的亡魂",
     "zh-Hans": "阿刻戎河畔的亡魂",
     "ko": "아케론의 영혼들",
-    "ja": "アケローンの魂"
+    "ja": "アケローンの魂",
+    "bs": "Duše Aheronta",
+    "da": "Sjælene ved Acheron",
+    "it": "Le anime dell'Acheronte",
+    "km": "វិញ្ញាណក្ខន្ធនៃទន្លេអាខេរ៉ុន",
+    "nb": "Sjelene ved Akheron",
+    "pl": "Dusze nad Acheronem",
+    "pt-BR": "As Almas do Aqueronte",
+    "ru": "Души Ахерона",
+    "th": "วิญญาณแห่งอะเคอรอน",
+    "tr": "Akheron'un Ruhları",
+    "uk": "Душі Ахерону",
+    "vi": "Những linh hồn bên sông Acheron"
    },
    "fullTitle": "The Souls of Acheron",
    "artist": "Adolf Hirémy-Hirschl",
@@ -1064,8 +1376,8 @@
     "#404045",
     "#6E7679"
    ],
-   "darkest": "#141414",
-   "lightest": "#ADAE9C",
+   "darkest": "#000005",
+   "lightest": "#FBFFFF",
    "tint": 0.32
   },
   {
@@ -1079,7 +1391,19 @@
     "zh-Hant": "吶喊",
     "zh-Hans": "呐喊",
     "ko": "절규",
-    "ja": "叫び"
+    "ja": "叫び",
+    "bs": "Krik",
+    "da": "Skriget",
+    "it": "L'urlo",
+    "km": "ការស្រែក",
+    "nb": "Skrik",
+    "pl": "Krzyk",
+    "pt-BR": "O Grito",
+    "ru": "Крик",
+    "th": "เสียงกรีดร้อง",
+    "tr": "Çığlık",
+    "uk": "Крик",
+    "vi": "Tiếng thét"
    },
    "fullTitle": "The Scream",
    "artist": "Edvard Munch",
@@ -1105,8 +1429,8 @@
     "#856D58",
     "#5E4E48"
    ],
-   "darkest": "#1A1715",
-   "lightest": "#A38260",
+   "darkest": "#181617",
+   "lightest": "#E4CBB4",
    "tint": 0.31
   },
   {
@@ -1120,7 +1444,19 @@
     "zh-Hant": "朱迪斯一號",
     "zh-Hans": "朱迪斯一号",
     "ko": "유디트 1",
-    "ja": "ユディト I"
+    "ja": "ユディト I",
+    "bs": "Judita I",
+    "da": "Judith I",
+    "it": "Giuditta I",
+    "km": "យូឌីត I",
+    "nb": "Judith I",
+    "pl": "Judyta I",
+    "pt-BR": "Judite I",
+    "ru": "Юдифь I",
+    "th": "จูดิธ I",
+    "tr": "Judith I",
+    "uk": "Юдиф I",
+    "vi": "Judith I"
    },
    "fullTitle": "Judith I",
    "artist": "Gustav Klimt",
@@ -1146,8 +1482,8 @@
     "#3B3424",
     "#8B7855"
    ],
-   "darkest": "#231A19",
-   "lightest": "#CEB371",
+   "darkest": "#02000E",
+   "lightest": "#FFFFCD",
    "tint": 0.32
   },
   {
@@ -1161,7 +1497,19 @@
     "zh-Hant": "伊凡雷帝殺子",
     "zh-Hans": "伊凡雷帝杀子",
     "ko": "이반 뇌제와 그의 아들 이반",
-    "ja": "イワン雷帝とその息子"
+    "ja": "イワン雷帝とその息子",
+    "bs": "Ivan Grozni i njegov sin Ivan",
+    "da": "Ivan den Grusomme og hans søn Ivan",
+    "it": "Ivan il Terribile e suo figlio Ivan",
+    "km": "អ៊ីវ៉ានដ៏សាហាវ និងកូនប្រុសរបស់គាត់អ៊ីវ៉ាន",
+    "nb": "Ivan den grusomme og hans sønn Ivan",
+    "pl": "Iwan Groźny i jego syn Iwan",
+    "pt-BR": "Ivã, o Terrível, e Seu Filho Ivã",
+    "ru": "Иван Грозный и сын его Иван",
+    "th": "อีวานผู้เหี้ยมโหดกับอีวานบุตรชาย",
+    "tr": "Korkunç İvan ve Oğlu İvan",
+    "uk": "Іван Грозний і син його Іван",
+    "vi": "Ivan Bạo chúa và con trai Ivan"
    },
    "fullTitle": "Ivan the Terrible and His Son Ivan",
    "artist": "Ilya Repin",
@@ -1188,7 +1536,7 @@
     "#A16C4B"
    ],
    "darkest": "#000000",
-   "lightest": "#F5ECEE",
+   "lightest": "#FFFFFF",
    "tint": 0.34
   },
   {
@@ -1202,7 +1550,19 @@
     "zh-Hant": "奧菲莉亞",
     "zh-Hans": "奥菲莉亚",
     "ko": "오필리아",
-    "ja": "オフィーリア"
+    "ja": "オフィーリア",
+    "bs": "Ofelija",
+    "da": "Ofelia",
+    "it": "Ofelia",
+    "km": "អូហ្វេលៀ",
+    "nb": "Ofelia",
+    "pl": "Ofelia",
+    "pt-BR": "Ofélia",
+    "ru": "Офелия",
+    "th": "โอฟีเลีย",
+    "tr": "Ophelia",
+    "uk": "Офелія",
+    "vi": "Ophelia"
    },
    "fullTitle": "Ophelia",
    "artist": "John Everett Millais",
@@ -1228,8 +1588,8 @@
     "#4C5129",
     "#787644"
    ],
-   "darkest": "#0E0E11",
-   "lightest": "#D89F5F",
+   "darkest": "#000000",
+   "lightest": "#FFFFFD",
    "tint": 0.36
   },
   {
@@ -1243,7 +1603,19 @@
     "zh-Hant": "叛逆天使的墮落",
     "zh-Hans": "叛逆天使的堕落",
     "ko": "반역 천사들의 추락",
-    "ja": "反逆天使の墜落"
+    "ja": "反逆天使の墜落",
+    "bs": "Pad pobunjenih anđela",
+    "da": "De oprørske englers fald",
+    "it": "La caduta degli angeli ribelli",
+    "km": "ការធ្លាក់របស់ទេវតាបះបោរ",
+    "nb": "De opprørske englenes fall",
+    "pl": "Upadek aniołów buntowników",
+    "pt-BR": "A Queda dos Anjos Rebeldes",
+    "ru": "Падение мятежных ангелов",
+    "th": "การตกสวรรค์ของเหล่าทูตกบฏ",
+    "tr": "Asi Meleklerin Düşüşü",
+    "uk": "Падіння бунтівних ангелів",
+    "vi": "Sự sa ngã của các thiên thần nổi loạn"
    },
    "fullTitle": "The Fall of the Rebel Angels",
    "artist": "Pieter Bruegel the Elder",
@@ -1269,8 +1641,8 @@
     "#5C4832",
     "#88785E"
    ],
-   "darkest": "#0A0906",
-   "lightest": "#B4A68C",
+   "darkest": "#000000",
+   "lightest": "#E9D29E",
    "tint": 0.36
   },
   {
@@ -1284,7 +1656,19 @@
     "zh-Hant": "夢魘",
     "zh-Hans": "梦魇",
     "ko": "악몽",
-    "ja": "夢魔"
+    "ja": "夢魔",
+    "bs": "Noćna mora",
+    "da": "Mareridtet",
+    "it": "L'incubo",
+    "km": "សុបិន្តអាក្រក់",
+    "nb": "Marerittet",
+    "pl": "Koszmar nocny",
+    "pt-BR": "O Pesadelo",
+    "ru": "Ночной кошмар",
+    "th": "ฝันร้าย",
+    "tr": "Kâbus",
+    "uk": "Нічний кошмар",
+    "vi": "Cơn ác mộng"
    },
    "fullTitle": "The Nightmare",
    "artist": "Henry Fuseli",
@@ -1310,8 +1694,8 @@
     "#42302B",
     "#92846C"
    ],
-   "darkest": "#1D151A",
-   "lightest": "#D1C5A6",
+   "darkest": "#040100",
+   "lightest": "#F4EBCC",
    "tint": 0.34
   },
   {
@@ -1325,7 +1709,19 @@
     "zh-Hant": "死神將軍",
     "zh-Hans": "死神将军",
     "ko": "장군이 된 죽음",
-    "ja": "将軍としての死"
+    "ja": "将軍としての死",
+    "bs": "Smrt kao general",
+    "da": "Døden som general",
+    "it": "La morte come generale",
+    "km": "មច្ចុរាជជាឧត្តមសេនីយ៍",
+    "nb": "Døden som general",
+    "pl": "Śmierć jako generał",
+    "pt-BR": "A Morte como General",
+    "ru": "Смерть-полководец",
+    "th": "มัจจุราชในฐานะแม่ทัพ",
+    "tr": "General Olarak Ölüm",
+    "uk": "Смерть-полководець",
+    "vi": "Thần Chết làm tướng"
    },
    "fullTitle": "Death as General Rides a Horse on a Battlefield (\"The Greatest General of All\")",
    "artist": "Edgar Bundy",
@@ -1351,8 +1747,8 @@
     "#53473E",
     "#8C817D"
    ],
-   "darkest": "#040607",
-   "lightest": "#CCBFBC",
+   "darkest": "#000000",
+   "lightest": "#FFFFFD",
    "tint": 0.36
   },
   {
@@ -1366,7 +1762,19 @@
     "zh-Hant": "維蘇威火山爆發",
     "zh-Hans": "维苏威火山爆发",
     "ko": "분화하는 베수비오산",
-    "ja": "噴火するヴェスヴィオ山"
+    "ja": "噴火するヴェスヴィオ山",
+    "bs": "Erupcija Vezuva",
+    "da": "Vesuv i udbrud",
+    "it": "Il Vesuvio in eruzione",
+    "km": "ភ្នំភ្លើងវេស៊ូវៀសផ្ទុះ",
+    "nb": "Vesuv i utbrudd",
+    "pl": "Wybuch Wezuwiusza",
+    "pt-BR": "Vesúvio em Erupção",
+    "ru": "Извержение Везувия",
+    "th": "ภูเขาไฟวิสุเวียสปะทุ",
+    "tr": "Vezüv'ün Patlaması",
+    "uk": "Виверження Везувію",
+    "vi": "Núi Vesuvius phun trào"
    },
    "fullTitle": "Vesuvius in Eruption, with a View over the Islands in the Bay of Naples",
    "artist": "Joseph Wright of Derby",
@@ -1392,8 +1800,8 @@
     "#67433F",
     "#846D55"
    ],
-   "darkest": "#231928",
-   "lightest": "#EAB647",
+   "darkest": "#0D0713",
+   "lightest": "#F0E5B5",
    "tint": 0.38
   },
   {
@@ -1407,7 +1815,19 @@
     "zh-Hant": "馬可斯·博薩里斯",
     "zh-Hans": "马科斯·博察里斯",
     "ko": "마르코스 보차리스",
-    "ja": "マルコス・ボツァリス"
+    "ja": "マルコス・ボツァリス",
+    "bs": "Markos Bocaris",
+    "da": "Markos Botsaris",
+    "it": "Markos Botsaris",
+    "km": "ម៉ាកូស បូតសារីស",
+    "nb": "Markos Botsaris",
+    "pl": "Markos Botsaris",
+    "pt-BR": "Markos Botsaris",
+    "ru": "Маркос Боцарис",
+    "th": "มาร์โกส บอตซาริส",
+    "tr": "Markos Botsaris",
+    "uk": "Маркос Боцаріс",
+    "vi": "Markos Botsaris"
    },
    "fullTitle": "Markos Botsaris",
    "artist": "Jean-Léon Gérôme",
@@ -1433,8 +1853,8 @@
     "#373937",
     "#868B87"
    ],
-   "darkest": "#0E0205",
-   "lightest": "#CCD0D4",
+   "darkest": "#030000",
+   "lightest": "#FCFFFD",
    "tint": 0.32
   },
   {
@@ -1448,7 +1868,19 @@
     "zh-Hant": "騎士、死神與魔鬼",
     "zh-Hans": "骑士、死神与魔鬼",
     "ko": "기사, 죽음과 악마",
-    "ja": "騎士と死と悪魔"
+    "ja": "騎士と死と悪魔",
+    "bs": "Vitez, smrt i đavo",
+    "da": "Ridder, død og djævel",
+    "it": "Il cavaliere, la morte e il diavolo",
+    "km": "អ្នកចម្បាំង មច្ចុរាជ និងអារក្ស",
+    "nb": "Ridder, død og djevel",
+    "pl": "Rycerz, śmierć i diabeł",
+    "pt-BR": "O Cavaleiro, a Morte e o Diabo",
+    "ru": "Рыцарь, смерть и дьявол",
+    "th": "อัศวิน ความตาย และปีศาจ",
+    "tr": "Şövalye, Ölüm ve Şeytan",
+    "uk": "Лицар, смерть і диявол",
+    "vi": "Hiệp sĩ, Thần Chết và Quỷ dữ"
    },
    "fullTitle": "Knight, Death and the Devil",
    "artist": "Albrecht Dürer",
@@ -1474,8 +1906,8 @@
     "#4B4A47",
     "#8D897E"
    ],
-   "darkest": "#191818",
-   "lightest": "#DCD3BC",
+   "darkest": "#0B0A05",
+   "lightest": "#FFFFF1",
    "tint": 0.32
   },
   {
@@ -1489,7 +1921,19 @@
     "zh-Hant": "約書亞命令太陽停住",
     "zh-Hans": "约书亚命令太阳停住",
     "ko": "태양을 멈추게 하는 여호수아",
-    "ja": "太陽を止めるヨシュア"
+    "ja": "太陽を止めるヨシュア",
+    "bs": "Jošua zapovijeda suncu da stane",
+    "da": "Josva befaler solen at stå stille",
+    "it": "Giosuè ferma il sole",
+    "km": "យ៉ូស្វេបញ្ជាព្រះអាទិត្យឱ្យឈប់",
+    "nb": "Josva befaler solen å stå stille",
+    "pl": "Jozue nakazujący słońcu zatrzymać się",
+    "pt-BR": "Josué Ordenando ao Sol que Pare",
+    "ru": "Иисус Навин останавливает солнце",
+    "th": "โยชูวาสั่งดวงอาทิตย์ให้หยุดนิ่ง",
+    "tr": "Yeşu Güneşe Durmasını Emrediyor",
+    "uk": "Ісус Навин зупиняє сонце",
+    "vi": "Giô-suê truyền lệnh cho mặt trời đứng yên"
    },
    "fullTitle": "Joshua Commanding the Sun to Stand Still upon Gibeon",
    "artist": "John Martin",
@@ -1515,8 +1959,8 @@
     "#504B3D",
     "#938D82"
    ],
-   "darkest": "#090A05",
-   "lightest": "#CFCAB5",
+   "darkest": "#030000",
+   "lightest": "#FFFFDE",
    "tint": 0.36
   },
   {
@@ -1530,7 +1974,19 @@
     "zh-Hant": "陣風",
     "zh-Hans": "阵风",
     "ko": "돌풍",
-    "ja": "突風"
+    "ja": "突風",
+    "bs": "Udar vjetra",
+    "da": "Vindstødet",
+    "it": "La raffica",
+    "km": "ខ្យល់បក់ខ្លាំង",
+    "nb": "Vindkastet",
+    "pl": "Poryw wiatru",
+    "pt-BR": "A Rajada",
+    "ru": "Порыв ветра",
+    "th": "ลมกระโชก",
+    "tr": "Ani Rüzgâr",
+    "uk": "Порив вітру",
+    "vi": "Cơn gió giật"
    },
    "fullTitle": "The Gust (A Ship on the High Seas Caught by a Squall)",
    "artist": "Willem van de Velde the Younger",
@@ -1556,8 +2012,8 @@
     "#463F33",
     "#9D957D"
    ],
-   "darkest": "#1B1812",
-   "lightest": "#D5D1BC",
+   "darkest": "#0E0300",
+   "lightest": "#FFEBC6",
    "tint": 0.32
   },
   {
@@ -1571,7 +2027,19 @@
     "zh-Hant": "仁王捉鬼圖",
     "zh-Hans": "仁王捉鬼图",
     "ko": "악귀를 붙잡는 인왕",
-    "ja": "仁王捉鬼図"
+    "ja": "仁王捉鬼図",
+    "bs": "Nio hvata zlog duha",
+    "da": "Niō griber en ond ånd",
+    "it": "Niō che afferra uno spirito maligno",
+    "km": "នីអូចាប់វិញ្ញាណអាក្រក់",
+    "nb": "Niō griper en ond ånd",
+    "pl": "Niō chwytający złego ducha",
+    "pt-BR": "Niō Agarrando um Espírito Maligno",
+    "ru": "Нио, хватающий злого духа",
+    "th": "นิโอจับวิญญาณร้าย",
+    "tr": "Kötü Bir Ruhu Yakalayan Niō",
+    "uk": "Ніо, що хапає злого духа",
+    "vi": "Niō bắt giữ ác linh"
    },
    "fullTitle": "Niō Seizing an Evil Spirit",
    "artist": "Kanō Hōgai",
@@ -1597,8 +2065,8 @@
     "#B18E74",
     "#3E332D"
    ],
-   "darkest": "#1B1A1A",
-   "lightest": "#EDCCAE",
+   "darkest": "#14090F",
+   "lightest": "#FEFFFF",
    "tint": 0.32
   },
   {
@@ -1612,7 +2080,19 @@
     "zh-Hant": "死亡與生命",
     "zh-Hans": "死亡与生命",
     "ko": "죽음과 삶",
-    "ja": "死と生"
+    "ja": "死と生",
+    "bs": "Smrt i život",
+    "da": "Død og liv",
+    "it": "Morte e vita",
+    "km": "មរណភាព និងជីវិត",
+    "nb": "Død og liv",
+    "pl": "Śmierć i życie",
+    "pt-BR": "Morte e Vida",
+    "ru": "Смерть и жизнь",
+    "th": "ความตายและชีวิต",
+    "tr": "Ölüm ve Yaşam",
+    "uk": "Смерть і життя",
+    "vi": "Cái chết và sự sống"
    },
    "fullTitle": "Death and Life",
    "artist": "Gustav Klimt",
@@ -1638,8 +2118,8 @@
     "#9F948A",
     "#534E4C"
    ],
-   "darkest": "#080C0C",
-   "lightest": "#C8C7BE",
+   "darkest": "#010000",
+   "lightest": "#EBFEFC",
    "tint": 0.31
   },
   {
@@ -1653,7 +2133,19 @@
     "zh-Hant": "醫學",
     "zh-Hans": "医学",
     "ko": "의학",
-    "ja": "医学"
+    "ja": "医学",
+    "bs": "Medicina",
+    "da": "Medicinen",
+    "it": "La Medicina",
+    "km": "វេជ្ជសាស្ត្រ",
+    "nb": "Medisinen",
+    "pl": "Medycyna",
+    "pt-BR": "Medicina",
+    "ru": "Медицина",
+    "th": "การแพทย์",
+    "tr": "Tıp",
+    "uk": "Медицина",
+    "vi": "Y học"
    },
    "fullTitle": "Medicine (University of Vienna ceiling painting)",
    "artist": "Gustav Klimt",
@@ -1679,8 +2171,8 @@
     "#A49485",
     "#584D44"
    ],
-   "darkest": "#1D1916",
-   "lightest": "#DAD0CA",
+   "darkest": "#1C1004",
+   "lightest": "#FFF7EE",
    "tint": 0.32
   },
   {
@@ -1694,7 +2186,19 @@
     "zh-Hant": "人間樂園",
     "zh-Hans": "人间乐园",
     "ko": "쾌락의 정원",
-    "ja": "快楽の園"
+    "ja": "快楽の園",
+    "bs": "Vrt zemaljskih užitaka",
+    "da": "Lysternes have",
+    "it": "Il Giardino delle delizie",
+    "km": "សួនសុខារម្មណ៍លោកិយ",
+    "nb": "Lystenes hage",
+    "pl": "Ogród rozkoszy ziemskich",
+    "pt-BR": "O Jardim das Delícias Terrenas",
+    "ru": "Сад земных наслаждений",
+    "th": "สวนแห่งความสุขทางโลก",
+    "tr": "Dünyevi Zevkler Bahçesi",
+    "uk": "Сад земних насолод",
+    "vi": "Khu vườn khoái lạc trần thế"
    },
    "fullTitle": "The Garden of Earthly Delights (central panel)",
    "artist": "Hieronymus Bosch",
@@ -1720,8 +2224,8 @@
     "#696540",
     "#949574"
    ],
-   "darkest": "#121009",
-   "lightest": "#BCB99B",
+   "darkest": "#000105",
+   "lightest": "#E1E6D0",
    "tint": 0.31
   },
   {
@@ -1735,7 +2239,19 @@
     "zh-Hant": "祂忿怒的大日",
     "zh-Hans": "他忿怒的大日",
     "ko": "진노의 큰 날",
-    "ja": "神の大いなる怒りの日"
+    "ja": "神の大いなる怒りの日",
+    "bs": "Veliki dan Njegova gnjeva",
+    "da": "Hans vredes store dag",
+    "it": "Il grande giorno della sua ira",
+    "km": "ថ្ងៃដ៏ធំនៃសេចក្ដីក្រោធរបស់ទ្រង់",
+    "nb": "Hans vredes store dag",
+    "pl": "Wielki dzień Jego gniewu",
+    "pt-BR": "O Grande Dia da Sua Ira",
+    "ru": "Великий день гнева Его",
+    "th": "วันยิ่งใหญ่แห่งพระพิโรธ",
+    "tr": "O'nun Gazabının Büyük Günü",
+    "uk": "Великий день гніву Його",
+    "vi": "Ngày thịnh nộ lớn của Ngài"
    },
    "fullTitle": "The Great Day of His Wrath",
    "artist": "John Martin",
@@ -1761,8 +2277,8 @@
     "#5C5549",
     "#999997"
    ],
-   "darkest": "#0A191E",
-   "lightest": "#E9DDD6",
+   "darkest": "#050100",
+   "lightest": "#FFFFF8",
    "tint": 0.4
   },
   {
@@ -1776,7 +2292,19 @@
     "zh-Hant": "受傷的鷹",
     "zh-Hans": "受伤的鹰",
     "ko": "상처 입은 독수리",
-    "ja": "傷ついた鷲"
+    "ja": "傷ついた鷲",
+    "bs": "Ranjeni orao",
+    "da": "Den sårede ørn",
+    "it": "L'aquila ferita",
+    "km": "សត្វឥន្ទ្រីរងរបួស",
+    "nb": "Den sårede ørnen",
+    "pl": "Zraniony orzeł",
+    "pt-BR": "A Águia Ferida",
+    "ru": "Раненый орёл",
+    "th": "อินทรีบาดเจ็บ",
+    "tr": "Yaralı Kartal",
+    "uk": "Поранений орел",
+    "vi": "Con đại bàng bị thương"
    },
    "fullTitle": "The Wounded Eagle",
    "artist": "Rosa Bonheur",
@@ -1802,8 +2330,8 @@
     "#443F30",
     "#ABA993"
    ],
-   "darkest": "#060202",
-   "lightest": "#F7EFC0",
+   "darkest": "#010000",
+   "lightest": "#FBF8CB",
    "tint": 0.31
   },
   {
@@ -1817,7 +2345,19 @@
     "zh-Hant": "拇指朝下",
     "zh-Hans": "拇指朝下",
     "ko": "폴리케 베르소",
-    "ja": "差し下ろされた親指"
+    "ja": "差し下ろされた親指",
+    "bs": "Pollice Verso",
+    "da": "Pollice Verso",
+    "it": "Pollice Verso",
+    "km": "Pollice Verso",
+    "nb": "Pollice Verso",
+    "pl": "Pollice Verso",
+    "pt-BR": "Pollice Verso",
+    "ru": "Pollice Verso",
+    "th": "Pollice Verso",
+    "tr": "Pollice Verso",
+    "uk": "Pollice Verso",
+    "vi": "Pollice Verso"
    },
    "fullTitle": "Pollice Verso",
    "artist": "Jean-Léon Gérôme",
@@ -1843,8 +2383,8 @@
     "#785945",
     "#B3876C"
    ],
-   "darkest": "#0D0A1A",
-   "lightest": "#F3C89A",
+   "darkest": "#000000",
+   "lightest": "#FEFFFF",
    "tint": 0.39
   },
   {
@@ -1858,7 +2398,19 @@
     "zh-Hant": "生命之旅：老年",
     "zh-Hans": "生命之旅：老年",
     "ko": "인생의 항해: 노년기",
-    "ja": "人生の航路：老年期"
+    "ja": "人生の航路：老年期",
+    "bs": "Putovanje života: Starost",
+    "da": "Livets rejse: Alderdom",
+    "it": "Il viaggio della vita: la vecchiaia",
+    "km": "ដំណើរជីវិត៖ វ័យចាស់",
+    "nb": "Livets reise: Alderdom",
+    "pl": "Podróż życia: Starość",
+    "pt-BR": "A Viagem da Vida: Velhice",
+    "ru": "Путешествие жизни: Старость",
+    "th": "การเดินทางของชีวิต: วัยชรา",
+    "tr": "Hayatın Yolculuğu: Yaşlılık",
+    "uk": "Подорож життя: Старість",
+    "vi": "Hành trình cuộc đời: Tuổi già"
    },
    "fullTitle": "The Voyage of Life: Old Age",
    "artist": "Thomas Cole",
@@ -1884,8 +2436,8 @@
     "#584033",
     "#BF997C"
    ],
-   "darkest": "#211A13",
-   "lightest": "#FAE4B8",
+   "darkest": "#0F0A06",
+   "lightest": "#FFF8D8",
    "tint": 0.33
   },
   {
@@ -1899,7 +2451,19 @@
     "zh-Hant": "橡樹林中的修道院",
     "zh-Hans": "橡树林中的修道院",
     "ko": "떡갈나무 숲속의 수도원",
-    "ja": "樫の森の中の修道院"
+    "ja": "樫の森の中の修道院",
+    "bs": "Opatija u hrastovoj šumi",
+    "da": "Klosteret i egeskoven",
+    "it": "Abbazia nel querceto",
+    "km": "វត្តអារាមក្នុងព្រៃដើមអូក",
+    "nb": "Klosteret i eikeskogen",
+    "pl": "Opactwo w dębowym lesie",
+    "pt-BR": "A Abadia no Carvalhal",
+    "ru": "Аббатство в дубовом лесу",
+    "th": "อารามในป่าโอ๊ก",
+    "tr": "Meşe Ormanındaki Manastır",
+    "uk": "Абатство в дубовому лісі",
+    "vi": "Tu viện trong rừng sồi"
    },
    "fullTitle": "The Abbey in the Oakwood",
    "artist": "Caspar David Friedrich",
@@ -1925,8 +2489,8 @@
     "#71655B",
     "#A89A7C"
    ],
-   "darkest": "#201B1F",
-   "lightest": "#CDC085",
+   "darkest": "#150900",
+   "lightest": "#FAF0BA",
    "tint": 0.37
   },
   {
@@ -1940,7 +2504,19 @@
     "zh-Hant": "理性沉睡，心魔生焉",
     "zh-Hans": "理性沉睡，心魔生焉",
     "ko": "이성이 잠들면 괴물이 깨어난다",
-    "ja": "理性の眠りは怪物を生む"
+    "ja": "理性の眠りは怪物を生む",
+    "bs": "San razuma rađa čudovišta",
+    "da": "Fornuftens søvn føder uhyrer",
+    "it": "Il sonno della ragione genera mostri",
+    "km": "ការដេកលក់នៃហេតុផលបង្កើតបិសាច",
+    "nb": "Fornuftens søvn føder uhyrer",
+    "pl": "Gdy rozum śpi, budzą się upiory",
+    "pt-BR": "O Sono da Razão Produz Monstros",
+    "ru": "Сон разума рождает чудовищ",
+    "th": "เมื่อเหตุผลหลับใหล ปีศาจก็ถือกำเนิด",
+    "tr": "Aklın Uykusu Canavarlar Doğurur",
+    "uk": "Сон розуму породжує чудовиськ",
+    "vi": "Giấc ngủ của lý trí sinh ra quái vật"
    },
    "fullTitle": "The Sleep of Reason Produces Monsters (Los Caprichos, No. 43)",
    "artist": "Francisco Goya",
@@ -1966,8 +2542,8 @@
     "#ACA196",
     "#585149"
    ],
-   "darkest": "#201D19",
-   "lightest": "#DDD4CB",
+   "darkest": "#070000",
+   "lightest": "#FFFEF3",
    "tint": 0.33
   },
   {
@@ -1981,7 +2557,19 @@
     "zh-Hant": "人間樂園（局部）",
     "zh-Hans": "人间乐园（局部）",
     "ko": "쾌락의 정원 (부분)",
-    "ja": "快楽の園（部分）"
+    "ja": "快楽の園（部分）",
+    "bs": "Vrt zemaljskih užitaka (detalj)",
+    "da": "Lysternes have (detalje)",
+    "it": "Il Giardino delle delizie (dettaglio)",
+    "km": "សួនសុខារម្មណ៍លោកិយ (ផ្នែកលម្អិត)",
+    "nb": "Lystenes hage (detalj)",
+    "pl": "Ogród rozkoszy ziemskich (fragment)",
+    "pt-BR": "O Jardim das Delícias Terrenas (Detalhe)",
+    "ru": "Сад земных наслаждений (фрагмент)",
+    "th": "สวนแห่งความสุขทางโลก (รายละเอียด)",
+    "tr": "Dünyevi Zevkler Bahçesi (Detay)",
+    "uk": "Сад земних насолод (фрагмент)",
+    "vi": "Khu vườn khoái lạc trần thế (chi tiết)"
    },
    "fullTitle": "The Garden of Earthly Delights, detail: the Prince of Hell",
    "artist": "Hieronymus Bosch",
@@ -2007,8 +2595,8 @@
     "#66553B",
     "#9F9678"
    ],
-   "darkest": "#1E1E13",
-   "lightest": "#EDD59B",
+   "darkest": "#000000",
+   "lightest": "#FFFFF1",
    "tint": 0.39
   },
   {
@@ -2022,7 +2610,19 @@
     "zh-Hant": "死亡的勝利",
     "zh-Hans": "死亡的胜利",
     "ko": "죽음의 승리",
-    "ja": "死の勝利"
+    "ja": "死の勝利",
+    "bs": "Trijumf smrti",
+    "da": "Dødens triumf",
+    "it": "Il trionfo della morte",
+    "km": "ជ័យជម្នះនៃមរណភាព",
+    "nb": "Dødens triumf",
+    "pl": "Triumf śmierci",
+    "pt-BR": "O Triunfo da Morte",
+    "ru": "Триумф смерти",
+    "th": "ชัยชนะแห่งความตาย",
+    "tr": "Ölümün Zaferi",
+    "uk": "Тріумф смерті",
+    "vi": "Chiến thắng của Thần Chết"
    },
    "fullTitle": "The Triumph of Death",
    "artist": "Pieter Bruegel the Elder",
@@ -2048,8 +2648,8 @@
     "#856842",
     "#AF976D"
    ],
-   "darkest": "#1C1915",
-   "lightest": "#DFD0A8",
+   "darkest": "#040000",
+   "lightest": "#FFFFE9",
    "tint": 0.39
   },
   {
@@ -2063,7 +2663,19 @@
     "zh-Hant": "暈眩",
     "zh-Hans": "晕眩",
     "ko": "현기증",
-    "ja": "めまい"
+    "ja": "めまい",
+    "bs": "Vrtoglavica",
+    "da": "Svimmelhed",
+    "it": "Vertigine",
+    "km": "វិលមុខ",
+    "nb": "Svimmelhet",
+    "pl": "Zawrót głowy",
+    "pt-BR": "Vertigem",
+    "ru": "Головокружение",
+    "th": "เวียนศีรษะ",
+    "tr": "Baş Dönmesi",
+    "uk": "Запаморочення",
+    "vi": "Chóng mặt"
    },
    "fullTitle": "Vertigo",
    "artist": "Léon Spilliaert",
@@ -2089,8 +2701,8 @@
     "#454239",
     "#C0BBA1"
    ],
-   "darkest": "#10100E",
-   "lightest": "#E9E3C9",
+   "darkest": "#0F0F0D",
+   "lightest": "#F9F5DC",
    "tint": 0.33
   },
   {
@@ -2104,7 +2716,19 @@
     "zh-Hant": "墨爾波墨涅",
     "zh-Hans": "墨尔波墨涅",
     "ko": "멜포메네",
-    "ja": "メルポメネ"
+    "ja": "メルポメネ",
+    "bs": "Melpomena",
+    "da": "Melpomene",
+    "it": "Melpomene",
+    "km": "មែលប៉ូមេនេ",
+    "nb": "Melpomene",
+    "pl": "Melpomena",
+    "pt-BR": "Melpômene",
+    "ru": "Мельпомена",
+    "th": "เมลโพมีนี",
+    "tr": "Melpomene",
+    "uk": "Мельпомена",
+    "vi": "Melpomene"
    },
    "fullTitle": "Melpomene",
    "artist": "Alexander Rothaug",
@@ -2130,8 +2754,8 @@
     "#867E72",
     "#A5A099"
    ],
-   "darkest": "#161618",
-   "lightest": "#BBBCBF",
+   "darkest": "#010000",
+   "lightest": "#FFFFFA",
    "tint": 0.46
   },
   {
@@ -2145,7 +2769,19 @@
     "zh-Hant": "死神與少女",
     "zh-Hans": "死神与少女",
     "ko": "죽음과 소녀",
-    "ja": "死と乙女"
+    "ja": "死と乙女",
+    "bs": "Smrt i djevojka",
+    "da": "Døden og pigen",
+    "it": "La morte e la fanciulla",
+    "km": "មច្ចុរាជ និងនារី",
+    "nb": "Døden og piken",
+    "pl": "Śmierć i dziewczyna",
+    "pt-BR": "A Morte e a Donzela",
+    "ru": "Смерть и дева",
+    "th": "ความตายกับหญิงสาว",
+    "tr": "Ölüm ve Genç Kız",
+    "uk": "Смерть і дівчина",
+    "vi": "Thần Chết và thiếu nữ"
    },
    "fullTitle": "Death and the Maiden",
    "artist": "Egon Schiele",
@@ -2171,8 +2807,8 @@
     "#968068",
     "#B7B2A6"
    ],
-   "darkest": "#3D302E",
-   "lightest": "#CED3CC",
+   "darkest": "#0E0200",
+   "lightest": "#FFFFF0",
    "tint": 0.45
   },
   {
@@ -2186,7 +2822,19 @@
     "zh-Hant": "暴風海上的船",
     "zh-Hans": "暴风海上的船",
     "ko": "폭풍우 치는 바다 위의 배",
-    "ja": "嵐の海の船"
+    "ja": "嵐の海の船",
+    "bs": "Brod na olujnom moru",
+    "da": "Skib på stormfuldt hav",
+    "it": "Nave nel mare in tempesta",
+    "km": "កប៉ាល់លើសមុទ្រព្យុះ",
+    "nb": "Skip på stormfullt hav",
+    "pl": "Statek na wzburzonym morzu",
+    "pt-BR": "Navio em Mar Tempestuoso",
+    "ru": "Корабль в бурном море",
+    "th": "เรือกลางทะเลคลั่ง",
+    "tr": "Fırtınalı Denizde Gemi",
+    "uk": "Корабель у бурхливому морі",
+    "vi": "Con tàu trên biển động"
    },
    "fullTitle": "Ship on Stormy Seas",
    "artist": "Ivan Aivazovsky",
@@ -2212,8 +2860,8 @@
     "#34515E",
     "#B9B7AA"
    ],
-   "darkest": "#0A181A",
-   "lightest": "#F6E7CE",
+   "darkest": "#000406",
+   "lightest": "#FEFFF5",
    "tint": 0.51
   },
   {
@@ -2227,7 +2875,19 @@
     "zh-Hant": "戰爭的禮讚",
     "zh-Hans": "战争的颂歌",
     "ko": "전쟁의 신격화",
-    "ja": "戦争の結末"
+    "ja": "戦争の結末",
+    "bs": "Apoteoza rata",
+    "da": "Krigens apoteose",
+    "it": "L'apoteosi della guerra",
+    "km": "ការលើកតម្កើងសង្គ្រាម",
+    "nb": "Krigens apoteose",
+    "pl": "Apoteoza wojny",
+    "pt-BR": "A Apoteose da Guerra",
+    "ru": "Апофеоз войны",
+    "th": "อภิเทวภาพแห่งสงคราม",
+    "tr": "Savaşın Apoteozu",
+    "uk": "Апофеоз війни",
+    "vi": "Sự tôn vinh chiến tranh"
    },
    "fullTitle": "The Apotheosis of War",
    "artist": "Vasily Vereshchagin",
@@ -2253,8 +2913,8 @@
     "#A1977B",
     "#BBB59E"
    ],
-   "darkest": "#231106",
-   "lightest": "#E6D5A9",
+   "darkest": "#000000",
+   "lightest": "#FFFFFD",
    "tint": 0.53
   },
   {
@@ -2268,7 +2928,19 @@
     "zh-Hant": "骷髏畫家",
     "zh-Hans": "骷髅画家",
     "ko": "그림 그리는 해골",
-    "ja": "骸骨の画家"
+    "ja": "骸骨の画家",
+    "bs": "Kostur slikar",
+    "da": "Skelettet, der maler",
+    "it": "Lo scheletro pittore",
+    "km": "គ្រោងឆ្អឹងវិចិត្រករ",
+    "nb": "Skjelettet som maler",
+    "pl": "Szkielet malarz",
+    "pt-BR": "O Esqueleto Pintor",
+    "ru": "Скелет-художник",
+    "th": "โครงกระดูกจิตรกร",
+    "tr": "Ressam İskelet",
+    "uk": "Скелет-художник",
+    "vi": "Bộ xương họa sĩ"
    },
    "fullTitle": "The Skeleton Painter",
    "artist": "James Ensor",
@@ -2294,8 +2966,8 @@
     "#A2997D",
     "#B6AE93"
    ],
-   "darkest": "#3A424D",
-   "lightest": "#D1C9AD",
+   "darkest": "#000407",
+   "lightest": "#FFFFED",
    "tint": 0.56
   },
   {
@@ -2309,7 +2981,19 @@
     "zh-Hant": "墮落天使",
     "zh-Hans": "堕落天使",
     "ko": "타락천사",
-    "ja": "堕天使"
+    "ja": "堕天使",
+    "bs": "Pali anđeo",
+    "da": "Den faldne engel",
+    "it": "L'angelo caduto",
+    "km": "ទេវតាធ្លាក់",
+    "nb": "Den falne engelen",
+    "pl": "Upadły anioł",
+    "pt-BR": "O Anjo Caído",
+    "ru": "Падший ангел",
+    "th": "ทูตสวรรค์ผู้ตกสวรรค์",
+    "tr": "Düşmüş Melek",
+    "uk": "Занепалий ангел",
+    "vi": "Thiên thần sa ngã"
    },
    "fullTitle": "The Fallen Angel",
    "artist": "Alexandre Cabanel",
@@ -2335,8 +3019,8 @@
     "#A6A199",
     "#CCD9E6"
    ],
-   "darkest": "#020206",
-   "lightest": "#F2F9FA",
+   "darkest": "#000000",
+   "lightest": "#FFFFFF",
    "tint": 0.53
   },
   {
@@ -2350,7 +3034,19 @@
     "zh-Hant": "海岸邊的女人",
     "zh-Hans": "海岸边的女人",
     "ko": "해변의 여인",
-    "ja": "波打ち際の女"
+    "ja": "波打ち際の女",
+    "bs": "Žena na obali",
+    "da": "Kvinde ved strandkanten",
+    "it": "Donna sulla riva",
+    "km": "ស្ត្រីនៅមាត់ឆ្នេរ",
+    "nb": "Kvinne ved strandkanten",
+    "pl": "Kobieta na brzegu",
+    "pt-BR": "Mulher à Beira-Mar",
+    "ru": "Женщина на берегу",
+    "th": "หญิงสาวริมฝั่ง",
+    "tr": "Kıyıdaki Kadın",
+    "uk": "Жінка на березі",
+    "vi": "Người phụ nữ bên bờ biển"
    },
    "fullTitle": "Woman at the Shoreline",
    "artist": "Léon Spilliaert",
@@ -2376,8 +3072,8 @@
     "#C8BAA0",
     "#8D8672"
    ],
-   "darkest": "#221F1B",
-   "lightest": "#D0C2A8",
+   "darkest": "#010100",
+   "lightest": "#F8EFDE",
    "tint": 0.58
   },
   {
@@ -2391,7 +3087,19 @@
     "zh-Hant": "浪子回頭",
     "zh-Hans": "浪子回头",
     "ko": "돌아온 탕자",
-    "ja": "放蕩息子の帰還"
+    "ja": "放蕩息子の帰還",
+    "bs": "Povratak izgubljenog sina",
+    "da": "Den fortabte søns hjemkomst",
+    "it": "Il ritorno del figliol prodigo",
+    "km": "ការវិលត្រឡប់មកវិញរបស់កូនខ្ជះខ្ជាយ",
+    "nb": "Den bortkomne sønns hjemkomst",
+    "pl": "Powrót syna marnotrawnego",
+    "pt-BR": "O Retorno do Filho Pródigo",
+    "ru": "Возвращение блудного сына",
+    "th": "การกลับมาของบุตรน้อยหลงหาย",
+    "tr": "Müsrif Oğulun Dönüşü",
+    "uk": "Повернення блудного сина",
+    "vi": "Sự trở về của người con hoang đàng"
    },
    "fullTitle": "The Return of the Prodigal Son",
    "artist": "Rembrandt van Rijn",
@@ -2417,8 +3125,8 @@
     "#0D0804",
     "#47280F"
    ],
-   "darkest": "#040302",
-   "lightest": "#AB7022",
+   "darkest": "#060100",
+   "lightest": "#FFF3AD",
    "tint": 0.31
   },
   {
@@ -2432,7 +3140,19 @@
     "zh-Hant": "侍女",
     "zh-Hans": "宫娥",
     "ko": "시녀들",
-    "ja": "ラス・メニーナス"
+    "ja": "ラス・メニーナス",
+    "bs": "Las Meninas",
+    "da": "Las Meninas",
+    "it": "Las Meninas",
+    "km": "Las Meninas",
+    "nb": "Las Meninas",
+    "pl": "Panny dworskie",
+    "pt-BR": "As Meninas",
+    "ru": "Менины",
+    "th": "ลัสเมนีนัส",
+    "tr": "Las Meninas",
+    "uk": "Меніни",
+    "vi": "Las Meninas"
    },
    "fullTitle": "Las Meninas",
    "artist": "Diego Velázquez",
@@ -2458,8 +3178,8 @@
     "#15100B",
     "#3F2F1E"
    ],
-   "darkest": "#040404",
-   "lightest": "#90856F",
+   "darkest": "#000000",
+   "lightest": "#F8E1C1",
    "tint": 0.3
   },
   {
@@ -2473,7 +3193,19 @@
     "zh-Hant": "斯坦奇克",
     "zh-Hans": "斯坦奇克",
     "ko": "스탄치크",
-    "ja": "スタンチク"
+    "ja": "スタンチク",
+    "bs": "Stańczyk",
+    "da": "Stańczyk",
+    "it": "Stańczyk",
+    "km": "ស្តាញឈិក",
+    "nb": "Stańczyk",
+    "pl": "Stańczyk",
+    "pt-BR": "Stańczyk",
+    "ru": "Станьчик",
+    "th": "สตาญชิก",
+    "tr": "Stańczyk",
+    "uk": "Станчик",
+    "vi": "Stańczyk"
    },
    "fullTitle": "Stańczyk",
    "artist": "Jan Matejko",
@@ -2499,8 +3231,8 @@
     "#2B0F0F",
     "#50291F"
    ],
-   "darkest": "#070302",
-   "lightest": "#A68258",
+   "darkest": "#000000",
+   "lightest": "#FFF8F2",
    "tint": 0.31
   },
   {
@@ -2514,7 +3246,19 @@
     "zh-Hant": "X夫人",
     "zh-Hans": "X夫人",
     "ko": "마담 X",
-    "ja": "マダム X"
+    "ja": "マダム X",
+    "bs": "Madame X",
+    "da": "Madame X",
+    "it": "Madame X",
+    "km": "Madame X",
+    "nb": "Madame X",
+    "pl": "Madame X",
+    "pt-BR": "Madame X",
+    "ru": "Мадам X",
+    "th": "มาดามเอ็กซ์",
+    "tr": "Madame X",
+    "uk": "Мадам X",
+    "vi": "Madame X"
    },
    "fullTitle": "Madame X (Madame Pierre Gautreau)",
    "artist": "John Singer Sargent",
@@ -2540,8 +3284,8 @@
     "#1D1712",
     "#4A3A2B"
    ],
-   "darkest": "#020204",
-   "lightest": "#C1B2A6",
+   "darkest": "#000103",
+   "lightest": "#EFE6DD",
    "tint": 0.31
   },
   {
@@ -2555,7 +3299,19 @@
     "zh-Hant": "聖女貞德",
     "zh-Hans": "圣女贞德",
     "ko": "잔 다르크",
-    "ja": "ジャンヌ・ダルク"
+    "ja": "ジャンヌ・ダルク",
+    "bs": "Ivana Orleanska",
+    "da": "Jeanne d'Arc",
+    "it": "Giovanna d'Arco",
+    "km": "ហ្សង់ដាក",
+    "nb": "Jeanne d'Arc",
+    "pl": "Joanna d'Arc",
+    "pt-BR": "Joana d'Arc",
+    "ru": "Жанна д'Арк",
+    "th": "ฌานดาร์ก",
+    "tr": "Jeanne d'Arc",
+    "uk": "Жанна д'Арк",
+    "vi": "Jeanne d'Arc"
    },
    "fullTitle": "Joan of Arc",
    "artist": "John Everett Millais",
@@ -2581,8 +3337,8 @@
     "#0F0A06",
     "#5C3724"
    ],
-   "darkest": "#080502",
-   "lightest": "#D09168",
+   "darkest": "#0B0000",
+   "lightest": "#FEEED7",
    "tint": 0.3
   },
   {
@@ -2596,7 +3352,19 @@
     "zh-Hant": "暴風雨",
     "zh-Hans": "暴风雨",
     "ko": "폭풍",
-    "ja": "嵐"
+    "ja": "嵐",
+    "bs": "Oluja",
+    "da": "Uvejret",
+    "it": "La tempesta",
+    "km": "ព្យុះ",
+    "nb": "Uværet",
+    "pl": "Burza",
+    "pt-BR": "A Tempestade",
+    "ru": "Гроза",
+    "th": "พายุ",
+    "tr": "Fırtına",
+    "uk": "Гроза",
+    "vi": "Cơn bão"
    },
    "fullTitle": "The Storm",
    "artist": "Pierre Auguste Cot",
@@ -2622,8 +3390,8 @@
     "#1D1F1D",
     "#564B3B"
    ],
-   "darkest": "#050709",
-   "lightest": "#C0B192",
+   "darkest": "#000000",
+   "lightest": "#FFFFF3",
    "tint": 0.3
   },
   {
@@ -2637,7 +3405,19 @@
     "zh-Hant": "夜巡",
     "zh-Hans": "夜巡",
     "ko": "야간 순찰",
-    "ja": "夜警"
+    "ja": "夜警",
+    "bs": "Noćna straža",
+    "da": "Nattevagten",
+    "it": "La ronda di notte",
+    "km": "ឆ្មាំយាមពេលយប់",
+    "nb": "Nattevakten",
+    "pl": "Straż nocna",
+    "pt-BR": "A Ronda Noturna",
+    "ru": "Ночной дозор",
+    "th": "ยามรักษาการณ์กลางคืน",
+    "tr": "Gece Devriyesi",
+    "uk": "Нічна варта",
+    "vi": "Đội tuần đêm"
    },
    "fullTitle": "The Night Watch",
    "artist": "Rembrandt van Rijn",
@@ -2663,8 +3443,8 @@
     "#271D0C",
     "#624F26"
    ],
-   "darkest": "#080704",
-   "lightest": "#C7B88C",
+   "darkest": "#010000",
+   "lightest": "#FCFFEC",
    "tint": 0.32
   },
   {
@@ -2678,7 +3458,19 @@
     "zh-Hant": "格蘭夫人",
     "zh-Hans": "格朗夫人",
     "ko": "그랑 부인",
-    "ja": "グラン夫人"
+    "ja": "グラン夫人",
+    "bs": "Madame Grand",
+    "da": "Madame Grand",
+    "it": "Madame Grand",
+    "km": "Madame Grand",
+    "nb": "Madame Grand",
+    "pl": "Madame Grand",
+    "pt-BR": "Madame Grand",
+    "ru": "Мадам Гран",
+    "th": "มาดามกร็อง",
+    "tr": "Madame Grand",
+    "uk": "Мадам Гран",
+    "vi": "Madame Grand"
    },
    "fullTitle": "Madame Grand",
    "artist": "Élisabeth Vigée Le Brun",
@@ -2705,7 +3497,7 @@
     "#5D513C"
    ],
    "darkest": "#000000",
-   "lightest": "#DFC28F",
+   "lightest": "#EFE6C3",
    "tint": 0.31
   },
   {
@@ -2719,7 +3511,19 @@
     "zh-Hant": "夏洛特夫人",
     "zh-Hans": "夏洛特夫人",
     "ko": "샬롯의 여인",
-    "ja": "シャロットの女"
+    "ja": "シャロットの女",
+    "bs": "Gospa od Shalotta",
+    "da": "Damen fra Shalott",
+    "it": "La dama di Shalott",
+    "km": "នារីនៃសាឡុត",
+    "nb": "Damen fra Shalott",
+    "pl": "Pani na Shalott",
+    "pt-BR": "A Dama de Shalott",
+    "ru": "Леди Шалотт",
+    "th": "สุภาพสตรีแห่งชาลอตต์",
+    "tr": "Shalott Leydisi",
+    "uk": "Леді Шалотт",
+    "vi": "Quý cô xứ Shalott"
    },
    "fullTitle": "The Lady of Shalott",
    "artist": "John William Waterhouse",
@@ -2745,8 +3549,8 @@
     "#3D2D24",
     "#6E5A40"
    ],
-   "darkest": "#020200",
-   "lightest": "#C0B5A3",
+   "darkest": "#000000",
+   "lightest": "#E0D7C8",
    "tint": 0.32
   },
   {
@@ -2760,7 +3564,19 @@
     "zh-Hant": "哀悼伊卡洛斯",
     "zh-Hans": "哀悼伊卡洛斯",
     "ko": "이카로스를 위한 애도",
-    "ja": "イカロス哀悼"
+    "ja": "イカロス哀悼",
+    "bs": "Tužbalica za Ikarom",
+    "da": "Klagen over Ikaros",
+    "it": "Il lamento per Icaro",
+    "km": "ការយំសោកចំពោះអ៊ីការ៉ុស",
+    "nb": "Klagen over Ikaros",
+    "pl": "Opłakiwanie Ikara",
+    "pt-BR": "O Lamento por Ícaro",
+    "ru": "Оплакивание Икара",
+    "th": "การไว้อาลัยอิคารัส",
+    "tr": "İkarus için Ağıt",
+    "uk": "Оплакування Ікара",
+    "vi": "Khóc thương Icarus"
    },
    "fullTitle": "The Lament for Icarus",
    "artist": "Herbert James Draper",
@@ -2786,8 +3602,8 @@
     "#3C2B24",
     "#7C5C3D"
    ],
-   "darkest": "#0E0B09",
-   "lightest": "#E4BA67",
+   "darkest": "#100000",
+   "lightest": "#FFFFF0",
    "tint": 0.31
   },
   {
@@ -2801,7 +3617,19 @@
     "zh-Hant": "鞦韆",
     "zh-Hans": "秋千",
     "ko": "그네",
-    "ja": "ぶらんこ"
+    "ja": "ぶらんこ",
+    "bs": "Ljuljačka",
+    "da": "Gyngen",
+    "it": "L'altalena",
+    "km": "ជិះយោល",
+    "nb": "Huska",
+    "pl": "Huśtawka",
+    "pt-BR": "O Balanço",
+    "ru": "Качели",
+    "th": "ชิงช้า",
+    "tr": "Salıncak",
+    "uk": "Гойдалка",
+    "vi": "Chiếc xích đu"
    },
    "fullTitle": "The Swing",
    "artist": "Jean-Honoré Fragonard",
@@ -2827,8 +3655,8 @@
     "#2F302C",
     "#5F6151"
    ],
-   "darkest": "#131010",
-   "lightest": "#99AC8F",
+   "darkest": "#030000",
+   "lightest": "#EFF0D0",
    "tint": 0.31
   },
   {
@@ -2842,7 +3670,19 @@
     "zh-Hant": "聖方濟·沙勿略的神蹟",
     "zh-Hans": "圣方济各·沙勿略的奇迹",
     "ko": "성 프란치스코 하비에르의 기적",
-    "ja": "聖フランシスコ・ザビエルの奇跡"
+    "ja": "聖フランシスコ・ザビエルの奇跡",
+    "bs": "Čuda svetog Franje Ksaverskog",
+    "da": "Den hellige Frans Xaviers mirakler",
+    "it": "I miracoli di san Francesco Saverio",
+    "km": "អព្ភូតហេតុរបស់សន្តហ្វ្រង់ស៊ីស សាវីយេ",
+    "nb": "Den hellige Frans Xaviers mirakler",
+    "pl": "Cuda św. Franciszka Ksawerego",
+    "pt-BR": "Os Milagres de São Francisco Xavier",
+    "ru": "Чудеса святого Франциска Ксаверия",
+    "th": "ปาฏิหาริย์ของนักบุญฟรังซิสเซเวียร์",
+    "tr": "Aziz Francis Xavier'in Mucizeleri",
+    "uk": "Чудеса святого Франциска Ксаверія",
+    "vi": "Những phép lạ của Thánh Phanxicô Xaviê"
    },
    "fullTitle": "The Miracles of St Francis Xavier",
    "artist": "Peter Paul Rubens",
@@ -2868,8 +3708,8 @@
     "#322D1E",
     "#726851"
    ],
-   "darkest": "#130B03",
-   "lightest": "#F8A262",
+   "darkest": "#040100",
+   "lightest": "#FFF9E0",
    "tint": 0.31
   },
   {
@@ -2883,7 +3723,19 @@
     "zh-Hant": "戴珍珠耳環的少女",
     "zh-Hans": "戴珍珠耳环的少女",
     "ko": "진주 귀걸이를 한 소녀",
-    "ja": "真珠の耳飾りの少女"
+    "ja": "真珠の耳飾りの少女",
+    "bs": "Djevojka s bisernom naušnicom",
+    "da": "Pigen med perleøreringen",
+    "it": "La ragazza con l'orecchino di perla",
+    "km": "ក្មេងស្រីពាក់ក្រវិលគុជ",
+    "nb": "Piken med perleøredobben",
+    "pl": "Dziewczyna z perłą",
+    "pt-BR": "Moça com Brinco de Pérola",
+    "ru": "Девушка с жемчужной серёжкой",
+    "th": "หญิงสาวกับต่างหูมุก",
+    "tr": "İnci Küpeli Kız",
+    "uk": "Дівчина з перловою сережкою",
+    "vi": "Thiếu nữ đeo hoa tai ngọc trai"
    },
    "fullTitle": "Girl with a Pearl Earring",
    "artist": "Johannes Vermeer",
@@ -2909,8 +3761,8 @@
     "#2C261D",
     "#796E5C"
    ],
-   "darkest": "#0A0804",
-   "lightest": "#E8D2A8",
+   "darkest": "#060000",
+   "lightest": "#FFFFFA",
    "tint": 0.31
   },
   {
@@ -2924,7 +3776,19 @@
     "zh-Hant": "自畫像",
     "zh-Hans": "自画像",
     "ko": "자화상",
-    "ja": "自画像"
+    "ja": "自画像",
+    "bs": "Autoportret",
+    "da": "Selvportræt",
+    "it": "Autoritratto",
+    "km": "រូបខ្លួនឯង",
+    "nb": "Selvportrett",
+    "pl": "Autoportret",
+    "pt-BR": "Autorretrato",
+    "ru": "Автопортрет",
+    "th": "ภาพเหมือนตนเอง",
+    "tr": "Otoportre",
+    "uk": "Автопортрет",
+    "vi": "Chân dung tự họa"
    },
    "fullTitle": "Self-Portrait",
    "artist": "Elin Danielson-Gambogi",
@@ -2950,8 +3814,8 @@
     "#261F1B",
     "#817064"
    ],
-   "darkest": "#050505",
-   "lightest": "#ECE8E1",
+   "darkest": "#0B0100",
+   "lightest": "#FDFDF5",
    "tint": 0.31
   },
   {
@@ -2965,7 +3829,19 @@
     "zh-Hant": "陛下接見",
     "zh-Hans": "陛下接见",
     "ko": "폐하의 접견",
-    "ja": "陛下の謁見"
+    "ja": "陛下の謁見",
+    "bs": "Njegovo veličanstvo prima",
+    "da": "Hans Majestæt modtager",
+    "it": "Sua Maestà riceve",
+    "km": "ព្រះករុណាទទួលភ្ញៀវ",
+    "nb": "Hans Majestet tar imot",
+    "pl": "Jego Wysokość przyjmuje",
+    "pt-BR": "Sua Majestade Recebe",
+    "ru": "Его величество принимает",
+    "th": "ฝ่าบาททรงต้อนรับ",
+    "tr": "Majesteleri Kabul Ediyor",
+    "uk": "Його величність приймає",
+    "vi": "Bệ hạ tiếp kiến"
    },
    "fullTitle": "His Majesty Receives",
    "artist": "William Holbrook Beard",
@@ -2991,8 +3867,8 @@
     "#502911",
     "#8C642F"
    ],
-   "darkest": "#120B0F",
-   "lightest": "#CFC9A4",
+   "darkest": "#0A0000",
+   "lightest": "#FFFFFA",
    "tint": 0.33
   },
   {
@@ -3006,7 +3882,19 @@
     "zh-Hant": "狐狸",
     "zh-Hans": "狐狸",
     "ko": "여우들",
-    "ja": "狐"
+    "ja": "狐",
+    "bs": "Lisice",
+    "da": "Rævene",
+    "it": "Le volpi",
+    "km": "សត្វកញ្ជ្រោង",
+    "nb": "Revene",
+    "pl": "Lisy",
+    "pt-BR": "As Raposas",
+    "ru": "Лисы",
+    "th": "หมาจิ้งจอก",
+    "tr": "Tilkiler",
+    "uk": "Лиси",
+    "vi": "Những con cáo"
    },
    "fullTitle": "The Foxes",
    "artist": "Franz Marc",
@@ -3032,8 +3920,8 @@
     "#876C5D",
     "#563730"
    ],
-   "darkest": "#0C0B0B",
-   "lightest": "#DECB69",
+   "darkest": "#000000",
+   "lightest": "#FFFEDD",
    "tint": 0.31
   },
   {
@@ -3047,7 +3935,19 @@
     "zh-Hant": "綠衣舞者",
     "zh-Hans": "绿衣舞者",
     "ko": "초록 옷의 무희",
-    "ja": "緑の踊り子"
+    "ja": "緑の踊り子",
+    "bs": "Plesačica u zelenom",
+    "da": "Danserinde i grønt",
+    "it": "Ballerina in verde",
+    "km": "អ្នករាំក្នុងសម្លៀកបំពាក់ពណ៌បៃតង",
+    "nb": "Danserinne i grønt",
+    "pl": "Tancerka w zieleni",
+    "pt-BR": "Bailarina de Verde",
+    "ru": "Танцовщица в зелёном",
+    "th": "นักเต้นในชุดเขียว",
+    "tr": "Yeşilli Dansçı",
+    "uk": "Танцівниця в зеленому",
+    "vi": "Vũ nữ áo xanh lục"
    },
    "fullTitle": "Swaying Dancer (Dancer in Green)",
    "artist": "Edgar Degas",
@@ -3073,8 +3973,8 @@
     "#7A8274",
     "#2E342F"
    ],
-   "darkest": "#101311",
-   "lightest": "#B0ADA9",
+   "darkest": "#000B00",
+   "lightest": "#FFFEED",
    "tint": 0.32
   },
   {
@@ -3088,7 +3988,19 @@
     "zh-Hant": "坐在長沙發上的裸女",
     "zh-Hans": "坐在长沙发上的裸女",
     "ko": "소파에 앉은 나부",
-    "ja": "長椅子に座る裸婦"
+    "ja": "長椅子に座る裸婦",
+    "bs": "Akt koji sjedi na divanu",
+    "da": "Nøgen siddende på en divan",
+    "it": "Nudo seduto su un divano",
+    "km": "រូបអាក្រាតអង្គុយលើសាឡុង",
+    "nb": "Naken sittende på en divan",
+    "pl": "Akt siedzący na sofie",
+    "pt-BR": "Nu Sentado num Divã",
+    "ru": "Обнажённая, сидящая на диване",
+    "th": "ภาพเปลือยนั่งบนเก้าอี้ยาว",
+    "tr": "Divanda Oturan Çıplak",
+    "uk": "Оголена, що сидить на дивані",
+    "vi": "Thiếu nữ khỏa thân ngồi trên trường kỷ"
    },
    "fullTitle": "Nude Sitting on a Divan (La Belle Romaine)",
    "artist": "Amedeo Modigliani",
@@ -3114,8 +4026,8 @@
     "#342220",
     "#916553"
    ],
-   "darkest": "#1C1111",
-   "lightest": "#C8B7A2",
+   "darkest": "#1A100F",
+   "lightest": "#F4ECE1",
    "tint": 0.32
   },
   {
@@ -3129,7 +4041,19 @@
     "zh-Hant": "西斯汀聖母",
     "zh-Hans": "西斯廷圣母",
     "ko": "시스티나 성모",
-    "ja": "システィーナの聖母"
+    "ja": "システィーナの聖母",
+    "bs": "Sikstinska Madona",
+    "da": "Den sixtinske Madonna",
+    "it": "Madonna Sistina",
+    "km": "ម៉ាដូណាស៊ីស្ទីន",
+    "nb": "Den sixtinske madonna",
+    "pl": "Madonna Sykstyńska",
+    "pt-BR": "Madona Sistina",
+    "ru": "Сикстинская мадонна",
+    "th": "พระแม่ซิสทีน",
+    "tr": "Sistina Madonnası",
+    "uk": "Сікстинська мадонна",
+    "vi": "Đức Mẹ Sistine"
    },
    "fullTitle": "Sistine Madonna",
    "artist": "Raphael",
@@ -3155,8 +4079,8 @@
     "#3F3121",
     "#9C8158"
    ],
-   "darkest": "#130C08",
-   "lightest": "#E5D0A0",
+   "darkest": "#080000",
+   "lightest": "#FFEBAE",
    "tint": 0.31
   },
   {
@@ -3170,7 +4094,19 @@
     "zh-Hant": "百合聖母",
     "zh-Hans": "百合圣母",
     "ko": "백합의 성모",
-    "ja": "百合の聖母"
+    "ja": "百合の聖母",
+    "bs": "Djevica s ljiljanima",
+    "da": "Jomfruen med liljerne",
+    "it": "La Vergine dei gigli",
+    "km": "ព្រះនាងព្រហ្មចារីនៃផ្កាលីលី",
+    "nb": "Jomfruen med liljene",
+    "pl": "Madonna z liliami",
+    "pt-BR": "A Virgem dos Lírios",
+    "ru": "Дева с лилиями",
+    "th": "พระแม่พรหมจารีกับดอกลิลลี่",
+    "tr": "Zambaklı Meryem",
+    "uk": "Діва з ліліями",
+    "vi": "Đức Trinh Nữ với hoa huệ"
    },
    "fullTitle": "The Virgin of the Lilies",
    "artist": "William-Adolphe Bouguereau",
@@ -3197,7 +4133,7 @@
     "#A88B66"
    ],
    "darkest": "#000000",
-   "lightest": "#F8EFED",
+   "lightest": "#FFFFFF",
    "tint": 0.32
   },
   {
@@ -3211,7 +4147,19 @@
     "zh-Hant": "美國哥德式",
     "zh-Hans": "美国哥特式",
     "ko": "아메리칸 고딕",
-    "ja": "アメリカン・ゴシック"
+    "ja": "アメリカン・ゴシック",
+    "bs": "Američka gotika",
+    "da": "American Gothic",
+    "it": "American Gothic",
+    "km": "American Gothic",
+    "nb": "American Gothic",
+    "pl": "Amerykański gotyk",
+    "pt-BR": "Gótico Americano",
+    "ru": "Американская готика",
+    "th": "อเมริกันโกธิก",
+    "tr": "Amerikan Gotiği",
+    "uk": "Американська готика",
+    "vi": "American Gothic"
    },
    "fullTitle": "American Gothic",
    "artist": "Grant Wood",
@@ -3237,8 +4185,8 @@
     "#393022",
     "#A39B7A"
    ],
-   "darkest": "#0B0908",
-   "lightest": "#CDD9BC",
+   "darkest": "#000000",
+   "lightest": "#FAEDC2",
    "tint": 0.31
   },
   {
@@ -3252,7 +4200,19 @@
     "zh-Hant": "黑貓巡演",
     "zh-Hans": "黑猫巡演",
     "ko": "검은 고양이 순회공연",
-    "ja": "黒猫の巡業"
+    "ja": "黒猫の巡業",
+    "bs": "Tournée du Chat Noir",
+    "da": "Tournée du Chat Noir",
+    "it": "Tournée du Chat Noir",
+    "km": "Tournée du Chat Noir",
+    "nb": "Tournée du Chat Noir",
+    "pl": "Tournée du Chat Noir",
+    "pt-BR": "Tournée du Chat Noir",
+    "ru": "Tournée du Chat Noir",
+    "th": "Tournée du Chat Noir",
+    "tr": "Tournée du Chat Noir",
+    "uk": "Tournée du Chat Noir",
+    "vi": "Tournée du Chat Noir"
    },
    "fullTitle": "Tournée du Chat Noir avec Rodolphe Salis",
    "artist": "Théophile Alexandre Steinlen",
@@ -3278,8 +4238,8 @@
     "#BA916B",
     "#5B3227"
    ],
-   "darkest": "#0D0B0B",
-   "lightest": "#D2D3CE",
+   "darkest": "#130000",
+   "lightest": "#FFFFF6",
    "tint": 0.31
   },
   {
@@ -3293,7 +4253,19 @@
     "zh-Hant": "藍色舞者",
     "zh-Hans": "蓝色舞者",
     "ko": "파란 옷의 무희들",
-    "ja": "青い踊り子たち"
+    "ja": "青い踊り子たち",
+    "bs": "Plave plesačice",
+    "da": "Blå danserinder",
+    "it": "Ballerine blu",
+    "km": "អ្នករាំពណ៌ខៀវ",
+    "nb": "Blå danserinner",
+    "pl": "Błękitne tancerki",
+    "pt-BR": "Bailarinas Azuis",
+    "ru": "Голубые танцовщицы",
+    "th": "นักเต้นสีน้ำเงิน",
+    "tr": "Mavi Dansçılar",
+    "uk": "Блакитні танцівниці",
+    "vi": "Những vũ nữ xanh"
    },
    "fullTitle": "Blue Dancers",
    "artist": "Edgar Degas",
@@ -3319,8 +4291,8 @@
     "#5C5C5B",
     "#7E8A81"
    ],
-   "darkest": "#121724",
-   "lightest": "#C1B0AD",
+   "darkest": "#010D01",
+   "lightest": "#E3EFE5",
    "tint": 0.32
   },
   {
@@ -3334,7 +4306,19 @@
     "zh-Hant": "春",
     "zh-Hans": "春",
     "ko": "프리마베라",
-    "ja": "プリマヴェーラ"
+    "ja": "プリマヴェーラ",
+    "bs": "Proljeće",
+    "da": "Primavera",
+    "it": "Primavera",
+    "km": "ព្រីម៉ាវេរ៉ា",
+    "nb": "Primavera",
+    "pl": "Wiosna",
+    "pt-BR": "Primavera",
+    "ru": "Весна",
+    "th": "พรีมาเวรา",
+    "tr": "İlkbahar",
+    "uk": "Весна",
+    "vi": "Mùa xuân"
    },
    "fullTitle": "Primavera",
    "artist": "Sandro Botticelli",
@@ -3360,8 +4344,8 @@
     "#684D3E",
     "#AE9273"
    ],
-   "darkest": "#0C0B11",
-   "lightest": "#DCCFB3",
+   "darkest": "#000000",
+   "lightest": "#FFFFFF",
    "tint": 0.37
   },
   {
@@ -3375,7 +4359,19 @@
     "zh-Hant": "夜間露天咖啡座",
     "zh-Hans": "夜晚露天咖啡座",
     "ko": "밤의 카페 테라스",
-    "ja": "夜のカフェテラス"
+    "ja": "夜のカフェテラス",
+    "bs": "Terasa kafane noću",
+    "da": "Caféterrassen om aftenen",
+    "it": "Terrazza del caffè la sera",
+    "km": "រានកាហ្វេពេលយប់",
+    "nb": "Kafeterrassen om kvelden",
+    "pl": "Taras kawiarni w nocy",
+    "pt-BR": "Terraço do Café à Noite",
+    "ru": "Ночная терраса кафе",
+    "th": "ระเบียงคาเฟ่ยามค่ำคืน",
+    "tr": "Gece Kafe Terası",
+    "uk": "Нічна тераса кафе",
+    "vi": "Hiên quán cà phê về đêm"
    },
    "fullTitle": "Café Terrace at Night",
    "artist": "Vincent van Gogh",
@@ -3401,8 +4397,8 @@
     "#9D9669",
     "#4C5650"
    ],
-   "darkest": "#16191C",
-   "lightest": "#DEC53A",
+   "darkest": "#141817",
+   "lightest": "#FFF5B6",
    "tint": 0.33
   },
   {
@@ -3416,7 +4412,19 @@
     "zh-Hant": "紅色的和諧",
     "zh-Hans": "红色的和谐",
     "ko": "붉은 방",
-    "ja": "赤い部屋"
+    "ja": "赤い部屋",
+    "bs": "Crvena soba",
+    "da": "Det røde rum",
+    "it": "La stanza rossa",
+    "km": "បន្ទប់ក្រហម",
+    "nb": "Det røde rommet",
+    "pl": "Czerwony pokój",
+    "pt-BR": "O Quarto Vermelho",
+    "ru": "Красная комната",
+    "th": "ห้องสีแดง",
+    "tr": "Kırmızı Oda",
+    "uk": "Червона кімната",
+    "vi": "Căn phòng đỏ"
    },
    "fullTitle": "The Red Room (Harmony in Red)",
    "artist": "Henri Matisse",
@@ -3442,8 +4450,8 @@
     "#493840",
     "#9E8969"
    ],
-   "darkest": "#21161A",
-   "lightest": "#F6E6D4",
+   "darkest": "#110D0C",
+   "lightest": "#FFFFE2",
    "tint": 0.41
   },
   {
@@ -3457,7 +4465,19 @@
     "zh-Hant": "深化的衝動",
     "zh-Hans": "深化的冲动",
     "ko": "깊어진 충동",
-    "ja": "深まる衝動"
+    "ja": "深まる衝動",
+    "bs": "Produbljeni impuls",
+    "da": "Uddybet impuls",
+    "it": "Impulso approfondito",
+    "km": "កម្លាំងជំរុញដ៏ជ្រៅ",
+    "nb": "Fordypet impuls",
+    "pl": "Pogłębiony impuls",
+    "pt-BR": "Impulso Aprofundado",
+    "ru": "Углублённый импульс",
+    "th": "แรงกระตุ้นอันลึกซึ้ง",
+    "tr": "Derinleşen Dürtü",
+    "uk": "Поглиблений імпульс",
+    "vi": "Xung lực sâu sắc"
    },
    "fullTitle": "Deepened Impulse",
    "artist": "Wassily Kandinsky",
@@ -3483,8 +4503,8 @@
     "#41443D",
     "#9FAC97"
    ],
-   "darkest": "#0A0909",
-   "lightest": "#E6F0D5",
+   "darkest": "#150000",
+   "lightest": "#F2F9D9",
    "tint": 0.32
   },
   {
@@ -3498,7 +4518,19 @@
     "zh-Hant": "霧海上的旅人",
     "zh-Hans": "雾海上的旅人",
     "ko": "안개 바다 위의 방랑자",
-    "ja": "雲海の上の旅人"
+    "ja": "雲海の上の旅人",
+    "bs": "Lutalica iznad mora magle",
+    "da": "Vandreren over tågehavet",
+    "it": "Viandante sul mare di nebbia",
+    "km": "អ្នកដើរលើសមុទ្រអ័ព្ទ",
+    "nb": "Vandreren over tåkehavet",
+    "pl": "Wędrowiec nad morzem mgły",
+    "pt-BR": "O Viajante sobre o Mar de Névoa",
+    "ru": "Странник над морем тумана",
+    "th": "นักเดินทางเหนือทะเลหมอก",
+    "tr": "Sis Denizi Üzerindeki Gezgin",
+    "uk": "Мандрівник над морем туману",
+    "vi": "Kẻ lang thang trên biển sương mù"
    },
    "fullTitle": "Wanderer above the Sea of Fog",
    "artist": "Caspar David Friedrich",
@@ -3524,8 +4556,8 @@
     "#AFADB3",
     "#4C4B4B"
    ],
-   "darkest": "#0C0D0B",
-   "lightest": "#D0D4DC",
+   "darkest": "#0E0200",
+   "lightest": "#FFFCE2",
    "tint": 0.33
   },
   {
@@ -3539,7 +4571,19 @@
     "zh-Hant": "艾蒂爾·布洛赫-鮑爾肖像一號",
     "zh-Hans": "阿黛尔·布洛赫-鲍尔肖像一号",
     "ko": "아델레 블로흐바우어의 초상 1",
-    "ja": "アデーレ・ブロッホ＝バウアーの肖像 I"
+    "ja": "アデーレ・ブロッホ＝バウアーの肖像 I",
+    "bs": "Adele Bloch-Bauer I",
+    "da": "Adele Bloch-Bauer I",
+    "it": "Ritratto di Adele Bloch-Bauer I",
+    "km": "អាដែល ប្លុក-បាវើរ I",
+    "nb": "Adele Bloch-Bauer I",
+    "pl": "Portret Adele Bloch-Bauer I",
+    "pt-BR": "Adele Bloch-Bauer I",
+    "ru": "Портрет Адели Блох-Бауэр I",
+    "th": "อาเดเล บล็อค-บาวเออร์ I",
+    "tr": "Adele Bloch-Bauer I",
+    "uk": "Портрет Аделі Блох-Бауер I",
+    "vi": "Adele Bloch-Bauer I"
    },
    "fullTitle": "Portrait of Adele Bloch-Bauer I",
    "artist": "Gustav Klimt",
@@ -3565,8 +4609,8 @@
     "#9F7320",
     "#B48C39"
    ],
-   "darkest": "#231A13",
-   "lightest": "#CFB04C",
+   "darkest": "#040000",
+   "lightest": "#FFFFE8",
    "tint": 0.32
   },
   {
@@ -3580,7 +4624,19 @@
     "zh-Hant": "JOB",
     "zh-Hans": "JOB",
     "ko": "JOB",
-    "ja": "ジョブ"
+    "ja": "ジョブ",
+    "bs": "Job",
+    "da": "Job",
+    "it": "Job",
+    "km": "Job",
+    "nb": "Job",
+    "pl": "Job",
+    "pt-BR": "Job",
+    "ru": "Job",
+    "th": "Job",
+    "tr": "Job",
+    "uk": "Job",
+    "vi": "Job"
    },
    "fullTitle": "Job (cigarette paper poster)",
    "artist": "Alphonse Mucha",
@@ -3606,8 +4662,8 @@
     "#423B3B",
     "#B7AFA3"
    ],
-   "darkest": "#100E11",
-   "lightest": "#EFEFEC",
+   "darkest": "#020001",
+   "lightest": "#FFFFFB",
    "tint": 0.32
   },
   {
@@ -3621,7 +4677,19 @@
     "zh-Hant": "星夜",
     "zh-Hans": "星月夜",
     "ko": "별이 빛나는 밤",
-    "ja": "星月夜"
+    "ja": "星月夜",
+    "bs": "Zvjezdana noć",
+    "da": "Stjernenatten",
+    "it": "Notte stellata",
+    "km": "រាត្រីពោរពេញដោយផ្កាយ",
+    "nb": "Stjernenatt",
+    "pl": "Gwiaździsta noc",
+    "pt-BR": "A Noite Estrelada",
+    "ru": "Звёздная ночь",
+    "th": "ราตรีประดับดาว",
+    "tr": "Yıldızlı Gece",
+    "uk": "Зоряна ніч",
+    "vi": "Đêm đầy sao"
    },
    "fullTitle": "The Starry Night",
    "artist": "Vincent van Gogh",
@@ -3647,8 +4715,8 @@
     "#2F3D57",
     "#889891"
    ],
-   "darkest": "#141918",
-   "lightest": "#B7C07C",
+   "darkest": "#000005",
+   "lightest": "#FFFFD2",
    "tint": 0.41
   },
   {
@@ -3662,7 +4730,19 @@
     "zh-Hant": "生命之樹",
     "zh-Hans": "生命之树",
     "ko": "생명의 나무",
-    "ja": "生命の樹"
+    "ja": "生命の樹",
+    "bs": "Drvo života",
+    "da": "Livets træ",
+    "it": "L'albero della vita",
+    "km": "ដើមឈើនៃជីវិត",
+    "nb": "Livets tre",
+    "pl": "Drzewo życia",
+    "pt-BR": "A Árvore da Vida",
+    "ru": "Древо жизни",
+    "th": "ต้นไม้แห่งชีวิต",
+    "tr": "Hayat Ağacı",
+    "uk": "Дерево життя",
+    "vi": "Cây sự sống"
    },
    "fullTitle": "The Tree of Life (Stoclet Frieze cartoon)",
    "artist": "Gustav Klimt",
@@ -3688,8 +4768,8 @@
     "#BDA881",
     "#4D4637"
    ],
-   "darkest": "#342F23",
-   "lightest": "#EBCEA8",
+   "darkest": "#010000",
+   "lightest": "#FFFFFA",
    "tint": 0.34
   },
   {
@@ -3703,7 +4783,19 @@
     "zh-Hant": "吻",
     "zh-Hans": "吻",
     "ko": "키스",
-    "ja": "接吻"
+    "ja": "接吻",
+    "bs": "Poljubac",
+    "da": "Kysset",
+    "it": "Il bacio",
+    "km": "ការថើប",
+    "nb": "Kysset",
+    "pl": "Pocałunek",
+    "pt-BR": "O Beijo",
+    "ru": "Поцелуй",
+    "th": "จุมพิต",
+    "tr": "Öpücük",
+    "uk": "Поцілунок",
+    "vi": "Nụ hôn"
    },
    "fullTitle": "The Kiss",
    "artist": "Gustav Klimt",
@@ -3729,8 +4821,8 @@
     "#8B7946",
     "#AA9D5B"
    ],
-   "darkest": "#2C2617",
-   "lightest": "#D3B650",
+   "darkest": "#100100",
+   "lightest": "#FFF39C",
    "tint": 0.32
   },
   {
@@ -3744,7 +4836,19 @@
     "zh-Hant": "隆河上的星夜",
     "zh-Hans": "罗讷河上的星夜",
     "ko": "론강의 별이 빛나는 밤",
-    "ja": "ローヌ川の星月夜"
+    "ja": "ローヌ川の星月夜",
+    "bs": "Zvjezdana noć nad Ronom",
+    "da": "Stjernenat over Rhône",
+    "it": "Notte stellata sul Rodano",
+    "km": "រាត្រីផ្កាយលើទន្លេរ៉ូន",
+    "nb": "Stjernenatt over Rhône",
+    "pl": "Gwiaździsta noc nad Rodanem",
+    "pt-BR": "Noite Estrelada sobre o Ródano",
+    "ru": "Звёздная ночь над Роной",
+    "th": "ราตรีประดับดาวเหนือแม่น้ำโรน",
+    "tr": "Rhône Üzerinde Yıldızlı Gece",
+    "uk": "Зоряна ніч над Роною",
+    "vi": "Đêm đầy sao trên sông Rhône"
    },
    "fullTitle": "Starry Night over the Rhône",
    "artist": "Vincent van Gogh",
@@ -3770,8 +4874,8 @@
     "#617379",
     "#7A8E71"
    ],
-   "darkest": "#32393A",
-   "lightest": "#B1B561",
+   "darkest": "#24231F",
+   "lightest": "#F0F7EF",
    "tint": 0.41
   },
   {
@@ -3785,7 +4889,19 @@
     "zh-Hant": "自由引導人民",
     "zh-Hans": "自由引导人民",
     "ko": "민중을 이끄는 자유의 여신",
-    "ja": "民衆を導く自由の女神"
+    "ja": "民衆を導く自由の女神",
+    "bs": "Sloboda predvodi narod",
+    "da": "Friheden fører folket",
+    "it": "La Libertà che guida il popolo",
+    "km": "សេរីភាពដឹកនាំប្រជាជន",
+    "nb": "Friheten leder folket",
+    "pl": "Wolność wiodąca lud na barykady",
+    "pt-BR": "A Liberdade Guiando o Povo",
+    "ru": "Свобода, ведущая народ",
+    "th": "เสรีภาพนำประชาชน",
+    "tr": "Halka Yol Gösteren Özgürlük",
+    "uk": "Свобода, що веде народ",
+    "vi": "Nữ thần Tự do dẫn dắt nhân dân"
    },
    "fullTitle": "Liberty Leading the People",
    "artist": "Eugène Delacroix",
@@ -3811,8 +4927,8 @@
     "#716867",
     "#AFB1B5"
    ],
-   "darkest": "#171411",
-   "lightest": "#EFEEEC",
+   "darkest": "#020003",
+   "lightest": "#FFFFFD",
    "tint": 0.39
   },
   {
@@ -3826,7 +4942,19 @@
     "zh-Hant": "向日葵",
     "zh-Hans": "向日葵",
     "ko": "해바라기",
-    "ja": "ひまわり"
+    "ja": "ひまわり",
+    "bs": "Suncokreti",
+    "da": "Solsikker",
+    "it": "I girasoli",
+    "km": "ផ្កាឈូករ័ត្ន",
+    "nb": "Solsikker",
+    "pl": "Słoneczniki",
+    "pt-BR": "Os Girassóis",
+    "ru": "Подсолнухи",
+    "th": "ดอกทานตะวัน",
+    "tr": "Ayçiçekleri",
+    "uk": "Соняшники",
+    "vi": "Hoa hướng dương"
    },
    "fullTitle": "Sunflowers",
    "artist": "Vincent van Gogh",
@@ -3852,8 +4980,8 @@
     "#8C6F2A",
     "#CCB764"
    ],
-   "darkest": "#281C0C",
-   "lightest": "#E7DE89",
+   "darkest": "#0F110E",
+   "lightest": "#FBF3A8",
    "tint": 0.33
   },
   {
@@ -3867,7 +4995,19 @@
     "zh-Hant": "瑪達·普里馬韋西",
     "zh-Hans": "玛达·普里马韦西",
     "ko": "메다 프리마베시",
-    "ja": "メーダ・プリマヴェージ"
+    "ja": "メーダ・プリマヴェージ",
+    "bs": "Mäda Primavesi",
+    "da": "Mäda Primavesi",
+    "it": "Mäda Primavesi",
+    "km": "ម៉ែដា ព្រីម៉ាវេស៊ី",
+    "nb": "Mäda Primavesi",
+    "pl": "Mäda Primavesi",
+    "pt-BR": "Mäda Primavesi",
+    "ru": "Мэда Примавези",
+    "th": "เมดา พรีมาเวซี",
+    "tr": "Mäda Primavesi",
+    "uk": "Меда Прімавезі",
+    "vi": "Mäda Primavesi"
    },
    "fullTitle": "Mäda Primavesi",
    "artist": "Gustav Klimt",
@@ -3893,8 +5033,8 @@
     "#B9B3AC",
     "#806D7D"
    ],
-   "darkest": "#232120",
-   "lightest": "#CFCBC7",
+   "darkest": "#030000",
+   "lightest": "#F5FEEB",
    "tint": 0.33
   },
   {
@@ -3908,7 +5048,19 @@
     "zh-Hant": "穿橙紅色衣裙的跪姿女子",
     "zh-Hans": "穿橙红色衣裙的跪姿女子",
     "ko": "주홍 드레스를 입고 무릎 꿇은 여인",
-    "ja": "オレンジ色の服でひざまずく女"
+    "ja": "オレンジ色の服でひざまずく女",
+    "bs": "Klečeća žena u narandžasto-crvenoj haljini",
+    "da": "Knælende kvinde i orangerød kjole",
+    "it": "Donna inginocchiata in abito rosso-arancio",
+    "km": "ស្ត្រីលុតជង្គង់ក្នុងរ៉ូបពណ៌ទឹកក្រូចក្រហម",
+    "nb": "Knelende kvinne i oransjerød kjole",
+    "pl": "Klęcząca kobieta w pomarańczowoczerwonej sukni",
+    "pt-BR": "Mulher Ajoelhada em Vestido Vermelho-Alaranjado",
+    "ru": "Коленопреклонённая женщина в оранжево-красном платье",
+    "th": "หญิงคุกเข่าในชุดสีส้มแดง",
+    "tr": "Turuncu-Kırmızı Elbiseli Diz Çökmüş Kadın",
+    "uk": "Жінка на колінах в оранжево-червоній сукні",
+    "vi": "Người phụ nữ quỳ trong váy đỏ cam"
    },
    "fullTitle": "Kneeling Female in Orange-Red Dress",
    "artist": "Egon Schiele",
@@ -3934,8 +5086,8 @@
     "#D8B694",
     "#995E47"
    ],
-   "darkest": "#3E2720",
-   "lightest": "#EACFB0",
+   "darkest": "#0D0000",
+   "lightest": "#FFE7DC",
    "tint": 0.34
   },
   {
@@ -3949,7 +5101,19 @@
     "zh-Hant": "花瓶裡的十二朵向日葵",
     "zh-Hans": "花瓶里的十二朵向日葵",
     "ko": "열두 송이 해바라기가 있는 꽃병",
-    "ja": "12本のひまわり"
+    "ja": "12本のひまわり",
+    "bs": "Vaza s dvanaest suncokreta",
+    "da": "Vase med tolv solsikker",
+    "it": "Vaso con dodici girasoli",
+    "km": "ថូផ្កាឈូករ័ត្នដប់ពីរទង",
+    "nb": "Vase med tolv solsikker",
+    "pl": "Wazon z dwunastoma słonecznikami",
+    "pt-BR": "Vaso com Doze Girassóis",
+    "ru": "Ваза с двенадцатью подсолнухами",
+    "th": "แจกันดอกทานตะวันสิบสองดอก",
+    "tr": "On İki Ayçiçekli Vazo",
+    "uk": "Ваза з дванадцятьма соняшниками",
+    "vi": "Bình mười hai bông hướng dương"
    },
    "fullTitle": "Vase with Twelve Sunflowers",
    "artist": "Vincent van Gogh",
@@ -3975,8 +5139,8 @@
     "#A2813C",
     "#C1B47A"
    ],
-   "darkest": "#26200E",
-   "lightest": "#C3CEB9",
+   "darkest": "#190100",
+   "lightest": "#FBFACC",
    "tint": 0.33
   },
   {
@@ -3990,7 +5154,19 @@
     "zh-Hant": "西斯汀禮拜堂天頂畫",
     "zh-Hans": "西斯廷礼拜堂天顶画",
     "ko": "시스티나 성당 천장화",
-    "ja": "システィーナ礼拝堂天井画"
+    "ja": "システィーナ礼拝堂天井画",
+    "bs": "Strop Sikstinske kapele",
+    "da": "Det Sixtinske Kapels loft",
+    "it": "La volta della Cappella Sistina",
+    "km": "ពិដានវិហារស៊ីស្ទីន",
+    "nb": "Taket i Det sixtinske kapell",
+    "pl": "Sklepienie Kaplicy Sykstyńskiej",
+    "pt-BR": "O Teto da Capela Sistina",
+    "ru": "Потолок Сикстинской капеллы",
+    "th": "เพดานโบสถ์น้อยซิสทีน",
+    "tr": "Sistina Şapeli Tavanı",
+    "uk": "Стеля Сікстинської капели",
+    "vi": "Trần nhà nguyện Sistine"
    },
    "fullTitle": "Sistine Chapel ceiling",
    "artist": "Michelangelo",
@@ -4016,8 +5192,8 @@
     "#8D7B68",
     "#B1A392"
    ],
-   "darkest": "#352B22",
-   "lightest": "#F5F7F8",
+   "darkest": "#170600",
+   "lightest": "#FFFFFF",
    "tint": 0.44
   },
   {
@@ -4031,7 +5207,19 @@
     "zh-Hant": "大紅色平面構成",
     "zh-Hans": "大红色平面构成",
     "ko": "큰 빨강 면이 있는 구성",
-    "ja": "大きな赤の平面のあるコンポジション"
+    "ja": "大きな赤の平面のあるコンポジション",
+    "bs": "Kompozicija s velikom crvenom plohom",
+    "da": "Komposition med stort rødt felt",
+    "it": "Composizione con grande piano rosso",
+    "km": "សមាសភាពជាមួយផ្ទៃក្រហមធំ",
+    "nb": "Komposisjon med stort rødt felt",
+    "pl": "Kompozycja z dużą czerwoną płaszczyzną",
+    "pt-BR": "Composição com Grande Plano Vermelho",
+    "ru": "Композиция с большой красной плоскостью",
+    "th": "องค์ประกอบกับระนาบสีแดงขนาดใหญ่",
+    "tr": "Büyük Kırmızı Düzlemli Kompozisyon",
+    "uk": "Композиція з великою червоною площиною",
+    "vi": "Bố cục với mảng đỏ lớn"
    },
    "fullTitle": "Composition with Large Red Plane, Yellow, Black, Gray and Blue",
    "artist": "Piet Mondrian",
@@ -4057,8 +5245,8 @@
     "#CEC7B1",
     "#905749"
    ],
-   "darkest": "#060704",
-   "lightest": "#E3E0DB",
+   "darkest": "#020300",
+   "lightest": "#FFFFFF",
    "tint": 0.33
   },
   {
@@ -4072,7 +5260,19 @@
     "zh-Hant": "海克力斯的神化",
     "zh-Hans": "赫拉克勒斯的封神",
     "ko": "헤라클레스의 신격화",
-    "ja": "ヘラクレスの神格化"
+    "ja": "ヘラクレスの神格化",
+    "bs": "Apoteoza Herkula",
+    "da": "Herkules' apoteose",
+    "it": "L'apoteosi di Ercole",
+    "km": "ការលើកតម្កើងហឺគ្យូលីស",
+    "nb": "Herkules' apoteose",
+    "pl": "Apoteoza Herkulesa",
+    "pt-BR": "A Apoteose de Hércules",
+    "ru": "Апофеоз Геркулеса",
+    "th": "อภิเทวภาพของเฮอร์คิวลีส",
+    "tr": "Herkül'ün Apoteozu",
+    "uk": "Апофеоз Геркулеса",
+    "vi": "Sự tôn vinh Hercules"
    },
    "fullTitle": "The Apotheosis of Hercules",
    "artist": "François Lemoyne",
@@ -4098,8 +5298,8 @@
     "#8F7568",
     "#BEB0B4"
    ],
-   "darkest": "#362E27",
-   "lightest": "#ECE4DC",
+   "darkest": "#080000",
+   "lightest": "#FFFDF5",
    "tint": 0.44
   },
   {
@@ -4113,7 +5313,19 @@
     "zh-Hant": "莫阿",
     "zh-Hans": "莫阿",
     "ko": "모아",
-    "ja": "モア"
+    "ja": "モア",
+    "bs": "Moa",
+    "da": "Moa",
+    "it": "Moa",
+    "km": "ម៉ូអា",
+    "nb": "Moa",
+    "pl": "Moa",
+    "pt-BR": "Moa",
+    "ru": "Моа",
+    "th": "โมอา",
+    "tr": "Moa",
+    "uk": "Моа",
+    "vi": "Moa"
    },
    "fullTitle": "Moa",
    "artist": "Egon Schiele",
@@ -4139,8 +5351,8 @@
     "#DFD7CF",
     "#6E5B48"
    ],
-   "darkest": "#0F0E0E",
-   "lightest": "#E7E2DD",
+   "darkest": "#010200",
+   "lightest": "#FFFDF4",
    "tint": 0.33
   },
   {
@@ -4154,7 +5366,19 @@
     "zh-Hant": "第九濤",
     "zh-Hans": "九级浪",
     "ko": "아홉 번째 파도",
-    "ja": "第九の怒濤"
+    "ja": "第九の怒濤",
+    "bs": "Deveti val",
+    "da": "Den niende bølge",
+    "it": "La nona onda",
+    "km": "រលកទីប្រាំបួន",
+    "nb": "Den niende bølgen",
+    "pl": "Dziewiąta fala",
+    "pt-BR": "A Nona Onda",
+    "ru": "Девятый вал",
+    "th": "คลื่นลูกที่เก้า",
+    "tr": "Dokuzuncu Dalga",
+    "uk": "Дев'ятий вал",
+    "vi": "Con sóng thứ chín"
    },
    "fullTitle": "The Ninth Wave",
    "artist": "Ivan Aivazovsky",
@@ -4180,8 +5404,8 @@
     "#5A463F",
     "#D4B174"
    ],
-   "darkest": "#0D0B0F",
-   "lightest": "#F9E6A0",
+   "darkest": "#010006",
+   "lightest": "#FFF7C2",
    "tint": 0.42
   },
   {
@@ -4195,7 +5419,19 @@
     "zh-Hant": "繪畫式建築結構",
     "zh-Hans": "绘画式建筑结构",
     "ko": "회화적 건축 구성",
-    "ja": "絵画的建築術"
+    "ja": "絵画的建築術",
+    "bs": "Slikarska arhitektonika",
+    "da": "Malerisk arkitektonik",
+    "it": "Architettonica pittorica",
+    "km": "ស្ថាបត្យកម្មគំនូរ",
+    "nb": "Malerisk arkitektonikk",
+    "pl": "Architektonika malarska",
+    "pt-BR": "Arquitetônica Pictórica",
+    "ru": "Живописная архитектоника",
+    "th": "สถาปัตยกรรมเชิงจิตรกรรม",
+    "tr": "Resimsel Mimari",
+    "uk": "Живописна архітектоніка",
+    "vi": "Kiến trúc hội họa"
    },
    "fullTitle": "Painterly Architectonic",
    "artist": "Lyubov Popova",
@@ -4221,8 +5457,8 @@
     "#B67E44",
     "#BCB5A9"
    ],
-   "darkest": "#1B1529",
-   "lightest": "#EDEADE",
+   "darkest": "#000000",
+   "lightest": "#FFFFFF",
    "tint": 0.49
   },
   {
@@ -4236,7 +5472,19 @@
     "zh-Hant": "巴別塔",
     "zh-Hans": "巴别塔",
     "ko": "바벨탑",
-    "ja": "バベルの塔"
+    "ja": "バベルの塔",
+    "bs": "Babilonska kula",
+    "da": "Babelstårnet",
+    "it": "La Torre di Babele",
+    "km": "ប៉មបាបិល",
+    "nb": "Babels tårn",
+    "pl": "Wieża Babel",
+    "pt-BR": "A Torre de Babel",
+    "ru": "Вавилонская башня",
+    "th": "หอคอยบาเบล",
+    "tr": "Babil Kulesi",
+    "uk": "Вавилонська вежа",
+    "vi": "Tháp Babel"
    },
    "fullTitle": "The Tower of Babel",
    "artist": "Pieter Bruegel the Elder",
@@ -4262,8 +5510,8 @@
     "#AD9862",
     "#D7D2BC"
    ],
-   "darkest": "#161508",
-   "lightest": "#F6EACD",
+   "darkest": "#010000",
+   "lightest": "#FFFDE8",
    "tint": 0.55
   },
   {
@@ -4277,7 +5525,19 @@
     "zh-Hant": "維納斯的誕生",
     "zh-Hans": "维纳斯的诞生",
     "ko": "비너스의 탄생",
-    "ja": "ヴィーナスの誕生"
+    "ja": "ヴィーナスの誕生",
+    "bs": "Rođenje Venere",
+    "da": "Venus' fødsel",
+    "it": "La nascita di Venere",
+    "km": "កំណើតរបស់វីនុស",
+    "nb": "Venus' fødsel",
+    "pl": "Narodziny Wenus",
+    "pt-BR": "O Nascimento de Vênus",
+    "ru": "Рождение Венеры",
+    "th": "กำเนิดวีนัส",
+    "tr": "Venüs'ün Doğuşu",
+    "uk": "Народження Венери",
+    "vi": "Sự ra đời của thần Vệ Nữ"
    },
    "fullTitle": "The Birth of Venus",
    "artist": "Sandro Botticelli",
@@ -4303,8 +5563,8 @@
     "#BBAC80",
     "#D8D1B2"
    ],
-   "darkest": "#1F1D13",
-   "lightest": "#EDECD9",
+   "darkest": "#000200",
+   "lightest": "#FDFFF9",
    "tint": 0.5
   },
   {
@@ -4318,7 +5578,19 @@
     "zh-Hant": "黃-紅-藍",
     "zh-Hans": "黄-红-蓝",
     "ko": "노랑-빨강-파랑",
-    "ja": "黄・赤・青"
+    "ja": "黄・赤・青",
+    "bs": "Žuto-crveno-plavo",
+    "da": "Gul-rød-blå",
+    "it": "Giallo-rosso-blu",
+    "km": "លឿង-ក្រហម-ខៀវ",
+    "nb": "Gul-rød-blå",
+    "pl": "Żółty-czerwony-niebieski",
+    "pt-BR": "Amarelo-Vermelho-Azul",
+    "ru": "Жёлтое — красное — синее",
+    "th": "เหลือง-แดง-น้ำเงิน",
+    "tr": "Sarı-Kırmızı-Mavi",
+    "uk": "Жовте — червоне — синє",
+    "vi": "Vàng-Đỏ-Xanh"
    },
    "fullTitle": "Yellow-Red-Blue",
    "artist": "Wassily Kandinsky",
@@ -4344,8 +5616,8 @@
     "#7D7079",
     "#D8CC94"
    ],
-   "darkest": "#252425",
-   "lightest": "#E0DB8E",
+   "darkest": "#0B0000",
+   "lightest": "#F6F6EE",
    "tint": 0.62
   },
   {
@@ -4359,7 +5631,19 @@
     "zh-Hant": "構成第八號",
     "zh-Hans": "构成第八号",
     "ko": "구성 8",
-    "ja": "コンポジション VIII"
+    "ja": "コンポジション VIII",
+    "bs": "Kompozicija VIII",
+    "da": "Komposition VIII",
+    "it": "Composizione VIII",
+    "km": "សមាសភាព VIII",
+    "nb": "Komposisjon VIII",
+    "pl": "Kompozycja VIII",
+    "pt-BR": "Composição VIII",
+    "ru": "Композиция VIII",
+    "th": "องค์ประกอบ VIII",
+    "tr": "Kompozisyon VIII",
+    "uk": "Композиція VIII",
+    "vi": "Bố cục VIII"
    },
    "fullTitle": "Composition VIII",
    "artist": "Wassily Kandinsky",
@@ -4385,8 +5669,8 @@
     "#8B7B6A",
     "#DCCBB4"
    ],
-   "darkest": "#221E1D",
-   "lightest": "#E9DFCF",
+   "darkest": "#030000",
+   "lightest": "#FFFFFD",
    "tint": 0.63
   },
   {
@@ -4400,7 +5684,19 @@
     "zh-Hant": "無名女郎",
     "zh-Hans": "无名女郎",
     "ko": "미지의 여인",
-    "ja": "見知らぬ女"
+    "ja": "見知らぬ女",
+    "bs": "Nepoznata",
+    "da": "Den ukendte kvinde",
+    "it": "Ritratto di sconosciuta",
+    "km": "ស្ត្រីមិនស្គាល់មុខ",
+    "nb": "Ukjent kvinne",
+    "pl": "Nieznajoma",
+    "pt-BR": "A Desconhecida",
+    "ru": "Неизвестная",
+    "th": "หญิงนิรนาม",
+    "tr": "Bilinmeyen Kadın",
+    "uk": "Невідома",
+    "vi": "Người đàn bà xa lạ"
    },
    "fullTitle": "Portrait of an Unknown Woman",
    "artist": "Ivan Kramskoi",
@@ -4426,8 +5722,8 @@
     "#EBE1CA",
     "#D5C7B1"
    ],
-   "darkest": "#242929",
-   "lightest": "#F4E5CA",
+   "darkest": "#100A00",
+   "lightest": "#FFFFFB",
    "tint": 0.64
   },
   {
@@ -4441,7 +5737,19 @@
     "zh-Hant": "創造亞當",
     "zh-Hans": "创造亚当",
     "ko": "아담의 창조",
-    "ja": "アダムの創造"
+    "ja": "アダムの創造",
+    "bs": "Stvaranje Adama",
+    "da": "Adams skabelse",
+    "it": "La creazione di Adamo",
+    "km": "ការបង្កើតអ័ដាម",
+    "nb": "Adams skapelse",
+    "pl": "Stworzenie Adama",
+    "pt-BR": "A Criação de Adão",
+    "ru": "Сотворение Адама",
+    "th": "การสร้างอาดัม",
+    "tr": "Âdem'in Yaratılışı",
+    "uk": "Створення Адама",
+    "vi": "Sự sáng tạo Adam"
    },
    "fullTitle": "The Creation of Adam",
    "artist": "Michelangelo",
@@ -4467,8 +5775,8 @@
     "#CFC1A9",
     "#E2D9C1"
    ],
-   "darkest": "#3F2310",
-   "lightest": "#F8F3D8",
+   "darkest": "#090000",
+   "lightest": "#FFFFEC",
    "tint": 0.58
   },
   {
@@ -4482,7 +5790,19 @@
     "zh-Hant": "神奈川沖浪裏",
     "zh-Hans": "神奈川冲浪里",
     "ko": "가나가와 해변의 높은 파도 아래",
-    "ja": "神奈川沖浪裏"
+    "ja": "神奈川沖浪裏",
+    "bs": "Veliki val kod Kanagawe",
+    "da": "Den store bølge ud for Kanagawa",
+    "it": "La grande onda di Kanagawa",
+    "km": "រលកធំនៅកាណាហ្គាវ៉ា",
+    "nb": "Den store bølgen utenfor Kanagawa",
+    "pl": "Wielka fala w Kanagawie",
+    "pt-BR": "A Grande Onda de Kanagawa",
+    "ru": "Большая волна в Канагаве",
+    "th": "คลื่นยักษ์นอกชายฝั่งคานางาวะ",
+    "tr": "Kanagawa Açıklarında Büyük Dalga",
+    "uk": "Велика хвиля в Канаґаві",
+    "vi": "Sóng lừng ngoài khơi Kanagawa"
    },
    "fullTitle": "The Great Wave off Kanagawa",
    "artist": "Katsushika Hokusai",
@@ -4508,8 +5828,8 @@
     "#868A85",
     "#E2CCAB"
    ],
-   "darkest": "#4D4944",
-   "lightest": "#F1DFC3",
+   "darkest": "#112C3D",
+   "lightest": "#FDF6DB",
    "tint": 0.7
   },
   {
@@ -4523,7 +5843,19 @@
     "zh-Hant": "木桶中的花",
     "zh-Hans": "木桶中的花",
     "ko": "나무 그릇의 꽃",
-    "ja": "木桶の花"
+    "ja": "木桶の花",
+    "bs": "Cvijeće u drvenoj posudi",
+    "da": "Blomster i en trækrukke",
+    "it": "Fiori in un vaso di legno",
+    "km": "ផ្កាក្នុងធុងឈើ",
+    "nb": "Blomster i et trekar",
+    "pl": "Kwiaty w drewnianym naczyniu",
+    "pt-BR": "Flores num Vaso de Madeira",
+    "ru": "Цветы в деревянном сосуде",
+    "th": "ดอกไม้ในภาชนะไม้",
+    "tr": "Ahşap Kapta Çiçekler",
+    "uk": "Квіти в дерев'яній посудині",
+    "vi": "Hoa trong bình gỗ"
    },
    "fullTitle": "Flowers in a Wooden Vessel",
    "artist": "Jan Brueghel the Elder",
@@ -4549,8 +5881,8 @@
     "#271F19",
     "#59483A"
    ],
-   "darkest": "#040406",
-   "lightest": "#C4C3B6",
+   "darkest": "#000000",
+   "lightest": "#FFFFF3",
    "tint": 0.31
   },
   {
@@ -4564,7 +5896,19 @@
     "zh-Hant": "月光下的德勒斯登",
     "zh-Hans": "月光下的德累斯顿",
     "ko": "달빛 아래 드레스덴 풍경",
-    "ja": "月明かりのドレスデン"
+    "ja": "月明かりのドレスデン",
+    "bs": "Pogled na Dresden pod mjesečinom",
+    "da": "Udsigt over Dresden i måneskin",
+    "it": "Veduta di Dresda al chiaro di luna",
+    "km": "ទិដ្ឋភាពទីក្រុងដ្រេសដិនក្រោមពន្លឺព្រះចន្ទ",
+    "nb": "Utsikt over Dresden i måneskinn",
+    "pl": "Widok Drezna w świetle księżyca",
+    "pt-BR": "Vista de Dresden ao Luar",
+    "ru": "Вид Дрездена при лунном свете",
+    "th": "ทิวทัศน์เดรสเดนยามแสงจันทร์",
+    "tr": "Ay Işığında Dresden Manzarası",
+    "uk": "Вид Дрездена в місячному світлі",
+    "vi": "Quang cảnh Dresden dưới ánh trăng"
    },
    "fullTitle": "View of Dresden by Moonlight",
    "artist": "Johan Christian Dahl",
@@ -4590,8 +5934,8 @@
     "#2A3436",
     "#434C4A"
    ],
-   "darkest": "#0D1518",
-   "lightest": "#858D79",
+   "darkest": "#000100",
+   "lightest": "#FEFFF6",
    "tint": 0.32
   },
   {
@@ -4605,7 +5949,19 @@
     "zh-Hant": "萬曆花瓶中的花",
     "zh-Hans": "万历花瓶中的花",
     "ko": "만력 꽃병의 꽃",
-    "ja": "万暦の花瓶の花"
+    "ja": "万暦の花瓶の花",
+    "bs": "Cvijeće u Wan-Li vazi",
+    "da": "Blomster i en Wan-Li-vase",
+    "it": "Fiori in un vaso Wan-Li",
+    "km": "ផ្កាក្នុងថូវ៉ាន់លី",
+    "nb": "Blomster i en Wan-Li-vase",
+    "pl": "Kwiaty w wazonie Wan-Li",
+    "pt-BR": "Flores num Vaso Wan-Li",
+    "ru": "Цветы в вазе Ван-Ли",
+    "th": "ดอกไม้ในแจกันว่านลี่",
+    "tr": "Wan-Li Vazoda Çiçekler",
+    "uk": "Квіти у вазі Ван-Лі",
+    "vi": "Hoa trong bình Vạn Lịch"
    },
    "fullTitle": "Still Life with Flowers in a Wan-Li Vase",
    "artist": "Ambrosius Bosschaert the Elder",
@@ -4631,8 +5987,8 @@
     "#231C0B",
     "#614E28"
    ],
-   "darkest": "#050301",
-   "lightest": "#C7B893",
+   "darkest": "#040000",
+   "lightest": "#F8EEBB",
    "tint": 0.31
   },
   {
@@ -4646,7 +6002,19 @@
     "zh-Hant": "春",
     "zh-Hans": "春",
     "ko": "봄",
-    "ja": "春"
+    "ja": "春",
+    "bs": "Proljeće",
+    "da": "Foråret",
+    "it": "Primavera",
+    "km": "និទាឃរដូវ",
+    "nb": "Våren",
+    "pl": "Wiosna",
+    "pt-BR": "Primavera",
+    "ru": "Весна",
+    "th": "ฤดูใบไม้ผลิ",
+    "tr": "İlkbahar",
+    "uk": "Весна",
+    "vi": "Mùa xuân"
    },
    "fullTitle": "Springtime",
    "artist": "Pierre Auguste Cot",
@@ -4672,8 +6040,8 @@
     "#25251A",
     "#595E41"
    ],
-   "darkest": "#040406",
-   "lightest": "#D3C49C",
+   "darkest": "#000200",
+   "lightest": "#FFFFF8",
    "tint": 0.31
   },
   {
@@ -4687,7 +6055,19 @@
     "zh-Hant": "花卉靜物",
     "zh-Hans": "花卉静物",
     "ko": "꽃 정물",
-    "ja": "花の静物画"
+    "ja": "花の静物画",
+    "bs": "Mrtva priroda s cvijećem",
+    "da": "Opstilling med blomster",
+    "it": "Natura morta con fiori",
+    "km": "រូបវត្ថុស្ងៀមជាមួយផ្កា",
+    "nb": "Stilleben med blomster",
+    "pl": "Martwa natura z kwiatami",
+    "pt-BR": "Natureza-Morta com Flores",
+    "ru": "Натюрморт с цветами",
+    "th": "ภาพหุ่นนิ่งดอกไม้",
+    "tr": "Çiçekli Natürmort",
+    "uk": "Натюрморт із квітами",
+    "vi": "Tĩnh vật với hoa"
    },
    "fullTitle": "Still Life with Flowers",
    "artist": "Rachel Ruysch",
@@ -4713,8 +6093,8 @@
     "#2D241C",
     "#6C5E4C"
    ],
-   "darkest": "#040403",
-   "lightest": "#DBD2C0",
+   "darkest": "#000002",
+   "lightest": "#FDFFFE",
    "tint": 0.31
   },
   {
@@ -4728,7 +6108,19 @@
     "zh-Hant": "盛開的梅樹果園",
     "zh-Hans": "盛开的李树果园",
     "ko": "꽃 피는 자두 과수원",
-    "ja": "花咲くプラム園"
+    "ja": "花咲くプラム園",
+    "bs": "Rascvjetali voćnjak šljiva",
+    "da": "Blomstrende blommehave",
+    "it": "Frutteto di susini in fiore",
+    "km": "ចម្ការផ្លែព្រូនកំពុងរីក",
+    "nb": "Blomstrende plommehage",
+    "pl": "Kwitnący sad śliwowy",
+    "pt-BR": "Pomar de Ameixeiras em Flor",
+    "ru": "Цветущий сливовый сад",
+    "th": "สวนพลัมผลิบาน",
+    "tr": "Çiçek Açan Erik Bahçesi",
+    "uk": "Квітучий сливовий сад",
+    "vi": "Vườn mận nở hoa"
    },
    "fullTitle": "Flowering Plum Orchard (after Hiroshige)",
    "artist": "Vincent van Gogh",
@@ -4754,8 +6146,8 @@
     "#3F2E1F",
     "#6E5C33"
    ],
-   "darkest": "#160807",
-   "lightest": "#BAA485",
+   "darkest": "#0B0000",
+   "lightest": "#FFF0D3",
    "tint": 0.31
   },
   {
@@ -4769,7 +6161,19 @@
     "zh-Hant": "不情願的新娘",
     "zh-Hans": "不情愿的新娘",
     "ko": "내키지 않는 신부",
-    "ja": "気の進まない花嫁"
+    "ja": "気の進まない花嫁",
+    "bs": "Nevoljna nevjesta",
+    "da": "Den uvillige brud",
+    "it": "La sposa riluttante",
+    "km": "កូនក្រមុំដែលមិនព្រមចិត្ត",
+    "nb": "Den motvillige bruden",
+    "pl": "Niechętna panna młoda",
+    "pt-BR": "A Noiva Relutante",
+    "ru": "Невеста поневоле",
+    "th": "เจ้าสาวผู้ไม่เต็มใจ",
+    "tr": "İsteksiz Gelin",
+    "uk": "Неохоча наречена",
+    "vi": "Cô dâu bất đắc dĩ"
    },
    "fullTitle": "The Reluctant Bride",
    "artist": "Auguste Toulmouche",
@@ -4795,8 +6199,8 @@
     "#4A261B",
     "#7D5C52"
    ],
-   "darkest": "#120808",
-   "lightest": "#E7E6F1",
+   "darkest": "#080000",
+   "lightest": "#FFFFFF",
    "tint": 0.31
   },
   {
@@ -4810,7 +6214,19 @@
     "zh-Hant": "奏樂天使",
     "zh-Hans": "奏乐天使",
     "ko": "음악을 연주하는 천사",
-    "ja": "奏楽の天使"
+    "ja": "奏楽の天使",
+    "bs": "Anđeo muzičar",
+    "da": "Musicerende engel",
+    "it": "Angelo musicante",
+    "km": "ទេវតាលេងភ្លេង",
+    "nb": "Musiserende engel",
+    "pl": "Muzykujący anioł",
+    "pt-BR": "Anjo Músico",
+    "ru": "Музицирующий ангел",
+    "th": "ทูตสวรรค์นักดนตรี",
+    "tr": "Müzisyen Melek",
+    "uk": "Ангел-музикант",
+    "vi": "Thiên thần chơi nhạc"
    },
    "fullTitle": "Musical Angel",
    "artist": "Rosso Fiorentino",
@@ -4837,7 +6253,7 @@
     "#6B3B16"
    ],
    "darkest": "#000000",
-   "lightest": "#B5702D",
+   "lightest": "#DBB993",
    "tint": 0.33
   },
   {
@@ -4851,7 +6267,19 @@
     "zh-Hant": "倫敦布萊克曼街",
     "zh-Hans": "伦敦布莱克曼街",
     "ko": "런던 블랙맨 스트리트",
-    "ja": "ロンドン、ブラックマン通り"
+    "ja": "ロンドン、ブラックマン通り",
+    "bs": "Blackman Street, London",
+    "da": "Blackman Street, London",
+    "it": "Blackman Street, Londra",
+    "km": "ផ្លូវ Blackman, ឡុងដ៍",
+    "nb": "Blackman Street, London",
+    "pl": "Blackman Street, Londyn",
+    "pt-BR": "Blackman Street, Londres",
+    "ru": "Блэкман-стрит, Лондон",
+    "th": "ถนนแบล็กแมน ลอนดอน",
+    "tr": "Blackman Street, Londra",
+    "uk": "Блекмен-стріт, Лондон",
+    "vi": "Phố Blackman, Luân Đôn"
    },
    "fullTitle": "Blackman Street, London",
    "artist": "John Atkinson Grimshaw",
@@ -4877,8 +6305,8 @@
     "#767442",
     "#41361E"
    ],
-   "darkest": "#080706",
-   "lightest": "#DE9713",
+   "darkest": "#000002",
+   "lightest": "#FFF724",
    "tint": 0.31
   },
   {
@@ -4892,7 +6320,19 @@
     "zh-Hant": "奧菲莉亞",
     "zh-Hans": "奥菲莉亚",
     "ko": "오필리아",
-    "ja": "オフィーリア"
+    "ja": "オフィーリア",
+    "bs": "Ofelija",
+    "da": "Ofelia",
+    "it": "Ofelia",
+    "km": "អូហ្វេលៀ",
+    "nb": "Ofelia",
+    "pl": "Ofelia",
+    "pt-BR": "Ofélia",
+    "ru": "Офелия",
+    "th": "โอฟีเลีย",
+    "tr": "Ophelia",
+    "uk": "Офелія",
+    "vi": "Ophelia"
    },
    "fullTitle": "Ophelia",
    "artist": "John William Waterhouse",
@@ -4918,8 +6358,8 @@
     "#40362B",
     "#756549"
    ],
-   "darkest": "#0F0B07",
-   "lightest": "#DFC6C2",
+   "darkest": "#090000",
+   "lightest": "#FFFFF6",
    "tint": 0.31
   },
   {
@@ -4933,7 +6373,19 @@
     "zh-Hant": "瑪格達萊納灣",
     "zh-Hans": "玛格达莱纳湾",
     "ko": "막달레나 만",
-    "ja": "マグダレナ湾"
+    "ja": "マグダレナ湾",
+    "bs": "Zaljev Magdalena",
+    "da": "Magdalenefjorden",
+    "it": "Baia della Maddalena",
+    "km": "ឈូងសមុទ្រម៉ាក់ដាឡេណា",
+    "nb": "Magdalenefjorden",
+    "pl": "Zatoka Magdaleny",
+    "pt-BR": "Baía de Madalena",
+    "ru": "Залив Магдалены",
+    "th": "อ่าวแม็กดาเลนา",
+    "tr": "Magdalena Körfezi",
+    "uk": "Затока Магдалини",
+    "vi": "Vịnh Magdalena"
    },
    "fullTitle": "Magdalena Bay, Spitsbergen (aurora borealis)",
    "artist": "François-Auguste Biard",
@@ -4959,8 +6411,8 @@
     "#7E766B",
     "#3A3334"
    ],
-   "darkest": "#080606",
-   "lightest": "#CCBDA4",
+   "darkest": "#050100",
+   "lightest": "#F3E4C5",
    "tint": 0.33
   },
   {
@@ -4974,7 +6426,19 @@
     "zh-Hant": "花瓶中的玫瑰",
     "zh-Hans": "花瓶中的玫瑰",
     "ko": "꽃병의 장미",
-    "ja": "花瓶の薔薇"
+    "ja": "花瓶の薔薇",
+    "bs": "Ruže u vazi",
+    "da": "Roser i en vase",
+    "it": "Rose in un vaso",
+    "km": "ផ្កាកុលាបក្នុងថូ",
+    "nb": "Roser i en vase",
+    "pl": "Róże w wazonie",
+    "pt-BR": "Rosas num Vaso",
+    "ru": "Розы в вазе",
+    "th": "ดอกกุหลาบในแจกัน",
+    "tr": "Vazoda Güller",
+    "uk": "Троянди у вазі",
+    "vi": "Hoa hồng trong bình"
    },
    "fullTitle": "Roses in a Vase",
    "artist": "Pierre-Auguste Renoir",
@@ -5000,8 +6464,8 @@
     "#3E3222",
     "#6D5F3A"
    ],
-   "darkest": "#1C1C1B",
-   "lightest": "#A18B5C",
+   "darkest": "#020500",
+   "lightest": "#FFFFE2",
    "tint": 0.35
   },
   {
@@ -5015,7 +6479,19 @@
     "zh-Hant": "喜馬拉雅",
     "zh-Hans": "喜马拉雅",
     "ko": "히말라야",
-    "ja": "ヒマラヤ"
+    "ja": "ヒマラヤ",
+    "bs": "Himalaji",
+    "da": "Himalaya",
+    "it": "Himalaya",
+    "km": "ហិមាល័យ",
+    "nb": "Himalaya",
+    "pl": "Himalaje",
+    "pt-BR": "Himalaia",
+    "ru": "Гималаи",
+    "th": "หิมาลัย",
+    "tr": "Himalayalar",
+    "uk": "Гімалаї",
+    "vi": "Dãy Himalaya"
    },
    "fullTitle": "Himalayas, Sikkim",
    "artist": "Nicholas Roerich",
@@ -5041,8 +6517,8 @@
     "#30576B",
     "#407285"
    ],
-   "darkest": "#1A2229",
-   "lightest": "#72929E",
+   "darkest": "#00030C",
+   "lightest": "#F3FFFB",
    "tint": 0.36
   },
   {
@@ -5056,7 +6532,19 @@
     "zh-Hant": "逆風航行的荷蘭小船",
     "zh-Hans": "逆风航行的荷兰小船",
     "ko": "바람을 거슬러 항해하는 네덜란드 작은 배",
-    "ja": "風上に進むオランダの小型船"
+    "ja": "風上に進むオランダの小型船",
+    "bs": "Mali holandski brod u oštroj plovidbi",
+    "da": "Et lille hollandsk fartøj for bidevind",
+    "it": "Una piccola nave olandese di bolina",
+    "km": "នាវាហូឡង់តូចមួយបើកទល់ខ្យល់",
+    "nb": "Et lite nederlandsk fartøy for bidevind",
+    "pl": "Mały holenderski statek płynący ostro na wiatr",
+    "pt-BR": "Uma Pequena Embarcação Holandesa à Bolina",
+    "ru": "Маленькое голландское судно в бейдевинд",
+    "th": "เรือดัตช์ลำเล็กแล่นทวนลม",
+    "tr": "Orsa Seyrinde Küçük Bir Hollanda Teknesi",
+    "uk": "Маленьке голландське судно в бейдевінд",
+    "vi": "Con thuyền Hà Lan nhỏ chạy ngược gió"
    },
    "fullTitle": "A Small Dutch Vessel Close-hauled in a Strong Breeze",
    "artist": "Willem van de Velde the Younger",
@@ -5082,8 +6570,8 @@
     "#575450",
     "#787266"
    ],
-   "darkest": "#131516",
-   "lightest": "#90928E",
+   "darkest": "#010000",
+   "lightest": "#E8EAE5",
    "tint": 0.34
   },
   {
@@ -5097,7 +6585,19 @@
     "zh-Hant": "北國的花草地",
     "zh-Hans": "北国的花草地",
     "ko": "북쪽의 꽃밭",
-    "ja": "北の花畑"
+    "ja": "北の花畑",
+    "bs": "Cvjetna livada na sjeveru",
+    "da": "Blomstereng nordpå",
+    "it": "Prato fiorito al Nord",
+    "km": "វាលផ្កានៅភាគខាងជើង",
+    "nb": "Blomstereng nordpå",
+    "pl": "Kwietna łąka na północy",
+    "pt-BR": "Prado Florido no Norte",
+    "ru": "Цветущий луг на севере",
+    "th": "ทุ่งดอกไม้แดนเหนือ",
+    "tr": "Kuzeyde Çiçekli Çayır",
+    "uk": "Квітучий луг на півночі",
+    "vi": "Đồng hoa phương Bắc"
    },
    "fullTitle": "Flower Meadow in the North",
    "artist": "Harald Sohlberg",
@@ -5123,8 +6623,8 @@
     "#717D7A",
     "#525B55"
    ],
-   "darkest": "#1C1F17",
-   "lightest": "#849397",
+   "darkest": "#010000",
+   "lightest": "#FCFFFF",
    "tint": 0.37
   },
   {
@@ -5138,7 +6638,19 @@
     "zh-Hant": "月光下的雲彩習作",
     "zh-Hans": "月光下的云彩习作",
     "ko": "달빛 아래 구름 연구",
-    "ja": "月明かりの雲の習作"
+    "ja": "月明かりの雲の習作",
+    "bs": "Studija oblaka pod mjesečinom",
+    "da": "Skystudie i måneskin",
+    "it": "Studio di nuvole al chiaro di luna",
+    "km": "ការសិក្សាពពកក្រោមពន្លឺព្រះចន្ទ",
+    "nb": "Skystudie i måneskinn",
+    "pl": "Studium chmur w świetle księżyca",
+    "pt-BR": "Estudo de Nuvens ao Luar",
+    "ru": "Этюд облаков при лунном свете",
+    "th": "ภาพศึกษาเมฆยามแสงจันทร์",
+    "tr": "Ay Işığında Bulut Etüdü",
+    "uk": "Етюд хмар у місячному світлі",
+    "vi": "Nghiên cứu mây dưới ánh trăng"
    },
    "fullTitle": "A Cloud and Landscape Study by Moonlight",
    "artist": "Johan Christian Dahl",
@@ -5164,8 +6676,8 @@
     "#4D5355",
     "#777470"
    ],
-   "darkest": "#15222F",
-   "lightest": "#BBB8AA",
+   "darkest": "#000D16",
+   "lightest": "#FFFFFD",
    "tint": 0.35
   },
   {
@@ -5179,7 +6691,19 @@
     "zh-Hant": "兩個男人凝望月亮",
     "zh-Hans": "两个男人凝望月亮",
     "ko": "달을 바라보는 두 남자",
-    "ja": "月を眺める二人の男"
+    "ja": "月を眺める二人の男",
+    "bs": "Dvojica muškaraca promatraju Mjesec",
+    "da": "To mænd betragter månen",
+    "it": "Due uomini che contemplano la luna",
+    "km": "បុរសពីរនាក់សម្លឹងមើលព្រះចន្ទ",
+    "nb": "To menn betrakter månen",
+    "pl": "Dwaj mężczyźni kontemplujący księżyc",
+    "pt-BR": "Dois Homens Contemplando a Lua",
+    "ru": "Двое, созерцающие луну",
+    "th": "ชายสองคนเพ่งพินิจดวงจันทร์",
+    "tr": "Ayı Seyreden İki Adam",
+    "uk": "Двоє чоловіків, що споглядають місяць",
+    "vi": "Hai người đàn ông ngắm trăng"
    },
    "fullTitle": "Two Men Contemplating the Moon",
    "artist": "Caspar David Friedrich",
@@ -5205,8 +6729,8 @@
     "#624926",
     "#A27F5D"
    ],
-   "darkest": "#140F0A",
-   "lightest": "#DCA358",
+   "darkest": "#000000",
+   "lightest": "#FED688",
    "tint": 0.37
   },
   {
@@ -5220,7 +6744,19 @@
     "zh-Hant": "睡蓮池",
     "zh-Hans": "睡莲池",
     "ko": "수련 연못",
-    "ja": "睡蓮の池"
+    "ja": "睡蓮の池",
+    "bs": "Jezerce s lopočima",
+    "da": "Åkandedammen",
+    "it": "Lo stagno delle ninfee",
+    "km": "ស្រះផ្កាឈូក",
+    "nb": "Vannliljedammen",
+    "pl": "Staw z liliami wodnymi",
+    "pt-BR": "O Lago das Ninfeias",
+    "ru": "Пруд с кувшинками",
+    "th": "สระบัว",
+    "tr": "Nilüfer Havuzu",
+    "uk": "Ставок з лататтям",
+    "vi": "Hồ hoa súng"
    },
    "fullTitle": "The Water-Lily Pond",
    "artist": "Claude Monet",
@@ -5246,8 +6782,8 @@
     "#526A58",
     "#708063"
    ],
-   "darkest": "#141C1B",
-   "lightest": "#979574",
+   "darkest": "#071903",
+   "lightest": "#E5E0BA",
    "tint": 0.32
   },
   {
@@ -5261,7 +6797,19 @@
     "zh-Hant": "黃昏",
     "zh-Hans": "黄昏",
     "ko": "황혼",
-    "ja": "夕暮れ"
+    "ja": "夕暮れ",
+    "bs": "Sumrak",
+    "da": "Skumring",
+    "it": "Crepuscolo",
+    "km": "ពេលព្រលប់",
+    "nb": "Skumring",
+    "pl": "Zmierzch",
+    "pt-BR": "Crepúsculo",
+    "ru": "Сумерки",
+    "th": "ยามสนธยา",
+    "tr": "Alacakaranlık",
+    "uk": "Сутінки",
+    "vi": "Hoàng hôn"
    },
    "fullTitle": "Dusk (Skymning)",
    "artist": "Otto Hesselbom",
@@ -5287,8 +6835,8 @@
     "#3D444E",
     "#89939D"
    ],
-   "darkest": "#141618",
-   "lightest": "#D7CFC5",
+   "darkest": "#000000",
+   "lightest": "#F2EDE7",
    "tint": 0.31
   },
   {
@@ -5302,7 +6850,19 @@
     "zh-Hant": "虛榮",
     "zh-Hans": "虚荣",
     "ko": "허영",
-    "ja": "虚栄"
+    "ja": "虚栄",
+    "bs": "Taština",
+    "da": "Forfængelighed",
+    "it": "Vanità",
+    "km": "ភាពអួតអាង",
+    "nb": "Forfengelighet",
+    "pl": "Próżność",
+    "pt-BR": "Vaidade",
+    "ru": "Тщеславие",
+    "th": "ความหลงตัวเอง",
+    "tr": "Kibir",
+    "uk": "Марнославство",
+    "vi": "Phù hoa"
    },
    "fullTitle": "Vanity",
    "artist": "Auguste Toulmouche",
@@ -5328,8 +6888,8 @@
     "#2F2528",
     "#AF8788"
    ],
-   "darkest": "#201617",
-   "lightest": "#FBDBED",
+   "darkest": "#020001",
+   "lightest": "#FDFFFE",
    "tint": 0.32
   },
   {
@@ -5343,7 +6903,19 @@
     "zh-Hant": "雜司谷不二見茶屋",
     "zh-Hans": "杂司谷不二见茶屋",
     "ko": "조시가야 후지미 찻집",
-    "ja": "雑司ケ谷不二見茶屋"
+    "ja": "雑司ケ谷不二見茶屋",
+    "bs": "Čajdžinica s pogledom na Fuji u Zošigaji",
+    "da": "Tehus med udsigt til Fuji i Zōshigaya",
+    "it": "Casa da tè con vista sul Fuji a Zōshigaya",
+    "km": "ផ្ទះតែមើលឃើញភ្នំហ្វូជីនៅហ្សូស៊ីហ្គាយ៉ា",
+    "nb": "Tehus med utsikt mot Fuji i Zōshigaya",
+    "pl": "Herbaciarnia z widokiem na Fuji w Zōshigaya",
+    "pt-BR": "Casa de Chá com Vista do Fuji em Zōshigaya",
+    "ru": "Чайный домик с видом на Фудзи в Дзосигая",
+    "th": "โรงน้ำชาชมฟูจิที่โซชิงายะ",
+    "tr": "Zōshigaya'da Fuji Manzaralı Çayevi",
+    "uk": "Чайний будиночок із видом на Фудзі в Дзосіґаї",
+    "vi": "Quán trà ngắm Phú Sĩ ở Zōshigaya"
    },
    "fullTitle": "Fuji-view Teahouse at Zōshigaya",
    "artist": "Utagawa Hiroshige",
@@ -5369,8 +6941,8 @@
     "#4C4A3F",
     "#9E9A7C"
    ],
-   "darkest": "#131916",
-   "lightest": "#E0C99E",
+   "darkest": "#0F0800",
+   "lightest": "#FFFFFF",
    "tint": 0.32
   },
   {
@@ -5384,7 +6956,19 @@
     "zh-Hant": "睡蓮 (1906)",
     "zh-Hans": "睡莲 (1906)",
     "ko": "수련 (1906)",
-    "ja": "睡蓮 (1906)"
+    "ja": "睡蓮 (1906)",
+    "bs": "Lopoči (1906)",
+    "da": "Åkander (1906)",
+    "it": "Ninfee (1906)",
+    "km": "ផ្កាឈូក (1906)",
+    "nb": "Vannliljer (1906)",
+    "pl": "Lilie wodne (1906)",
+    "pt-BR": "Ninfeias (1906)",
+    "ru": "Кувшинки (1906)",
+    "th": "ดอกบัว (1906)",
+    "tr": "Nilüferler (1906)",
+    "uk": "Латаття (1906)",
+    "vi": "Hoa súng (1906)"
    },
    "fullTitle": "Water Lilies",
    "artist": "Claude Monet",
@@ -5410,8 +6994,8 @@
     "#517483",
     "#628A98"
    ],
-   "darkest": "#152227",
-   "lightest": "#93A5A5",
+   "darkest": "#001711",
+   "lightest": "#FFFFF8",
    "tint": 0.32
   },
   {
@@ -5425,7 +7009,19 @@
     "zh-Hant": "睡蓮 (1907)",
     "zh-Hans": "睡莲 (1907)",
     "ko": "수련 (1907)",
-    "ja": "睡蓮 (1907)"
+    "ja": "睡蓮 (1907)",
+    "bs": "Lopoči (1907)",
+    "da": "Åkander (1907)",
+    "it": "Ninfee (1907)",
+    "km": "ផ្កាឈូក (1907)",
+    "nb": "Vannliljer (1907)",
+    "pl": "Lilie wodne (1907)",
+    "pt-BR": "Ninfeias (1907)",
+    "ru": "Кувшинки (1907)",
+    "th": "ดอกบัว (1907)",
+    "tr": "Nilüferler (1907)",
+    "uk": "Латаття (1907)",
+    "vi": "Hoa súng (1907)"
    },
    "fullTitle": "Water Lilies (Nymphéas)",
    "artist": "Claude Monet",
@@ -5451,8 +7047,8 @@
     "#959CAE",
     "#47525B"
    ],
-   "darkest": "#131719",
-   "lightest": "#CDCFDB",
+   "darkest": "#000321",
+   "lightest": "#FEFFFF",
    "tint": 0.32
   },
   {
@@ -5466,7 +7062,19 @@
     "zh-Hant": "落基山脈的風暴",
     "zh-Hans": "落基山脉的风暴",
     "ko": "로키산맥의 폭풍",
-    "ja": "ロッキー山脈の嵐"
+    "ja": "ロッキー山脈の嵐",
+    "bs": "Oluja u Stjenovitim planinama",
+    "da": "Et uvejr i Rocky Mountains",
+    "it": "Una tempesta sulle Montagne Rocciose",
+    "km": "ព្យុះនៅភ្នំរ៉ុកគី",
+    "nb": "Et uvær i Rocky Mountains",
+    "pl": "Burza w Górach Skalistych",
+    "pt-BR": "Uma Tempestade nas Montanhas Rochosas",
+    "ru": "Гроза в Скалистых горах",
+    "th": "พายุในเทือกเขาร็อกกี",
+    "tr": "Rocky Dağları'nda Fırtına",
+    "uk": "Буря в Скелястих горах",
+    "vi": "Cơn bão trên dãy Rocky"
    },
    "fullTitle": "A Storm in the Rocky Mountains, Mt. Rosalie",
    "artist": "Albert Bierstadt",
@@ -5492,8 +7100,8 @@
     "#A0A18C",
     "#4B4E3D"
    ],
-   "darkest": "#0C0E13",
-   "lightest": "#F0EECA",
+   "darkest": "#010101",
+   "lightest": "#FFFFE4",
    "tint": 0.38
   },
   {
@@ -5507,7 +7115,19 @@
     "zh-Hant": "巴黎之夜",
     "zh-Hans": "巴黎之夜",
     "ko": "파리의 밤",
-    "ja": "夜のパリ"
+    "ja": "夜のパリ",
+    "bs": "Pariz noću",
+    "da": "Paris om natten",
+    "it": "Parigi di notte",
+    "km": "ប៉ារីសពេលយប់",
+    "nb": "Paris om natten",
+    "pl": "Paryż nocą",
+    "pt-BR": "Paris à Noite",
+    "ru": "Париж ночью",
+    "th": "ปารีสยามราตรี",
+    "tr": "Gece Paris",
+    "uk": "Париж уночі",
+    "vi": "Paris về đêm"
    },
    "fullTitle": "Paris (substitute for Place de l'Opéra)",
    "artist": "Konstantin Korovin",
@@ -5533,8 +7153,8 @@
     "#98A0A8",
     "#5A5F69"
    ],
-   "darkest": "#0D0D0F",
-   "lightest": "#DFDFD3",
+   "darkest": "#00000C",
+   "lightest": "#FFFFFD",
    "tint": 0.31
   },
   {
@@ -5548,7 +7168,19 @@
     "zh-Hant": "農莊花園與向日葵",
     "zh-Hans": "农庄花园与向日葵",
     "ko": "해바라기가 있는 농가 정원",
-    "ja": "ひまわりの咲く農家の庭"
+    "ja": "ひまわりの咲く農家の庭",
+    "bs": "Seoski vrt sa suncokretima",
+    "da": "Bondehave med solsikker",
+    "it": "Giardino di campagna con girasoli",
+    "km": "សួនកសិដ្ឋានជាមួយផ្កាឈូករ័ត្ន",
+    "nb": "Bondehage med solsikker",
+    "pl": "Wiejski ogród ze słonecznikami",
+    "pt-BR": "Jardim Rural com Girassóis",
+    "ru": "Сельский сад с подсолнухами",
+    "th": "สวนชนบทกับดอกทานตะวัน",
+    "tr": "Ayçiçekli Köy Bahçesi",
+    "uk": "Сільський сад із соняшниками",
+    "vi": "Vườn trại với hoa hướng dương"
    },
    "fullTitle": "Farm Garden with Sunflowers",
    "artist": "Gustav Klimt",
@@ -5574,8 +7206,8 @@
     "#6A7865",
     "#829376"
    ],
-   "darkest": "#22211F",
-   "lightest": "#CCB09C",
+   "darkest": "#1E1B14",
+   "lightest": "#FFF3E9",
    "tint": 0.32
   },
   {
@@ -5589,7 +7221,19 @@
     "zh-Hant": "蝴蝶",
     "zh-Hans": "蝴蝶",
     "ko": "나비",
-    "ja": "蝶"
+    "ja": "蝶",
+    "bs": "Leptiri",
+    "da": "Sommerfugle",
+    "it": "Farfalle",
+    "km": "មេអំបៅ",
+    "nb": "Sommerfugler",
+    "pl": "Motyle",
+    "pt-BR": "Borboletas",
+    "ru": "Бабочки",
+    "th": "ผีเสื้อ",
+    "tr": "Kelebekler",
+    "uk": "Метелики",
+    "vi": "Những cánh bướm"
    },
    "fullTitle": "Butterflies",
    "artist": "Odilon Redon",
@@ -5615,8 +7259,8 @@
     "#9EA98A",
     "#484437"
    ],
-   "darkest": "#110F15",
-   "lightest": "#C4CAAA",
+   "darkest": "#000000",
+   "lightest": "#FFFFDF",
    "tint": 0.33
   },
   {
@@ -5630,7 +7274,19 @@
     "zh-Hant": "冬景",
     "zh-Hans": "冬景",
     "ko": "겨울 풍경",
-    "ja": "冬景色"
+    "ja": "冬景色",
+    "bs": "Zimski pejzaž",
+    "da": "Vinterlandskab",
+    "it": "Paesaggio invernale",
+    "km": "ទេសភាពរដូវរងា",
+    "nb": "Vinterlandskap",
+    "pl": "Pejzaż zimowy",
+    "pt-BR": "Paisagem de Inverno",
+    "ru": "Зимний пейзаж",
+    "th": "ภูมิทัศน์ฤดูหนาว",
+    "tr": "Kış Manzarası",
+    "uk": "Зимовий пейзаж",
+    "vi": "Phong cảnh mùa đông"
    },
    "fullTitle": "Winter Landscape",
    "artist": "Ivan Aivazovsky",
@@ -5656,8 +7312,8 @@
     "#525A60",
     "#A2A5A7"
    ],
-   "darkest": "#171D22",
-   "lightest": "#E9E4DF",
+   "darkest": "#020200",
+   "lightest": "#FEFFFF",
    "tint": 0.32
   },
   {
@@ -5671,7 +7327,19 @@
     "zh-Hant": "沿岸",
     "zh-Hans": "沿岸",
     "ko": "해안을 따라",
-    "ja": "海岸に沿って"
+    "ja": "海岸に沿って",
+    "bs": "Uz obalu",
+    "da": "Langs kysten",
+    "it": "Lungo la costa",
+    "km": "តាមបណ្ដោយឆ្នេរ",
+    "nb": "Langs kysten",
+    "pl": "Wzdłuż wybrzeża",
+    "pt-BR": "Ao Longo da Costa",
+    "ru": "Вдоль берега",
+    "th": "เลียบชายฝั่ง",
+    "tr": "Kıyı Boyunca",
+    "uk": "Уздовж берега",
+    "vi": "Dọc bờ biển"
    },
    "fullTitle": "Along the Coast",
    "artist": "Ivan Aivazovsky",
@@ -5697,8 +7365,8 @@
     "#5A718D",
     "#7F909E"
    ],
-   "darkest": "#171D28",
-   "lightest": "#A8ABAC",
+   "darkest": "#090000",
+   "lightest": "#E1D6D4",
    "tint": 0.43
   },
   {
@@ -5712,7 +7380,19 @@
     "zh-Hant": "銀色月光",
     "zh-Hans": "银色月光",
     "ko": "은빛 달빛",
-    "ja": "銀色の月光"
+    "ja": "銀色の月光",
+    "bs": "Srebrna mjesečina",
+    "da": "Sølvmåneskin",
+    "it": "Chiaro di luna argentato",
+    "km": "ពន្លឺព្រះចន្ទពណ៌ប្រាក់",
+    "nb": "Sølvmåneskinn",
+    "pl": "Srebrzysty blask księżyca",
+    "pt-BR": "Luar Prateado",
+    "ru": "Серебряный лунный свет",
+    "th": "แสงจันทร์สีเงิน",
+    "tr": "Gümüş Ay Işığı",
+    "uk": "Срібне місячне світло",
+    "vi": "Ánh trăng bạc"
    },
    "fullTitle": "Silver Moonlight",
    "artist": "John Atkinson Grimshaw",
@@ -5738,8 +7418,8 @@
     "#3B524C",
     "#95B2B2"
    ],
-   "darkest": "#071011",
-   "lightest": "#BADAD2",
+   "darkest": "#000002",
+   "lightest": "#F9FFFF",
    "tint": 0.31
   },
   {
@@ -5753,7 +7433,19 @@
     "zh-Hant": "睡蓮，落日",
     "zh-Hans": "睡莲，落日",
     "ko": "수련, 해질녘",
-    "ja": "睡蓮、夕日"
+    "ja": "睡蓮、夕日",
+    "bs": "Lopoči, zalazak sunca",
+    "da": "Åkander, solnedgang",
+    "it": "Ninfee, sole al tramonto",
+    "km": "ផ្កាឈូក ថ្ងៃលិច",
+    "nb": "Vannliljer, solnedgang",
+    "pl": "Lilie wodne, zachód słońca",
+    "pt-BR": "Ninfeias, Pôr do Sol",
+    "ru": "Кувшинки. Закат",
+    "th": "ดอกบัว ยามอาทิตย์อัสดง",
+    "tr": "Nilüferler, Gün Batımı",
+    "uk": "Латаття. Захід сонця",
+    "vi": "Hoa súng, hoàng hôn"
    },
    "fullTitle": "The Water Lilies – Setting Sun",
    "artist": "Claude Monet",
@@ -5779,8 +7471,8 @@
     "#716954",
     "#8F814F"
    ],
-   "darkest": "#4E4A2F",
-   "lightest": "#9E9B61",
+   "darkest": "#191700",
+   "lightest": "#FFEDC2",
    "tint": 0.4
   },
   {
@@ -5794,7 +7486,19 @@
     "zh-Hant": "保田之海岸",
     "zh-Hans": "保田之海岸",
     "ko": "호타 해안",
-    "ja": "房州保田ノ海岸"
+    "ja": "房州保田ノ海岸",
+    "bs": "Obala kod Hote",
+    "da": "Kysten ved Hota",
+    "it": "La costa a Hota",
+    "km": "ឆ្នេរនៅហូតា",
+    "nb": "Kysten ved Hota",
+    "pl": "Wybrzeże w Hota",
+    "pt-BR": "A Costa em Hota",
+    "ru": "Побережье в Хота",
+    "th": "ชายฝั่งที่โฮตะ",
+    "tr": "Hota Kıyısı",
+    "uk": "Узбережжя в Хоті",
+    "vi": "Bờ biển Hota"
    },
    "fullTitle": "The Coast at Hota in Awa Province (Thirty-six Views of Mount Fuji)",
    "artist": "Utagawa Hiroshige",
@@ -5820,8 +7524,8 @@
     "#ACAC9D",
     "#4C4D4B"
    ],
-   "darkest": "#030924",
-   "lightest": "#F1E1CA",
+   "darkest": "#000000",
+   "lightest": "#FEFFFA",
    "tint": 0.33
   },
   {
@@ -5835,7 +7539,19 @@
     "zh-Hant": "祈禱的手",
     "zh-Hans": "祈祷的手",
     "ko": "기도하는 손",
-    "ja": "祈る手"
+    "ja": "祈る手",
+    "bs": "Ruke koje se mole",
+    "da": "Bedende hænder",
+    "it": "Mani che pregano",
+    "km": "ដៃកំពុងអធិស្ឋាន",
+    "nb": "Bedende hender",
+    "pl": "Modlące się dłonie",
+    "pt-BR": "Mãos em Oração",
+    "ru": "Руки молящегося",
+    "th": "มือที่กำลังอธิษฐาน",
+    "tr": "Dua Eden Eller",
+    "uk": "Руки, що моляться",
+    "vi": "Đôi bàn tay cầu nguyện"
    },
    "fullTitle": "Praying Hands",
    "artist": "Albrecht Dürer",
@@ -5861,8 +7577,8 @@
     "#70A4B9",
     "#4A6D7B"
    ],
-   "darkest": "#1A2930",
-   "lightest": "#A3C1CF",
+   "darkest": "#000201",
+   "lightest": "#FFFFFF",
    "tint": 0.33
   },
   {
@@ -5876,7 +7592,19 @@
     "zh-Hant": "生命之旅：童年",
     "zh-Hans": "生命之旅：童年",
     "ko": "인생의 항해: 유년기",
-    "ja": "人生の航路：幼年期"
+    "ja": "人生の航路：幼年期",
+    "bs": "Putovanje života: Djetinjstvo",
+    "da": "Livets rejse: Barndom",
+    "it": "Il viaggio della vita: l'infanzia",
+    "km": "ដំណើរជីវិត៖ វ័យកុមារ",
+    "nb": "Livets reise: Barndom",
+    "pl": "Podróż życia: Dzieciństwo",
+    "pt-BR": "A Viagem da Vida: Infância",
+    "ru": "Путешествие жизни: Детство",
+    "th": "การเดินทางของชีวิต: วัยเด็ก",
+    "tr": "Hayatın Yolculuğu: Çocukluk",
+    "uk": "Подорож життя: Дитинство",
+    "vi": "Hành trình cuộc đời: Tuổi thơ"
    },
    "fullTitle": "The Voyage of Life: Childhood",
    "artist": "Thomas Cole",
@@ -5902,8 +7630,8 @@
     "#795A38",
     "#BFA184"
    ],
-   "darkest": "#311911",
-   "lightest": "#E8C379",
+   "darkest": "#040400",
+   "lightest": "#FFEEB3",
    "tint": 0.35
   },
   {
@@ -5917,7 +7645,19 @@
     "zh-Hant": "印象·日出",
     "zh-Hans": "印象·日出",
     "ko": "인상, 해돋이",
-    "ja": "印象・日の出"
+    "ja": "印象・日の出",
+    "bs": "Impresija, izlazak sunca",
+    "da": "Impression, solopgang",
+    "it": "Impressione, levar del sole",
+    "km": "ចំណាប់អារម្មណ៍ ថ្ងៃរះ",
+    "nb": "Impresjon, soloppgang",
+    "pl": "Impresja, wschód słońca",
+    "pt-BR": "Impressão, Nascer do Sol",
+    "ru": "Впечатление. Восходящее солнце",
+    "th": "อิมเพรสชัน ดวงอาทิตย์ขึ้น",
+    "tr": "İzlenim, Gün Doğumu",
+    "uk": "Враження. Схід сонця",
+    "vi": "Ấn tượng, mặt trời mọc"
    },
    "fullTitle": "Impression, Sunrise",
    "artist": "Claude Monet",
@@ -5943,8 +7683,8 @@
     "#6A766C",
     "#817C6D"
    ],
-   "darkest": "#2F3B2B",
-   "lightest": "#7B9387",
+   "darkest": "#000901",
+   "lightest": "#FFDBC4",
    "tint": 0.45
   },
   {
@@ -5958,7 +7698,19 @@
     "zh-Hant": "撐陽傘的女人",
     "zh-Hans": "撑阳伞的女人",
     "ko": "파라솔을 든 여인",
-    "ja": "日傘をさす女"
+    "ja": "日傘をさす女",
+    "bs": "Žena sa suncobranom",
+    "da": "Kvinde med parasol",
+    "it": "Donna con parasole",
+    "km": "ស្ត្រីកាន់ឆ័ត្រ",
+    "nb": "Kvinne med parasoll",
+    "pl": "Kobieta z parasolką",
+    "pt-BR": "Mulher com Sombrinha",
+    "ru": "Дама с зонтиком",
+    "th": "หญิงสาวกับร่มกันแดด",
+    "tr": "Şemsiyeli Kadın",
+    "uk": "Жінка з парасолькою",
+    "vi": "Người phụ nữ cầm dù"
    },
    "fullTitle": "Woman with a Parasol – Madame Monet and Her Son",
    "artist": "Claude Monet",
@@ -5984,8 +7736,8 @@
     "#A7B2BA",
     "#616C60"
    ],
-   "darkest": "#1B1C18",
-   "lightest": "#D7D5CD",
+   "darkest": "#000A16",
+   "lightest": "#FAFCFB",
    "tint": 0.34
   },
   {
@@ -5999,7 +7751,19 @@
     "zh-Hant": "炮擊",
     "zh-Hans": "炮击",
     "ko": "대포 발사",
-    "ja": "大砲の一撃"
+    "ja": "大砲の一撃",
+    "bs": "Topovski hitac",
+    "da": "Kanonskuddet",
+    "it": "Il colpo di cannone",
+    "km": "ការបាញ់កាំភ្លើងធំ",
+    "nb": "Kanonskuddet",
+    "pl": "Wystrzał armatni",
+    "pt-BR": "O Tiro de Canhão",
+    "ru": "Пушечный выстрел",
+    "th": "เสียงปืนใหญ่",
+    "tr": "Top Atışı",
+    "uk": "Гарматний постріл",
+    "vi": "Phát đại bác"
    },
    "fullTitle": "The Cannon Shot",
    "artist": "Willem van de Velde the Younger",
@@ -6025,8 +7789,8 @@
     "#B0B1A1",
     "#726D5D"
    ],
-   "darkest": "#302B23",
-   "lightest": "#C7CCC1",
+   "darkest": "#120300",
+   "lightest": "#F0EED7",
    "tint": 0.34
   },
   {
@@ -6040,7 +7804,19 @@
     "zh-Hant": "粉紅色的雲",
     "zh-Hans": "粉红色的云",
     "ko": "분홍 구름",
-    "ja": "ピンクの雲"
+    "ja": "ピンクの雲",
+    "bs": "Ružičasti oblak",
+    "da": "Den lyserøde sky",
+    "it": "La nuvola rosa",
+    "km": "ពពកពណ៌ផ្កាឈូក",
+    "nb": "Den rosa skyen",
+    "pl": "Różowa chmura",
+    "pt-BR": "A Nuvem Rosa",
+    "ru": "Розовое облако",
+    "th": "เมฆสีชมพู",
+    "tr": "Pembe Bulut",
+    "uk": "Рожева хмара",
+    "vi": "Đám mây hồng"
    },
    "fullTitle": "The Pink Cloud",
    "artist": "Henri-Edmond Cross",
@@ -6066,8 +7842,8 @@
     "#B1AEA7",
     "#998187"
    ],
-   "darkest": "#121B1D",
-   "lightest": "#CFC6B4",
+   "darkest": "#030027",
+   "lightest": "#FFFFFA",
    "tint": 0.37
   },
   {
@@ -6081,7 +7857,19 @@
     "zh-Hant": "麥金利山",
     "zh-Hans": "麦金利山",
     "ko": "매킨리산",
-    "ja": "マッキンリー山"
+    "ja": "マッキンリー山",
+    "bs": "Planina McKinley",
+    "da": "Mount McKinley",
+    "it": "Monte McKinley",
+    "km": "ភ្នំម៉ាឃីនលី",
+    "nb": "Mount McKinley",
+    "pl": "Góra McKinley",
+    "pt-BR": "Monte McKinley",
+    "ru": "Гора Мак-Кинли",
+    "th": "ภูเขาแมกคินลีย์",
+    "tr": "McKinley Dağı",
+    "uk": "Гора Мак-Кінлі",
+    "vi": "Núi McKinley"
    },
    "fullTitle": "Mt. McKinley",
    "artist": "Sydney Laurence",
@@ -6107,8 +7895,8 @@
     "#A8B1C8",
     "#8B99B8"
    ],
-   "darkest": "#060609",
-   "lightest": "#DBC7C8",
+   "darkest": "#000000",
+   "lightest": "#F5EDDE",
    "tint": 0.48
   },
   {
@@ -6122,7 +7910,19 @@
     "zh-Hant": "鳶尾花",
     "zh-Hans": "鸢尾花",
     "ko": "붓꽃",
-    "ja": "アイリス"
+    "ja": "アイリス",
+    "bs": "Perunike",
+    "da": "Iris",
+    "it": "Iris",
+    "km": "ផ្កាអាយរីស",
+    "nb": "Iris",
+    "pl": "Irysy",
+    "pt-BR": "Íris",
+    "ru": "Ирисы",
+    "th": "ดอกไอริส",
+    "tr": "Süsenler",
+    "uk": "Іриси",
+    "vi": "Hoa diên vĩ"
    },
    "fullTitle": "Irises",
    "artist": "Vincent van Gogh",
@@ -6148,8 +7948,8 @@
     "#748876",
     "#8BA388"
    ],
-   "darkest": "#25345E",
-   "lightest": "#C0C2A6",
+   "darkest": "#090000",
+   "lightest": "#FEFFFF",
    "tint": 0.48
   },
   {
@@ -6163,7 +7963,19 @@
     "zh-Hant": "曠野中的基督",
     "zh-Hans": "旷野中的基督",
     "ko": "광야의 그리스도",
-    "ja": "荒野のキリスト"
+    "ja": "荒野のキリスト",
+    "bs": "Krist u pustinji",
+    "da": "Kristus i ørkenen",
+    "it": "Cristo nel deserto",
+    "km": "ព្រះគ្រីស្ទនៅវាលរហោស្ថាន",
+    "nb": "Kristus i ørkenen",
+    "pl": "Chrystus na pustyni",
+    "pt-BR": "Cristo no Deserto",
+    "ru": "Христос в пустыне",
+    "th": "พระคริสต์ในถิ่นทุรกันดาร",
+    "tr": "Çölde İsa",
+    "uk": "Христос у пустелі",
+    "vi": "Chúa Kitô trong hoang mạc"
    },
    "fullTitle": "Christ in the Desert",
    "artist": "Ivan Kramskoi",
@@ -6189,8 +8001,8 @@
     "#DCD1C6",
     "#6E685C"
    ],
-   "darkest": "#120807",
-   "lightest": "#F2E5D6",
+   "darkest": "#0E0100",
+   "lightest": "#F9EFE3",
    "tint": 0.38
   },
   {
@@ -6204,7 +8016,19 @@
     "zh-Hant": "被拖去解體的戰艦無畏號",
     "zh-Hans": "被拖去解体的战舰无畏号",
     "ko": "전함 테메레르",
-    "ja": "戦艦テメレール号"
+    "ja": "戦艦テメレール号",
+    "bs": "Posljednje putovanje broda Temeraire",
+    "da": "Den kæmpende Temeraire",
+    "it": "La valorosa Téméraire",
+    "km": "នាវាចម្បាំងធេមេរែរ",
+    "nb": "Den kjempende Temeraire",
+    "pl": "Ostatnia droga okrętu Temeraire",
+    "pt-BR": "O Temerário",
+    "ru": "Последний рейс корабля «Отважный»",
+    "th": "เรือรบเทเมแรร์",
+    "tr": "Savaşan Temeraire",
+    "uk": "Останній рейс корабля «Відважний»",
+    "vi": "Chiến hạm Temeraire"
    },
    "fullTitle": "The Fighting Temeraire",
    "artist": "J. M. W. Turner",
@@ -6230,8 +8054,8 @@
     "#766857",
     "#A89F8B"
    ],
-   "darkest": "#39271D",
-   "lightest": "#C6BEAA",
+   "darkest": "#13120E",
+   "lightest": "#FCF1DD",
    "tint": 0.49
   },
   {
@@ -6245,7 +8069,19 @@
     "zh-Hant": "維特魯威人",
     "zh-Hans": "维特鲁威人",
     "ko": "비트루비우스적 인간",
-    "ja": "ウィトルウィウス的人体図"
+    "ja": "ウィトルウィウス的人体図",
+    "bs": "Vitruvijev čovjek",
+    "da": "Den vitruvianske mand",
+    "it": "Uomo vitruviano",
+    "km": "បុរសវីទ្រូវៀន",
+    "nb": "Den vitruvianske mann",
+    "pl": "Człowiek witruwiański",
+    "pt-BR": "Homem Vitruviano",
+    "ru": "Витрувианский человек",
+    "th": "มนุษย์วิทรูเวียส",
+    "tr": "Vitruvius Adamı",
+    "uk": "Вітрувіанська людина",
+    "vi": "Người Vitruvius"
    },
    "fullTitle": "Vitruvian Man",
    "artist": "Leonardo da Vinci",
@@ -6271,8 +8107,8 @@
     "#E2C389",
     "#8B7348"
    ],
-   "darkest": "#19140D",
-   "lightest": "#F8E5B2",
+   "darkest": "#000000",
+   "lightest": "#FFFED6",
    "tint": 0.33
   },
   {
@@ -6286,7 +8122,19 @@
     "zh-Hant": "雪中獵人",
     "zh-Hans": "雪中猎人",
     "ko": "눈 속의 사냥꾼들",
-    "ja": "雪中の狩人"
+    "ja": "雪中の狩人",
+    "bs": "Lovci u snijegu",
+    "da": "Jægerne i sneen",
+    "it": "Cacciatori nella neve",
+    "km": "អ្នកប្រមាញ់ក្នុងព្រិល",
+    "nb": "Jegerne i snøen",
+    "pl": "Myśliwi na śniegu",
+    "pt-BR": "Caçadores na Neve",
+    "ru": "Охотники на снегу",
+    "th": "นักล่าในหิมะ",
+    "tr": "Karda Avcılar",
+    "uk": "Мисливці на снігу",
+    "vi": "Những người thợ săn trên tuyết"
    },
    "fullTitle": "The Hunters in the Snow",
    "artist": "Pieter Bruegel the Elder",
@@ -6312,8 +8160,8 @@
     "#81856B",
     "#D2C9AF"
    ],
-   "darkest": "#090A0D",
-   "lightest": "#F5EDD6",
+   "darkest": "#000000",
+   "lightest": "#FFFFED",
    "tint": 0.49
   },
   {
@@ -6327,7 +8175,19 @@
     "zh-Hant": "生命之旅：青年",
     "zh-Hans": "生命之旅：青年",
     "ko": "인생의 항해: 청년기",
-    "ja": "人生の航路：青年期"
+    "ja": "人生の航路：青年期",
+    "bs": "Putovanje života: Mladost",
+    "da": "Livets rejse: Ungdom",
+    "it": "Il viaggio della vita: la giovinezza",
+    "km": "ដំណើរជីវិត៖ វ័យក្មេង",
+    "nb": "Livets reise: Ungdom",
+    "pl": "Podróż życia: Młodość",
+    "pt-BR": "A Viagem da Vida: Juventude",
+    "ru": "Путешествие жизни: Юность",
+    "th": "การเดินทางของชีวิต: วัยหนุ่มสาว",
+    "tr": "Hayatın Yolculuğu: Gençlik",
+    "uk": "Подорож життя: Юність",
+    "vi": "Hành trình cuộc đời: Tuổi trẻ"
    },
    "fullTitle": "The Voyage of Life: Youth",
    "artist": "Thomas Cole",
@@ -6353,8 +8213,8 @@
     "#D1CAB0",
     "#A08F62"
    ],
-   "darkest": "#3A1B13",
-   "lightest": "#F6EBBF",
+   "darkest": "#180600",
+   "lightest": "#FFFACC",
    "tint": 0.42
   },
   {
@@ -6368,7 +8228,19 @@
     "zh-Hant": "海邊的修士",
     "zh-Hans": "海边的僧侣",
     "ko": "바닷가의 수도사",
-    "ja": "海辺の修道士"
+    "ja": "海辺の修道士",
+    "bs": "Monah na obali mora",
+    "da": "Munken ved havet",
+    "it": "Monaco in riva al mare",
+    "km": "ព្រះសង្ឃនៅមាត់សមុទ្រ",
+    "nb": "Munken ved havet",
+    "pl": "Mnich nad morzem",
+    "pt-BR": "O Monge à Beira-Mar",
+    "ru": "Монах у моря",
+    "th": "นักพรตริมทะเล",
+    "tr": "Deniz Kıyısındaki Keşiş",
+    "uk": "Монах біля моря",
+    "vi": "Tu sĩ bên bờ biển"
    },
    "fullTitle": "The Monk by the Sea",
    "artist": "Caspar David Friedrich",
@@ -6394,8 +8266,8 @@
     "#99A4A1",
     "#B9BEBA"
    ],
-   "darkest": "#041105",
-   "lightest": "#C2CDCE",
+   "darkest": "#000600",
+   "lightest": "#DFE2D1",
    "tint": 0.54
   },
   {
@@ -6409,7 +8281,19 @@
     "zh-Hant": "麥田與柏樹",
     "zh-Hans": "麦田与柏树",
     "ko": "사이프러스가 있는 밀밭",
-    "ja": "糸杉のある麦畑"
+    "ja": "糸杉のある麦畑",
+    "bs": "Žitno polje s čempresima",
+    "da": "Hvedemark med cypresser",
+    "it": "Campo di grano con cipressi",
+    "km": "វាលស្រូវសាលីជាមួយដើមស៊ីប្រេស",
+    "nb": "Hveteåker med sypresser",
+    "pl": "Pole pszenicy z cyprysami",
+    "pt-BR": "Campo de Trigo com Ciprestes",
+    "ru": "Пшеничное поле с кипарисами",
+    "th": "ทุ่งข้าวสาลีกับต้นไซเปรส",
+    "tr": "Selvili Buğday Tarlası",
+    "uk": "Пшеничне поле з кипарисами",
+    "vi": "Cánh đồng lúa mì với cây bách"
    },
    "fullTitle": "Wheat Field with Cypresses",
    "artist": "Vincent van Gogh",
@@ -6435,8 +8319,8 @@
     "#989F90",
     "#B8BDB6"
    ],
-   "darkest": "#1A2528",
-   "lightest": "#DCDBCC",
+   "darkest": "#000000",
+   "lightest": "#FFFFF2",
    "tint": 0.53
   },
   {
@@ -6450,7 +8334,19 @@
     "zh-Hant": "普維爾的懸崖步道",
     "zh-Hans": "普尔维尔的悬崖步道",
     "ko": "푸르빌 절벽 산책",
-    "ja": "プールヴィルの断崖の散歩"
+    "ja": "プールヴィルの断崖の散歩",
+    "bs": "Šetnja po litici kod Pourvillea",
+    "da": "Klippestien ved Pourville",
+    "it": "La passeggiata sulla scogliera a Pourville",
+    "km": "ការដើរលេងលើច្រាំងថ្មនៅពួវីល",
+    "nb": "Klippestien ved Pourville",
+    "pl": "Spacer po klifie w Pourville",
+    "pt-BR": "Passeio no Penhasco em Pourville",
+    "ru": "Прогулка по скалам в Пурвиле",
+    "th": "ทางเดินบนหน้าผาที่ปูร์วิล",
+    "tr": "Pourville'de Yalıyar Yürüyüşü",
+    "uk": "Прогулянка скелями в Пурвілі",
+    "vi": "Dạo bước trên vách đá ở Pourville"
    },
    "fullTitle": "The Cliff Walk at Pourville",
    "artist": "Claude Monet",
@@ -6476,8 +8372,8 @@
     "#81A7B7",
     "#A5AFAE"
    ],
-   "darkest": "#474F3E",
-   "lightest": "#C6C5C3",
+   "darkest": "#240F0A",
+   "lightest": "#FDFFF5",
    "tint": 0.57
   },
   {
@@ -6491,7 +8387,19 @@
     "zh-Hant": "盛開的杏花",
     "zh-Hans": "盛开的杏花",
     "ko": "꽃 피는 아몬드 나무",
-    "ja": "花咲くアーモンドの木の枝"
+    "ja": "花咲くアーモンドの木の枝",
+    "bs": "Cvat badema",
+    "da": "Mandelblomster",
+    "it": "Mandorlo in fiore",
+    "km": "ផ្កាអាល់ម៉ុនរីក",
+    "nb": "Mandelblomster",
+    "pl": "Kwitnący migdałowiec",
+    "pt-BR": "Amendoeira em Flor",
+    "ru": "Цветущие ветки миндаля",
+    "th": "ดอกอัลมอนด์ผลิบาน",
+    "tr": "Badem Çiçekleri",
+    "uk": "Квітучий мигдаль",
+    "vi": "Hoa hạnh nhân"
    },
    "fullTitle": "Almond Blossom",
    "artist": "Vincent van Gogh",
@@ -6517,8 +8425,8 @@
     "#72958F",
     "#98B4AB"
    ],
-   "darkest": "#4A6355",
-   "lightest": "#CCCEAE",
+   "darkest": "#000200",
+   "lightest": "#FFFFF0",
    "tint": 0.59
   },
   {
@@ -6532,7 +8440,19 @@
     "zh-Hant": "聖瑪麗的漁船",
     "zh-Hans": "圣玛丽的渔船",
     "ko": "생트마리의 고기잡이 배",
-    "ja": "サント＝マリーの漁船"
+    "ja": "サント＝マリーの漁船",
+    "bs": "Ribarski čamci u Saintes-Mariesu",
+    "da": "Fiskerbåde ved Saintes-Maries",
+    "it": "Barche da pesca a Saintes-Maries",
+    "km": "ទូកនេសាទនៅសាំង-ម៉ារី",
+    "nb": "Fiskebåter ved Saintes-Maries",
+    "pl": "Łodzie rybackie w Saintes-Maries",
+    "pt-BR": "Barcos de Pesca em Saintes-Maries",
+    "ru": "Рыбацкие лодки в Сент-Мари",
+    "th": "เรือประมงที่แซ็งต์-มารี",
+    "tr": "Saintes-Maries'de Balıkçı Tekneleri",
+    "uk": "Рибальські човни в Сент-Марі",
+    "vi": "Thuyền đánh cá ở Saintes-Maries"
    },
    "fullTitle": "Fishing Boats on the Beach at Les Saintes-Maries-de-la-Mer",
    "artist": "Vincent van Gogh",
@@ -6558,8 +8478,8 @@
     "#A5AB9E",
     "#B6C0AD"
    ],
-   "darkest": "#1E1D25",
-   "lightest": "#D9D5B0",
+   "darkest": "#020100",
+   "lightest": "#FEFFF5",
    "tint": 0.57
   },
   {
@@ -6573,7 +8493,19 @@
     "zh-Hant": "相州梅澤左",
     "zh-Hans": "相州梅泽左",
     "ko": "사가미 지방 우메자와",
-    "ja": "相州梅沢左"
+    "ja": "相州梅沢左",
+    "bs": "Umezawa u provinciji Sagami",
+    "da": "Umezawa i provinsen Sagami",
+    "it": "Umezawa nella provincia di Sagami",
+    "km": "អ៊ូមេហ្សាវ៉ានៅខេត្តសាហ្គាមី",
+    "nb": "Umezawa i provinsen Sagami",
+    "pl": "Umezawa w prowincji Sagami",
+    "pt-BR": "Umezawa na Província de Sagami",
+    "ru": "Умэдзава в провинции Сагами",
+    "th": "อุเมะซาวะในแคว้นซางามิ",
+    "tr": "Sagami Eyaletinde Umezawa",
+    "uk": "Умедзава в провінції Саґамі",
+    "vi": "Umezawa ở tỉnh Sagami"
    },
    "fullTitle": "Umezawa Manor in Sagami Province",
    "artist": "Katsushika Hokusai",
@@ -6599,8 +8531,8 @@
     "#CDC9AD",
     "#F1DCBB"
    ],
-   "darkest": "#235174",
-   "lightest": "#FBE8C8",
+   "darkest": "#143242",
+   "lightest": "#FFFFEF",
    "tint": 0.7
   },
   {
@@ -6614,7 +8546,19 @@
     "zh-Hant": "撒旦的墮落",
     "zh-Hans": "撒旦的堕落",
     "ko": "사탄의 추락",
-    "ja": "サタンの墜落"
+    "ja": "サタンの墜落",
+    "bs": "Pad Sotone",
+    "da": "Satans fald",
+    "it": "La caduta di Satana",
+    "km": "ការធ្លាក់របស់សាតាំង",
+    "nb": "Satans fall",
+    "pl": "Upadek Szatana",
+    "pt-BR": "A Queda de Satanás",
+    "ru": "Падение Сатаны",
+    "th": "การตกสวรรค์ของซาตาน",
+    "tr": "Şeytan'ın Düşüşü",
+    "uk": "Падіння Сатани",
+    "vi": "Sự sa ngã của Satan"
    },
    "fullTitle": "Him the Almighty Power hurled headlong (Paradise Lost, Book I)",
    "artist": "Gustave Doré",
@@ -6640,8 +8584,8 @@
     "#1C1C1C",
     "#525252"
    ],
-   "darkest": "#030303",
-   "lightest": "#BABABA",
+   "darkest": "#000000",
+   "lightest": "#FFFFFF",
    "tint": 0.31
   },
   {
@@ -6655,7 +8599,19 @@
     "zh-Hant": "大洪水",
     "zh-Hans": "大洪水",
     "ko": "대홍수",
-    "ja": "大洪水"
+    "ja": "大洪水",
+    "bs": "Potop",
+    "da": "Syndfloden",
+    "it": "Il diluvio universale",
+    "km": "ទឹកជំនន់ធំ",
+    "nb": "Syndfloden",
+    "pl": "Potop",
+    "pt-BR": "O Dilúvio",
+    "ru": "Всемирный потоп",
+    "th": "มหาอุทกภัย",
+    "tr": "Tufan",
+    "uk": "Всесвітній потоп",
+    "vi": "Đại hồng thủy"
    },
    "fullTitle": "The Deluge (Flood destroying the world)",
    "artist": "Gustave Doré",
@@ -6681,8 +8637,8 @@
     "#25251E",
     "#5E5B4B"
    ],
-   "darkest": "#080806",
-   "lightest": "#E7D6A7",
+   "darkest": "#010000",
+   "lightest": "#FFFEE8",
    "tint": 0.31
   },
   {
@@ -6696,7 +8652,19 @@
     "zh-Hant": "狼與羊",
     "zh-Hans": "狼与羊",
     "ko": "늑대와 양",
-    "ja": "狼と羊"
+    "ja": "狼と羊",
+    "bs": "Vukovi i ovce",
+    "da": "Ulvene og fårene",
+    "it": "I lupi e le pecore",
+    "km": "ចចក និងចៀម",
+    "nb": "Ulvene og sauene",
+    "pl": "Wilki i owce",
+    "pt-BR": "Os Lobos e as Ovelhas",
+    "ru": "Волки и овцы",
+    "th": "หมาป่ากับแกะ",
+    "tr": "Kurtlar ve Koyunlar",
+    "uk": "Вовки та вівці",
+    "vi": "Bầy sói và đàn cừu"
    },
    "fullTitle": "The Wolves and the Sheep (La Fontaine, Fables III.13)",
    "artist": "Gustave Doré",
@@ -6722,8 +8690,8 @@
     "#747474",
     "#454545"
    ],
-   "darkest": "#141414",
-   "lightest": "#B9B9B9",
+   "darkest": "#020202",
+   "lightest": "#FFFFFF",
    "tint": 0.31
   },
   {
@@ -6737,7 +8705,19 @@
     "zh-Hant": "利維坦的毀滅",
     "zh-Hans": "利维坦的毁灭",
     "ko": "리바이어선의 파멸",
-    "ja": "レヴィアタンの滅亡"
+    "ja": "レヴィアタンの滅亡",
+    "bs": "Uništenje Levijatana",
+    "da": "Leviathans tilintetgørelse",
+    "it": "La distruzione del Leviatano",
+    "km": "ការបំផ្លាញលេវីអាថាន",
+    "nb": "Leviatans tilintetgjørelse",
+    "pl": "Zniszczenie Lewiatana",
+    "pt-BR": "A Destruição do Leviatã",
+    "ru": "Уничтожение Левиафана",
+    "th": "การทำลายเลวีอาธาน",
+    "tr": "Leviathan'ın Yok Edilişi",
+    "uk": "Знищення Левіафана",
+    "vi": "Sự hủy diệt Leviathan"
    },
    "fullTitle": "The Destruction of Leviathan",
    "artist": "Gustave Doré",
@@ -6763,8 +8743,8 @@
     "#3E3E3E",
     "#797979"
    ],
-   "darkest": "#0E0E0E",
-   "lightest": "#C9C9C9",
+   "darkest": "#000000",
+   "lightest": "#FFFFFF",
    "tint": 0.31
   },
   {
@@ -6778,7 +8758,19 @@
     "zh-Hant": "失樂園，第六卷",
     "zh-Hans": "失乐园，第六卷",
     "ko": "실낙원 제6권",
-    "ja": "失楽園 第6巻"
+    "ja": "失楽園 第6巻",
+    "bs": "Izgubljeni raj, knjiga VI",
+    "da": "Det tabte paradis, bog VI",
+    "it": "Paradiso perduto, libro VI",
+    "km": "ឋានសួគ៌ដែលបាត់បង់ សៀវភៅទី VI",
+    "nb": "Det tapte paradis, bok VI",
+    "pl": "Raj utracony, księga VI",
+    "pt-BR": "Paraíso Perdido, Livro VI",
+    "ru": "Потерянный рай, книга VI",
+    "th": "สวรรค์ที่หายไป เล่มที่ VI",
+    "tr": "Kaybolmuş Cennet, VI. Kitap",
+    "uk": "Втрачений рай, книга VI",
+    "vi": "Thiên đường đã mất, Quyển VI"
    },
    "fullTitle": "Now storming fury rose (Paradise Lost, Book VI, l.207)",
    "artist": "Gustave Doré",
@@ -6804,8 +8796,8 @@
     "#838383",
     "#494949"
    ],
-   "darkest": "#101010",
-   "lightest": "#B0B0B0",
+   "darkest": "#000000",
+   "lightest": "#FFFFFF",
    "tint": 0.31
   },
   {
@@ -6819,7 +8811,19 @@
     "zh-Hant": "摩西摔碎法版",
     "zh-Hans": "摩西摔碎法版",
     "ko": "율법의 돌판을 깨뜨리는 모세",
-    "ja": "律法の石板を砕くモーセ"
+    "ja": "律法の石板を砕くモーセ",
+    "bs": "Mojsije razbija ploče Zakona",
+    "da": "Moses knuser lovens tavler",
+    "it": "Mosè spezza le tavole della Legge",
+    "km": "ម៉ូសេបំបែកបន្ទះថ្មក្រឹត្យវិន័យ",
+    "nb": "Moses knuser lovtavlene",
+    "pl": "Mojżesz rozbija tablice Prawa",
+    "pt-BR": "Moisés Quebra as Tábuas da Lei",
+    "ru": "Моисей разбивает скрижали Завета",
+    "th": "โมเสสทุบแผ่นศิลาพระบัญญัติ",
+    "tr": "Musa Kanun Levhalarını Kırıyor",
+    "uk": "Мойсей розбиває скрижалі Заповіту",
+    "vi": "Môsê đập vỡ bia đá Lề Luật"
    },
    "fullTitle": "Moses Breaks the Tables of the Law",
    "artist": "Gustave Doré",
@@ -6845,8 +8849,8 @@
     "#494949",
     "#808080"
    ],
-   "darkest": "#191919",
-   "lightest": "#E7E7E7",
+   "darkest": "#000000",
+   "lightest": "#FFFFFF",
    "tint": 0.31
   },
   {
@@ -6860,7 +8864,19 @@
     "zh-Hant": "最高天",
     "zh-Hans": "最高天",
     "ko": "최고천",
-    "ja": "至高天"
+    "ja": "至高天",
+    "bs": "Empirej",
+    "da": "Empyræet",
+    "it": "L'Empireo",
+    "km": "ឋានសួគ៌ជាន់ខ្ពស់បំផុត",
+    "nb": "Empyreet",
+    "pl": "Empireum",
+    "pt-BR": "O Empíreo",
+    "ru": "Эмпирей",
+    "th": "สวรรค์ชั้นสูงสุด",
+    "tr": "Empireum",
+    "uk": "Емпірей",
+    "vi": "Thiên giới tối cao"
    },
    "fullTitle": "The Empyrean (Paradiso, Canto XXXI)",
    "artist": "Gustave Doré",
@@ -6886,8 +8902,8 @@
     "#484848",
     "#858585"
    ],
-   "darkest": "#121212",
-   "lightest": "#C2C2C2",
+   "darkest": "#080808",
+   "lightest": "#FFFFFF",
    "tint": 0.32
   },
   {
@@ -6901,7 +8917,19 @@
     "zh-Hant": "烏鴉",
     "zh-Hans": "乌鸦",
     "ko": "갈까마귀",
-    "ja": "大鴉"
+    "ja": "大鴉",
+    "bs": "Gavran",
+    "da": "Ravnen",
+    "it": "Il corvo",
+    "km": "ក្អែក",
+    "nb": "Ravnen",
+    "pl": "Kruk",
+    "pt-BR": "O Corvo",
+    "ru": "Ворон",
+    "th": "อีกา",
+    "tr": "Kuzgun",
+    "uk": "Крук",
+    "vi": "Con quạ"
    },
    "fullTitle": "\"Doubting, dreaming dreams no mortal ever dared to dream before\" (The Raven)",
    "artist": "Gustave Doré",
@@ -6927,8 +8955,8 @@
     "#928E88",
     "#56534F"
    ],
-   "darkest": "#1C1B19",
-   "lightest": "#C8C5BD",
+   "darkest": "#1B191A",
+   "lightest": "#FFFFFA",
    "tint": 0.32
   }
  ]

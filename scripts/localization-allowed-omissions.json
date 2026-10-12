@@ -5287,6 +5287,18 @@
   "backdrop.collection.dore": {
     "source": "Doré",
     "identityLocales": {
+      "bs": {
+        "reason": "Doré is the artist's name.",
+        "values": [
+          "Doré"
+        ]
+      },
+      "da": {
+        "reason": "Doré is the artist's name.",
+        "values": [
+          "Doré"
+        ]
+      },
       "de": {
         "reason": "Doré is the artist's name.",
         "values": [
@@ -5300,6 +5312,42 @@
         ]
       },
       "fr": {
+        "reason": "Doré is the artist's name.",
+        "values": [
+          "Doré"
+        ]
+      },
+      "it": {
+        "reason": "Doré is the artist's name.",
+        "values": [
+          "Doré"
+        ]
+      },
+      "nb": {
+        "reason": "Doré is the artist's name.",
+        "values": [
+          "Doré"
+        ]
+      },
+      "pl": {
+        "reason": "Doré is the artist's name.",
+        "values": [
+          "Doré"
+        ]
+      },
+      "pt-BR": {
+        "reason": "Doré is the artist's name.",
+        "values": [
+          "Doré"
+        ]
+      },
+      "tr": {
+        "reason": "Doré is the artist's name.",
+        "values": [
+          "Doré"
+        ]
+      },
+      "vi": {
         "reason": "Doré is the artist's name.",
         "values": [
           "Doré"
@@ -5310,6 +5358,12 @@
   "backdrop.caravaggio-medusa.title": {
     "source": "Medusa",
     "identityLocales": {
+      "da": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Medusa"
+        ]
+      },
       "de": {
         "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
         "values": [
@@ -5317,6 +5371,36 @@
         ]
       },
       "es": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Medusa"
+        ]
+      },
+      "it": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Medusa"
+        ]
+      },
+      "nb": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Medusa"
+        ]
+      },
+      "pt-BR": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Medusa"
+        ]
+      },
+      "tr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Medusa"
+        ]
+      },
+      "vi": {
         "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
         "values": [
           "Medusa"
@@ -5324,9 +5408,44 @@
       }
     }
   },
+  "backdrop.martin-pandemonium.title": {
+    "source": "Pandemonium",
+    "identityLocales": {
+      "nb": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Pandemonium"
+        ]
+      },
+      "pl": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Pandemonium"
+        ]
+      },
+      "tr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Pandemonium"
+        ]
+      },
+      "vi": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Pandemonium"
+        ]
+      }
+    }
+  },
   "backdrop.munch-madonna.title": {
     "source": "Madonna",
     "identityLocales": {
+      "da": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madonna"
+        ]
+      },
       "de": {
         "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
         "values": [
@@ -5334,6 +5453,36 @@
         ]
       },
       "es": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madonna"
+        ]
+      },
+      "it": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madonna"
+        ]
+      },
+      "nb": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madonna"
+        ]
+      },
+      "pl": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madonna"
+        ]
+      },
+      "tr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madonna"
+        ]
+      },
+      "vi": {
         "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
         "values": [
           "Madonna"
@@ -5344,6 +5493,12 @@
   "backdrop.klimt-judith.title": {
     "source": "Judith I",
     "identityLocales": {
+      "da": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Judith I"
+        ]
+      },
       "de": {
         "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
         "values": [
@@ -5357,6 +5512,24 @@
         ]
       },
       "fr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Judith I"
+        ]
+      },
+      "nb": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Judith I"
+        ]
+      },
+      "tr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Judith I"
+        ]
+      },
+      "vi": {
         "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
         "values": [
           "Judith I"
@@ -5372,12 +5545,30 @@
         "values": [
           "Ophelia"
         ]
+      },
+      "tr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Ophelia"
+        ]
+      },
+      "vi": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Ophelia"
+        ]
       }
     }
   },
   "backdrop.gerome-botsaris.title": {
     "source": "Markos Botsaris",
     "identityLocales": {
+      "da": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Markos Botsaris"
+        ]
+      },
       "de": {
         "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
         "values": [
@@ -5391,6 +5582,42 @@
         ]
       },
       "fr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Markos Botsaris"
+        ]
+      },
+      "it": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Markos Botsaris"
+        ]
+      },
+      "nb": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Markos Botsaris"
+        ]
+      },
+      "pl": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Markos Botsaris"
+        ]
+      },
+      "pt-BR": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Markos Botsaris"
+        ]
+      },
+      "tr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Markos Botsaris"
+        ]
+      },
+      "vi": {
         "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
         "values": [
           "Markos Botsaris"
@@ -5401,6 +5628,18 @@
   "backdrop.gerome-pollice-verso.title": {
     "source": "Pollice Verso",
     "identityLocales": {
+      "bs": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Pollice Verso"
+        ]
+      },
+      "da": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Pollice Verso"
+        ]
+      },
       "de": {
         "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
         "values": [
@@ -5408,6 +5647,66 @@
         ]
       },
       "fr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Pollice Verso"
+        ]
+      },
+      "it": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Pollice Verso"
+        ]
+      },
+      "km": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Pollice Verso"
+        ]
+      },
+      "nb": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Pollice Verso"
+        ]
+      },
+      "pl": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Pollice Verso"
+        ]
+      },
+      "pt-BR": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Pollice Verso"
+        ]
+      },
+      "ru": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Pollice Verso"
+        ]
+      },
+      "th": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Pollice Verso"
+        ]
+      },
+      "tr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Pollice Verso"
+        ]
+      },
+      "uk": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Pollice Verso"
+        ]
+      },
+      "vi": {
         "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
         "values": [
           "Pollice Verso"
@@ -5418,7 +5717,37 @@
   "backdrop.rothaug-melpomene.title": {
     "source": "Melpomene",
     "identityLocales": {
+      "da": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Melpomene"
+        ]
+      },
       "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Melpomene"
+        ]
+      },
+      "it": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Melpomene"
+        ]
+      },
+      "nb": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Melpomene"
+        ]
+      },
+      "tr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Melpomene"
+        ]
+      },
+      "vi": {
         "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
         "values": [
           "Melpomene"
@@ -5429,7 +5758,49 @@
   "backdrop.velazquez-las-meninas.title": {
     "source": "Las Meninas",
     "identityLocales": {
+      "bs": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Las Meninas"
+        ]
+      },
+      "da": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Las Meninas"
+        ]
+      },
       "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Las Meninas"
+        ]
+      },
+      "it": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Las Meninas"
+        ]
+      },
+      "km": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Las Meninas"
+        ]
+      },
+      "nb": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Las Meninas"
+        ]
+      },
+      "tr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Las Meninas"
+        ]
+      },
+      "vi": {
         "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
         "values": [
           "Las Meninas"
@@ -5440,6 +5811,18 @@
   "backdrop.matejko-stanczyk.title": {
     "source": "Stańczyk",
     "identityLocales": {
+      "bs": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Stańczyk"
+        ]
+      },
+      "da": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Stańczyk"
+        ]
+      },
       "de": {
         "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
         "values": [
@@ -5453,6 +5836,42 @@
         ]
       },
       "fr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Stańczyk"
+        ]
+      },
+      "it": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Stańczyk"
+        ]
+      },
+      "nb": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Stańczyk"
+        ]
+      },
+      "pl": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Stańczyk"
+        ]
+      },
+      "pt-BR": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Stańczyk"
+        ]
+      },
+      "tr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Stańczyk"
+        ]
+      },
+      "vi": {
         "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
         "values": [
           "Stańczyk"
@@ -5463,6 +5882,18 @@
   "backdrop.sargent-madame-x.title": {
     "source": "Madame X",
     "identityLocales": {
+      "bs": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame X"
+        ]
+      },
+      "da": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame X"
+        ]
+      },
       "de": {
         "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
         "values": [
@@ -5476,6 +5907,48 @@
         ]
       },
       "fr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame X"
+        ]
+      },
+      "it": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame X"
+        ]
+      },
+      "km": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame X"
+        ]
+      },
+      "nb": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame X"
+        ]
+      },
+      "pl": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame X"
+        ]
+      },
+      "pt-BR": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame X"
+        ]
+      },
+      "tr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame X"
+        ]
+      },
+      "vi": {
         "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
         "values": [
           "Madame X"
@@ -5486,6 +5959,18 @@
   "backdrop.vigee-lebrun-madame-grand.title": {
     "source": "Madame Grand",
     "identityLocales": {
+      "bs": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame Grand"
+        ]
+      },
+      "da": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame Grand"
+        ]
+      },
       "de": {
         "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
         "values": [
@@ -5499,6 +5984,48 @@
         ]
       },
       "fr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame Grand"
+        ]
+      },
+      "it": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame Grand"
+        ]
+      },
+      "km": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame Grand"
+        ]
+      },
+      "nb": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame Grand"
+        ]
+      },
+      "pl": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame Grand"
+        ]
+      },
+      "pt-BR": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame Grand"
+        ]
+      },
+      "tr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame Grand"
+        ]
+      },
+      "vi": {
         "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
         "values": [
           "Madame Grand"
@@ -5509,6 +6036,12 @@
   "backdrop.wood-american-gothic.title": {
     "source": "American Gothic",
     "identityLocales": {
+      "da": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "American Gothic"
+        ]
+      },
       "de": {
         "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
         "values": [
@@ -5516,6 +6049,30 @@
         ]
       },
       "fr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "American Gothic"
+        ]
+      },
+      "it": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "American Gothic"
+        ]
+      },
+      "km": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "American Gothic"
+        ]
+      },
+      "nb": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "American Gothic"
+        ]
+      },
+      "vi": {
         "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
         "values": [
           "American Gothic"
@@ -5526,6 +6083,18 @@
   "backdrop.steinlen-chat-noir.title": {
     "source": "Tournée du Chat Noir",
     "identityLocales": {
+      "bs": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Tournée du Chat Noir"
+        ]
+      },
+      "da": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Tournée du Chat Noir"
+        ]
+      },
       "de": {
         "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
         "values": [
@@ -5539,6 +6108,66 @@
         ]
       },
       "fr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Tournée du Chat Noir"
+        ]
+      },
+      "it": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Tournée du Chat Noir"
+        ]
+      },
+      "km": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Tournée du Chat Noir"
+        ]
+      },
+      "nb": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Tournée du Chat Noir"
+        ]
+      },
+      "pl": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Tournée du Chat Noir"
+        ]
+      },
+      "pt-BR": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Tournée du Chat Noir"
+        ]
+      },
+      "ru": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Tournée du Chat Noir"
+        ]
+      },
+      "th": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Tournée du Chat Noir"
+        ]
+      },
+      "tr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Tournée du Chat Noir"
+        ]
+      },
+      "uk": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Tournée du Chat Noir"
+        ]
+      },
+      "vi": {
         "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
         "values": [
           "Tournée du Chat Noir"
@@ -5549,7 +6178,31 @@
   "backdrop.botticelli-primavera.title": {
     "source": "Primavera",
     "identityLocales": {
+      "da": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Primavera"
+        ]
+      },
       "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Primavera"
+        ]
+      },
+      "it": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Primavera"
+        ]
+      },
+      "nb": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Primavera"
+        ]
+      },
+      "pt-BR": {
         "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
         "values": [
           "Primavera"
@@ -5560,6 +6213,18 @@
   "backdrop.klimt-adele.title": {
     "source": "Adele Bloch-Bauer I",
     "identityLocales": {
+      "bs": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Adele Bloch-Bauer I"
+        ]
+      },
+      "da": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Adele Bloch-Bauer I"
+        ]
+      },
       "de": {
         "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
         "values": [
@@ -5573,6 +6238,30 @@
         ]
       },
       "fr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Adele Bloch-Bauer I"
+        ]
+      },
+      "nb": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Adele Bloch-Bauer I"
+        ]
+      },
+      "pt-BR": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Adele Bloch-Bauer I"
+        ]
+      },
+      "tr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Adele Bloch-Bauer I"
+        ]
+      },
+      "vi": {
         "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
         "values": [
           "Adele Bloch-Bauer I"
@@ -5583,6 +6272,18 @@
   "backdrop.mucha-job.title": {
     "source": "Job",
     "identityLocales": {
+      "bs": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Job"
+        ]
+      },
+      "da": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Job"
+        ]
+      },
       "de": {
         "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
         "values": [
@@ -5596,6 +6297,66 @@
         ]
       },
       "fr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Job"
+        ]
+      },
+      "it": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Job"
+        ]
+      },
+      "km": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Job"
+        ]
+      },
+      "nb": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Job"
+        ]
+      },
+      "pl": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Job"
+        ]
+      },
+      "pt-BR": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Job"
+        ]
+      },
+      "ru": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Job"
+        ]
+      },
+      "th": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Job"
+        ]
+      },
+      "tr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Job"
+        ]
+      },
+      "uk": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Job"
+        ]
+      },
+      "vi": {
         "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
         "values": [
           "Job"
@@ -5606,6 +6367,18 @@
   "backdrop.klimt-mada-primavesi.title": {
     "source": "Mäda Primavesi",
     "identityLocales": {
+      "bs": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Mäda Primavesi"
+        ]
+      },
+      "da": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Mäda Primavesi"
+        ]
+      },
       "de": {
         "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
         "values": [
@@ -5619,6 +6392,42 @@
         ]
       },
       "fr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Mäda Primavesi"
+        ]
+      },
+      "it": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Mäda Primavesi"
+        ]
+      },
+      "nb": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Mäda Primavesi"
+        ]
+      },
+      "pl": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Mäda Primavesi"
+        ]
+      },
+      "pt-BR": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Mäda Primavesi"
+        ]
+      },
+      "tr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Mäda Primavesi"
+        ]
+      },
+      "vi": {
         "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
         "values": [
           "Mäda Primavesi"
@@ -5629,6 +6438,18 @@
   "backdrop.schiele-moa.title": {
     "source": "Moa",
     "identityLocales": {
+      "bs": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Moa"
+        ]
+      },
+      "da": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Moa"
+        ]
+      },
       "de": {
         "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
         "values": [
@@ -5642,6 +6463,42 @@
         ]
       },
       "fr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Moa"
+        ]
+      },
+      "it": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Moa"
+        ]
+      },
+      "nb": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Moa"
+        ]
+      },
+      "pl": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Moa"
+        ]
+      },
+      "pt-BR": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Moa"
+        ]
+      },
+      "tr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Moa"
+        ]
+      },
+      "vi": {
         "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
         "values": [
           "Moa"
@@ -5663,7 +6520,25 @@
   "backdrop.grimshaw-blackman-street.title": {
     "source": "Blackman Street, London",
     "identityLocales": {
+      "bs": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Blackman Street, London"
+        ]
+      },
+      "da": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Blackman Street, London"
+        ]
+      },
       "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Blackman Street, London"
+        ]
+      },
+      "nb": {
         "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
         "values": [
           "Blackman Street, London"
@@ -5675,6 +6550,18 @@
     "source": "Ophelia",
     "identityLocales": {
       "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Ophelia"
+        ]
+      },
+      "tr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Ophelia"
+        ]
+      },
+      "vi": {
         "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
         "values": [
           "Ophelia"

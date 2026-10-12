@@ -5,7 +5,7 @@ art/manifest.json is the one source of truth: each work's Commons source and lic
 its picker collection, its framing hints and its SHA-256. This writes
 
 - Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt.swift (the enum and its records),
-- the CmuxNextDesign string catalog entries for each title (all nine macOS locales),
+- the CmuxNextDesign string catalog entries for each title (every locale the catalog carries),
 - Resources/BackdropArt/<id>.avif for the bundled starter set, copied from art/full.
 
 Thumbnails (Resources/BackdropArt/<id>.thumb.avif) and art/full/*.avif come from
@@ -26,7 +26,10 @@ DESIGN = ROOT / "Packages/macOS/CmuxNext/Sources/CmuxNextDesign"
 SWIFT = DESIGN / "BackdropArt.swift"
 CATALOG = DESIGN / "Resources/Localizable.xcstrings"
 RESOURCES = DESIGN / "Resources/BackdropArt"
-LOCALES = ["ar", "de", "en", "es", "fr", "ja", "ko", "zh-Hans", "zh-Hant"]
+LOCALES = ["ar", "bs", "da", "de", "en", "es", "fr", "it", "ja", "km", "ko", "nb", "pl", "pt-BR", "ru", "th", "tr",
+           "uk", "vi", "zh-Hans", "zh-Hant"]
+# The backdrop keys that are not art: the desktop wallpaper and macOS system wallpaper tiles.
+NOT_ART = {"desktop", "system"}
 OMISSIONS = ROOT / "scripts/localization-allowed-omissions.json"
 TITLE_REASON = "The work is known by this title in this language too (a proper name or the usual local title)."
 STATIC = {
@@ -34,22 +37,27 @@ STATIC = {
     "backdrop.publicDomain": {
         "en": "Public domain", "ar": "ملكية عامة", "de": "Gemeinfrei", "es": "Dominio público", "fr": "Domaine public",
         "ja": "パブリックドメイン", "ko": "퍼블릭 도메인", "zh-Hans": "公有领域", "zh-Hant": "公有領域",
+        "bs": "Javno vlasništvo", "da": "Offentligt domæne", "it": "Pubblico dominio", "km": "កម្មសិទ្ធិសាធារណៈ", "nb": "Allemannseie", "pl": "Domena publiczna", "pt-BR": "Domínio público", "ru": "Общественное достояние", "th": "สาธารณสมบัติ", "tr": "Kamu malı", "uk": "Суспільне надбання", "vi": "Phạm vi công cộng",
     },
     "backdrop.collection.darkArt": {
         "en": "Dark Art", "ar": "فن مظلم", "de": "Dunkle Kunst", "es": "Arte oscuro", "fr": "Art sombre",
         "ja": "ダークアート", "ko": "다크 아트", "zh-Hans": "暗黑艺术", "zh-Hant": "暗黑藝術",
+        "bs": "Mračna umjetnost", "da": "Mørk kunst", "it": "Arte oscura", "km": "សិល្បៈងងឹត", "nb": "Mørk kunst", "pl": "Mroczna sztuka", "pt-BR": "Arte Sombria", "ru": "Мрачное искусство", "th": "ศิลปะโทนมืด", "tr": "Karanlık Sanat", "uk": "Похмуре мистецтво", "vi": "Nghệ thuật u tối",
     },
     "backdrop.collection.museumIcons": {
         "en": "Museum Icons", "ar": "روائع المتاحف", "de": "Museumsikonen", "es": "Iconos de museo", "fr": "Icônes des musées",
         "ja": "名画", "ko": "명화", "zh-Hans": "博物馆名作", "zh-Hant": "博物館名作",
+        "bs": "Muzejska remek-djela", "da": "Museumsikoner", "it": "Icone dei musei", "km": "ស្នាដៃល្បីៗក្នុងសារមន្ទីរ", "nb": "Museumsikoner", "pl": "Arcydzieła muzealne", "pt-BR": "Ícones de Museu", "ru": "Шедевры музеев", "th": "ผลงานชิ้นเอกในพิพิธภัณฑ์", "tr": "Müze İkonları", "uk": "Шедеври музеїв", "vi": "Kiệt tác bảo tàng",
     },
     "backdrop.collection.calm": {
         "en": "Calm", "ar": "هدوء", "de": "Ruhig", "es": "Calma", "fr": "Calme",
         "ja": "穏やか", "ko": "차분함", "zh-Hans": "宁静", "zh-Hant": "寧靜",
+        "bs": "Smireno", "da": "Rolig", "it": "Calma", "km": "ស្ងប់ស្ងាត់", "nb": "Rolig", "pl": "Spokój", "pt-BR": "Calma", "ru": "Спокойствие", "th": "สงบ", "tr": "Sakin", "uk": "Спокій", "vi": "Tĩnh lặng",
     },
     "backdrop.collection.dore": {
         "en": "Doré", "ar": "دوريه", "de": "Doré", "es": "Doré", "fr": "Doré",
         "ja": "ドレ", "ko": "도레", "zh-Hans": "多雷", "zh-Hant": "多雷",
+        "bs": "Doré", "da": "Doré", "it": "Doré", "km": "ដូរេ", "nb": "Doré", "pl": "Doré", "pt-BR": "Doré", "ru": "Доре", "th": "โดเร", "tr": "Doré", "uk": "Доре", "vi": "Doré",
     },
 }
 
@@ -108,8 +116,10 @@ def unit(value: str) -> dict:
 
 def update_catalog(works: list[dict], catalog: dict) -> dict:
     strings = catalog["strings"]
-    for key in [k for k in strings if re.fullmatch(r"backdrop\.[^.]+\.(title|attribution)", k)]:
-        del strings[key]
+    for key in list(strings):
+        match = re.fullmatch(r"backdrop\.([^.]+)\.(title|attribution)", key)
+        if match and match[1] not in NOT_ART:
+            del strings[key]
     for key, values in STATIC.items():
         strings[key] = {"extractionState": "manual", "localizations": {l: unit(values[l]) for l in LOCALES}}
     for work in works:

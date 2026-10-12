@@ -91,13 +91,19 @@ def render_side(img, spec):
     return back, focal, quiet
 
 
+def extremes(img):
+    """The darkest and lightest pixels at full size: the legibility floor must hold over every
+    one of them, so a moon or a flame a downscale would average away still counts."""
+    colors = img.convert("RGB").getcolors(maxcolors=1 << 24)
+    by_luminance = sorted((luminance(color), color) for _, color in colors)
+    return by_luminance[0][1], by_luminance[-1][1]
+
+
 def measure(img, quiet):
     small = img.resize((160, 100), Image.BILINEAR)
-    pixels = list(small.getdata())
-    lums = sorted((luminance(p), p) for p in pixels)
-    darkest = lums[int(len(lums) * 0.005)][1]
-    lightest = lums[int(len(lums) * 0.995)][1]
-    mean = sum(l for l, _ in lums) / len(lums)
+    lums = [luminance(p) for p in small.getdata()]
+    mean = sum(lums) / len(lums)
+    darkest, lightest = extremes(img)
     qx = (0, 64) if quiet == "left" else (96, 160)
     qpix = [small.getpixel((x, y)) for x in range(*qx) for y in range(100)]
     qmean = sum(luminance(p) for p in qpix) / len(qpix)

@@ -26,7 +26,7 @@ public nonisolated struct BackdropArtEntry: Sendable {
     let quietLeft: Bool
     /// The default theme tint over the art, before the legibility floor.
     let tint: Double
-    /// Near-extreme colors (0.5th and 99.5th luminance percentiles) as 0xRRGGBB.
+    /// The darkest and lightest pixels of the full image as 0xRRGGBB.
     let darkest: UInt32
     let lightest: UInt32
 
