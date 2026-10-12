@@ -173,31 +173,25 @@ pub(super) fn live(state: &LinkState) -> Option<registration::Registration> {
 /// which waits for the `serve` it started while it holds its lock.)
 fn ensure_lock(state: &LinkState) -> anyhow::Result<std::fs::File> {
     let file = super::state::open_lock(&state.dir().join("link.ensure.lock"))?;
-    // flock has no timed wait: try, and retry with a bounded backoff until
-    // the deadline (an ensure that holds it ends within its own budgets).
-    let deadline = std::time::Instant::now() + LOCK_BUDGET;
-    let mut pause = Duration::from_millis(10);
-    loop {
-        // SAFETY: flock on a descriptor this process owns.
-        if unsafe {
-            libc::flock(std::os::fd::AsRawFd::as_raw_fd(&file), libc::LOCK_EX | libc::LOCK_NB)
-        } == 0
-        {
-            return Ok(file);
-        }
-        let error = std::io::Error::last_os_error();
-        if error.raw_os_error() != Some(libc::EWOULDBLOCK) {
-            return Err(error).context("lock the link state directory");
-        }
-        let now = std::time::Instant::now();
-        if now >= deadline {
-            bail!(
-                "lock_timeout: another cmux link ensure or stop of {} still runs",
-                state.dir().display()
-            );
-        }
-        std::thread::sleep(pause.min(deadline - now));
-        pause = (pause * 2).min(Duration::from_millis(250));
+    // flock has no timed wait: a helper thread takes the lock (blocking)
+    // and hands the file over; this waits for that event with a deadline.
+    // A lock the helper gets after the deadline is released at once: its
+    // send fails and the file drops.
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    std::thread::Builder::new().name("cmux-link-lock".into()).spawn(move || {
+        // SAFETY: flock on a descriptor this thread owns.
+        let locked =
+            unsafe { libc::flock(std::os::fd::AsRawFd::as_raw_fd(&file), libc::LOCK_EX) } == 0;
+        let answer = if locked { Ok(file) } else { Err(std::io::Error::last_os_error()) };
+        let _ = sender.send(answer);
+    })?;
+    match receiver.recv_timeout(LOCK_BUDGET) {
+        Ok(Ok(file)) => Ok(file),
+        Ok(Err(error)) => Err(error).context("lock the link state directory"),
+        Err(_) => bail!(
+            "lock_timeout: another cmux link ensure or stop of {} still runs",
+            state.dir().display()
+        ),
     }
 }
 
