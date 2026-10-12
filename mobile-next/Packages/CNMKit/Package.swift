@@ -14,7 +14,9 @@ let package = Package(
         .library(name: "CNMWebRTC", targets: ["CNMWebRTC"]),
         .library(name: "CNMBackend", targets: ["CNMBackend"]),
         .library(name: "CNMHost", targets: ["CNMHost"]),
+        .library(name: "CNMHostRuntime", targets: ["CNMHostRuntime"]),
         .executable(name: "cnm-host", targets: ["cnm-host"]),
+        .executable(name: "CmuxNextHostApp", targets: ["CmuxNextHostApp"]),
     ],
     dependencies: [
         .package(url: "https://github.com/stasel/WebRTC.git", from: "130.0.0"),
@@ -40,9 +42,19 @@ let package = Package(
             dependencies: ["CNMProtocol", "CNMTransport"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        .target(
+            name: "CNMHostRuntime",
+            dependencies: ["CNMHost", "CNMWebRTC", "CNMBackend", "CNMTransport"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         .executableTarget(
             name: "cnm-host",
-            dependencies: ["CNMHost", "CNMWebRTC", "CNMBackend", "CNMTransport"],
+            dependencies: ["CNMHostRuntime", "CNMHost", "CNMBackend"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .executableTarget(
+            name: "CmuxNextHostApp",
+            dependencies: ["CNMHostRuntime", "CNMHost", "CNMBackend"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(
