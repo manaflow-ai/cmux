@@ -14,6 +14,8 @@ import { ModelPicker } from "./ModelPicker";
 import type { CatalogRefreshState, ModelCombo, ModelPickerProps } from "./modelPickerLayout";
 import { topModelsFor } from "./topModels";
 import { rememberPick } from "./lastPick";
+import { lastOfferedModel } from "./harnessSwitch";
+import { harnessProfiles } from "./harnessProfiles";
 import type { PickerCatalog } from "./modelCatalogData";
 import { Popover } from "../../ui/Popover";
 import { ContextMenu } from "../../ui/ContextMenu";
@@ -349,6 +351,21 @@ export function ComposerPickers({
   });
   // A default model draws as the model it resolves to: the running session's, else the one this
   // harness's default last resolved to, else the model placeholder.
+  const startingModel = (agent: string) => {
+    const entry = pickerCatalog?.harnesses.find((candidate) => (candidate.acpmuxHarness ?? candidate.id) === agent);
+    const profile = harnessProfiles.get(agent);
+    const id =
+      lastOfferedModel(agent, snapshot.catalog, folder ?? summary?.cwd) ??
+      profile?.startModel ??
+      profile?.model ??
+      entry?.defaultModel;
+    if (!id || isDefaultChoice({ id })) return undefined;
+    return (
+      entry?.models.find((choice) => choice.id === id)?.name ??
+      models.find((choice) => choice.id === id)?.name ??
+      modelIdName(id)
+    );
+  };
   const defaulted = shown !== undefined && isDefaultChoice(model ?? { id: shown });
   // A harness still starting draws its last session's options, which name no model this chat runs.
   const resolvedNow = switching ? undefined : resolvedModel(summary);
@@ -359,7 +376,10 @@ export function ComposerPickers({
   const resolvedName =
     resolvedId &&
     (models.find((choice) => choice.id === resolvedId && !isDefaultChoice(choice))?.name ?? modelIdName(resolvedId));
-  const modelName = defaulted ? (resolvedName ?? t(PICKER_LABELS.model)) : (model?.name ?? summary?.model);
+  // A chat whose session has not reported its model yet names the one it starts on, as the New Tab
+  // chip does (cx-e2aa, cx-21jvw): the last pick here, else its profile's, else the catalog default.
+  const starting = shown === undefined && harness && !switching ? startingModel(harness) : undefined;
+  const modelName = defaulted ? (resolvedName ?? t(PICKER_LABELS.model)) : (model?.name ?? summary?.model ?? starting);
   const usage = summary?.usage;
   const compact = onCompact && snapshot.commands?.some((command) => command.name === "compact") ? onCompact : undefined;
 

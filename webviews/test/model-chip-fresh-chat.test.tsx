@@ -78,7 +78,6 @@ afterAll(() => {
   }
 });
 
-
 /// A chat on `harness` whose session has not reported a model yet: the summary names its agent only.
 async function mountFresh(harness: string) {
   const { createRoot } = await import("react-dom/client");
