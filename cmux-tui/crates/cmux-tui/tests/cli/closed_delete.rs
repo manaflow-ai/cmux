@@ -543,3 +543,68 @@ fn leaf_active(changes: &[serde_json::Value], pane: &str) -> serde_json::Value {
         .find_map(|change| find(&change["value"]["layout"]["root"], pane))
         .unwrap_or_else(|| panic!("no leaf of pane {pane}: {changes:?}"))
 }
+
+/// Retention for `history.closed.maxAgeDays` and `history.closed.maxGroups`
+/// (reopen-closed.md 2; the app applies the settings, like
+/// `history.commandRetentionDays`): `closed clear --before-ms T` deletes the
+/// groups closed before T, and `closed clear --keep-newest N` every group but
+/// the newest N. Both are hard deletes and cannot be reopened.
+#[test]
+fn state_cli_closed_clear_before_and_keep_newest_through_a_real_daemon() {
+    let server = HeadlessServer::start("state-cli-closed-retention");
+    let names = ["oldest", "middle", "newer", "newest"];
+    for name in names {
+        state_cli(&server, None, &["workspace", "create", "--name", name, "--empty"]);
+    }
+    for name in names {
+        let workspace = workspace_id_named(&server, name);
+        state_cli(&server, None, &["workspace", &workspace, "close"]);
+        // Distinct close times, so before-ms can split them.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let closed_names = || -> Vec<String> {
+        let mut names = state_cli(&server, None, &["closed", "list"])
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["name"].as_str().unwrap_or_default().to_string())
+            .collect::<Vec<_>>();
+        names.sort();
+        names
+    };
+    assert_eq!(closed_names(), ["middle", "newer", "newest", "oldest"]);
+    let middle_closed_at = state_cli(&server, None, &["closed", "list"])
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["name"] == "middle")
+        .and_then(|item| item["closed_at_ms"].as_str().map(str::to_string))
+        .expect("middle has a close time");
+
+    let aged = state_cli(&server, None, &["closed", "clear", "--before-ms", &middle_closed_at]);
+    assert_eq!(aged["value"]["deleted"].as_array().map(Vec::len), Some(1), "{aged}");
+    assert_eq!(closed_names(), ["middle", "newer", "newest"]);
+
+    let trimmed = state_cli(&server, None, &["closed", "clear", "--keep-newest", "1"]);
+    assert_eq!(trimmed["value"]["deleted"].as_array().map(Vec::len), Some(2), "{trimmed}");
+    assert_eq!(closed_names(), ["newest"]);
+    let none = state_cli(&server, None, &["closed", "clear", "--keep-newest", "1"]);
+    assert_eq!(none["value"]["deleted"], serde_json::json!([]), "{none}");
+
+    for (flags, needle) in [
+        (vec!["closed", "clear", "--keep-newest", "-1"], "--keep-newest"),
+        (vec!["closed", "clear", "--before-ms", "soon"], "--before-ms"),
+    ] {
+        let bad = Command::new(bin())
+            .args(["--json", "--socket"])
+            .arg(&server.socket)
+            .args(&flags)
+            .env("LC_ALL", "C")
+            .env_remove("CMUX_TUI_SOCKET")
+            .env_remove("CMUX_TUI_TERMINAL_ID")
+            .output()
+            .unwrap();
+        assert!(!bad.status.success(), "{flags:?} was accepted");
+        assert!(String::from_utf8_lossy(&bad.stderr).contains(needle), "{flags:?}");
+    }
+}
