@@ -11,6 +11,16 @@
 
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 
+/** A museum search result (cmux.settings.art.search); its thumbnail is at `museum/<key>`. */
+export type MuseumArtResult = {
+  key: string;
+  title: string;
+  artist: string;
+  date: string;
+  source: string;
+  page: string;
+};
+
 export type ManagedInfo = { source: string; reason: string; team?: string | null };
 
 /** One `cmux.settings.list` row: the schema row plus what applies now. */
@@ -297,6 +307,12 @@ export type SettingsOps = {
   "cmux.settings.theme.accepts": [{ text: string }, { accepts: boolean }];
   /** Native: the cmux picker chooses folders for a folder list row; the host writes them. */
   "cmux.settings.folders.add": [{ key: string }, { added: string[] }];
+  /** The cmux picker for an image; the host copies it to the backgrounds folder and sets it. */
+  "cmux.settings.backdrop.choose_image": [Record<string, never>, { id: string | null }];
+  /** Browse More Art: public-domain works in open museum collections matching `query`. */
+  "cmux.settings.art.search": [{ query: string }, { results: MuseumArtResult[] }];
+  /** Downloads the work `key` into the backgrounds folder and sets it as the background. */
+  "cmux.settings.art.use": [{ key: string }, { id: string }];
   /** Native: the buttons at the end of a section (registry titles, localized by the app). */
   "cmux.settings.section.actions": [{ section: string }, Array<{ id: string; title: string; enabled: boolean }>];
   /** Native: show the settings file in Finder. */

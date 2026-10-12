@@ -158,7 +158,7 @@ public final class ShareCmuxView: NSView {
         }
         messageScroll.documentView = messageView
         messageScroll.hasVerticalScroller = true
-        messageScroll.autohidesScrollers = true
+        SystemScrollers.follow(messageScroll)
         messageScroll.drawsBackground = false
         messageScroll.borderType = .noBorder
         messageScroll.wantsLayer = true

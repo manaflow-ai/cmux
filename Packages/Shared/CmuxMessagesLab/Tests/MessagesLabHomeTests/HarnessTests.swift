@@ -216,7 +216,9 @@ import Testing
     /// recorded again on purpose (HOME_HARNESS_WRITE_GOLDEN=1, named in the pin's commit).
     /// Recorded with the harness host's OS (scripts/cmux-next/home-messageslab-harness.sh). The typing
     /// line also carries the presented row[typing] layers over 3.2-5.15 s (its breathing, 7cdd49b).
-    static let motionTransitions = ["delivered", "delivered -> read", "typing indicator", "send (1 line, morph)"]
+    static let motionTransitions = ["delivered", "delivered -> read", "typing indicator", "send (1 line, morph)",
+                                    // MessagesLab 60fbe32: the multi-line (field-shrink) send's morph, bubble.width.fieldShrink.
+                                    "send (2 lines, morph)"]
 
     /// The indicator shows at 0.50 s in `typingOnly` and stays: ticks 0.50 s to 2.70 s (2.2 s, more than
     /// the bubble's 1.906 s breathing period and both discs' periods), every 2nd: only row[typing] layers.

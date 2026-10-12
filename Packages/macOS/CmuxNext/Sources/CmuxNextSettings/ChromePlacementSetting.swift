@@ -25,6 +25,7 @@ public nonisolated struct ChromePlacementSetting {
         snapshot.spacesVisibility = choice(root, spacesVisibilityPath, fallback: .hover, &snapshot.diagnostics)
         snapshot.tabBarPosition = choice(root, tabBarPositionPath, fallback: .top, &snapshot.diagnostics)
         snapshot.tabBarOrder = choice(root, tabBarOrderPath, fallback: .aboveToolbar, &snapshot.diagnostics)
+        _ = PaneToolbarSetting.parse(root, diagnostics: &snapshot.diagnostics) // the app reads the file's value (PaneToolbar)
     }
 
     private static func choice<Value: RawRepresentable & CaseIterable>(

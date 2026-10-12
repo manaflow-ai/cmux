@@ -6,6 +6,11 @@
 // --split writes the code behind dynamic imports (shiki's grammars, KaTeX) as chunks/ beside
 // <outfile>, so the page's first script is only what its first frame runs.
 //
+// --css-inputs <file> lists, one per line relative to webviews/, every stylesheet the bundle
+// imports. The bundle drops CSS, so the page build checks each one ships in the page.
+// --css-inputs-only writes just that list: no React Compiler, no minify, nothing written to
+// <outfile>, so a test can ask for it in about a second.
+//
 // Pass `-` as the shiki alias for a page that does not use shiki (the Settings page).
 //
 // Each first-party .ts/.tsx file under src/ goes through the React Compiler that
@@ -28,6 +33,9 @@ if (!entry || !shikiAlias || !outfile) {
 const reportIndex = rest.indexOf("--report");
 const reportFile = reportIndex >= 0 ? rest[reportIndex + 1] : undefined;
 const split = rest.includes("--split");
+const cssInputsIndex = rest.indexOf("--css-inputs");
+const cssInputsFile = cssInputsIndex >= 0 ? rest[cssInputsIndex + 1] : undefined;
+const cssInputsOnly = rest.includes("--css-inputs-only");
 const srcRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../src");
 
 const mode = reactCompilerMode();
@@ -40,14 +48,15 @@ const reactCompiler = reactCompilerPlugin({
   onDiagnostic: (diagnostic) => bailouts.push(diagnostic),
 });
 
-await build({
+const result = await build({
   entryPoints: [entry],
   bundle: true,
   format: "esm",
   platform: "browser",
   target: "es2022",
   define: { "process.env.NODE_ENV": '"production"' },
-  minify: true,
+  minify: !cssInputsOnly,
+  write: !cssInputsOnly,
   legalComments: "none",
   alias: shikiAlias === "-" ? {} : { shiki: path.resolve(shikiAlias) },
   logLevel: "warning",
@@ -59,8 +68,17 @@ await build({
         chunkNames: "chunks/[name]-[hash]",
       }
     : { outfile }),
-  plugins: [reactCompiler, tailwindPlugin, jsonParsePlugin],
+  plugins: cssInputsOnly ? [tailwindPlugin, jsonParsePlugin] : [reactCompiler, tailwindPlugin, jsonParsePlugin],
+  metafile: Boolean(cssInputsFile),
 });
+if (cssInputsFile) {
+  const webviewsRoot = path.dirname(srcRoot);
+  const sheets = Object.keys(result.metafile.inputs)
+    .filter((input) => input.endsWith(".css") && !input.includes("node_modules/"))
+    .map((input) => path.relative(webviewsRoot, path.resolve(input)))
+    .sort();
+  await writeFile(cssInputsFile, sheets.map((sheet) => sheet + "\n").join(""));
+}
 
 bailouts.sort((a, b) => `${a.file}:${a.line}`.localeCompare(`${b.file}:${b.line}`));
 if (bailouts.length) {

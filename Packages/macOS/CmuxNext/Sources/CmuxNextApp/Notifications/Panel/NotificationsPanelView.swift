@@ -125,13 +125,13 @@ final class NotificationsPanelView: NSView {
         scroll.documentView = document
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
-        // The system's "Show scroll bars" setting (R111).
+        // Thin, shown only while scrolling (SCROLLBARS-THIN).
         SystemScrollers.follow(scroll)
         // queue: .main: a post off main into this main-actor view trapped.
         scrollerStyleObserver = NotificationCenter.default.addObserver(
             forName: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.scroll.scrollerStyle = SystemScrollers.preferredStyle } // main-proof: observer on queue: .main
+            MainActor.assumeIsolated { self?.scroll.scrollerStyle = SystemScrollers.nativeStyle } // main-proof: observer on queue: .main
         }
         document.translatesAutoresizingMaskIntoConstraints = false
 

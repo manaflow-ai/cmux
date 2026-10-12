@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/Fixture.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/Fixture.swift
-@@ -65,21 +65,31 @@
+@@ -65,30 +65,57 @@
      static func p3(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> UIColor {
          UIColor(displayP3Red: r / 255, green: g / 255, blue: b / 255, alpha: 1)
      }
@@ -20,6 +20,35 @@
 -    static var incoming: UIColor { lightAppearance ? p3(233, 233, 235) : elevated ? p3(76, 76, 78) : p3(59, 59, 61) }
 +    static var background: UIColor { themed(\.background) ?? (lightAppearance ? UIColor(white: 1, alpha: 1) : UIColor(white: 30 / 255, alpha: 1)) }
 +    static var incoming: UIColor { themed(\.incoming) ?? (lightAppearance ? p3(233, 233, 235) : elevated ? p3(76, 76, 78) : p3(59, 59, 61)) }
+     /// The typing indicator (bubble, tail discs, dots) is not the incoming grey: in Messages' key window it is
+     /// one level darker in red and green (bubble and discs 58, 58, 61; dots dim 91, 91, 94, lit 133, 133, 135:
+     /// the 12 settled lossless stills typing-dots-02..13 and send-typed-take1 +5.5 s), in its inactive window it
+     /// is not (59, 59, 61; dots dim 92, 92, 94, lit 134, 134, 135: typing-unfocused-take1, its 61 frames at rest),
+     /// while the incoming bubbles are 59, 59, 61 in both (tools/evidence/ANIMATIONS.md section 6, cx-3cb
+     /// typing-colour). Light appearance and the thread view's rows: no reference; the incoming grey and the dark dots.
+-    static var typingFill: UIColor { lightAppearance || elevated ? incoming : inactive ? p3(59, 59, 61) : p3(58, 58, 61) }
+-    static var typingDotDim: UIColor { inactive && !lightAppearance && !elevated ? p3(92, 92, 94) : p3(91, 91, 94) }
+-    static var typingDotLit: UIColor { inactive && !lightAppearance && !elevated ? p3(134, 134, 135) : p3(133, 133, 135) }
++    static var typingFill: UIColor {
++        // cmux: on a theme, the theme's incoming grey; a dark one is one level darker in red and green in
++        // the key window, as Messages' (a light theme has no reference: the incoming grey).
++        if theme != nil { return isLight || elevated || inactive ? incoming : oneLevelDarker(incoming) }
++        return lightAppearance || elevated ? incoming : inactive ? p3(59, 59, 61) : p3(58, 58, 61)
++    }
++    static var typingDotDim: UIColor {
++        if theme != nil, isLight { return typingDot }  // cmux: a light theme's dots; a dark one keeps the measured levels
++        return inactive && !lightAppearance && !elevated ? p3(92, 92, 94) : p3(91, 91, 94)
++    }
++    static var typingDotLit: UIColor {
++        if theme != nil, isLight { return typingDotHighlight }  // cmux
++        return inactive && !lightAppearance && !elevated ? p3(134, 134, 135) : p3(133, 133, 135)
++    }
++    /// cmux: 1/255 less red and green (Display P3), the key window's typing fill on a dark theme.
++    private static func oneLevelDarker(_ c: UIColor) -> UIColor {
++        guard let p = c.usingColorSpace(.displayP3) else { return c }
++        return UIColor(displayP3Red: max(0, p.redComponent - 1 / 255), green: max(0, p.greenComponent - 1 / 255),
++                       blue: p.blueComponent, alpha: p.alphaComponent)
++    }
      /// Rows of an open thread or reply view are drawn lighter (macOS 27, measured 76, 76, 78;
      /// lossless thread-open-esc reference). Set only around those rows' drawing (main thread).
      static var elevated = false
@@ -39,7 +68,7 @@
      /// Outgoing bubbles shade with their position in the window (measured:
      /// lighter near the top, deeper blue near the compose field).
      /// (window y in 2x px, red, green), Display P3.
-@@ -104,10 +114,39 @@
+@@ -113,10 +140,39 @@
      // optional, no force unwrap ; a nil gradient draws nothing.
      private static let darkGradient = gradient { p3($0, $1, 247) }
      private static let lightGradient = gradient(lightGradientColor)

@@ -933,11 +933,8 @@ body[data-status-only="true"] #files-motion-curtain {
   --trees-status-added-override: var(--cmux-diff-count-added);
   --trees-status-deleted-override: var(--cmux-diff-count-deleted);
 }
-/* SCROLLBARS-FOLLOW-MACOS: the tree has no scroller of its own width in overlay mode (rows keep the
-   full width); for "Always" it shows the library's scroller in a gutter (scrollers.ts). */
-html[data-scrollers="legacy"] #file-list {
-  --trees-scrollbar-gutter-override: 6px;
-}
+/* SCROLLBARS-THIN: the tree has no scroller of its own width (rows keep the full width); its
+   scroller shows over the rows while the list scrolls (scrollers.ts), "Always" too. */
 body[data-loading="false"] .diff-loading-placeholder {
   display: none;
 }
@@ -1496,7 +1493,7 @@ body[data-loading="true"] #status::before {
 }
 .file-review-badge {
   padding: 1px 6px;
-  border-radius: 999px;
+  border-radius: 4px;
   border: 1px solid var(--cmux-diff-border);
   white-space: nowrap;
 }
@@ -1648,7 +1645,7 @@ svg[data-icon-fill] {
   flex: 1 1 auto;
   gap: 6px;
 }
-/* Source pill: "Branch v +N -N". */
+/* Source chip: "Branch v +N -N". */
 .source-pill {
   display: inline-flex;
   flex: 0 0 auto;
@@ -1656,7 +1653,7 @@ svg[data-icon-fill] {
   gap: 2px;
   height: 28px;
   padding: 2px 10px 2px 2px;
-  border-radius: 999px;
+  border-radius: 6px;
   background: color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
   font-variant-numeric: tabular-nums;
 }
@@ -1667,7 +1664,7 @@ svg[data-icon-fill] {
   height: 24px;
   padding: 0 8px 0 10px;
   border: 0;
-  border-radius: 999px;
+  border-radius: 4px;
   background: transparent;
   color: var(--cmux-diff-fg);
   font: inherit;
@@ -1694,12 +1691,12 @@ svg[data-icon-fill] {
 .source-pill-deletions {
   color: light-dark(var(--cmux-diff-deletion-fg-light), var(--cmux-diff-deletion-fg-dark));
 }
-/* The base picker joins the toolbar as a pill too: "head -> base v". */
+/* The base picker joins the toolbar as a chip too: "head -> base v". */
 #toolbar .base-picker-button {
   height: 28px;
   padding: 0 10px 0 12px;
   border: 0;
-  border-radius: 999px;
+  border-radius: 6px;
   background: color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
   font-weight: 400;
 }
@@ -1719,7 +1716,7 @@ svg[data-icon-fill] {
   height: 28px;
   padding: 0;
   border: 0;
-  border-radius: 999px;
+  border-radius: 6px;
   background: color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
   color: var(--cmux-diff-fg);
   cursor: pointer;
@@ -1906,7 +1903,7 @@ svg[data-icon-fill] {
   gap: 4px;
   padding: 2px;
   border: 1px solid color-mix(in srgb, var(--cmux-diff-fg) 16%, transparent);
-  border-radius: 999px;
+  border-radius: 8px;
   background: color-mix(in srgb, var(--cmux-diff-fg) 9%, var(--cmux-diff-solid-bg));
 }
 .diff-pill-button {
@@ -1918,7 +1915,7 @@ svg[data-icon-fill] {
   height: 28px;
   padding: 0;
   border: 0;
-  border-radius: 999px;
+  border-radius: 5px;
   background: transparent;
   color: color-mix(in srgb, var(--cmux-diff-fg) 62%, var(--cmux-diff-solid-bg));
   cursor: pointer;

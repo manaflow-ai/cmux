@@ -89,7 +89,7 @@ pub(super) const GIT_HELP: &str = "\
 USAGE
   cmux git status [TARGET]
   cmux git diff [TARGET] [--scope <scope>] [--patch] [--max-patch-bytes <n>]
-    [--max-files <n>] [<path>...]
+    [--max-files <n>] [--context-lines <n>] [<path>...]
   cmux git files [TARGET] [--limit <n>] <query>...
   cmux git list [TARGET] [--limit <n>]
   cmux git checkpoint create [TARGET] [--untracked eligible | <untracked-path>...]
@@ -100,7 +100,7 @@ USAGE
   cmux git checkpoint pin [TARGET] <checkpoint> --pin <pin-id> --reason <text>
   cmux git checkpoint unpin [TARGET] <checkpoint> --pin <pin-id>
   cmux git checkpoint diff [TARGET] <from> [<to>] [--only <path,...>] [--patch]
-    [--max-patch-bytes <n>] [--max-files <n>]
+    [--max-patch-bytes <n>] [--max-files <n>] [--context-lines <n>]
   cmux git commit [TARGET] --message <text> [--all [--include-untracked]] [--amend]
     [--no-verify] [--expected-head <commit>] [<path>...]
   cmux git push [TARGET] [--remote <name>] [--branch <name>]

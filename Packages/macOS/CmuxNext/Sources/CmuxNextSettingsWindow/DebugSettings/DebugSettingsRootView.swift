@@ -40,6 +40,7 @@ struct DebugSettingsRootView: View {
                     .padding(.horizontal, Metrics.space6 + Metrics.space4)
                     .padding(.bottom, Metrics.space6)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .thinScrollers()
                 }
                 .scrollIndicators(.automatic)
                 .scrollBounceBehavior(.basedOnSize)

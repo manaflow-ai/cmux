@@ -52,12 +52,15 @@ test("the shortcut search navigates rows and starts recording without losing foc
   const selectedTitle = () => host.querySelector<HTMLElement>(".keys-row.selected .keys-command-title")?.textContent;
   const firstTitle = host.querySelector<HTMLElement>(".keys-row .keys-command-title")?.textContent;
   const secondTitle = host.querySelectorAll<HTMLElement>(".keys-row .keys-command-title")[1]?.textContent;
-  const press = async (key: string) => {
+  const press = async (key: string, init: KeyboardEventInit & { keyCode?: number } = {}) => {
     const KeyboardEvent = host.ownerDocument.defaultView!.KeyboardEvent;
+    let event!: globalThis.KeyboardEvent;
     await act(async () => {
-      search.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+      event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init });
+      search.dispatchEvent(event);
       await Promise.resolve();
     });
+    return event.defaultPrevented;
   };
 
   expect(host.ownerDocument.activeElement).toBe(search);
@@ -71,6 +74,13 @@ test("the shortcut search navigates rows and starts recording without losing foc
   await press("ArrowDown");
   expect(selectedTitle()).toBe(firstTitle);
   expect(host.ownerDocument.activeElement).toBe(search);
+  for (const composition of [{ isComposing: true }, { keyCode: 229 }]) {
+    const selectedBeforeComposition = selectedTitle();
+    expect(await press("ArrowDown", composition)).toBe(false);
+    expect(selectedTitle()).toBe(selectedBeforeComposition);
+    expect(await press("Enter", composition)).toBe(false);
+    expect(provider.recording).toBe(false);
+  }
   await press("ArrowDown");
   expect(selectedTitle()).toBe(secondTitle);
   await press("ArrowUp");

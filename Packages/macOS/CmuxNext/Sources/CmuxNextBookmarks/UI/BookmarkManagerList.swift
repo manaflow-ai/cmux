@@ -28,6 +28,7 @@ struct BookmarkManagerList: View {
                         row(node)
                             .tag(node.id)
                             .listRowBackground(Color.clear)
+                            .thinScrollers()
                     }
                 }
                 .scrollContentBackground(.hidden)
