@@ -159,6 +159,19 @@ for line in sys.stdin:
         if said.strip() == "compact-probe":
             send({"type": "system", "subtype": "compact_boundary",
                   "compact_metadata": {"trigger": "manual", "pre_tokens": 4500}})
+        # "bg-probe": the turn starts two shells in the background (Bash run_in_background); Claude
+        # Code reports each as a local_bash task, and one is killed while the other finishes.
+        if said.strip() == "bg-probe":
+            for tid, tool, command, status in (("b1", "toolu_bg1", "npm run dev", "killed"),
+                                                ("b2", "toolu_bg2", "cargo test", "completed")):
+                send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": tool, "name": "Bash",
+                      "input": {"command": command, "run_in_background": True, "description": "Run " + command}}]}})
+                send({"type": "system", "subtype": "task_started", "task_id": tid, "tool_use_id": tool,
+                      "description": "Run " + command, "task_type": "local_bash"})
+            send({"type": "system", "subtype": "task_notification", "task_id": "b1", "tool_use_id": "toolu_bg1",
+                  "status": "killed", "reason": "Stopped by the agent", "output_file": "", "summary": ""})
+            send({"type": "system", "subtype": "task_notification", "task_id": "b2", "tool_use_id": "toolu_bg2",
+                  "status": "completed", "output_file": "", "summary": "Tests passed"})
         # "todo-probe": the turn writes its todo list with Claude Code's TodoWrite tool.
         if said.strip() == "todo-probe":
             send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_todo", "name": "TodoWrite",
