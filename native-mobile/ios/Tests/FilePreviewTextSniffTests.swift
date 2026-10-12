@@ -22,3 +22,17 @@ struct FilePreviewTextSniffTests {
         #expect(!FilePreviewModel.looksLikeText(Data(repeating: 0xFF, count: 64)))
     }
 }
+
+struct CodeDocumentLongLineTests {
+    @Test func minifiedLineIsClippedAndPlain() {
+        let line = String(repeating: "a=1;", count: 50_000)
+        let document = CodeDocument.make(text: line + "\nlet x = 1\n", path: "bundle.min.js")
+        #expect(document.lines.count >= 2)
+        #expect(document.maxColumns < CodeDocument.maximumLineCharacters + 40)
+        #expect(String(document.lines[0].characters).hasSuffix("more characters"))
+    }
+
+    @Test func shortLinesAreUntouched() {
+        #expect(CodeDocument.clipped("let x = 1") == "let x = 1")
+    }
+}

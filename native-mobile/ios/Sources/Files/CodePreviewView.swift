@@ -8,19 +8,32 @@ struct CodeDocument: Sendable {
     /// Above this many lines highlighting is skipped (plain ink text).
     static let highlightLimit = 20_000
 
+    /// A minified bundle can be one multi-megabyte line: one row that wide
+    /// stalls layout and highlighting, so rows are cut here.
+    static let maximumLineCharacters = 4000
+    /// Lines longer than this are shown without highlighting.
+    static let highlightLineLimit = 1000
+
     static func make(text: String, path: String, language: SyntaxHighlighter.Language? = nil) -> CodeDocument {
         let language = language ?? SyntaxHighlighter.language(forPath: path)
         let raw = UnifiedDiffParser.splitLines(text)
         let highlight = raw.count <= highlightLimit
         var maxColumns = 1
-        let lines = raw.map { line -> AttributedString in
+        let lines = raw.map { full -> AttributedString in
+            let line = clipped(full)
             maxColumns = max(maxColumns, line.reduce(0) { $0 + ($1 == "\t" ? 4 : 1) })
-            if highlight { return SyntaxHighlighter.attributed(line, language: language) }
+            if highlight, line.count <= highlightLineLimit { return SyntaxHighlighter.attributed(line, language: language) }
             var plain = AttributedString(line)
             plain.foregroundColor = Theme.ink
             return plain
         }
         return CodeDocument(lines: lines.isEmpty ? [AttributedString()] : lines, maxColumns: maxColumns)
+    }
+
+    static func clipped(_ line: String) -> String {
+        guard line.count > maximumLineCharacters else { return line }
+        let rest = line.count - maximumLineCharacters
+        return String(line.prefix(maximumLineCharacters)) + " … " + String(localized: "\(rest) more characters")
     }
 }
 
