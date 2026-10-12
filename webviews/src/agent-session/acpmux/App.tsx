@@ -94,7 +94,7 @@ import { RevealedMarkdown } from "./conversation/RevealedMarkdown";
 import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
-import { SessionRowsContext } from "./turnChanges/sessionRows";
+import { SessionCwdContext, SessionRowsContext } from "./turnChanges/sessionRows";
 import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
 import { UserBubble } from "./conversation/UserBubble";
 import { editableKey, editableSeqs, editableTurns } from "./conversation/editPrompt";
@@ -3601,34 +3601,36 @@ function AcpmuxPane() {
           <TurnActionsContext.Provider value={turnActions}>
             <TurnCountsContext.Provider value={turnCountsFor}>
               <SessionRowsContext.Provider value={snapshot.rows}>
-                <SubagentNavContext.Provider value={setSubagentView}>
-                  <VirtualTranscript
-                    rows={transcriptRows}
-                    working={snapshot.isWorking}
-                    // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
-                    jumpButton={!quick}
-                    focusComposer={() => composerHandle.current?.focus()}
-                    find={quick ? undefined : find}
-                    sessionId={childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId}
-                    canLoadOlder={!childRows && snapshot.canLoadOlder}
-                    openAt={
-                      !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
-                        ? scrollAnchor
-                        : undefined
-                    }
-                    onAnchor={
-                      quick || childRows || !shownSessionId
-                        ? undefined
-                        : (anchor) => postScrollAnchor(shownSessionId, anchor)
-                    }
-                    expanded={expanded}
-                    registry={registry}
-                    githubRepository={githubRepository}
-                    // The Quick Composer has no room for the changes view; its file rows stay plain.
-                    onOpenDiff={quick ? undefined : openDiff}
-                    onToggleActivity={toggleActivity}
-                  />
-                </SubagentNavContext.Provider>
+                <SessionCwdContext.Provider value={snapshot.summary?.cwd}>
+                  <SubagentNavContext.Provider value={setSubagentView}>
+                    <VirtualTranscript
+                      rows={transcriptRows}
+                      working={snapshot.isWorking}
+                      // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
+                      jumpButton={!quick}
+                      focusComposer={() => composerHandle.current?.focus()}
+                      find={quick ? undefined : find}
+                      sessionId={childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId}
+                      canLoadOlder={!childRows && snapshot.canLoadOlder}
+                      openAt={
+                        !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
+                          ? scrollAnchor
+                          : undefined
+                      }
+                      onAnchor={
+                        quick || childRows || !shownSessionId
+                          ? undefined
+                          : (anchor) => postScrollAnchor(shownSessionId, anchor)
+                      }
+                      expanded={expanded}
+                      registry={registry}
+                      githubRepository={githubRepository}
+                      // The Quick Composer has no room for the changes view; its file rows stay plain.
+                      onOpenDiff={quick ? undefined : openDiff}
+                      onToggleActivity={toggleActivity}
+                    />
+                  </SubagentNavContext.Provider>
+                </SessionCwdContext.Provider>
               </SessionRowsContext.Provider>
             </TurnCountsContext.Provider>
           </TurnActionsContext.Provider>
