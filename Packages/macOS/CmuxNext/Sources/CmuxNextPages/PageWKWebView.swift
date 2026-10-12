@@ -164,8 +164,14 @@ final class PageWKWebView: WKWebView {
         droppedFile(sender) != nil ? .copy : super.draggingUpdated(sender)
     }
 
+    /// Files dropped on the page itself (not a ``fileDrop`` the host opens): a real gesture page script can't make.
+    var onFilesDropped: (@MainActor () -> Void)?
+
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        guard let url = droppedFile(sender), let fileDrop else { return super.performDragOperation(sender) }
+        guard let url = droppedFile(sender), let fileDrop else {
+            if sender.draggingPasteboard.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) { onFilesDropped?() }
+            return super.performDragOperation(sender)
+        }
         fileDrop.open(url)
         return true
     }

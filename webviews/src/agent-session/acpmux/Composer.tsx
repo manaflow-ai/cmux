@@ -20,6 +20,7 @@ import {
   type AttachmentError,
   type ComposerAttachment,
 } from "./attachments";
+import type { UploadResult } from "./cloudUploads";
 import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
 import { type ChatMove, moveAttachment } from "./shell/chatMoves";
@@ -105,6 +106,9 @@ export const COMPOSER_LABELS = {
   insertMention: "composer.menu.insertMention",
 } as const satisfies Record<string, StringKey>;
 
+/// The refusals a moved chat's upload can take instead (a file of another type, or past the size an attachment takes).
+const UPLOADABLE = new Set<AttachmentError["reason"]>(["unsupported", "tooLarge"]);
+
 function attachmentErrorText(error: AttachmentError, t: Translate): string {
   return t(COMPOSER_LABELS[error.reason], { name: error.name });
 }
@@ -168,6 +172,9 @@ type Props = {
   /// or a window, attached as an image; an error for one too large to attach (shown as the
   /// composer's note); undefined when the person cancelled the pick.
   capture?(mode: "screen" | "window"): Promise<File | AttachmentError | undefined>;
+  /// Sends dropped or pasted files the composer can't attach to the chat's Cloud machine (a moved
+  /// chat): their machine paths go into the prompt. Undefined when this chat takes none.
+  upload?(files: File[]): Promise<UploadResult>;
   /// Starts a new chat in another project; the tray's project pill chooses only when set.
   onProject?(cwd: string, peer?: string): void;
   projectChoices?: Project[];
@@ -227,6 +234,7 @@ export function Composer({
   onImportFile,
   searchFiles,
   capture,
+  upload,
   onProject,
   projectChoices,
   onBrowseProject,
@@ -314,12 +322,30 @@ export function Composer({
   const allowImages = snapshot.summary?.promptCapabilities?.image !== false;
   // + then Attach files clicks this input: the system file chooser (an open panel in the app).
   const chooser = useRef<HTMLInputElement>(null);
-  const attach = useRef<(files: File[]) => Promise<void>>(async () => {});
-  attach.current = async (files: File[]) => {
+  /// `uploads`: the person dropped or pasted these into the prompt, so a moved chat may send what
+  /// the composer can't attach to its machine (never a pick from + or a capture).
+  const attach = useRef<(files: File[], uploads?: boolean) => Promise<void>>(async () => {});
+  attach.current = async (files: File[], uploads = false) => {
     if (files.length === 0) return;
     const read = await readAttachments(files, held.current, allowImages);
     setAttachments((current) => [...current, ...read.attachments]);
-    setAttachError(read.errors[0] ? attachmentErrorText(read.errors[0], t) : undefined);
+    // A moved chat sends what the composer can't attach to its machine and names it in the prompt.
+    const refused = new Set(read.errors.filter((error) => UPLOADABLE.has(error.reason)).map((error) => error.name));
+    const sendable = files.filter((file) => refused.has(file.name || "file"));
+    const sent = uploads && upload && sendable.length > 0 ? await upload(sendable) : undefined;
+    if (sent && "paths" in sent) insertPaths(sent.paths);
+    const errors = sent ? read.errors.filter((error) => !refused.has(error.name)) : read.errors;
+    setAttachError(sent && "error" in sent ? sent.error : errors[0] ? attachmentErrorText(errors[0], t) : undefined);
+  };
+  /// Puts machine paths at the caret, one per line.
+  const insertPaths = (paths: string[]) => {
+    const handle = field.current;
+    if (!handle || paths.length === 0) return;
+    const { value, selectionStart, selectionEnd } = handle.text();
+    const before = value.slice(0, selectionStart);
+    const inserted = (before && !before.endsWith("\n") && !before.endsWith(" ") ? " " : "") + paths.join("\n");
+    const caret = before.length + inserted.length;
+    handle.writeText(before + inserted + value.slice(selectionEnd), caret, caret);
   };
   useEffect(() => {
     const paste = (event: ClipboardEvent) => {
@@ -329,9 +355,10 @@ export function Composer({
       const files = filesFrom(event.clipboardData);
       if (files.length === 0) return;
       event.preventDefault();
-      void attach.current(files);
+      // A paste in shell mode keeps its files for the next prompt and uploads nothing.
+      void attach.current(files, !shellField.current?.contains(target));
     };
-    const removeFileDropLifecycle = installFileDropLifecycle((files) => void attach.current(files), setDropping);
+    const removeFileDropLifecycle = installFileDropLifecycle((files) => void attach.current(files, true), setDropping);
     document.addEventListener("paste", paste);
     return () => {
       removeFileDropLifecycle();

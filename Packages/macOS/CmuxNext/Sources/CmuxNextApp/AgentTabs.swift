@@ -166,6 +166,8 @@ final class AgentTabStore {
     var pendingTurns: [String: String] = [:]
     /// The git link of tab `key`: the session host of the tab's own machine (AgentPaneGitReads.swift),
     /// so a Cloud or SSH chat reads its folder there; nil answers the page `native.not_connected`. Move to Floating Chat puts a session in Start Agent's panel.
+    /// The upload for a chat tab's dropped or pasted files, nil when it takes none (``CloudUploads``).
+    var uploader: (@MainActor (_ tab: String) -> AgentPaneUploader?)?
     var gitLink: (@MainActor (String) -> AgentPaneGitLink?)?, openFiles: (@MainActor (_ chat: String, _ folder: String, _ target: String?) -> Void)?, moveToFloatingChat: (@MainActor (String) -> Bool)?
 
     /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``)
@@ -411,6 +413,10 @@ final class AgentTabStore {
             return try await link.write(request, in: cwd)
         }
         wireAgentFolder(model, key: provisional)
+        model.onUpload = { [weak self] in
+            guard let self else { return nil }
+            return uploader?(resolve(provisional))
+        }
     }
 
     /// A pane view on this store's page and host, with the shared pushes.
