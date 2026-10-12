@@ -37,4 +37,14 @@ struct DaemonUnavailableScreenTests {
         #expect(actions.count == 1)
         #expect(actions.allSatisfy { !$0.title.isEmpty })
     }
+
+    @Test func copyDetailsHandsOverTheRawError() throws {
+        let error = DaemonError.connectFailed(path: "/tmp/cmux-501/tui.sock", errno: ECONNREFUSED)
+        let view = screen(error)
+        let board = NSPasteboard(name: NSPasteboard.Name("cmux-tests-\(UUID().uuidString)"))
+        defer { board.releaseGlobally() }
+        view.pasteboard = board
+        try #require(buttons(in: view).first { !$0.isHidden }).performClick(nil)
+        #expect(board.string(forType: .string) == String(describing: error))
+    }
 }
