@@ -10,6 +10,18 @@
   height: min(480px, 78vh);
 }
 
+/* Path mode replaces the leading "Go to" row once the final segment is typed. Reserve that
+   row's slot while the segment is non-empty so the real completion rows stay anchored. */
+.ve-picker[data-path-rest="nonempty"] .ve-picker-list {
+  padding-block-start: 28px;
+}
+
+/* Keep the field width independent of whether a large folder currently needs a scrollbar. */
+.ve-picker-list {
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+}
+
 .path-picker-gallery-receipt {
   position: fixed;
   inset-block-end: 12px;

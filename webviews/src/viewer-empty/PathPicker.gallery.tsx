@@ -25,6 +25,8 @@ function entry(path: string, name: string, kind: PickerEntry["kind"], git = fals
 }
 
 function entriesAt(path: string): PickerEntry[] {
+  if (path === "/") return [entry("/", "Users", "dir")];
+  if (path === "/Users") return [entry("/Users", "demo", "dir")];
   if (path === HOME)
     return [
       entry(HOME, "Projects", "dir"),
