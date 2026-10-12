@@ -31,7 +31,8 @@ enum FeedTextParser {
                     block.append(lines[next].trimmingCharacters(in: .whitespaces))
                     next += 1
                 }
-                let joined = block.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+                // The TUI wraps the prompt at its width; rejoin as one text.
+                let joined = block.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
                 if !joined.isEmpty, !isPlaceholder(joined) { lastPrompt = joined }
                 index = next
                 continue

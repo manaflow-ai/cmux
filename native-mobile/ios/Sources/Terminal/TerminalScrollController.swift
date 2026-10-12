@@ -109,9 +109,15 @@ final class TerminalScrollController: UIViewController, UIScrollViewDelegate {
         // Shell: the grid reaches up under the floating top controls (old
         // output shows through the soft edge); TUI: only the clear area.
         let gridTop = tui ? topInset : view.safeAreaInsets.top
+        // A shell keeps its grid while the keyboard is up (no SIGWINCH redraw
+        // for every keyboard toggle); the scroll view lifts the last rows
+        // above the keyboard instead. A TUI must see its whole grid, so it
+        // resizes to the space left above the keyboard.
+        let keyboard = view.keyboardLayoutGuide.layoutFrame.height
+        let reserved = tui ? bottomInset : max(0, bottomInset - keyboard)
         let available = CGSize(
             width: view.bounds.width,
-            height: max(cell.height * 5, view.bounds.height - bottomInset - gridTop)
+            height: max(cell.height * 5, view.bounds.height - reserved - gridTop)
         )
         if let fit = surface.gridFitting(available) {
             session.fit(cols: fit.cols, rows: fit.rows)

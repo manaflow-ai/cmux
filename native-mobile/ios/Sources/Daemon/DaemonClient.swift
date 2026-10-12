@@ -104,7 +104,7 @@ extension DaemonClient {
             "kind": "iphone",
             "device_kind": "iphone",
             "device_id": .string(deviceID),
-            "capabilities": ["shared-sizing-v1", "view-attachment-lease-v1", "view-attachment-detach-v1", "terminal-pending-sequence-v1"],
+            "capabilities": ["shared-sizing-v1", "view-attachment-lease-v1", "view-attachment-detach-v1"],
         ])
     }
 

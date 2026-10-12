@@ -148,23 +148,36 @@ final class TerminalSession {
 
     // MARK: Input
 
-    func send(text: String) {
+    /// All input goes through one ordered queue: typed text, its Return and
+    /// any keys must reach the Mac in the order the user produced them.
+    @ObservationIgnored private var inputTail: Task<Void, Never>?
+
+    private func enqueueInput(_ operation: @escaping @Sendable (DaemonClient) async throws -> Void) {
         guard let client else { return }
-        Task { try? await client.send(surface: surfaceID, text: text) }
+        let previous = inputTail
+        inputTail = Task {
+            await previous?.value
+            try? await operation(client)
+        }
+    }
+
+    func send(text: String) {
+        let surface = surfaceID
+        enqueueInput { try await $0.send(surface: surface, text: text) }
     }
 
     func paste(_ text: String) {
-        guard let client else { return }
-        Task { try? await client.send(surface: surfaceID, text: text, paste: true) }
+        let surface = surfaceID
+        enqueueInput { try await $0.send(surface: surface, text: text, paste: true) }
     }
 
     func sendKeys(_ keys: [String]) {
-        guard let client else { return }
-        Task { try? await client.sendKeys(surface: surfaceID, keys) }
+        let surface = surfaceID
+        enqueueInput { try await $0.sendKeys(surface: surface, keys) }
     }
 
     func sendBytes(_ bytes: Data) {
-        guard let client else { return }
-        Task { try? await client.sendBytes(surface: surfaceID, bytes) }
+        let surface = surfaceID
+        enqueueInput { try await $0.sendBytes(surface: surface, bytes) }
     }
 }
