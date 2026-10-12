@@ -232,7 +232,8 @@ export function MenuPopup({
         sideOffset={UI_ANCHOR_GAP}
       >
         <BaseMenu.Popup
-          ref={setPopup}
+          // Only a page with a host measures its menus; the others render as they did.
+          ref={host ? setPopup : undefined}
           id={id}
           aria-label={label}
           className={cx("ui-popup ui-menu", className)}
