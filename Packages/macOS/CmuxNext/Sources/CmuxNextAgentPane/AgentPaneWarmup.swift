@@ -8,15 +8,11 @@ import WebKit
 /// page has loaded or the launch settled (`LaunchSettle`).
 public enum AgentPaneWarmup {
     private static var view: WKWebView?
-    /// The in-memory data store every agent page shares. WebKit gives each store its own web
-    /// processes, so a fresh store per page could not use the one started here. Storage the
-    /// page keys per chat (drafts) stays per chat; the rest is app-wide choices.
-    static let dataStore = WKWebsiteDataStore.nonPersistent()
 
     public static func start() {
         guard view == nil else { return }
         let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = dataStore
+        configuration.websiteDataStore = .nonPersistent()
         configuration.processPool = AgentPaneView.processPool
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.loadHTMLString("<!doctype html><title></title>", baseURL: nil)
