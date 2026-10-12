@@ -13,7 +13,7 @@ struct SidebarCalmMotionTests {
     private static let group = GroupID("grp-new")
 
     /// A sidebar with one workspace; `grouped` puts it in a New Group.
-    private static func sections(grouped: Bool) -> [SidebarSection] {
+    private static func sections(grouped: Bool) -> [CmuxNextSidebar.SidebarSection] {
         let store = DaemonStore()
         store.apply(snapshot: DaemonTree(workspaces: [
             WorkspaceSnapshot(id: 1, key: nil, resourceID: ResourceID(rawValue: "ws-notes"), name: "notes"),
@@ -21,8 +21,8 @@ struct SidebarCalmMotionTests {
         let section = SidebarMapping.shared.sections(store.sidebarSections,
                                                      machine: SidebarMachine(id: .local, name: "This Mac", kind: .local))[0]
         let notes = section.workspaces[0]
-        let node: SidebarNode = grouped ? .group(SidebarGroup(id: group, name: "New Group", workspaces: [notes])) : .workspace(notes)
-        return [SidebarSection(kind: section.kind, nodes: [node])]
+        let node: CmuxNextSidebar.SidebarNode = grouped ? .group(SidebarGroup(id: group, name: "New Group", workspaces: [notes])) : .workspace(notes)
+        return [CmuxNextSidebar.SidebarSection(kind: section.kind, nodes: [node])]
     }
 
     private static func sidebar(_ model: SidebarModel) -> SidebarView {
