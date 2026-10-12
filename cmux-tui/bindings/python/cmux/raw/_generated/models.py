@@ -4739,6 +4739,7 @@ class NotificationEvent(EventBase):
     notification: Id
     title: str
     desktop: Union[bool, MissingType] = field(default=MISSING)
+    reply: Union[bool, MissingType] = field(default=MISSING)
     source: Union[NotificationSource, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 

@@ -13,6 +13,7 @@ import { HistoryStore } from "./store";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
 import "../shared/pageBase.css";
 import "./styles.css";
+import { appPopupHost } from "../shared/pagePopupHost";
 
 export function mountHistoryPage(root: HTMLElement, client: PageClient | null = defaultClient()): HistoryStore {
   const store = new HistoryStore(client, {
@@ -36,7 +37,7 @@ export function mountHistoryPage(root: HTMLElement, client: PageClient | null = 
   document.documentElement.lang = strings.language;
   document.title = strings.t("page.title");
   createRoot(root).render(
-    <UiProvider container={root} dir={languageDirection(strings.language)}>
+    <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
       <HistoryPage store={store} strings={strings} />
     </UiProvider>,
   );

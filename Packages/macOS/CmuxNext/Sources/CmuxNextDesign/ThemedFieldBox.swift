@@ -8,6 +8,13 @@ public import AppKit
 public final class ThemedFieldBox: NSView {
     public let field: NSTextField
     private var editing = false
+    private var heightConstraint: NSLayoutConstraint?
+
+    /// The box's height; a change (a live density change) resizes it.
+    public var height: CGFloat {
+        get { heightConstraint?.constant ?? 0 }
+        set { if heightConstraint?.constant != newValue { heightConstraint?.constant = newValue } }
+    }
 
     public init(field: NSTextField, height: CGFloat) {
         self.field = field
@@ -31,8 +38,10 @@ public final class ThemedFieldBox: NSView {
             self.editing = editing
             applyTheme()
         }
+        let heightConstraint = heightAnchor.constraint(equalToConstant: height)
+        self.heightConstraint = heightConstraint
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: height),
+            heightConstraint,
             field.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.space2),
             field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.space2),
             field.centerYAnchor.constraint(equalTo: centerYAnchor),
