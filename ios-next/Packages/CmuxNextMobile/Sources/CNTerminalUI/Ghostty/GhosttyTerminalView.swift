@@ -157,11 +157,24 @@ final class GhosttyTerminalView: UIView {
     }
 
     private func syncSize() {
-        guard let surface, let window, bounds.width > 0, bounds.height > 0 else { return }
+        guard let surface, let window else { return }
         let scale = window.screen.scale
+        guard let pixels = Self.drawablePixels(bounds.size, scale: scale) else { return }
         ghostty_surface_set_content_scale(surface, scale, scale)
-        ghostty_surface_set_size(surface, UInt32(bounds.width * scale), UInt32(bounds.height * scale))
+        ghostty_surface_set_size(surface, pixels.width, pixels.height)
         requestFrame()
+    }
+
+    /// The largest drawable side in pixels. A Mac-sized grid at a large text
+    /// size could otherwise ask Metal for a texture past the device limit.
+    static let maxDrawablePixels: CGFloat = 8192
+
+    /// Pixel size for Ghostty, or nil while the size is empty or not finite
+    /// (a transient layout during a zoom); never traps on conversion.
+    static func drawablePixels(_ size: CGSize, scale: CGFloat) -> (width: UInt32, height: UInt32)? {
+        let w = size.width * scale, h = size.height * scale
+        guard w.isFinite, h.isFinite, w >= 1, h >= 1 else { return nil }
+        return (UInt32(min(w, maxDrawablePixels)), UInt32(min(h, maxDrawablePixels)))
     }
 
     /// Applies the Apple System Colors config for the current interface style.
@@ -273,7 +286,7 @@ final class GhosttyTerminalView: UIView {
     /// arrow keys on the alternate screen with alternate scroll and no
     /// reporting. Reports carry the pointer position, so it is set first.
     func scroll(byPoints dy: CGFloat, at point: CGPoint) {
-        guard let surface, dy != 0 else { return }
+        guard let surface, dy != 0, dy.isFinite, point.x.isFinite, point.y.isFinite else { return }
         ghostty_surface_mouse_pos(surface, point.x, point.y, GHOSTTY_MODS_NONE)
         let scale = window?.screen.scale ?? 3
         // Precision scroll (bit 0): deltas in pixels; Ghostty turns them into rows.

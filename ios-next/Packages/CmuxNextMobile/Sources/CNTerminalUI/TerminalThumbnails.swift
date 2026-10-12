@@ -164,7 +164,10 @@ public struct TerminalThumbnail: View {
 /// Draws a grid's text into a card image (top-anchored, scaled so every
 /// column fits the card's width).
 struct TerminalCardRenderer {
-    static func image(lines: [String], cols: Int, size: CGSize, style: UIUserInterfaceStyle) -> UIImage {
+    static func image(lines: [String], cols: Int, size requested: CGSize, style: UIUserInterfaceStyle) -> UIImage {
+        // Cards are small: never draw an empty, non-finite or huge bitmap.
+        let size = CGSize(width: requested.width.isFinite ? min(max(requested.width, 1), 1024) : 180,
+                          height: requested.height.isFinite ? min(max(requested.height, 1), 2048) : 300)
         let traits = UITraitCollection(userInterfaceStyle: style == .dark ? .dark : .light)
         let background = CNTheme.shared.palette.terminalBackground.resolvedColor(with: traits)
         let foreground = (style == .dark ? UIColor.white : UIColor.black)
@@ -228,6 +231,9 @@ final class HeadlessTerminal {
         config.io_mode = GHOSTTY_SURFACE_IO_MANUAL_MIRROR
         guard let surface = ghostty_surface_new(app.app, &config) else { return }
         ghostty_surface_set_occlusion(surface, false)
+        // Never drawn: keep its drawable tiny (the locked grid is independent).
+        ghostty_surface_set_content_scale(surface, 1, 1)
+        ghostty_surface_set_size(surface, 64, 64)
         ref = SurfaceRef(surface)
         let client = self.client
         let id = terminalId
@@ -313,8 +319,13 @@ final class HeadlessTerminal {
     }
 
     /// The viewport's rows as text (output queue only).
-    nonisolated private static func readLines(_ surface: ghostty_surface_t, cols: Int, rows: Int) -> [String] {
-        (0..<rows).map { row in
+    nonisolated private static func readLines(_ surface: ghostty_surface_t, cols wantedCols: Int, rows wantedRows: Int) -> [String] {
+        // Read only rows and columns the surface really has (a refused or
+        // later grid change must never send a selection past its edge).
+        let actual = ghostty_surface_grid(surface)
+        let cols = min(wantedCols, Int(actual.columns)), rows = min(wantedRows, Int(actual.rows))
+        guard cols > 0, rows > 0 else { return [] }
+        return (0..<rows).map { row in
             var selection = ghostty_selection_s()
             selection.top_left = ghostty_point_s(tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_EXACT, x: 0, y: UInt32(row))
             selection.bottom_right = ghostty_point_s(tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_EXACT,

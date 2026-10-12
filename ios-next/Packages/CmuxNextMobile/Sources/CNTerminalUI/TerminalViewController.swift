@@ -52,6 +52,8 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
     private var panAxisHorizontal = false
     static let mirrorMinFontSize: Double = 7
     private var lastFitCellWidth: Double = 0
+    private var lastFitKey = ""
+    private var fitPasses = 0
     /// A pinch on a mirrored grid sets the zoom until the Mac's grid changes.
     private var mirrorZoomed = false
     private var fontAtLastFit: Double = 0
@@ -249,7 +251,14 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
         guard available > 0 else { return }
         // Cell width scales with the text size; the metrics are those of the
         // size last drawn, so this converges over a draw or two.
-        guard cell.width > 0, abs(Double(cell.width) - lastFitCellWidth) > 0.001 || fontAtLastFit != terminalView.fontSize else { return }
+        guard cell.width > 0, cell.width.isFinite,
+              abs(Double(cell.width) - lastFitCellWidth) > 0.001 || fontAtLastFit != terminalView.fontSize else { return }
+        // One fit per grid and width: a cell width that lags a draw behind
+        // must not make the size bounce between two values forever.
+        let key = "\(macGrid.cols)x\(macGrid.rows)@\(Int(available))/\(TerminalFontSize.stored)"
+        if key == lastFitKey, fitPasses >= 3 { return }
+        fitPasses = key == lastFitKey ? fitPasses + 1 : 1
+        lastFitKey = key
         lastFitCellWidth = Double(cell.width)
         let current = terminalView.fontSize
         let fit = current * Double(available / (CGFloat(macGrid.cols) * cell.width))
@@ -269,8 +278,12 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
         let containerHeight = view.bounds.maxY - bottomInset - view.safeAreaLayoutGuide.layoutFrame.minY
         let gridWidth = 2 * cell.padLeft + CGFloat(macGrid.cols) * cell.width
         let gridHeight = 2 * cell.padTop + CGFloat(macGrid.rows) * cell.height
-        let width = max(containerWidth, gridWidth.rounded(.up))
-        let height = max(containerHeight, gridHeight.rounded(.up))
+        // Never larger than the drawable limit (a crop beats a failed texture).
+        let scale = view.window?.screen.scale ?? 3
+        let limit = GhosttyTerminalView.maxDrawablePixels / scale
+        guard containerWidth.isFinite, containerHeight.isFinite, gridWidth.isFinite, gridHeight.isFinite else { return }
+        let width = min(limit, max(containerWidth, gridWidth.rounded(.up)))
+        let height = min(limit, max(containerHeight, gridHeight.rounded(.up)))
         if mirrorWidth?.constant != width { mirrorWidth?.constant = width }
         if mirrorHeight?.constant != height { mirrorHeight?.constant = height }
         panX = min(max(0, panX), max(0, width - containerWidth))
@@ -732,6 +745,10 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
             shift = min(max(shift, cursorShift), cursorTopLimit)
         }
         shift = max(0, shift)
+        // A cursor rect or metric that is not finite (mid-resize) must never
+        // reach a layer transform.
+        if !shift.isFinite { shift = 0 }
+        if !panX.isFinite { panX = 0 }
         let transform = CGAffineTransform(translationX: -panX, y: -shift)
         if terminalView.transform != transform { terminalView.transform = transform }
         if model.keyboardShift != shift { model.keyboardShift = shift }
