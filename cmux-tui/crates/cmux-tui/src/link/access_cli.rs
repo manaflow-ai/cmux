@@ -53,7 +53,7 @@ const USAGE: &str = "usage: cmux link access grant --socket PATH --machine ID --
        cmux link access request [--socket PATH] [--session ID] [--reason TEXT] [--timeout SECONDS] (PATH | --secret NAME)
        cmux link access triage --socket PATH --machine ID --session ID [--session ID]...
        cmux link access answer --socket PATH --machine ID --session ID --request ID [--remote-root DIR] (--allow PATH | --always PATH | --share-secret NAME | --deny [--reason TEXT])
-         (--share-secret reads the value from stdin)";
+         (--share-secret reads the value from stdin, byte for byte: no newline is removed)";
 
 /// File names that never go from a shared folder (ASCII case folded):
 /// env, credential and key files. Best effort: a secret under any other
@@ -233,6 +233,11 @@ pub(super) fn run(args: &[String]) -> i32 {
         eprintln!("{USAGE}");
         return 64;
     };
+    // A secret flag means nothing to any other action: refuse it.
+    if (args.secret.is_some() && action != "request") || (args.share_secret && action != "answer") {
+        eprintln!("{USAGE}");
+        return 64;
+    }
     let answer = match (action.as_str(), &args) {
         (
             "grant",

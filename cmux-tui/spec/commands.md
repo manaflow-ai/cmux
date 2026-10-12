@@ -8327,9 +8327,13 @@ each is forgotten 15 minutes after it was made or answered
   only. Answers `{}`.
 
 A secret value is kept in memory only, never written or logged, and wiped
-when its first status read takes it or the request is forgotten. The Mac
-shares one only for one request the person answered
-(`cmux link access answer --share-secret NAME`, the value on stdin).
+when the request is forgotten; its first status read takes it (best effort:
+the frame and reply lines are plain buffers while read and written). The
+Mac shares one only for one request the person answered
+(`cmux link access answer --share-secret NAME`, the value on stdin byte for
+byte, no newline removed). An agent's `request --secret` that stops waiting
+withdraws its request (denies it), so a later answer is
+`access_request.answered`.
 
 ## File system (fs-v1)
 

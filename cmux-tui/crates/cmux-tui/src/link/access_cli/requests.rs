@@ -46,6 +46,7 @@ const POLL: Duration = Duration::from_millis(500);
 const MAX_SECRET_BYTES: usize = 64 * 1024;
 
 /// What an agent asks for.
+#[derive(Clone, Copy)]
 pub(super) enum Asked<'a> {
     /// A file or folder of the Mac, by its absolute path there.
     File(&'a str),
@@ -124,6 +125,24 @@ pub(super) fn request(
             _ => {}
         }
         if Instant::now() >= deadline {
+            // A secret shared after this agent stopped waiting must not sit
+            // unread on this machine: withdraw the request. When the person
+            // answered meanwhile, the next status read has the answer.
+            if let Asked::Secret(_) = asked {
+                let withdrawn = sync_cli::machine_call(
+                    &socket,
+                    "access-request-answer",
+                    json!({"request_id": request_id, "outcome": "denied",
+                           "reason": "the agent stopped waiting"}),
+                );
+                if withdrawn.is_err() {
+                    continue;
+                }
+                return Err(Failure::new(
+                    "access_pending",
+                    format!("no answer in time; secret request {request_id} was withdrawn"),
+                ));
+            }
             return Err(Failure::new(
                 "access_pending",
                 format!("no answer yet; request {request_id} is still waiting for the person"),
@@ -169,9 +188,11 @@ fn pending(socket: &Path) -> Result<Vec<Pending>, Failure> {
         .iter()
         .filter_map(|request| {
             let id = text(&request["request_id"]).filter(|id| plain_request_id(id))?;
+            // The machine is not trusted: what the card shows is checked
+            // here again, and a request that fails is never answered.
             let (path, name) = match request["kind"].as_str()? {
-                "file" => (Some(text(&request["path"])?), None),
-                "secret" => (None, Some(text(&request["name"])?)),
+                "file" => (Some(text(&request["path"]).filter(|path| shown(path))?), None),
+                "secret" => (None, Some(text(&request["name"]).filter(|name| secret_name(name))?)),
                 _ => return None,
             };
             Some(Pending {
@@ -179,10 +200,33 @@ fn pending(socket: &Path) -> Result<Vec<Pending>, Failure> {
                 path,
                 name,
                 session: text(&request["session"]),
-                reason: text(&request["reason"]),
+                reason: text(&request["reason"])
+                    .map(|reason| reason.chars().filter(|c| shown_char(*c)).collect()),
             })
         })
         .collect())
+}
+
+/// A secret's name as the daemon takes them: `A-Za-z0-9._-`, 1 to 128 bytes.
+fn secret_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 128
+        && name.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
+}
+
+/// Whether `text` is shown to the person as the machine wrote it: no
+/// control or bidirectional formatting character that could make it read
+/// as something else.
+fn shown(text: &str) -> bool {
+    text.chars().all(shown_char)
+}
+
+fn shown_char(c: char) -> bool {
+    !c.is_control()
+        && !matches!(
+            c,
+            '\u{200E}' | '\u{200F}' | '\u{061C}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}'
+        )
 }
 
 /// A request id as the daemon makes them: 32 lowercase hex digits. Anything
@@ -355,7 +399,7 @@ pub(super) fn answer(
     }
     if let How::ShareSecret = how {
         // The secret the person saw must be the request's.
-        if request.name.is_none() || request.name.as_deref() != path {
+        if request.name.as_deref() != path {
             return Err(Failure::new("request_changed", "the request is not for that secret"));
         }
         let value = secret_from_stdin()?;

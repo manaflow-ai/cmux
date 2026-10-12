@@ -24,8 +24,9 @@
 //!   only.
 //!
 //! A secret value is held in memory only, never written or logged, and
-//! wiped when taken or forgotten; only the first status read of its request
-//! answers it.
+//! wiped when forgotten; only the first status read of its request answers
+//! it (moved into that reply). Best effort: the frame and reply lines are
+//! plain buffers while they are read and written.
 //!
 //! Who: trusted local (Unix) connections that are not remote clients, on a
 //! Cloud host only (`agent-transfer-v1`'s host, read at start). The agents
@@ -235,8 +236,12 @@ fn handle(
                 None => json!({"state": "pending"}),
                 Some((_, Answer::Delivered(path))) => json!({"state": "delivered", "path": path}),
                 // Only the first read gets the value; it is gone from here after.
+                // Moved, not copied, into the reply; the reply line itself is
+                // the one plain copy left, until it is written.
                 Some((_, Answer::Secret(value))) => match value.take() {
-                    Some(value) => json!({"state": "delivered", "value": value.as_str()}),
+                    Some(mut value) => {
+                        json!({"state": "delivered", "value": std::mem::take(&mut *value)})
+                    }
                     None => json!({"state": "delivered", "taken": true}),
                 },
                 Some((_, Answer::Denied(reason))) => json!({"state": "denied", "reason": reason}),
@@ -264,11 +269,12 @@ fn handle(
             Ok(json!({ "requests": requests }))
         }
         "access-request-answer" => {
-            let params =
+            let mut params =
                 Params::take(params, &["request_id", "outcome", "path", "value", "reason"])?;
-            let request_id = params.text("request_id")?.ok_or(Refusal::BadRequest)?;
-            let request = kept.get_mut(request_id).ok_or(Refusal::UnknownRequest)?;
-            let answer = match (params.text("outcome")?, request.kind) {
+            let request_id = params.text("request_id")?.ok_or(Refusal::BadRequest)?.to_string();
+            let outcome = params.text("outcome")?.map(str::to_string);
+            let request = kept.get_mut(&request_id).ok_or(Refusal::UnknownRequest)?;
+            let answer = match (outcome.as_deref(), request.kind) {
                 (Some("delivered"), "file") if params.text("value")?.is_none() => {
                     Answer::Delivered(
                         params
@@ -279,13 +285,17 @@ fn handle(
                     )
                 }
                 (Some("delivered"), "secret") if params.text("path")?.is_none() => {
+                    // Moved out of the frame, so the only copy kept is wiped.
                     let value = params
-                        .text("value")?
-                        .filter(|value| value.len() <= MAX_SECRET_BYTES)
+                        .take_text("value")?
+                        .map(Zeroizing::new)
+                        .filter(|value| !value.is_empty() && value.len() <= MAX_SECRET_BYTES)
                         .ok_or(Refusal::BadRequest)?;
-                    Answer::Secret(Some(Zeroizing::new(value.to_string())))
+                    Answer::Secret(Some(value))
                 }
-                (Some("denied"), _) => {
+                (Some("denied"), _)
+                    if params.text("path")?.is_none() && params.text("value")?.is_none() =>
+                {
                     let reason = params.text("reason")?;
                     if reason.is_some_and(|reason| reason.len() > MAX_REASON_BYTES) {
                         return Err(Refusal::BadRequest);
@@ -318,6 +328,15 @@ impl Params {
     /// The string param `key`; a non-string value is refused.
     fn text(&self, key: &str) -> Result<Option<&str>, Refusal> {
         match self.0.get(key) {
+            None | Some(Value::Null) => Ok(None),
+            Some(Value::String(text)) => Ok(Some(text)),
+            Some(_) => Err(Refusal::BadRequest),
+        }
+    }
+
+    /// The string param `key`, moved out of the frame.
+    fn take_text(&mut self, key: &str) -> Result<Option<String>, Refusal> {
+        match self.0.remove(key) {
             None | Some(Value::Null) => Ok(None),
             Some(Value::String(text)) => Ok(Some(text)),
             Some(_) => Err(Refusal::BadRequest),

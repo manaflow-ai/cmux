@@ -339,6 +339,10 @@ fn a_secret_access_request_waits_for_the_person_and_its_value_is_read_once() {
             .unwrap_or_else(|_| panic!("no JSON line: {printed}"));
         (output.status.success(), line, printed)
     };
+    // The machine takes no file answer for a secret request.
+    let wrong = vm.rpc(json!({"id": 2, "cmd": "access-request-answer", "request_id": shared_id,
+                              "outcome": "delivered", "path": "/root/work/x"}));
+    assert_eq!(wrong["error_code"], "access_request.bad_request", "{wrong}");
     // The value comes on stdin, for the name the person saw, and once.
     let (ok, changed, _) = answer(&shared_id, &["--share-secret", "GITHUB_TOKEN"], FAKE_SECRET);
     assert!(!ok, "{changed}");
