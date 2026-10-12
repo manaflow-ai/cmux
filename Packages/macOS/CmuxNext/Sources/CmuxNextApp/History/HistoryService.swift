@@ -135,8 +135,8 @@ final class HistoryService {
     /// Closed tabs, screens and workspaces, as the daemons record them
     /// (`closed-history-v2`): the only closed history (reopen-closed.md 9).
     func closedEntries() -> [HistoryEntry] {
-        DaemonClosedHistory.entries(DaemonClosedHistory.allKinds, in: services).map { entry in
-            let item = entry.item, tab = item.tabs.first
+        DaemonClosedHistory.entries(DaemonClosedHistory.allKinds, in: services).filter { Self.isWorthReopening($0.item) }.map { entry in
+            let item = entry.item, tab = Self.shownTab(item)
             let kind: CmuxNextHistory.ClosedItem.Kind = switch item.kind {
             case .tab: tab?.kind == "browser" ? .browserTab : .terminalTab
             case .screen: .screen
@@ -154,18 +154,34 @@ final class HistoryService {
         }
     }
 
-    /// Before the fix every closed item is listed.
-    static func isWorthReopening(_ item: CmuxNextDaemon.ClosedItem) -> Bool { true }
+    /// Whether reopening `item` gives something back (Leo 2026-10-11: Recently Closed was full of
+    /// "workspace-35 about:blank" rows). A group or a window always does; a tab, screen or
+    /// workspace only with a tab that is not ``isBlank(_:)``.
+    static func isWorthReopening(_ item: CmuxNextDaemon.ClosedItem) -> Bool {
+        item.group != nil || item.kind == .window || item.tabs.contains { !isBlank($0) }
+    }
+
+    /// An untouched New Tab page or a browser on `about:blank`, as the daemon marks it (`empty`).
+    /// A closed chat with no title yet or a remote terminal looks the same otherwise, and reopens.
+    static func isBlank(_ tab: CmuxNextDaemon.ClosedItem.Tab) -> Bool { tab.empty }
+
+    /// The tab an item is named by: its first real one, past any New Tab page beside it.
+    static func shownTab(_ item: CmuxNextDaemon.ClosedItem) -> CmuxNextDaemon.ClosedItem.Tab? {
+        item.tabs.first { !isBlank($0) } ?? item.tabs.first
+    }
 
     /// A daemon closed item's title and detail line. A page tab (a diff,
     /// Settings) is named by its page and has no address to show: its
     /// `url` is the `about:blank` placeholder (cx-h7y9).
     static func daemonClosedText(_ item: CmuxNextDaemon.ClosedItem, pages: InternalPageTabStore) -> (title: String, detail: String?) {
-        let tab = item.tabs.first
+        let tab = shownTab(item)
         let page = tab?.page.map { pages.provider(InternalPageID(rawValue: $0))?.title ?? $0 }
+        // A chat or New Tab page is kept as a browser tab on `about:blank`: never a name or address.
+        let real = { (text: String?) in text.flatMap { $0.isEmpty || $0 == "about:blank" ? nil : $0 } }
+        let url = real(tab?.url)
         let title = item.group.map { WorkspaceGroupUndo.historyTitle($0.name) }
-            ?? item.name ?? tab?.name ?? page ?? tab?.url ?? tab?.cwd ?? Strings.untitledTerminal
-        return (title, page == nil ? tab?.url ?? tab?.cwd : nil)
+            ?? item.name ?? real(tab?.name) ?? page ?? url ?? tab?.cwd ?? Strings.untitledTerminal
+        return (title, page == nil ? url ?? tab?.cwd : nil)
     }
 
     // MARK: Clearing
