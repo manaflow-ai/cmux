@@ -22,6 +22,9 @@
 .ui-context-menu .ui-menu-item{display:flex;align-items:center;gap:8px;width:100%;height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);border:0;border-radius:var(--ui-row-radius);background:transparent;color:inherit;font:inherit;text-align:start;white-space:nowrap;cursor:default}
 .ui-context-menu .ui-menu-item[data-highlighted]{background:var(--acpmux-menu-hover);outline:none}
 .ui-context-menu .ui-menu-item:disabled{color:var(--agent-muted)}
+/* A long label (a link, a path) ends in an ellipsis instead of widening the menu. */
+.ui-popup.ui-context-menu{max-width:min(360px,calc(100vw - 8px))}
+.ui-context-menu .ui-menu-label{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .ui-context-menu .ui-separator{height:.5px;margin:4px 8px;border:0;background:var(--agent-border)}
 @media (prefers-reduced-motion:no-preference){.ui-popup.ui-context-menu{animation:ui-popup-open var(--ui-popup-open) ease-out}}
 /* appearance.borders none (data-borders on the root, applyAgentTheme): the composer, menu and tray edges draw clear in place; their fills keep them apart. */
@@ -380,7 +383,7 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-edited-more{display:flex;align-items:center;gap:8px;width:100%;height:34px;box-sizing:border-box;padding:0 12px;border:0;background:color-mix(in srgb,var(--agent-text) 5%,var(--agent-page-bg));color:var(--agent-muted);font:inherit;cursor:pointer}
 .acpmux-edited-more:hover{color:var(--agent-text)}
 
-.acpmux-permission-panel{display:flex;flex-direction:column;gap:var(--acp-row-gap,8px);flex-shrink:0;max-height:45%;overflow:auto;padding-bottom:10px;font-size:var(--acp-font-size,13px);line-height:var(--acp-line-height,1.5)}
+.acpmux-permission-panel{display:flex;flex-direction:column;gap:var(--acp-row-gap,8px);flex-shrink:0;max-height:45%;overflow:auto;padding-bottom:calc(10px + var(--acpmux-queue-space,0px));font-size:var(--acp-font-size,13px);line-height:var(--acp-line-height,1.5)}
 .acpmux-permission-panel .acpmux-permission-card{padding:var(--acp-row-pad-y,11px);border-radius:6px}
 .acpmux-permission-panel .acpmux-permission-buttons{gap:var(--acp-row-gap,7px)}
 .acpmux-permission-panel .acpmux-permission-buttons button{border-radius:6px;padding:var(--acp-row-pad-y,7px) 10px;font:inherit}
@@ -392,7 +395,8 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-quick-thread{flex:1 1 0;min-height:0;display:flex;flex-direction:column;border-bottom:0.5px solid var(--agent-border)}
 .acpmux-quick .acpmux-permission{padding:6px 8px 0}
 .acpmux-quick .acpmux-composer{padding:6px 8px 0}
-.acpmux-quick-keys{flex:none;display:flex;align-items:center;gap:6px;padding:4px 10px 6px;color:var(--agent-muted);font-size:11px;line-height:16px;white-space:nowrap;overflow:hidden}
+.acpmux-quick-keys{flex:none;display:flex;align-items:center;gap:6px;padding:4px 10px 6px;color:var(--agent-muted);font-size:var(--text-detail);line-height:16px;white-space:nowrap;overflow:hidden}
+.acpmux-icon-flip{transform:rotate(180deg)}
 .acpmux-quick-key{display:inline-flex;align-items:center}
 .acpmux-quick-key .acpmux-keycap{margin-right:4px}
 /* Start Agent's floating chat (cx-b9qi): a header with the chat's title and controls, or, folded, one compact bar.

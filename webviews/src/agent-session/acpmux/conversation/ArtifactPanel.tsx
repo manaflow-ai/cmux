@@ -3,7 +3,7 @@
 // render frame (RenderCard.tsx), an origin of its own that allows no connection, so a document cannot
 // reach the pane, its bridge, acpmux or the network; Markdown draws as the transcript draws it. The
 // pane on a dev server has no render frame, so there HTML and SVG show their source only.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useT } from "../i18n";
 import { documentName, previewHtml, type Artifact, type ArtifactKind } from "./artifactPreview";
 import { copyText } from "./clipboard";
@@ -55,7 +55,24 @@ export function ArtifactPanel({
     setCopied(false);
     setSaved(false);
   };
-  const title = languageLabel(artifact.lang, t);
+  // "Copied" is a moment's confirmation, then the button reads Copy again.
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 1500);
+    return () => clearTimeout(timer);
+  }, [copied]);
+  // Closing hands focus back to what opened the panel (an Open button in the transcript): the panel
+  // unmounts with focus inside it, which would otherwise drop to the page.
+  useEffect(() => {
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    return () => {
+      const focused = document.activeElement;
+      if (opener?.isConnected && (!focused || focused === document.body)) opener.focus({ preventScroll: true });
+    };
+  }, []);
+  // The document's own name (its heading or <title>), else its language.
+  const language = languageLabel(artifact.lang, t);
+  const title = documentName(artifact) || language;
   return (
     // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape closes the panel from its tabs, buttons or a focused frame's edge.
     <aside
@@ -69,7 +86,9 @@ export function ArtifactPanel({
       }}
     >
       <div className="acpmux-artifact-bar">
-        <span className="acpmux-artifact-title">{title}</span>
+        <span className="acpmux-artifact-title" title={title === language ? title : `${title} (${language})`}>
+          {title}
+        </span>
         {list.length > 1 && (
           <span className="acpmux-artifact-versions">
             <button
@@ -139,10 +158,13 @@ export function ArtifactPanel({
               aria-label={saved ? t("artifact.saved") : t("artifact.save")}
               title={saved ? t("artifact.saved") : t("artifact.save")}
               onClick={() =>
-                void onSave(artifact.code, documentName(artifact), artifact.kind).then((outcome) => {
-                  setSaved(outcome === "saved");
-                  if (outcome === "unavailable") void copyText(artifact.code).then(() => setCopied(true));
-                })
+                void onSave(artifact.code, documentName(artifact), artifact.kind)
+                  // A host that failed to save is as good as none: copy the document instead.
+                  .catch(() => "unavailable" as const)
+                  .then((outcome) => {
+                    setSaved(outcome === "saved");
+                    if (outcome === "unavailable") void copyText(artifact.code).then(() => setCopied(true));
+                  })
               }
             >
               {saved ? <Check size={14} /> : <SaveTray size={14} />}

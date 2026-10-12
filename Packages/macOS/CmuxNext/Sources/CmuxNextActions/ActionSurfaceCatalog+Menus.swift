@@ -177,6 +177,7 @@ nonisolated extension ActionSurfaceCatalog {
         "duplicateTab": [p(.tab, .create, 3, folder: .new)],
         "reloadTab": [p(.tab, .create, 4, folder: .options)],
         "toggleTabAudioMute": [p(.tab, .identity, 204, folder: .options)],
+        "agentChat.toggleNotificationMute": [p(.tab, .identity, 205, folder: .options)],
         "disconnectRemoteTab": [p(.tab, .connection, 2, folder: .options)],
         "palette.copyIdentifiers": [p(.tab, .inspect, 503, folder: .copy)],
         "palette.copyPaneID": [p(.pane, .inspect, 500, folder: .copy), p(.tab, .inspect, 504, folder: .copy)],

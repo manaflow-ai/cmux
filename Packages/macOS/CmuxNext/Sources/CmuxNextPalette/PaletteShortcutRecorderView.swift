@@ -70,9 +70,18 @@ final class PaletteShortcutRecorderView: NSView {
         recorded.isHidden = state.recorded == nil
         message.stringValue = state.message ?? ""
         rowViews.forEach { $0.removeFromSuperview() }
-        rowViews = state.options.enumerated().map { index, option in
+        let options = state.options
+        rowViews = options.enumerated().map { index, option in
             let row = PaletteMenuRow(command: Self.command(option), keycaps: Self.keycaps(option), isSelected: index == 0 && state.pending != nil)
-            row.onClick = { [weak self] in self?.onChoose?(option) }
+            // Press, drag and release, as in the Actions menu: the release picks the option it ends on.
+            row.onPress = { [weak self] event in
+                guard let self else { return }
+                PalettePress.track(event, in: self.content, row: { point in
+                    self.rowViews.firstIndex { $0.frame.contains(point) }
+                }, select: { _ in }, release: { index in
+                    if options.indices.contains(index) { self.onChoose?(options[index]) }
+                })
+            }
             content.addSubview(row)
             return row
         }
