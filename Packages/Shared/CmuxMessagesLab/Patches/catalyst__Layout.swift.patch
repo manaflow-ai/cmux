@@ -16,7 +16,7 @@
              }
              if r.link != nil {
                  a.addAttributes([.foregroundColor: linkColor, .underlineStyle: NSUnderlineStyle.single.rawValue], range: range)
-@@ -876,7 +881,8 @@
+@@ -884,7 +889,8 @@
                                          gap: 1, height: 14))
                  }
                  if case .failed = m.status {
@@ -26,7 +26,7 @@
                                          gap: 1, height: 14))
                  }
                  if !threadMode, let n = replyCount[m.id], n >= 2, m.replyTo == nil {
-@@ -888,6 +894,10 @@
+@@ -896,6 +902,10 @@
                  }
              }
              prev = m; prevIndex = idx
@@ -37,7 +37,7 @@
          }
          if !threadMode, span.upperBound == messages.count, s.atNewest, s.ui.typing.contains(where: { $0 != me }) {
              rows.append(RowSpec(key: "typing", kind: .typing, gap: 0, height: 35))
-@@ -976,7 +986,7 @@
+@@ -984,7 +994,7 @@
  enum Format {
      private static let timeFormatter: DateFormatter = {
          let f = DateFormatter()
@@ -46,7 +46,7 @@
          f.timeZone = Instant.zone
          f.dateFormat = "h:mm\u{202F}a"
          return f
-@@ -995,7 +1005,7 @@
+@@ -1003,7 +1013,7 @@
      private static let calendar: Calendar = { var c = Calendar(identifier: .gregorian); c.timeZone = Instant.zone; return c }()
      private static func formatter(_ f: String) -> DateFormatter {
          let d = DateFormatter()
@@ -55,7 +55,7 @@
          d.timeZone = Instant.zone
          d.dateFormat = f
          return d
-@@ -1045,7 +1055,8 @@
+@@ -1053,7 +1063,8 @@
  enum MessagesLabLocalization {
      private final class Token {}
      private static let lock = NSLock()
@@ -65,7 +65,7 @@
      static var bundle: Bundle {
          get { lock.lock(); defer { lock.unlock() }; return current }
          set { lock.lock(); current = newValue; lock.unlock() }
-@@ -1078,7 +1089,8 @@
+@@ -1086,7 +1097,8 @@
          default: return MessagesLabLocalization.string("file.kind.document", "Document")
          }
      }

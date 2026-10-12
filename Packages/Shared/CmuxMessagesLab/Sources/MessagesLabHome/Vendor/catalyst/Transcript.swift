@@ -966,18 +966,11 @@ final class RowCell: UICollectionViewCell {
 #if !os(iOS) || targetEnvironment(macCatalyst)
         guard case .typing? = spec?.kind else { return }
         let s = max(1, Fixture.renderScale)
-        let top = windowY + RowDraw.typingBubble.minY, left = layer.frame.minX + RowDraw.typingBubble.minX
+        // In the row's content, which snapRow already moved by rowSnap.
+        let top = windowY + rowSnap.y + RowDraw.typingBubble.minY, left = layer.frame.minX + rowSnap.x + RowDraw.typingBubble.minX
         guard top.isFinite, left.isFinite else { return }
-        // The edge's place in the window's layer tree (origin + sign x view coordinate), rounded to a device pixel,
-        // as a move in view coordinates.
-        // k: the window's length of one view point along the axis (+1 or -1 when not scaled). A tie (an edge exactly
-        // half a pixel off) rounds up in the window, the same in every pass.
-        func snap(_ v: CGFloat, _ o: CGFloat, _ k: CGFloat) -> CGFloat {
-            guard abs(k) > 1e-6 else { return 0 }
-            let r = o + k * v
-            return ((r * s + 1e-6).rounded() / s - r) / k
-        }
-        let dy = snap(top, windowPlace.origin.y, windowPlace.axis.y), dx = snap(left, windowPlace.origin.x, windowPlace.axis.x)
+        let dy = RowCell.snap(top, windowPlace.origin.y, windowPlace.axis.y, scale: s)
+        let dx = RowCell.snap(left, windowPlace.origin.x, windowPlace.axis.x, scale: s)
         guard dx.isFinite, dy.isFinite else { return }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         let a = RowDraw.typingAnchor
@@ -1038,7 +1031,7 @@ final class RowCell: UICollectionViewCell {
         badgeTop = c.y - 20
         fill.colors = Fixture.gradientStops.map { Fixture.gradientColor($0.1, $0.2).cgColor }
         fill.locations = Fixture.gradientStops.map { NSNumber(value: Double($0.0 / (Fixture.gradientHeight * 2))) }
-        RowCell.placeFill(fill, windowTop: windowY + badgeTop, width: size.width, span: fillSpan, reachBelow: fillReachBelow)
+        RowCell.placeFill(fill, windowTop: contentWindowY + badgeTop, width: size.width, span: fillSpan, reachBelow: fillReachBelow)
         if let holder = fill.superlayer, let mask = holder.mask as? CAShapeLayer {
             holder.frame = CGRect(origin: .zero, size: size)
             mask.frame = holder.bounds
@@ -1095,10 +1088,10 @@ final class RowCell: UICollectionViewCell {
         }
         if bitmap.superlayer !== contentView.layer { contentView.layer.insertSublayer(bitmap, above: fillContainer) }
         fillContainer.isHidden = false
-        let body = RowDraw.bodyRect(spec)
+        let frame = RowDraw.bodyRect(spec), body = RowDraw.balloon(frame, row: p)
         fillContainer.frame = CGRect(x: 0, y: 0, width: spec.width, height: spec.height + 2 * RowDraw.margin)
         fillMask.frame = body
-        fillMask.path = BubblePath.cached(size: body.size, outgoing: true, tail: p.tail)
+        fillMask.path = BubblePath.cached(size: body.size, outgoing: true, tail: p.tail, cornersOf: frame.size)
         placeFillGradient(width: spec.width)
     }
 
@@ -1158,7 +1151,7 @@ final class RowCell: UICollectionViewCell {
     }
 
     private func placeFillGradient(width: CGFloat) {
-        RowCell.placeFill(fillGradient, windowTop: windowY, width: width, span: fillSpan, reachBelow: fillReachBelow)
+        RowCell.placeFill(fillGradient, windowTop: contentWindowY, width: width, span: fillSpan, reachBelow: fillReachBelow)
         assertFillCovers()
     }
 
@@ -1167,8 +1160,8 @@ final class RowCell: UICollectionViewCell {
         #if DEBUG
         guard let spec, !fillContainer.isHidden, !fillGradient.isHidden else { return }
         let body = RowDraw.bodyRect(spec)
-        assert(fillCovers(bodyTop: windowY + body.minY, bodyBottom: windowY + body.maxY),
-               "outgoing bubble \(spec.key) at window y \(windowY + body.minY)...\(windowY + body.maxY) leaves its fill span \(fillSpan)")
+        assert(fillCovers(bodyTop: contentWindowY + body.minY, bodyBottom: contentWindowY + body.maxY),
+               "outgoing bubble \(spec.key) at window y \(contentWindowY + body.minY)...\(contentWindowY + body.maxY) leaves its fill span \(fillSpan)")
         #endif
     }
 
@@ -1178,16 +1171,57 @@ final class RowCell: UICollectionViewCell {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         if !fillContainer.isHidden { placeFillGradient(width: fillGradient.bounds.width) }
         if let badgeFill, !(badge?.isHidden ?? true) {
-            RowCell.placeFill(badgeFill, windowTop: windowY + badgeTop, width: badgeFill.bounds.width, span: fillSpan, reachBelow: fillReachBelow)
+            RowCell.placeFill(badgeFill, windowTop: contentWindowY + badgeTop, width: badgeFill.bounds.width, span: fillSpan, reachBelow: fillReachBelow)
         }
         CATransaction.commit()
     }
 
+    /// The move (view pt) that puts `v` on a whole device pixel of the window: `o + k * v` is its place in the window's
+    /// layer tree (o: the window view's origin there, k: the window's length of one view point along the axis, +1 or
+    /// -1 when not scaled), rounded at `scale`. A tie (exactly half a pixel off) rounds up in the window, the same in
+    /// every pass.
+    static func snap(_ v: CGFloat, _ o: CGFloat, _ k: CGFloat, scale s: CGFloat) -> CGFloat {
+        guard abs(k) > 1e-6 else { return 0 }
+        let r = o + k * v
+        let d = ((r * s + 1e-6).rounded() / s - r) / k
+        return d.isFinite ? d : 0
+    }
+
+    /// The row's content (contentView) moved by less than half a device pixel so that the row's top and left edge lie on
+    /// whole device pixels of the window (macOS; zero on iOS). Messages' rows sit on whole device pixels: its incoming
+    /// edges are crisp at 798.00, 864.00 px in deactivate-activate tp0000ms. The rows' places in the view are whole
+    /// pixels (ThreadPreview.height); this covers a host that starts the window view on a fraction of a point (cmux
+    /// Home's panes, `--rows-origin`). From `windowY`, the model place: a moving row keeps its snap through the motion
+    /// (mid frames are not snapped) and rests on the grid.
+    private(set) var rowSnap = CGPoint.zero
+    /// The content's window y: the row's top plus its snap (fills, badge, typing).
+    var contentWindowY: CGFloat { windowY + rowSnap.y }
+    /// Moves the content to the snapped place; true when the snap changed.
+    @discardableResult private func snapRow() -> Bool {
+#if !os(iOS) || targetEnvironment(macCatalyst)
+        let s = max(1, Fixture.renderScale)
+        let left = layer.frame.minX
+        guard windowY.isFinite, left.isFinite else { return false }
+        let d = CGPoint(x: RowCell.snap(left, windowPlace.origin.x, windowPlace.axis.x, scale: s),
+                        y: RowCell.snap(windowY, windowPlace.origin.y, windowPlace.axis.y, scale: s))
+        guard d != rowSnap else { return false }
+        rowSnap = d
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        contentView.bounds.origin = CGPoint(x: -d.x, y: -d.y)
+        CATransaction.commit()
+        return true
+#else
+        return false
+#endif
+    }
+
     /// The window view's origin in its window's layer tree and the window length of one view point along each axis (pt; +1 or -1 unscaled),
-    /// set by the window view with `windowY`: the typing indicator snaps to the window's device pixels (snapTyping).
+    /// set by the window view with `windowY`: the row (snapRow) and the typing indicator (snapTyping) snap to the window's
+    /// device pixels.
     var windowPlace = (origin: CGPoint.zero, axis: CGPoint(x: 1, y: 1)) {
         didSet {
             guard windowPlace.origin != oldValue.origin || windowPlace.axis != oldValue.axis else { return }
+            if snapRow() { placeFills() }
             guard case .typing? = spec?.kind else { return }
             snapTyping()
             // A running clip read the old place's pixel grid: it starts again on the new one (same wave phase).
@@ -1211,13 +1245,14 @@ final class RowCell: UICollectionViewCell {
     var windowY: CGFloat = 0 {
         didSet {
             guard windowY != oldValue else { return }
+            snapRow()
             if case .typing? = spec?.kind { snapTyping() }
             let fill = !fillContainer.isHidden, mine = badge.map { !$0.isHidden } ?? false
             guard fill || mine else { return }
             CATransaction.begin(); CATransaction.setDisableActions(true)
             let top = RowCell.noGradientEnds ? 0 : fillSpan.top
-            if fill { fillGradient.frame.origin.y = top - windowY; assertFillCovers() }
-            if mine { badgeFill?.frame.origin.y = top - (windowY + badgeTop) }
+            if fill { fillGradient.frame.origin.y = top - contentWindowY; assertFillCovers() }
+            if mine { badgeFill?.frame.origin.y = top - (contentWindowY + badgeTop) }
             CATransaction.commit()
         }
     }

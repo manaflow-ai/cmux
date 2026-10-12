@@ -82,6 +82,19 @@ fn icon_assets_round_trip_and_gate_icon_fields_through_a_real_daemon() {
     // Wrong magic bytes, unknown types and missing blobs are refused.
     assert_eq!(refused(&put(&server, "image/jpeg", &png(2))), "invalid_params");
     assert_eq!(refused(&put(&server, "text/html", b"<html></html>")), "invalid_params");
+    // An SVG the sanitizer cannot reduce to a plain icon is refused, not stored.
+    for bad in [
+        &br#"<!DOCTYPE svg [<!ENTITY a "aaaa">]><svg xmlns="http://www.w3.org/2000/svg"><text>&a;</text></svg>"#[..],
+        br#"<html xmlns="http://www.w3.org/1999/xhtml"><script>alert(1)</script></html>"#,
+        b"not svg at all",
+    ] {
+        assert_eq!(
+            refused(&put(&server, "image/svg+xml", bad)),
+            "invalid_params",
+            "{}",
+            String::from_utf8_lossy(bad)
+        );
+    }
     let missing = format!("blob:sha256-{}", "1".repeat(64));
     let missing =
         raw_cli(&server, serde_json::json!({"id": "missing", "cmd": "get-blob", "blob": missing}));
@@ -109,10 +122,14 @@ fn icon_assets_round_trip_and_gate_icon_fields_through_a_real_daemon() {
                                "icon": icon}),
         )
     };
-    for bad in [UNKNOWN, swapped.as_str()] {
+    let unknown_svg = UNKNOWN.replace("image:", "svg:");
+    for bad in [UNKNOWN, unknown_svg.as_str(), swapped.as_str()] {
         assert_eq!(refused(&set(bad)), "unknown_icon_asset", "{bad}");
     }
-    let accepted = set(&raster);
-    assert_success(&accepted);
-    assert_eq!(json_output(&accepted)["icon"], serde_json::json!(raster));
+    let svg_icon = svg["icon"].as_str().unwrap().to_string();
+    for icon in [raster.as_str(), svg_icon.as_str()] {
+        let accepted = set(icon);
+        assert_success(&accepted);
+        assert_eq!(json_output(&accepted)["icon"], serde_json::json!(icon));
+    }
 }

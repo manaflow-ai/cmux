@@ -48,7 +48,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     }
 
     /// `debug.home.drive` {action: focus | type | send | tapback | video | scroll
-    /// | menu | geometry | link | texts | typing | nudge, text, dx, dy, mine, tab, prefix, limit}: drives the shown Home through its own entry points (the
+    /// | menu | geometry | link | texts | typing | rows | nudge, text, dx, dy, mine, tab, prefix, limit}: drives the shown Home through its own entry points (the
     /// field's text system, Return's send, the tapback picker's react, the
     /// scroll view) for screenshots and recordings on a window that is
     /// never key. `tab` (a key from `debug.home` page.tabs) drives that Home tab.
@@ -82,6 +82,20 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             return .object(["ok": .bool(true), "x": .number(Double(r.minX)), "y": .number(Double(r.minY)), "width": .number(Double(r.width)),
                             "height": .number(Double(r.height)), "windowWidth": .number(Double(size.width)), "windowHeight": .number(Double(size.height)),
                             "hostX": .number(Double(o.x)), "hostY": .number(Double(o.y))])
+        case "rows":
+            // The visible rows as drawn, in window points (bottom-left origin), top to bottom, and the
+            // window's size: the half-point pixel check of message rows (home-typing-still.py, home-hidden-messages.py).
+            guard let size = view.window?.frame.size else { return .object(["ok": .bool(false), "error": .string("no window")]) }
+            let o = view.debugHostOrigin
+            let rows: [JSONValue] = view.debugRowFrames().map { r in
+                .object(["kind": .string(r.kind), "key": .string(r.key), "outgoing": .bool(r.outgoing),
+                         "x": .number(Double(r.frame.minX)), "y": .number(Double(r.frame.minY)),
+                         "width": .number(Double(r.frame.width)), "height": .number(Double(r.frame.height)),
+                         "balloon": .object(["x": .number(Double(r.balloon.minX)), "y": .number(Double(r.balloon.minY)),
+                                             "width": .number(Double(r.balloon.width)), "height": .number(Double(r.balloon.height))])])
+            }
+            return .object(["ok": .bool(!rows.isEmpty), "rows": .array(rows), "windowWidth": .number(Double(size.width)),
+                            "windowHeight": .number(Double(size.height)), "hostX": .number(Double(o.x)), "hostY": .number(Double(o.y))])
         case "nudge":
             // The transcript moves by dx, dy points in its pane (a pane on a fraction of a point).
             view.debugNudge(dx: CGFloat(params["dx"]?.doubleValue ?? 0.5), dy: CGFloat(params["dy"]?.doubleValue ?? 0))

@@ -246,16 +246,16 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     var fieldTop: CGFloat { compose.fieldBottom - compose.fieldHeight }
     func windowY(contentY: CGFloat) -> CGFloat { contentY - collection.contentOffset.y + MessagesWindowView.cvTop }
     /// This view's origin in its window's layer tree and the directions of its axes there (RowCell.windowPlace): a host
-    /// can place the view on a fraction of a point (cmux Home's panes); the typing indicator snaps to the window's
-    /// device pixels, not to the view's.
+    /// can place the view on a fraction of a point (cmux Home's panes); every row (RowCell.snapRow) and the typing
+    /// indicator snap to the window's device pixels, not to the view's.
     var windowPlace: (origin: CGPoint, axis: CGPoint) {
         let o = layer.convert(CGPoint.zero, to: nil), p = layer.convert(CGPoint(x: 1, y: 1), to: nil)
         guard o.x.isFinite, o.y.isFinite, p.x.isFinite, p.y.isFinite else { return (.zero, CGPoint(x: 1, y: 1)) }
         return (o, CGPoint(x: p.x - o.x, y: p.y - o.y))
     }
     /// The host moved this view in its window without a layout or scroll pass here (a cmux Home pane moved by a
-    /// fraction of a point, the view attached to a window): the visible rows read the new place (the typing
-    /// indicator snaps again to the window's device pixels).
+    /// fraction of a point, the view attached to a window): the visible rows read the new place (rows and the typing
+    /// indicator snap again to the window's device pixels).
     func refreshWindowPlace() {
         let place = windowPlace
         for case let cell as RowCell in collection.visibleCells { cell.windowPlace = place }
@@ -1329,12 +1329,23 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     private func startMorph(_ m: Message, from field: CGRect, begin: CFTimeInterval) {
         guard let (key, i) = morphRow(m), let spec = model.rows[checked: i]?.spec, case let .part(p) = spec.kind, let tl = p.text else { return }
         let body = RowDraw.bodyRect(spec)
-        let top = windowY(contentY: layout.contentTop(i))
-        let target = CGRect(x: body.minX, y: top, width: body.width, height: body.height)
-        // The flying bubble keeps 16 pt per line (measured: its bottom is 1 pt
-        // lower than the landed cell's until the swap).
-        let flying = CGRect(x: target.minX, y: target.minY, width: target.width, height: p.size.height)
-        let mb = MorphBubble(key: key, in: morphLayer, windowBounds: bounds, from: field, to: flying, textLayout: tl, size: p.size, begin: begin,
+        // The landed row's content is snapped to the window's device pixels (RowCell.snapRow, from the cell's top and
+        // left edge; the margin is whole points): the bubble flies to the same place (0 when the view starts on a
+        // whole device pixel).
+        let s = max(1, Fixture.renderScale), place = windowPlace
+        let top0 = windowY(contentY: layout.contentTop(i))
+        let top = top0 + RowCell.snap(top0 - RowDraw.margin, place.origin.y, place.axis.y, scale: s)
+        let dx = RowCell.snap(0, place.origin.x, place.axis.x, scale: s)
+        // The landed balloon: RowDraw.balloon in row coordinates as the cell draws it (Messages draws an outgoing text
+        // balloon 0.38 pt inside its frame from 2 lines on), moved to the snapped window place; the text stays on the
+        // frame. The flying bubble keeps 16 pt per line (p.size, not bodySize; measured: its bottom is 1 pt lower than
+        // the landed cell's until the swap).
+        let rowFrame = CGRect(x: body.minX, y: body.minY, width: body.width, height: p.size.height)
+        let shift = CGPoint(x: dx, y: top - body.minY)
+        let frame = rowFrame.offsetBy(dx: shift.x, dy: shift.y)
+        let flying = RowDraw.balloon(rowFrame, row: p).offsetBy(dx: shift.x, dy: shift.y)
+        let mb = MorphBubble(key: key, in: morphLayer, windowBounds: bounds, from: field, to: flying, textLayout: tl, size: p.size,
+                             textOrigin: CGPoint(x: frame.minX - flying.minX, y: frame.minY - flying.minY), begin: begin,
                              fieldShrinks: field.height > ComposeMetrics.height(lines: 1, chips: false) + 0.5)
         morphs[key] = mb
         #if canImport(UIKit) || APPKIT_NATIVE
@@ -1479,7 +1490,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             cell.contentView.layer.opacity = opacity
             CATransaction.commit()
         }
-        if case .typing = r.spec.kind { cell.windowPlace = windowPlace }
+        cell.windowPlace = windowPlace
         cell.windowY = windowY(contentY: layout.frame(for: i).minY)
         // Connector from the root's vertical center down to this bubble.
         if case let .part(p) = r.spec.kind, let rootKey = p.connectorRoot {
@@ -1697,7 +1708,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         // Source frames: the same rows' cells in the transcript, where they are visible.
         var sources: [String: CGRect] = [:]
         for case let cell as RowCell in collection.visibleCells where !cell.isHidden {
-            if let spec = cell.spec { sources[spec.key] = cell.convert(cell.bounds, to: self) }
+            // The drawn rows: the cell's frame moved by its content's window snap (RowCell.rowSnap).
+            if let spec = cell.spec { sources[spec.key] = cell.convert(cell.bounds, to: self).offsetBy(dx: cell.rowSnap.x, dy: cell.rowSnap.y) }
         }
         let total = rows.reduce(0) { $0 + $1.total }
         var y = MessagesWindowView.threadCenterY + (bounds.height - Fixture.windowSize.height) - total / 2
@@ -1754,21 +1766,25 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
 
     // MARK: Hit testing
 
-    struct Hit { var row: PartRow; var body: CGRect; var key: String }
+    /// `outline`: the drawn balloon (RowDraw.balloon, computed in row coordinates as the cell draws it), same space as
+    /// `body`; its corners are those of `body` (BubblePath.make cornersOf).
+    struct Hit { var row: PartRow; var body: CGRect; var key: String; var outline: CGRect }
 
     func hit(_ p: CGPoint) -> Hit? {
         if threadOpen {
             for (v, spec) in zip(threadViews, threadSpecs).reversed() {
                 guard case let .part(row) = spec.kind else { continue }
                 let body = RowDraw.bodyRect(spec).offsetBy(dx: v.frame.minX, dy: v.frame.minY)
-                if body.insetBy(dx: -4, dy: -4).contains(p) { return Hit(row: row, body: body, key: spec.key) }
+                let outline = RowDraw.balloon(RowDraw.bodyRect(spec), row: row).offsetBy(dx: v.frame.minX, dy: v.frame.minY)
+                if body.insetBy(dx: -4, dy: -4).contains(p) { return Hit(row: row, body: body, key: spec.key, outline: outline) }
             }
             return nil
         }
         for case let cell as RowCell in collection.visibleCells {
             guard let spec = cell.spec, case let .part(row) = spec.kind else { continue }
             let body = cell.convert(RowDraw.bodyRect(spec), to: self)
-            if body.insetBy(dx: -4, dy: -4).contains(p) { return Hit(row: row, body: body, key: spec.key) }
+            let outline = cell.convert(RowDraw.balloon(RowDraw.bodyRect(spec), row: row), to: self)
+            if body.insetBy(dx: -4, dy: -4).contains(p) { return Hit(row: row, body: body, key: spec.key, outline: outline) }
         }
         return nil
     }
@@ -1799,7 +1815,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             if case let .part(p) = row.spec.kind, p.outgoing == mine, p.text != nil, accept(p) {
                 let body = RowDraw.bodyRect(row.spec)
                 let y = windowY(contentY: layout.contentTop(i))
-                return Hit(row: p, body: CGRect(x: body.minX, y: y, width: body.width, height: body.height), key: row.spec.key)
+                let outline = RowDraw.balloon(body, row: p).offsetBy(dx: 0, dy: y - body.minY)
+                return Hit(row: p, body: CGRect(x: body.minX, y: y, width: body.width, height: body.height), key: row.spec.key, outline: outline)
             }
         }
         return nil

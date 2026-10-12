@@ -8,6 +8,7 @@ import { runStream, type StreamOptions } from "./streamDebug";
 import { loadRun, loadSeed, type LoadRunOptions } from "./loadDebug";
 import { workedTurnRows } from "./workedTurn";
 import { acpWire, type AcpWireLog } from "./wire";
+import { followTrace } from "./followTrace";
 
 // `window.cmuxAcpmuxDebug`, called by the DEBUG `debug.agent_pane` socket
 // method. The first measurement call turns on measurement (acpmuxPerf.enabled);
@@ -239,7 +240,9 @@ export function createAcpmuxDebug(
     },
 
     chatState() {
-      return host.automation ? automation.automationState(host.automation) : NO_AUTOMATION;
+      return host.automation
+        ? { ...automation.automationState(host.automation), follow: followTrace.snapshot() }
+        : NO_AUTOMATION;
     },
     async sendPrompt(text) {
       return host.automation ? automation.sendPrompt(host.automation, String(text ?? "")) : NO_AUTOMATION;

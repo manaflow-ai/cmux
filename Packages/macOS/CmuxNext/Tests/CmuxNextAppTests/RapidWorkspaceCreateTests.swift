@@ -84,20 +84,23 @@ struct RapidWorkspaceCreateTests {
             shows?(reason, quiet)
         }
 
-        // 20 presses inside a second (key repeat), each named so its sidebar row says which press
-        // made it, with Close Workspace pressed between some of them.
+        // 20 presses at key-repeat speed, each named so its sidebar row says which press made it,
+        // with Close Workspace pressed between some of them. `pressing` is the time the presses
+        // themselves hold the main actor (no press waits for its create); the 30 ms gaps are left
+        // out, since a busy test host oversleeps them (1.7-2.6 s for 20 on the fleet).
         var work: [ActionWork] = []
-        let started = ContinuousClock.now
+        var pressing = Duration.zero
         for press in 1...Self.presses {
+            let pressed = ContinuousClock.now
             work += services.registry.capturingWork {
                 _ = services.registry.perform("newTab", invocation: ActionInvocation(arguments: ["name": .string(Self.name(press))]))
             }
             if Self.closesAfter.contains(press) {
                 work += services.registry.capturingWork { _ = services.registry.perform("closeWorkspace") }
             }
+            pressing += ContinuousClock.now - pressed
             try? await Task.sleep(for: .milliseconds(30))
         }
-        let pressing = ContinuousClock.now - started
         var failures: [String] = []
         for task in work { if let failure = await task.value { failures.append(failure.message) } }
 
@@ -121,7 +124,7 @@ struct RapidWorkspaceCreateTests {
 
         await launched.stop()
 
-        #expect(pressing < .seconds(1))
+        #expect(pressing < .seconds(1), "the presses held the main actor for \(pressing)")
         // Each close took exactly one workspace; none of the others is missing.
         #expect(store.workspaces.count == expected)
         #expect(created.allSatisfy { members.contains($0.id) }, "not in the sidebar: \(created.filter { !members.contains($0.id) }.map(\.name))")

@@ -222,6 +222,7 @@
       ],
       "packages": [
         "CmuxAgentQuestion",
+        "CmuxGhosttyKit",
         "CmuxHomeCore",
         "CmuxHomeRender"
       ],

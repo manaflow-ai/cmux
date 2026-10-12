@@ -2,7 +2,9 @@
   width: min(440px, calc(100vw - 32px));
   border: 1px solid var(--agent-border);
   border-radius: 12px;
-  background: var(--agent-page-bg);
+  /* The solid popup surface (pages/shared/desktop.css): the shipped pane's page color is
+     transparent, so the composer under the dialog showed through its search field (cx-ax9os). */
+  background: var(--surface-popup);
   color: var(--agent-text);
   box-shadow: 0 12px 36px var(--agent-shadow, #0004);
   overflow: hidden;

@@ -1,5 +1,6 @@
-//! File requests from a Cloud machine's agents (`access-request-v1` on the
-//! machine daemon, cmux-tui-core `server/agent_transfer/access_requests.rs`).
+//! File and secret requests from a Cloud machine's agents
+//! (`access-request-v1` on the machine daemon, cmux-tui-core
+//! `server/agent_transfer/access_requests.rs`).
 //!
 //! On the machine, an agent runs `request`: it files the request with its
 //! own daemon and waits for the answer. On this Mac the app runs `triage`
@@ -22,11 +23,19 @@
 //!   `--deny` denies. The app names again what the card showed (the path,
 //!   `--target`, and for Always `--folder`); each must still be what this
 //!   Mac sees, or nothing goes (`request_changed`).
+//! - A secret request (`request --secret NAME`) is never answered without
+//!   the person: `triage` always lists it, and only `answer --share-secret
+//!   NAME`, naming the secret the person saw, answers it, with the value
+//!   the app writes to its stdin. The value is for that one request: it is
+//!   never in argv, never printed, logged or written here, and no grant or
+//!   "always" keeps it. The machine daemon answers it to the asking
+//!   agent's first status read only.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
+use zeroize::{Zeroize as _, Zeroizing};
 
 use super::grants::{self, Mode, Store};
 use super::{Failure, grant, is_secret};
@@ -34,6 +43,17 @@ use crate::link::sync_cli;
 
 /// How long `request` polls between status questions.
 const POLL: Duration = Duration::from_millis(500);
+/// The largest secret value shared (the machine daemon's limit too).
+const MAX_SECRET_BYTES: usize = 64 * 1024;
+
+/// What an agent asks for.
+#[derive(Clone, Copy)]
+pub(super) enum Asked<'a> {
+    /// A file or folder of the Mac, by its absolute path there.
+    File(&'a str),
+    /// A secret, by name.
+    Secret(&'a str),
+}
 
 /// `request`: files a request with this machine's daemon and waits for the
 /// answer.
@@ -42,7 +62,7 @@ pub(super) fn request(
     session: Option<&str>,
     reason: Option<&str>,
     timeout: Duration,
-    path: &str,
+    asked: Asked<'_>,
 ) -> Result<Value, Failure> {
     let socket = match socket {
         Some(socket) => socket.to_path_buf(),
@@ -60,17 +80,22 @@ pub(super) fn request(
                 )
             })?,
     };
-    if !path.starts_with('/') {
-        return Err(Failure::new("bad_path", "name the file by its absolute path on the Mac"));
-    }
-    let made = sync_cli::machine_call(
-        &socket,
-        "access-request",
-        json!({"kind": "file", "path": path, "session": session, "reason": reason}),
-    )
-    .map_err(machine_failure)?;
+    let params = match asked {
+        Asked::File(path) if path.starts_with('/') => {
+            json!({"kind": "file", "path": path, "session": session, "reason": reason})
+        }
+        Asked::File(_) => {
+            return Err(Failure::new("bad_path", "name the file by its absolute path on the Mac"));
+        }
+        Asked::Secret(name) => {
+            json!({"kind": "secret", "name": name, "session": session, "reason": reason})
+        }
+    };
+    let made =
+        sync_cli::machine_call(&socket, "access-request", params).map_err(machine_failure)?;
     let request_id = made["request_id"].as_str().unwrap_or_default().to_string();
     let deadline = Instant::now() + timeout;
+    let mut withdraws = 0;
     loop {
         let status = sync_cli::machine_call(
             &socket,
@@ -80,8 +105,20 @@ pub(super) fn request(
         .map_err(machine_failure)?;
         match status["state"].as_str() {
             Some("delivered") => {
-                return Ok(json!({"request_id": request_id, "state": "delivered",
-                                 "path": status["path"]}));
+                return match asked {
+                    Asked::File(_) => Ok(json!({"request_id": request_id, "state": "delivered",
+                                                "path": status["path"]})),
+                    // The value is this agent's to use; the daemon has
+                    // forgotten it.
+                    Asked::Secret(name) => match status["value"].as_str() {
+                        Some(value) => Ok(json!({"request_id": request_id, "state": "delivered",
+                                                 "name": name, "value": value})),
+                        None => Err(Failure::new(
+                            "secret_taken",
+                            "the secret was shared, but another read took it first",
+                        )),
+                    },
+                };
             }
             Some("denied") => {
                 let why = status["reason"].as_str().unwrap_or("the person did not share it");
@@ -90,6 +127,28 @@ pub(super) fn request(
             _ => {}
         }
         if Instant::now() >= deadline {
+            // A secret shared after this agent stopped waiting must not sit
+            // unread on this machine: withdraw the request. When the person
+            // answered meanwhile, the next status read has the answer.
+            if let Asked::Secret(_) = asked {
+                let withdrawn = sync_cli::machine_call(
+                    &socket,
+                    "access-request-answer",
+                    json!({"request_id": request_id, "outcome": "denied",
+                           "reason": "the agent stopped waiting"}),
+                );
+                withdraws += 1;
+                if withdrawn.is_err() && withdraws < 3 {
+                    std::thread::sleep(POLL);
+                    continue;
+                }
+                let what =
+                    if withdrawn.is_ok() { "was withdrawn" } else { "could not be withdrawn" };
+                return Err(Failure::new(
+                    "access_pending",
+                    format!("no answer in time; secret request {request_id} {what}"),
+                ));
+            }
             return Err(Failure::new(
                 "access_pending",
                 format!("no answer yet; request {request_id} is still waiting for the person"),
@@ -116,8 +175,10 @@ fn machine_failure(error: anyhow::Error) -> Failure {
 /// One pending request as the machine lists it.
 struct Pending {
     id: String,
-    kind: String,
-    path: String,
+    /// A file request's path; None for a secret.
+    path: Option<String>,
+    /// A secret request's name; None for a file.
+    name: Option<String>,
     session: Option<String>,
     reason: Option<String>,
 }
@@ -133,15 +194,50 @@ fn pending(socket: &Path) -> Result<Vec<Pending>, Failure> {
         .iter()
         .filter_map(|request| {
             let id = text(&request["request_id"]).filter(|id| plain_request_id(id))?;
+            // The machine is not trusted: what the card shows is checked
+            // here again. A file path that fails is denied (no path); a
+            // secret name that fails is never answered.
+            let (path, name) = match request["kind"].as_str()? {
+                "file" => (text(&request["path"]).filter(|path| shown(path)), None),
+                "secret" => (None, Some(text(&request["name"]).filter(|name| secret_name(name))?)),
+                _ => return None,
+            };
             Some(Pending {
                 id,
-                kind: text(&request["kind"])?,
-                path: text(&request["path"])?,
+                path,
+                name,
                 session: text(&request["session"]),
-                reason: text(&request["reason"]),
+                reason: text(&request["reason"])
+                    .map(|reason| reason.chars().filter(|c| shown_char(*c)).collect()),
             })
         })
         .collect())
+}
+
+/// A secret's name as the daemon takes them: `A-Za-z0-9._-`, 1 to 128 bytes.
+fn secret_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 128
+        && name.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
+}
+
+/// Whether `text` is shown to the person as the machine wrote it: no
+/// control or bidirectional formatting character that could make it read
+/// as something else.
+fn shown(text: &str) -> bool {
+    text.chars().all(shown_char)
+}
+
+fn shown_char(c: char) -> bool {
+    !c.is_control()
+        && !matches!(
+            c,
+            '\u{061C}'
+                | '\u{200B}'..='\u{200F}'
+                | '\u{2028}'..='\u{202E}'
+                | '\u{2066}'..='\u{2069}'
+                | '\u{FEFF}'
+        )
 }
 
 /// A request id as the daemon makes them: 32 lowercase hex digits. Anything
@@ -198,7 +294,15 @@ pub(super) fn triage(socket: &Path, machine: &str, sessions: &[String]) -> Resul
         else {
             continue;
         };
-        if request.kind != "file" {
+        // A secret is only ever the person's to share.
+        if let Some(name) = &request.name {
+            ask.push(json!({
+                "request_id": request.id,
+                "session": session,
+                "kind": "secret",
+                "name": name,
+                "reason": request.reason,
+            }));
             continue;
         }
         match triage_one(&store, socket, machine, session, &request) {
@@ -224,7 +328,7 @@ fn triage_one(
     session: &str,
     request: &Pending,
 ) -> Result<Triaged, Failure> {
-    let Some(path) = lexical(&request.path) else {
+    let Some(path) = request.path.as_deref().and_then(lexical) else {
         return deny(socket, request);
     };
     // Inside a folder the chat was granted, and in its copy: it is on the
@@ -307,6 +411,8 @@ fn always_folder(target: &Path, is_dir: bool) -> Option<PathBuf> {
 pub(super) enum How {
     Allow,
     Always,
+    /// Shares a secret's value, read from stdin, with this one request.
+    ShareSecret,
     Deny,
 }
 
@@ -338,7 +444,7 @@ pub(super) fn answer(
     let request = pending(socket)?
         .into_iter()
         .find(|request| request.id == request_id)
-        .filter(|request| request.session.as_deref() == Some(session) && request.kind == "file")
+        .filter(|request| request.session.as_deref() == Some(session))
         .ok_or_else(|| {
             Failure::new("request_gone", "the machine has no such pending request of this chat")
         })?;
@@ -347,10 +453,25 @@ pub(super) fn answer(
         answer_machine(socket, request_id, json!({"outcome": "denied", "reason": reason}))?;
         return Ok(json!({"request_id": request_id, "outcome": "denied"}));
     }
+    if let How::ShareSecret = how {
+        // The secret the person saw must be the request's.
+        if request.name.as_deref() != shown.path {
+            return Err(Failure::new("request_changed", "the request is not for that secret"));
+        }
+        let value = secret_from_stdin()?;
+        answer_machine(
+            socket,
+            request_id,
+            json!({"outcome": "delivered", "value": value.as_str()}),
+        )?;
+        return Ok(json!({"request_id": request_id, "outcome": "delivered", "name": request.name}));
+    }
     let changed = |what: &str| Failure::new("request_changed", what);
     // The path the person saw must be the request's.
     let seen = shown.path.and_then(lexical);
-    let Some(seen) = seen.filter(|seen| Some(seen) == lexical(&request.path).as_ref()) else {
+    let Some(seen) =
+        seen.filter(|seen| Some(seen) == request.path.as_deref().and_then(lexical).as_ref())
+    else {
         return Err(changed("the request is not for that path"));
     };
     let root = root.ok_or_else(|| Failure::new("bad_request", "--remote-root is needed"))?;
@@ -463,4 +584,28 @@ fn at_copy(socket: &Path, remote: &str, folder: &Path, target: &Path) -> Result<
         sync_cli::copy_file(socket, target, &at).map_err(machine_failure)?;
     }
     Ok(at)
+}
+
+/// The secret value on stdin: UTF-8, not empty, at most
+/// [`MAX_SECRET_BYTES`]. Never part of an error.
+fn secret_from_stdin() -> Result<Zeroizing<String>, Failure> {
+    use std::io::Read as _;
+    // Room for one byte past the limit up front, so reading never moves
+    // (and leaves behind) a copy.
+    let mut bytes = Zeroizing::new(Vec::with_capacity(MAX_SECRET_BYTES + 1));
+    std::io::stdin()
+        .lock()
+        .take(MAX_SECRET_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| Failure::new("bad_secret", format!("cannot read the secret: {error}")))?;
+    if bytes.is_empty() || bytes.len() > MAX_SECRET_BYTES {
+        return Err(Failure::new("bad_secret", "the secret is empty or larger than 64 KiB"));
+    }
+    match String::from_utf8(std::mem::take(&mut *bytes)) {
+        Ok(value) => Ok(Zeroizing::new(value)),
+        Err(error) => {
+            error.into_bytes().zeroize();
+            Err(Failure::new("bad_secret", "the secret is not UTF-8 text"))
+        }
+    }
 }
