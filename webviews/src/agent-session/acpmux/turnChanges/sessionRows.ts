@@ -14,3 +14,6 @@ export function isEditRow(row: AcpmuxRow): boolean {
     (row.items ?? []).some((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange")
   );
 }
+
+/// The session's folder, so a tool row names a file in it by its path from there. The pane provides it.
+export const SessionCwdContext = createContext<string | undefined>(undefined);
