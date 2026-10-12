@@ -282,3 +282,127 @@ fn hooks_and_credentials_never_go_and_the_folder_can_change_shape() {
     assert_eq!(linked["error_code"], "fs.not_a_file", "{linked}");
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "a");
 }
+
+/// `cmux link sync pull`: whether it exited 0, and its JSON line.
+fn pull(socket: &Path, local: &Path, remote: &Path) -> (bool, Value) {
+    let output = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+        .args(["link", "sync", "pull", "--socket"])
+        .arg(socket)
+        .arg(local)
+        .arg(remote)
+        .output()
+        .unwrap();
+    let answer = serde_json::from_slice(&output.stdout).unwrap_or_else(|_| {
+        panic!(
+            "no JSON line: {}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        )
+    });
+    (output.status.success(), answer)
+}
+
+/// A clean repo pushed to a fake machine: the repo, the machine's folder
+/// and the socket (its folder kept alive by the returned guards).
+fn pushed_repo() -> (tempfile::TempDir, tempfile::TempDir, PathBuf, PathBuf, PathBuf) {
+    let root = tempfile::tempdir().unwrap();
+    let base = std::fs::canonicalize(root.path()).unwrap();
+    let repo = base.join("app");
+    std::fs::create_dir_all(repo.join("src")).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    std::fs::write(repo.join("src/a.txt"), "one\n").unwrap();
+    std::fs::write(repo.join("old.txt"), "old\n").unwrap();
+    std::fs::write(repo.join("notes.txt"), "notes\n").unwrap();
+    std::fs::write(repo.join("other.txt"), "other\n").unwrap();
+    std::fs::write(repo.join(".gitignore"), "build/\n").unwrap();
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "first"]);
+    let home = base.join("home");
+    std::fs::create_dir_all(home.join("work")).unwrap();
+    let sockets = tempfile::Builder::new().prefix("cs").tempdir_in("/tmp").unwrap();
+    let socket = sockets.path().join("fs.sock");
+    serve_fs(&socket, &home);
+    let remote = home.join("work/app");
+    push(&socket, &repo, &remote);
+    (root, sockets, repo, remote, socket)
+}
+
+#[test]
+fn a_pull_brings_back_the_machines_edits_and_commits_but_never_its_hooks() {
+    let (_root, _sockets, repo, remote, socket) = pushed_repo();
+    // On the machine: a commit that edits, adds and deletes, then an
+    // unstaged edit and a staged new file, a hook, a config setting, an
+    // ignored build output and a new .env file.
+    std::fs::write(remote.join("src/a.txt"), "one\nfrom the machine\n").unwrap();
+    std::fs::write(remote.join("new.txt"), "made there\n").unwrap();
+    std::fs::remove_file(remote.join("old.txt")).unwrap();
+    git(&remote, &["add", "-A"]);
+    git(&remote, &["commit", "-q", "-m", "on the machine"]);
+    std::fs::write(remote.join("notes.txt"), "notes\nunstaged there\n").unwrap();
+    std::fs::write(remote.join("staged.txt"), "staged there\n").unwrap();
+    git(&remote, &["add", "staged.txt"]);
+    std::fs::write(remote.join(".git/hooks/post-merge"), "#!/bin/sh\nexit 1\n").unwrap();
+    git(&remote, &["config", "core.hooksPath", "/tmp/machine-hooks"]);
+    std::fs::create_dir_all(remote.join("build")).unwrap();
+    std::fs::write(remote.join("build/out.o"), "ignored\n").unwrap();
+    std::fs::write(remote.join(".env.local"), "TOKEN=machine\n").unwrap();
+
+    let (ok, pulled) = pull(&socket, &repo, &remote);
+    assert!(ok, "{pulled}");
+    assert_eq!(pulled["fast_forwarded"], true, "{pulled}");
+
+    assert_eq!(std::fs::read_to_string(repo.join("src/a.txt")).unwrap(), "one\nfrom the machine\n");
+    assert_eq!(std::fs::read_to_string(repo.join("new.txt")).unwrap(), "made there\n");
+    assert!(!repo.join("old.txt").exists(), "a delete on the machine did not come back");
+    assert_eq!(git(&repo, &["rev-parse", "HEAD"]), git(&remote, &["rev-parse", "HEAD"]));
+    assert_eq!(git(&repo, &["log", "-1", "--format=%s"]), "on the machine\n");
+    let status = ["status", "--porcelain=v2", "--branch"];
+    let mut there = git(&remote, &status);
+    there = there
+        .lines()
+        .filter(|line| !line.contains(".env.local"))
+        .map(|l| format!("{l}\n"))
+        .collect();
+    assert_eq!(git(&repo, &status), there, "git status differs from the machine's");
+    assert!(!repo.join(".git/hooks/post-merge").exists(), "a machine hook arrived");
+    let config = std::fs::read_to_string(repo.join(".git/config")).unwrap();
+    assert!(!config.contains("machine-hooks"), "the machine's config arrived: {config}");
+    assert!(!repo.join("build").exists(), "an ignored folder came back");
+    assert!(!repo.join(".env.local").exists(), "a new .env file came back");
+
+    // Nothing new on the machine: a second pull changes nothing.
+    let (ok, again) = pull(&socket, &repo, &remote);
+    assert!(ok, "{again}");
+    assert_eq!(again["written"], 0, "{again}");
+    assert_eq!(again["deleted"], 0, "{again}");
+    assert_eq!(again["fast_forwarded"], false, "{again}");
+}
+
+#[test]
+fn a_pull_with_changes_on_both_sides_changes_nothing_and_names_them() {
+    let (_root, _sockets, repo, remote, socket) = pushed_repo();
+    std::fs::write(remote.join("notes.txt"), "notes\nfrom the machine\n").unwrap();
+    std::fs::write(remote.join("other.txt"), "other\nfrom the machine\n").unwrap();
+    std::fs::write(repo.join("notes.txt"), "notes\nfrom the mac\n").unwrap();
+    let head = git(&repo, &["rev-parse", "HEAD"]);
+
+    let (ok, answer) = pull(&socket, &repo, &remote);
+    assert!(!ok, "{answer}");
+    assert_eq!(answer["error_code"], "sync_conflict", "{answer}");
+    assert_eq!(answer["conflicts"], serde_json::json!(["notes.txt"]), "{answer}");
+    assert_eq!(std::fs::read_to_string(repo.join("notes.txt")).unwrap(), "notes\nfrom the mac\n");
+    assert_eq!(std::fs::read_to_string(repo.join("other.txt")).unwrap(), "other\n", "half applied");
+
+    // Both sides commit: the branch is a conflict too, and stays here.
+    git(&remote, &["commit", "-q", "-am", "there"]);
+    git(&repo, &["commit", "-q", "-am", "here"]);
+    let here = git(&repo, &["rev-parse", "HEAD"]);
+    assert_ne!(here, head);
+    let (ok, answer) = pull(&socket, &repo, &remote);
+    assert!(!ok, "{answer}");
+    let conflicts = answer["conflicts"].as_array().cloned().unwrap_or_default();
+    assert!(conflicts.contains(&serde_json::json!(".git/HEAD")), "{answer}");
+    assert!(conflicts.contains(&serde_json::json!("notes.txt")), "{answer}");
+    assert_eq!(git(&repo, &["rev-parse", "HEAD"]), here, "the branch moved");
+    assert_eq!(std::fs::read_to_string(repo.join("other.txt")).unwrap(), "other\n", "half applied");
+}
