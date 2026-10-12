@@ -18,6 +18,9 @@ synthetic exports in a scratch folder (no real passwords):
      imported, the zip goes to the Trash, and its history shows in the omnibar;
   6. Chrome's Google Takeout history JSON (one row per visit; two pages) shows in the omnibar,
      and Chrome's steps name takeout.google.com;
+  7. a CSV whose header names no known column (Site, Login, Secret) opens the column sheet,
+     which shows the column names and the row count and no value; Import brings both rows in;
+     a CSV with no header row (its first row is a sign-in) opens no sheet and fails, naming no value;
   0. first, in light and dark (window snapshots in --out): the browser sheet; 1Password's and
      Bitwarden's steps (passwords only); Arc's steps (its password page, no bookmarks step); the
      Import step of the onboarding window opens the same browser sheet from its button; the
@@ -70,6 +73,12 @@ RUN = os.urandom(4).hex()
 PASSWORDS_CSV = "Title,URL,Username,Password,Notes,OTPAuth\n" \
                 f"one.example.test,https://one-{RUN}.example.test/,cmux-one-{RUN},not-a-real-password-1,,\n" \
                 f"two.example.test,https://two-{RUN}.example.test/,cmux-two-{RUN},not-a-real-password-2,,\n"
+
+# A header cmux does not know: the column sheet matches it. A file with no header row: no sheet.
+COLUMNS_CSV = "Site,Login,Secret\n" \
+              f"https://cols-one-{RUN}.example.test/,cmux-cols-{RUN},not-a-real-password-4\n" \
+              f"https://cols-two-{RUN}.example.test/,cmux-cols-{RUN},not-a-real-password-5\n"
+HEADERLESS_CSV = f"https://nohead-{RUN}.example.test/,cmux-nohead-{RUN},not-a-real-password-6\n"
 
 
 def safari_zip(path):
@@ -217,9 +226,10 @@ def entries_and_steps():
     rpc("debug.onboarding", {"action": "close"})
     rpc("debug.appearance", {"mode": "light"})
     # The Passwords page's button (a click in the page, which the host takes as the person's).
-    rpc("action.run", {"action": "passwords.open", "focus": True})
+    # passwords.open is person-only: a palette run, as the person's.
+    print("note: passwords.open", rpc("debug.toast", {"perform": "passwords.open"}), flush=True)
     clicked = wait_for(lambda: (rpc("debug.page", {"page": "cmux.passwords", "action": "click", "selector": ".pw-import-files"}) or {})
-                       .get("error") is None or None, "the Passwords page's import button", 30)
+                       .get("clicked") or None, "the Passwords page's import button", 30)
     check(clicked is not None and wait_for(lambda: dialog("cmux.dialog.importFiles.browser"), "the browser sheet from the page") is not None,
           "the Passwords page's Import from Another Browser… opens the browser sheet")
     rpc("debug.dialog", {"press": "cancel"})
@@ -253,6 +263,8 @@ def import_through(browser, filename):
 write(CONFIG, "{}\n")
 write(os.path.join(EXPORTS, "bookmarks.html"), BOOKMARKS_HTML)
 write(os.path.join(EXPORTS, "passwords.csv"), PASSWORDS_CSV)
+write(os.path.join(EXPORTS, "columns.csv"), COLUMNS_CSV)
+write(os.path.join(EXPORTS, "headerless.csv"), HEADERLESS_CSV)
 safari_zip(os.path.join(EXPORTS, "safari-export.zip"))
 takeout_history(os.path.join(EXPORTS, "takeout-history.json"))
 EMPTY_GHOSTTY = os.path.join(SCRATCH, "ghostty-config")
@@ -285,6 +297,29 @@ try:
     check(summary is not None and "Imported: 2" in summary, f"the picked passwords CSV is imported ({summary})")
     check(not os.path.exists(os.path.join(EXPORTS, "passwords.csv")), "the imported CSV goes to the Trash")
     check("not-a-real-password" not in json.dumps(rpc("debug.toast")), "no password shows in a toast")
+
+    # The passwords toast says "Imported: 2" too: let it go before this import.
+    wait_for(lambda: not any("Imported:" in t for t in toasts()), "the earlier passwords toast goes", 40)
+    import_through("firefox", "columns.csv")
+    sheet = wait_for(lambda: dialog("cmux.dialog.passwordCSV.columns"), "the column sheet", 30)
+    if sheet:
+        shown = json.dumps(sheet)
+        snapshot("column-sheet-light")
+        labels = sorted({o.get("label") for opts in (sheet.get("options") or {}).values() for o in opts})
+        check("rows: 2" in shown and {"Site", "Login", "Secret"} <= set(labels),
+              f"the column sheet offers the column names and shows the row count ({labels}; {sheet.get('lines')})")
+        check("not-a-real-password" not in shown and "cols-one" not in shown, "the column sheet shows no value of the file")
+        rpc("debug.dialog", {"set": {"url": "0", "username": "1", "password": "2"}})
+        rpc("debug.dialog", {"press": "import"})
+        # Every row in the store sends the file to the Trash (a toast with the same text may still show).
+        moved = wait_for(lambda: not os.path.exists(os.path.join(EXPORTS, "columns.csv")), "the matched CSV goes to the Trash", 60)
+        check(moved is not None and any("Imported: 2" in t for t in toasts()), f"the matched columns import both rows ({toasts()})")
+    import_through("firefox", "headerless.csv")
+    failed = wait_for(lambda: next((t for t in toasts() if "no website and password columns" in t), None), "the headerless CSV's failure", 30)
+    check(failed is not None and dialog("cmux.dialog.passwordCSV.columns") is None,
+          f"a CSV with no header row opens no column sheet and fails ({toasts()})")
+    check("not-a-real-password" not in json.dumps(rpc("debug.toast")) + json.dumps(rpc("debug.dialog")),
+          "no password of the column files shows in a toast or a sheet")
 
     import_through("safari", "safari-export.zip")
     check(wait_for(lambda: f"https://safari-zip-{RUN}.example.com/" in bookmark_urls(), "the zip's bookmark lands") is not None,
