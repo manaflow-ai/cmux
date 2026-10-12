@@ -143,6 +143,10 @@ extension WindowOverlayHost {
         let shown = (handle.clipView.map { [$0] } ?? [handle.content]) + scrims
         handle.clipView = nil
         if handle.options.kind == .dialog, !isTearingDown {
+            // The fading dialog keeps no keyboard focus: a Return in the fade would press it again.
+            if let responder = panel.firstResponder as? NSView, responder.isDescendant(of: handle.content) {
+                panel.makeFirstResponder(nil)
+            }
             fadeOut(shown, content: handle.content)
         } else {
             handle.content.removeFromSuperview()
@@ -156,21 +160,22 @@ extension WindowOverlayHost {
     }
 
     /// A dialog and its scrim fade out (POLISH: no flash) where they were. The dialog is already
-    /// gone: it takes no input, and the window under it is usable at once. `content` stays where
-    /// it was unless it was presented again meanwhile.
+    /// gone: it takes no input, and the window under it is usable at once. A view leaves only if it
+    /// is still where the fade found it: a dialog presented again meanwhile, here or in another
+    /// window (its tab moved there), stays where it went.
     private func fadeOut(_ views: [NSView], content: NSView) {
         fadingOut += 1
+        let parents = (views + [content]).map { ($0, $0.superview) }
         Motion.animate(.fadeOut, in: views.first, {
             views.forEach { $0.animator().alphaValue = 0 }
         }, completion: { [weak self] in
             guard let self else { return }
             fadingOut -= 1
             let presented = handles.contains { $0.content === content }
-            for view in views where !presented || view !== content {
+            for (view, parent) in parents where parent != nil && view.superview === parent && !(presented && view === content) {
                 view.removeFromSuperview()
                 view.alphaValue = 1
             }
-            if !presented { content.removeFromSuperview() }
             syncPanel()
         })
     }

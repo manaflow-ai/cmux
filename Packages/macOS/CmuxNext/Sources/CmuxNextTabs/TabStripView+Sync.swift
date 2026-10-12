@@ -46,7 +46,7 @@ extension TabStripView {
 
         let animated = hasSynced && !reduceMotion && animating
         let ids = Set(ordered.map(\.id))
-        if hasSynced, animating { TabStripCrossfade.run(in: tabsClip, shown: Set(cells.keys), next: ids) }
+        if hasSynced { TabStripCrossfade.run(in: tabsClip, shown: Set(cells.keys), next: ids) }
         for (id, cell) in cells where !ids.contains(id) && !dying.contains(id) {
             if animated {
                 dying.insert(id)
