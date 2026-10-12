@@ -15,6 +15,25 @@ extension UpdaterService {
         return ReleaseNotesStore(feedURL: testFeedURL ?? identity.feed().url, cache: cache)
     }
 
+    /// The notes the changelog page lists: ``releaseNotes``, except that a DEV
+    /// build with no feed of its own (no `SUFeedURL`, so the stable fallback,
+    /// which publishes no notes) lists the cmux-next nightly notes, built
+    /// from the same branch: its page shows the newest real notes, not "No
+    /// release notes yet" (cx-7rone). Offline with an empty cache the page
+    /// keeps that empty state.
+    public var changelogNotes: ReleaseNotesStore? {
+        guard testFeedURL == nil, identity.track == .development, identity.feed().usedFallback else { return releaseNotes }
+        #if DEBUG
+        if UpdateHarness.current?.contentKey != nil { return releaseNotes }
+        #endif
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let cache = caches.appending(path: "\(identity.bundleIdentifier ?? "cmux")/release-notes/nightly-next", directoryHint: .isDirectory)
+        return ReleaseNotesStore(feedURL: Self.developmentNotesFeedURL, cache: cache)
+    }
+
+    /// The cmux-next nightly feed whose `notes/` a DEV build's changelog page reads.
+    nonisolated static let developmentNotesFeedURL = "https://files-next.cmux.com/nightly-next/appcast.xml"
+
     /// The changelog page's media (cx-urd.61.1): signed highlight media, the bundled What's New
     /// media (and a DEV build's `CMUX_NEXT_WHATS_NEW_DIR`), cached beside the notes.
     public var releaseMedia: ReleaseMediaStore? {

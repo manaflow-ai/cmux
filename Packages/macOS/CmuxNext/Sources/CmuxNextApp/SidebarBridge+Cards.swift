@@ -61,6 +61,7 @@ enum SidebarCardFeed {
         case .installUpdate: services.updater.installClicked()
         case .setAutomaticUpdates(let on): services.updater.setAutomaticUpdates(on)
         case .openUpdateLink(let url): openUpdateLink(url, services: services)
+        case .openUpdateChanges: _ = services.updater.openStagedChangelog()
         case .noticeAction(let card, let action):
             noticeAction(card, action, updater: services.updater, open: { openUpdateLink($0, services: services) })
         case .dismissNotice(let card): dismissNotice(card, updater: services.updater)
@@ -176,8 +177,8 @@ enum SidebarCardFeed {
         let notes = card.notes
         let changes = notes.changes.map { SidebarUpdateCard.Change(title: $0.title, author: $0.author, linkTitle: $0.prLabel, url: $0.url) }
         return SidebarUpdateCard(
-            title: card.title, detail: card.detail, lines: card.lines, releaseNotesTitle: card.releaseNotesTitle,
-            releaseNotesURL: card.releaseNotesURL, buttonTitle: card.buttonTitle, isEnabled: !card.isInstalling,
+            title: card.title, detail: card.detail, lines: card.lines, seeAllTitle: card.seeAllTitle,
+            buttonTitle: card.buttonTitle, isEnabled: !card.isInstalling,
             automaticUpdatesTitle: card.automaticUpdatesTitle, automaticUpdates: card.automaticUpdates,
             notes: SidebarUpdateCard.Notes(headline: notes.headline, keepsRunning: notes.keepsRunning,
                                            whatsChangedTitle: notes.whatsChangedTitle, changes: changes,
