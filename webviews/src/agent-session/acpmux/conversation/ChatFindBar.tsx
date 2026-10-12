@@ -19,6 +19,8 @@ export function ChatFindBar({ find }: { find: ChatFind }) {
       ? t("find.count", { current: find.active + 1, total: count })
       : t("find.noResults");
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    // Candidate acceptance/cancellation belongs to the IME. WebKit can report only 229 on commit.
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     const step = event.key === "Enter" || (event.metaKey && event.key.toLowerCase() === "g");
     if (step) {
       event.preventDefault();
