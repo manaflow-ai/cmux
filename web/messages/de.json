@@ -5505,6 +5505,9 @@
     "switchFailed": "Abmeldung fehlgeschlagen. Versuche es erneut.",
     "invalidTitle": "Diese Einladung ist nicht mehr gültig",
     "invalidBody": "Sie ist abgelaufen, wurde widerrufen oder bereits verwendet. Bitte einen Team-Admin um eine neue.",
-    "goToTeams": "Zu deinen Teams"
+    "goToTeams": "Zu deinen Teams",
+    "unavailableTitle": "Anmeldung konnte nicht bestätigt werden",
+    "unavailableBody": "Unser Anmeldedienst ist ausgelastet. Warte ein paar Sekunden und öffne die Einladung erneut. Du musst dich nicht erneut anmelden.",
+    "retry": "Erneut versuchen"
   }
 }

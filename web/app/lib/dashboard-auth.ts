@@ -84,14 +84,27 @@ export async function loadDashboardSection(
   }
 }
 
-/** The signed-in user for chrome that must render for signed-out visitors too. */
-export async function optionalDashboardUser(): Promise<DashboardSessionUser | null> {
-  if (!isStackConfigured()) return null;
+export type JoinViewer =
+  | { readonly kind: "user"; readonly user: DashboardSessionUser }
+  | { readonly kind: "signed_out" }
+  | { readonly kind: "unavailable" };
+
+/**
+ * The viewer of a page that signs visitors in itself (team invite links).
+ * Only a missing session is "signed out". A Stack outage or throttle is
+ * "unavailable": treating it as signed out would send a signed-in user to
+ * sign-in, which sends them straight back.
+ */
+export async function readJoinViewer(): Promise<JoinViewer> {
+  if (!isStackConfigured()) return { kind: "signed_out" };
   try {
-    return await readDashboardSessionUser();
+    return { kind: "user", user: await readDashboardSessionUser() };
   } catch (error) {
     unstable_rethrow(error);
-    return null;
+    if (error instanceof DashboardSessionMissingError) return { kind: "signed_out" };
+    // Anything else crossed the cache boundary, where prototypes are not
+    // preserved, or is a Stack outage; both get the retry state.
+    return { kind: "unavailable" };
   }
 }
 

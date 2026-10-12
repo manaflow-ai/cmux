@@ -5503,6 +5503,9 @@
     "switchFailed": "Çıkış yapılamadı. Tekrar deneyin.",
     "invalidTitle": "Bu davet artık geçerli değil",
     "invalidBody": "Davetin süresi dolmuş, iptal edilmiş veya zaten kullanılmış. Bir ekip yöneticisinden yeni bir davet isteyin.",
-    "goToTeams": "Ekiplerinize git"
+    "goToTeams": "Ekiplerinize git",
+    "unavailableTitle": "Oturum açmanız doğrulanamadı",
+    "unavailableBody": "Oturum açma sağlayıcımız yoğun. Birkaç saniye bekleyin, ardından daveti yeniden açın. Yeniden oturum açmanız gerekmez.",
+    "retry": "Tekrar dene"
   }
 }

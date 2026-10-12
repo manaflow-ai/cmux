@@ -5505,6 +5505,9 @@
     "switchFailed": "Nie udało się wylogować. Spróbuj ponownie.",
     "invalidTitle": "To zaproszenie jest już nieważne",
     "invalidBody": "Wygasło, zostało unieważnione lub już użyte. Poproś administratora zespołu o nowe.",
-    "goToTeams": "Przejdź do swoich zespołów"
+    "goToTeams": "Przejdź do swoich zespołów",
+    "unavailableTitle": "Nie udało się potwierdzić logowania",
+    "unavailableBody": "Nasz dostawca logowania jest przeciążony. Odczekaj kilka sekund i ponownie otwórz zaproszenie. Nie musisz logować się ponownie.",
+    "retry": "Spróbuj ponownie"
   }
 }

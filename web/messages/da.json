@@ -5502,6 +5502,9 @@
     "switchFailed": "Kunne ikke logge ud. Prøv igen.",
     "invalidTitle": "Denne invitation er ikke længere gyldig",
     "invalidBody": "Den er udløbet, tilbagekaldt eller allerede brugt. Bed en teamadministrator om en ny.",
-    "goToTeams": "Gå til dine teams"
+    "goToTeams": "Gå til dine teams",
+    "unavailableTitle": "Vi kunne ikke bekræfte dit login",
+    "unavailableBody": "Vores login-tjeneste er optaget. Vent et par sekunder, og åbn invitationen igen. Du behøver ikke at logge ind igen.",
+    "retry": "Prøv igen"
   }
 }

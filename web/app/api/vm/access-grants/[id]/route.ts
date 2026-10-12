@@ -1,4 +1,3 @@
-import { getStackServerApp } from "@/app/lib/stack";
 import {
   jsonResponse,
   vmErrorResponse,
@@ -10,6 +9,11 @@ import {
   renameVmAccessGrant,
   revokeVmAccessGrant,
 } from "@/services/vms/workflows";
+import {
+  revokeAccessGrantStackSessions,
+  stackServerSessionRevoker,
+} from "@/services/vms/stackSessionRevocations";
+import { databaseStackSessionRevocationStore } from "@/services/vms/stackSessionRevocationStore";
 
 const MAX_DISPLAY_NAME_LENGTH = 63;
 type AccessGrantRouteContext = {
@@ -75,15 +79,19 @@ export async function DELETE(
       }), { request });
       if (!revoke.ok) return revoke.response;
       const result = revoke.value;
-      if (result.revoked && result.stackSessionIds.length > 0) {
-        const stackUser = await getStackServerApp().getUser({ tokenStore: request });
-        if (stackUser?.id === user.id) {
-          await Promise.allSettled(
-            result.stackSessionIds.map((sessionId) => stackUser.revokeSession(sessionId)),
-          );
-        }
-      }
-      return jsonResponse({ revoked: result.revoked });
+      if (!result.revoked) return jsonResponse({ revoked: false });
+      // The grant and its tunnels are already cut above. The Stack sessions
+      // that enrolled it are recorded before the first attempt, so a throttled
+      // or failed revocation is retried by the vm-reconcile cron, and the
+      // answer says `pending` until Stack has accepted every one.
+      const sessionRevocation = await revokeAccessGrantStackSessions({
+        userId: user.id,
+        accessGrantId: result.accessGrantId,
+        stackSessionIds: result.stackSessionIds,
+        store: databaseStackSessionRevocationStore(),
+        revoke: stackServerSessionRevoker(),
+      });
+      return jsonResponse({ revoked: true, sessionRevocation });
     },
   );
 }

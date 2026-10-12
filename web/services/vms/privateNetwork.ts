@@ -927,7 +927,7 @@ export function revokeVmAccessGrant(input: {
       accessGrantId: input.accessGrantId,
       deviceId: input.deviceId,
     });
-    if (!grant) return { revoked: false, stackSessionIds: [] as string[] } as const;
+    if (!grant) return { revoked: false, accessGrantId: null, stackSessionIds: [] as string[] } as const;
     return yield* withAccessGrantMutationLease(repo, grant.id, Effect.gen(function* () {
       const gateway = yield* VmProviderGateway;
       const stackSessionIds = yield* repo.listAccessGrantSessionIds(grant.id);
@@ -939,7 +939,7 @@ export function revokeVmAccessGrant(input: {
         yield* repo.revokeTunnel(tunnel.id);
       }
       const revoked = yield* repo.revokeAccessGrant(grant.id);
-      return { revoked, stackSessionIds } as const;
+      return { revoked, accessGrantId: grant.id, stackSessionIds } as const;
     }));
   });
 }

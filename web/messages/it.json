@@ -5505,6 +5505,9 @@
     "switchFailed": "Impossibile uscire. Riprova.",
     "invalidTitle": "Questo invito non è più valido",
     "invalidBody": "È scaduto, è stato revocato o è già stato usato. Chiedine uno nuovo a un admin del team.",
-    "goToTeams": "Vai ai tuoi team"
+    "goToTeams": "Vai ai tuoi team",
+    "unavailableTitle": "Impossibile confermare l'accesso",
+    "unavailableBody": "Il nostro servizio di accesso è occupato. Attendi qualche secondo, poi riapri l'invito. Non devi accedere di nuovo.",
+    "retry": "Riprova"
   }
 }

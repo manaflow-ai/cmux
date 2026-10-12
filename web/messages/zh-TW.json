@@ -5504,6 +5504,9 @@
     "switchFailed": "無法登出，請再試一次。",
     "invalidTitle": "此邀請已失效",
     "invalidBody": "邀請已過期、已撤銷或已被使用。請向團隊管理員索取新的邀請。",
-    "goToTeams": "前往你的團隊"
+    "goToTeams": "前往你的團隊",
+    "unavailableTitle": "無法確認你的登入",
+    "unavailableBody": "我們的登入服務忙碌中。請稍候幾秒鐘後再次開啟邀請。你不需要重新登入。",
+    "retry": "重試"
   }
 }

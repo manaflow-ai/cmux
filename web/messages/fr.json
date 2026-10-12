@@ -5507,6 +5507,9 @@
     "switchFailed": "Impossible de se déconnecter. Réessayez.",
     "invalidTitle": "Cette invitation n’est plus valide",
     "invalidBody": "Elle a expiré, a été révoquée ou a déjà été utilisée. Demandez-en une nouvelle à un admin de l’équipe.",
-    "goToTeams": "Accéder à vos équipes"
+    "goToTeams": "Accéder à vos équipes",
+    "unavailableTitle": "Impossible de confirmer votre connexion",
+    "unavailableBody": "Notre service de connexion est saturé. Patientez quelques secondes, puis rouvrez l'invitation. Vous n'avez pas besoin de vous reconnecter.",
+    "retry": "Réessayer"
   }
 }
