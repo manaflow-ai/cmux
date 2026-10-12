@@ -1871,6 +1871,9 @@ function AcpmuxPane() {
       ? (clientSnapshot.summary?.cwd ?? projectDraft ?? blockedHarness?.folder) || undefined
       : undefined;
   const catalog = useHarnessCatalog(catalogSource, clientSnapshot.catalog, undefined, catalogCwd);
+  // For the host actions, which read it when they run (`chat.new`'s remembered model).
+  const catalogRef = useRef(catalog);
+  catalogRef.current = catalog;
   // The client's own snapshot never carries the catalog: every view of the pane (the Harnesses
   // page, the picker catalog, the composer) reads the fetched one from here.
   const snapshot = useMemo(
@@ -3242,9 +3245,7 @@ function AcpmuxPane() {
             const folder = cwd ? String(cwd) : peer || noProject === true ? undefined : startFolderRef.current;
             if (harness && !peer && noProject !== true) {
               // A new chat starts on its pick, else on the model last picked on that harness here.
-              const picked = model
-                ? String(model)
-                : lastOfferedModel(String(harness), snapshotRef.current?.catalog ?? [], folder);
+              const picked = model ? String(model) : lastOfferedModel(String(harness), catalogRef.current, folder);
               return harnessSwitch.switchTo(String(harness), folder, {
                 deferred: deferred === true,
                 ...(picked ? { model: picked } : {}),

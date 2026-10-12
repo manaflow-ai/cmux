@@ -369,7 +369,9 @@ export function ModelPicker(props: ModelPickerProps) {
     setActive(
       Math.max(
         0,
-        shownSections(current, props.model).latest.findIndex((model) => model.id === props.model),
+        shownSections(current, current?.ids.includes(harness ?? "") ? props.model : undefined).latest.findIndex(
+          (model) => model.id === props.model,
+        ),
       ),
     );
     setOpen(true);
