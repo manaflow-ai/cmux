@@ -10,7 +10,8 @@ read from the app and the mean colour inside it must differ from the background 
 edges have no partial pixels, also after the transcript moves by half a device pixel in its pane (b6760b6); in that
 snapshot every text row's anchored side (incoming left, outgoing right) and top lie on whole device pixels, its
 balloon's edges are where the app draws them (an outgoing text balloon a little inside its frame, 2281879), and an
-incoming balloon's straight edges have no partial pixels (c1457e5 row-snap; home_pixels.check_rows). Socket only, no system input. Runs on
+incoming balloon's straight edges have no partial pixels (c1457e5 row-snap; home_pixels.check_rows). Then two width
+changes of the transcript in one main-thread turn: the rows follow the second at once (f11642b resize-pace). Socket only, no system input. Runs on
 cmux-lawrence-2; ends with the DEBUG quit fixture and the tag's `acpmux daemon shutdown`.
 
 Usage: home-typing-still.py --tag <tag> [--out DIR]
@@ -18,7 +19,7 @@ Usage: home-typing-still.py --tag <tag> [--out DIR]
 import argparse, json, os, socket, subprocess, sys, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from home_pixels import check_rows, mean_rgb, read_png  # noqa: E402
+from home_pixels import SKIPPED, check_rows, mean_rgb, read_png  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -169,6 +170,31 @@ try:
     check("the app reports the message rows", bool(half_rows.get("ok")), half_rows)
     if half_rows.get("ok") and os.path.exists(half_shot):
         check_rows(check, "half pixel", half_rows, half_shot)
+
+    # MessagesLab f11642b (resize-pace): a second width change in the same display frame runs its layout at once
+    # when that frame's passes cost under 2 ms (it waited for the next frame's tick before: one frame with the
+    # new width and the old rows). The transcript narrows by 40 pt twice in one main-thread turn (one socket
+    # request: no display frame between), as a divider drag or a live resize can. After the second change the
+    # outgoing rows must already end 80 pt further left, and no width pass may be deferred.
+    base = rpc("debug.home.drive", {"action": "rows"}) or {}
+    paced = rpc("debug.home.drive", {"action": "resize", "trims": [40, 80]}) or {}
+    rpc("debug.home.drive", {"action": "resize", "trims": [0]})
+    steps = paced.get("steps") or []
+    check("resize pace: two width changes in one turn", bool(paced.get("ok")) and len(steps) == 2 and bool(base.get("ok")), paced)
+    if len(steps) == 2 and base.get("ok"):
+        def outgoing_right(rows):
+            return {r["key"]: r.get("maxX", r["x"] + r.get("width", 0)) for r in rows if r["kind"] == "text" and r["outgoing"]}
+        b0 = {r["key"]: r["balloon"]["x"] + r["balloon"]["width"] for r in base["rows"] if r["kind"] == "text" and r["outgoing"]}
+        s1, s2 = outgoing_right(steps[0]["rows"]), outgoing_right(steps[1]["rows"])
+        keys = sorted(set(b0) & set(s1) & set(s2))
+        moved = {k: [round(b0[k] - s1[k], 2), round(b0[k] - s2[k], 2)] for k in keys}
+        deferred = steps[1]["deferred"] - steps[0]["deferred"]
+        print(f"     resize pace: passes {steps[0]['passes']} -> {steps[1]['passes']}, deferred in the second change {deferred};"
+              f" outgoing right edges moved left by (first, second) {moved}", flush=True)
+        check("resize pace: outgoing rows to compare", bool(keys), {"base": list(b0), "after": list(s2)})
+        check("resize pace: the second width change in the frame ran its pass at once (none deferred)", deferred == 0, steps)
+        check("resize pace: after the second change the rows are laid out for the new width (outgoing right edges 80 pt left)",
+              bool(keys) and all(abs(v[0] - 40) <= 0.6 and abs(v[1] - 80) <= 0.6 for v in moved.values()), moved)
 finally:
     reply = rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
     if not (isinstance(reply, dict) and reply.get("quitting") == "end-sessions"):
@@ -179,4 +205,6 @@ finally:
                    env=dict(os.environ, ACPMUX_HOME=acp, ACPMUX_SOCKET=f"{acp}/acpmux.sock"))
 
 print(f"{len(failures)} failed: {failures}" if failures else "all checks passed", flush=True)
+if SKIPPED:
+    print(f"{len(SKIPPED)} proof(s) skipped (not passed): {SKIPPED}", flush=True)
 sys.exit(1 if failures else 0)

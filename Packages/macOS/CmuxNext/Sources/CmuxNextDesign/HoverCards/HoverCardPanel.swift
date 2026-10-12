@@ -106,10 +106,7 @@ final class HoverCardPanel: NSPanel {
         // The card shows on the first frame at full strength; a fade-out in flight (hide and
         // show in one turn) is replaced at once.
         if !isVisible || alphaValue < 1 || wasDismissing {
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0
-                animator().alphaValue = 1
-            }
+            Motion.withoutAnimation { animator().alphaValue = 1 }
             orderFront(nil)
         }
     }

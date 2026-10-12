@@ -6,7 +6,8 @@ import CmuxNextAgentPane
 /// one made (``view``), as when it is first shown.
 @MainActor
 final class AgentToolCards {
-    typealias Answer = @MainActor (_ card: String, _ action: String) -> Void
+    /// A click: the card, the button and what the person typed in the card's field (only for a button that sends it).
+    typealias Answer = @MainActor (_ card: String, _ action: String, _ value: AgentPaneToolCard.Entered?) -> Void
 
     private struct Entry {
         var cards: [AgentPaneToolCard]
@@ -40,13 +41,13 @@ final class AgentToolCards {
     private func push(_ tab: String) -> Bool {
         let shown = cards(tab: tab)
         guard let view = view(tab, !shown.isEmpty) else { return shown.isEmpty }
-        view.model.onToolCard = { [weak self] card, action in self?.answer(tab: tab, card: card, action: action) }
+        view.model.onToolCard = { [weak self] card, action, value in self?.answer(tab: tab, card: card, action: action, value: value) }
         AgentPaneToolCard.show(shown, on: view)
         return true
     }
 
-    private func answer(tab: String, card: String, action: String) {
+    private func answer(tab: String, card: String, action: String, value: AgentPaneToolCard.Entered?) {
         guard let entry = byTab[tab]?.values.first(where: { $0.cards.contains { $0.id == card } }) else { return }
-        entry.answer(card, action)
+        entry.answer(card, action, value)
     }
 }

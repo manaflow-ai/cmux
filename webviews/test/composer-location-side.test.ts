@@ -5,6 +5,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("composer-location-side.test.ts", async () => {
@@ -63,9 +64,7 @@ await requireBrowserLane("composer-location-side.test.ts", async () => {
       report: JSON.stringify((window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport),
     }));
     await page.close();
-    // The play throws when the side or placement is wrong ("fail"); "warn" is the stage's own
-    // popup-layer measure, taken as the open animation settles.
-    expect(result.play === "pass" || result.play === "warn", result.report).toBe(true);
-    expect(result.report).not.toContain('"error"');
+    // The play throws when the side or placement is wrong.
+    expect(playFailures(result.report)).toEqual([]);
   });
 });

@@ -168,7 +168,7 @@ extension SidebarBridge {
         // A connecting SSH machine keeps its pending row through a resync (cx-gaq9).
         if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections) }
         rows.show(sections)
-        model.profiles = Self.profiles(services.machines.local.store)
+        model.profiles = SidebarSpaceBar.profiles(services.machines.local)
         groupFlow.openPendingEditor()
     }
 

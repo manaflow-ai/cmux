@@ -200,8 +200,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// Context Usage, or the mic's Hide dictation button, which the host writes to cmux.json at `path`
     /// (`agentPane.showContextUsage`, `agentPane.showDictation`).
     case composerSetting(path: [String], show: Bool)
-    /// `chat.toolCard.respond {id, action}`: a click on a button of a tool card (``AgentPaneToolCard``).
-    case toolCard(card: String, action: String)
+    /// `chat.toolCard.respond {id, action, value?}`: a click on a button of a tool card (``AgentPaneToolCard``),
+    /// with what the person typed in its field.
+    case toolCard(card: String, action: String, value: AgentPaneToolCard.Entered?)
+    /// `chat.upload {files: [{name, data}]}`: files the person dropped or pasted, for the chat's Cloud machine (``AgentPaneUpload``).
+    case upload([AgentPaneUpload])
     case unsupported(String)
 
     /// Most frames in one `transport.send` (the page sends what one task wrote).
@@ -213,6 +216,18 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
         case .shellRun, .shellRead, .shellStop, .shellComplete: true
         default: false
         }
+    }
+
+    /// A tool card answer carrying what the person typed (a secret): never logged, even redacted.
+    public var carriesEntered: Bool {
+        if case .toolCard(_, _, .some) = self { return true }
+        return false
+    }
+
+    /// An upload: the person's files, never logged.
+    public var carriesFiles: Bool {
+        if case .upload = self { return true }
+        return false
     }
 
     /// A transport request: frequent and carrying chat content, so never logged with its values.

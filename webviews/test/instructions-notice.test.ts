@@ -4,6 +4,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("instructions-notice.test.ts", async () => {
@@ -60,12 +61,8 @@ await requireBrowserLane("instructions-notice.test.ts", async () => {
       JSON.stringify((window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport),
     );
     await page.close();
-    // The play checks the behavior (the alert says why, Retry asks the host again, Dismiss clears
-    // it) and reports a failed one as `error`. Its status also grades frame timing, which on a busy
-    // runner measures the runner: the gallery matrix gates frames, not this test.
-    const play = JSON.parse(report ?? "{}") as { status?: string; steps?: unknown[]; error?: string };
-    expect(play.error, report).toBeUndefined();
-    expect(play.status, report).not.toBe("none");
-    expect(play.steps?.length, report).toBe(4);
+    // The play checks the behavior: the alert says why, Retry asks the host again, Dismiss clears it.
+    expect(playFailures(report)).toEqual([]);
+    expect((JSON.parse(report ?? "{}") as { steps?: unknown[] }).steps?.length, report).toBe(4);
   });
 });

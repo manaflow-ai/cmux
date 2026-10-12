@@ -6,6 +6,7 @@ import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextSettings
+import CryptoKit
 import Foundation
 import Testing
 
@@ -80,6 +81,83 @@ struct CloudBringBackTests {
                                    "--always", trip.project.path + "/plan.md", "--target", trip.project.path + "/plan.md",
                                    "--folder", trip.project.path]])
             #expect(await trip.toolCards(waiting: false)?.isEmpty == true, "the card stayed after Always")
+        }
+    }
+
+    /// A moved chat's agent asks for a secret by name (cmuxterm-hq#1874 slice 6): the chat's tab on
+    /// the machine shows a card with a password field, Share once and Deny. Share once needs both
+    /// a real gesture in the pane and a typed value; the value goes to `link access answer
+    /// --share-secret NAME` on stdin only, never in its arguments, and no file this test's world
+    /// writes (both daemons' state and logs, the CLI's log) ever holds it. A fake secret only.
+    @Test func aSecretAskTakesWhatThePersonTypesOnStdinOnlyAndNoFileHoldsIt() async throws {
+        try await Self.withRoundTrip("secret") { trip in
+            let card = try #require(await trip.toolCards()?.first, "no card in the moved chat; calls: \(trip.accessCalls())")
+            #expect(CloudMoveTests.actionIDs(card) == ["share", "deny"])
+            #expect(CloudMoveTests.text(card, "text")?.contains("GITHUB_TOKEN") == true, "\(card)")
+            guard case .object(let input)? = card["input"] else {
+                Issue.record("the card has no field: \(card)")
+                return
+            }
+            #expect(input["secure"] == .bool(true), "\(input)")
+            let id = try #require(CloudMoveTests.text(card, "id"))
+            let secret = "fake-secret-" + UUID().uuidString
+            @MainActor func answers() -> [[String]] { trip.accessCalls().filter { $0.prefix(3) == ["link", "access", "answer"] } }
+            #expect(await trip.answer(id, "share", gesture: false, value: secret)["ok"] as? Bool != true)
+            #expect(await trip.answer(id, "share", gesture: true)["ok"] as? Bool != true, "Share once went without a value")
+            #expect(await trip.answer(id, "deny", gesture: true, value: secret)["ok"] as? Bool != true, "Deny took a value")
+            // Past 16 KiB a secret is refused here: the CLI's stdin is written whole before it starts.
+            #expect(await trip.answer(id, "share", gesture: true, value: String(repeating: "x", count: 16 * 1024 + 1))["ok"] as? Bool != true)
+            #expect(answers().isEmpty, "a click without a gesture or a value answered: \(answers())")
+            #expect(await trip.toolCards(waiting: false)?.first.flatMap { CloudMoveTests.text($0, "id") } == id, "a refused click took the card")
+            #expect(await trip.answer(id, "share", gesture: true, value: secret)["ok"] as? Bool == true)
+            try await trip.waitUntil { !answers().isEmpty }
+            #expect(answers() == [["link", "access", "answer", "--socket", trip.vmSocket, "--machine", "vm-move", "--session", "chat-on-vm",
+                                   "--request", "fedcba9876543210fedcba9876543210", "--share-secret", "GITHUB_TOKEN"]])
+            let digest = SHA256.hash(data: Data(secret.utf8)).map { String(format: "%02x", $0) }.joined()
+            // The CLI's call is logged before it reads stdin: wait for its digest, which appears only once it did.
+            let digestFile = trip.root.appendingPathComponent("secret-digest")
+            try await trip.waitUntil { FileManager.default.fileExists(atPath: digestFile.path) }
+            let received = try? String(contentsOf: digestFile, encoding: .utf8)
+            #expect(received?.trimmingCharacters(in: .whitespacesAndNewlines) == digest, "the CLI's stdin was not the typed value")
+            #expect(await trip.toolCards(waiting: false)?.isEmpty == true, "the card stayed after Share once")
+            #expect(trip.filesHolding(secret).isEmpty, "the secret was written to \(trip.filesHolding(secret))")
+        }
+    }
+
+    /// A file the person drops or pastes into a chat moved to a Cloud machine, which the composer
+    /// can't attach (cmuxterm-hq#1874 slice 6): the page sends its bytes as `chat.upload`, and only
+    /// with a real gesture in the pane. The app writes them under this Mac's temporary
+    /// `cmux-pastes` folder, runs `cmux link access upload` for the chat's machine and work root,
+    /// deletes its copy, and answers the file's path on the machine. A dot file or a name with a
+    /// folder in it never reaches the CLI. Fake bytes only.
+    @Test func aFileDroppedInAMovedChatGoesToItsMachineFromThisMacsPastesFolderOnly() async throws {
+        try await Self.withRoundTrip("upload") { trip in
+            let bytes = "fake-upload-" + UUID().uuidString
+            let data = Data(bytes.utf8).base64EncodedString()
+            let file: [String: Any] = ["name": "diagram.sketch", "data": data]
+            @MainActor func uploads() -> [[String]] { trip.accessCalls().filter { $0.prefix(3) == ["link", "access", "upload"] } }
+            #expect(await trip.upload([file], gesture: false)["ok"] as? Bool != true, "an upload went without a gesture")
+            #expect(await trip.upload([["name": ".env", "data": data]], gesture: true)["ok"] as? Bool != true, "a dot file went")
+            #expect(await trip.upload([["name": "../diagram.sketch", "data": data]], gesture: true)["ok"] as? Bool != true, "a path went")
+            #expect(uploads().isEmpty, "a refused upload ran the CLI: \(uploads())")
+            let reply = await trip.upload([file], gesture: true)
+            #expect(reply["ok"] as? Bool == true, "\(reply)")
+            let root = try #require(trip.services.cloud.move.workRoots.first)
+            let call = try #require(uploads().first, "no upload ran")
+            #expect(Array(call.prefix(7)) == ["link", "access", "upload", "--socket", trip.vmSocket, "--remote-root", root], "\(call)")
+            #expect(call.count == 8, "\(call)")
+            let sent = try #require(call.last)
+            let temporary = ProcessInfo.processInfo.environment["TMPDIR"] ?? NSTemporaryDirectory()
+            let pastes = URL(fileURLWithPath: temporary).appendingPathComponent("cmux-pastes").resolvingSymlinksInPath().path
+            #expect(URL(fileURLWithPath: sent).resolvingSymlinksInPath().path.hasPrefix(pastes + "/"), "not from cmux-pastes: \(sent)")
+            #expect(URL(fileURLWithPath: sent).lastPathComponent == "diagram.sketch")
+            #expect(!FileManager.default.fileExists(atPath: sent), "the pasted copy stayed on this Mac")
+            let digest = SHA256.hash(data: Data(bytes.utf8)).map { String(format: "%02x", $0) }.joined()
+            let received = try? String(contentsOf: trip.root.appendingPathComponent("upload-digest"), encoding: .utf8)
+            #expect(received?.trimmingCharacters(in: .whitespacesAndNewlines) == digest, "the CLI did not get the dropped bytes")
+            let listed = ((reply["value"] as? [String: Any])?["uploads"] as? [[String: Any]])?.first
+            #expect(listed?["name"] as? String == "diagram.sketch")
+            #expect(listed?["path"] as? String == root + "/local/uploads/0123456789abcdef0123456789abcdef/diagram.sketch", "\(reply)")
         }
     }
 
@@ -197,6 +275,19 @@ struct CloudBringBackTests {
             self.vmSocket = vmSocket
         }
 
+        /// The folder this round trip's world lives in.
+        var root: URL { log.deletingLastPathComponent() }
+
+        /// Every regular file under ``root`` (both daemons' state and logs, the CLI's log) holding `text`.
+        func filesHolding(_ text: String) -> [String] {
+            let needle = Data(text.utf8)
+            let files = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey])?.compactMap { $0 as? URL } ?? []
+            return files.filter { url in
+                (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+                    && (try? Data(contentsOf: url))?.range(of: needle) != nil
+            }.map(\.path)
+        }
+
         /// The machine's chat tab, if it has one.
         func machineChat() -> TabModel? { Self.chat(in: machine.daemon.store) }
 
@@ -235,11 +326,22 @@ struct CloudBringBackTests {
             return cards()
         }
 
-        /// A click on `action` of card `card` in the machine chat's page, after a real click in the pane when `gesture`.
-        func answer(_ card: String, _ action: String, gesture: Bool) async -> [String: Any] {
+        /// A click on `action` of card `card` in the machine chat's page, after a real click in the pane when
+        /// `gesture`, with what the person typed in the card's field (`value`), if anything.
+        func answer(_ card: String, _ action: String, gesture: Bool, value: String? = nil) async -> [String: Any] {
             guard let model = services.agentTabs.existingView(machineKey)?.model else { return ["ok": false] }
             if gesture { model.transport.gestures.record() }
-            return await model.respond(to: AgentPaneRequest(body: ["method": "chat.toolCard.respond", "params": ["id": card, "action": action]]))
+            var params: [String: Any] = ["id": card, "action": action]
+            if let value { params["value"] = value }
+            return await model.respond(to: AgentPaneRequest(body: ["method": "chat.toolCard.respond", "params": params]))
+        }
+
+        /// The page's `chat.upload` of `files` (`{name, data}`, base64) in the machine chat's page, which
+        /// is shown as for a drop, after a real gesture in the pane when `gesture`.
+        func upload(_ files: [[String: Any]], gesture: Bool) async -> [String: Any] {
+            guard let model = services.agentTabs.view(for: machineKey)?.model else { return ["ok": false] }
+            if gesture { model.transport.gestures.record() }
+            return await model.respond(to: AgentPaneRequest(body: ["method": "chat.upload", "params": ["files": files]]))
         }
 
         /// `cmux <action>` on tab `tab`, as the CLI sends it; its error when it stopped.
@@ -268,7 +370,7 @@ struct CloudBringBackTests {
 
     /// Runs `body` once a live chat of this Mac moved to a connected Cloud machine; the stand-in CLI
     /// answers the bring back as `mode` says (`back`, `conflict`, `policy`, `pullTimeout`; `access` also
-    /// has the chat ask for a file; `revokeOnce` fails the first `link access revoke`).
+    /// has the chat ask for a file, `secret` for a secret; `revokeOnce` fails the first `link access revoke`).
     private static func withRoundTrip(_ mode: String, _ body: (Trip) async throws -> Void) async throws {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = URL(fileURLWithPath: "/private/tmp/cn-back-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)
@@ -349,12 +451,16 @@ struct CloudBringBackTests {
     /// and `link agent move` moves the chat to the machine, leaving the landed chat's record as the
     /// machine daemon's `agent-transfer-finish` would (see ``CloudMoveTests``); then `link sync
     /// pull` and the move back answer as `mode` says. `link access triage` lists one file ask of the
-    /// moved chat in `access` mode until `link access answer` answered it; other `link access` calls answer ok.
+    /// moved chat in `access` mode, and one secret ask in `secret` mode, until `link access answer`
+    /// answered it; a secret's answer keeps only the SHA-256 of its stdin (written whole, last), and an upload only the
+    /// SHA-256 of its last file. Other `link access` calls answer ok.
     private static func standInCLI(in root: URL, log: URL, mode: String, vmState: URL) throws -> URL {
         let url = root.appendingPathComponent("cmux")
         let pulled = root.appendingPathComponent("pulled").path
         let answered = root.appendingPathComponent("answered").path
         let revokedOnce = root.appendingPathComponent("revoked-once").path
+        let secretDigest = root.appendingPathComponent("secret-digest").path
+        let uploadDigest = root.appendingPathComponent("upload-digest").path
         let project = root.appendingPathComponent("proj").path, plan = project + "/plan.md"
         let script = """
             #!/bin/sh
@@ -387,11 +493,21 @@ struct CloudBringBackTests {
             "link access triage")
                 if [ '\(mode)' = access ] && [ ! -f '\(answered)' ]; then
                     echo '{"ok":true,"answered":[],"ask":[{"request_id":"0123456789abcdef0123456789abcdef","session":"chat-on-vm","kind":"file","path":"\(plan)","reason":"to read the plan","exists":true,"shareable":true,"target":"\(plan)","folder":false,"always_folder":"\(project)"}],"errors":[]}'
+                elif [ '\(mode)' = secret ] && [ ! -f '\(answered)' ]; then
+                    echo '{"ok":true,"answered":[],"ask":[{"request_id":"fedcba9876543210fedcba9876543210","session":"chat-on-vm","kind":"secret","name":"GITHUB_TOKEN","reason":"to open a pull request"}],"errors":[]}'
                 else
                     echo '{"ok":true,"answered":[],"ask":[],"errors":[]}'
                 fi ;;
-            "link access answer") touch '\(answered)'; echo '{"ok":true}' ;;
+            "link access answer")
+                # A slow CLI: its call is logged a second before it has read stdin (a loaded test host).
+                # The digest appears whole, by rename, only once stdin was read to its end.
+                case " $* " in *" --share-secret "*) sleep 1; /usr/bin/openssl dgst -sha256 -r 2> '\(secretDigest).err' | cut -d ' ' -f 1 > '\(secretDigest).part' && mv '\(secretDigest).part' '\(secretDigest)' ;; esac
+                touch '\(answered)'; echo '{"ok":true}' ;;
             "link access sync") echo '{"ok":true,"synced":[]}' ;;
+            "link access upload")
+                for file in "$@"; do :; done
+                /usr/bin/openssl dgst -sha256 -r "$file" 2> '\(uploadDigest).err' | cut -d ' ' -f 1 > '\(uploadDigest)'
+                printf '{"ok":true,"uploads":[{"file":"%s","path":"%s/local/uploads/0123456789abcdef0123456789abcdef/%s"}]}\n' "$file" "$7" "$(basename "$file")" ;;
             "link access revoke")
                 if [ '\(mode)' = revokeOnce ] && [ ! -f '\(revokedOnce)' ]; then
                     touch '\(revokedOnce)'; echo '{"ok":false,"error":"the machine did not answer","error_code":"link_error"}'; exit 1

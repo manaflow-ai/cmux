@@ -38,18 +38,25 @@ final class ThemeCoordinator {
     private var observation: Task<Void, Never>?
     /// Each workspace's own background (`ThemeCoordinator+Backgrounds`).
     let workspaceBackgrounds: WorkspaceBackgroundStore
+    /// Each workspace's own glass tint over art, as text ("0.6").
+    let workspaceOpacities: WorkspaceBackgroundStore
     /// A workspace background the picker shows without saving it; the inner nil follows the app's.
     var backgroundPreview: (workspace: String, value: String?)?
+    /// A workspace tint the picker's slider shows without saving it; nil follows the work's.
+    var opacityPreview: (workspace: String, value: Double?)?
     /// Shows a Shuffle Daily workspace's next work when the day turns.
     var dayObservers: [any NSObjectProtocol] = []
     /// The scopes whose theme this coordinator set.
     private let themed = NSHashTable<ThemeScope>.weakObjects()
 
-    init(services: AppServices, terminalThemes: TerminalThemeStore, workspaceBackgrounds: WorkspaceBackgroundStore? = nil) {
+    init(services: AppServices, terminalThemes: TerminalThemeStore, workspaceBackgrounds: WorkspaceBackgroundStore? = nil,
+         workspaceOpacities: WorkspaceBackgroundStore? = nil) {
         self.services = services
         self.terminalThemes = terminalThemes
         self.workspaceBackgrounds = workspaceBackgrounds
             ?? .forApplication(bundleIdentifier: services.environment.launch.bundleID)
+        self.workspaceOpacities = workspaceOpacities
+            ?? .forApplication(bundleIdentifier: services.environment.launch.bundleID, file: "workspace-background-opacity.json")
         resolver.onChange = { [weak self] in
             self?.apply(forceSurfaces: true)
             self?.applyChromeTheme()
@@ -62,6 +69,7 @@ final class ThemeCoordinator {
     private var chromeTheme: String?
     private var chromeObservation: Task<Void, Never>?
     private var accentObservation: Task<Void, Never>?
+    private var artAccentObservation: Task<Void, Never>?
 
     /// Follows `appearance.appTheme`: the app theme pages get (`--cmux-app-*`, `WebTheme`),
     /// resolved like the other theme levels (the variant for the system appearance, the user's
@@ -70,7 +78,14 @@ final class ThemeCoordinator {
         // `applied`: a live preview (a theme picker's highlighted row) shows too.
         chromeTheme = settings.applied.chromeTheme
         ThemeStore.shared.setAccent(settings.applied.accent)
+        ThemeStore.shared.setAccentFollowsArt(AccentSetting.followsArt(settings.applied.root))
         applyChromeTheme()
+        artAccentObservation = Task { [weak self] in
+            for await follows in ObservationStream({ AccentSetting.followsArt(settings.applied.root) }) {
+                guard ThemeStore.shared.setAccentFollowsArt(follows) else { continue }
+                self?.applyChromeTheme()
+            }
+        }
         // `appearance.accent` re-derives the terminal-theme tokens (the store) and the app theme.
         accentObservation = Task { [weak self] in
             for await accent in ObservationStream({ settings.applied.accent }) {
@@ -92,6 +107,8 @@ final class ThemeCoordinator {
         ThemeStore.shared.setAppTheme(resolved.map {
             var input = $0.input
             input.accent = ThemeStore.shared.accent
+            // Art Color: pages take the app's art hue (a workspace's own art tints its chrome only).
+            if ThemeStore.shared.accentFollowsArt, let hue = ThemeScope.app.backdropArt?.accentHue { input.accentColor = hue }
             return AppTheme.derive(from: input)
         })
     }
@@ -123,8 +140,9 @@ final class ThemeCoordinator {
         let store = services.machines.local.store
         let terminalThemes = terminalThemes
         let local = services.machines.local
-        let workspaceBackgrounds = self.workspaceBackgrounds
+        let workspaceBackgrounds = self.workspaceBackgrounds, workspaceOpacities = self.workspaceOpacities
         Task { await workspaceBackgrounds.load() }
+        Task { await workspaceOpacities.load() }
         dayObservers = observeDayChanges()
         Task { [weak self] in
             await terminalThemes.load()
@@ -139,7 +157,7 @@ final class ThemeCoordinator {
             for await _ in ObservationStream({ () -> [String?] in
                 store.profiles.map(\.theme) + store.personal.workspaces.map(\.theme)
                     + [String(describing: store.personal.terminalThemes), String(describing: terminalThemes.themes),
-                       String(describing: workspaceBackgrounds.backgrounds),
+                       String(describing: workspaceBackgrounds.backgrounds), String(describing: workspaceOpacities.backgrounds),
                        String(store.identity?.supports(DaemonCapabilities.shared.personalTerminals) ?? false)]
             }) {
                 self?.migrateTerminalThemes()
