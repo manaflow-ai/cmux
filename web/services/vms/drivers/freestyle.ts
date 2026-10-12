@@ -20,6 +20,7 @@ import { freestyleRequestFetch } from "./freestyleRequestTiming";
 import { currentVmRequestContext } from "../requestContext";
 import {
   ProviderError,
+  ProviderGuestUnresponsiveError,
   ProviderMachineRecreateRequiredError,
   ProviderNetworkFullError,
   ProviderTlsRuleLimitError,
@@ -53,6 +54,7 @@ import {
   type VMStats,
   type VMResourceStatsResult,
   type VMStatus,
+  type ProviderReadOptions,
 } from "./types";
 import {
   DEVBOX_DESKTOP_NOVNC_PORT,
@@ -183,6 +185,12 @@ const SNAPSHOT_TIMEOUT_MS = VM_PROVIDER_CREATE_TIMEOUT_MS;
 const SNAPSHOT_LIST_PAGE = 100;
 const SNAPSHOT_LIST_MAX = 1_000;
 const EXEC_DEFAULT_TIMEOUT_MS = 30_000;
+/**
+ * The SCP setup command (start sshd, authorize a key, read the host key)
+ * finishes in well under a second on a healthy guest. Its exec is bounded
+ * well inside the route's answer budget (SCP_ANSWER_BUDGET_MS).
+ */
+const SCP_PREPARE_EXEC_TIMEOUT_MS = 20_000;
 /** Cloud machines are durable boxes; only an explicit pause/stop should put one to sleep. */
 export const FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS = -1;
 /** The exec API rejects timeoutMs above 300000 (5 minutes per exec). */
@@ -198,7 +206,8 @@ const EDGE_DOMAIN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9
  * snapshot owns it, see NO-WORK INVARIANT above).
  */
 export type FreestyleProviderDependencies = {
-  readonly client: (timeoutMs?: number) => Freestyle;
+  /** `signal` aborts every request of a bounded read (an uncached client). */
+  readonly client: (timeoutMs?: number, signal?: AbortSignal) => Freestyle;
 };
 
 const FREESTYLE_CLIENT_CACHE_LIMIT = 8;
@@ -221,37 +230,15 @@ const globalForFreestyle = globalThis as typeof globalThis & {
  * warm-up, and a failed probe is best-effort so provider errors remain typed.
  */
 /** Exported for the publication provider, which shares this account-wide client. */
-export function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS): Freestyle {
-  const baseUrl = process.env.FREESTYLE_API_URL?.trim() || undefined;
-  const apiKey = process.env.FREESTYLE_API_KEY?.trim();
-  const stackAccessToken = process.env.FREESTYLE_STACK_ACCESS_TOKEN?.trim();
-  const teamId = process.env.FREESTYLE_TEAM_ID?.trim();
-  const credentialKind = apiKey ? "api-key" : stackAccessToken && teamId ? "stack" : "missing";
-  const cacheKey = `${baseUrl ?? "https://api.freestyle.sh"}|${credentialKind}|${timeoutMs}`;
+export function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS, signal?: AbortSignal): Freestyle {
+  // A bounded read's own client: its requests end when the route answers, so
+  // it belongs to that read and is never cached.
+  if (signal) return buildFreestyleClient(timeoutMs, signal);
+  const cacheKey = `${freestyleApiBaseUrl() ?? "https://api.freestyle.sh"}|${freestyleCredentialKind()}|${timeoutMs}`;
   const clients = globalForFreestyle.__cmuxFreestyleClients ??= new Map<string, Freestyle>();
   const cached = clients.get(cacheKey);
   if (cached) return cached;
-
-  const longFetch = freestyleRequestFetch({
-    timeoutMs,
-    record: process.env.NODE_ENV === "development" ? (event) => {
-      const traceId = currentVmRequestContext()?.traceId;
-      console.info("cmux.vm.freestyle.request", JSON.stringify({
-        ...event, traceId: traceId && /^[0-9a-f]{32}$/.test(traceId) ? traceId : undefined,
-      }));
-    } : undefined,
-  });
-  const client = apiKey
-    ? new Freestyle({ apiKey, baseUrl, fetch: longFetch })
-    : stackAccessToken && teamId
-      ? new Freestyle({ stackAccessToken, teamId, baseUrl, fetch: longFetch })
-      : null;
-  if (!client) {
-    throw new ProviderError(
-      "freestyle",
-      "freestyle requires FREESTYLE_API_KEY (or FREESTYLE_STACK_ACCESS_TOKEN + FREESTYLE_TEAM_ID)",
-    );
-  }
+  const client = buildFreestyleClient(timeoutMs);
   // Exec accepts a caller-selected timeout; bound the account-wide wrapper
   // cache so arbitrary timeout values cannot retain clients indefinitely.
   if (clients.size >= FREESTYLE_CLIENT_CACHE_LIMIT) {
@@ -260,6 +247,38 @@ export function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS): Freestyle {
   }
   clients.set(cacheKey, client);
   return client;
+}
+
+function freestyleApiBaseUrl(): string | undefined {
+  return process.env.FREESTYLE_API_URL?.trim() || undefined;
+}
+
+function freestyleCredentialKind(): "api-key" | "stack" | "missing" {
+  if (process.env.FREESTYLE_API_KEY?.trim()) return "api-key";
+  return process.env.FREESTYLE_STACK_ACCESS_TOKEN?.trim() && process.env.FREESTYLE_TEAM_ID?.trim() ? "stack" : "missing";
+}
+
+function buildFreestyleClient(timeoutMs: number, signal?: AbortSignal): Freestyle {
+  const baseUrl = freestyleApiBaseUrl();
+  const apiKey = process.env.FREESTYLE_API_KEY?.trim();
+  const stackAccessToken = process.env.FREESTYLE_STACK_ACCESS_TOKEN?.trim();
+  const teamId = process.env.FREESTYLE_TEAM_ID?.trim();
+  const longFetch = freestyleRequestFetch({
+    timeoutMs,
+    ...(signal ? { signal } : {}),
+    record: process.env.NODE_ENV === "development" ? (event) => {
+      const traceId = currentVmRequestContext()?.traceId;
+      console.info("cmux.vm.freestyle.request", JSON.stringify({
+        ...event, traceId: traceId && /^[0-9a-f]{32}$/.test(traceId) ? traceId : undefined,
+      }));
+    } : undefined,
+  });
+  if (apiKey) return new Freestyle({ apiKey, baseUrl, fetch: longFetch });
+  if (stackAccessToken && teamId) return new Freestyle({ stackAccessToken, teamId, baseUrl, fetch: longFetch });
+  throw new ProviderError(
+    "freestyle",
+    "freestyle requires FREESTYLE_API_KEY (or FREESTYLE_STACK_ACCESS_TOKEN + FREESTYLE_TEAM_ID)",
+  );
 }
 
 /**
@@ -629,6 +648,24 @@ function isFreestyleExecNoExit(err: unknown): boolean {
     && err.status === 409
     && err.code === "VM_NON_RESPONSIVE"
     && /exec produced no exit/i.test(err.message);
+}
+
+/**
+ * An exec failure that says the guest did not answer, not that the request
+ * was refused: a client timeout or abort, a gateway 502/504 (a background
+ * request polled past its limit), or the provider's VM_NON_RESPONSIVE. Early
+ * refusals (401/403/404/429) and other 5xx keep their own provider error.
+ */
+function isFreestyleGuestUnanswered(err: unknown): boolean {
+  let current = err;
+  for (let depth = 0; depth < 8 && current; depth += 1) {
+    if (current instanceof FreestyleApiError) {
+      return current.status === 502 || current.status === 504 || current.code === "VM_NON_RESPONSIVE";
+    }
+    if (current instanceof Error && (current.name === "TimeoutError" || current.name === "AbortError")) return true;
+    current = typeof current === "object" ? (current as { cause?: unknown }).cause : undefined;
+  }
+  return false;
 }
 
 function freestyleOperationError(operation: string, err: unknown): ProviderError {
@@ -1032,12 +1069,26 @@ export class FreestyleProvider implements VMProvider {
       const data = await vm.data();
       const host = freestylePortAddress(data, vmId);
       const expires = new Date(Date.now() + SCP_KEY_TTL_SECONDS * 1000);
-      const result = await this.execResult(vm, scpPrepareCommand(key, expires));
-      if (!result || result.exitCode !== 0) {
-        throw new ProviderError("freestyle", `SCP preparation failed in ${vmId}: ${(result?.stderr || "SSH server unavailable").slice(0, 500)}`);
+      let result: Awaited<ReturnType<Vm["exec"]>>;
+      try {
+        result = await this.deps.client(SCP_PREPARE_EXEC_TIMEOUT_MS + EXEC_OVERHEAD_TIMEOUT_MS).vms.ref(vmId)
+          .exec({ command: scpPrepareCommand(key, expires), timeoutMs: SCP_PREPARE_EXEC_TIMEOUT_MS, linuxUser: GUEST_LINUX_USER });
+      } catch (err) {
+        // The command never ran or its answer was lost: nothing is known about sshd.
+        if (isFreestyleGuestUnanswered(err)) {
+          throw new ProviderGuestUnresponsiveError("freestyle", `SCP preparation in ${vmId}: the machine did not answer the setup command`, err);
+        }
+        throw new ProviderError("freestyle", `prepareSCP(${vmId})`, err);
+      }
+      if (result.statusCode === null || result.statusCode === undefined || result.statusCode === 124) {
+        throw new ProviderGuestUnresponsiveError("freestyle", `SCP preparation in ${vmId}: the setup command did not exit within ${SCP_PREPARE_EXEC_TIMEOUT_MS / 1000}s`);
+      }
+      if (result.statusCode !== 0) {
+        const detail = (result.stderr ?? "").trim() || `exit ${result.statusCode} with no error output`;
+        throw new ProviderError("freestyle", `SCP preparation failed in ${vmId}: ${detail.slice(0, 500)}`);
       }
       let hostPublicKey: string;
-      try { hostPublicKey = parseSshPublicKey(result.stdout); }
+      try { hostPublicKey = parseSshPublicKey(result.stdout ?? ""); }
       catch { throw new ProviderError("freestyle", "SCP preparation returned an invalid guest host key."); }
       return { host, port: 22, username: "cmux", hostPublicKey, expiresAtUnix: Math.floor(expires.getTime() / 1000) };
     });
@@ -1197,14 +1248,14 @@ export class FreestyleProvider implements VMProvider {
     );
   }
 
-  async getStatus(vmId: string): Promise<VMStatus> {
+  async getStatus(vmId: string, options?: ProviderReadOptions): Promise<VMStatus> {
     return withVmSpan(
       "cmux.vm.provider.get_status",
       "provider",
       spanAttributes(vmId, "get_status"),
       async (span) => {
         try {
-          const data = await this.deps.client().vms.get(vmId);
+          const data = await this.deps.client(undefined, options?.signal).vms.get(vmId);
           const status = mapFreestyleState(data.state);
           setSpanAttributes(span, { "cmux.vm.provider_state": data.state, "cmux.vm.status": status });
           return status;
@@ -1334,16 +1385,16 @@ export class FreestyleProvider implements VMProvider {
     );
   }
 
-  async listFiles(vmId: string, path: string): Promise<VMFileEntry[]> {
-    const entries = await this.deps.client().vms.ref(vmId).fs.readDir(path);
+  async listFiles(vmId: string, path: string, options?: ProviderReadOptions): Promise<VMFileEntry[]> {
+    const entries = await this.deps.client(undefined, options?.signal).vms.ref(vmId).fs.readDir(path);
     return entries.map((entry) => ({
       name: entry.name,
       kind: entry.kind === "directory" || entry.kind === "symlink" ? entry.kind : "file",
     }));
   }
 
-  async readFile(vmId: string, path: string): Promise<VMFileContents> {
-    const data = await this.deps.client().vms.ref(vmId).fs.readFile(path);
+  async readFile(vmId: string, path: string, options?: ProviderReadOptions): Promise<VMFileContents> {
+    const data = await this.deps.client(undefined, options?.signal).vms.ref(vmId).fs.readFile(path);
     return { path, data: new Uint8Array(data), size: data.byteLength };
   }
 
@@ -1359,8 +1410,8 @@ export class FreestyleProvider implements VMProvider {
     await this.deps.client().vms.ref(vmId).fs.remove(path);
   }
 
-  async statFile(vmId: string, path: string): Promise<VMFileStat> {
-    const stat = await this.deps.client().vms.ref(vmId).fs.stat(path);
+  async statFile(vmId: string, path: string, options?: ProviderReadOptions): Promise<VMFileStat> {
+    const stat = await this.deps.client(undefined, options?.signal).vms.ref(vmId).fs.stat(path);
     const raw = stat as unknown as Record<string, unknown>;
     const kind = raw.isDirectory === true ? "directory" : raw.isSymlink === true ? "symlink" : "file";
     const permissions = typeof raw.permissions === "string" ? Number.parseInt(raw.permissions, 8) : undefined;
@@ -1375,14 +1426,14 @@ export class FreestyleProvider implements VMProvider {
   }
 
   /** Read provisioned dimensions without waking the guest or inventing usage gauges. */
-  async getStats(vmId: string): Promise<VMStats> {
+  async getStats(vmId: string, options?: ProviderReadOptions): Promise<VMStats> {
     return withVmSpan(
       "cmux.vm.provider.get_stats",
       "provider",
       spanAttributes(vmId, "getStats"),
       async () => {
         try {
-          const data = await this.deps.client().vms.get(vmId);
+          const data = await this.deps.client(undefined, options?.signal).vms.get(vmId);
           return {
             state: data.state === "running"
               ? "awake"
@@ -1455,14 +1506,14 @@ export class FreestyleProvider implements VMProvider {
     );
   }
 
-  async listSnapshots(vmId: string): Promise<SnapshotRef[]> {
+  async listSnapshots(vmId: string, options?: ProviderReadOptions): Promise<SnapshotRef[]> {
     return withVmSpan(
       "cmux.vm.provider.list_snapshots",
       "provider",
       spanAttributes(vmId, "listSnapshots"),
       async (span) => {
         try {
-          const fs = this.deps.client();
+          const fs = this.deps.client(undefined, options?.signal);
           const snapshots: SnapshotData[] = [];
           for (let offset = 0; offset < SNAPSHOT_LIST_MAX; offset += SNAPSHOT_LIST_PAGE) {
             const page = await fs.vms.snapshots.list({ sourceVmId: vmId, limit: SNAPSHOT_LIST_PAGE, offset });

@@ -37,15 +37,17 @@ extension AppDelegate {
         let selection = manager.rememberedCloudWorkspaceSelection
         let revision = manager.cloudWorkspaceSelection.revision
         let windowID = context.windowId
-        return operationController.start(key: "new-cloud-workspace.resolved.\(windowID.uuidString)") { [weak self, weak manager] in
-            let fallbackToNewMachine: @MainActor () -> Void = { [weak self, weak manager] in
+        // Hold the window context weakly: it owns the TabManager strongly, and a
+        // create in flight must not keep a closed window's manager alive.
+        return operationController.start(key: "new-cloud-workspace.resolved.\(windowID.uuidString)") { [weak self, weak manager, weak context] in
+            let fallbackToNewMachine: @MainActor () -> Void = { [weak self, weak manager, weak context] in
                 guard let self, !Task.isCancelled else { return }
                 let fallbackWindow = self.mainWindowContexts.values
                     .first(where: { $0.windowId == windowID })
                     .flatMap { self.resolvedWindow(for: $0) }
                 _ = self.performNewCloudMachineAction(
                     tabManager: manager,
-                    preferredWindow: fallbackWindow,
+                    preferredWindow: fallbackWindow ?? context.flatMap { self.resolvedWindow(for: $0) },
                     debugSource: "\(debugSource).fallback"
                 )
             }
@@ -141,7 +143,6 @@ extension AppDelegate {
               tabManagerFor(windowId: windowID) === manager,
               cloudWorkspaceCreationFocusWindow(windowID: windowID) != nil,
               let workspace = manager.workspacesById[workspaceID] else { return nil }
-
         // Admission selects the loading workspace before provider lookup. That
         // intentional selection advances the navigation fence once; accept it
         // only when it is exactly that admission revision. A later away/back

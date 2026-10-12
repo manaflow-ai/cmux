@@ -30,21 +30,22 @@ final class CloudWorkspaceCreationSidebarFixture {
         manager = TabManager(autoWelcomeIfNeeded: false, settings: UserDefaultsSettingsClient(defaults: defaults))
         originalWorkspaceID = try #require(manager.selectedTabId)
         let owner = manager
+        let ownerEnvironment = CloudWorkspaceRenameEnvironment(
+            workspace: { owner.workspacesById[$0] }, tabManager: { _ in owner }, workspaces: { owner.tabs }
+        )
         if useSharedCatalog {
-            catalog = SurfaceCatalog.shared
-            previousSharedRenameService = catalog.cloudWorkspaceRenameService
-            // Production shortcut composition uses SurfaceCatalog.shared for
-            // the reservation binding path. Give that shared catalog the same
-            // manager-backed environment as private fixtures so the test can
-            // observe the binding on its own workspaces.
-            catalog.installCloudWorkspaceRenameService(CloudWorkspaceRenameService(environment: .init(
-                workspace: { owner.workspacesById[$0] }, tabManager: { _ in owner }, workspaces: { owner.tabs }
-            )))
+            // The shared catalog's rename service was installed by the host
+            // app delegate and resolves workspaces through that delegate's
+            // windows, which never contain this fixture's manager. Without
+            // this, bindCloudWorkspace is a no-op and reservations never get
+            // their cloudVMBinding.
+            let shared = SurfaceCatalog.shared
+            previousSharedRenameService = shared.cloudWorkspaceRenameService
+            shared.installCloudWorkspaceRenameService(CloudWorkspaceRenameService(environment: ownerEnvironment))
+            catalog = shared
         } else {
             previousSharedRenameService = nil
-            catalog = SurfaceCatalog(cloudWorkspaceRenameService: CloudWorkspaceRenameService(environment: .init(
-                workspace: { owner.workspacesById[$0] }, tabManager: { _ in owner }, workspaces: { owner.tabs }
-            )))
+            catalog = SurfaceCatalog(cloudWorkspaceRenameService: CloudWorkspaceRenameService(environment: ownerEnvironment))
         }
         if let machine {
             provider = CloudWorkspaceCreationSidebarProvider(catalog: catalog, machine: machine)
