@@ -10,7 +10,7 @@
 #   - no `showsIndicators: false`, `.scrollIndicators(.never)`, `(.hidden)` or
 #     `(.visible)` (visible keeps an overlay scroller on screen at rest);
 #   - no `autohidesScrollers = false` (an empty track when everything fits);
-#   - a SwiftUI ScrollView takes `.thinScrollers()` on its content (CmuxNext only).
+#   - a SwiftUI ScrollView takes `.thinScrollers()` on its content, a List on its rows (CmuxNext only).
 # Web (webviews/src, tests excluded; CSS comments ignored):
 #   - no `overflow: scroll` (use `auto`), also as a Tailwind class
 #     (`overflow-y-scroll`) or a React style (`overflowY: "scroll"`);
@@ -110,18 +110,19 @@ def scan(rel, path, rules, strip):
                 out.append(f"{rel}:{number}: {why}: {line.strip()}")
     return out
 
-# A SwiftUI ScrollView takes the shared thin scroller on its content (`.thinScrollers()`); a
-# file needs at least one per ScrollView.
-SWIFTUI_SCROLL = re.compile(r"(?<![A-Za-z])ScrollView\s*[({]")
+# A SwiftUI ScrollView takes the shared thin scroller on its content, and a List on its rows
+# (`.thinScrollers()`); a file needs at least one per ScrollView or List.
+SWIFTUI_SCROLL = re.compile(r"(?<![A-Za-z])(?:ScrollView|List)\s*[({]")
+STRING = re.compile(r'"(?:[^"\\\n]|\\.)*"')
 
 def swiftui_scrolls(rel, path):
     if rel in ALLOWED:
         return []
-    lines = [line.split("//", 1)[0] for line in open(path, encoding="utf-8", errors="replace").read().splitlines()]
+    lines = [STRING.sub('""', line).split("//", 1)[0] for line in open(path, encoding="utf-8", errors="replace").read().splitlines()]
     scrolls = [number for number, code in enumerate(lines, 1) if SWIFTUI_SCROLL.search(code)]
     if len(scrolls) <= sum(code.count(".thinScrollers()") for code in lines):
         return []
-    return [f"{rel}:{number}: a SwiftUI ScrollView without .thinScrollers() on its content: {lines[number - 1].strip()}"
+    return [f"{rel}:{number}: a SwiftUI ScrollView or List without .thinScrollers(): {lines[number - 1].strip()}"
             for number in scrolls]
 
 problems = []
