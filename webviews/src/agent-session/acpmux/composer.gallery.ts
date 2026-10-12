@@ -45,16 +45,8 @@ const composerControls = {
   modes: {
     currentModeId: "bypassPermissions",
     availableModes: [
-      {
-        id: "ask",
-        name: "Ask before edits",
-        description: "Review changes before they run",
-      },
-      {
-        id: "bypassPermissions",
-        name: "Full access",
-        description: "Run actions without approval",
-      },
+      { id: "ask", name: "Ask before edits", description: "Review changes before they run" },
+      { id: "bypassPermissions", name: "Full access", description: "Run actions without approval" },
     ],
   },
 };
@@ -105,13 +97,7 @@ export default agentPaneEntry({
       note: "A new chat: empty prompt; the card's footer row holds the folder and computer, under a hairline.",
       ready: { newSession: true, cwd: CWD },
       snapshot: noChat([session({ sessionId: "older", title: "An older chat" })], {
-        summary: {
-          sessionId: "",
-          cwd: CWD,
-          harness: "claude",
-          model: "claude-opus-5-5",
-          effort: "high",
-        },
+        summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },
       }),
     },
     "agent-home": {
@@ -135,13 +121,7 @@ export default agentPaneEntry({
       note: "Play: a chat the folder field serves (no folder list from the host): the field reads as a menu row, never a native text box.",
       ready: { cwd: AGENT_HOME, chooseFolder: true },
       snapshot: noChat([], {
-        summary: {
-          sessionId: "",
-          cwd: AGENT_HOME,
-          harness: "claude",
-          model: "claude-opus-5-5",
-          effort: "high",
-        },
+        summary: { sessionId: "", cwd: AGENT_HOME, harness: "claude", model: "claude-opus-5-5", effort: "high" },
       }),
       play: async (ctx) => {
         await ctx.click({ selector: '[aria-label="Folder"]' });
@@ -153,27 +133,11 @@ export default agentPaneEntry({
       ready: { newSession: true, cwd: AGENT_HOME, chooseFolder: true },
       snapshot: noChat(
         [
-          session({
-            sessionId: "home-chat",
-            title: "A chat with no project",
-            cwd: AGENT_HOME,
-          }),
+          session({ sessionId: "home-chat", title: "A chat with no project", cwd: AGENT_HOME }),
           session({ sessionId: "atlas", title: "Retry the fetch helper" }),
-          session({
-            sessionId: "cmux",
-            title: "Fix the sidebar",
-            cwd: "/Users/you/src/cmux",
-          }),
+          session({ sessionId: "cmux", title: "Fix the sidebar", cwd: "/Users/you/src/cmux" }),
         ],
-        {
-          summary: {
-            sessionId: "",
-            cwd: AGENT_HOME,
-            harness: "claude",
-            model: "claude-opus-5-5",
-            effort: "high",
-          },
-        },
+        { summary: { sessionId: "", cwd: AGENT_HOME, harness: "claude", model: "claude-opus-5-5", effort: "high" } },
       ),
       play: async (ctx) => {
         await ctx.click({ selector: '[aria-label="Folder"]' });
@@ -219,10 +183,9 @@ export default agentPaneEntry({
     // thumbnail above the prompt, with a small × that shows on hover; a click opens the viewer.
     "image-attached": {
       note: "A pasted screenshot: a cropped thumbnail above the prompt, its small × shown on hover.",
-      snapshot: ((base) => ({
-        ...base,
-        summary: { ...base.summary!, promptCapabilities: { image: true } },
-      }))(chat(finished)),
+      snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
+        chat(finished),
+      ),
       play: async (ctx) => {
         const view = ctx.document.defaultView!;
         const canvas = new view.OffscreenCanvas(320, 200);
@@ -239,13 +202,8 @@ export default agentPaneEntry({
           type: "image/png",
         });
         const field = ctx.find({ selector: ".acpmux-md" });
-        const paste = new view.Event("paste", {
-          bubbles: true,
-          cancelable: true,
-        });
-        Object.defineProperty(paste, "clipboardData", {
-          value: { files: [file], types: ["Files"] },
-        });
+        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+        Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
         field.dispatchEvent(paste);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img[src^='data:image/png']"));
         await ctx.hover({ selector: ".acpmux-attachment-image" });
@@ -254,10 +212,9 @@ export default agentPaneEntry({
     "quick-image-attached": {
       note: "Quick Composer: clicking a pasted image thumbnail opens the same image viewer as a full chat.",
       ready: { surface: "quick" },
-      snapshot: ((base) => ({
-        ...base,
-        summary: { ...base.summary!, promptCapabilities: { image: true } },
-      }))(chat(finished)),
+      snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
+        chat(finished),
+      ),
       play: async (ctx) => {
         const view = ctx.document.defaultView!;
         const canvas = new view.OffscreenCanvas(320, 200);
@@ -270,13 +227,8 @@ export default agentPaneEntry({
           type: "image/png",
         });
         const field = ctx.find({ selector: ".acpmux-md" });
-        const paste = new view.Event("paste", {
-          bubbles: true,
-          cancelable: true,
-        });
-        Object.defineProperty(paste, "clipboardData", {
-          value: { files: [file], types: ["Files"] },
-        });
+        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+        Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
         field.dispatchEvent(paste);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img[src^='data:image/png']"));
         await ctx.click({ selector: ".acpmux-attachment-open" });
@@ -289,17 +241,10 @@ export default agentPaneEntry({
       play: async (ctx) => {
         const view = ctx.document.defaultView!;
         const pdf = `%PDF-1.4\n1 0 obj << /Type /Page >> endobj\n2 0 obj << /Type /Page >> endobj\n%%EOF`;
-        const file = new view.File([pdf], "design-notes.pdf", {
-          type: "application/pdf",
-        });
+        const file = new view.File([pdf], "design-notes.pdf", { type: "application/pdf" });
         const field = ctx.find({ selector: ".acpmux-md" });
-        const paste = new view.Event("paste", {
-          bubbles: true,
-          cancelable: true,
-        });
-        Object.defineProperty(paste, "clipboardData", {
-          value: { files: [file], types: ["Files"] },
-        });
+        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+        Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
         field.dispatchEvent(paste);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-document"));
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-document[data-page-count='2']"));
@@ -313,9 +258,7 @@ export default agentPaneEntry({
     },
     draft: {
       note: "A draft the tab inherited (markdown, two lines).",
-      ready: {
-        draft: "Also add a **circuit breaker** after `5` failures.\nKeep the POST rule as is.",
-      },
+      ready: { draft: "Also add a **circuit breaker** after `5` failures.\nKeep the POST rule as is." },
       snapshot: chat(finished),
     },
     "long-draft": {
@@ -336,9 +279,7 @@ export default agentPaneEntry({
           (_, index) => `Line ${index + 1}: keep the retry rules and the tests in sync with the docs.`,
         ).join("\n"),
       },
-      snapshot: chat(finished, {
-        summary: { ...chat(finished).summary!, ...composerControls },
-      }),
+      snapshot: chat(finished, { summary: { ...chat(finished).summary!, ...composerControls } }),
     },
     "long-draft-dark": {
       note: "The capped long draft in the dark theme proof matrix.",
@@ -348,9 +289,7 @@ export default agentPaneEntry({
           (_, index) => `Line ${index + 1}: keep the retry rules and the tests in sync with the docs.`,
         ).join("\n"),
       },
-      snapshot: chat(finished, {
-        summary: { ...chat(finished).summary!, ...composerControls },
-      }),
+      snapshot: chat(finished, { summary: { ...chat(finished).summary!, ...composerControls } }),
     },
     working: {
       note: "A turn running: Send becomes Stop.",
@@ -415,9 +354,9 @@ export default agentPaneEntry({
       },
     },
     "history-recall": {
-      note: "Play: ↑ from the empty prompt brings back the chat's last prompt, ↑ again the one before, ↓ steps forward and past the newest empties the prompt, as in Codex and Claude Code. A prompt being typed is never replaced.",
+      note: "Play: ↑ from the empty prompt brings back the chat's last prompt, ↑ again the one before, ↓ steps forward and past the newest empties the prompt, as in Codex and Claude Code. The older prompt has Markdown characters the field escapes. A prompt being typed is never replaced.",
       snapshot: chat([
-        user("Add retries with backoff to the fetch helper", 6),
+        user("Fix arr[0] and the 2 * 3 case in fetch_helper_retry", 6),
         assistant("Added retries with exponential backoff.", 5),
         user("Then add a test for the 429 path", 3),
         assistant("Added the test.", 2),
@@ -429,7 +368,7 @@ export default agentPaneEntry({
         await ctx.press("ArrowUp");
         await ctx.waitFor(() => prompt() === "Then add a test for the 429 path");
         await ctx.press("ArrowUp");
-        await ctx.waitFor(() => prompt() === "Add retries with backoff to the fetch helper");
+        await ctx.waitFor(() => prompt() === "Fix arr[0] and the 2 * 3 case in fetch_helper_retry");
         await ctx.press("ArrowDown");
         await ctx.waitFor(() => prompt() === "Then add a test for the 429 path");
         await ctx.press("ArrowDown");
@@ -458,19 +397,14 @@ export default agentPaneEntry({
       play: async (ctx) => {
         // Target the queue row itself so the pointer enters the span that owns the truncation
         // check; a text target can resolve to the row or a parent in the gallery driver.
-        await ctx.hover({
-          selector: ".acpmux-queued:nth-child(2) .acpmux-queued-text",
-        });
+        await ctx.hover({ selector: ".acpmux-queued:nth-child(2) .acpmux-queued-text" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-queued-text[title]"));
       },
     },
     "queued-send-remove": {
       note: "Play: remove the first waiting prompt from its row, then Stop: the turn ends and the next prompt is sent. Neither moves the composer, the transcript or the rows below.",
       snapshot: chat(working, { isWorking: true, queue: waiting }),
-      native: {
-        "chat.queue.remove": { removed: true },
-        "chat.queue.edit": { ok: true },
-      },
+      native: { "chat.queue.remove": { removed: true }, "chat.queue.edit": { ok: true } },
       afterCall: {
         // acpmux ends the turn and starts the next queued prompt (q2): its rows join the transcript.
         "chat.cancel": chat(
@@ -485,9 +419,7 @@ export default agentPaneEntry({
       },
       play: async (ctx) => {
         await ctx.hover({ text: "Then add a test for the 429 path" });
-        await ctx.click({
-          selector: '.acpmux-queued:first-child button[aria-label="Remove queued prompt"]',
-        });
+        await ctx.click({ selector: '.acpmux-queued:first-child button[aria-label="Remove queued prompt"]' });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-queued").length === 2);
         await ctx.click({ role: "button", name: "Stop" });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-queued").length === 1);
@@ -495,11 +427,7 @@ export default agentPaneEntry({
     },
     "codex-model": {
       note: "Another harness and model in the chips.",
-      snapshot: chat(finished, {
-        harness: "codex",
-        model: "gpt-6-astra",
-        title: "Codex chat",
-      }),
+      snapshot: chat(finished, { harness: "codex", model: "gpt-6-astra", title: "Codex chat" }),
     },
     "tray-long-branch": {
       note: "The footer row keeps a long branch readable without moving the composer.",
@@ -517,18 +445,10 @@ export default agentPaneEntry({
       note: "Play: open the footer's folder menu; it draws above the whole card, opaque, rows legible.",
       ready: { newSession: true, cwd: CWD },
       snapshot: noChat([session({ sessionId: "older", title: "An older chat" })], {
-        summary: {
-          sessionId: "",
-          cwd: CWD,
-          harness: "claude",
-          model: "claude-opus-5-5",
-          effort: "high",
-        },
+        summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },
       }),
       play: async (ctx) => {
-        await ctx.click({
-          selector: ".acpmux-composer-context .acpmux-location-button",
-        });
+        await ctx.click({ selector: ".acpmux-composer-context .acpmux-location-button" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu, [role='dialog']"));
       },
     },
@@ -563,17 +483,10 @@ export default agentPaneEntry({
     "add-menu": {
       note: "Play: open +; Attach files or images comes first and opens the file chooser, and the menu rises out of +.",
       snapshot: chat(finished, {
-        commands: [
-          {
-            name: "compact",
-            description: "Clear conversation history but keep a summary in context",
-          },
-        ],
+        commands: [{ name: "compact", description: "Clear conversation history but keep a summary in context" }],
       }),
       play: async (ctx) => {
-        await ctx.click({
-          selector: ".acpmux-composer-plus .acpmux-picker-button",
-        });
+        await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-composer-plus [data-value="attach"]'));
       },
     },
@@ -581,20 +494,16 @@ export default agentPaneEntry({
     // host (macOS screencapture's own region or window pick) and attach it as an image chip.
     "attach-screenshot": {
       note: "Play: + > Attach Screenshot… asks the host for a region capture, attaches the image it returns and puts focus back in the prompt.",
-      snapshot: ((base) => ({
-        ...base,
-        summary: { ...base.summary!, promptCapabilities: { image: true } },
-      }))(chat(finished)),
+      snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
+        chat(finished),
+      ),
       checks: {
         anchorMovePx: {
           value: 80,
           reason:
             "The attached image's 72 px thumbnail row opens above the prompt, the same growth a pasted image makes.",
         },
-        layoutShiftMax: {
-          value: 0.05,
-          reason: "The thumbnail row the capture adds above the prompt.",
-        },
+        layoutShiftMax: { value: 0.05, reason: "The thumbnail row the capture adds above the prompt." },
       },
       native: {
         "composer.capture": {
@@ -604,20 +513,13 @@ export default agentPaneEntry({
         },
       },
       play: async (ctx) => {
-        await ctx.click({
-          selector: ".acpmux-composer-plus .acpmux-picker-button",
-        });
-        await ctx.click({
-          selector: '.acpmux-composer-plus [data-value="screenshot"]',
-        });
+        await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
+        await ctx.click({ selector: '.acpmux-composer-plus [data-value="screenshot"]' });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img[src^='data:image/png']"));
         // Back in the prompt, to type about the capture (the + menu does not take focus back).
         await ctx.waitFor(() => ctx.document.activeElement?.closest(".acpmux-composer-prompt"));
-        const log = (
-          ctx.document.defaultView as unknown as {
-            cmuxGalleryLog: { method: string; params?: unknown }[];
-          }
-        ).cmuxGalleryLog;
+        const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: { method: string; params?: unknown }[] })
+          .cmuxGalleryLog;
         const asked = log.find(({ method }) => method === "composer.capture");
         if ((asked?.params as { mode?: string } | undefined)?.mode !== "screen")
           throw new Error(`capture asked ${JSON.stringify(asked)}`);
@@ -625,23 +527,15 @@ export default agentPaneEntry({
     },
     "attach-window-cancelled": {
       note: "Play: + > Attach Window… that the person cancels attaches nothing, shows no error and puts focus back in the prompt.",
-      snapshot: ((base) => ({
-        ...base,
-        summary: { ...base.summary!, promptCapabilities: { image: true } },
-      }))(chat(finished)),
+      snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
+        chat(finished),
+      ),
       native: { "composer.capture": null },
       play: async (ctx) => {
-        await ctx.click({
-          selector: ".acpmux-composer-plus .acpmux-picker-button",
-        });
-        await ctx.click({
-          selector: '.acpmux-composer-plus [data-value="window"]',
-        });
-        const log = (
-          ctx.document.defaultView as unknown as {
-            cmuxGalleryLog: { method: string; params?: unknown }[];
-          }
-        ).cmuxGalleryLog;
+        await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
+        await ctx.click({ selector: '.acpmux-composer-plus [data-value="window"]' });
+        const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: { method: string; params?: unknown }[] })
+          .cmuxGalleryLog;
         await ctx.waitFor(() =>
           log.some(
             ({ method, params }) => method === "composer.capture" && (params as { mode?: string })?.mode === "window",
@@ -656,33 +550,20 @@ export default agentPaneEntry({
     },
     "attach-screenshot-too-large": {
       note: "Play: + > Attach Screenshot… of a capture too large to attach shows the composer's note naming it, not nothing.",
-      snapshot: ((base) => ({
-        ...base,
-        summary: { ...base.summary!, promptCapabilities: { image: true } },
-      }))(chat(finished)),
+      snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
+        chat(finished),
+      ),
       checks: {
         anchorMovePx: {
           value: 40,
           reason: "The note row opens above the prompt, as a pasted file that is too large does.",
         },
-        layoutShiftMax: {
-          value: 0.05,
-          reason: "The note row the refused capture adds above the prompt.",
-        },
+        layoutShiftMax: { value: 0.05, reason: "The note row the refused capture adds above the prompt." },
       },
-      native: {
-        "composer.capture": {
-          tooLarge: true,
-          name: "Screenshot 2026-10-11 14.32.05.png",
-        },
-      },
+      native: { "composer.capture": { tooLarge: true, name: "Screenshot 2026-10-11 14.32.05.png" } },
       play: async (ctx) => {
-        await ctx.click({
-          selector: ".acpmux-composer-plus .acpmux-picker-button",
-        });
-        await ctx.click({
-          selector: '.acpmux-composer-plus [data-value="screenshot"]',
-        });
+        await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
+        await ctx.click({ selector: '.acpmux-composer-plus [data-value="screenshot"]' });
         await ctx.waitFor(() =>
           ctx.document
             .querySelector(".acpmux-attachment-note")
@@ -713,14 +594,8 @@ export default agentPaneEntry({
       note: "Play: type / in the prompt; the agent's command menu opens.",
       snapshot: chat(finished, {
         commands: [
-          {
-            name: "compact",
-            description: "Clear conversation history but keep a summary in context",
-          },
-          {
-            name: "init",
-            description: "Initialize a new CLAUDE.md file with codebase documentation",
-          },
+          { name: "compact", description: "Clear conversation history but keep a summary in context" },
+          { name: "init", description: "Initialize a new CLAUDE.md file with codebase documentation" },
           { name: "review", description: "Review a pull request" },
         ],
       }),
@@ -734,14 +609,8 @@ export default agentPaneEntry({
       note: "Play: ArrowDown moves the slash-command highlight, Enter picks it, and focus stays in the prompt.",
       snapshot: chat(finished, {
         commands: [
-          {
-            name: "compact",
-            description: "Clear conversation history but keep a summary in context",
-          },
-          {
-            name: "init",
-            description: "Initialize a new CLAUDE.md file with codebase documentation",
-          },
+          { name: "compact", description: "Clear conversation history but keep a summary in context" },
+          { name: "init", description: "Initialize a new CLAUDE.md file with codebase documentation" },
           { name: "review", description: "Review a pull request" },
         ],
       }),
@@ -778,9 +647,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         // The prompt has the keyboard when the key comes in, as in a chat.
         await ctx.focus({ selector: "[contenteditable='true']" });
-        const page = ctx.document.defaultView as unknown as {
-          cmuxAcpmuxBridge?: { command?(name: string): void };
-        };
+        const page = ctx.document.defaultView as unknown as { cmuxAcpmuxBridge?: { command?(name: string): void } };
         page.cmuxAcpmuxBridge?.command?.("searchFiles");
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-file-search") !== null);
         await ctx.waitFor(() => ctx.document.activeElement === ctx.document.querySelector(".acpmux-file-search input"));
@@ -818,12 +685,7 @@ export default agentPaneEntry({
     "mention-escaped-path": {
       note: "Play: pick a path markdown escapes (src/__init__.py), then keep typing; the picker stays closed after the space it wrote.",
       snapshot: chat(finished),
-      native: {
-        "file.search": {
-          root: CWD,
-          results: [{ path: "src/__init__.py", matches: [6, 7, 8] }],
-        },
-      },
+      native: { "file.search": { root: CWD, results: [{ path: "src/__init__.py", matches: [6, 7, 8] }] } },
       play: async (ctx) => {
         const prompt = { selector: "[contenteditable='true']" } as const;
         await ctx.focus(prompt);
@@ -845,9 +707,7 @@ export default agentPaneEntry({
     "mention-mid-word": {
       note: "Play: an @ inside a word (an email address) opens no file picker.",
       snapshot: chat(finished),
-      native: {
-        "file.search": { root: CWD, results: [{ path: "README.md" }] },
-      },
+      native: { "file.search": { root: CWD, results: [{ path: "README.md" }] } },
       play: async (ctx) => {
         const prompt = { selector: "[contenteditable='true']" } as const;
         await ctx.focus(prompt);
@@ -860,10 +720,7 @@ export default agentPaneEntry({
       note: "Play: type /fork; the cmux-owned fork command appears with the harness commands.",
       snapshot: chat([...finished.slice(0, -1), summary(9, { status: "completed", seq: 12 })], {
         commands: [
-          {
-            name: "compact",
-            description: "Clear conversation history but keep a summary in context",
-          },
+          { name: "compact", description: "Clear conversation history but keep a summary in context" },
           { name: "review", description: "Review a pull request" },
         ],
       }),
@@ -914,40 +771,25 @@ export default agentPaneEntry({
     },
     "reasoning-codex": {
       note: "Play: open Codex's reasoning menu, choose Service Tier Fast, and close it; the snapshot shows Low to Ultra (Xhigh reads Extra High) plus Standard (Default) and Fast.",
-      snapshot: withSummary(
-        chat(finished, {
-          harness: "codex",
-          model: "gpt-6-astra",
-          title: "Codex reasoning",
-        }),
-        {
-          configOptions: [
-            {
-              id: "reasoning_effort",
-              category: "thought_level",
-              currentValue: "medium",
-              options: ["low", "medium", "high", "xhigh", "max", "ultra"].map((value) => ({ value })),
-            },
-            {
-              id: "fast-mode",
-              category: "model_config",
-              currentValue: "off",
-              options: [
-                {
-                  value: "off",
-                  name: "Off",
-                  description: "Default speed, normal usage",
-                },
-                {
-                  value: "on",
-                  name: "On",
-                  description: "1.5x speed, increased usage",
-                },
-              ],
-            },
-          ],
-        },
-      ),
+      snapshot: withSummary(chat(finished, { harness: "codex", model: "gpt-6-astra", title: "Codex reasoning" }), {
+        configOptions: [
+          {
+            id: "reasoning_effort",
+            category: "thought_level",
+            currentValue: "medium",
+            options: ["low", "medium", "high", "xhigh", "max", "ultra"].map((value) => ({ value })),
+          },
+          {
+            id: "fast-mode",
+            category: "model_config",
+            currentValue: "off",
+            options: [
+              { value: "off", name: "Off", description: "Default speed, normal usage" },
+              { value: "on", name: "On", description: "1.5x speed, increased usage" },
+            ],
+          },
+        ],
+      }),
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-effort .acpmux-picker-button" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-effort-menu"));
@@ -973,9 +815,7 @@ export default agentPaneEntry({
         const picker = ".acpmux-model .acpmux-picker-button";
         await ctx.click({ selector: picker });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-mp"));
-        const search = ctx.find({
-          selector: ".acpmux-mp input[role=combobox]",
-        });
+        const search = ctx.find({ selector: ".acpmux-mp input[role=combobox]" });
         await ctx.waitFor(() => ctx.document.activeElement === search);
         const previous = search.getAttribute("aria-activedescendant");
         await ctx.press("ArrowDown");
@@ -1073,24 +913,16 @@ export default agentPaneEntry({
             "Filtering the model catalog reflows rows inside the fixed-height popup; the transcript and composer anchors must remain fixed.",
         },
       },
-      snapshot: chat(finished, {
-        harness: "claude",
-        model: "claude-opus-5-5",
-        title: "Starred models",
-      }),
+      snapshot: chat(finished, { harness: "claude", model: "claude-opus-5-5", title: "Starred models" }),
       play: async (ctx) => {
         const { translate } = await import("./i18n");
         const starred = { role: "option", name: translate("picker.starred") };
-        const favorite = {
-          selector: '.acpmux-mp-favorite[aria-label$="Sonnet 5.5"]',
-        };
+        const favorite = { selector: '.acpmux-mp-favorite[aria-label$="Sonnet 5.5"]' };
         await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-mp"));
         // A full provider catalog places Sonnet below the visible rows. Filter it into view
         // before pointer input, then reveal the row's hover-only favorite control.
-        await ctx.type("Sonnet 5.5", {
-          selector: ".acpmux-mp input[role=combobox]",
-        });
+        await ctx.type("Sonnet 5.5", { selector: ".acpmux-mp input[role=combobox]" });
         await ctx.hover(favorite);
         // Replay retains the pane's favorites. Keep Sonnet starred instead of toggling it off.
         if (ctx.find(favorite).getAttribute("aria-pressed") !== "true") await ctx.click(favorite);
@@ -1132,26 +964,10 @@ export default agentPaneEntry({
           modes: {
             currentModeId: "ask",
             availableModes: [
-              {
-                id: "ask",
-                name: "Supervised",
-                description: "Ask before changing files or running commands",
-              },
-              {
-                id: "edit",
-                name: "Auto-accept edits",
-                description: "Apply file edits without asking",
-              },
-              {
-                id: "auto",
-                name: "Auto",
-                description: "Choose the safest approval level for each action",
-              },
-              {
-                id: "bypassPermissions",
-                name: "Full access",
-                description: "Run actions without approval",
-              },
+              { id: "ask", name: "Supervised", description: "Ask before changing files or running commands" },
+              { id: "edit", name: "Auto-accept edits", description: "Apply file edits without asking" },
+              { id: "auto", name: "Auto", description: "Choose the safest approval level for each action" },
+              { id: "bypassPermissions", name: "Full access", description: "Run actions without approval" },
             ],
           },
         },

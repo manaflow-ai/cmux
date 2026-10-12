@@ -62,6 +62,7 @@ import { type StringKey, type Translate, useT } from "./i18n";
 import { remoteComposer } from "./remoteEditing";
 import { ChromeArea } from "../../ui/HideableChrome";
 import { useComposerChrome } from "./composerChrome";
+import { usePromptHistory } from "./composer/promptHistory";
 import type { SendBlock } from "./useFolderTrustAsk";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
@@ -289,6 +290,7 @@ export function Composer({
     [prompt],
   );
   const pendingCaret = useRef<number | undefined>(undefined);
+  const prompts = usePromptHistory(snapshot.rows);
   // Send becomes Stop in place once the turn starts; a second click of a
   // double-click, or a click right after Enter, must not cancel the new turn.
   const sentAt = useRef(0);
@@ -720,6 +722,28 @@ export function Composer({
       if (last) {
         event.preventDefault();
         last.focus();
+        return;
+      }
+    }
+    // ↑ and ↓ on an empty prompt (or one they brought back) step through the chat's prompts, over
+    // the / menu a recalled command opens. In a recalled prompt of several lines they move the
+    // caret first, and recall from its first (↑) or last (↓) line.
+    if ((event.key === "ArrowUp" || event.key === "ArrowDown") && plain && !shell) {
+      const up = event.key === "ArrowUp";
+      const current = field.current?.agentText(text) ?? text;
+      const browsing = prompts.showing(current);
+      const lines = browsing ? field.current?.text() : undefined;
+      const edge =
+        !lines ||
+        (up
+          ? !lines.value.slice(0, lines.selectionStart).includes("\n")
+          : !lines.value.slice(lines.selectionEnd).includes("\n"));
+      const recalled = (!open || browsing) && edge ? prompts.step(up ? -1 : 1, current) : undefined;
+      if (recalled !== undefined) {
+        event.preventDefault();
+        pendingCaret.current = recalled.length;
+        edit(recalled, recalled.length);
+        if (recalled) setDismissed(recalled);
         return;
       }
     }
