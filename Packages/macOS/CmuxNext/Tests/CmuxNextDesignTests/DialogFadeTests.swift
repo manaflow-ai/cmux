@@ -25,4 +25,29 @@ import Testing
             #expect(view.layer?.opacity == 1, "\(name)")
         }
     }
+
+    /// Batch 2 (cx-2grmt): the close was still one frame. The dialog and its scrim stay where they
+    /// were while they fade out, and the window takes input at once.
+    @Test func aClosedDialogAndItsScrimFadeOutThenGo() async throws {
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 400, width: 400, height: 300), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        defer { window.orderOut(nil) }
+        let host = WindowOverlayHost.host(for: window)
+        let dialog = NSView(frame: NSRect(x: 0, y: 0, width: 160, height: 90))
+        let handle = host.present(dialog, options: OverlayOptions(kind: .dialog, isModal: true, dimsContent: true,
+                                                                  passesThroughClicks: false))
+        let container = host.panel.container(for: handle.options.effectiveLayer)
+        let scrim = try #require(container.subviews.first { $0 is OverlayScrimView })
+
+        handle.dismiss()
+        #expect(host.presentedHandles.isEmpty)
+        #expect(!host.blocksWholeWindow, "the window waits for the fade")
+        #expect(dialog.superview != nil, "the dialog vanished in one frame")
+        #expect(scrim.superview != nil, "the scrim vanished in one frame")
+
+        try await Task.sleep(for: .milliseconds(600))
+        #expect(dialog.superview == nil)
+        #expect(scrim.superview == nil)
+        #expect(dialog.alphaValue == 1, "a dialog shown again starts whole")
+    }
 }
