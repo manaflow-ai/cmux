@@ -33,7 +33,10 @@ public nonisolated struct ContextMenuCatalog: Sendable {
                 if let label = placement.label { labels[placement.context, default: [:]][descriptor.id] = label }
             }
         }
-        menus = rows.mapValues { Self.topLevel($0) }
+        menus = Dictionary(uniqueKeysWithValues: rows.map { context, rows in
+            let entries = Self.topLevel(rows)
+            return (context, ContextMenuEssentials.menus[context].map { ContextMenuEssentials.apply($0, to: entries) } ?? entries)
+        })
         self.labels = labels
     }
 
@@ -48,6 +51,10 @@ public nonisolated struct ContextMenuCatalog: Sendable {
 
     /// Every action ID an entry list references, submenus included.
     public func referencedIDs(_ entries: [ContextMenuEntry]) -> [ActionID] {
+        Self.referencedIDs(entries)
+    }
+
+    static func referencedIDs(_ entries: [ContextMenuEntry]) -> [ActionID] {
         entries.flatMap { entry -> [ActionID] in
             switch entry {
             case .action(let id): [id]

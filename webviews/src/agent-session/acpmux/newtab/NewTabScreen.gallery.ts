@@ -2,6 +2,7 @@
 // The New Tab page (NewTabScreen.tsx, ChatCards.tsx, variant B): the tab opens as the page when
 // the `ready` answer carries `newTab`, as the app's new tab does.
 import { agentPaneEntry } from "../../../gallery/format";
+import type { PlayContext } from "../../../gallery/play";
 import { CWD, manySessions, noChat, session } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
 
@@ -64,6 +65,26 @@ const withAllChats = <V extends object>(variants: Record<string, V>) =>
     Object.entries(variants).map(([name, variant]) => [name, { native: { "chats.page": allChatsPage }, ...variant }]),
   ) as Record<string, V>;
 
+type GalleryNativeCall = { method: string; params?: Record<string, unknown> };
+
+function galleryNativeCalls(document: Document): GalleryNativeCall[] {
+  return (
+    (
+      document.defaultView as unknown as {
+        cmuxGalleryLog?: GalleryNativeCall[];
+      }
+    ).cmuxGalleryLog ?? []
+  );
+}
+
+async function waitForTabJump(ctx: PlayContext, target: "tab" | "here" | "closed", id: string): Promise<void> {
+  await ctx.waitFor(() =>
+    galleryNativeCalls(ctx.document).some(
+      (call) => call.method === "tab.jump" && call.params?.target === target && call.params?.id === id,
+    ),
+  );
+}
+
 export default agentPaneEntry({
   id: "agent-pane.new-tab",
   title: "New Tab page",
@@ -74,6 +95,10 @@ export default agentPaneEntry({
       value: 0.4,
       reason:
         "Typing an address or an open tab's name shows the rows between the field and the recent chats, which move down.",
+    },
+    settleMaxMs: {
+      value: 250,
+      reason: "New Tab navigation, menu selection, and local suggestion updates should settle within a quarter second.",
     },
   },
   covers: [
@@ -86,6 +111,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/newtab/OpenTabsList.tsx#OpenTabsList",
     "agent-session/acpmux/newtab/ClosedList.tsx#ClosedList",
     "agent-session/acpmux/newtab/RowGlyph.tsx#RowGlyph",
+    "agent-session/acpmux/DictationMic.tsx#DictationMic",
     "ui/VirtualList.tsx#VirtualList",
   ],
   variants: withAllChats({
@@ -163,7 +189,7 @@ export default agentPaneEntry({
       snapshot: noChat(manySessions(4)),
     },
     "split-open-tabs": {
-      note: "Opened by Split Right from a browser tab (cx-jfo7): the workspace's tabs, each one moved into this pane by a click.",
+      note: "Opened by Split Right from a browser tab (cx-jfo7): clicking a workspace tab moves it into this pane.",
       ready: newTab({
         openTabs: [
           { id: "t1", kind: "terminal", title: "zsh", detail: "~/src/cmux" },
@@ -172,6 +198,26 @@ export default agentPaneEntry({
         ],
       }),
       snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /PR #17516/ });
+        await waitForTabJump(ctx, "here", "t2");
+      },
+    },
+    "split-open-tabs-context-menu": {
+      note: "The same split-open tabs can be moved with the row context menu's Move Here action.",
+      ready: newTab({
+        openTabs: [
+          { id: "t1", kind: "terminal", title: "zsh", detail: "~/src/cmux" },
+          { id: "t2", kind: "browser", title: "PR #17516", detail: "github.com/manaflow-ai/cmux", icon: SITE_ICON },
+          { id: "t3", kind: "agent", title: "cmux-next chief" },
+        ],
+      }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.contextMenu({ role: "button", name: /PR #17516/ });
+        await ctx.click({ role: "menuitem", name: "Move Here" });
+        await waitForTabJump(ctx, "here", "t2");
+      },
     },
     "recently-closed": {
       note: "Threads template, Recently Closed (cx-d0d.60): the newest closed tabs, screens and workspaces, each reopened by a click; one on a machine that is not connected is dimmed.",
@@ -223,6 +269,13 @@ export default agentPaneEntry({
           },
         ]);
         await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-closed .nt-open-tab").length === 5);
+        await ctx.click({ role: "button", name: /PR #17516/ });
+        await waitForTabJump(ctx, "closed", "closed:1");
+        await ctx.contextMenu({ role: "button", name: /zsh/ });
+        await ctx.click({ role: "menuitem", name: "Reopen" });
+        await waitForTabJump(ctx, "closed", "closed:2");
+        const unavailable = ctx.find({ selector: ".nt-closed .nt-open-tab[disabled]" });
+        if (!(unavailable as HTMLButtonElement).disabled) throw new Error("unavailable closed row is not disabled");
       },
     },
     "typed-prompt": {
@@ -257,6 +310,9 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".nt-rows"));
         // Two tabs, the two pages and the search: five presses end on the last row.
         for (let step = 0; step < 5; step++) await ctx.press("ArrowDown");
+        await ctx.press("ArrowDown");
+        await ctx.press("Enter");
+        await waitForTabJump(ctx, "tab", "tab-1");
       },
     },
     "typed-address": {
@@ -281,6 +337,33 @@ export default agentPaneEntry({
         },
       }),
       snapshot: noChat(manySessions(3)),
+    },
+    "dictation-mic": {
+      note: "The agent composer's mic, beside send (cx-32bdm): the same dictation, its words land in this field.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-pickers .acpmux-mic-menu:has(.acpmux-mic) + .nt-send"));
+      },
+    },
+    "dictation-menu": {
+      note: "Right-click on the mic offers Hide dictation button, which hides it in every composer until Settings shows it (cx-32bdm).",
+      ready: newTab(),
+      snapshot: noChat(manySessions(3)),
+      checks: {
+        popupLayer: { value: true, reason: "The mic's menu must be above the New Tab page and fully visible." },
+        layoutShiftMax: { value: 0, reason: "Opening the mic's menu must not move the page." },
+      },
+      play: async (ctx) => {
+        const mic = ctx.find({ selector: ".nt-pickers .acpmux-mic" });
+        const box = mic.getBoundingClientRect();
+        mic.dispatchEvent(
+          new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: box.left, clientY: box.bottom }),
+        );
+        await ctx.waitFor(
+          () => ctx.document.querySelector('[role="menuitem"]')?.textContent === "Hide dictation button",
+        );
+      },
     },
     "template-composer": {
       note: "Composer template (tabs.newTabTemplate): one large prompt, no chats.",

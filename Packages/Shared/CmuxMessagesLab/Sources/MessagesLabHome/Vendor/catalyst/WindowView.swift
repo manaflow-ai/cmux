@@ -1085,7 +1085,6 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
                     ledger.add(key, .typingDisc(i), "position.y", from: f.y, to: 0, Springs.typingDiscY(i), begin: begin)
                     ledger.add(key, .typingDisc(i), "transform.scale", from: f.scale, to: 1, Springs.typingDiscScale(i), begin: begin)
                 }
-                typingBegin = begin + Springs.typingDotsPhase
             case let .receipt(bold, rest):
                 // Messages (lossless send-typed-take1, Delivered): the label fades in while it grows from
                 // Springs.receiptAppearScale about its own centre (the row's content scales about the row's
@@ -1242,7 +1241,6 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     private var receiptChanges: [String: (String, String, RowSpec)] = [:]
     /// Layer time until which the recycler keeps its overscan.
     private var overscanUntil: CFTimeInterval = 0
-    private var typingBegin: CFTimeInterval = 0
 
     // MARK: Rows hidden when they appear
 
@@ -1505,8 +1503,20 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
                 Animate.scalar(target, e.keyPath, from: e.from, to: e.to, e.element, begin: e.begin)
             }
         }
-        if case .typing = r.spec.kind, !r.ghost, cell.dots.first?.sublayers?.first?.animation(forKey: "dots") == nil {
-            cell.startTypingDots(begin: r.insertedAt > 0 ? typingBegin : Animate.now(layer))
+        if case .typing = r.spec.kind {
+            if r.ghost {
+                cell.stopTypingBreath()
+            } else if cell.typingInsertedAt != r.insertedAt || cell.dots.first?.sublayers?.first?.animation(forKey: "dots") == nil
+                        || cell.needsTypingBreath {
+                // The dots and the breathing run from the insert's begin (layer time). This used to read a begin
+                // that the commit stored after the cell's first decorate: the dots then ran from layer time 0, so
+                // their phase was arbitrary (motion-gate harness: begin 0). A new indicator under the same key, or
+                // the same row live again after its fade began (stopTypingBreath), starts both again.
+                let insert = r.insertedAt > 0 ? beginTime(r.insertedAt) : Animate.now(layer)
+                cell.typingInsertedAt = r.insertedAt
+                cell.startTypingDots(begin: insert + Springs.typingDotsPhase)
+                cell.startTypingBreath(insert: insert)
+            }
         }
     }
 

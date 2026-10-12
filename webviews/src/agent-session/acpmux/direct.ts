@@ -2450,6 +2450,7 @@ export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
     // Why acpmux will not start it, when it says: its launcher check (`unavailable`), else its
     // failed model probe (`probeError`).
     ...(harnessRefusal(harness) ? { unavailable: harnessRefusal(harness) } : {}),
+    ...(!harness.unavailable && harnessRefusal(harness) ? { probeFailed: true } : {}),
   }));
 }
 

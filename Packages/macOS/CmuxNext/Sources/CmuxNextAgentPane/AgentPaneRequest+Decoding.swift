@@ -1,4 +1,5 @@
 import CmuxNextDictation
+import CmuxNextSettings
 import Foundation
 
 extension AgentPaneRequest {
@@ -69,9 +70,10 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
-        case "pane.showContextUsage":
+        case "pane.showContextUsage", "pane.showDictation":
             if let show = params?["show"] as? Bool {
-                self = .showContextUsage(show)
+                let path = method == "pane.showDictation" ? AgentPaneComposerSetting.showDictationPath : AgentPaneComposerSetting.showContextUsagePath
+                self = .composerSetting(path: path, show: show)
             } else {
                 self = .unsupported(method)
             }
