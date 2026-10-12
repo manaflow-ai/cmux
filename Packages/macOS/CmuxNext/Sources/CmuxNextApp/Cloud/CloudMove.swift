@@ -41,13 +41,15 @@ struct CloudMove {
         var retry: CloudMoveRetries.Retry?
     }
 
-    /// The tab and chat menus' rows to hide: Move to Cloud unless the tab is a
-    /// chat that does not already run on another machine.
+    /// The tab and chat menus' Cloud rows to hide: Move to Cloud unless the tab is a chat that
+    /// does not already run on another machine, and Bring Back Local unless a move from this Mac
+    /// put it there (``CloudBringBack/hiddenMenuItems(_:movedChats:)``).
     static func hiddenMenuItems(_ tab: TabModel?) -> Set<ActionID> { hiddenMenuItems(tab?.agentSession) }
 
     static func hiddenMenuItems(_ record: AgentSessionRef?) -> Set<ActionID> {
-        guard let record, !record.host.hasPrefix(MachineRegistry.registryHostPrefix) else { return [action] }
-        return []
+        let back = CloudBringBack.hiddenMenuItems(record, movedChats: CloudMovedChats.app)
+        guard let record, !record.host.hasPrefix(MachineRegistry.registryHostPrefix) else { return back.union([action]) }
+        return back
     }
 
     /// Starts the move of the invocation's chat tab. Throws, before anything
