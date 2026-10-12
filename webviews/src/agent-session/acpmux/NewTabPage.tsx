@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEscapingList } from "../../ui/popupHost";
 import { AgentMark as BrandMark } from "../shared/AgentMark";
 import { agentBrand } from "../shared/agentBrand";
 import { agentDisplayName } from "./agents";
@@ -267,6 +268,15 @@ export function NewTabPage({
   // The field was wholly selected before this edit, so a typed prefix starts it over.
   const replacing = useRef(false);
   const list = useRef<HTMLDivElement>(null);
+  // With no room under the field for every row, the rows go past the window's edge (cx-6k6cg).
+  const escape = useEscapingList("bottom", 10);
+  const attachList = useCallback(
+    (node: HTMLDivElement | null) => {
+      list.current = node;
+      escape?.(node);
+    },
+    [escape],
+  );
   // The kind a prefix switched from, so Backspace in the empty field switches back.
   const [beforePrefix, setBeforePrefix] = useState<TabKind>();
   const field = useRef<HTMLInputElement>(null);
@@ -507,7 +517,7 @@ export function NewTabPage({
         </form>
         {rows.length > 0 && (
           <div
-            ref={list}
+            ref={attachList}
             className="acpmux-omni"
             id="acpmux-omni"
             // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
