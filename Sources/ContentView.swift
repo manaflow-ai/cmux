@@ -1710,9 +1710,10 @@ struct ContentView: View {
             onSendFeedback: presentFeedbackComposer,
             onToggleSidebar: { sidebarState.toggle() },
             onNewTab: {
-                AppDelegate.shared?.performNewLocalWorkspaceAction(
+                AppDelegate.shared?.performNewWorkspaceAction(
                     tabManager: tabManager,
-                    debugSource: "titlebar.hiddenNewWorkspace"
+                    debugSource: "titlebar.hiddenNewWorkspace",
+                    skipConfiguredAction: true
                 )
             },
             observedWindowReference: observedWindowReference,
@@ -2062,9 +2063,10 @@ struct ContentView: View {
                 )
             },
             onNewTab: {
-                AppDelegate.shared?.performNewLocalWorkspaceAction(
+                AppDelegate.shared?.performNewWorkspaceAction(
                     tabManager: tabManager,
-                    debugSource: "titlebar.fullscreenNewWorkspace"
+                    debugSource: "titlebar.fullscreenNewWorkspace",
+                    skipConfiguredAction: true
                 )
             },
             onFocusHistoryBack: {

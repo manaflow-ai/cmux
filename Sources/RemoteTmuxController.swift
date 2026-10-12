@@ -76,10 +76,17 @@ final class RemoteTmuxController {
     /// view's callback normally reconciles into the manager that owns an existing mirror,
     /// which can differ from the window that initiated New Workspace.
     var pendingMultiplexNewSessionManagers: [String: RemoteTmuxWeakTabManager] = [:]
-    /// Routed sessions that were created but could not be admitted. Keep them out of a
-    /// later reconcile while the in-band kill is still working; clear the tombstone when
-    /// the session disappears from the published view or the host is torn down.
+    /// Routed sessions that were created but could not be admitted. Keep them out of later
+    /// reconciles while cleanup is in flight; ordinary admission tombstones clear when the
+    /// session disappears, while reset cleanup tombstones remain until host teardown.
     var blockedMultiplexNewSessionKeys: Set<String> = []
+    /// Routed creates whose tracked command was interrupted after tmux may have accepted it.
+    /// Keep them blocked until the exact-name kill succeeds or the host is torn down; a missing
+    /// topology row during reconnect is not proof that the remote session never existed.
+    var pendingMultiplexNewSessionCleanupKeys: Set<String> = []
+    /// Authoritative view snapshots that omitted an accepted routed session. One miss can race
+    /// the topology publication immediately after `new-session`; two establish disappearance.
+    var pendingMultiplexNewSessionMisses: [String: Int] = [:]
 
     init(newSessionEnvironment: RemoteTmuxNewSessionEnvironment = .live) {
         self.newSessionEnvironment = newSessionEnvironment
@@ -664,11 +671,13 @@ final class RemoteTmuxController {
                     onCreated?()
                 } else {
                     self.blockedMultiplexNewSessionKeys.insert(completionKey)
+                    self.pendingMultiplexNewSessionCleanupKeys.insert(completionKey)
                     if var intents = self.multiplexIntentsByHost[hostHash],
                        intents.pendingSelect?.sessionName == sessionName {
                         intents.pendingSelect = nil
                         self.multiplexIntentsByHost[hostHash] = intents.isEmpty ? nil : intents
                     }
+                    self.multiplexedViewsByHost[hostHash]?.killWorkspaceSession(named: sessionName)
                     if let manager,
                        AppDelegate.shared?.mainWindowContexts.values
                          .contains(where: { $0.tabManager === manager }) == true {
@@ -686,20 +695,22 @@ final class RemoteTmuxController {
             // the mirror that briefly surfaced and kill the stale session on the same
             // shared stream; it must never become an unexpected tab.
             self.blockedMultiplexNewSessionKeys.insert(completionKey)
+            self.pendingMultiplexNewSessionCleanupKeys.insert(completionKey)
             if admitted, let mirror = self.teardownMultiplexedMirror(key: completionKey) {
                 self.closeDeadMirrorWorkspace(mirror.mirroredWorkspace, recordHistory: false)
             }
-            if admitted {
-                self.multiplexedViewsByHost[hostHash]?.killWorkspaceSession(named: sessionName)
-            }
+            self.multiplexedViewsByHost[hostHash]?.killWorkspaceSession(named: sessionName)
         }
         let sent = view.createDetachedSession(named: sessionName) { [weak self] succeeded in
             guard let self, !succeeded else { return }
             self.pendingMultiplexNewSessionCompletions.removeValue(forKey: completionKey)?(false)
         }
         guard sent else {
+            pendingMultiplexNewSessionCompletions.removeValue(forKey: completionKey)
             pendingMultiplexNewSessionManagers.removeValue(forKey: completionKey)
             blockedMultiplexNewSessionKeys.remove(completionKey)
+            pendingMultiplexNewSessionCleanupKeys.remove(completionKey)
+            pendingMultiplexNewSessionMisses.removeValue(forKey: completionKey)
             if pendingMultiplexNewSessionRequests[managerID] == requestID {
                 if var intents = multiplexIntentsByHost[hostHash],
                    intents.pendingSelect?.sessionName == sessionName {

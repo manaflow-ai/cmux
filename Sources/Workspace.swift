@@ -15199,8 +15199,10 @@ extension Workspace: BonsplitDelegate {
         if let builtInAction = executable.builtInAction {
             switch builtInAction {
             case .newWorkspace:
-                _ = AppDelegate.shared?.performNewLocalWorkspaceAction(
-                    tabManager: owningTabManager, debugSource: "surfaceTabBar.newWorkspace"
+                _ = AppDelegate.shared?.performNewWorkspaceAction(
+                    tabManager: owningTabManager,
+                    debugSource: "surfaceTabBar.newWorkspace",
+                    skipConfiguredAction: true
                 )
             case .newAgentChat: performSurfaceTabBarNewAgentChatAction(presentingWindow: presentingWindow)
             case .cloudVM:

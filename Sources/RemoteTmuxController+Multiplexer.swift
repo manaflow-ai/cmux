@@ -479,9 +479,45 @@ extension RemoteTmuxController {
         updateMultiplexEpochIfNeeded(hostHash: hostHash, current: shared.sessionId)
         let hostPrefix = "\(hostHash)\u{1}"
         let publishedNames = Set(workspaces.map(\.sessionName))
+        // A tracked create can resolve successfully and then disappear before the next
+        // topology publication (for example, its shell exits immediately). Tolerate one
+        // publication race, then resolve it as a create failure instead of leaving the
+        // request state waiting forever.
+        let pendingRoutedKeys = pendingMultiplexNewSessionCompletions.keys.filter {
+            $0.hasPrefix(hostPrefix)
+        }
+        for key in pendingRoutedKeys {
+            let name = String(key.dropFirst(hostPrefix.count))
+            if publishedNames.contains(name) {
+                pendingMultiplexNewSessionMisses.removeValue(forKey: key)
+            } else {
+                let misses = (pendingMultiplexNewSessionMisses[key] ?? 0) + 1
+                if misses >= 2 {
+                    pendingMultiplexNewSessionMisses.removeValue(forKey: key)
+                    pendingMultiplexNewSessionCompletions.removeValue(forKey: key)?(false)
+                } else {
+                    pendingMultiplexNewSessionMisses[key] = misses
+                }
+            }
+        }
+        // A stream reset may have happened after tmux accepted the command. Retry the kill on
+        // every snapshot that still publishes the exact session, and forget it once it is gone.
+        for key in Array(pendingMultiplexNewSessionCleanupKeys) where key.hasPrefix(hostPrefix) {
+            let name = String(key.dropFirst(hostPrefix.count))
+            if publishedNames.contains(name) {
+                pendingMultiplexNewSessionMisses.removeValue(forKey: key)
+                multiplexedViewsByHost[hostHash]?.killWorkspaceSession(named: name)
+            } else {
+                // Keep the tombstone even while the session is absent. A reconnect can publish
+                // a stale/incomplete snapshot before the accepted create appears; dropping the
+                // block on a miss would later admit that orphan as an unexpected workspace.
+                pendingMultiplexNewSessionMisses.removeValue(forKey: key)
+            }
+        }
         blockedMultiplexNewSessionKeys = blockedMultiplexNewSessionKeys.filter { key in
             guard key.hasPrefix(hostPrefix) else { return true }
             return publishedNames.contains(String(key.dropFirst(hostPrefix.count)))
+                || pendingMultiplexNewSessionCleanupKeys.contains(key)
         }
         // No real sessions remain (e.g. the last was killed out-of-band): tear the
         // view down and close the mirrors' workspaces, matching GA's last-session-end.
@@ -685,7 +721,15 @@ extension RemoteTmuxController {
     @discardableResult
     func stopMultiplexedHost(host: RemoteTmuxHost, onFinished: (() -> Void)? = nil) -> Bool {
         let hostHash = host.connectionHash
-        guard let view = multiplexedViewsByHost[hostHash] else { return false }
+        guard let view = multiplexedViewsByHost[hostHash] else {
+            let prefix = "\(hostHash)\u{1}"
+            let names = pendingMultiplexNewSessionCleanupKeys.compactMap { key -> String? in
+                guard key.hasPrefix(prefix) else { return nil }
+                return String(key.dropFirst(prefix.count))
+            }
+            cleanupOrphanedMultiplexedSessionNames(host: host, names: names)
+            return false
+        }
         if let onFinished {
             pendingMultiplexHostStopCompletions[hostHash, default: []].append(onFinished)
         }
@@ -696,7 +740,12 @@ extension RemoteTmuxController {
             guard key.hasPrefix(pendingPrefix) else { return nil }
             return (String(key.dropFirst(pendingPrefix.count)), completion)
         }
-        guard !pending.isEmpty else {
+        let initialCleanupNames = pendingMultiplexNewSessionCleanupKeys.compactMap { key -> String? in
+            guard key.hasPrefix(pendingPrefix) else { return nil }
+            return String(key.dropFirst(pendingPrefix.count))
+        }
+        let pendingSessionNames = Array(Set(pending.map(\.0) + initialCleanupNames))
+        guard !pendingSessionNames.isEmpty else {
             finishStoppingMultiplexedHost(host: host, view: view)
             return true
         }
@@ -709,9 +758,13 @@ extension RemoteTmuxController {
             pendingMultiplexNewSessionCompletions.removeValue(forKey: key)
             completion(false)
         }
-        let pendingSessionNames = pending.map(\.0)
+        let cleanupNames = pendingMultiplexNewSessionCleanupKeys.compactMap { key -> String? in
+            guard key.hasPrefix(pendingPrefix) else { return nil }
+            return String(key.dropFirst(pendingPrefix.count))
+        }
         Task { @MainActor [weak self, weak view] in
             guard let view else {
+                self?.cleanupOrphanedMultiplexedSessionNames(host: host, names: cleanupNames)
                 self?.pendingMultiplexHostStops.remove(hostHash)
                 let completions = self?.pendingMultiplexHostStopCompletions.removeValue(forKey: hostHash) ?? []
                 completions.forEach { $0() }
@@ -719,6 +772,7 @@ extension RemoteTmuxController {
             }
             await view.killWorkspaceSessions(named: pendingSessionNames)
             guard let self, self.multiplexedViewsByHost[hostHash] === view else {
+                self?.cleanupOrphanedMultiplexedSessionNames(host: host, names: cleanupNames)
                 self?.pendingMultiplexHostStops.remove(hostHash)
                 let completions = self?.pendingMultiplexHostStopCompletions.removeValue(forKey: hostHash) ?? []
                 completions.forEach { $0() }
@@ -752,6 +806,13 @@ extension RemoteTmuxController {
             pendingMultiplexHostStopCompletions.removeValue(forKey: hostHash)
             return
         }
+        // If the shared control stream died after a routed `new-session` was accepted, its
+        // in-band kill may never have reached tmux. Keep one uncancelled one-shot cleanup before
+        // dropping the view and transport state; generated names are exact and unique.
+        let orphanedNames = pendingMultiplexNewSessionCleanupKeys
+            .filter { $0.hasPrefix("\(hostHash)\u{1}") }
+            .map { String($0.dropFirst("\(hostHash)\u{1}".count)) }
+        let cleanupTask = cleanupOrphanedMultiplexedSessionNames(host: host, names: orphanedNames)
         // Collect keys first — `teardownMultiplexedMirror` mutates `sessionMirrors`.
         let keys = sessionMirrors
             .filter { $0.value.host.connectionHash == hostHash && isMultiplexed($0.value) }
@@ -769,17 +830,46 @@ extension RemoteTmuxController {
         pendingMultiplexNewSessionManagers = pendingMultiplexNewSessionManagers.filter {
             !$0.key.hasPrefix("\(hostHash)\u{1}")
         }
+        pendingMultiplexNewSessionCleanupKeys = pendingMultiplexNewSessionCleanupKeys.filter {
+            !$0.hasPrefix("\(hostHash)\u{1}")
+        }
+        pendingMultiplexNewSessionMisses = pendingMultiplexNewSessionMisses.filter {
+            !$0.key.hasPrefix("\(hostHash)\u{1}")
+        }
         blockedMultiplexNewSessionKeys = blockedMultiplexNewSessionKeys.filter {
             !$0.hasPrefix("\(hostHash)\u{1}")
         }
         releaseLoginOfferIfHostHasNoMirrors(host: host)
         if !multiplexerHostStillInUse(host) {
             transportRegistry.remove(connectionHash: hostHash)
-            closeSharedSSHMasterIfAny(host: host)
+            if let cleanupTask {
+                Task { @MainActor [weak self] in
+                    await cleanupTask.value
+                    self?.closeSharedSSHMasterIfAny(host: host)
+                }
+            } else {
+                closeSharedSSHMasterIfAny(host: host)
+            }
         }
         pendingMultiplexHostStops.remove(hostHash)
         let completions = pendingMultiplexHostStopCompletions.removeValue(forKey: hostHash) ?? []
         completions.forEach { $0() }
+    }
+
+    /// Best-effort cleanup for generated sessions after the shared control stream is gone or was
+    /// replaced. This runs outside the caller's cancellation scope and uses exact generated names.
+    @discardableResult
+    private func cleanupOrphanedMultiplexedSessionNames(
+        host: RemoteTmuxHost,
+        names: [String]
+    ) -> Task<Void, Never>? {
+        guard !names.isEmpty else { return nil }
+        let cleanupTransport = transport(for: host)
+        return Task.detached(priority: .utility) {
+            for name in names {
+                _ = try? await cleanupTransport.runTmux(["kill-session", "-t", "=\(name)"])
+            }
+        }
     }
 
     /// Closes the host's shared ssh ControlMaster, for the hosts that have one.

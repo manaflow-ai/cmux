@@ -128,16 +128,34 @@ extension RemoteTmuxController {
             // detached session. Remove the session cmux just created instead of
             // leaving an unreported remote orphan behind.
             guard managerIsLive(), requestIsCurrent() else {
-                if result.succeeded, !created.isEmpty {
-                    _ = await removeCreatedSession(host: host, name: created)
-                }
+                // The command may have been accepted before the window closed, including when
+                // ssh reported a failure or returned a truncated `-P` response. The unique name
+                // makes this best-effort kill safe even when nothing was created.
+                _ = await removeCreatedSession(
+                    host: host,
+                    name: created.isEmpty ? requestedName : created
+                )
                 return
             }
             guard result.succeeded, !created.isEmpty else {
                 #if DEBUG
                 cmuxDebugLog("remote-tmux: new-session returned no session: \(result.stderr)")
                 #endif
-                newSessionEnvironment.reportFailure(host, .create, manager)
+                // A successful command with an empty/truncated `-P` response still may have
+                // created the explicitly named session. Clean it before reporting failure.
+                let removed = await removeCreatedSession(
+                    host: host,
+                    name: created.isEmpty ? requestedName : created
+                )
+                if result.succeeded {
+                    newSessionEnvironment.reportFailure(
+                        host,
+                        .attach(sessionName: requestedName, removed: removed),
+                        manager
+                    )
+                } else {
+                    newSessionEnvironment.reportFailure(host, .create, manager)
+                }
                 return
             }
             name = created
