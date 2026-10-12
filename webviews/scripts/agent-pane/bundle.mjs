@@ -18,6 +18,7 @@ import path from "node:path";
 import { reactCompilerMode } from "../../reactCompiler.mjs";
 import { reactCompilerPlugin } from "./reactCompilerPlugin.mjs";
 import { tailwindPlugin } from "./tailwindCompile.mjs";
+import { jsonParsePlugin } from "./jsonParsePlugin.mjs";
 
 const [entry, shikiAlias, outfile, ...rest] = process.argv.slice(2);
 if (!entry || !shikiAlias || !outfile) {
@@ -58,7 +59,7 @@ await build({
         chunkNames: "chunks/[name]-[hash]",
       }
     : { outfile }),
-  plugins: [reactCompiler, tailwindPlugin],
+  plugins: [reactCompiler, tailwindPlugin, jsonParsePlugin],
 });
 
 bailouts.sort((a, b) => `${a.file}:${a.line}`.localeCompare(`${b.file}:${b.line}`));
