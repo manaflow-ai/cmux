@@ -203,6 +203,47 @@ mod tests {
         assert!(child.wait().unwrap().code().is_none(), "the host was not killed");
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_harness_child_that_left_the_group_ends_with_its_host() {
+        let dir = temp_dir("setsid");
+        // A host whose child moves itself into a new session, out of reach
+        // of the harness group signal, then a host that ends on SIGTERM.
+        let script = "import fcntl, subprocess, sys, time\nf = open(sys.argv[1], 'a+')\nfcntl.flock(f, fcntl.LOCK_EX)\nc = subprocess.Popen([sys.executable, '-c', 'import os, sys, time; os.setsid(); print(os.getpid(), flush=True); time.sleep(600)'], stdout=subprocess.PIPE)\nprint('locked', c.stdout.readline().decode().strip(), flush=True)\ntime.sleep(600)\n";
+        let mut child = Command::new("python3")
+            .args(["-c", script])
+            .arg(live_path(&dir, "s1", "00ff"))
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("python3");
+        let mut line = String::new();
+        BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
+        let escaped: i32 = line.trim().strip_prefix("locked ").unwrap().parse().unwrap();
+        let host = owned(&dir, "s1", &child);
+        let left = tokio::time::timeout(
+            Duration::from_secs(20),
+            end_hosts(&*ManualClock::new(), vec![host], GRACE),
+        )
+        .await
+        .expect("the wait outlived the host");
+        assert!(left.is_empty(), "{left:?}");
+        child.wait().unwrap();
+        // The escaped child is reparented and reaped once killed.
+        let gone = (0..100).any(|_| {
+            // SAFETY: signal 0 only probes whether the pid exists.
+            let alive = unsafe { libc::kill(escaped, 0) } == 0;
+            if alive {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            !alive
+        });
+        if !gone {
+            // SAFETY: the test started this pid; end it before failing.
+            unsafe { libc::kill(escaped, libc::SIGKILL) };
+        }
+        assert!(gone, "the child that left the harness group outlived its host");
+    }
+
     #[tokio::test]
     async fn a_pid_without_its_held_lock_is_never_signalled() {
         let dir = temp_dir("own");
