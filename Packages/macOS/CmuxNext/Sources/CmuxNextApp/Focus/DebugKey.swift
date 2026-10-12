@@ -79,6 +79,19 @@ enum DebugKey {
                                            windowNumber: window.windowNumber, context: nil, characters: press.characters,
                                            charactersIgnoringModifiers: press.characters, isARepeat: false, keyCode: press.keyCode)
         else { return .object(["error": .string("bad key")]) }
+        // `dry_run`: what the key router would do with this key in the shell window's focus, run
+        // nothing (shortcut sweeps: every app shortcut routes while a page has the keyboard).
+        // Only the router's decision: no chord sequences, intercepts or focus-kind checks.
+        if params["dry_run"]?.boolValue == true {
+            guard let controller, window === shell else { return .object(["error": .string("dry_run needs the shell window")]) }
+            let router = services.keyRouter
+            let decision = router.decide(event, focus: controller.focus.state, keyWindow: .content,
+                                         facts: router.facts(in: window, controller: controller))
+            var action: JSONValue = .null
+            if case .run(let candidate) = decision { action = .string(candidate.id.rawValue) }
+            return .object(["decision": .string(String(describing: decision)), "action": action,
+                            "focus": .string(String(describing: controller.focus.state.resolved))])
+        }
         let registry = services.registry
         let previous = registry.isDispatchingKeyDown
         registry.isDispatchingKeyDown = { true }

@@ -275,9 +275,12 @@ enum NewTabPage {
 extension PaneController {
     /// New Tab Page: an agent tab showing the new tab page, where the store
     /// places a new tab, with the selected tab's kind selected and folder inherited
-    /// (``NewTabPage/open(in:seed:)``).
+    /// (``NewTabPage/open(in:seed:reusingShown:then:)``).
     /// `then` gets the new tab's id once the store made it.
-    func newTabPage(seed: AgentPaneSeedSource? = nil, then: (@MainActor (String) -> Void)? = nil) { NewTabPage.open(in: self, seed: seed, then: then) }
+    /// `reusingShown`: see ``NewTabPage/open(in:seed:reusingShown:then:)``.
+    func newTabPage(seed: AgentPaneSeedSource? = nil, reusingShown: Bool = false, then: (@MainActor (String) -> Void)? = nil) {
+        NewTabPage.open(in: self, seed: seed, reusingShown: reusingShown, then: then)
+    }
 
     /// Focus Location Bar: a browser tab's address bar; on a New Tab page its own (React) field;
     /// anywhere else a new New Tab page, whose field takes the keyboard (cx-e2aa; Lawrence
@@ -290,6 +293,6 @@ extension PaneController {
         }
         // `open` focuses the field of a New Tab page already showing, else opens one. In a pane
         // of another machine it is the same page; nothing starts there before a send (cx-k21v).
-        NewTabPage.open(in: self, seed: nil)
+        NewTabPage.open(in: self, seed: nil, reusingShown: true)
     }
 }
