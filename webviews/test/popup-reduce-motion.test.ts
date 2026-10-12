@@ -24,8 +24,8 @@ await requireBrowserLane("popup-reduce-motion.test.ts", async () => {
   const { createServer } = await import("vite");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
-  const url = () =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=ui.menu&reducedMotion=1`;
+  const url = (reduced = true) =>
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=ui.menu${reduced ? "&reducedMotion=1" : ""}`;
 
   async function ready(page: Page) {
     for (;;) {
@@ -82,4 +82,41 @@ await requireBrowserLane("popup-reduce-motion.test.ts", async () => {
       await page.close();
     }
   });
+
+  for (const reduced of [false, true]) {
+    test(`a menu fades out when it closes${reduced ? " under Reduce Motion" : ""}`, async () => {
+      // POLISH audit batch 2 (cx-2grmt): a closed menu vanished in one frame.
+      const page = await browser!.newPage({
+        viewport: { width: 560, height: 420 },
+        reducedMotion: reduced ? "reduce" : "no-preference",
+      });
+      try {
+        await page.goto(url(reduced));
+        await ready(page);
+        await page.addStyleTag({ content: desktopCss });
+        await page.getByRole("button", { name: "Open demo menu" }).click();
+        const popup = page.locator(".ui-popup").first();
+        await popup.waitFor();
+        await page.waitForTimeout(300); // the open settles
+        await page.evaluate(() => {
+          const faded: string[] = [];
+          (window as unknown as { faded: string[] }).faded = faded;
+          const record = (event: Event) => {
+            const target = event.target as Element;
+            if (!target.classList?.contains("ui-popup")) return;
+            if (event instanceof TransitionEvent && event.propertyName !== "opacity") return;
+            faded.push(event.type);
+          };
+          document.addEventListener("transitionrun", record, true);
+          document.addEventListener("animationstart", record, true);
+        });
+        await page.keyboard.press("Escape");
+        await popup.waitFor({ state: "detached" });
+        const faded = await page.evaluate(() => (window as unknown as { faded: string[] }).faded);
+        expect(faded.length).toBeGreaterThan(0);
+      } finally {
+        await page.close();
+      }
+    });
+  }
 });

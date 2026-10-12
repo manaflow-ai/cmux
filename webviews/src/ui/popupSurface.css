@@ -14,6 +14,8 @@
   --ui-row-padding-inline: 8px;
   /* The open fades and scales in; under Reduce Motion it only fades (ui-popup-fade). */
   --ui-popup-open: 120ms;
+  /* The close: a fade, in every motion setting (the native fadeOut token). */
+  --ui-popup-close: 80ms;
 }
 
 @keyframes ui-popup-open {
@@ -35,6 +37,15 @@
   :where(.ui-popup) {
     animation: ui-popup-fade var(--ui-popup-open) ease-out;
   }
+}
+
+/* A popup fades out when it closes (POLISH: no flash; a closed menu vanished in one frame). Base UI
+   keeps it mounted while it carries data-ending-style, until the fade ends. */
+:where(.ui-popup) {
+  transition: opacity var(--ui-popup-close) ease-in;
+}
+:where(.ui-popup[data-ending-style]) {
+  opacity: 0;
 }
 
 /* Every popup is the solid popup surface (--surface-popup, pages/shared/desktop.css) on the

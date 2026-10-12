@@ -725,6 +725,10 @@
       "scope": "invite:write",
       "class": "mutation"
     },
+    "keybindings.get": {
+      "scope": "keybindings:read",
+      "class": "read"
+    },
     "linear.issue.create": {
       "scope": "linear:write",
       "class": "mutation"
@@ -1733,6 +1737,9 @@
     "integration.policy.set",
     "integration.revoke",
     "invite.accept",
+    "keybindings.remove",
+    "keybindings.reset",
+    "keybindings.set",
     "network.list",
     "origin.confirmation.issue",
     "pairing_request.list",

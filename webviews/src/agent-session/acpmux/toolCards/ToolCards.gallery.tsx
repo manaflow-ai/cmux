@@ -84,7 +84,7 @@ export default componentEntry<Props>({
   load: async () => GalleryToolCards,
   variants: {
     ask: { props: { initial: [ask] }, play: move },
-    notNow: { props: { initial: [ask] }, play: notNow },
+    "not-now": { props: { initial: [ask] }, play: notNow },
     always: { props: { initial: [always] }, play: askFirst },
     failed: { props: { initial: [failed] } },
   },
