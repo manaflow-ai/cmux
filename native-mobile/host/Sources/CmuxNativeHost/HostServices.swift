@@ -12,9 +12,11 @@ public struct HostServices: Sendable {
     public let refs: SessionRefsService
     public let uploadsRoot: String?
     public let daemonSocket: @Sendable () -> String?
+    public let presence: PresenceBoard
 
     public init(guardrail: PathGuard = PathGuard(), uploadsRoot: String? = nil,
-                daemonSocket: @escaping @Sendable () -> String? = { nil }) {
+                daemonSocket: @escaping @Sendable () -> String? = { nil }, presence: PresenceBoard = PresenceBoard()) {
+        self.presence = presence
         self.guardrail = guardrail
         self.files = FileService(guardrail: guardrail)
         self.git = GitService(guardrail: guardrail)
@@ -37,12 +39,14 @@ public struct HostServices: Sendable {
 
     /// Serves one `svc` channel until it closes. Requests run concurrently;
     /// responses carry their request `id`.
-    public func serve(channel: any LinkChannel, log: @escaping @Sendable (String) -> Void = { _ in }) async {
+    public func serve(channel: any LinkChannel, peer: String? = nil, log: @escaping @Sendable (String) -> Void = { _ in }) async {
         let uploads = UploadService(guardrail: guardrail, uploadsRoot: uploadsRoot)
+        let peerKey = peer ?? "svc-\(UUID().uuidString)"
+        defer { presence.clear(peer: peerKey) }
         await withDiscardingTaskGroup { group in
             for await line in channel.incoming {
                 group.addTask {
-                    let response = await self.respond(to: line, uploads: uploads)
+                    let response = await self.respond(to: line, uploads: uploads, peer: peerKey)
                     if let out = try? ServiceMessage.response(response).line() {
                         try? await channel.send(out)
                     }
@@ -53,11 +57,18 @@ public struct HostServices: Sendable {
         log("svc channel ended")
     }
 
-    public func respond(to line: Data, uploads: UploadService) async -> ServiceResponse {
+    public func respond(to line: Data, uploads: UploadService, peer: String = "local") async -> ServiceResponse {
         let request: ServiceRequest
         do { request = try JSONDecoder().decode(ServiceRequest.self, from: line) } catch {
             let id = (try? JSONSerialization.jsonObject(with: line) as? [String: Any])?["id"] as? Int
             return ServiceResponse(id: id, error: .badRequest("expected {id, method, params}"))
+        }
+        if ServiceMethod(rawValue: request.method) == .presenceSet {
+            guard let visible = request.params?["visible"]?.boolValue else {
+                return ServiceResponse(id: request.id, error: .badRequest("presence.set needs {visible: bool}"))
+            }
+            presence.set(peer: peer, visible: visible)
+            return ServiceResponse(id: request.id, result: ["visible": .bool(visible)])
         }
         do {
             return ServiceResponse(id: request.id, result: try await handle(request, uploads: uploads))

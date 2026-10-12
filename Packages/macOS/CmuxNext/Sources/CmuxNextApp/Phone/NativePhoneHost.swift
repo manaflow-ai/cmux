@@ -220,7 +220,8 @@ final class NativePhoneHost {
         let service = NativeHostService(acceptor: acceptor, configuration: .init(
             locator: DaemonSocketLocator(provider: { socket.get() }),
             log: { line in logger.debug("\(line, privacy: .public)") },
-            onEvent: { sink.yield($0) }))
+            onEvent: { sink.yield($0) },
+            attention: .init(apiBase: config.api, hostID: config.hostID, hostSecret: config.hostSecret)))
         self.service = service
         running = Task { [weak self] in
             await service.start()

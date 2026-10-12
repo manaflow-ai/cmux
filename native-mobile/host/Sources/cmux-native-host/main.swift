@@ -8,7 +8,7 @@ usage:
   cmux-native-host register --api <url> --name <name> [--config <path>]
   cmux-native-host pair-code [--config <path>]
   cmux-native-host run [--socket <path>] [--session <name>] [--config <path>]
-                       [--loopback-port <port>] [--no-worker] [--relay-only]
+                       [--loopback-port <port>] [--no-worker] [--relay-only] [--no-push]
   cmux-native-host e2e [--transport worker|local|loopback] [--api <url>] [--socket <path>]
                        [--session <name>] [--relay-only] [--git-repo <dir>]
        (worker transport reads the dev login secret from $CMUX_NATIVE_DEV_SECRET)
@@ -27,7 +27,7 @@ struct Arguments {
             let arg = argv[i]
             guard arg.hasPrefix("--") else { throw CLIError("unexpected argument \(arg)\n\(usage)") }
             let name = String(arg.dropFirst(2))
-            if ["no-worker", "relay-only", "help"].contains(name) {
+            if ["no-worker", "no-push", "relay-only", "help"].contains(name) {
                 flags.insert(name)
                 i += 1
             } else {
@@ -78,8 +78,12 @@ func pairCode(_ args: Arguments) async throws {
 
 func run(_ args: Arguments) async throws -> Never {
     var acceptors: [any HostAcceptor] = []
+    var attention: AttentionPublisher.Configuration?
     if !args.flags.contains("no-worker") {
         let config = try store(args).load()
+        if !args.flags.contains("no-push") {
+            attention = .init(apiBase: config.api, hostID: config.hostID, hostSecret: config.hostSecret)
+        }
         acceptors.append(WebRTCHostAcceptor(configuration: .init(
             apiBase: config.api, hostID: config.hostID, hostSecret: config.hostSecret,
             relayOnly: args.flags.contains("relay-only"))))
@@ -91,7 +95,7 @@ func run(_ args: Arguments) async throws -> Never {
     }
     guard !acceptors.isEmpty else { throw CLIError("nothing to run: --no-worker without --loopback-port") }
     let locator = DaemonSocketLocator(explicitPath: args.options["socket"], session: args.options["session"])
-    let service = NativeHostService(acceptors: acceptors, configuration: .init(locator: locator, log: log))
+    let service = NativeHostService(acceptors: acceptors, configuration: .init(locator: locator, log: log, attention: attention))
     await service.start()
     let signals = AsyncStream<Int32> { continuation in
         for sig in [SIGINT, SIGTERM] {
