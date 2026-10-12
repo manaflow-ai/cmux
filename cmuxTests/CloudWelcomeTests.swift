@@ -10,6 +10,18 @@ import Testing
 
 @Suite("Cloud welcome")
 struct CloudWelcomeTests {
+    @Test("the shipped welcome selects the approved headline preview")
+    @MainActor
+    func launchUsesHeadlinePreview() {
+        let view = CloudWelcomeView(nextStep: .upgrade, onNotNow: {}, onNext: { _ in })
+        #expect(view.posterHeadline == String(localized: "cloud.welcome.headline", defaultValue: "Cloud machines for your agents"))
+        #expect(view.sliderShowsFeatureList)
+        #expect(view.posterShowsTitle)
+        #expect(view.posterShowsIcon)
+        #expect(!view.showsNewBadge)
+        #expect(!view.footerHasNotNow)
+    }
+
     @Test("welcome includes Cloud on and off; only MDM blocks it", arguments: [nil, false, true] as [Bool?], [false, true])
     func welcomeIgnoresActivation(cloudIsOn: Bool?, blockedByMDM: Bool) throws {
         let suiteName = "CloudWelcomeTests.\(UUID().uuidString)"
