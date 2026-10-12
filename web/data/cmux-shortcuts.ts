@@ -408,8 +408,8 @@ export const shortcutCategories: ShortcutCategory[] = [
     blurbKey: "surfacesBlurb",
     shortcuts: [
       { id: "newSurface", combos: [["⌘", "T"]], description: { en: "New surface", ja: "新規サーフェス" } },
-      { id: "nextSurface", combos: [["⌘", "⇧", "]"]], description: { en: "Next surface", ja: "次のサーフェス" } },
-      { id: "prevSurface", combos: [["⌘", "⇧", "["]], description: { en: "Previous surface", ja: "前のサーフェス" } },
+      { id: "nextSurface", combos: [["⌘", "⇧", "]"], ["⌃", "Tab"], ["⌃", "Page Down"], ["⌥", "⌘", "→"]], description: { en: "Next surface", ja: "次のサーフェス" } },
+      { id: "prevSurface", combos: [["⌘", "⇧", "["], ["⌃", "⇧", "Tab"], ["⌃", "Page Up"], ["⌥", "⌘", "←"]], description: { en: "Previous surface", ja: "前のサーフェス" } },
       { id: "moveSurfaceLeft", combos: [["⌥", "⌘", "⇧", "["]], description: { en: "Reorder surface left", ja: "サーフェスを左へ並べ替え" } },
       { id: "moveSurfaceRight", combos: [["⌥", "⌘", "⇧", "]"]], description: { en: "Reorder surface right", ja: "サーフェスを右へ並べ替え" } },
       { id: "moveSurfaceToPreviousPane", combos: [["⌃", "⌘", "⇧", "["]], description: { en: "Move surface to previous pane", ja: "サーフェスを前のペインへ移動" } },
@@ -572,8 +572,8 @@ export const shortcutCategories: ShortcutCategory[] = [
     id: "split-panes",
     titleKey: "splitPanes",
     shortcuts: [
-      { id: "focusLeft", combos: [["⌥", "⌘", "←"]], description: { en: "Focus pane left", ja: "左のペインにフォーカス" } },
-      { id: "focusRight", combos: [["⌥", "⌘", "→"]], description: { en: "Focus pane right", ja: "右のペインにフォーカス" } },
+      { id: "focusLeft", combos: [["⌃", "⌘", "H"]], description: { en: "Focus pane left", ja: "左のペインにフォーカス" } },
+      { id: "focusRight", combos: [["⌃", "⌘", "L"]], description: { en: "Focus pane right", ja: "右のペインにフォーカス" } },
       { id: "focusUp", combos: [["⌥", "⌘", "↑"]], description: { en: "Focus pane up", ja: "上のペインにフォーカス" } },
       { id: "focusDown", combos: [["⌥", "⌘", "↓"]], description: { en: "Focus pane down", ja: "下のペインにフォーカス" } },
       {

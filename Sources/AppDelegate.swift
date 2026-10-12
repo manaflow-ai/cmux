@@ -16530,8 +16530,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Legacy Ctrl+Tab has no configurable action of its own; it steps
-        // the sidebar like nextSurface/prevSurface.
+        // Ctrl+Tab, Ctrl+PageDown and Cmd+Opt+arrows (Chrome's other tab
+        // keys) have no configurable action of their own; they step the
+        // sidebar like nextSurface/prevSurface.
         if matchesLegacyNextSurfaceShortcut(event: event) {
             (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?
                 .stepTabOrWorkspace(forward: true)
