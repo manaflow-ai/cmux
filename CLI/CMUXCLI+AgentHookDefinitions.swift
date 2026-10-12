@@ -332,6 +332,7 @@ extension CMUXCLI {
 
     private static let grokPinnedHookMarker = "cmux-grok-hook-v2"
     private static let antigravityPinnedHookMarker = "cmux-antigravity-hook-v2"
+    static let musePinnedHookMarker = "cmux-muse-hook-v1"
 
     static func agentHookShellCommand(
         _ command: String,
@@ -378,11 +379,15 @@ extension CMUXCLI {
     }
 
     static func usesPinnedHookDispatch(_ def: AgentHookDef) -> Bool {
-        def.name == "grok" || def.name == "antigravity"
+        def.name == "grok" || def.name == "antigravity" || def.name == "muse"
     }
 
     private static func pinnedHookMarker(for def: AgentHookDef) -> String {
-        def.name == "antigravity" ? antigravityPinnedHookMarker : grokPinnedHookMarker
+        switch def.name {
+        case "antigravity": return antigravityPinnedHookMarker
+        case "muse": return musePinnedHookMarker
+        default: return grokPinnedHookMarker
+        }
     }
 
     private static func pinnedAgentHookShellCommand(

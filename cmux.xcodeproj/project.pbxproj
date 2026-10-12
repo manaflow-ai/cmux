@@ -703,6 +703,7 @@
 		C10657000000000000000005 /* CLILocalTmuxSurfaceRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10657000000000000000006 /* CLILocalTmuxSurfaceRecoveryTests.swift */; };
 		2C9251ADDC95C0A1551E89C2 /* CLILocalZellijLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D945F0FC95EFD48BC4D6AA94 /* CLILocalZellijLifecycleTests.swift */; };
 		A5D41330A1B2C3D4E5F60718 /* CLIMockSocketServerSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41331A1B2C3D4E5F60718 /* CLIMockSocketServerSupport.swift */; };
+		B979D432F8CD2471B650B063 /* CLIMuseHookInstallTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6363F4EA9220ADE6FA369B16 /* CLIMuseHookInstallTests.swift */; };
 		11189000A1B2C3D4E5F60718 /* CLINotificationPaneAttributionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11189001A1B2C3D4E5F60718 /* CLINotificationPaneAttributionTests.swift */; };
 		F0F0CF0E0000000000000001 /* CLINotifyClaudeForkOfForkRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0F0CF0E0000000000000002 /* CLINotifyClaudeForkOfForkRegressionTests.swift */; };
 		C72280000000000000000004 /* CLINotifyClaudeHookWorkspaceRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C72280000000000000000003 /* CLINotifyClaudeHookWorkspaceRoutingTests.swift */; };
@@ -2676,6 +2677,8 @@
 		238F7F4A1651DD3FFA9B3C1E /* ModeBarLabelEdgeFade.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71A8A8412C80779F41DCF9D /* ModeBarLabelEdgeFade.swift */; };
 		B9000015A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000016A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift */; };
 		D77690000000000000000005 /* MultiWindowNotificationsWorkspaceHeadlineUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77690000000000000000006 /* MultiWindowNotificationsWorkspaceHeadlineUITests.swift */; };
+		C1ADE10004A1B2C3D4E5F719 /* muse in Copy CLI */ = {isa = PBXBuildFile; fileRef = C1ADE10003A1B2C3D4E5F719 /* muse */; };
+		2A292E6305A503C02973DB82 /* MuseVaultRegistrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA4CD7C689E9A08DB5112238 /* MuseVaultRegistrationTests.swift */; };
 		E05E36509344691CA085F0CC /* NarrowWindowSidePanelFitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C6C5413708B2C95D6C1CC3 /* NarrowWindowSidePanelFitTests.swift */; };
 		596100000000000000000003 /* NativeNotificationDeliveryHooks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 596100000000000000000004 /* NativeNotificationDeliveryHooks.swift */; };
 		596100000000000000000001 /* NativeNotificationFallbackCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 596100000000000000000002 /* NativeNotificationFallbackCommandTests.swift */; };
@@ -3215,6 +3218,7 @@
 		9758D0149758D0149758D014 /* SessionIndexStore+CmuxHookStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9758D0049758D0049758D004 /* SessionIndexStore+CmuxHookStore.swift */; };
 		FE003104 /* SessionIndexStore+CodexSQL.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003004 /* SessionIndexStore+CodexSQL.swift */; };
 		AFE11421E005492295BE3703 /* SessionIndexStore+GlobalSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CF53113EACF43C49EFFEF5C /* SessionIndexStore+GlobalSearch.swift */; };
+		CBD31606AA934B110EDBDE97 /* SessionIndexStore+Muse.swift in Sources */ = {isa = PBXBuildFile; fileRef = 603138BB51C4ADFD98885570 /* SessionIndexStore+Muse.swift */; };
 		FE003101 /* SessionIndexStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003001 /* SessionIndexStore.swift */; };
 		850000000000000000000008 /* SessionIndexSyntheticCorpus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 850000000000000000000007 /* SessionIndexSyntheticCorpus.swift */; };
 		85000000000000000000002D /* SessionIndexTableApplyInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85000000000000000000001D /* SessionIndexTableApplyInput.swift */; };
@@ -4233,6 +4237,7 @@
 		9758D0159758D0159758D015 /* VaultAgentRegistry+Amp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9758D0059758D0059758D005 /* VaultAgentRegistry+Amp.swift */; };
 		B3575000000000000000000E /* VaultAgentRegistry+Campfire.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3575000000000000000000D /* VaultAgentRegistry+Campfire.swift */; };
 		858200000000000000000004 /* VaultAgentRegistry+Kimi.swift in Sources */ = {isa = PBXBuildFile; fileRef = 858200000000000000000003 /* VaultAgentRegistry+Kimi.swift */; };
+		933A29927EF472DC65FA89A3 /* VaultAgentRegistry+Muse.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E6A96CCBDE353757B31D2BB /* VaultAgentRegistry+Muse.swift */; };
 		B35750000000000000000002 /* VaultAgentRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35750000000000000000001 /* VaultAgentRegistry.swift */; };
 		58A9932D36B3423F90031CB8 /* VaultAllSessionsBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2C22D3F893E4B2D8FB3B91F /* VaultAllSessionsBar.swift */; };
 		112F421D5BA34A11BB7B8334 /* VaultCheckpointFork.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CB2C1AE71C547DB914F26E4 /* VaultCheckpointFork.swift */; };
@@ -4681,6 +4686,7 @@
 				D96970000000000000000007 /* cmux-sudo in Copy CLI */,
 				F390E470FA17BD417C031111 /* cmux-tmux-agent.py in Copy CLI */,
 				C1ADE10002A1B2C3D4E5F719 /* grok in Copy CLI */,
+				C1ADE10004A1B2C3D4E5F719 /* muse in Copy CLI */,
 					D1BEF00002A1B2C3D4E5F719 /* open in Copy CLI */,
 				D96970000000000000000008 /* setup-pam-tid.sh in Copy CLI */,
 					C0DE70500000000000000002 /* start-cmux-profiling in Copy CLI */,
@@ -5387,6 +5393,7 @@
 		C10657000000000000000006 /* CLILocalTmuxSurfaceRecoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLILocalTmuxSurfaceRecoveryTests.swift; sourceTree = "<group>"; };
 		D945F0FC95EFD48BC4D6AA94 /* CLILocalZellijLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLILocalZellijLifecycleTests.swift; sourceTree = "<group>"; };
 		A5D41331A1B2C3D4E5F60718 /* CLIMockSocketServerSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIMockSocketServerSupport.swift; sourceTree = "<group>"; };
+		6363F4EA9220ADE6FA369B16 /* CLIMuseHookInstallTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLIMuseHookInstallTests.swift"; sourceTree = "<group>"; };
 		11189001A1B2C3D4E5F60718 /* CLINotificationPaneAttributionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLINotificationPaneAttributionTests.swift; sourceTree = "<group>"; };
 		F0F0CF0E0000000000000002 /* CLINotifyClaudeForkOfForkRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLINotifyClaudeForkOfForkRegressionTests.swift; sourceTree = "<group>"; };
 		C72280000000000000000003 /* CLINotifyClaudeHookWorkspaceRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLINotifyClaudeHookWorkspaceRoutingTests.swift; sourceTree = "<group>"; };
@@ -7209,6 +7216,8 @@
 		A71A8A8412C80779F41DCF9D /* ModeBarLabelEdgeFade.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModeBarLabelEdgeFade.swift; sourceTree = "<group>"; };
 		B9000016A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiWindowNotificationsUITests.swift; sourceTree = "<group>"; };
 		D77690000000000000000006 /* MultiWindowNotificationsWorkspaceHeadlineUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiWindowNotificationsWorkspaceHeadlineUITests.swift; sourceTree = "<group>"; };
+		C1ADE10003A1B2C3D4E5F719 /* muse */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = Resources/bin/muse; sourceTree = SOURCE_ROOT; };
+		FA4CD7C689E9A08DB5112238 /* MuseVaultRegistrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MuseVaultRegistrationTests.swift"; sourceTree = "<group>"; };
 		D0C6C5413708B2C95D6C1CC3 /* NarrowWindowSidePanelFitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NarrowWindowSidePanelFitTests.swift"; sourceTree = "<group>"; };
 		596100000000000000000004 /* NativeNotificationDeliveryHooks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeNotificationDeliveryHooks.swift; sourceTree = "<group>"; };
 		596100000000000000000002 /* NativeNotificationFallbackCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeNotificationFallbackCommandTests.swift; sourceTree = "<group>"; };
@@ -7739,6 +7748,7 @@
 		9758D0049758D0049758D004 /* SessionIndexStore+CmuxHookStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionIndexStore+CmuxHookStore.swift"; sourceTree = "<group>"; };
 		FE003004 /* SessionIndexStore+CodexSQL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionIndexStore+CodexSQL.swift"; sourceTree = "<group>"; };
 		5CF53113EACF43C49EFFEF5C /* SessionIndexStore+GlobalSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionIndexStore+GlobalSearch.swift"; sourceTree = "<group>"; };
+		603138BB51C4ADFD98885570 /* SessionIndexStore+Muse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionIndexStore+Muse.swift"; sourceTree = "<group>"; };
 		FE003001 /* SessionIndexStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexStore.swift; sourceTree = "<group>"; };
 		850000000000000000000007 /* SessionIndexSyntheticCorpus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexSyntheticCorpus.swift; sourceTree = "<group>"; };
 		85000000000000000000001D /* SessionIndexTableApplyInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexTableApplyInput.swift; sourceTree = "<group>"; };
@@ -8749,6 +8759,7 @@
 		9758D0059758D0059758D005 /* VaultAgentRegistry+Amp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VaultAgentRegistry+Amp.swift"; sourceTree = "<group>"; };
 		B3575000000000000000000D /* VaultAgentRegistry+Campfire.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VaultAgentRegistry+Campfire.swift"; sourceTree = "<group>"; };
 		858200000000000000000003 /* VaultAgentRegistry+Kimi.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VaultAgentRegistry+Kimi.swift"; sourceTree = "<group>"; };
+		9E6A96CCBDE353757B31D2BB /* VaultAgentRegistry+Muse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VaultAgentRegistry+Muse.swift"; sourceTree = "<group>"; };
 		B35750000000000000000001 /* VaultAgentRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultAgentRegistry.swift; sourceTree = "<group>"; };
 		A2C22D3F893E4B2D8FB3B91F /* VaultAllSessionsBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultAllSessionsBar.swift; sourceTree = "<group>"; };
 		3CB2C1AE71C547DB914F26E4 /* VaultCheckpointFork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultCheckpointFork.swift; sourceTree = "<group>"; };
@@ -9400,6 +9411,7 @@
 					C1ADE60001A1B2C3D4E5F719 /* cmux-hermes-sitecustomize.py */,
 					9758A0019758A0019758A001 /* cmux-amp-wrapper */,
 					C1ADE10001A1B2C3D4E5F719 /* grok */,
+					C1ADE10003A1B2C3D4E5F719 /* muse */,
 					C0DE70500000000000000001 /* start-cmux-profiling */,
 					C0DE70530000000000000001 /* submit-cmux-profile */,
 					D96971000000000000000002 /* cmux-sudo */,
@@ -12254,6 +12266,8 @@
 				32EE1C28EF7A7BF6ADD44E45 /* ClickByHintPreview.swift */,
 				A9415C44EEB98E47FEAD7BCD /* RemoteTmuxController+NewSession.swift */,
 				888DEA5181DA90BA20514C63 /* AgentSessionTurnNotifier.swift */,
+				9E6A96CCBDE353757B31D2BB /* VaultAgentRegistry+Muse.swift */,
+				603138BB51C4ADFD98885570 /* SessionIndexStore+Muse.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -13819,6 +13833,8 @@
 				60997B8A3538A87DDD79662F /* BrowserCLIDialogTests.swift */,
 				4D7B132532B469F533014740 /* TerminalFocusTestFixture.swift */,
 				0EE248B0768496360DBB65A0 /* CloudTreeCrossWindowSelectionTests.swift */,
+				FA4CD7C689E9A08DB5112238 /* MuseVaultRegistrationTests.swift */,
+				6363F4EA9220ADE6FA369B16 /* CLIMuseHookInstallTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -16344,6 +16360,7 @@
 				9758D0149758D0149758D014 /* SessionIndexStore+CmuxHookStore.swift in Sources */,
 				FE003104 /* SessionIndexStore+CodexSQL.swift in Sources */,
 				AFE11421E005492295BE3703 /* SessionIndexStore+GlobalSearch.swift in Sources */,
+				CBD31606AA934B110EDBDE97 /* SessionIndexStore+Muse.swift in Sources */,
 				FE003101 /* SessionIndexStore.swift in Sources */,
 				85000000000000000000002D /* SessionIndexTableApplyInput.swift in Sources */,
 				850000000000000000000020 /* SessionIndexTableCellRootView.swift in Sources */,
@@ -17086,6 +17103,7 @@
 				9758D0159758D0159758D015 /* VaultAgentRegistry+Amp.swift in Sources */,
 					B3575000000000000000000E /* VaultAgentRegistry+Campfire.swift in Sources */,
 					858200000000000000000004 /* VaultAgentRegistry+Kimi.swift in Sources */,
+				933A29927EF472DC65FA89A3 /* VaultAgentRegistry+Muse.swift in Sources */,
 					B35750000000000000000002 /* VaultAgentRegistry.swift in Sources */,
 				58A9932D36B3423F90031CB8 /* VaultAllSessionsBar.swift in Sources */,
 				112F421D5BA34A11BB7B8334 /* VaultCheckpointFork.swift in Sources */,
@@ -17931,6 +17949,7 @@
 				C10657000000000000000001 /* CLILocalTmuxReviewRegressionTests.swift in Sources */,
 				C10657000000000000000005 /* CLILocalTmuxSurfaceRecoveryTests.swift in Sources */,
 				A5D41330A1B2C3D4E5F60718 /* CLIMockSocketServerSupport.swift in Sources */,
+				B979D432F8CD2471B650B063 /* CLIMuseHookInstallTests.swift in Sources */,
 				11189000A1B2C3D4E5F60718 /* CLINotificationPaneAttributionTests.swift in Sources */,
 				F0F0CF0E0000000000000001 /* CLINotifyClaudeForkOfForkRegressionTests.swift in Sources */,
 				C72280000000000000000004 /* CLINotifyClaudeHookWorkspaceRoutingTests.swift in Sources */,
@@ -18509,6 +18528,7 @@
 				5FBEE7A21EE7A21EE7A20003 /* MobileViewportApplyGovernorTests.swift in Sources */,
 				F6448F377504F33956E7E03B /* MobileWorkspaceListFidelityTests.swift in Sources */,
 				13AB1A2E5DA6AD02DCAE971D /* MockBridgeInputCapture.swift in Sources */,
+				2A292E6305A503C02973DB82 /* MuseVaultRegistrationTests.swift in Sources */,
 				E05E36509344691CA085F0CC /* NarrowWindowSidePanelFitTests.swift in Sources */,
 				596100000000000000000001 /* NativeNotificationFallbackCommandTests.swift in Sources */,
 				5982D1310AE6439692D7E945 /* NewCloudWorkspaceShortcutTests.swift in Sources */,

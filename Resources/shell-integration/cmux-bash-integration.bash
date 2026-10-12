@@ -282,6 +282,7 @@ _cmux_show_welcome_once() {
 _cmux_show_welcome_once
 _CMUX_CLAUDE_WRAPPER="${_CMUX_CLAUDE_WRAPPER:-}"
 _CMUX_GROK_WRAPPER="${_CMUX_GROK_WRAPPER:-}"
+_CMUX_MUSE_WRAPPER="${_CMUX_MUSE_WRAPPER:-}"
 # Sets REPLY to PATH-style $2 with $1 moved to the front (and $3 dropped),
 # without the subshell a command substitution would fork.
 _cmux_path_prepend_unique_directory_into_reply() {
@@ -558,6 +559,7 @@ _cmux_install_cli_wrapper() {
 }
 _cmux_install_cli_wrapper claude _CMUX_CLAUDE_WRAPPER cmux-claude-wrapper
 _cmux_install_cli_wrapper grok _CMUX_GROK_WRAPPER
+_cmux_install_cli_wrapper muse _CMUX_MUSE_WRAPPER
 
 # Throttle heavy work to avoid prompt latency.
 _CMUX_PWD_LAST_PWD="${_CMUX_PWD_LAST_PWD:-}"
