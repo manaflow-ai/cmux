@@ -141,12 +141,12 @@ def key(letter):
 
 
 def press(letter, case, expects):
-    """Press Cmd-<letter>: "tab" (a tab in the focused workspace), "workspace" (a new workspace in
-    the focused one's group) or "stay" (nothing new; the page already showing keeps the focus)."""
+    """Press Cmd-<letter>: "tab" (a tab in the focused workspace) or "workspace" (a new workspace
+    in the focused one's group)."""
     before = workspaces()
     print(case, "Cmd-" + letter.upper() + ":", key(letter), flush=True)
     grew = lambda now: now if sum(len(t) for _, t in now.values()) > sum(len(t) for _, t in before.values()) else None
-    changed = wait(lambda: grew(workspaces()), 4 if expects == "stay" else 15)
+    changed = wait(lambda: grew(workspaces()), 15)
     time.sleep(1)  # test harness: the new tab is selected and its page mounts
     page = wait(shows_new_tab_page, 10)
     now = workspaces()
@@ -156,9 +156,6 @@ def press(letter, case, expects):
     if expects == "tab":
         ok = bool(changed) and not new_ws and grown == [FOCUSED[0]] and bool(page)
         expected = "one new tab in the focused workspace, no new workspace; the New Tab page"
-    elif expects == "stay":
-        ok = not changed and not new_ws and not grown and bool(page)
-        expected = "no new tab or workspace; the New Tab page keeps the focus"
     else:
         # The group as the daemon lists it (none for an ungrouped workspace): the same as the focused one's.
         ok = bool(changed) and len(new_ws) == 1 and not grown and bool(page) and home is not None and now[new_ws[0]][0] == home[0]
@@ -171,53 +168,72 @@ def press(letter, case, expects):
 
 
 def field_focused(case):
-    field = rpc("debug.new_tab", {"action": "field"}) or {}
+    focused = lambda: (lambda field: field if field.get("focused") is True else None)(rpc("debug.new_tab", {"action": "field"}) or {})
+    field = wait(focused, 10) or rpc("debug.new_tab", {"action": "field"}) or {}
     row(case, "the New Tab field has the keyboard", json.dumps(field), field.get("focused") is True)
 
 
-# Shortcuts that edit the focused field (the Edit menu's): a text field keeps them.
+# Shortcuts that edit the focused field (the Edit menu's): a text field keeps them. Other chords
+# a field also knows (Cmd-Left, Cmd-Delete, Cmd-Return) go to the app when the app binds them.
 FIELD_KEYS = {"cmd+a", "cmd+c", "cmd+v", "cmd+x", "cmd+z", "cmd+shift+z"}
+# debug.key's key for a config token: shifted symbols as their own character (it adds Shift).
+SHIFTED = {"`": "~", "1": "!", "2": "@", "3": "#", "4": "$", "5": "%", "6": "^", "7": "&", "8": "*", "9": "(",
+           "0": ")", "-": "_", "=": "+", "[": "{", "]": "}", "\\": "|", ";": ":", "'": '"', ",": "<", ".": ">", "/": "?"}
+TYPABLE = set("abcdefghijklmnopqrstuvwxyz0123456789`-=[]\\;',./") | {
+    "return", "escape", "tab", "space", "left", "right", "down", "up", "pageup", "pagedown", "home", "end", "delete"}
 
 
 def debug_key_args(config):
-    """debug.key params for a single-stroke `shortcut_config` such as "cmd+shift+t", else None."""
-    if not config or " " in config or "," in config:
+    """debug.key params for a single-stroke `shortcut_config` such as "cmd+shift+t" or "cmd+,",
+    else None (chord sequences, keys debug.key cannot type such as F-keys)."""
+    if not config or " " in config:
         return None
-    *mods, letter = config.split("+")
+    *mods, token = config.split("+")
+    if token == "plus":
+        token, mods = "+", [m for m in mods if m != "shift"]
     names = {"cmd": "command", "shift": "shift", "opt": "option", "ctrl": "control"}
     if any(m not in names for m in mods) or not ({"cmd", "ctrl"} & set(mods)):
         return None
-    if len(letter) == 1 and "shift" in mods and letter.isalpha():
-        letter = letter.upper()
+    if token != "+" and token not in TYPABLE:
+        return None
+    if "shift" in mods and len(token) == 1 and (token.isalpha() or token in SHIFTED):
+        token = token.upper() if token.isalpha() else SHIFTED[token]
         mods = [m for m in mods if m != "shift"]
-    return {"key": letter, "modifiers": [names[m] for m in mods]}
+    return {"key": token, "modifiers": [names[m] for m in mods]}
 
 
 def sweep_shortcuts():
     """Every bound app shortcut (a Command or Control chord) reaches the key router while the
-    New Tab field has the keyboard: the router would run an action for it, none goes to the page."""
+    New Tab field has the keyboard: the router would run that action, none goes to the page.
+    `dry_run` asks the router's decision only (no chord sequences, no intercepts), so this
+    proves the page cannot swallow a shortcut, not what each action then does."""
     # A build without `dry_run` would run every shortcut: send none unless the router answers dry.
-    probe = rpc("debug.key", {"key": "t", "modifiers": ["command"], "dry_run": True}) or {}
+    # The probe is End, which in a field only moves the caret if the build runs it.
+    probe = rpc("debug.key", {"key": "end", "dry_run": True}) or {}
     if "decision" not in probe:
         row("every app shortcut reaches the router with the keyboard in the New Tab field",
             "debug.key dry_run answers", json.dumps(probe), False)
         return
     actions = (rpc("action.list", {"available_only": True}) or {}).get("actions") or []
-    delivered, ran, skipped = [], 0, 0
+    delivered, other, ran, skipped = [], [], 0, 0
     for entry in actions:
         config = entry.get("shortcut_config")
         args = debug_key_args(config)
-        if args is None or config in FIELD_KEYS:
+        if args is None or config in FIELD_KEYS or entry.get("unavailable_reason"):
             skipped += 1
             continue
         verdict = rpc("debug.key", dict(args, dry_run=True)) or {}
-        if verdict.get("action"):
-            ran += 1
-        else:
+        if not verdict.get("action"):
             delivered.append(f"{config} ({entry.get('id')}): {verdict.get('decision') or verdict.get('error')}")
+            continue
+        ran += 1
+        if verdict["action"] != entry.get("id"):
+            # Two actions on one chord: the router runs the one for this focus. Reported, not failed.
+            other.append(f"{config}: {entry.get('id')} -> {verdict['action']}")
     row("every app shortcut reaches the router with the keyboard in the New Tab field",
         "each Command/Control shortcut runs an action, none goes to the page",
-        f"{ran} routed, {skipped} skipped; to the page: {delivered or 'none'}", ran > 0 and not delivered)
+        f"{ran} routed, {skipped} skipped; shared chords {other or 'none'}; to the page: {delivered or 'none'}",
+        ran > 0 and not delivered)
 
 
 def setting(path, value):

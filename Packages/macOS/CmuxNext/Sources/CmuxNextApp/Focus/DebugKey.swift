@@ -81,6 +81,7 @@ enum DebugKey {
         else { return .object(["error": .string("bad key")]) }
         // `dry_run`: what the key router would do with this key in the shell window's focus, run
         // nothing (shortcut sweeps: every app shortcut routes while a page has the keyboard).
+        // Only the router's decision: no chord sequences, intercepts or focus-kind checks.
         if params["dry_run"]?.boolValue == true {
             guard let controller, window === shell else { return .object(["error": .string("dry_run needs the shell window")]) }
             let router = services.keyRouter
