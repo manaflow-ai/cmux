@@ -12,6 +12,7 @@ mod mux_recovery;
 mod projection_actions;
 mod provider_switch;
 mod provider_workspaces;
+mod program_status_tabs;
 mod pty_mouse;
 mod remote_pointer;
 mod selection_clicks;
