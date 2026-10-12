@@ -144,6 +144,22 @@ final class FlowTests: XCTestCase {
         snap(app, "32-terminal-output")
     }
 
+    /// Drawer: tap open, tap-dim close, drag open, drag closed, for frame analysis.
+    func testDrawerAnimation() throws {
+        let app = launchSignedIn()
+        pause(3)
+        app.buttons["shell.menu"].tap()
+        pause(1.2)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
+        pause(1.2)
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.55))
+        start.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.56)), withVelocity: .default, thenHoldForDuration: 0)
+        pause(1.2)
+        let open = app.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5))
+        open.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5)), withVelocity: .fast, thenHoldForDuration: 0)
+        pause(1.5)
+    }
+
     /// Forces TURN relay and checks the Mac connects through it.
     func testRelayConnection() throws {
         let app = launchSignedIn(arguments: ["-cnm-relay-only"])
