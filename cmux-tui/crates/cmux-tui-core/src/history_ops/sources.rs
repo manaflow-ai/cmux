@@ -64,15 +64,15 @@ pub(super) fn closed_entry(item: &Value) -> Option<HistoryEntry> {
 /// Every tab the item would recreate: every member's, else the top level's
 /// (a v1 item), as the Swift `ClosedItem.tabs`.
 fn closed_tabs(item: &Value) -> Vec<&Value> {
-    let tabs_of = |screens: Option<&Value>| {
+    fn tabs_of(screens: Option<&Value>) -> Vec<&Value> {
         screens
             .and_then(Value::as_array)
             .into_iter()
             .flatten()
             .filter_map(|screen| screen.get("tabs").and_then(Value::as_array))
             .flatten()
-            .collect::<Vec<_>>()
-    };
+            .collect()
+    }
     match item.get("members").and_then(Value::as_array).filter(|members| !members.is_empty()) {
         Some(members) => members.iter().flat_map(|member| tabs_of(member.get("screens"))).collect(),
         None => tabs_of(item.get("screens")),
