@@ -12,15 +12,16 @@ final class PaletteSearchField: NSTextField {
 /// label and identifier set on it: VoiceOver read an unnamed field once a query was typed
 /// (cx-9ce.44). This cell answers both.
 final class PaletteSearchFieldCell: NSTextFieldCell {
-    override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
+    nonisolated override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
         super.accessibilityAttributeNames() + [.description, .identifier]
     }
 
-    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
-        switch attribute {
-        case .description: return accessibilityLabel()
-        case .identifier: return accessibilityIdentifier()
-        default: return super.accessibilityAttributeValue(attribute)
+    nonisolated override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        guard attribute == .description || attribute == .identifier, Thread.isMainThread else {
+            return super.accessibilityAttributeValue(attribute)
+        }
+        return MainActor.assumeIsolated { // main-proof: checked Thread.isMainThread above
+            attribute == .description ? accessibilityLabel() : accessibilityIdentifier()
         }
     }
 }
