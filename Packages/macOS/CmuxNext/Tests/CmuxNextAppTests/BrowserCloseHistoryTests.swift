@@ -66,7 +66,9 @@ struct BrowserCloseHistoryTests {
     /// surface on its machine.
     @Test func theCloseCommandSavesThePageOfItsSurface() async throws {
         let daemon = Daemon()
-        let (_, page, tab) = try await Self.tracked(daemon)
+        let (service, page, tab) = try await Self.tracked(daemon)
+        // The hook holds the service weakly, as the app's cache owns it.
+        defer { withExtendedLifetime(service) {} }
         page.load(Self.b)
         await DaemonService.prepareClose("other-machine", [tab.surface])
         #expect(daemon.stored.isEmpty, "a close on another machine saved this page")
