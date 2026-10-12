@@ -56,6 +56,7 @@ impl Hub {
                         *slot = None;
                     }
                     self.cancel_pending_permissions(&session);
+                    self.cancel_pending_secrets(&session);
                     self.revoke_permission_chat(&session);
                     // A new agent holds no grant and no undeclared mode.
                     session.floor.harness_grant.store(false, Ordering::SeqCst);
@@ -537,7 +538,10 @@ impl Hub {
         self.append(session, "mux", "permission_decision", decision);
         {
             let state = session.permissions.lock().unwrap();
-            if state.pending.is_empty() && session.status() == SessionStatus::Waiting {
+            if state.pending.is_empty()
+                && session.status() == SessionStatus::Waiting
+                && !self.secrets.waiting_in(&session.id)
+            {
                 let next = if session.turn().is_some() { SessionStatus::Running } else { prev };
                 self.set_status(session, next);
             }

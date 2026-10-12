@@ -232,6 +232,10 @@ pub enum Command {
     /// agent session (agent_tools.rs registers it; not for people).
     #[command(hide = true)]
     CuaMcp,
+    /// The agent's request_secret and run_with_secret tools: an MCP stdio
+    /// server for one agent session (agent_tools.rs registers it; not for people).
+    #[command(hide = true)]
+    SecretMcp,
     // Old spellings, kept working but hidden from help.
     #[command(hide = true)]
     Tail {

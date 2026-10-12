@@ -117,6 +117,7 @@ impl Hub {
             json!({"reason": reason, "turnId": turn.turn_id}),
         );
         self.cancel_pending_permissions(session);
+        self.cancel_pending_secrets(session);
         if turn.turn_seq == 0 {
             return;
         }
