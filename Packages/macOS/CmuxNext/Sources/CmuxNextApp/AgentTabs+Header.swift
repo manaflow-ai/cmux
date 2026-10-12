@@ -59,7 +59,8 @@ extension AgentTabStore {
     /// Returns whether the page was started.
     private func openNewTabColumn(beside provisional: String) -> Bool {
         let chat = resolve(provisional)
-        guard let newTab = firstPageNewTab?(lookup(chat)?.store.tab(id: chat)?.cwd) else { return false }
+        // The page opens on the chat's machine: that machine's folders, never this Mac's (cx-k21v).
+        guard let newTab = firstPageNewTab?(lookup(chat)?.store.tab(id: chat)?.cwd, chat) else { return false }
         return openBeside(provisional) { pane, daemon in try self.open(in: pane, of: daemon, newTab: newTab) }
     }
 
