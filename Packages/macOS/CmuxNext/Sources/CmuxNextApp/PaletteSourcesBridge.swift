@@ -13,6 +13,11 @@ enum PaletteSourcesBridge {
             let assigned = services?.settings?.snapshot.paletteScopePrefixes.assigned ?? [:]
             return Dictionary(uniqueKeysWithValues: assigned.map { (PaletteScopeID($0.key), $0.value) })
         }
+        // cmux.json `palette.aliases` and `palette.pins`, read on every open.
+        sources.rankSettings = { [weak services] in
+            let setting = PaletteRankingSetting(services?.settings?.fileRoot ?? .object([:]))
+            return PaletteRankSettings(aliases: setting.aliases, pins: setting.pins)
+        }
         // Theme rows draw the theme's swatch strip (R98), from the catalog's
         // cache (read off the main thread at launch).
         sources.argumentSwatches = { [weak services] source, value in

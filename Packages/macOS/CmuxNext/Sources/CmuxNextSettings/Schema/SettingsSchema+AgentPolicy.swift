@@ -62,6 +62,7 @@ extension SettingsSchema {
         "palette.scopes.commands.prefix",
         "palette.scopes.settings.prefix",
         "palette.scopes.scopes.prefix",
+        "palette.aliases", "palette.pins",
         "tasks.layout",
         "layout.defaultColumnWidth",
         "layout.centerFocusedColumn",
