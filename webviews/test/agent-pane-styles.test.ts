@@ -57,4 +57,14 @@ describe.skipIf(!built)("agent pane page", () => {
       fs.rmSync(work, { recursive: true, force: true });
     }
   });
+
+  // A sheet's own @import never loads in the page: mid-stylesheet the browser drops it, and the
+  // page's CSP loads no style file. changes.css imported git.css that way, so the changes view's
+  // Commit, Push and commit form shipped unstyled.
+  test("inlines what its sheets @import, and carries no @import of its own", () => {
+    const style = normalize(fs.readFileSync(page, "utf8"));
+    expect(style.match(/^@import .*$/gm) ?? []).toEqual([]);
+    const git = normalize(fs.readFileSync(path.join(webviews, "src/agent-session/acpmux/changes/git.css"), "utf8"));
+    expect(style.includes(git)).toBe(true);
+  });
 });
