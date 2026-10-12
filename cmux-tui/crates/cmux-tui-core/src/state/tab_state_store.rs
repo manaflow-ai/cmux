@@ -112,6 +112,10 @@ pub(crate) fn update_tab_state(
             .execute("UPDATE tab_state SET zoom = ?2 WHERE tab_id = ?1", params![tab_id, zoom])?;
     }
     if let Some(icon) = &update.icon {
+        // Checked in the transaction that writes it, so no blob sweep runs in between.
+        if let Some(icon) = icon {
+            crate::workspace_registry::personal_store::require_icon_asset(transaction, icon)?;
+        }
         transaction
             .execute("UPDATE tab_state SET icon = ?2 WHERE tab_id = ?1", params![tab_id, icon])?;
     }
