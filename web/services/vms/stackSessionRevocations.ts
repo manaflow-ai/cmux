@@ -4,11 +4,12 @@ import { stackApiBaseURL } from "../auth/stackApiBaseURL";
 /**
  * Revoking a Cloud access grant also revokes the Stack sessions that enrolled
  * it. The grant and its tunnels are cut in our database first, so the Mac
- * loses Cloud network access no matter what Stack answers. The Stack sessions
+ * loses Cloud network access no matter what Stack answers, and the sessions
+ * are queued in `stack_session_revocations` in that same transaction. They
  * are revoked with the server key (`DELETE /auth/sessions/{id}`), which needs
- * no user token, so a revocation Stack throttled or failed can be retried
- * later by the cron. Every session is recorded before the first attempt; the
- * route reports `pending` until Stack has accepted every one.
+ * no user token, so a revocation Stack throttled or failed is retried by the
+ * vm-reconcile cron. A row is deleted when Stack accepts; after the attempt
+ * cap or 24 hours it is marked given up and reported.
  */
 export type StackSessionRevocationRow = {
   readonly stackSessionId: string;
@@ -16,92 +17,126 @@ export type StackSessionRevocationRow = {
   readonly attempts: number;
 };
 
+export type StackSessionRevocationFailure = {
+  readonly attempts: number;
+  /** True when this failure made the row terminal (cap or age reached). */
+  readonly gaveUp: boolean;
+};
+
 export type StackSessionRevocationStore = {
-  /** Record sessions to revoke. An already recorded session is left as is. */
-  enqueue(input: {
-    readonly userId: string;
-    readonly accessGrantId: string | null;
-    readonly stackSessionIds: readonly string[];
-  }): Promise<void>;
-  /** Rows not yet revoked whose next attempt is due, oldest first. */
-  listDue(now: Date, limit: number): Promise<readonly StackSessionRevocationRow[]>;
-  /** Rows not yet revoked among these session ids. */
+  /**
+   * Claim due rows for one cron run: not given up, due, and not held by
+   * another run's lease. Concurrent runs claim disjoint rows.
+   */
+  claimDue(now: Date, limit: number, leaseUntil: Date): Promise<readonly StackSessionRevocationRow[]>;
+  /** Open (not given up) rows among these session ids, for the request's own first attempt. */
   listOpen(stackSessionIds: readonly string[]): Promise<readonly StackSessionRevocationRow[]>;
-  markRevoked(stackSessionId: string, at: Date): Promise<void>;
-  markFailed(stackSessionId: string, input: { readonly attempts: number; readonly nextAttemptAt: Date; readonly error: string }): Promise<void>;
+  /** Stack accepted: the row is done and deleted. */
+  markRevoked(stackSessionId: string): Promise<void>;
+  /** Count a failed attempt, schedule the next one, and stop at the cap or age limit. */
+  recordFailure(stackSessionId: string, input: {
+    readonly now: Date;
+    readonly error: string;
+    readonly policy: StackSessionRevocationRetryPolicy;
+  }): Promise<StackSessionRevocationFailure | null>;
 };
 
 /** Revoke one session at Stack. Resolves when Stack no longer has it; throws otherwise. */
 export type StackSessionRevoker = (stackSessionId: string) => Promise<void>;
 
-export type SessionRevocationOutcome = "revoked" | "pending";
+export type StackSessionRevocationRetryPolicy = {
+  readonly baseDelayMs: number;
+  readonly maxDelayMs: number;
+  readonly maxAttempts: number;
+  readonly maxAgeMs: number;
+};
 
-const RETRY_BASE_MS = 60_000;
-const RETRY_MAX_MS = 60 * 60_000;
-
-/** Bounded exponential backoff: 1, 2, 4 ... minutes, never more than an hour. */
-export function nextRevocationAttemptAt(now: Date, attempts: number): Date {
-  const delay = Math.min(RETRY_BASE_MS * 2 ** Math.max(0, attempts - 1), RETRY_MAX_MS);
-  return new Date(now.getTime() + delay);
-}
+/** 1, 2, 4 ... minutes, capped at one hour; give up after 20 attempts or 24 hours. */
+export const STACK_SESSION_REVOCATION_POLICY: StackSessionRevocationRetryPolicy = {
+  baseDelayMs: 60_000,
+  maxDelayMs: 60 * 60_000,
+  maxAttempts: 20,
+  maxAgeMs: 24 * 60 * 60_000,
+};
 
 /**
- * Record, then try once now. Answers `pending` when any session is still
- * waiting for Stack, so the caller never reports success it does not have.
+ * Queued rows become due for the cron this long after the grant revocation,
+ * so the request's own first attempt and a cron run do not overlap. If the
+ * request dies before attempting, the cron picks the rows up then.
+ */
+export const FIRST_CRON_RETRY_DELAY_MS = 2 * 60_000;
+
+/** How long one cron run holds the rows it claimed. Longer than a run's attempts. */
+export const CRON_CLAIM_LEASE_MS = 2 * 60_000;
+
+/** Rows per cron run; attempts run concurrently, each bounded by a 10 s timeout. */
+export const CRON_CLAIM_LIMIT = 20;
+
+export type SessionRevocationOutcome = "revoked" | "pending";
+
+export type GiveUpReporter = (row: StackSessionRevocationRow & { readonly attempts: number; readonly error: string }) => void;
+
+/**
+ * The request's first attempt at the sessions its grant revocation queued.
+ * Answers `pending` while any session is still waiting for Stack, so the
+ * caller never reports success it does not have.
  */
 export async function revokeAccessGrantStackSessions(input: {
-  readonly userId: string;
-  readonly accessGrantId: string | null;
   readonly stackSessionIds: readonly string[];
   readonly store: StackSessionRevocationStore;
   readonly revoke: StackSessionRevoker;
+  readonly onGiveUp?: GiveUpReporter;
   readonly now?: () => Date;
 }): Promise<SessionRevocationOutcome> {
   if (input.stackSessionIds.length === 0) return "revoked";
-  await input.store.enqueue({
-    userId: input.userId,
-    accessGrantId: input.accessGrantId,
-    stackSessionIds: input.stackSessionIds,
-  });
   const open = await input.store.listOpen(input.stackSessionIds);
-  const results = await Promise.all(open.map((row) => attemptRevocation(row, input.store, input.revoke, input.now)));
+  const results = await Promise.all(open.map((row) =>
+    attemptRevocation(row, input.store, input.revoke, input.now ?? (() => new Date()), input.onGiveUp)));
   return results.every((revoked) => revoked) ? "revoked" : "pending";
 }
 
-/** The cron step: retry due revocations, bounded per run. */
+/** The cron step: claim due revocations and retry them. */
 export async function retryPendingStackSessionRevocations(input: {
   readonly store: StackSessionRevocationStore;
   readonly revoke: StackSessionRevoker;
+  readonly onGiveUp?: GiveUpReporter;
   readonly now?: () => Date;
   readonly limit?: number;
 }): Promise<{ readonly attempted: number; readonly revoked: number; readonly pending: number }> {
   const now = input.now ?? (() => new Date());
-  const due = await input.store.listDue(now(), input.limit ?? 100);
-  let revoked = 0;
-  for (const row of due) {
-    if (await attemptRevocation(row, input.store, input.revoke, now)) revoked += 1;
-  }
-  return { attempted: due.length, revoked, pending: due.length - revoked };
+  const startedAt = now();
+  const claimed = await input.store.claimDue(
+    startedAt,
+    input.limit ?? CRON_CLAIM_LIMIT,
+    new Date(startedAt.getTime() + CRON_CLAIM_LEASE_MS),
+  );
+  const results = await Promise.all(claimed.map((row) =>
+    attemptRevocation(row, input.store, input.revoke, now, input.onGiveUp)));
+  const revoked = results.filter(Boolean).length;
+  return { attempted: claimed.length, revoked, pending: claimed.length - revoked };
 }
 
 async function attemptRevocation(
   row: StackSessionRevocationRow,
   store: StackSessionRevocationStore,
   revoke: StackSessionRevoker,
-  now: () => Date = () => new Date(),
+  now: () => Date,
+  onGiveUp: GiveUpReporter | undefined,
 ): Promise<boolean> {
   try {
     await revoke(row.stackSessionId);
   } catch (error) {
-    const attempts = row.attempts + 1;
-    await store.markFailed(row.stackSessionId, {
-      attempts,
-      nextAttemptAt: nextRevocationAttemptAt(now(), attempts),
-      error: revocationErrorSummary(error),
+    const summary = revocationErrorSummary(error);
+    const failure = await store.recordFailure(row.stackSessionId, {
+      now: now(),
+      error: summary,
+      policy: STACK_SESSION_REVOCATION_POLICY,
     });
+    // Reported once, on the failure that made the row terminal.
+    if (failure?.gaveUp) onGiveUp?.({ ...row, attempts: failure.attempts, error: summary });
     return false;
   }
-  await store.markRevoked(row.stackSessionId, now());
+  await store.markRevoked(row.stackSessionId);
   return true;
 }
 
@@ -111,10 +146,19 @@ function revocationErrorSummary(error: unknown): string {
   return typeof status === "number" ? `${name}: HTTP ${status}` : name;
 }
 
-/** Stack's known error for a session that no longer exists: revoked already. */
-const GONE_SESSION_ERRORS = new Set(["SESSION_NOT_FOUND", "REFRESH_TOKEN_NOT_FOUND_OR_EXPIRED"]);
+/**
+ * Stack's known error for a session (refresh token) that no longer exists or
+ * expired: there is nothing left to revoke. (The SDK's known-error list has no
+ * separate session-not-found code.)
+ */
+const GONE_SESSION_ERRORS = new Set(["REFRESH_TOKEN_NOT_FOUND_OR_EXPIRED"]);
 
-/** `DELETE /auth/sessions/{id}` with the server key, the SDK's `ServerUser.revokeSession`. */
+/**
+ * The exact request the Stack SDK sends for `ServerUser.revokeSession(id)`
+ * (`HexclaveServerInterface.deleteServerSession`): `DELETE
+ * /api/v1/auth/sessions/{id}` with server access headers and no body or
+ * `user_id`; the session id alone names the session.
+ */
 export function stackServerSessionRevoker(fetchImpl: typeof fetch = fetch): StackSessionRevoker {
   return async (stackSessionId) => {
     const projectId = env.NEXT_PUBLIC_STACK_PROJECT_ID;

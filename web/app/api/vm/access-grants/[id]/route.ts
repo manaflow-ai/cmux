@@ -10,6 +10,7 @@ import {
   revokeVmAccessGrant,
 } from "@/services/vms/workflows";
 import {
+  FIRST_CRON_RETRY_DELAY_MS,
   revokeAccessGrantStackSessions,
   stackServerSessionRevoker,
 } from "@/services/vms/stackSessionRevocations";
@@ -76,17 +77,17 @@ export async function DELETE(
       const revoke = await runVmRoute(revokeVmAccessGrant({
         userId: user.id,
         accessGrantId: id,
+        revokeStackSessions: { firstRetryAt: new Date(Date.now() + FIRST_CRON_RETRY_DELAY_MS) },
       }), { request });
       if (!revoke.ok) return revoke.response;
       const result = revoke.value;
       if (!result.revoked) return jsonResponse({ revoked: false });
-      // The grant and its tunnels are already cut above. The Stack sessions
-      // that enrolled it are recorded before the first attempt, so a throttled
-      // or failed revocation is retried by the vm-reconcile cron, and the
-      // answer says `pending` until Stack has accepted every one.
+      // The grant and its tunnels are already cut above, and the Stack
+      // sessions that enrolled it were queued in the same transaction as the
+      // grant revocation. This is the first attempt; a throttled or failed
+      // one is retried by the vm-reconcile cron, and the answer says
+      // `pending` until Stack has accepted every session.
       const sessionRevocation = await revokeAccessGrantStackSessions({
-        userId: user.id,
-        accessGrantId: result.accessGrantId,
         stackSessionIds: result.stackSessionIds,
         store: databaseStackSessionRevocationStore(),
         revoke: stackServerSessionRevoker(),

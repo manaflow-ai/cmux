@@ -13,6 +13,9 @@ import {
   runVmWorkflow,
 } from "../../../../services/vms/workflows";
 
+// Reconcile, tunnel reap and up to CRON_CLAIM_LIMIT concurrent Stack session
+// revocations (10 s timeout each) fit well inside this.
+export const maxDuration = 300;
 
 export async function GET(request: Request): Promise<Response> {
   if (!authorizeCronRequest(request).ok) {
@@ -45,6 +48,13 @@ async function retryStackSessionRevocations() {
     return await retryPendingStackSessionRevocations({
       store: databaseStackSessionRevocationStore(),
       revoke: stackServerSessionRevoker(),
+      // Reported once per row, when it gives up; Sentry groups by stage.
+      onGiveUp: (row) => reportCronFailure(
+        "vm-reconcile",
+        new Error("Stack session revocation gave up"),
+        { attempts: row.attempts, error: row.error },
+        { stage: "stack_session_revocation_gave_up", level: "error" },
+      ),
     });
   } catch (err) {
     reportCronFailure("vm-reconcile", err, {}, { stage: "stack_session_revocation", level: "warning" });

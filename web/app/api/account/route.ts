@@ -1,4 +1,5 @@
 import { and, asc, eq, inArray, isNotNull, isNull, lt, not, or, sql } from "drizzle-orm";
+import { deleteStackSessionRevocationsForUser } from "../../../services/vms/stackSessionRevocationStore";
 import * as Effect from "effect/Effect";
 
 import { getStackServerApp, isStackConfigured } from "../../lib/stack";
@@ -1870,6 +1871,8 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
 
     await tx.delete(deviceTokens).where(eq(deviceTokens.userId, userId));
     await tx.delete(notificationSendEvents).where(eq(notificationSendEvents.userId, userId));
+    // Stack deletes the user and every session; nothing is left to revoke.
+    await deleteStackSessionRevocationsForUser(tx, userId);
     await tx.delete(irohRelayPreferences).where(eq(irohRelayPreferences.accountId, userId));
     await tx.delete(irohRegistrationChallenges).where(eq(irohRegistrationChallenges.userId, userId));
     await tx.delete(irohEndpointBindings).where(eq(irohEndpointBindings.userId, userId));
