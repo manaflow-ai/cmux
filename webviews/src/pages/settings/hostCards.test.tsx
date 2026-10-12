@@ -49,6 +49,16 @@ test("Change Background… shows the picker on Appearance: resting previews, lea
   page.unmount();
 });
 
+test("Shuffle Daily is a tile that keeps appearance.background daily", async () => {
+  const page = await renderPage({ path: "/settings/appearance" });
+  const tile = page.container.querySelector<HTMLButtonElement>('[data-card="backdrop"] [aria-label="Shuffle Daily"]')!;
+  expect(tile).not.toBeNull();
+  await act(async () => tile.click());
+  await settle();
+  expect(runs(page, "cmux.settings.set").at(-1)).toMatchObject({ key: "appearance.background", value: "daily" });
+  page.unmount();
+});
+
 test("sweeping the pointer across the picker previews nothing", async () => {
   const page = await renderPage({ path: "/settings/appearance" });
   const tile = page.container.querySelector<HTMLButtonElement>('[aria-label="The Starry Night"]')!;

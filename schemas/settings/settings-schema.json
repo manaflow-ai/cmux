@@ -7199,6 +7199,7 @@
     {
       "accepts" : [
         "none",
+        "daily",
         "desktop",
         "david-death-of-marat",
         "goya-saturn",
@@ -7386,6 +7387,13 @@
             "text" : "None"
           },
           "value" : "none"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.shuffleDaily",
+            "text" : "Shuffle Daily"
+          },
+          "value" : "daily"
         },
         {
           "title" : {
@@ -22396,7 +22404,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "5269e4eb3bc1af7a643a7960017016c5439d1d26a97533402874b1860cce41ea",
+  "schema_hash" : "28770087c7b17e563d46a22070ee16515e4dda32773be4b7350e9473d3381554",
   "sections" : [
     {
       "id" : "general",

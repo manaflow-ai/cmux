@@ -1330,6 +1330,7 @@
 			<key>pfm_range_list</key>
 			<array>
 				<string>none</string>
+				<string>daily</string>
 				<string>david-death-of-marat</string>
 				<string>goya-saturn</string>
 				<string>velde-small-ship-storm</string>
