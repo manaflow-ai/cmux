@@ -228,9 +228,9 @@ public final class AgentPaneModel {
             AgentPaneLaunchTimings.shared.mark(newTab != nil ? "agent_pane.newtab_painted" : "agent_pane.painted")
             markPainted()
             return AgentPaneReply.success()
-        case .openTab(let kind, let text, let cwd, let search, let run):
+        case .openTab(let request):
             guard newTab != nil || allowsTabConversion, let onOpenTab else { return Self.unsupported("tab.open") }
-            onOpenTab(AgentPaneOpenTab(kind: kind, text: text, cwd: cwd, search: search, run: run))
+            onOpenTab(request)
             return AgentPaneReply.success()
         case .typeAhead(let text):
             guard newTab != nil || allowsTabConversion, let onTypeAhead else { return Self.unsupported("tab.typeAhead") }
