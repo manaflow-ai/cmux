@@ -25,14 +25,8 @@ final class AgentPaneWKWebView: WKWebView {
     }
 
     #if DEBUG
-    /// Left mouse downs and ups this view received (`debug.agent_pane click` reports them).
+    /// Left mouse downs this view received (`debug.agent_pane click` checks that its click arrived).
     var debugMouseDowns = 0
-    var debugMouseUps = 0
-
-    override func mouseUp(with event: NSEvent) {
-        debugMouseUps += 1
-        super.mouseUp(with: event)
-    }
     #endif
 
     override func rightMouseDown(with event: NSEvent) {
