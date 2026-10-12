@@ -60,7 +60,6 @@ afterAll(() => {
   }
 });
 
-
 type Decision = "accepted" | "rejected" | "requested";
 
 // Two files the turn changed: a.ts in two places far apart, b.ts in one.
@@ -85,13 +84,21 @@ const files = toolFiles([
     kind: "edit",
     title: "Edit b.ts",
     status: "completed",
-    diffs: [{ path: "/repo/src/b.ts", oldText: lines(5), newText: lines(5, (line) => (line === 2 ? "changed two" : undefined)) }],
+    diffs: [
+      {
+        path: "/repo/src/b.ts",
+        oldText: lines(5),
+        newText: lines(5, (line) => (line === 2 ? "changed two" : undefined)),
+      },
+    ],
   },
 ] as never);
 
 const settle = () => act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
 const menuItem = (label: string) =>
-  [...dom.window.document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent === label);
+  [...dom.window.document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+    (item) => item.textContent === label,
+  );
 
 test("a file's menu rejects or accepts every change in it, and the rejected ones go back as one revert", async () => {
   const sent: { keys: string[]; prompt: string }[] = [];
@@ -123,7 +130,9 @@ test("a file's menu rejects or accepts every change in it, and the rejected ones
       .flatMap((block) => [...block.querySelectorAll(".acpmux-hunk-actions")])
       .map((actions) => actions.querySelector("output")?.textContent ?? "undecided");
   const fromMenu = async (name: string, label: string) => {
-    await act(async () => container.querySelector<HTMLButtonElement>(`[aria-label="More actions for ${name}"]`)!.click());
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>(`[aria-label="More actions for ${name}"]`)!.click(),
+    );
     await settle();
     await act(async () => menuItem(label)!.click());
     await settle();
