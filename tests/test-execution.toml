@@ -1183,3 +1183,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_frame_pacing_bench_files.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_e2e_runner_pool_auto.py"
+lane = "linux-guard"
