@@ -56,7 +56,7 @@ fn a_chat_in_another_workspaces_agent_home_starts_there() {
         &[("HOME", home.to_str().unwrap()), ("XDG_DATA_HOME", data.to_str().unwrap())],
     );
     let listed = json_socket_request(&server.socket, json!({"id": 1, "cmd": "list-workspaces"}));
-    let workspace = listed["workspaces"][0]["id"].as_str().unwrap().to_owned();
+    let workspace = listed["workspaces"][0]["resource_id"].as_str().unwrap().to_owned();
 
     let reply = v2(
         &server,
@@ -68,6 +68,18 @@ fn a_chat_in_another_workspaces_agent_home_starts_there() {
     assert_eq!(start["cwd"], old.to_str().unwrap(), "{reply}");
     assert_eq!(start["agent_home"], old.to_str().unwrap(), "{reply}");
     assert!(start.get("skipped").is_none_or(Value::is_null), "{reply}");
+
+    // The workspace's own agent-home folder is still skipped, so its chosen or tab folder wins.
+    // The store names it (by the workspace's durable key) when asked with no folder.
+    let reply = v2(&server, "workspace.agent_start.get", json!({"workspace": workspace}));
+    let own = PathBuf::from(answer(&reply)["agent_home"].as_str().unwrap());
+    fs::create_dir_all(&own).unwrap();
+    let reply = v2(
+        &server,
+        "workspace.agent_start.get",
+        json!({"workspace": workspace, "cwd": own.to_str().unwrap()}),
+    );
+    assert_eq!(answer(&reply)["skipped"]["reason"], "agent_home", "{reply}");
 
     // A folder inside an agent-home folder, or one with no safe id, is still no start folder.
     let inner = old.join("sub");
