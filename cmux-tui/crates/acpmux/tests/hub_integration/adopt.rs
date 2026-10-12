@@ -120,7 +120,7 @@ fn a_recent_write_is_live_only_while_a_harness_runs() {
     let proc = |pid, ppid, command: &str| Proc { pid, ppid, command: command.to_owned() };
     let shell = proc(10, 1, "/bin/zsh -l");
     let recent = |procs: &[Proc]| {
-        matches!(live_use(&id, &transcript, procs, now), Some(LiveUse::RecentWrite { .. }))
+        matches!(live_use(&id, &transcript, None, procs, now), Some(LiveUse::RecentWrite { .. }))
     };
     assert!(!recent(std::slice::from_ref(&shell)));
     assert!(recent(&[shell.clone(), proc(11, 10, "/opt/homebrew/bin/codex")]));

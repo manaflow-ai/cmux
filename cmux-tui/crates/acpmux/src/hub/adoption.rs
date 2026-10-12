@@ -97,6 +97,7 @@ impl Hub {
                     crate::adopt_live::live_use(
                         &id,
                         &found.file,
+                        found.cwd.as_deref(),
                         &procs,
                         std::time::SystemTime::now(),
                     )
@@ -246,6 +247,20 @@ impl Hub {
         if turns.is_empty() {
             return;
         }
+        // The chat's title and counts come from its past, as live turns set them (turns.rs).
+        {
+            let mut m = session.meta.lock().unwrap();
+            if m.title.is_none()
+                && let Some(first) = turns[0].prompt.lines().find(|l| !l.trim().is_empty())
+            {
+                m.title = Some(short_text(first.trim(), 80));
+            }
+            if let Some(last) = turns.last() {
+                m.last_prompt = Some(short_text(&last.prompt, 200));
+            }
+            m.turn_count += turns.len() as u64;
+        }
+        self.save_meta(session);
         let agent_sid = session.meta().agent_session_id.unwrap_or_default();
         for (i, turn) in turns.iter().enumerate() {
             let turn_id = format!("adopted-{i}");
