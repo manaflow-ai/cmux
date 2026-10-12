@@ -64,7 +64,7 @@ final class PaneToolbar {
     }
 
     private static func state(_ pane: PaneController) -> State {
-        let hidden = pane.services.settings.map { PaneToolbarSetting.hidden($0.fileRoot) } ?? []
+        let hidden = pane.services.settings.map { PaneToolbarSetting($0.fileRoot).hidden } ?? []
         guard let key = pane.stripModel.selectedID?.rawValue, let tab = pane.pane.tabs.first(where: { $0.id == key }) else {
             return State(hidden: hidden)
         }

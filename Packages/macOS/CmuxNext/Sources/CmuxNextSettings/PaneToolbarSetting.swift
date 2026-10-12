@@ -7,13 +7,16 @@
 /// The action ids of the buttons right-clicked away (Hide Split Down Button) from the toolbar at
 /// the tab bar's trailing end, in every pane; the toolbar's right-click shows them again. A bad
 /// item is dropped with a diagnostic.
-public nonisolated enum PaneToolbarSetting {
+public nonisolated struct PaneToolbarSetting: Sendable, Hashable {
     public static let hiddenButtonsPath = ["tabs", "hiddenButtons"]
 
-    /// The hidden action ids in `root` (the file's whole JSON).
-    public static func hidden(_ root: JSONValue) -> Set<String> {
+    /// The hidden buttons' action ids.
+    public var hidden: Set<String> = []
+
+    /// The setting in `root` (the file's whole JSON).
+    public init(_ root: JSONValue) {
         var diagnostics: [SettingsDiagnostic] = []
-        return parse(root, diagnostics: &diagnostics)
+        hidden = Self.parse(root, diagnostics: &diagnostics)
     }
 
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> Set<String> {
