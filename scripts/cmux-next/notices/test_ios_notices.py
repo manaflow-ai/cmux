@@ -36,7 +36,9 @@ class RepositoryTests(unittest.TestCase):
         # (ghosttykit_repin.py rewrites it on a pin change; the 134477ce13b2 pin used
         # job 9bd58301641521918a3561ba, the 736e8f05256b pin job 3ec204658b6b4cf775f360e9,
         # the 788fe6a6e42f pin job 3cb75148fdc2bb261c043703).
-        record = json.loads(ios.LINK_SET.read_text())["app_link"]
+        links = json.loads(ios.LINK_SET.read_text())
+        self.assertIn("app_link", links, "no app_link for the current pin: run ghosttykit_repin.py --ios-job <id>")
+        record = links["app_link"]
         self.assertEqual(record["pin_sha256"], ios.ghostty_kit_pin()["sha256"])
         job, artifact = record["evidence"]["cmux_ci_job"], record["evidence"]["artifact_sha256"]
         self.assertRegex(job, r"^[0-9a-f]{24}$")
@@ -173,9 +175,19 @@ class LibintlRuleTests(unittest.TestCase):
         self.assertEqual(ios.libintl_errors("1" * 64, [self.without], self.exceptions), [])
 
 
+# The rules below need only a record's shape: the committed app_link when there is one
+# (a pin change drops it until ghosttykit_repin.py runs app-link again), else this.
+FIXTURE_APP_LINK = {"witness_symbols": ["_ghostty_init"], "evidence": {"cmux_ci_job": "0" * 24},
+                    "absent_owners": {}, "absent_zig_packages": {}}
+
+
+def app_link_record() -> dict:
+    return json.loads(ios.LINK_SET.read_text()).get("app_link") or json.loads(json.dumps(FIXTURE_APP_LINK))
+
+
 class BuiltAppTests(unittest.TestCase):
     def setUp(self) -> None:
-        record = json.loads(ios.LINK_SET.read_text())["app_link"]
+        record = app_link_record()
         self.symbols = set(record["witness_symbols"])
         original = ios.defined_symbols
         ios.defined_symbols = lambda path: set(self.symbols)  # the fake binaries have no symbol table
@@ -189,11 +201,16 @@ class BuiltAppTests(unittest.TestCase):
 
     def test_refuses_an_app_that_links_a_package_the_pane_omits(self) -> None:
         # The current pin proves no owner absent, so the rule is shown on a record that does.
-        record = json.loads(ios.LINK_SET.read_text())["app_link"]
+        record = app_link_record()
         record["absent_owners"] = {"zig-package:gettext": {"members": ["dcigettext.o"], "symbols": ["_libintl_dcigettext"]}}
         self.symbols.add("_libintl_dcigettext")
         errors = ios.app_link_errors([self.app() / "cmux"], [], {"app_link": record})
         self.assertTrue(any("zig-package:gettext is omitted" in error for error in errors), errors)
+
+    def test_a_pane_that_omits_nothing_needs_no_link_evidence(self) -> None:
+        # Without app_link the pane lists every declared package: nothing is claimed
+        # absent, so check-app has nothing to disprove (a pin change before app-link).
+        self.assertEqual(ios.app_link_errors([self.app() / "cmux"], [], {}), [])
 
     def test_refuses_an_app_with_libintl(self) -> None:
         # The pane has no gettext and the current pin has no exception: libintl in the
@@ -208,13 +225,14 @@ class BuiltAppTests(unittest.TestCase):
     def test_refuses_an_app_without_symbols(self) -> None:
         # Absence of a symbol proves nothing in a stripped binary: fail closed.
         self.symbols.clear()
-        self.assertTrue(any("witness" in error for error in ios.check_app(self.app())))
+        errors = ios.app_link_errors([self.app() / "cmux"], [], {"app_link": app_link_record()})
+        self.assertTrue(any("witness" in error for error in errors), errors)
 
     def test_refuses_a_themes_file_when_the_pane_omits_iterm2_themes(self) -> None:
-        app = self.app()
-        (app / "share/ghostty/themes").mkdir(parents=True)
-        (app / "share/ghostty/themes/Dracula").write_text("palette = 0=#000000\n")
-        self.assertTrue(any("iterm2_themes" in error for error in ios.check_app(app)))
+        record = app_link_record()
+        record["absent_zig_packages"] = {"iterm2_themes": {}}
+        errors = ios.app_link_errors([self.app() / "cmux"], ["share/ghostty/themes/Dracula"], {"app_link": record})
+        self.assertTrue(any("iterm2_themes" in error for error in errors), errors)
 
     def test_accepts_the_committed_pane(self) -> None:
         self.assertEqual(ios.check_app(self.app()), [])
@@ -421,6 +439,7 @@ class LinkSetCheckTests(unittest.TestCase):
 
     def test_a_new_pin_drops_the_old_app_link(self) -> None:
         committed = self.committed()
+        committed["app_link"] = app_link_record()  # an app_link to drop, also between app-link runs
         pin = dict(ios.ghostty_kit_pin(), sha256="0" * 64)
         merged = ios.merge_link_set(self.generated(), committed, pin)
         self.assertNotIn("app_link", merged)

@@ -989,7 +989,11 @@ fn run_git<const N: usize>(
 }
 
 fn install_root(kind: PluginKind) -> anyhow::Result<PathBuf> {
-    let root = if let Some(data_home) = non_empty_env_path("XDG_DATA_HOME") {
+    // A relative XDG_DATA_HOME (a quoted "~/.local/share") is ignored, as the
+    // XDG spec says; it would resolve against the caller's project directory.
+    let root = if let Some(data_home) =
+        non_empty_env_path("XDG_DATA_HOME").filter(|path| path.is_absolute())
+    {
         data_home.join("cmux").join("mux-plugins")
     } else {
         let home = cmux_tui_core::platform::home_dir()

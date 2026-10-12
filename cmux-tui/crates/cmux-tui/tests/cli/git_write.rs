@@ -184,3 +184,81 @@ fn git_worktree_create_makes_a_branch_worktree_and_leaves_the_checkout_alone() {
     assert!(reason.contains("base_not_found"), "{reason}");
     let _ = fs::remove_dir_all(root);
 }
+
+#[test]
+fn a_worktree_chats_status_and_branch_diff_follow_its_recorded_base() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-git-worktree-base-{}-{:x}",
+        std::process::id(),
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let home = root.join("home");
+    let repo = root.join("project");
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(&repo).unwrap();
+    let server = HeadlessServer::start_with_options(
+        "git-worktree-base",
+        None,
+        None,
+        &[("HOME", home.to_str().unwrap())],
+    );
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["config", "user.name", "cmux test"]);
+    git(&repo, &["config", "user.email", "cmux@example.invalid"]);
+    git(&repo, &["config", "commit.gpgsign", "false"]);
+    fs::write(repo.join("a.txt"), "one\n").unwrap();
+    git(&repo, &["add", "a.txt"]);
+    git(&repo, &["commit", "-q", "-m", "first"]);
+    // A feature branch a commit past main: the chat branches from it.
+    git(&repo, &["checkout", "-q", "-b", "feature"]);
+    fs::write(repo.join("f.txt"), "feature\n").unwrap();
+    git(&repo, &["add", "f.txt"]);
+    git(&repo, &["commit", "-q", "-m", "feature"]);
+    git(&repo, &["checkout", "-q", "main"]);
+
+    let args =
+        ["worktree", "create", "--name", "chat", "--base", "feature", "--idempotency-key", "b1"];
+    let created = git_cli(&server, &repo, &args);
+    assert_success(&created);
+    let worktree = home.join(".cmux/worktrees/project/chat");
+    fs::write(worktree.join("w.txt"), "work\n").unwrap();
+    git(&worktree, &["add", "w.txt"]);
+    git(&worktree, &["commit", "-q", "-m", "work"]);
+
+    // The worktree's status names the checkout it belongs to and the base it was made from.
+    let status = git_cli(&server, &worktree, &["status"]);
+    assert_success(&status);
+    let status = json_output(&status);
+    assert_eq!(status["branch"], "cmux/chat", "{status}");
+    assert_eq!(status["base"], "feature", "{status}");
+    let main = fs::canonicalize(&repo).unwrap();
+    assert_eq!(status["worktree"]["main_root"], main.to_str().unwrap(), "{status}");
+
+    // Its branch diff starts where the chat started: only the chat's own work.
+    let diff = git_cli(&server, &worktree, &["diff", "--scope", "branch"]);
+    assert_success(&diff);
+    let diff = json_output(&diff);
+    let paths: Vec<&str> =
+        diff["files"].as_array().unwrap().iter().filter_map(|file| file["path"].as_str()).collect();
+    assert_eq!(paths, ["w.txt"], "{diff}");
+
+    // The main checkout is no linked worktree and keeps its own base.
+    let status = json_output(&git_cli(&server, &repo, &["status"]));
+    assert!(status.get("worktree").is_none(), "{status}");
+    assert_eq!(status["base"], "main", "{status}");
+
+    // A base past a branch (`feature~1`) is no branch: the chat keeps the commit it named then,
+    // even after the branch moves on.
+    let first = git(&repo, &["rev-parse", "feature~1"]);
+    let args =
+        ["worktree", "create", "--name", "past", "--base", "feature~1", "--idempotency-key", "b2"];
+    assert_success(&git_cli(&server, &repo, &args));
+    git(&repo, &["checkout", "-q", "feature"]);
+    fs::write(repo.join("g.txt"), "more\n").unwrap();
+    git(&repo, &["add", "g.txt"]);
+    git(&repo, &["commit", "-q", "-m", "more"]);
+    let past = home.join(".cmux/worktrees/project/past");
+    let status = json_output(&git_cli(&server, &past, &["status"]));
+    assert_eq!(status["base"], first.trim(), "{status}");
+    let _ = fs::remove_dir_all(root);
+}
