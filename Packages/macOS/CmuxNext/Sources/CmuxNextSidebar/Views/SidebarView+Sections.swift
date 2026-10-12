@@ -40,6 +40,7 @@ extension SidebarView {
         // drag and drop for now (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 3).
         // The band below keeps the same rule it had while it held the footer.
         footerRegion.allowsDrag = false
+        footerRegion.emptySpaceTarget = .footer
         belowRegion.allowsDrag = false
         addSubview(aboveFade)
         addSubview(belowFade)
@@ -54,7 +55,11 @@ extension SidebarView {
     /// alone (when it is in the band below).
     func updateBands() {
         let width = bounds.width
-        let hidden = Set(model.resolvedItemInfo.filter(\.value.isHidden).keys)
+        var hidden = Set(model.resolvedItemInfo.filter(\.value.isHidden).keys)
+        // `sidebar.showProfileControl` off (cx-wab7m): the profile button draws in no band.
+        if !DesignSettings.shared.sidebarSections.showProfileControl {
+            for section in model.layout.sections { hidden.formUnion(section.items.filter { $0.ref == .builtIn(.account) }.map(\.id)) }
+        }
         let (above, below) = model.layout.bands(room: model.activeProfileID?.rawValue)
         let apps = model.suppressedApps
         let shownAbove = (model.transientTopSection.map { [$0] } ?? []) + above.presenting(hidingItems: hidden, apps: apps)

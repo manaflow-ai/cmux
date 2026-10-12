@@ -53,6 +53,11 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// Whether the device-wide All chats section is shown at the bottom of the
     /// sidebar (Lawrence 2026-10-09: on by default); its header's Hide Section turns it off.
     public var showChats = true
+    /// The bottom band's pieces (cx-wab7m): each hides from its own right-click menu and comes
+    /// back from the band's (`sidebar.showSpaces`: the spaces dots; `sidebar.showProfileControl`:
+    /// the profile button).
+    public var showSpaces = true
+    public var showProfileControl = true
     /// Minimal mode (`sidebar.minimal`, cx-w1r5; Lawrence 2026-10-09: "some
     /// people like minimal mode"): workspace rows draw only their icon, name,
     /// unread mark and attention state (no second line, no counts or badges,
