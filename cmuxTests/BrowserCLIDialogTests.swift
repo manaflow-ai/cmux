@@ -117,6 +117,46 @@ struct BrowserCLIDialogTests {
         }
     }
 
+    @Test(arguments: ["back", "forward", "reload", "hardReload", "navigate"])
+    func userNavigationRestoresUIPresentation(action: String) async throws {
+        try await withPanel { panel, _ in
+            switch action {
+            case "back": panel.goBack()
+            case "forward": panel.goForward()
+            case "reload": _ = panel.reload()
+            case "hardReload": panel.hardReload()
+            default: _ = panel.navigateSmart("about:blank")
+            }
+            enqueue(panel, kind: .javaScriptConfirm) { _, _ in }
+            #expect(panel.activeInteractiveBrowserPromptIDs.count == 1)
+        }
+    }
+
+    @Test func navigationCancellationClaimsTheBatchBeforeCallingResolvers() async throws {
+        try await withPanel { panel, _ in
+            var answers: [String] = []
+            var secondID = ""
+            enqueue(panel, kind: .javaScriptConfirm) { button, _ in
+                answers.append("first:" + button)
+                let duplicate = panel.mobileBrowserDialogBroker.respond(MobileBrowserDialogRespondParameters(
+                    panelID: panel.id.uuidString, dialogID: secondID, buttonID: "ok", text: nil
+                ))
+                #expect(!duplicate)
+            }
+            enqueue(panel, kind: .javaScriptConfirm) { button, _ in answers.append("second:" + button) }
+            secondID = try #require(panel.pendingJavaScriptDialogs.last?.dialogID)
+            let unrelated = panel.beginInformationalMobileBrowserDialog(
+                kind: .fileUpload, title: nil, message: nil, host: nil, cancelLabel: "Cancel",
+                cancel: { answers.append("unrelated") }
+            )
+            panel.cancelPendingJavaScriptDialogs()
+            #expect(answers == ["first:cancel", "second:cancel"])
+            #expect(panel.mobileBrowserDialogBroker.pendingDialogs.map(\.dialogID) == [unrelated.dialogID])
+            panel.mobileBrowserDialogBroker.resolveAll()
+            #expect(answers == ["first:cancel", "second:cancel", "unrelated"])
+        }
+    }
+
     @Test func navigationAndProcessTerminationClearPendingCompletions() async throws {
         try await withPanel { panel, _ in
             var answers: [String] = []
