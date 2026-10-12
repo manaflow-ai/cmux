@@ -7,7 +7,10 @@ import { LineSocket } from "./line-socket.ts";
 // socket). New code for the brain host; the method set follows feat-mux
 // mux/packages/acpmux/src/client.ts and `acpmux daemon schema`.
 
-export function acpmuxSocketPath(env: Record<string, string | undefined> = process.env): string {
+export function acpmuxSocketPath(
+  env: Record<string, string | undefined> = process.env,
+  _uid: number = process.getuid?.() ?? 0,
+): string {
   if (env.ACPMUX_SOCKET) return env.ACPMUX_SOCKET;
   if (env.ACPMUX_HOME) return join(env.ACPMUX_HOME, "acpmux.sock");
   return join(env.HOME ?? homedir(), ".acpmux", "acpmux.sock");

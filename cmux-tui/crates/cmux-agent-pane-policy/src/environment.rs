@@ -40,11 +40,11 @@ pub fn resolve(
         (None, Some(slug)) => user_home.join(".acpmux/tags").join(slug),
         (None, None) => user_home.join(".acpmux"),
     };
-    let socket = environment
-        .get("ACPMUX_SOCKET")
-        .filter(|s| !s.is_empty())
-        .cloned()
-        .unwrap_or_else(|| default_socket_path(&home, uid));
+    let socket = socket_path(
+        environment.get("ACPMUX_SOCKET").map(String::as_str).filter(|s| !s.is_empty()),
+        &home,
+        uid,
+    );
     let home_text = home.to_string_lossy().into_owned();
     Some(Environment {
         executable,
@@ -86,6 +86,15 @@ pub fn executable_candidates(
         .filter(|d| !d.is_empty() && seen.insert(d.clone()))
         .map(|d| PathBuf::from(d).join("acpmux"))
         .collect()
+}
+
+/// The acpmux daemon socket every host and client resolves: `configured`
+/// (`ACPMUX_SOCKET`) when set, else [`default_socket_path`] for `home`.
+pub fn socket_path(configured: Option<&str>, home: &Path, uid: u32) -> String {
+    match configured {
+        Some(configured) => configured.to_owned(),
+        None => default_socket_path(home, uid),
+    }
 }
 
 /// acpmux `config::socket_path()` without its directory check:

@@ -50,7 +50,7 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         } else {
             home = userHome.appendingPathComponent(".acpmux", isDirectory: true)
         }
-        let socket = environment["ACPMUX_SOCKET"].flatMap { $0.isEmpty ? nil : $0 } ?? defaultSocketPath(home: home, uid: uid)
+        let socket = socketPath(configured: environment["ACPMUX_SOCKET"].flatMap { $0.isEmpty ? nil : $0 }, home: home, uid: uid)
         return AcpmuxEnvironment(
             executable: executable, home: home, socketPath: socket,
             daemonArguments: slug == nil ? [] : ["--listen", "127.0.0.1:0"],
@@ -81,6 +81,14 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     /// Mirrors acpmux `config::socket_path()`: `<home>/acpmux.sock`, or
     /// `/tmp/acpmux-<uid>/<fnv1a64(home)>.sock` (a private 0700 directory)
     /// when that is too long for `sun_path` (96 bytes or more).
+    /// The acpmux daemon socket every host and client resolves (cmux-agent-pane-policy
+    /// `environment::socket_path`): `configured` (`ACPMUX_SOCKET`) when set, else
+    /// ``defaultSocketPath(home:uid:)``.
+    static func socketPath(configured: String?, home: URL, uid: UInt32) -> String {
+        if let configured { return configured }
+        return defaultSocketPath(home: home, uid: uid)
+    }
+
     static func defaultSocketPath(home: URL, uid: UInt32) -> String {
         let preferred = home.appendingPathComponent("acpmux.sock").path
         if preferred.utf8.count < 96 { return preferred }

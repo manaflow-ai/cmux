@@ -122,12 +122,21 @@ pub(crate) fn configure_home() {
 /// daemon start, without touching acpmux's process-wide config.
 #[cfg(unix)]
 pub(crate) fn daemon_socket_path() -> Option<PathBuf> {
-    if let Some(socket) = env_value("ACPMUX_SOCKET") {
-        return Some(PathBuf::from(socket));
-    }
     // SAFETY: getuid has no preconditions and cannot fail.
     let uid = unsafe { libc::getuid() };
-    Some(socket_in_home(&daemon_acpmux_home()?, uid))
+    if let Some(socket) = env_value("ACPMUX_SOCKET") {
+        return Some(daemon_socket(Some(&socket), Path::new(""), uid));
+    }
+    Some(daemon_socket(None, &daemon_acpmux_home()?, uid))
+}
+
+/// The socket for a configured `ACPMUX_SOCKET` or an acpmux home.
+#[cfg(unix)]
+fn daemon_socket(configured: Option<&str>, home: &Path, uid: u32) -> PathBuf {
+    match configured {
+        Some(socket) => PathBuf::from(socket),
+        None => socket_in_home(home, uid),
+    }
 }
 
 /// How the session daemon starts the acpmux that [`daemon_socket_path`]
@@ -379,6 +388,36 @@ mod tests {
         let socket = socket_in_home(&long, 501);
         assert!(socket.starts_with("/tmp/acpmux-501/"), "{socket:?}");
         assert_eq!(socket.extension().and_then(|e| e.to_str()), Some("sock"));
+    }
+
+    /// The shared cases (cmux-agent-pane-policy tests/cases/environment.json) the
+    /// Swift host, the brain host and the Chief run too.
+    #[cfg(unix)]
+    #[test]
+    fn the_daemon_socket_matches_the_shared_cases() {
+        let file = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../cmux-agent-pane-policy/tests/cases/environment.json");
+        let cases: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(file).unwrap()).unwrap();
+        for row in cases["sockets"].as_array().unwrap() {
+            let got = daemon_socket(
+                None,
+                Path::new(row[0].as_str().unwrap()),
+                row[1].as_u64().unwrap() as u32,
+            );
+            assert_eq!(got.to_str(), row[2].as_str(), "home {}", row[0]);
+        }
+        let configured = cases["configured_sockets"].as_array().unwrap();
+        assert!(!configured.is_empty());
+        for row in configured {
+            let given = row[0].as_str().unwrap();
+            let got = daemon_socket(
+                Some(given).filter(|g| !g.is_empty()),
+                Path::new(row[1].as_str().unwrap()),
+                row[2].as_u64().unwrap() as u32,
+            );
+            assert_eq!(got.to_str(), row[3].as_str(), "configured {given}");
+        }
     }
 
     #[test]

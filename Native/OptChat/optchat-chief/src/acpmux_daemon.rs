@@ -22,16 +22,33 @@ use crate::cli::env;
 
 /// `ACPMUX_SOCKET`, else `$ACPMUX_HOME/acpmux.sock`, else `~/.acpmux/acpmux.sock`.
 pub fn socket_path() -> PathBuf {
-    if let Some(socket) = env("ACPMUX_SOCKET") {
-        return socket.into();
-    }
-    if let Some(home) = env("ACPMUX_HOME") {
-        return PathBuf::from(home).join("acpmux.sock");
-    }
     let user = std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| "/".into());
-    user.join(".acpmux").join("acpmux.sock")
+    // SAFETY: getuid has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    socket_path_for(
+        env("ACPMUX_SOCKET").as_deref(),
+        env("ACPMUX_HOME").as_deref(),
+        &user,
+        uid,
+    )
+}
+
+/// [`socket_path`] for a configured socket, acpmux home, user home and uid.
+pub fn socket_path_for(
+    configured: Option<&str>,
+    home: Option<&str>,
+    user_home: &Path,
+    _uid: u32,
+) -> PathBuf {
+    if let Some(socket) = configured {
+        return socket.into();
+    }
+    if let Some(home) = home {
+        return PathBuf::from(home).join("acpmux.sock");
+    }
+    user_home.join(".acpmux").join("acpmux.sock")
 }
 
 /// Whether something accepts connections on the socket.
