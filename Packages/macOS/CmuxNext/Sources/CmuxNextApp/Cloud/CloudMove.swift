@@ -27,7 +27,8 @@ import Foundation
 /// that may not have finished runs again on the same machine (a second sync
 /// writes only changes, and a rerun of the move resolves an unresolved one
 /// first). A move that committed only opens its tab on the machine, never
-/// syncs or moves again. Bring Back is the reverse (slice 4).
+/// syncs or moves again. Bring Back Local is the reverse (``CloudBringBack``);
+/// a committed move is recorded for it (``CloudMovedChats``).
 @MainActor
 struct CloudMove {
     static let action: ActionID = "cloudMove"
@@ -135,6 +136,13 @@ struct CloudMove {
             throw Failure(message: CloudMoveStrings.unresolved, retry: again)
         }
         guard moved.ok, let movedSession = moved.sessionID else { throw Self.failure(moving: moved, machine: name, retry: again) }
+        // Bring Back Local merges into this folder, and offers itself only for chats recorded here.
+        if let host = AgentTabStore.registryHost(of: machine.daemon) {
+            let local = folder.subpath.isEmpty ? folder.root : folder.root + "/" + folder.subpath
+            services.cloud.movedChats.record(CloudMovedChats.Entry(machineID: machine.machineID, host: host, session: movedSession, harness: record.harness,
+                                                                   localRoot: folder.root, localChat: local, remoteFolder: remote.folder,
+                                                                   remoteChat: remote.chat, name: workspace?.name))
+        }
         // The move committed: from here Retry only opens the chat's tab on the machine.
         let shown = CloudMoveRetries.Shown(session: movedSession, harness: record.harness, machineID: machine.machineID, folder: remote.chat,
                                            name: workspace?.name, key: moved.transferID ?? movedSession)
@@ -273,6 +281,11 @@ struct CloudMove {
     }
 
     private func toast(_ id: String, _ message: String, duration: Duration, retry: (@MainActor () -> Void)? = nil) {
+        Self.toast(services, id, message, duration: duration, retry: retry)
+    }
+
+    /// A toast on the active window, with Retry when `retry` is set (Bring Back Local's too).
+    static func toast(_ services: AppServices, _ id: String, _ message: String, duration: Duration, retry: (@MainActor () -> Void)? = nil) {
         guard let window = services.windows.active?.window ?? NSApp.mainWindow else { return }
         let action = retry == nil ? nil : CmuxToast.Action(title: CloudMoveStrings.retry)
         let handle = CmuxToastCenter.shared.show(CmuxToast(id: id, message: message, action: action, duration: duration), in: window)

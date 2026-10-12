@@ -242,8 +242,9 @@ extension PaneController {
     /// A tab's menu, the same wherever it is opened (its strip, its row in
     /// the sidebar): a browser tab drops what does not apply to a page.
     /// New <Kind> Tab reads as the kind `sameKind` names ("New Browser Tab").
-    static func tabMenu(_ id: String, tab: TabModel?, workspaceKind: String?, sameKind: NewTabKind, registry: ActionRegistry) -> NSMenu {
-        let menu = tabMenuEntries(id, tab: tab, workspaceKind: workspaceKind, registry: registry)
+    static func tabMenu(_ id: String, tab: TabModel?, workspaceKind: String?, sameKind: NewTabKind, registry: ActionRegistry,
+                        movedChats: CloudMovedChats?) -> NSMenu {
+        let menu = tabMenuEntries(id, tab: tab, workspaceKind: workspaceKind, registry: registry, movedChats: movedChats)
         let items = menu.items + menu.items.compactMap(\.submenu).flatMap(\.items)  // it sits in the New submenu
         if let item = items.first(where: { ActionRegistry.menuRun(of: $0)?.id == "newTab.ofKind" }),
            let title = registry.title(for: sameKind.newActionID) {
@@ -252,19 +253,22 @@ extension PaneController {
         return menu
     }
 
-    private static func tabMenuEntries(_ id: String, tab: TabModel?, workspaceKind: String?, registry: ActionRegistry) -> NSMenu {
+    private static func tabMenuEntries(_ id: String, tab: TabModel?, workspaceKind: String?, registry: ActionRegistry,
+                                       movedChats: CloudMovedChats?) -> NSMenu {
         let target = ActionTargetRef(kind: .tab, id: id)
         // Home keeps its tabs: no promote entries.
         let kept = Set(TabPromotion.menuRemovals(kind: workspaceKind))
         guard let tab, tab.kind == .browser else {
             // Hibernation discards a page; a terminal has none (Restart only once its shell ended).
-            let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: kept.union(["hibernateTab", "wakeTab", "toggleTabAudioMute"]).union(TabRestart.hiddenMenuItems(tab)).union(CloudMove.hiddenMenuItems(tab)))
+            let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: kept.union(["hibernateTab", "wakeTab", "toggleTabAudioMute"]).union(TabRestart.hiddenMenuItems(tab)).union(CloudMove.hiddenMenuItems(tab))
+                .union(CloudBringBack.hiddenMenuItems(tab?.agentSession, movedChats: movedChats)))
             return registry.makeContextMenu(for: .tab, target: target, entries: entries)
         }
         // A browser tab offers the engine it is not on.
         let other: ActionID = tab.browserEngine == BrowserEngineTag.cef.rawValue ? "browser.openInChromium" : "browser.openInWebKit"
         // Terminal themes and keep-running do not apply to a page.
-        let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: kept.union([other, "terminal.setTheme", "terminal.clearTheme", "terminal.keep", TabRestart.action, CloudMove.action]))
+        let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: kept.union([other, "terminal.setTheme", "terminal.clearTheme", "terminal.keep", TabRestart.action, CloudMove.action,
+                                                                                      CloudBringBack.action]))
         return registry.makeContextMenu(for: .tab, target: target, entries: entries, implied: .browserFocused)
     }
 
@@ -274,7 +278,8 @@ extension PaneController {
         case .tab(let id, _):
             select(id)
             return Self.tabMenu(id.rawValue, tab: tab(id), workspaceKind: workspace?.workspace.kind,
-                                sameKind: NewTabKind.of(id.rawValue, tab: tab(id), services: services), registry: registry)
+                                sameKind: NewTabKind.of(id.rawValue, tab: tab(id), services: services), registry: registry,
+                                movedChats: services.cloud.movedChats)
         case .group(let group), .savedGroup(let group):
             let saved = daemon.store.savedTabGroups.contains { $0.openGroup?.rawValue == group.rawValue }
             return registry.makeContextMenu(for: .tabGroup, target: ActionTargetRef(kind: .tabGroup, id: group.rawValue),
