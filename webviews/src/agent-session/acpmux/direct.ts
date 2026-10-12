@@ -2,6 +2,7 @@ import type {
   AcpmuxActivity,
   AcpmuxFileDiff,
   AcpmuxPermission,
+  AcpmuxSecretAsk,
   AcpmuxBackgroundTask,
   AcpmuxPlanEntry,
   AcpmuxRow,
@@ -498,6 +499,7 @@ export class AcpmuxDirectClient {
   private summary: Record<string, any> | undefined;
   private queue: { id: string; prompt: string }[] = [];
   private pendingPermission?: AcpmuxPermission;
+  private pendingSecret?: AcpmuxSecretAsk;
   private groupedPermissions = new Map<string, AcpmuxPermission>();
   /// The turn's open permission questions, and the edits that wait on one (cx-p5fgx): an edit
   /// is "pending" from its question, or from arriving while one is open, until it completes.
@@ -820,6 +822,7 @@ export class AcpmuxDirectClient {
     this.planRow = undefined;
     this.subagents = new SubagentFold();
     this.pendingPermission = undefined;
+    this.pendingSecret = undefined;
     this.groupedPermissions.clear();
     this.openQuestions.clear();
     this.heldEdits.clear();
@@ -1317,6 +1320,7 @@ export class AcpmuxDirectClient {
     this.planCalls.clear();
     this.subagents = new SubagentFold();
     this.pendingPermission = undefined;
+    this.pendingSecret = undefined;
     const through = this.replayThrough ?? Number.POSITIVE_INFINITY;
     const events = this.events.filter((event) => event.seq <= through).sort((a, b) => a.seq - b.seq);
     for (const event of events) {
@@ -1334,10 +1338,12 @@ export class AcpmuxDirectClient {
     const summary = this.summary;
     const queue = this.queue;
     const permission = this.pendingPermission;
+    const secret = this.pendingSecret;
     this.rebuild();
     this.summary = summary;
     this.queue = queue;
     this.pendingPermission = permission;
+    this.pendingSecret = secret;
     if (replayAfterSeq !== undefined)
       for (const event of this.events)
         if (event.seq > replayAfterSeq && event.dir === "mux") this.reduceLiveState(event);
@@ -1379,6 +1385,14 @@ export class AcpmuxDirectClient {
         this.pendingPermission = this.permissions.state.supported
           ? undefined
           : [...this.groupedPermissions.values()].at(-1);
+    } else if (event.kind === "secret_request")
+      this.pendingSecret = {
+        secretId: String(msg.secretId ?? ""),
+        name: String(msg.name ?? ""),
+        reason: String(msg.reason ?? ""),
+      };
+    else if (event.kind === "secret_decision") {
+      if (this.pendingSecret?.secretId === msg.secretId) this.pendingSecret = undefined;
     } else if (event.kind === "permission_group" || event.kind === "permission_chat_allowance")
       void this.permissions.refresh().catch(() => {});
     else if (event.kind === "status") this.summary = { ...this.summary, status: msg.status };
@@ -1728,6 +1742,7 @@ export class AcpmuxDirectClient {
       permissionGroups: this.permissions.state,
       queue: this.queue,
       permission: this.pendingPermission,
+      secret: this.pendingSecret,
       catalog: [],
       commands: this.commands,
       canLoadOlder: !this.historyExhausted && (this.firstSeq ?? 1) > 1,
@@ -1967,6 +1982,13 @@ export class AcpmuxDirectClient {
       ...(answers === undefined ? {} : { answers }),
       ...gestureMeta(ticket),
     });
+  }
+  /// Answers a secret card: `value` provides it (acpmux keeps it in memory and gives the agent a
+  /// one-use ref), none declines. The wire log never holds the value (wire.ts).
+  async secret(secretId: string, value?: string): Promise<void> {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId) return;
+    await this.request("_acpmux/secret_submit", { sessionId, secretId, ...(value ? { value } : {}) });
   }
   async permissionGroup(groupId: string, revision: number, decision: PermissionDecision): Promise<void> {
     await this.permissions.respond(groupId, revision, decision);

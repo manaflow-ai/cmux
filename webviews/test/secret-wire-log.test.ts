@@ -4,7 +4,10 @@ import { expect, test } from "bun:test";
 import { AcpWireLog } from "../src/agent-session/acpmux/wire";
 
 test("a secret card's answer is logged without its value", () => {
-  const log = new AcpWireLog(() => 0, () => 0);
+  const log = new AcpWireLog(
+    () => 0,
+    () => 0,
+  );
   const frame = JSON.stringify({
     jsonrpc: "2.0",
     id: 7,
