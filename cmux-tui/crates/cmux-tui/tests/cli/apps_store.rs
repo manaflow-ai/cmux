@@ -370,8 +370,22 @@ fn host_link_get(name: &str, register: impl FnOnce(&Path, &Path)) -> (Value, Pat
     let hub = apps.dir.join("hub.sock");
     let _listener = UnixListener::bind(&hub).unwrap();
     register(&apps.dir.join("state"), &hub);
-    // A first-party app whose always-on server asks for the link at start
-    // and records the answer.
+    write_probe_app(&apps);
+    apps.start();
+    ok(&apps.agent().rpc(json!({ "cmd": "apps-list" })));
+
+    let reply = apps.lines("link.jsonl", 1).swap_remove(0);
+    assert_eq!(
+        (reply["t"].clone(), reply["id"].clone()),
+        (json!("host.result"), json!(7)),
+        "{reply}"
+    );
+    (reply, hub)
+}
+
+/// A first-party app whose always-on server asks `cmux.host.link.get` at
+/// start and records every line it gets in `<dir>/link.jsonl`.
+fn write_probe_app(apps: &Apps) {
     write_script(
         &apps.dir.join("servers").join("host-probe"),
         "#!/bin/sh\nprintf '{\"t\":\"host.request\",\"id\":7,\"op\":\"cmux.host.link.get\",\"params\":{}}\\n'\nwhile IFS= read -r line; do\n  printf '%s\\n' \"$line\" >> \"$1\"\ndone\n",
@@ -400,16 +414,81 @@ fn host_link_get(name: &str, register: impl FnOnce(&Path, &Path)) -> (Value, Pat
             }
         }),
     );
+}
+
+/// cx-rtipa review P2-1: a link whose probe does not finish is unknown, not
+/// "no link": `link.get` answers `apps.link_probe_timeout` (retryable), and
+/// `apps-link-changed` sends that server nothing. The link here is a socket
+/// of this test with a full accept queue (listen backlog 0, filled), so the
+/// daemon's probe connect blocks. Linux only: there a connect to a full
+/// queue waits; macOS refuses it at once.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_link_probe_that_times_out_is_unknown_not_no_link() {
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    let apps = Apps::new("probetime");
+    let hub = apps.dir.join("hub.sock");
+    let address = |path: &Path| {
+        // SAFETY: sockaddr_un is plain data; all-zero is a valid value.
+        let mut addr: libc::sockaddr_un = unsafe { std::mem::zeroed() };
+        addr.sun_family = libc::AF_UNIX as libc::sa_family_t;
+        for (slot, byte) in addr.sun_path.iter_mut().zip(path.as_os_str().as_encoded_bytes()) {
+            *slot = *byte as libc::c_char;
+        }
+        addr
+    };
+    let len = std::mem::size_of::<libc::sockaddr_un>() as libc::socklen_t;
+    let socket = |flags: libc::c_int| {
+        // SAFETY: a new socket descriptor this test owns.
+        let fd = unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_STREAM | flags, 0) };
+        assert!(fd >= 0);
+        // SAFETY: as above.
+        unsafe { OwnedFd::from_raw_fd(fd) }
+    };
+    let listener = socket(0);
+    let addr = address(&hub);
+    // SAFETY: bind and listen on the test's own socket.
+    unsafe {
+        assert_eq!(libc::bind(listener.as_raw_fd(), (&raw const addr).cast(), len), 0);
+        assert_eq!(libc::listen(listener.as_raw_fd(), 0), 0);
+    }
+    // Fill the accept queue with non-blocking connects until it refuses.
+    let mut queued = Vec::new();
+    loop {
+        let client = socket(libc::SOCK_NONBLOCK);
+        // SAFETY: connect of the test's own socket.
+        let rc = unsafe { libc::connect(client.as_raw_fd(), (&raw const addr).cast(), len) };
+        if rc != 0 {
+            let error = std::io::Error::last_os_error();
+            assert_eq!(error.raw_os_error(), Some(libc::EAGAIN), "fill the accept queue: {error}");
+            break;
+        }
+        queued.push(client);
+        assert!(queued.len() < 64, "the accept queue never filled");
+    }
+    cmux_link::registration::write(
+        &apps.dir.join("state"),
+        &cmux_link::registration::Registration::new(hub.clone(), std::process::id()),
+    )
+    .unwrap();
+    write_probe_app(&apps);
     apps.start();
     ok(&apps.agent().rpc(json!({ "cmd": "apps-list" })));
-
     let reply = apps.lines("link.jsonl", 1).swap_remove(0);
     assert_eq!(
-        (reply["t"].clone(), reply["id"].clone()),
-        (json!("host.result"), json!(7)),
-        "{reply}"
+        (reply["t"].clone(), reply["code"].clone(), reply["retryable"].clone()),
+        (json!("host.error"), json!("apps.link_probe_timeout"), json!(true)),
+        "a probe timeout was reported as: {reply}"
     );
-    (reply, hub)
+    let told = apps.app().rpc(json!({ "cmd": "apps-link-changed" }));
+    assert_eq!(ok(&told)["servers"], 0, "{told}");
+    let lines = std::fs::read_to_string(apps.dir.join("link.jsonl")).unwrap();
+    assert_eq!(
+        lines.lines().count(),
+        1,
+        "link.changed sent an event while the link was unknown: {lines}"
+    );
+    drop(queued);
 }
 
 /// cx-rtipa S2: a link that `cmux link ensure` starts after an app server
