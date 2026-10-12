@@ -64,14 +64,17 @@ final class MorphBubble {
     /// Kept for callers; the morph no longer uses Core Image.
     static func warmUp() {}
 
+    /// `fieldShrinks`: the draft made the field taller than the platform's own 1-line field (more
+    /// lines or attachments), so the send uses the `.fieldShrink` curves (Springs.Bubble). The caller
+    /// decides with its own field metrics: the iOS field is 36 pt for 1 line, the macOS one 30-31 pt.
     init(key: String, in parent: CALayer, windowBounds: CGRect, from field: CGRect, to target: CGRect,
-         textLayout tl: TextLayout, size: CGSize, begin: CFTimeInterval) {
+         textLayout tl: TextLayout, size: CGSize, begin: CFTimeInterval, fieldShrinks: Bool) {
         self.key = key
         textLayout = tl
         textSize = size
         fieldRect = field
         flyingRect = target
-        let bs = Springs.Bubble(fieldShrinks: field.height > ComposeMetrics.height(lines: 1, chips: false) + 0.5)
+        let bs = Springs.Bubble(fieldShrinks: fieldShrinks)
         springs = bs
         let none: [String: CAAction] = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull(), "opacity": NSNull(),
                                         "transform": NSNull(), "path": NSNull(), "backgroundColor": NSNull()]

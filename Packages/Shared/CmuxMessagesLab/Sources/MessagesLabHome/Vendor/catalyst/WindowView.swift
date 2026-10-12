@@ -1310,7 +1310,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         // The flying bubble keeps 16 pt per line (measured: its bottom is 1 pt
         // lower than the landed cell's until the swap).
         let flying = CGRect(x: target.minX, y: target.minY, width: target.width, height: p.size.height)
-        let mb = MorphBubble(key: key, in: morphLayer, windowBounds: bounds, from: field, to: flying, textLayout: tl, size: p.size, begin: begin)
+        let mb = MorphBubble(key: key, in: morphLayer, windowBounds: bounds, from: field, to: flying, textLayout: tl, size: p.size, begin: begin,
+                             fieldShrinks: field.height > ComposeMetrics.height(lines: 1, chips: false) + 0.5)
         morphs[key] = mb
         #if canImport(UIKit) || APPKIT_NATIVE
         // The glass tints the bubble until its bottom leaves the field's top.

@@ -527,10 +527,12 @@ export function NewTabScreen(props: Props) {
 }
 
 /// Down or Ctrl-N is 1, Up or Ctrl-P is -1 (R85: the native list.next keys, here for a field
-/// that is not a list until rows show); anything else undefined.
+/// that is not a list until rows show); anything else undefined. A modified arrow (Shift, Cmd,
+/// Option) moves or extends the caret, as in a browser's address bar (cx-ag5.8).
 function listStep(event: React.KeyboardEvent): 1 | -1 | undefined {
-  if (event.key === "ArrowDown") return 1;
-  if (event.key === "ArrowUp") return -1;
+  const plain = !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
+  if (event.key === "ArrowDown") return plain ? 1 : undefined;
+  if (event.key === "ArrowUp") return plain ? -1 : undefined;
   if (!event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return undefined;
   if (event.key === "n") return 1;
   if (event.key === "p") return -1;

@@ -260,6 +260,7 @@ export function ModelPicker(props: ModelPickerProps) {
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
+  const restoreFocus = useRef(false);
   const menuId = useId();
   const harnesses = useMemo(() => uniqueHarnesses(catalog), [catalog]);
   const navigableHarnesses = useMemo(
@@ -335,12 +336,17 @@ export function ModelPicker(props: ModelPickerProps) {
   }, [menuStyle.visibility, open, openHeight]);
   const close = useCallback(
     (focus = true) => {
+      restoreFocus.current = focus;
       setOpen(false);
       onHarnessHint?.(undefined);
-      if (focus) trigger.current?.focus();
     },
     [onHarnessHint],
   );
+  useEffect(() => {
+    if (open || !restoreFocus.current) return;
+    restoreFocus.current = false;
+    trigger.current?.focus({ preventScroll: true });
+  }, [open]);
   const show = useCallback(() => {
     setSelectedHarness(harness ?? current?.id);
     setActiveHarness(
