@@ -89,6 +89,7 @@ import { turnCounts, turnDisplay } from "./changes/turnCheckpoint";
 import { TurnCountsContext, type TurnCountsFor } from "./changes/TurnCountsContext";
 import { useTurnCheckpoints } from "./changes/useTurnCheckpoints";
 import { readTurnFromRows, type CheckpointDiff } from "./changes/turnCheckpointSource";
+import { WHOLE_FILE_CONTEXT } from "./changes/wholeFile";
 import { restoredDecisions, type HunkDecision, type HunkReview } from "./changes/hunkReview";
 import { configureDictation, deliverDictation, useDictation, type DictationField } from "./dictation";
 import type { DictationUpdate } from "./dictationText";
@@ -394,6 +395,8 @@ const trustSource: TrustSource = {
 /// folder and asks the native host (or, in mock mode, the in-page daemon).
 const changesSource: ChangesSource = {
   diff: (scope) => callNative("git.diff", { scope, include_patch: true }),
+  wholeFile: (scope, path) =>
+    callNative("git.diff", { scope, include_patch: true, paths: [path], context_lines: WHOLE_FILE_CONTEXT }),
   status: () => callNative("git.status", {}),
   commit: (params) => callNative("git.commit", params),
   push: (params) => callNative("git.push", params),
@@ -3335,7 +3338,11 @@ function AcpmuxPane() {
           "chat.handoff.draft": ({ review }) => client.saveHandoff(review as HandoffReviewInput),
           "chat.handoff.start": ({ review }) => client.startHandoff(review as HandoffReviewInput),
           "chat.handoff.discard": async () => persistSession(await client.discardHandoff()),
-          "git.diff": ({ scope }) => client.gitDiff(String(scope)),
+          "git.diff": ({ scope, paths, context_lines }) =>
+            client.gitDiff(String(scope), {
+              ...(Array.isArray(paths) ? { paths: paths.map(String) } : {}),
+              ...(typeof context_lines === "number" ? { context_lines } : {}),
+            }),
           "git.status": () => client.gitStatus(),
           "git.checkpoint.diff": ({ from, to }) => client.gitCheckpointDiff(String(from), String(to)),
           "git.commit": (params) => client.gitCommit(params),

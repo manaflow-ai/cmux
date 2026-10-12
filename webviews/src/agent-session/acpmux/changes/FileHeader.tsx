@@ -18,6 +18,9 @@ export type FileActions = {
   stage?: { unstage: boolean; run: (path: string) => void };
   /// Stage (or, in Staged, unstage) one hunk of a file; absent outside Unstaged and Staged.
   stageHunk?: { unstage: boolean; run: (path: string, hunk: DiffHunk) => void };
+  /// Show more lines (changes/wholeFile.ts): the file read with every unchanged line, and its name
+  /// from the repository's top; absent outside a git scope.
+  wholeFile?: (path: string) => Promise<{ named: string; value: unknown } | undefined>;
 };
 
 export function FileHeader({
