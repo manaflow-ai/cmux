@@ -178,7 +178,8 @@ struct AgentChatView: View {
                             focused: $focused,
                             placeholder: "Ask \(HarnessStyle.of(info?.harness ?? "").name)",
                             working: working,
-                            canSend: info?.state != .exited && info?.state != .failed,
+                            // An ended agent restarts (and resumes its session) on the next prompt.
+                            canSend: info?.archived != true,
                             modes: info?.modes ?? [],
                             currentMode: info?.currentMode,
                             models: info?.models ?? [],

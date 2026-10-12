@@ -42,3 +42,4 @@ Loop log for the agent building this. Updated in place.
 - Host restart mid-session (r48): the phone notices within ~3 s of the Mac leaving signaling, redials as soon
   as it is back (~4 s after restart), and a terminal whose shell died with the host shows
   "This terminal ended when cmux Host restarted" with a New terminal button that works.
+- Agent resume (r49): after a host restart killed the agent, the next prompt restarted it with ACP `session/load` and it still remembered ("Pineapple"). ACP session ids persist as `<id>.acp`; replayed history is dropped.

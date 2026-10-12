@@ -444,6 +444,31 @@ final class FlowTests: XCTestCase {
         snap(app, "b2-after")
     }
 
+    /// An agent is resumed after the host restarts and still remembers.
+    func testAgentResumeAfterHostRestart() throws {
+        let app = launchSignedIn()
+        pause(4)
+        app.buttons["shell.menu"].tap()
+        pause(1)
+        app.buttons["sidebar.new"].tap()
+        let field = app.textFields["agent.field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 20))
+        pause(1.5)
+        field.tap()
+        field.typeText("Remember the word pineapple. Reply only with OK.")
+        app.buttons["agent.send"].tap()
+        pause(25)
+        snap(app, "c0-remembered")
+        pause(35)   // host is restarted now
+        snap(app, "c1-after-restart")
+        field.tap()
+        field.typeText("What word did I ask you to remember? One word.")
+        app.buttons["agent.send"].tap()
+        pause(45)
+        app.swipeDown()
+        snap(app, "c2-recalled")
+    }
+
     /// Forces TURN relay and checks the Mac connects through it.
     func testRelayConnection() throws {
         let app = launchSignedIn(arguments: ["-cnm-relay-only"])

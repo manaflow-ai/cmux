@@ -33,6 +33,9 @@ final class AgentManager: @unchecked Sendable {
         var nextSeq = 0
         var process: ACPProcess?
         var acpSessionID: String?
+        /// While the agent replays history during `session/load`, its updates
+        /// are already in our log; drop them.
+        var replaying = false
         var permissionWaiters: [String: CheckedContinuation<String?, Never>] = [:]
         var prompting = false
         init(info: AgentSessionInfo) { self.info = info }
@@ -110,7 +113,7 @@ final class AgentManager: @unchecked Sendable {
         return lock.withLock { session.info }
     }
 
-    private func start(_ session: Session, command: [String]) async throws {
+    private func start(_ session: Session, command: [String], resume: String? = nil) async throws {
         let process: ACPProcess
         do {
             process = try ACPProcess(command: command, cwd: session.info.cwd, environment: environment.shellEnvironment)
@@ -120,8 +123,9 @@ final class AgentManager: @unchecked Sendable {
         }
         let sessionID = session.info.id
         process.onNotification = { [weak self] method, params in
-            guard method == "session/update", let update = params["update"] else { return }
-            self?.handleUpdate(sessionID, update)
+            guard let self, method == "session/update", let update = params["update"] else { return }
+            if let session = self.lock.withLock({ self.sessions[sessionID] }), self.lock.withLock({ session.replaying }) { return }
+            self.handleUpdate(sessionID, update)
         }
         process.onRequest = { [weak self] method, params in
             guard let self else { throw RPCError.internalError }
@@ -140,15 +144,32 @@ final class AgentManager: @unchecked Sendable {
         lock.withLock { session.process = process }
 
         do {
-            _ = try await process.request("initialize", [
+            let initialized = try await process.request("initialize", [
                 "protocolVersion": 1,
                 "clientCapabilities": ["fs": ["readTextFile": true, "writeTextFile": true], "terminal": false],
                 "clientInfo": ["name": "cmux-next-mobile", "version": "0.1"],
             ], timeout: .seconds(90))
-            let result = try await process.request("session/new", [
-                "cwd": .string(session.info.cwd), "mcpServers": [],
-            ], timeout: .seconds(90))
-            let acpID = result["sessionId"]?.stringValue
+            let canLoad = initialized["agentCapabilities"]?["loadSession"]?.boolValue == true
+            var result: JSONValue = .null
+            var acpID: String?
+            if let resume, canLoad {
+                // Same conversation, new process: the agent keeps its memory.
+                lock.withLock { session.replaying = true }
+                defer { lock.withLock { session.replaying = false } }
+                result = try await process.request("session/load", [
+                    "sessionId": .string(resume), "cwd": .string(session.info.cwd), "mcpServers": [],
+                ], timeout: .seconds(120))
+                acpID = resume
+            } else {
+                if resume != nil {
+                    append(session, .error, ["message": "This agent can't resume its old session; it starts fresh with the same folder."])
+                }
+                result = try await process.request("session/new", [
+                    "cwd": .string(session.info.cwd), "mcpServers": [],
+                ], timeout: .seconds(90))
+                acpID = result["sessionId"]?.stringValue
+            }
+            if let acpID { persistACPID(session.info.id, acpID) }
             lock.withLock {
                 session.acpSessionID = acpID
                 if let modes = result["modes"] {
@@ -186,8 +207,17 @@ final class AgentManager: @unchecked Sendable {
         guard let session = lock.withLock({ sessions[params.session] }) else {
             throw RPCError(code: -32030, message: "No such agent session")
         }
-        let (process, acpID) = lock.withLock { (session.process, session.acpSessionID) }
-        guard let process, process.isRunning, let acpID else {
+        var (process, acpID) = lock.withLock { (session.process, session.acpSessionID) }
+        if process?.isRunning != true || acpID == nil {
+            // The agent ended (host restart, crash): bring it back first.
+            guard let spec = HarnessSpec.builtIn.first(where: { $0.id == session.info.harness }), let command = resolve(spec) else {
+                throw RPCError(code: -32034, message: "This agent is no longer installed on this Mac.")
+            }
+            setState(session, .starting)
+            try await start(session, command: command, resume: acpID)
+            (process, acpID) = lock.withLock { (session.process, session.acpSessionID) }
+        }
+        guard let process, let acpID else {
             throw RPCError(code: -32034, message: "This agent is no longer running. Start a new chat.")
         }
         append(session, .userPrompt, ["prompt": .array(params.prompt)])
@@ -382,6 +412,10 @@ final class AgentManager: @unchecked Sendable {
         persistInfo(info)
     }
 
+    private func persistACPID(_ id: String, _ acpID: String) {
+        try? acpID.write(to: storeURL.appendingPathComponent("\(id).acp"), atomically: true, encoding: .utf8)
+    }
+
     private func persistInfo(_ info: AgentSessionInfo) {
         let url = storeURL.appendingPathComponent("\(info.id).json")
         if let data = try? JSONEncoder.cnm.encode(info) { try? data.write(to: url, options: .atomic) }
@@ -408,6 +442,7 @@ final class AgentManager: @unchecked Sendable {
             else { continue }
             if info.state != .failed { info.state = .exited }
             let session = Session(info: info)
+            session.acpSessionID = try? String(contentsOf: file.deletingPathExtension().appendingPathExtension("acp"), encoding: .utf8)
             if let log = try? Data(contentsOf: file.deletingPathExtension().appendingPathExtension("jsonl")) {
                 let raw = log.split(separator: 0x0A).compactMap { try? JSONDecoder.cnm.decode(AgentEvent.self, from: Data($0)) }
                 for event in raw { Self.fold(event, into: &session.events) }
