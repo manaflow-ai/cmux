@@ -1,6 +1,7 @@
 import CmuxHomeCore
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextHomeEngine
 import Foundation
 
 /// The cloud half of Home (home-cloud-proxy.md): the daemon proxies the

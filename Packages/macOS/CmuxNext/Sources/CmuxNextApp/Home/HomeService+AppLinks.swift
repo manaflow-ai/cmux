@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextHomeEngine
 import Foundation
 
 extension HomeService {
