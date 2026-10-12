@@ -172,6 +172,20 @@ for line in sys.stdin:
                   "status": "killed", "reason": "Stopped by the agent", "output_file": "", "summary": ""})
             send({"type": "system", "subtype": "task_notification", "task_id": "b2", "tool_use_id": "toolu_bg2",
                   "status": "completed", "output_file": "", "summary": "Tests passed"})
+        # "fg-probe": a foreground Bash is a local_bash task too (not backgrounded), and a
+        # notification can name a call acpmux never saw run in the background.
+        if said.strip() == "fg-probe":
+            send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_fg", "name": "Bash",
+                  "input": {"command": "ls", "description": "List files"}}]}})
+            send({"type": "system", "subtype": "task_started", "task_id": "f1", "tool_use_id": "toolu_fg",
+                  "description": "List files", "task_type": "local_bash", "is_backgrounded": False})
+            for tid, tool in (("f1", "toolu_fg"), ("x1", "toolu_unknown")):
+                send({"type": "system", "subtype": "task_notification", "task_id": tid, "tool_use_id": tool,
+                      "status": "completed", "output_file": "", "summary": ""})
+        # "bg-left": a shell starts in the background and is still running when the turn ends.
+        if said.strip() == "bg-left":
+            send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_left", "name": "Bash",
+                  "input": {"command": "npm run dev", "run_in_background": True}}]}})
         # "todo-probe": the turn writes its todo list with Claude Code's TodoWrite tool.
         if said.strip() == "todo-probe":
             send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_todo", "name": "TodoWrite",
