@@ -22,7 +22,11 @@ export function deliverDictation(update: DictationUpdate): void {
 
 let autoSend = false;
 /// `layout.json` `{"dictation": {"autoSend": true}}` sends the prompt when a session ends with
-/// words. Off by default: dictated text waits for the user.
+/// words. Off by default: dictated text waits for the user. The host gates it, not this page:
+/// every session/prompt needs a real key or click in the pane within 30 s (AgentPaneUserGestures),
+/// which page script cannot make. A session the user stops (the mic, its shortcut) sends; one that
+/// ends by itself (sleep, the engine, a push-to-talk hold past 30 s) is refused, and its prompt
+/// stays in the composer with "Not sent. Send it again." (cx-w2p8r).
 export function configureDictation(layout: Record<string, unknown> | undefined): void {
   const dictation = layout?.dictation as { autoSend?: unknown } | undefined;
   autoSend = dictation?.autoSend === true;
