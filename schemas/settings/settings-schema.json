@@ -7199,6 +7199,7 @@
     {
       "accepts" : [
         "none",
+        "daily",
         "desktop",
         "david-death-of-marat",
         "goya-saturn",
@@ -22396,7 +22397,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "5269e4eb3bc1af7a643a7960017016c5439d1d26a97533402874b1860cce41ea",
+  "schema_hash" : "6a576e8fa5763b0dd8f311a8da77238ecd28ca243a01e467414bdf29ffddc56c",
   "sections" : [
     {
       "id" : "general",
