@@ -1460,127 +1460,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يربط وكيلٌ أداة تشغيل سطر الأوامر الخاصة بك بـ cmux باستخدام `cmux harness guide`."
+            "value": "يربط وكيلٌ أداة تشغيل سطر الأوامر الخاصة بك بـ cmux باستخدام cmux harness guide."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agent povezuje tvoj vlastiti CLI harness s cmux-om pomoću `cmux harness guide`."
+            "value": "Agent povezuje tvoj vlastiti CLI harness s cmux-om pomoću cmux harness guide."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "En agent kobler din egen CLI-harness til cmux med `cmux harness guide`."
+            "value": "En agent kobler din egen CLI-harness til cmux med cmux harness guide."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ein Agent bindet deinen eigenen CLI-Harness mit `cmux harness guide` in cmux ein."
+            "value": "Ein Agent bindet deinen eigenen CLI-Harness mit cmux harness guide in cmux ein."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "An agent wires your own CLI harness into cmux using `cmux harness guide`."
+            "value": "An agent wires your own CLI harness into cmux using cmux harness guide."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un agente conecta tu propio harness de CLI a cmux con `cmux harness guide`."
+            "value": "Un agente conecta tu propio harness de CLI a cmux con cmux harness guide."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un agent intègre votre propre harness CLI à cmux avec `cmux harness guide`."
+            "value": "Un agent intègre votre propre harness CLI à cmux avec cmux harness guide."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un agente collega il tuo harness CLI a cmux con `cmux harness guide`."
+            "value": "Un agente collega il tuo harness CLI a cmux con cmux harness guide."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントが `cmux harness guide` を使って独自の CLI ハーネスを cmux に組み込みます。"
+            "value": "エージェントが cmux harness guide を使って独自の CLI ハーネスを cmux に組み込みます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ភ្នាក់ងារមួយភ្ជាប់ CLI harness ផ្ទាល់ខ្លួនរបស់អ្នកទៅ cmux ដោយប្រើ `cmux harness guide`។"
+            "value": "ភ្នាក់ងារមួយភ្ជាប់ CLI harness ផ្ទាល់ខ្លួនរបស់អ្នកទៅ cmux ដោយប្រើ cmux harness guide។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "에이전트가 `cmux harness guide`로 직접 만든 CLI 하네스를 cmux에 연결합니다."
+            "value": "에이전트가 cmux harness guide로 직접 만든 CLI 하네스를 cmux에 연결합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "En agent kobler din egen CLI-harness til cmux med `cmux harness guide`."
+            "value": "En agent kobler din egen CLI-harness til cmux med cmux harness guide."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agent podłącza Twój własny harness CLI do cmux za pomocą `cmux harness guide`."
+            "value": "Agent podłącza Twój własny harness CLI do cmux za pomocą cmux harness guide."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Um agente conecta seu próprio harness de CLI ao cmux usando `cmux harness guide`."
+            "value": "Um agente conecta seu próprio harness de CLI ao cmux usando cmux harness guide."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Агент подключает ваш собственный CLI-харнесс к cmux с помощью `cmux harness guide`."
+            "value": "Агент подключает ваш собственный CLI-харнесс к cmux с помощью cmux harness guide."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เอเจนต์จะเชื่อมฮาร์เนส CLI ของคุณเข้ากับ cmux โดยใช้ `cmux harness guide`"
+            "value": "เอเจนต์จะเชื่อมฮาร์เนส CLI ของคุณเข้ากับ cmux โดยใช้ cmux harness guide"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bir ajan, `cmux harness guide` ile kendi CLI harness'inizi cmux'a bağlar."
+            "value": "Bir ajan, cmux harness guide ile kendi CLI harness'inizi cmux'a bağlar."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Агент підключає ваш власний CLI-харнес до cmux за допомогою `cmux harness guide`."
+            "value": "Агент підключає ваш власний CLI-харнес до cmux за допомогою cmux harness guide."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Một tác tử kết nối CLI harness của bạn vào cmux bằng `cmux harness guide`."
+            "value": "Một tác tử kết nối CLI harness của bạn vào cmux bằng cmux harness guide."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "由智能体使用 `cmux harness guide` 将你自己的 CLI Harness 接入 cmux。"
+            "value": "由智能体使用 cmux harness guide 将你自己的 CLI Harness 接入 cmux。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "由代理使用 `cmux harness guide` 將你自己的 CLI Harness 接入 cmux。"
+            "value": "由代理使用 cmux harness guide 將你自己的 CLI Harness 接入 cmux。"
           }
         }
       }

@@ -21,16 +21,19 @@ function GalleryHarnesses({ acpmux, signedOut }: Props) {
     return Promise.resolve({});
   };
   return (
-    <div className="acpmux-harnesses-gallery flex h-full" data-asked={asked} data-closed={closed ? "true" : "false"}>
-      {closed ? null : (
-        <HarnessesScreen
-          catalog={buildPickerCatalog({ catalog: BUNDLED_MODEL_CATALOG, acpmux })}
-          acpmux={acpmux}
-          cwd="/Users/you/src/cmux"
-          callNative={native}
-          onClose={() => setClosed(true)}
-        />
-      )}
+    <div
+      className="acpmux-shell acpmux-harnesses-gallery flex h-full"
+      data-asked={asked}
+      data-closed={closed ? "true" : "false"}
+    >
+      {/* Stays drawn after it closes, so the play can read what it asked. */}
+      <HarnessesScreen
+        catalog={buildPickerCatalog({ catalog: BUNDLED_MODEL_CATALOG, acpmux })}
+        acpmux={acpmux}
+        cwd="/Users/you/src/cmux"
+        callNative={native}
+        onClose={() => setClosed(true)}
+      />
     </div>
   );
 }
@@ -56,6 +59,7 @@ const signIn: Play = async (ctx) => {
 const custom: Play = async (ctx) => {
   await ctx.click({ selector: "[data-harness-custom]" });
   await asked(ctx, "chat.send");
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-harnesses-gallery[data-closed="true"]') !== null);
 };
 
 export default componentEntry<Props>({
