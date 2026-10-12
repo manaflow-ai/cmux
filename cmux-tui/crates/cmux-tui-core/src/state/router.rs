@@ -562,6 +562,26 @@ pub(crate) fn dispatch(
                     })?),
                     None => None,
                 },
+                before_ms: match string(fields, "before_ms") {
+                    Some(before) => Some(before.parse::<i64>().map_err(|_| {
+                        ResourceError::validation_invalid(None, "before_ms must be a decimal")
+                    })?),
+                    None => None,
+                },
+                keep_newest: match fields.get("keep_newest") {
+                    Some(keep) => Some(
+                        keep.as_u64()
+                            .and_then(|keep| u32::try_from(keep).ok())
+                            .filter(|keep| *keep >= 1)
+                            .ok_or_else(|| {
+                                ResourceError::validation_invalid(
+                                    Some("keep_newest"),
+                                    "keep_newest must be a whole number of at least 1",
+                                )
+                            })?,
+                    ),
+                    None => None,
+                },
             };
             let commit = mux
                 .state_delete_closed(&mutation(&request)?, expected_revision(fields)?, &delete)

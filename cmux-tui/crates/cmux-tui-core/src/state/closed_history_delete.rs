@@ -2,6 +2,10 @@
 //! (plans/cmux-next/reopen-closed.md, S1b). A group, chosen members of a
 //! group, every group, or every group closed at or after `since_ms` leave
 //! the history for good: they cannot be reopened, and their terminal
+//! archives go with them. Retention (`history.closed.maxAgeDays` and
+//! `maxGroups`, applied by the app like `history.commandRetentionDays`)
+//! uses the same op: `before_ms` deletes the groups closed before it and
+//! `keep_newest` every group but the newest N, or both in one pass. Their
 //! archives go with them. The resource and session journals keep what they
 //! already recorded (names, screen output) until their own retention. The
 //! request's key records the result, so a retry replays it.
@@ -17,13 +21,16 @@ use crate::state::store::{StateChanges, StateCommit, state_delete, state_upsert}
 const OPERATION: &str = "closed.delete";
 
 /// What a `closed.delete` request names: exactly one of `closed` (with
-/// optional `members`) or `all` (with optional `since_ms`).
+/// optional `members`) or `all` (with optional `since_ms`, `before_ms` and
+/// `keep_newest`).
 #[derive(Default)]
 pub(crate) struct DeleteRequest {
     pub(crate) closed: Option<String>,
     pub(crate) all: bool,
     pub(crate) members: Option<Vec<usize>>,
     pub(crate) since_ms: Option<i64>,
+    pub(crate) before_ms: Option<i64>,
+    pub(crate) keep_newest: Option<u32>,
 }
 
 impl DeleteRequest {
@@ -37,6 +44,16 @@ impl DeleteRequest {
             "bad request: members needs closed"
         );
         anyhow::ensure!(self.since_ms.is_none() || self.all, "bad request: since_ms needs all");
+        anyhow::ensure!(self.before_ms.is_none() || self.all, "bad request: before_ms needs all");
+        anyhow::ensure!(
+            self.keep_newest.is_none() || self.all,
+            "bad request: keep_newest needs all"
+        );
+        anyhow::ensure!(
+            self.keep_newest.is_none() || self.since_ms.is_none(),
+            "bad request: keep_newest cannot be combined with since_ms"
+        );
+        anyhow::ensure!(self.keep_newest != Some(0), "bad request: keep_newest must be at least 1");
         Ok(())
     }
 
@@ -54,6 +71,8 @@ impl DeleteRequest {
             "all": self.all,
             "members": members,
             "since_ms": self.since_ms,
+            "before_ms": self.before_ms,
+            "keep_newest": self.keep_newest,
         })
     }
 }
@@ -66,17 +85,39 @@ struct Deleted {
     changes: Vec<Value>,
 }
 
-/// Every group closed at or after `since_ms` (None: every group).
-fn groups_since(
+/// The groups an `all` request deletes, newest first: those closed at or
+/// after `since_ms` and before `before_ms`, plus, with `keep_newest`, every
+/// group but the newest N. With neither bound nor `keep_newest`: every group.
+fn groups_to_clear(
     transaction: &Transaction<'_>,
-    since_ms: Option<i64>,
+    request: &DeleteRequest,
 ) -> anyhow::Result<Vec<String>> {
-    let mut statement = transaction.prepare(
-        "SELECT closed_id FROM closed_groups WHERE closed_at_ms >= ?1 ORDER BY seq DESC",
-    )?;
-    Ok(statement
-        .query_map(params![since_ms.unwrap_or(0)], |row| row.get::<_, String>(0))?
-        .collect::<Result<Vec<_>, _>>()?)
+    let mut ids = Vec::new();
+    if request.keep_newest.is_none() || request.before_ms.is_some() {
+        let mut statement = transaction.prepare(
+            "SELECT closed_id FROM closed_groups WHERE closed_at_ms >= ?1 AND closed_at_ms < ?2
+             ORDER BY seq DESC",
+        )?;
+        ids = statement
+            .query_map(
+                params![request.since_ms.unwrap_or(0), request.before_ms.unwrap_or(i64::MAX)],
+                |row| row.get::<_, String>(0),
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+    }
+    if let Some(keep) = request.keep_newest {
+        let mut statement = transaction
+            .prepare("SELECT closed_id FROM closed_groups ORDER BY seq DESC LIMIT -1 OFFSET ?1")?;
+        let excess = statement
+            .query_map(params![i64::from(keep)], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        for id in excess {
+            if !ids.contains(&id) {
+                ids.push(id);
+            }
+        }
+    }
+    Ok(ids)
 }
 
 /// Delete `members` (indexes) of one group, or the whole group.
@@ -132,7 +173,7 @@ fn delete_in(
             delete_one(transaction, closed_id, request.members.as_deref(), &mut out)?;
         }
         None => {
-            for closed_id in groups_since(transaction, request.since_ms)? {
+            for closed_id in groups_to_clear(transaction, request)? {
                 delete_one(transaction, &closed_id, None, &mut out)?;
             }
         }

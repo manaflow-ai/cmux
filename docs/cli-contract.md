@@ -409,7 +409,7 @@ pinned to at most one room, so `unpin` names only the workspace.
 cmux closed list
 cmux closed <closed_id> reopen
 cmux closed <closed_id> delete [--members 0,2]
-cmux closed clear [--since-ms <unix ms>]
+cmux closed clear [--since-ms <unix ms>] [--before-ms <unix ms>] [--keep-newest <n>]
 ```
 
 The session keeps recently closed tabs, screens and workspaces. A tab reopens in
@@ -417,7 +417,9 @@ its pane (else the focused pane of its workspace), a screen in its workspace, a
 workspace as a new workspace. `delete` and `clear` remove groups for good (and
 their terminal archives; the journals keep what they already recorded). `delete
 --members` removes only those members; `clear --since-ms` removes only the
-groups closed at or after that time.
+groups closed at or after that time, `--before-ms` only those closed before it,
+and `--keep-newest` every group but the newest n. The app applies
+`history.closed.maxAgeDays` and `history.closed.maxGroups` through these.
 
 ### Other daemon scopes
 
