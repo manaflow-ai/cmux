@@ -244,6 +244,10 @@ pub struct Translator {
     /// The model id the chat's main loop last ran (its `message_start`): the
     /// `modelUsage` key for its window, which a picker alias is not.
     loop_model: Mutex<String>,
+    /// The API message each stream writes now (its `message_start`), by the
+    /// Agent tool call of a subagent's stream ("" for the chat's): its text
+    /// chunks' `messageId`, so a steer's answer starts its own row (cx-f51kv).
+    message_ids: Mutex<HashMap<String, String>>,
     /// Running file edits: tool_use id -> their ACP diff content, which their
     /// completion carries again so the diff outlives the tool's text result.
     edits: Mutex<HashMap<String, Value>>,
@@ -306,6 +310,7 @@ impl Translator {
             context_window: AtomicU64::new(0),
             context_used: AtomicU64::new(0),
             loop_model: Mutex::new(String::new()),
+            message_ids: Mutex::new(HashMap::new()),
             edits: Mutex::new(HashMap::new()),
         })
     }
