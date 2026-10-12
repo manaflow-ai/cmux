@@ -171,7 +171,8 @@
 .acpmux-newtab-all{--ui-ghost-end-bearing:5px;border:0;background:none;color:inherit;font-family:inherit;cursor:pointer}
 .acpmux-newtab-all:hover{color:var(--agent-text)}
 .acpmux-newtab-kind:focus-visible,.acpmux-newtab-all:focus-visible,.acpmux-newtab-default:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
-.acpmux-omni{margin-top:10px;padding:6px;border-radius:16px;background:color-mix(in srgb,var(--acpmux-composer-bg) 70%,transparent);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge);max-height:min(60vh,420px);overflow:auto}
+.acpmux-newtab-anchor{position:relative}
+.acpmux-omni{position:absolute;top:calc(100% + 10px);left:0;right:0;z-index:var(--layer-dropdown);box-sizing:border-box;padding:6px;border-radius:16px;background:var(--surface-popup);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),var(--ui-popup-shadow);max-height:min(60vh,420px);overflow:auto;overscroll-behavior:contain}
 .acpmux-omni-row{display:flex;align-items:center;gap:11px;height:40px;padding:0 10px 0 12px;border-radius:10px;color:var(--agent-soft);cursor:default;font-size:13.5px}
 .acpmux-omni-row>.acpmux-icon{flex:none;color:var(--acpmux-composer-dim)}
 .acpmux-omni-row.is-selected{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 8%,transparent);color:var(--agent-text)}

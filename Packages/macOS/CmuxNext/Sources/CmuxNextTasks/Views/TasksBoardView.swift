@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import SwiftUI
 
 /// Variant `board`: a column per status; dragging a card to another column
@@ -15,6 +16,7 @@ struct TasksBoardView: View {
                 }
             }
             .padding(12)
+            .thinScrollers()
         }
     }
 }
@@ -42,6 +44,7 @@ private struct BoardColumn: View {
                     }
                 }
                 .frame(maxWidth: .infinity)
+                .thinScrollers()
             }
         }
         .padding(6)

@@ -10,22 +10,6 @@ public nonisolated enum AgentPaneTabKind: String, CaseIterable, Codable, Sendabl
 /// An agent choice stays in the page and starts the chat; a terminal or
 /// browser choice asks the App to replace the tab (`tab.open`).
 public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
-    /// A host action shown as a New Tab tool card.
-    public struct Tool: Codable, Sendable, Equatable {
-        public var id: String
-        public var title: String
-        public var symbol: String
-        public var shortcut: String?
-        public var menu: [String]
-
-        public init(id: String, title: String, symbol: String, shortcut: String? = nil, menu: [String] = []) {
-            self.id = id
-            self.title = title
-            self.symbol = symbol
-            self.shortcut = shortcut
-            self.menu = menu
-        }
-    }
     /// The kind selected when the page opens: the kind of the tab it was
     /// opened from, so ⌘T keeps making what the user was using.
     public var kind: AgentPaneTabKind
@@ -58,8 +42,6 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     public var lastPicks: AgentPaneLastPicks?
     /// The home folder, so the field reads `~/path` as a folder.
     public var home: String?
-    /// Actions available from the New Tab page's Tools section.
-    public var tools: [Tool]
     /// Identifies the opening whose focused field must acknowledge readiness.
     public var inputToken: String?
     /// false: the page leaves its field unfocused (Cmd-L opened it for the omnibar, cx-e2aa);
@@ -75,7 +57,7 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     public init(kind: AgentPaneTabKind, hotkeys: [AgentPaneTabKind: String] = [:], cwd: String? = nil,
                 location: String? = nil, omnibar: AgentPaneOmnibar = AgentPaneOmnibar(), projects: [String] = [],
                 defaultKind: String? = nil, layout: AgentPaneNewTabLayout? = nil,
-                lastAgent: String? = nil, lastPicks: AgentPaneLastPicks? = nil, home: String? = nil, tools: [Tool] = [],
+                lastAgent: String? = nil, lastPicks: AgentPaneLastPicks? = nil, home: String? = nil,
                 template: String? = nil, templateSwitcher: Bool? = nil) {
         self.kind = kind
         self.hotkeys = Dictionary(uniqueKeysWithValues: hotkeys.map { ($0.key.rawValue, $0.value) })
@@ -92,7 +74,6 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
         self.lastAgent = lastAgent
         self.lastPicks = lastPicks
         self.home = home
-        self.tools = tools
         self.inputToken = nil
     }
 }

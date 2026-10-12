@@ -27,6 +27,7 @@ struct FeedListView: View {
                         }
                     }
                     .padding(.vertical, 4)
+                    .thinScrollers()
                 }
             }
         }
