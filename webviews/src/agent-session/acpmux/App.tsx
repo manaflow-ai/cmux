@@ -2278,6 +2278,8 @@ function AcpmuxPane() {
   // Integrate a harness (cx-uj5g8): the Harnesses page, in place of what the pane shows.
   const [harnessesOpen, setHarnessesOpen] = useState(false);
   useEffect(() => registerHarnessesPage(() => setHarnessesOpen(true)), []);
+  // Another chat in this pane (the sidebar, a link) shows that chat, not the page.
+  useEffect(() => setHarnessesOpen(false), [snapshot.sessionId]);
   // A chat it starts, and a login it runs, go to the chat's folder (a new chat's start folder).
   const harnessFolder = snapshot.summary?.cwd ?? startFolder;
   const retryModelsKey = (
