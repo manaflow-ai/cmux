@@ -86,33 +86,45 @@ const runDbTests = process.env.CMUX_DB_TEST === "1";
     process.env.CMUX_DB_POOL_MAX = "1";
     const { cloudDb, closeCloudDbForTests } = await import("../db/client");
     const { sql } = await import("drizzle-orm");
-    const settled: CloudDbQueryTiming[] = [];
+    type Recorded = { timing?: CloudDbQueryTiming; createdWhileHeld: boolean; settledAfterRelease?: boolean };
+    const recorded: Recorded[] = [];
+    let held = false;
+    let released = false;
     let transactionHolds: () => void = () => {};
     const holding = new Promise<void>((resolve) => { transactionHolds = resolve; });
-    setCloudDbQueryObserver(() => (timing) => { settled.push(timing); });
+    let queuedCreated: () => void = () => {};
+    const queuedIsCreated = new Promise<void>((resolve) => { queuedCreated = resolve; });
+    // Called when each query is created, before postgres.js sends it.
+    setCloudDbQueryObserver(() => {
+      const entry: Recorded = { createdWhileHeld: held && !released };
+      recorded.push(entry);
+      if (entry.createdWhileHeld) queuedCreated();
+      return (timing) => { entry.timing = timing; entry.settledAfterRelease = released; };
+    });
     try {
       await cloudDb().execute(sql`select 1 as warm`);
-      settled.length = 0;
       let releaseTransaction: () => void = () => {};
-      const released = new Promise<void>((resolve) => { releaseTransaction = resolve; });
+      const releaseSignal = new Promise<void>((resolve) => { releaseTransaction = resolve; });
       const transaction = cloudDb().transaction(async (tx) => {
         await tx.execute(sql`select 1 as inside_transaction`);
         transactionHolds();
-        await released;
+        await releaseSignal;
       });
-      // The transaction now holds the pool's only connection.
       await holding;
-      // `.then` starts the query now, while the transaction still holds the connection.
+      // The transaction now holds the pool's only connection.
+      held = true;
       const queued = cloudDb().execute(sql`select 1 as queued_behind_transaction`).then((rows) => rows);
-      const queuedTimingIndex = settled.length;
+      // Explicit signal: the queued query exists while the connection is held.
+      await queuedIsCreated;
+      released = true;
       releaseTransaction();
       await Promise.all([transaction, queued]);
-      // The queued query settles after everything the transaction ran, and it
-      // was not sent until the transaction gave the connection back.
-      const queuedTiming = settled.at(-1)!;
-      expect(settled.length).toBeGreaterThan(queuedTimingIndex);
-      expect(queuedTiming.failed).toBe(false);
-      expect(queuedTiming.acquireWaitMs).toBeGreaterThan(0);
+      const queuedEntry = recorded.find((entry) => entry.createdWhileHeld);
+      expect(queuedEntry?.timing?.failed).toBe(false);
+      // Created while the transaction held the connection, settled only after
+      // it was released, and not sent until then: a real acquire wait.
+      expect(queuedEntry?.settledAfterRelease).toBe(true);
+      expect(queuedEntry!.timing!.acquireWaitMs).toBeGreaterThan(0);
     } finally {
       await closeCloudDbForTests();
       if (savedPoolMax === undefined) delete process.env.CMUX_DB_POOL_MAX;
