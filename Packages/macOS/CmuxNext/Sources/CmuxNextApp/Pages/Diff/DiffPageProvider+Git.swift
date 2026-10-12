@@ -1,5 +1,6 @@
 import CmuxNextAgentPane
 import CmuxNextPages
+import CmuxNextSettings
 import CryptoKit
 import Foundation
 
