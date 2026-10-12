@@ -291,9 +291,11 @@ final class TabsModel {
 
     /// New browser tab (start page); `onCreated` gets its key as soon as it exists.
     @discardableResult
+    /// Nil when the host refused: the selection is unchanged and a notice
+    /// says why (never another tab in its place).
     func newBrowserTab(onCreated: ((String) -> Void)? = nil) async -> String? {
-        activeTerminalKey = nil
         let id = await browser.newTab(onCreated: { id in
+            self.activeTerminalKey = nil
             self.syncOrder()
             onCreated?(id)
         })
@@ -304,7 +306,10 @@ final class TabsModel {
     /// New terminal on the Mac, appended at the end and selected.
     @discardableResult
     func newTerminal(onCreated: ((String) -> Void)? = nil) async -> String? {
-        guard let client = connection.client else { return nil }
+        guard let client = connection.client else {
+            notice = "Couldn't open a terminal: not connected to your Mac."
+            return nil
+        }
         do {
             let t = try await client.createTerminal(cols: 80, rows: 24)
             if !terminals.contains(where: { $0.id == t.id }) { terminals.append(t) }
@@ -314,7 +319,7 @@ final class TabsModel {
             select(key)
             return key
         } catch {
-            notice = "Couldn't open a terminal: \((error as? LocalizedError)?.errorDescription ?? "\(error)")"
+            notice = BrowserModel.createFailureNotice("a terminal", error)
             return nil
         }
     }

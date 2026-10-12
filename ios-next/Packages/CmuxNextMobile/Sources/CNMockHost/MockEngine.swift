@@ -232,6 +232,7 @@ actor MockEngine {
         case .termList:
             return try encode(TerminalList(terminals: terminalOrder.compactMap { terminals[$0]?.info }))
         case .termCreate:
+            try refuseCreateIfRequested("terminal")
             return try encode(TerminalResult(terminal: createTerminal(try decode(params, TerminalCreateParams.self))))
         case .termAttach:
             return try encode(try attachTerminal(try decode(params, TerminalAttachParams.self), session: session))
@@ -258,6 +259,7 @@ actor MockEngine {
         case .browserList:
             return try encode(BrowserTabList(tabs: tabOrder.compactMap { tabs[$0]?.tab }))
         case .browserCreate:
+            try refuseCreateIfRequested("browser")
             return try encode(BrowserTabResult(tab: createTab(url: try decode(params, BrowserCreateParams.self).url)))
         case .browserAttach:
             return try encode(try attachTab(try decode(params, BrowserAttachParams.self), session: session))

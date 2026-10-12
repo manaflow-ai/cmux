@@ -73,4 +73,12 @@ extension MockEngine {
         if raw == "restart" { return BrowserMacStatus(state: .off, restartRequired: true, hostName: "Demo Mac") }
         return BrowserMacStatus(state: BrowserMacState(rawValue: raw) ?? .off, hostName: "Demo Mac")
     }
+
+    /// `CMUX_NEXT_MOCK_CREATE_FAIL=browser|terminal|all`: refuse that create
+    /// with `unsupported`, as a host mirroring the Mac's tabs did.
+    func refuseCreateIfRequested(_ kind: String) throws {
+        let raw = ProcessInfo.processInfo.environment["CMUX_NEXT_MOCK_CREATE_FAIL"] ?? ""
+        guard raw == kind || raw == "all" else { return }
+        throw RPCError(code: .unsupported, message: "Open, close and switch tabs on the Mac")
+    }
 }

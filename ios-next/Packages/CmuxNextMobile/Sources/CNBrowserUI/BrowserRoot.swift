@@ -710,41 +710,40 @@ struct BrowserScreen: View {
     /// take (index = tab count). The grid first scrolls so that slot is on
     /// screen, as the overview does for the active card.
     private func newTabFromOverview() {
-        guard zoomState.phase == .overview else { return }
-        // The new start page's card goes into the grid now (placeholder) so
-        // the zoom grows from its real frame; the created tab takes its place.
+        guard zoomState.phase == .overview, !newTabPending else { return }
+        // The new tab's card goes into the grid at once (placeholder in its
+        // slot); the zoom starts only once the host created the tab, from
+        // that slot. A refused create leaves the grid as it was, with a
+        // toast; it never opens some other tab instead.
         newTabIsTerminal = false
         newTabPending = true
-        zoomTabId = Self.newTabMarker
-        creatingTab = true
-        zoomDriver.start(from: 1, toOverview: false)
         Task {
-            let id = await tabs.newBrowserTab(onCreated: { id in
-                newTabPending = false
-                if zoomTabId == Self.newTabMarker { zoomTabId = id }
-            })
-            newTabPending = false
-            creatingTab = false
-            if zoomTabId == Self.newTabMarker { zoomTabId = id ?? tabs.activeKey }
+            let id = await tabs.newBrowserTab()
+            withAnimation(motion.resolve(motion.reflow)) { newTabPending = false }
+            guard let id else { return }
+            openCreated(id)
         }
+    }
+
+    /// Zooms from a just-created tab's card into it (grid only).
+    private func openCreated(_ key: String) {
+        guard zoomState.phase == .overview, tabs.items.contains(where: { $0.id == key }) else { return }
+        zoomTabId = key
+        zoomDriver.go(toOverview: false)
     }
 
     /// (+) > New Terminal: the terminal's card goes into the grid at once and
     /// the zoom grows from it into the terminal.
     private func newTerminalFromOverview() {
-        guard zoomState.phase == .overview else { return }
+        guard zoomState.phase == .overview, !newTabPending else { return }
         newTabIsTerminal = true
         newTabPending = true
-        zoomTabId = Self.newTabMarker
-        zoomDriver.start(from: 1, toOverview: false)
         Task {
-            let key = await tabs.newTerminal(onCreated: { key in
-                newTabPending = false
-                if zoomTabId == Self.newTabMarker { zoomTabId = key }
-            })
-            newTabPending = false
+            let key = await tabs.newTerminal()
+            withAnimation(motion.resolve(motion.reflow)) { newTabPending = false }
             newTabIsTerminal = false
-            if zoomTabId == Self.newTabMarker { zoomTabId = key ?? tabs.activeKey }
+            guard let key else { return }
+            openCreated(key)
         }
     }
 
