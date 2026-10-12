@@ -9,7 +9,7 @@
 // CMUX_REACT_COMPILER selects (reactCompiler.mjs; the pass is reactCompilerPlugin.mjs), then
 // esbuild bundles and minifies as before. Components the compiler skips or bails out on are
 // listed on stderr, and as JSON with --report, so a bailout is visible in review.
-import { build } from "esbuild";
+import { analyzeMetafile, build } from "esbuild";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { reactCompilerMode } from "../../reactCompiler.mjs";
@@ -35,7 +35,8 @@ const reactCompiler = reactCompilerPlugin({
   onDiagnostic: (diagnostic) => bailouts.push(diagnostic),
 });
 
-await build({
+const result = await build({
+  metafile: true,
   entryPoints: [entry],
   bundle: true,
   format: "esm",
@@ -50,6 +51,7 @@ await build({
   plugins: [reactCompiler, tailwindPlugin],
 });
 
+console.error("BUNDLE-ANALYZE " + outfile + "\n" + (await analyzeMetafile(result.metafile)).split("\n").slice(0, 120).join("\n"));
 bailouts.sort((a, b) => `${a.file}:${a.line}`.localeCompare(`${b.file}:${b.line}`));
 if (bailouts.length) {
   console.error(
