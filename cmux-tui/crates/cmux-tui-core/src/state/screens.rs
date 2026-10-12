@@ -45,6 +45,8 @@ pub(crate) enum ScreenResult {
 pub(crate) struct ScreenEdit {
     pub(crate) screens: ScreenPresentationState,
     pub(crate) result: ScreenResult,
+    /// An ungrouped screen group, kept as one closed-history group.
+    pub(crate) ungrouped: Option<Value>,
 }
 
 /// One v2 screen request.
@@ -96,7 +98,7 @@ fn screen_rows_write(
     before: &ScreenPresentationState,
     edit: ScreenEdit,
 ) -> crate::resource_mutation::PlanStateWrite {
-    let ScreenEdit { screens, result: result_kind } = edit;
+    let ScreenEdit { screens, result: result_kind, .. } = edit;
     let mut touched_screens = BTreeSet::new();
     for id in before.screens.keys().chain(screens.screens.keys()) {
         if before.screens.get(id) != screens.screens.get(id) {
@@ -169,7 +171,7 @@ fn screen_rows_write(
 
 impl Mux {
     /// The live screen with this public id.
-    fn screen_id_of(&self, public: &str) -> Option<ScreenId> {
+    pub(crate) fn screen_id_of(&self, public: &str) -> Option<ScreenId> {
         self.with_state(|state| {
             state
                 .workspaces
@@ -201,7 +203,11 @@ impl Mux {
             |state, registry| {
                 let mut projected = state.clone();
                 let before = mux.presentation_snapshot().screens.clone();
-                let mut edit = ScreenEdit { screens: before.clone(), result: ScreenResult::None };
+                let mut edit = ScreenEdit {
+                    screens: before.clone(),
+                    result: ScreenResult::None,
+                    ungrouped: None,
+                };
                 let result = mutate(&mux, &mut projected, &mut edit)?;
                 screen_groups::prune_screen_state(&projected, &mut edit.screens);
                 for workspace in &mut projected.workspaces {
@@ -300,8 +306,19 @@ impl Mux {
             StateEffects::PRESENTATION,
             |transaction, state| {
                 let before = self.presentation_snapshot().screens.clone();
-                let mut edit = ScreenEdit { screens: before.clone(), result: ScreenResult::None };
+                let mut edit = ScreenEdit {
+                    screens: before.clone(),
+                    result: ScreenResult::None,
+                    ungrouped: None,
+                };
                 output = Some(mutate(state, &mut edit)?);
+                if let Some(archive) = edit.ungrouped.take() {
+                    crate::state::closed_history_store::record_ungrouped_group(
+                        transaction,
+                        "screen_group",
+                        &archive,
+                    )?;
+                }
                 screen_groups::prune_screen_state(state, &mut edit.screens);
                 let mut result = Value::Null;
                 let mut changes = Vec::new();

@@ -450,6 +450,19 @@ impl Mux {
         name: Option<String>,
         color: Option<String>,
     ) -> anyhow::Result<(String, ResourcePatchCommit)> {
+        self.create_screen_group_with_id(request, members, name, color, new_screen_group_id())
+    }
+
+    /// [`Self::create_screen_group_request`] with the group's id given: a
+    /// reopened ungroup forms its group again under its own id.
+    pub(crate) fn create_screen_group_with_id(
+        self: &Arc<Self>,
+        request: StripRequest,
+        members: &[ScreenId],
+        name: Option<String>,
+        color: Option<String>,
+        id: String,
+    ) -> anyhow::Result<(String, ResourcePatchCommit)> {
         anyhow::ensure!(
             !members.is_empty(),
             "bad request: a screen group needs at least one screen"
@@ -458,7 +471,6 @@ impl Mux {
         let color = color.unwrap_or_else(|| "grey".to_string());
         validate_tab_group_name(&name)?;
         validate_tab_group_color(&color)?;
-        let id = new_screen_group_id();
         let (_, commit) = self.commit_screen_request(request, |_, state, edit| {
             edit.result = ScreenResult::Group(id.clone());
             let screens = &mut edit.screens;
@@ -773,15 +785,29 @@ impl Mux {
         let members = self.screen_group_outcome(group).members;
         let (_, commit) = self.commit_screen_rows(request, |state, edit| {
             let screens = &mut edit.screens;
-            anyhow::ensure!(screens.groups.remove(group).is_some(), "unknown screen group {group}");
+            let record = screens
+                .groups
+                .remove(group)
+                .with_context(|| format!("unknown screen group {group}"))?;
             screens.members.retain(|_, member| member != group);
-            edit.result = ScreenResult::Release {
-                group: group.to_string(),
-                screens: members
-                    .iter()
-                    .filter_map(|screen| screen_public_id(state, *screen).ok())
-                    .collect(),
-            };
+            let screen_ids = members
+                .iter()
+                .filter_map(|screen| screen_public_id(state, *screen).ok())
+                .collect::<Vec<_>>();
+            let workspace = state
+                .workspaces
+                .iter()
+                .find(|workspace| workspace.key == record.workspace_key)
+                .map(|workspace| workspace.public_id.to_string());
+            edit.ungrouped = Some(serde_json::json!({
+                "id": record.id,
+                "workspace_id": workspace,
+                "name": record.name,
+                "color": record.color,
+                "collapsed": record.collapsed,
+                "screen_ids": screen_ids,
+            }));
+            edit.result = ScreenResult::Release { group: group.to_string(), screens: screen_ids };
             Ok(())
         })?;
         if !commit.replayed {
