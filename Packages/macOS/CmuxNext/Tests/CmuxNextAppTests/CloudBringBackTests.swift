@@ -48,7 +48,7 @@ struct CloudBringBackTests {
     @Test func aFileAskFromAMovedChatShowsACardAndOnlyThePersonsClickAnswersIt() async throws {
         try await Self.withRoundTrip("access") { trip in
             let triage = ["link", "access", "triage", "--socket", trip.vmSocket, "--machine", "vm-move", "--session", "chat-on-vm"]
-            let card = try #require(await trip.toolCards().first, "no card in the moved chat; calls: \(trip.accessCalls())")
+            let card = try #require(await trip.toolCards()?.first, "no card in the moved chat; calls: \(trip.accessCalls())")
             #expect(trip.accessCalls().contains(triage), "\(trip.accessCalls())")
             #expect(CloudMoveTests.actionIDs(card) == ["allow", "always", "deny"])
             #expect(CloudMoveTests.text(card, "text")?.contains(trip.project.path + "/plan.md") == true, "\(card)")
