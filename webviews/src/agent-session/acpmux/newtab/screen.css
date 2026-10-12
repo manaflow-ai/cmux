@@ -289,7 +289,7 @@
 /* A project's header in Projects: its folder and count; a click folds its chats. */
 .nt-all-group{display:flex;align-items:center;gap:6px;width:100%;height:100%;padding:0 10px;box-sizing:border-box;border:0;border-radius:8px;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:var(--text-detail);font-weight:500;text-align:left;cursor:default;white-space:nowrap}
 .nt-all-group:hover,.nt-all-group:focus-visible{outline:0;color:var(--agent-text)}
-.nt-all-group-chevron{flex:none;transform:rotate(90deg);transition:transform .12s ease}
+.nt-all-group-chevron{flex:none;transform:rotate(90deg);transition:transform var(--agent-motion-in,.12s) var(--agent-ease-out,ease-out)}
 .nt-all-group[aria-expanded=false] .nt-all-group-chevron{transform:none}
 .nt-all-group-name{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .nt-all-group-count{flex:none;font-variant-numeric:tabular-nums;opacity:.8}
