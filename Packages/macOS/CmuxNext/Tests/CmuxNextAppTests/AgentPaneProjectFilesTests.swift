@@ -152,6 +152,19 @@ struct AgentPaneProjectFilesTests {
         #expect(!FileManager.default.fileExists(atPath: rig.folder + "/.cmux"))
     }
 
+    /// A link to an instructions file in a subfolder is refused: the added paths are relative to
+    /// the chat folder, so they would point at nothing from there.
+    @Test func refusesAnInstructionsFileInASubfolder() async throws {
+        let rig = try Rig()
+        try FileManager.default.createDirectory(atPath: rig.folder + "/docs", withIntermediateDirectories: true)
+        try "Use tabs.\n".write(toFile: rig.folder + "/docs/AGENTS.md", atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(atPath: rig.folder + "/CLAUDE.md", withDestinationPath: "docs/AGENTS.md")
+        rig.picks = [try rig.file("spec.md", "# Spec")]
+        #expect(Self.errorCode(await rig.add()) == AgentPaneTransportError.pathInvalid.rawValue)
+        #expect(rig.read("docs/AGENTS.md") == "Use tabs.\n")
+        #expect(!FileManager.default.fileExists(atPath: rig.folder + "/.cmux"))
+    }
+
     /// A cancelled pick writes and opens nothing.
     @Test func cancelledPickChangesNothing() async throws {
         let rig = try Rig()
