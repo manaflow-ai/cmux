@@ -1,8 +1,9 @@
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
 // The agent's todo list in the real agent pane (cx-ncc.80, Claude parity): Claude's TodoWrite (an
 // ACP `plan` update through acpmux; Codex sends `plan` itself) draws as a checklist, not a muted
-// line, and a turn's later updates redraw its one list in place. The page is the pane's dev entry
-// with its browser host, talking JSON-RPC to a stand-in acpmux daemon.
+// line, and a turn's later updates redraw its one list in place. Each item says its state to a
+// screen reader, and the TodoWrite tool calls behind the list draw no rows of their own. The page
+// is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux daemon.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -32,6 +33,15 @@ await requireBrowserLane("agent-pane-plan.test.ts", async () => {
   const todo = (content: string, status: string) => ({ content, status, priority: "medium" });
   const plan = (...entries: object[]) => update({ sessionUpdate: "plan", entries });
   type Step = [dir: string, kind: string, msg: Record<string, unknown>];
+  /// Claude's TodoWrite tool call, which acpmux sends right after the plan it wrote.
+  const todoWrite = (id: string): Step[] => [
+    [
+      "in",
+      "tool_call",
+      update({ sessionUpdate: "tool_call", toolCallId: id, title: "TodoWrite", kind: "other", status: "in_progress" }),
+    ],
+    ["in", "tool_call_update", update({ sessionUpdate: "tool_call_update", toolCallId: id, status: "completed" })],
+  ];
   const steps: Step[] = [
     ["mux", "user_message", { text: "Add retry, cover it, update the docs" }],
     ["mux", "turn_started", {}],
@@ -44,6 +54,7 @@ await requireBrowserLane("agent-pane-plan.test.ts", async () => {
         todo("Update the docs", "pending"),
       ),
     ],
+    ...todoWrite("todo-1"),
     ["in", "agent_message_chunk", say("Retry added.")],
     [
       "in",
@@ -54,38 +65,48 @@ await requireBrowserLane("agent-pane-plan.test.ts", async () => {
         todo("Update the docs", "in_progress"),
       ),
     ],
+    ...todoWrite("todo-2"),
     ["in", "agent_message_chunk", say(" All three done.")],
     ["mux", "turn_result", { status: "completed" }],
   ];
-  const events = steps.map(([dir, kind, msg], index) => ({
-    sessionId: CHAT,
-    seq: index + 1,
-    at: START + index * 1000,
-    dir,
-    kind,
-    msg,
-  }));
-  const session = {
-    sessionId: CHAT,
+  // A turn still running: its tool calls show outside any fold.
+  const LIVE = "0190a000-0000-7000-8000-0000000000a2";
+  const liveSteps: Step[] = [
+    ["mux", "user_message", { text: "Add retry and cover it" }],
+    ["mux", "turn_started", {}],
+    ["in", "agent_message_chunk", say("I'll track this.")],
+    ["in", "plan", plan(todo("Add retry to the uploader", "in_progress"), todo("Cover it with a test", "pending"))],
+    ...todoWrite("todo-live"),
+    ["in", "agent_message_chunk", say("Adding retry now.")],
+  ];
+  const record = (sessionId: string, list: Step[]) =>
+    list.map(([dir, kind, msg], index) => ({ sessionId, seq: index + 1, at: START + index * 1000, dir, kind, msg }));
+  const events = record(CHAT, steps);
+  const liveEvents = record(LIVE, liveSteps);
+  const entry = (sessionId: string, status: string) => ({
+    sessionId,
     cwd: "/home/dev/uploader",
     title: "Uploader retry",
     harness: "claude",
     family: "claude",
-    status: "idle",
+    status,
     turnCount: 1,
     updatedAt: START,
-  };
+  });
+  const session = entry(CHAT, "idle");
+  const live = entry(LIVE, "running");
 
-  function answer(method: string): unknown {
+  function answer(method: string, params: Record<string, any> = {}): unknown {
+    const [chat, chatEvents] = params.sessionId === LIVE ? [live, liveEvents] : [session, events];
     switch (method) {
       case "initialize":
         return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
       case "_acpmux/watch":
-        return { sessions: [session] };
+        return { sessions: [session, live] };
       case "_acpmux/attach":
-        return { session, lastSeq: events.length, events };
+        return { session: chat, lastSeq: chatEvents.length, events: chatEvents };
       case "_acpmux/events":
-        return { events: [], hasMore: false, lastSeq: events.length };
+        return { events: [], hasMore: false, lastSeq: chatEvents.length };
       default:
         return null;
     }
@@ -110,7 +131,9 @@ await requireBrowserLane("agent-pane-plan.test.ts", async () => {
         message(ws, raw) {
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
           if (message.id !== undefined)
-            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
+            ws.send(
+              JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params ?? {}) }),
+            );
         },
       },
     });
@@ -150,21 +173,43 @@ await requireBrowserLane("agent-pane-plan.test.ts", async () => {
       [...document.querySelectorAll(".cv-plan")].map((list) => ({
         heading: list.querySelector(".cv-plan__heading")?.textContent,
         items: [...list.querySelectorAll(".cv-plan__item")].map((item) => [
-          item.textContent,
+          item.querySelector(".cv-plan__text")?.textContent,
           item.getAttribute("data-status"),
+          // What a screen reader hears for the item's state (the marks are drawn only).
+          item.querySelector(".cv-plan__state")?.textContent,
         ]),
       })),
     );
+    // Heard, not drawn: the state word takes no room beside the item.
+    expect(
+      await page.evaluate(() =>
+        [...document.querySelectorAll(".cv-plan__state")].every((node) => node.getBoundingClientRect().width <= 1),
+      ),
+    ).toBe(true);
     expect(lists).toEqual([
       {
         heading: "2 of 3 tasks done",
         items: [
-          ["Add retry to the uploader", "completed"],
-          ["Cover it with a test", "completed"],
-          ["Update the docs", "in_progress"],
+          ["Add retry to the uploader", "completed", "Done"],
+          ["Cover it with a test", "completed", "Done"],
+          ["Update the docs", "in_progress", "In progress"],
         ],
       },
     ]);
+
+    await page.close();
+  });
+  test("while the turn runs, the checklist stands for its TodoWrite calls", async () => {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await page.goto(url(LIVE));
+    await page.getByText("Adding retry now.").waitFor();
+    expect(await page.locator(".cv-plan__item").count()).toBe(2);
+    expect(await page.getByText("TodoWrite").count()).toBe(0);
+    // The checklist keeps its place between the text before it and the text after it.
+    const top = (text: string) => page.getByText(text).evaluate((node) => node.getBoundingClientRect().top);
+    const list = await page.locator(".cv-plan").evaluate((node) => node.getBoundingClientRect().top);
+    expect(await top("I'll track this.")).toBeLessThan(list);
+    expect(list).toBeLessThan(await top("Adding retry now."));
     await page.close();
   });
 });

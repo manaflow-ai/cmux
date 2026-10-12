@@ -161,6 +161,7 @@ public struct SettingsSchemaExport {
         case .points: "points"
         case .seconds: "seconds"
         case .minutes: "minutes"
+        case .days: "days"
         case .count: "count"
         case .fraction: "fraction"
         }

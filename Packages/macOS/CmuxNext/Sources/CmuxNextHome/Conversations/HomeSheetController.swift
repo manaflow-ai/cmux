@@ -14,7 +14,7 @@ public class HomeSheetController: NSViewController {
     let titleLabel = ThemedLabel(labelWithString: "")
     let stack = NSStackView()
     let statusLabel = ThemedLabel(wrappingLabelWithString: "")
-    let cancelButton = NSButton(title: HomeConversationStrings.cancel, target: nil, action: nil)
+    let cancelButton = ThemedBezelButton(title: HomeConversationStrings.cancel, target: nil, action: nil)
     let primaryButton = ThemedDefaultButton(title: "", target: nil, action: nil)
     let buttons = NSStackView()
     private(set) var isRunning = false

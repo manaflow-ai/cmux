@@ -344,6 +344,15 @@ cmux workspace current run shell 'cargo test && printf ready'
 
 The client never reads or expands `$SHELL`.
 
+`workspace create` starts the new workspace's first terminal the same way:
+`--cwd <path>` sets its folder, and exact argv after `--` or `--shell <script>`
+replaces the login shell. Apps need the `workspace:execute` scope for a command.
+
+```bash
+cmux workspace create --name build --cwd ~/src/app -- make watch
+cmux workspace create --cwd ~/src/app --shell 'npm install && npm run dev'
+```
+
 Both run forms accept `--on-exit <close|keep>`. `close` (the default)
 detaches every view when the process exits and leaves only the durable exit
 receipt. `keep` retains the tab and the final screen next to that receipt
@@ -465,6 +474,7 @@ git commit [TARGET] --message <text> [--all [--include-untracked]] [--amend] [--
 git push [TARGET] [--remote <name>] [--branch <name>] [--set-upstream | --no-set-upstream] [--expected-head <commit>]
 git worktree create [TARGET] [--name <name>] [--base <revision>]
 git worktree apply [TARGET]
+git worktree remove [TARGET] [--discard]
 notify [--title <text>] [--subtitle <text>] [--body <text>] [--clear] [--surface <term_id|current>] [--workspace <ws_id|current>]
 conversation list                                             (cmux-tui only)
 conversation <conv_id> get [--tail <0..500>]
@@ -696,6 +706,22 @@ does not track, at those paths, listed in `extra.files`), `does_not_apply` or
 `git_failed`. A retry after a lost reply or a timeout finds the work applied
 instead of applying it twice; one stopped while git wrote the files is refused
 as `interrupted`, as the main checkout may hold part of it.
+
+`git worktree remove` (`git.worktree.remove`, capability `git-worktree-remove-v1`),
+run in a linked worktree, removes it with `git worktree remove` from the main
+checkout, in the user's environment and only on this machine; the folder goes
+with its ignored files. Its branch goes too, with its settings, when `git
+worktree create` made it (`cmux/<name>` with a recorded base); any other branch
+stays. Without `--discard` it refuses, changing nothing, with
+`uncommitted_changes` (tracked or untracked files; `extra.files` lists up to 20,
+`extra.count` all) or `unpushed_commits` (commits on no other branch and no
+remote, on a detached HEAD or on the branch that goes; `extra.count`), checked
+again right before the folder and the branch go: a branch that got new commits
+meanwhile stays. With `--discard` that work is lost. The main checkout is
+refused as `not_a_worktree`, and other worktrees are never touched. The result
+is the removed `root`, `main_root`, the `branch` and whether it was deleted
+(`branch_deleted`). A retry after a timeout finishes what the first attempt
+started; once the folder is gone, a request naming it finds no repository.
 
 ## Local sidebar plugins
 

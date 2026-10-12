@@ -1,5 +1,5 @@
 //! Terminal command history from OSC 133 prompt marks
-//! (`terminal-command-journal-v1`, plans/cmux-next/history.md section 6).
+//! (`terminal-command-history-v1`, plans/cmux-next/history.md section 6).
 //!
 //! Shell integration (Ghostty's bash, zsh, fish and elvish scripts, and
 //! most others) brackets each command with OSC 133 marks: `A` prompt start,
@@ -12,39 +12,33 @@
 //! the local path of the terminal's OSC 7 directory at `C`.
 //!
 //! Recording is opt-in per daemon (`set-terminal-command-history`), off by
-//! default: nothing is journaled and no screen text is read until a client
-//! turns it on. A command line can hold secrets, so the journal record is
-//! `sensitive` (trusted local clients only) and capped at
-//! [`MAX_COMMAND_BYTES`]. No `C` mark is emitted at a password prompt, so a
-//! typed password is never read. A terminal finishes at most
-//! [`MAX_COMMANDS_PER_SECOND`] commands a second: a program that prints marks
-//! in a loop cannot flood the journal.
+//! default: nothing is stored and no screen text is read until a client
+//! turns it on. A command line can hold secrets, so finished commands are
+//! deletable rows in the workspace registry (`command_history_store`, with a
+//! retention), never session journal records, readable by trusted local
+//! clients only and capped at [`MAX_COMMAND_BYTES`]. No `C` mark is emitted
+//! at a password prompt, so a typed password is never read. A terminal
+//! finishes at most [`MAX_COMMANDS_PER_SECOND`] commands a second: a program
+//! that prints marks in a loop cannot flood the store.
 
-use serde_json::json;
-
-use crate::resource::TerminalPublicId;
-use crate::{
-    JournalClass, JournalEventSchema, JournalIngress, JournalProducerManifest, JournalReplayPolicy,
-    JournalSensitivity, JournalSubject,
-};
-
-/// The reserved producer of terminal command records.
+/// A reserved journal producer id. Development builds before
+/// `terminal-command-history-v1` journaled commands under it; it stays
+/// reserved so no plugin or client can append records that look like them.
 pub(crate) const SHELL_PRODUCER_ID: &str = "cmux_shell";
-pub(crate) const SHELL_PRODUCER_MANIFEST_VERSION: u32 = 1;
 
 /// Longest command line kept, in UTF-8 bytes (cut at a character boundary).
 pub(crate) const MAX_COMMAND_BYTES: usize = 1024;
+/// Longest working directory kept, in UTF-8 bytes; a longer one is dropped.
+pub(crate) const MAX_CWD_BYTES: usize = 4096;
 /// Marks waiting for the owner to take them; a reader that never drains
 /// keeps only the newest.
 pub(crate) const MAX_PENDING_MARKS: usize = 32;
 /// Most finished commands one terminal records in one second; the rest drop.
 pub(crate) const MAX_COMMANDS_PER_SECOND: usize = 10;
-/// Finished commands waiting for the journal worker; beyond it they drop.
+/// Finished commands waiting for the history worker; beyond it they drop.
 pub(crate) const MAX_QUEUED_COMMANDS: usize = 256;
 /// Rows scanned up from the cursor for the submitted input block.
 pub(crate) const MAX_INPUT_ROWS: u32 = 32;
-/// Journal kind of a finished command.
-pub(crate) const COMMAND_FINISHED_KIND: &str = "shell.command.finished";
 
 /// One OSC 133 mark.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -158,10 +152,12 @@ impl CommandTracker {
 }
 
 /// The local path of an OSC 7 report (`file://host/path`), or `None` for
-/// another host's directory or an unreadable report.
+/// another host's directory, an unreadable report, or a path longer than
+/// [`MAX_CWD_BYTES`] (no store keeps an unbounded program-supplied string).
 pub(crate) fn command_cwd(report: &str) -> Option<String> {
     crate::platform::terminal_pwd_to_local_path(report)
         .map(|path| path.to_string_lossy().into_owned())
+        .filter(|path| path.len() <= MAX_CWD_BYTES)
 }
 
 /// A command line as stored: trimmed, without control characters, cut to
@@ -177,63 +173,6 @@ pub(crate) fn clean_command(text: &str) -> Option<String> {
         end -= 1;
     }
     Some(trimmed[..end].trim_end().to_owned())
-}
-
-/// The reserved `cmux_shell` producer: one observation kind, sensitive.
-pub(crate) fn built_in_shell_producer_manifest() -> JournalProducerManifest {
-    let payload_schema = json!({
-        "type":"object",
-        "required":["started_at_ms","duration_ms"],
-        "properties":{
-            "command":{"type":["string","null"],"maxLength":MAX_COMMAND_BYTES},
-            "cwd":{"type":["string","null"],"maxLength":4096},
-            "exit_code":{"type":["integer","null"]},
-            "started_at_ms":{"type":"string","pattern":"^[0-9]{1,20}$"},
-            "duration_ms":{"type":"string","pattern":"^[0-9]{1,20}$"}
-        },
-        "additionalProperties":false
-    });
-    JournalProducerManifest {
-        producer_id: SHELL_PRODUCER_ID.into(),
-        namespace: "shell".into(),
-        manifest_version: SHELL_PRODUCER_MANIFEST_VERSION,
-        max_sensitivity: JournalSensitivity::Sensitive,
-        permissions: vec!["journal.append.shell".into()],
-        events: vec![JournalEventSchema {
-            kind: COMMAND_FINISHED_KIND.into(),
-            schema_version: 1,
-            class: JournalClass::Observation,
-            replay: JournalReplayPolicy::Advisory,
-            sensitivity: JournalSensitivity::Sensitive,
-            payload_schema,
-        }],
-    }
-}
-
-/// The journal record of `command` run in `terminal`. Times are decimal
-/// strings, like the journal's own sequence numbers.
-pub(crate) fn command_journal_ingress(
-    terminal: &TerminalPublicId,
-    command: &FinishedCommand,
-) -> JournalIngress {
-    JournalIngress {
-        producer_id: SHELL_PRODUCER_ID.into(),
-        manifest_version: SHELL_PRODUCER_MANIFEST_VERSION,
-        kind: COMMAND_FINISHED_KIND.into(),
-        schema_version: 1,
-        occurred_at_ms: None,
-        subjects: vec![JournalSubject { kind: "terminal".into(), id: terminal.to_string() }],
-        sensitivity: Some(JournalSensitivity::Sensitive),
-        payload: json!({
-            "command": command.command,
-            "cwd": command.cwd,
-            "exit_code": command.exit_code,
-            "started_at_ms": command.started_at_ms.to_string(),
-            "duration_ms": command.duration_ms.to_string(),
-        }),
-        causation_id: None,
-        correlation_id: None,
-    }
 }
 
 /// [`CommandScreen`] over a live terminal.

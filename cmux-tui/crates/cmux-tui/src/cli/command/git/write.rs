@@ -93,6 +93,18 @@ pub(super) fn worktree_apply(
     request(Op::GitWorktreeApply, selectors, flags, params)
 }
 
+/// `git worktree remove [--discard]`: the worktree and its branch.
+pub(super) fn worktree_remove(
+    flags: &mut Flags,
+    selectors: &Selectors,
+    mut params: Map<String, Value>,
+) -> Result<CommandPlan, UsageError> {
+    if flags.boolean("discard") {
+        params.insert("discard".into(), Value::Bool(true));
+    }
+    request(Op::GitWorktreeRemove, selectors, flags, params)
+}
+
 fn expected_head(flags: &mut Flags, params: &mut Map<String, Value>) {
     if let Some(head) = flags.take("expected-head") {
         params.insert("expected_head".into(), Value::String(head));
@@ -111,7 +123,11 @@ pub(in crate::cli) fn localize_commit_paths(
     let write = matches!(
         operation,
         WireOperation::Typed(
-            Op::GitCommit | Op::GitPush | Op::GitWorktreeCreate | Op::GitWorktreeApply,
+            Op::GitCommit
+                | Op::GitPush
+                | Op::GitWorktreeCreate
+                | Op::GitWorktreeApply
+                | Op::GitWorktreeRemove,
         )
     );
     if !write {

@@ -94,8 +94,8 @@ nonisolated struct DaemonHistoryEntry: Decodable, Sendable, Equatable {
                                           workspace: workspace, startedAt: time, lastActivityAt: time,
                                           endedAt: running == true ? nil : time))
         case .command:
-            payload = .command(TerminalCommand(machine: machine ?? "local", terminal: "", command: command, cwd: cwd,
-                                               exitCode: exitCode, startedAt: time, duration: nil))
+            // Commands come from the daemons' command rows (CommandHistory), not the history module.
+            return nil
         }
         return HistoryEntry(id: id, kind: kind, time: time, title: title, detail: detail, machineName: machine,
                             isAvailable: available, payload: payload)

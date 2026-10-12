@@ -26,7 +26,7 @@ import {
   sourceSelectionWithActiveRepo,
   validDiffSource,
 } from "./session";
-import { type AppAction, type AppState, type DiffViewerLayout } from "./state";
+import { splitFits, type AppAction, type AppState, type DiffViewerLayout } from "./state";
 
 export function Toolbar({
   activeSessionSource,
@@ -144,7 +144,7 @@ export function DiffPill({
   };
   return (
     <FloatingToolbar
-      buttons={toolbarPillButtons(state)}
+      buttons={toolbarPillButtons({ ...state, splitFits: splitFits(state.viewerWidth) })}
       label={label}
       menuItems={overflowMenuItems(state.options, NO_HOST_CAPABILITIES)}
       menuOpen={state.optionsOpen}
