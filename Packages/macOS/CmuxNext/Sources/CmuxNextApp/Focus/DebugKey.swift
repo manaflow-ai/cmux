@@ -17,6 +17,8 @@ import CmuxNextTerminal
 /// key (`CMUX_NEXT_NO_ACTIVATE=1`). A key the responder chain gets passes the
 /// local event monitors as a real key does (DebugNativeInput), so a key in an
 /// agent pane records the user's gesture. Never touches another app.
+/// With `sequence`, raw key transitions through the app's event queue
+/// instead (`DebugKey+Sequence`).
 enum DebugKey {
     private static let named: [String: (characters: String, keyCode: UInt16)] = [
         "return": ("\r", 36), "escape": ("\u{1b}", 53), "tab": ("\t", 48), "space": (" ", 49), "d": ("d", 2), "c": ("c", 8), "v": ("v", 9),
@@ -45,6 +47,7 @@ enum DebugKey {
     ]
 
     static func send(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
+        if let steps = params["sequence"]?.arrayValue { return sendSequence(steps) }
         let windowID = params["window"]?.stringValue
         let controller = services.windows.controllers.first(where: { windowID == nil || $0.state.id == windowID })
         // The palette opens with no main window (after Close All Windows), so its keys need none:

@@ -26,6 +26,8 @@ import { RowGlyph } from "./RowGlyph";
 import { useNt } from "./strings";
 import { screenSections, type ScreenTemplate } from "./templates";
 import { type Translate, useT } from "../i18n";
+import { ChromeArea } from "../../../ui/HideableChrome";
+import { useComposerChrome } from "../composerChrome";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 export type NewTabScreenActions = {
@@ -141,6 +143,7 @@ export function NewTabScreen(props: Props) {
   // New tabs or pages from the host can shorten the rows under a highlight.
   const current = selected < rows.length ? selected : -1;
   const t = useT();
+  const chrome = useComposerChrome();
   const device = useDeviceChats();
   const closed = useRecentlyClosed();
   const cards = useMemo(
@@ -382,32 +385,36 @@ export function NewTabScreen(props: Props) {
             }}
           />
         </div>
-        <div className="nt-pickers" onPointerDownCapture={touch}>
-          <ProjectChooser
-            projects={props.projects ?? []}
-            current={project}
-            {...(project ? { currentLabel: projectLabel(project) } : {})}
-            icon={<FolderIcon />}
-            onPick={pickProject}
-            {...(browseProject ? { onBrowse: browseProject } : {})}
-            side="bottom"
-          />
-          {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
+        {/* The button row: a right-click here shows the mic hidden from its own (composerChrome.tsx);
+            this page draws no context ring. */}
+        <ChromeArea className="acpmux-chrome-area" items={[chrome.dictation]}>
+          <div className="nt-pickers" onPointerDownCapture={touch}>
+            <ProjectChooser
+              projects={props.projects ?? []}
+              current={project}
+              {...(project ? { currentLabel: projectLabel(project) } : {})}
+              icon={<FolderIcon />}
+              onPick={pickProject}
+              {...(browseProject ? { onBrowse: browseProject } : {})}
+              side="bottom"
+            />
+            {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
               switch is the one Enter reuses. */}
-          {Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />}
-          {props.accessory}
-          {/* Send: a click does what Return does (a prompt, a row, or a shell command). */}
-          <button
-            type="button"
-            className={text.trim() ? "acpmux-send acpmux-send-ready nt-send" : "acpmux-send nt-send"}
-            aria-label={t("composer.send")}
-            title={t("composer.sendTooltip")}
-            disabled={!text.trim()}
-            onClick={send}
-          >
-            <ArrowUpIcon />
-          </button>
-        </div>
+            {Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />}
+            {props.accessory}
+            {/* Send: a click does what Return does (a prompt, a row, or a shell command). */}
+            <button
+              type="button"
+              className={text.trim() ? "acpmux-send acpmux-send-ready nt-send" : "acpmux-send nt-send"}
+              aria-label={t("composer.send")}
+              title={t("composer.sendTooltip")}
+              disabled={!text.trim()}
+              onClick={send}
+            >
+              <ArrowUpIcon />
+            </button>
+          </div>
+        </ChromeArea>
       </div>
       {props.notice}
       {noAgent && (
