@@ -405,7 +405,9 @@ export default agentPaneEntry({
         const page = ctx.document.defaultView as unknown as {
           cmuxGalleryLog: { method: string; params?: { throughSeq?: number } }[];
         };
-        const forks = () => [...ctx.document.querySelectorAll<HTMLButtonElement>('button[aria-label="Fork from here"]')];
+        const forks = () => [
+          ...ctx.document.querySelectorAll<HTMLButtonElement>('button[aria-label="Fork from here"]'),
+        ];
         await ctx.focus({ selector: "[contenteditable='true']" });
         await ctx.waitFor(() => forks().length === 2);
         forks()[0]!.click();
