@@ -67,6 +67,8 @@ final class HomeChiefSidebar: NSView {
         stack.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
         stack.addArrangedSubview(title)
         // Name and avatar of this Chief.
+        nameField.focusRingType = .none
+        avatarField.focusRingType = .none
         for (field, label, action) in [(nameField, HomeEngineStrings.name, #selector(renamed)),
                                        (avatarField, HomeEngineStrings.avatar, #selector(avatarChanged))] {
             let caption = ThemedLabel(labelWithString: label)

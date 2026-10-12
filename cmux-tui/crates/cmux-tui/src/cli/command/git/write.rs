@@ -84,6 +84,15 @@ pub(super) fn worktree_create(
     request(Op::GitWorktreeCreate, selectors, flags, params)
 }
 
+/// `git worktree apply`: the worktree's work, onto its main checkout.
+pub(super) fn worktree_apply(
+    flags: &mut Flags,
+    selectors: &Selectors,
+    params: Map<String, Value>,
+) -> Result<CommandPlan, UsageError> {
+    request(Op::GitWorktreeApply, selectors, flags, params)
+}
+
 fn expected_head(flags: &mut Flags, params: &mut Map<String, Value>) {
     if let Some(head) = flags.take("expected-head") {
         params.insert("expected_head".into(), Value::String(head));
@@ -101,7 +110,9 @@ pub(in crate::cli) fn localize_commit_paths(
 ) -> Result<(), String> {
     let write = matches!(
         operation,
-        WireOperation::Typed(Op::GitCommit | Op::GitPush | Op::GitWorktreeCreate)
+        WireOperation::Typed(
+            Op::GitCommit | Op::GitPush | Op::GitWorktreeCreate | Op::GitWorktreeApply,
+        )
     );
     if !write {
         return Ok(());

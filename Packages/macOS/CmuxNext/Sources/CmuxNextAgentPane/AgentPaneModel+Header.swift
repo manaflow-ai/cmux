@@ -111,8 +111,8 @@ extension AgentPaneModel {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.tabState")
             }
             return AgentPaneReply.success(header.state(refresh: refresh).reply)
-        case .archive(let archived):
-            return await archive(archived)
+        case .archive(let archived): return await archive(archived)
+        case .markUnread: return await AgentPaneMarkUnread(self).reply()
         case .sideChat(let fork):
             return await openSideChat(fork)
         default:

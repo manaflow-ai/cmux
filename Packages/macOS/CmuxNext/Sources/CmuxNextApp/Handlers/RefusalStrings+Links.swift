@@ -43,6 +43,12 @@ nonisolated extension RefusalStrings {
         text("handlers.refusal.agentTabOtherHost", "this chat runs on another Mac")
     }
 
+    /// A chat of this Mac (its session, an outside chat it resumes, a past chat of its list) in a
+    /// tab of another machine, or the reverse: a session never leaves its machine (cx-k21v).
+    static var agentTabMachineMismatch: String {
+        text("handlers.refusal.agentTabMachineMismatch", "this chat runs on another machine: it cannot open in this tab")
+    }
+
     /// The store refused or failed a new agent chat tab; the tab shown at once goes away.
     static var agentTabCreateFailed: String {
         text("handlers.refusal.agentTabCreateFailed", "the agent chat tab could not be created: see the app log")

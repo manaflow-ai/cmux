@@ -58,6 +58,11 @@ impl Translator {
             "stream_event" => {
                 let ev = line.get("event").cloned().unwrap_or(Value::Null);
                 match ev.get("type").and_then(Value::as_str) {
+                    Some("message_start") if parent.is_none() => {
+                        if let Some(m) = ev.pointer("/message/model").and_then(Value::as_str) {
+                            *self.loop_model.lock().await = m.to_owned();
+                        }
+                    }
                     Some("content_block_delta") => {
                         let d = ev.get("delta").cloned().unwrap_or(Value::Null);
                         match d.get("type").and_then(Value::as_str) {
@@ -81,8 +86,13 @@ impl Translator {
                                     .and_then(Value::as_u64)
                                     .unwrap_or(0)
                                 + u.get("output_tokens").and_then(Value::as_u64).unwrap_or(0);
+                            // A subagent's usage is its own context, not the chat's.
+                            if parent.is_none() {
+                                self.context_used.store(used, Ordering::SeqCst);
+                            }
+                            let size = self.context_window.load(Ordering::SeqCst);
                             out.push(upd(
-                                json!({"sessionUpdate": "usage_update", "used": used, "size": 0}),
+                                json!({"sessionUpdate": "usage_update", "used": used, "size": size}),
                             ));
                         }
                     }
@@ -343,6 +353,17 @@ impl Translator {
                 if startup_noise {
                     return out;
                 }
+                // The window Claude Code reports for the chat's model: the pane's
+                // context ring fills by used over it (cx-ncc.79).
+                if let Some(window) = self.result_context_window(line).await {
+                    self.context_window.store(window, Ordering::SeqCst);
+                    let used = self.context_used.load(Ordering::SeqCst);
+                    if used > 0 && parent.is_none() {
+                        out.push(upd(
+                            json!({"sessionUpdate": "usage_update", "used": used, "size": window}),
+                        ));
+                    }
+                }
                 // A steered line Claude Code has not read yet: it runs it as
                 // one more turn of this prompt, whose result ends it (when
                 // echoes come at all; without them the steer fails below).
@@ -416,6 +437,12 @@ impl Translator {
                     }
                 }
             }
+            // A compaction left the context smaller than the last message held:
+            // the ring waits for the next message rather than refill (cx-ncc.79).
+            "system" if sub == "compact_boundary" && parent.is_none() => {
+                let after = line.pointer("/compact_metadata/post_tokens").and_then(Value::as_u64);
+                self.context_used.store(after.unwrap_or(0), Ordering::SeqCst);
+            }
             "system" if sub.starts_with("task_") => {
                 if let Some(ended) = self.subagent_task(sub, line).await {
                     out.push(upd(ended));
@@ -424,6 +451,19 @@ impl Translator {
             _ => {}
         }
         out
+    }
+
+    /// A result's context window for the chat's model (`modelUsage`, keyed by
+    /// model id and cumulative over the session): the entry of the model the
+    /// main loop last ran, else of the configured one. None keeps the last
+    /// window: another entry may be a subagent's or an earlier model's.
+    async fn result_context_window(&self, line: &Value) -> Option<u64> {
+        let usage = line.get("modelUsage")?.as_object()?;
+        let window =
+            |entry: &Value| entry.get("contextWindow").and_then(Value::as_u64).filter(|w| *w > 0);
+        let looped = self.loop_model.lock().await.clone();
+        let configured = self.model.lock().await.clone();
+        usage.get(&looped).and_then(window).or_else(|| usage.get(&configured).and_then(window))
     }
 
     /// Claude's task events for a subagent: `task_started` or `task_updated`
