@@ -518,6 +518,7 @@ impl Mux {
 
     /// `close-workspace` with `end_terminals`. Same selectors, guards, and
     /// replay as `close-workspace`, plus the ended terminals in the commit.
+    #[cfg(test)]
     pub(crate) fn close_workspace_ending_terminals(
         &self,
         target: Option<WorkspaceId>,
