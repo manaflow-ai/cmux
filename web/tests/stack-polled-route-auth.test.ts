@@ -26,7 +26,7 @@ const stackUser = {
   ),
 };
 
-const getUser = mock(async (_arg?: unknown): Promise<unknown> => stackUser);
+const getUser = mock(async (): Promise<unknown> => stackUser);
 
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
