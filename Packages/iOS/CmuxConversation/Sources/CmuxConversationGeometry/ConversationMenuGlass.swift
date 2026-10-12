@@ -17,6 +17,11 @@ public struct ConversationMenuGlassTint: Equatable, Sendable {
 }
 
 extension ConversationMenuGlassTint {
-    /// The long-press menu in light mode on iOS 26.
-    public static let longPressLightIOS26 = ConversationMenuGlassTint.none
+    /// The long-press menu in light mode on iOS 26. Messages' menu is a
+    /// UIKit context-menu platter: 237,237,239 over its 206,206,210 veil
+    /// (iOS 26.5), where a plain regular glass of the menu's size reads
+    /// 239,239,242. This faint warm-gray tint lands on 237,237,239 (fitted
+    /// in a glass probe at 250 x 260 pt; the blue channel moves ~1.5 levels
+    /// per 0.001 of tint blue, so keep all four digits).
+    public static let longPressLightIOS26 = ConversationMenuGlassTint(red: 0.94, green: 0.94, blue: 0.938, alpha: 0.3)
 }
