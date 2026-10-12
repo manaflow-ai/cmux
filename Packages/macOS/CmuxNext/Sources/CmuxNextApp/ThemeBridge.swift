@@ -11,7 +11,7 @@ import CmuxNextTerminal
 enum ThemeBridge {
     /// A theme's own accent by theme name: its `<theme>/accent` edit from launch, then (once
     /// `ThemeCoordinator` adds the theme catalog) its file's `# cmux-accent`.
-    static var accent: (String) -> ThemeRGB? = edited
+    static var accent: @MainActor (String) -> ThemeRGB? = { edited($0) }
 
     /// A theme's `<theme>/accent` edit.
     static func edited(_ name: String) -> ThemeRGB? {
