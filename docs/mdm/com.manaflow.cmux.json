@@ -374,6 +374,7 @@
       "description" : "Choose a public-domain painting, your desktop wallpaper, or a macOS system wallpaper behind the window material.",
       "enum" : [
         "none",
+        "daily",
         "david-death-of-marat",
         "goya-saturn",
         "velde-small-ship-storm",
@@ -1300,22 +1301,6 @@
       "maximum" : 8,
       "minimum" : 0.5,
       "title" : "Width",
-      "type" : "number"
-    },
-    "history.closed.maxAgeDays" : {
-      "default" : 0,
-      "description" : "Each machine deletes closed items that are older. 0 keeps them however old they are.",
-      "maximum" : 3650,
-      "minimum" : 0,
-      "title" : "Keep Recently Closed Items For",
-      "type" : "number"
-    },
-    "history.closed.maxGroups" : {
-      "default" : 0,
-      "description" : "Each machine deletes its oldest closed tabs, screens, workspaces and windows past this many. 0 keeps them all.",
-      "maximum" : 100000,
-      "minimum" : 0,
-      "title" : "Recently Closed Items to Keep",
       "type" : "number"
     },
     "history.commandRetentionDays" : {
