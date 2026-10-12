@@ -89,3 +89,24 @@ fn browser_create_with_a_provider_still_waits_for_its_target() {
     assert!(created["value"]["browser_id"].is_string(), "{created}");
     kill_surfaces(&mux);
 }
+
+#[test]
+fn a_retried_browser_create_replays_after_its_provider_went_away() {
+    let mux = Mux::new_for_test("browser-engine-replay", SurfaceOptions::default());
+    mux.attach_test_browser_provider(1);
+    let create = || {
+        dispatch_resource_request(
+            &mux,
+            request("tab.create_browser", json!({"url":"about:blank"}), "create-1"),
+        )
+    };
+    let created = create().unwrap();
+    let tabs = mux.surface_count();
+    assert!(mux.unregister_browser_provider(1));
+    // The reply was lost, so the caller retries with the same key: it gets
+    // the original tab, not a refusal that orphans it.
+    let replayed = create().expect("a retry of a committed create replays its receipt");
+    assert_eq!(replayed["value"]["browser_id"], created["value"]["browser_id"], "{replayed}");
+    assert_eq!(mux.surface_count(), tabs, "the replay made no second tab");
+    kill_surfaces(&mux);
+}
