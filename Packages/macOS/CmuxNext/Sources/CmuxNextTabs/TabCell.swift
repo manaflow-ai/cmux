@@ -78,7 +78,7 @@ final class TabCell {
     /// The tab's rounded pill (its background) in this cell's coordinates.
     var pillFrameInCell: CGRect { backgroundLayer.frame }
 
-    private let backgroundLayer = CALayer()
+    let backgroundLayer = CALayer()
     let iconLayer = CALayer()
     let titleLayer = ChromeTextLayer()
     /// Fades the clipped title and runs its hover marquee (one mask layer,

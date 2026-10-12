@@ -10,7 +10,7 @@ final class DragLiftView: NSView {
     private let content: NSView
     private var stack: [NSView] = []
     private let countBadge = NSTextField(labelWithString: "")
-    private let badgeBackground = NSView()
+    let badgeBackground = NSView()
     private var lifted = false
 
     init(content: NSView, count: Int) {

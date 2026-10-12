@@ -38,7 +38,7 @@ final class TabGroupChipCell {
         }
     }
 
-    private let pill = CALayer()
+    let pill = CALayer()
     private let nameLayer = ChromeTextLayer()
     private let nameMask = CAGradientLayer()
     private let countLayer = ChromeTextLayer()
