@@ -192,6 +192,9 @@ protocol RemoteTmuxSessionSource: AnyObject {
     /// carry one, so every call through the source names it.
     @discardableResult
     func seedPane(paneId: Int, clearScrollback: Bool) -> UUID?
+    /// Seeds a pane that just mounted once the stream has room, so a host with many
+    /// windows does not send every pane's seed in one burst.
+    func queuePaneSeed(paneId: Int)
     /// Reports a pane's terminal colors to the remote tmux (kept across reconnects).
     func setPaneColors(_ colors: RemoteTmuxPaneColors, paneId: Int)
     /// Forgets a pane's reported colors when its mirror goes away.
@@ -255,6 +258,11 @@ extension RemoteTmuxSessionSource {
     /// carry a default argument, so it lives here instead.
     @discardableResult
     func seedPane(paneId: Int) -> UUID? {
+        seedPane(paneId: paneId, clearScrollback: true)
+    }
+
+    /// A source with no stream of its own to pace seeds immediately.
+    func queuePaneSeed(paneId: Int) {
         seedPane(paneId: paneId, clearScrollback: true)
     }
 }

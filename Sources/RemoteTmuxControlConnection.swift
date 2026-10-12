@@ -120,20 +120,20 @@ final class RemoteTmuxControlConnection {
     /// Aggregate bytes retained by every in-flight pane seed on this connection.
     var pendingPaneSeedByteCount = 0
     let pendingPaneSeedByteLimit: Int
-    /// Panes whose budget overflow recovery is waiting to start an authoritative seed.
+    /// Panes waiting for budget recovery, and whether one main-actor turn is scheduled to run it.
     var deferredPaneSeedBudgetRecoveryPaneIDs: Set<Int> = []
-    /// Coalesces pane budget recovery onto one future main-actor turn.
     var paneSeedBudgetRecoveryTaskScheduled = false
     /// The one queued or in-flight visible repaint seed allowed per pane.
     var pendingPaneVisibleRepaintSeedIDs: [Int: UUID] = [:]
-    /// Panes that grew while a visible repaint seed was already in flight. One
-    /// deferred repaint per pane bounds churn while preserving the latest repair.
+    /// Panes that grew while their repaint was in flight; one deferred repaint each bounds churn.
     var deferredPaneVisibleRepaints: Set<Int> = []
     /// Reconnect seeds that must finish before consumers can resume resize work.
     var pendingReconnectSeedIDs: Set<UUID> = []
-    /// Stable pane queue for reconnect snapshots. Only a small fixed number are
-    /// captured concurrently so retained history is bounded independently of pane count.
+    /// Reconnect snapshots wait here and run a few at a time, bounding retained history.
     var pendingReconnectPaneIDs: [Int] = []
+    /// First seeds of mounted panes, paced the same way (see `queuePaneSeed(paneId:)`).
+    var queuedPaneSeedPaneIDs: [Int] = []
+    var queuedPaneSeedIDs: [UUID: Int] = [:]
     /// Per-pane header-strip labels: the pane's EXPANDED `pane-border-format`
     /// (style tokens stripped) — exactly the text a native tmux client draws
     /// in that pane's header, custom formats included. Seeded by the
