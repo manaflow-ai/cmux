@@ -226,7 +226,8 @@ impl GitPlan {
             };
             checked(command.args([new, old])).map(drop)
         };
-        let old = self.head.as_deref().map(|head| self.local.head.clone().unwrap_or_else(|| zero(head)));
+        let old =
+            self.head.as_deref().map(|head| self.local.head.clone().unwrap_or_else(|| zero(head)));
         if let (Some(head), Some(old)) = (&self.head, &old) {
             move_ref(head, old).context("cannot move the branch")?;
         }

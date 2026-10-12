@@ -20,7 +20,9 @@ pub(super) struct Dir(OwnedFd);
 /// What [`Dir::entry`] found at a name.
 pub(super) enum Entry {
     Missing,
-    File { mode: u32 },
+    File {
+        mode: u32,
+    },
     Dir,
     /// A symlink or special file.
     Other,
@@ -281,8 +283,8 @@ impl Transaction {
     /// folders the deletes left empty go too (never the top folder).
     pub(super) fn finish(mut self) {
         for undo in self.undo.drain(..) {
-            if let Undo::Placed { dir, aside: Some(aside), .. }
-            | Undo::Removed { dir, aside, .. } = undo
+            if let Undo::Placed { dir, aside: Some(aside), .. } | Undo::Removed { dir, aside, .. } =
+                undo
                 && !aside.in_staging
             {
                 let _ = dir.unlink(&aside.name, false);
@@ -309,7 +311,8 @@ impl Transaction {
             let next = match at.child(part) {
                 Ok(Some(next)) => next,
                 Ok(None) => {
-                    at.mkdir(part).with_context(|| format!("cannot make a folder for {relative}"))?;
+                    at.mkdir(part)
+                        .with_context(|| format!("cannot make a folder for {relative}"))?;
                     self.undo.push(Undo::MadeDir { parent: Rc::clone(&at), name: part.into() });
                     at.child(part)?.with_context(|| format!("{part} went away"))?
                 }
@@ -328,7 +331,8 @@ impl Transaction {
         match dir.rename(name, &self.staging, &staged) {
             Ok(()) => Ok(Aside { in_staging: true, name: staged }),
             Err(error) if error.raw_os_error() == Some(libc::EXDEV) => {
-                let near = format!(".{name}.cmux-sync-aside-{}-{}", std::process::id(), self.asides);
+                let near =
+                    format!(".{name}.cmux-sync-aside-{}-{}", std::process::id(), self.asides);
                 dir.rename(name, dir, &near)?;
                 Ok(Aside { in_staging: false, name: near })
             }

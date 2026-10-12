@@ -27,7 +27,11 @@ pub(super) struct UnsafeName(pub String);
 
 impl std::fmt::Display for UnsafeName {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "the machine listed an unsafe name {:?}; nothing was brought back", self.0)
+        write!(
+            formatter,
+            "the machine listed an unsafe name {:?}; nothing was brought back",
+            self.0
+        )
     }
 }
 
@@ -227,10 +231,9 @@ impl Remote {
     ) -> anyhow::Result<Option<u64>> {
         let mut size = 0u64;
         loop {
-            let answer = match self.call(
-                "fs.read",
-                json!({ "path": path, "offset": size, "max_bytes": READ_BYTES }),
-            ) {
+            let answer = match self
+                .call("fs.read", json!({ "path": path, "offset": size, "max_bytes": READ_BYTES }))
+            {
                 Ok(answer) => answer,
                 Err(error) if refusal_code(&error) == Some("fs.not_found") => return Ok(None),
                 Err(error) => return Err(error),

@@ -23,8 +23,8 @@
 //! on stdout (a pull's conflict adds `"conflicts":[paths]` under
 //! `sync_conflict`), exit 1; bad usage exits 64. Unix only, like the link.
 
-mod git_back;
 mod base;
+mod git_back;
 mod local;
 mod names;
 mod place;

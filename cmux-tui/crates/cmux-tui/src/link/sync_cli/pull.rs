@@ -429,7 +429,10 @@ fn local_side(root: &Dir, relative: &str) -> anyhow::Result<Side> {
             let mut file = dir.open_file(&name)?;
             let mut hasher = Sha256::new();
             std::io::copy(&mut file, &mut hasher)?;
-            Ok(Side::File { sha256: hex(&hasher.finalize()), permissions: local::permissions_of(mode) })
+            Ok(Side::File {
+                sha256: hex(&hasher.finalize()),
+                permissions: local::permissions_of(mode),
+            })
         }
         Entry::Dir | Entry::Other => Ok(Side::Other),
     }
