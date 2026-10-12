@@ -633,7 +633,7 @@ if test "$_cmux_integration_enabled" != 0
     # where it is when leaving an alternate screen that is not up.
     function _cmux_reset_terminal_leftover_modes --on-event fish_postexec
         isatty stdout; or test -n "$CMUX_TEST_FORCE_KEYBOARD_RESET"; or return 0
-        printf '\033[?9l\033[?1000l\033[?1002l\033[?1003l\033[?1005l\033[?1006l\033[?1015l\033[?1016l\033[?1004l\033[?2004l\033\067\033[?1049l'
+        printf '\033[?9l\033[?1000l\033[?1002l\033[?1003l\033[?1005l\033[?1006l\033[?1015l\033[?1016l\033[?1004l\033[?2004l\033[?25h\033\067\033[?1049l'
     end
 
     function _cmux_ports_kick --argument-names reason

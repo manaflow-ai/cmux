@@ -68,12 +68,13 @@ extension GhosttyApp {
         return !keepSurfaceVisible
     }
 
-    /// A child that died with mouse reporting, focus reports or bracketed
-    /// paste on leaves its kept pane capturing the mouse instead of selecting.
+    /// A child that died with mouse reporting, focus reports, bracketed paste
+    /// or application cursor keys on leaves its kept pane capturing the mouse
+    /// instead of selecting.
     /// Its alternate screen stays: Ghostty's exit text is drawn on it.
     private static func dropExitedChildModes(_ surface: ghostty_surface_t) {
         let reset = "\u{1B}[?9l\u{1B}[?1000l\u{1B}[?1002l\u{1B}[?1003l\u{1B}[?1005l"
-            + "\u{1B}[?1006l\u{1B}[?1015l\u{1B}[?1016l\u{1B}[?1004l\u{1B}[?2004l"
+            + "\u{1B}[?1006l\u{1B}[?1015l\u{1B}[?1016l\u{1B}[?1004l\u{1B}[?2004l\u{1B}[?1l"
         reset.withCString { bytes in
             ghostty_surface_process_output(surface, bytes, UInt(reset.utf8.count))
         }

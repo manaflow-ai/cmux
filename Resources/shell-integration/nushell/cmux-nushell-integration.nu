@@ -238,7 +238,7 @@ def --env _cmux_ports_kick [reason: string] {
 def _cmux_reset_terminal_leftover_modes [] {
     let forced = ($env.CMUX_TEST_FORCE_KEYBOARD_RESET? | default "")
     if ($forced | is-empty) and not (is-terminal --stdout) { return }
-    print -n "\e[?9l\e[?1000l\e[?1002l\e[?1003l\e[?1005l\e[?1006l\e[?1015l\e[?1016l\e[?1004l\e[?2004l\e7\e[?1049l"
+    print -n "\e[?9l\e[?1000l\e[?1002l\e[?1003l\e[?1005l\e[?1006l\e[?1015l\e[?1016l\e[?1004l\e[?2004l\e[?25h\e7\e[?1049l"
 }
 
 # Resets modifyOtherKeys/kitty keyboard protocols a crashed TUI can leave enabled.
