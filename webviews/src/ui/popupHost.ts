@@ -29,6 +29,7 @@ export interface PopupModel {
 export type PopupEvent = { type: "pick"; id: string } | { type: "highlight"; id: string } | { type: "dismiss" };
 
 export interface PopupHost {
+  /** Resolves `{shown: true}` once the rows show; anything else leaves the menu in the page. */
   show(model: PopupModel): Promise<unknown>;
   update(model: PopupModel): void;
   hide(): void;
@@ -100,6 +101,7 @@ export function useEscapingMenu(
   useEffect(() => {
     if (!host || !element) return;
     let escaped = false;
+    let alive = true;
     let observer: MutationObserver | undefined;
     let stopListening: (() => void) | undefined;
     const model = (): PopupModel | null => {
@@ -115,6 +117,18 @@ export function useEscapingMenu(
         align,
         width: element.getBoundingClientRect().width,
       };
+    };
+    const row = (id: string) => popupItems(element).rows[Number(id)] as HTMLElement | undefined;
+    const restore = () => {
+      observer?.disconnect();
+      stopListening?.();
+      if (!escaped) return;
+      escaped = false;
+      const positioner = element.parentElement;
+      positioner?.removeAttribute("data-escaped");
+      positioner?.style.removeProperty("opacity");
+      positioner?.style.removeProperty("pointer-events");
+      host.hide();
     };
     // After Base UI placed the menu (one frame), measure every row against the room.
     const frame = requestAnimationFrame(() => {
@@ -132,7 +146,11 @@ export function useEscapingMenu(
       positioner?.setAttribute("data-escaped", "");
       positioner?.style.setProperty("opacity", "0");
       positioner?.style.setProperty("pointer-events", "none");
-      void host.show(first);
+      // The host could not show it (no screen, a hidden window): the menu stays in the page.
+      void host.show(first).then((reply) => {
+        if (!alive || (reply as { shown?: boolean } | undefined)?.shown === true) return;
+        restore();
+      });
       observer = new MutationObserver(() => {
         const next = model();
         if (next) host.update(next);
@@ -145,22 +163,20 @@ export function useEscapingMenu(
         attributeFilter: ["data-highlighted", "aria-checked", "aria-selected", "aria-disabled", "data-disabled"],
       });
       stopListening = host.listen((event) => {
-        if (event.type === "pick") (popupItems(element).rows[Number(event.id)] as HTMLElement | undefined)?.click();
-        else if (event.type === "dismiss")
+        if (event.type === "pick") row(event.id)?.click();
+        // A hover there moves the page's highlight, so Return picks the row under the pointer.
+        else if (event.type === "highlight") {
+          const target = row(event.id);
+          target?.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+          target?.focus({ preventScroll: true });
+        } else if (event.type === "dismiss")
           element.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
       });
     });
     return () => {
+      alive = false;
       cancelAnimationFrame(frame);
-      observer?.disconnect();
-      stopListening?.();
-      if (escaped) {
-        const positioner = element.parentElement;
-        positioner?.removeAttribute("data-escaped");
-        positioner?.style.removeProperty("opacity");
-        positioner?.style.removeProperty("pointer-events");
-        host.hide();
-      }
+      restore();
     };
   }, [host, element, side, align, gap]);
 }

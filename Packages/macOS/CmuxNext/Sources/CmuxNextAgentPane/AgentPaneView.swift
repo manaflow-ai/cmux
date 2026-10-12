@@ -305,6 +305,7 @@ public final class AgentPaneView: NSView {
 
     /// Stops the page (and its WebSocket) for good; call when the tab closes.
     public func close() {
+        popupHostStorage?.hide()
         rateReapply?.cancel()
         motionObservation?.cancel()
         motionObservation = nil
@@ -336,6 +337,7 @@ public final class AgentPaneView: NSView {
     public override func viewDidHide() {
         super.viewDidHide()
         dictation.handle(.stop)
+        popupHostStorage?.dismiss()
     }
 
     public override func viewDidChangeEffectiveAppearance() {
@@ -346,7 +348,10 @@ public final class AgentPaneView: NSView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         // Its tab or window closed, or it moved out of sight: stop listening, keep the words.
-        if window == nil { dictation.handle(.stop) }
+        if window == nil {
+            dictation.handle(.stop)
+            popupHostStorage?.dismiss()
+        }
         applyTheme()
     }
 

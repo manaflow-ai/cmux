@@ -36,13 +36,13 @@ public final class WebPopupHost {
                   let left = Self.number(anchor["left"]), let top = Self.number(anchor["top"]),
                   let right = Self.number(anchor["right"]), let bottom = Self.number(anchor["bottom"]) else { return nil }
             items = rows.prefix(200).compactMap { row in
-                guard let id = row["id"] as? String else { return nil }
+                guard let id = row["id"] as? String, id.count <= 64 else { return nil }
                 return Item(id: id, label: String((row["label"] as? String ?? "").prefix(300)),
                             shortcut: (row["shortcut"] as? String).map { String($0.prefix(40)) },
                             checked: row["checked"] as? Bool ?? false, disabled: row["disabled"] as? Bool ?? false,
                             separator: row["separator"] as? Bool ?? false)
             }
-            highlighted = params["highlighted"] as? String
+            highlighted = (params["highlighted"] as? String).flatMap { $0.count <= 64 ? $0 : nil }
             self.anchor = CGRect(x: left, y: top, width: max(0, right - left), height: max(0, bottom - top))
             side = params["side"] as? String == "top" ? .above : .below
             trailing = params["align"] as? String == "end"
@@ -50,7 +50,8 @@ public final class WebPopupHost {
         }
 
         private static func number(_ value: Any?) -> CGFloat? {
-            (value as? NSNumber).map { CGFloat(truncating: $0) }
+            // A frame from NaN or infinity would throw in AppKit.
+            (value as? NSNumber).map { CGFloat(truncating: $0) }.flatMap { $0.isFinite ? $0 : nil }
         }
     }
 
@@ -126,7 +127,8 @@ public final class WebPopupHost {
         hide()
     }
 
-    private func dismiss() {
+    /// Ends the menu from this side (its tab hid or closed): the page closes its own as well.
+    public func dismiss() {
         guard model != nil else { return }
         send(["type": "dismiss"])
         hide()
