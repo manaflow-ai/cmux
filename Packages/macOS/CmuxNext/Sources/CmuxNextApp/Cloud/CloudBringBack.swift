@@ -18,10 +18,16 @@ import Foundation
 /// unresolved move) retries on that machine (a second pull finds nothing new, a rerun of the move
 /// resolves an unresolved one first); after the move committed Retry only opens the local tab, and
 /// the ledger keeps that until the tab opened, so the row and a relaunch still only open it.
-/// Progress and failures are toasts, never a sheet.
+/// When this Mac's guard refuses the chat for a policy or mode that doesn't ask, the stop's toast
+/// offers "Ask first, then bring back" (cx-rppd.10): only that button runs the move again with
+/// `--ask-first` (``askFirstInvocation(tab:)``), so the machine's daemon narrows the chat there to an
+/// asking policy and mode before it moves; a plain rerun never changes the chat. The guard here is
+/// never loosened. Progress and failures are toasts, never a sheet.
 @MainActor
 struct CloudBringBack {
     static let action: ActionID = "cloudBringBack"
+    /// The invocation argument the "Ask first, then bring back" button sets.
+    static let askFirstArgument = "askFirst"
     typealias Failure = CloudMove.Failure
     let services: AppServices
 
@@ -51,7 +57,9 @@ struct CloudBringBack {
         }
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
-        perform(tab: tab) { try await run(tab: tab, entry: entry, cli: cli) }
+        // Only the refusal toast's "Ask first, then bring back" narrows the chat on the machine.
+        let askFirst = invocation[Self.askFirstArgument] == .bool(true)
+        perform(tab: tab) { try await run(tab: tab, entry: entry, cli: cli, askFirst: askFirst) }
     }
 
     /// Runs `body` (which returns the machine's name) behind the toasts. A stop records its retry
@@ -85,15 +93,24 @@ struct CloudBringBack {
         var retry: (@MainActor () -> Void)?
         if failure.retry != nil {
             let registry = services.registry
-            let again = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tabID), arguments: [:], origin: .user)
+            var again = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tabID), arguments: [:], origin: .user)
+            if case .askFirst = failure.retry { again = Self.askFirstInvocation(tab: tabID) }
             retry = { _ = registry.perform(Self.action, invocation: again) }
         }
-        CloudMove.toast(services, toastID, failure.message, duration: .seconds(retry == nil ? 12 : 60), retry: retry)
+        let title: String
+        if case .askFirst = failure.retry { title = CloudBringBackStrings.askFirst } else { title = CloudMoveStrings.retry }
+        CloudMove.toast(services, toastID, failure.message, duration: .seconds(retry == nil ? 12 : 60), retry: retry, retryTitle: title)
         return ActionWorkFailure(failure.message)
     }
 
-    /// The bring back, after the synchronous checks. Returns the machine's name.
-    private func run(tab: TabModel, entry: CloudMovedChats.Entry, cli: CloudMoveCLI) async throws -> String {
+    /// What the refusal toast's "Ask first, then bring back" runs on machine tab `tab`.
+    static func askFirstInvocation(tab: String) -> ActionInvocation {
+        ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab), arguments: [askFirstArgument: .bool(true)], origin: .user)
+    }
+
+    /// The bring back, after the synchronous checks. Returns the machine's name. `askFirst` narrows
+    /// the machine's chat to an asking policy and mode before it moves.
+    private func run(tab: TabModel, entry: CloudMovedChats.Entry, cli: CloudMoveCLI, askFirst: Bool) async throws -> String {
         let again = CloudMoveRetries.Retry.move(machineID: entry.machineID)
         guard let machine = services.machines.session(entry.machineID) else {
             throw Failure(message: CloudMoveStrings.noSuchMachine(entry.machineID), retry: again)
@@ -118,12 +135,15 @@ struct CloudBringBack {
         }
         let moved: CloudMoveCLI.Answer
         do {
-            moved = try await cli.agentMove(from: machineSocket, surface: tab.surface.rawValue, to: localSocket, cwd: entry.localChat)
+            moved = try await cli.agentMove(from: machineSocket, surface: tab.surface.rawValue, to: localSocket, cwd: entry.localChat,
+                                            askFirst: askFirst)
         } catch {
             services.cloud.logger.error("cloud bring back: link agent move: \(String(describing: error), privacy: .public)")
             throw Failure(message: CloudBringBackStrings.unresolved, retry: again)
         }
-        guard moved.ok, let session = moved.sessionID else { throw Self.failure(moving: moved, machine: name, retry: again) }
+        guard moved.ok, let session = moved.sessionID else {
+            throw Self.failure(moving: moved, machine: name, retry: again, askedFirst: askFirst)
+        }
         // The move committed: from here Retry only opens the chat's tab on this Mac. The ledger
         // keeps that (not only memory) until the tab opened.
         let back = CloudMovedChats.BroughtBack(session: session, key: moved.transferID ?? session)
@@ -185,11 +205,23 @@ struct CloudBringBack {
     /// The failure of a `cmux link agent move` answer, in plain words. This Mac's guard refuses a
     /// chat that approves on its own (`transfer.policy`), runs in a mode that doesn't ask
     /// (`transfer.mode`), or runs an agent it can't guard (`transfer.family`); the chat stays on
-    /// the machine, unchanged, and the first two can Retry once the chat asks.
-    static func failure(moving answer: CloudMoveCLI.Answer, machine: String, retry: CloudMoveRetries.Retry) -> Failure {
+    /// the machine, unchanged, and the first two offer "Ask first, then bring back", which narrows
+    /// the chat on the machine and moves it again. When that run (`askedFirst`) is refused too, the
+    /// chat can't be narrowed there (no asking mode it offers, say): the person changes it in the
+    /// chat, then Retry.
+    static func failure(moving answer: CloudMoveCLI.Answer, machine: String, retry: CloudMoveRetries.Retry,
+                        askedFirst: Bool = false) -> Failure {
         let detail = answer.error ?? ""
-        if detail.contains("transfer.policy") { return Failure(message: CloudBringBackStrings.policyBlocks, retry: retry) }
-        if detail.contains("transfer.mode") { return Failure(message: CloudBringBackStrings.modeBlocks, retry: retry) }
+        var askFirst = retry
+        if case .move(let machineID) = retry { askFirst = .askFirst(machineID: machineID) }
+        if detail.contains("transfer.policy") {
+            if askedFirst { return Failure(message: CloudBringBackStrings.policyStillBlocks, retry: retry) }
+            return Failure(message: CloudBringBackStrings.policyBlocks, retry: askFirst)
+        }
+        if detail.contains("transfer.mode") {
+            if askedFirst { return Failure(message: CloudBringBackStrings.modeStillBlocks, retry: retry) }
+            return Failure(message: CloudBringBackStrings.modeBlocks, retry: askFirst)
+        }
         if detail.contains("transfer.family") { return Failure(message: CloudBringBackStrings.familyBlocks) }
         switch answer.errorCode {
         case "move_unresolved", CloudMoveCLI.badAnswer: return Failure(message: CloudBringBackStrings.unresolved, retry: retry)

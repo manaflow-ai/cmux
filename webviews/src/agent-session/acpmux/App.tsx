@@ -4013,6 +4013,7 @@ function AcpmuxPane() {
       {snapshot.permissionGroups?.supported && (
         <PermissionPanel
           state={snapshot.permissionGroups}
+          working={snapshot.isWorking}
           onRespond={(groupId, revision, decision) => {
             void callNative("chat.permission_group.respond", { groupId, revision, decision });
           }}

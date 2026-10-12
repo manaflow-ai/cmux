@@ -228,6 +228,7 @@ extension DaemonStore {
             return .none
         case .notification(let notification):
             notifications.append(notification)
+            recordNotificationText(notification)
             if notifications.count > notificationLimit { notifications.removeFirst(notifications.count - notificationLimit) }
             // The daemon retains a marker only for an inactive target and
             // follows with `tree-changed`/`tab-changed`, which settle the state.

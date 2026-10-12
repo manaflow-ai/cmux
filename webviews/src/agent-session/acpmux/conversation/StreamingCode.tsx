@@ -6,6 +6,7 @@
 // painted its lines. Same metrics, so nothing moves; only the colors arrive.
 import { useLayoutEffect, useRef, useState } from "react";
 import { CodeBlock, languageLabel } from "./CodeBlock";
+import { CopyButton } from "./CopyButton";
 import { CodeBrackets } from "./icons";
 import { useT } from "../i18n";
 import { menuPartRef } from "./menuParts";
@@ -22,6 +23,9 @@ export function PlainCode({ code, lang, open = false }: { code: string; lang: st
       <div className="cv-codeblock__header">
         <CodeBrackets size={17} strokeWidth={1.2} />
         <span>{languageLabel(lang, t)}</span>
+        <span className="cv-codeblock__actions">
+          <CopyButton text={code} label={t("code.copy")} />
+        </span>
       </div>
       <div className="cv-codeblock__body">
         <pre className="cv-code-plain selectable">

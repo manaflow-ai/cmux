@@ -30,6 +30,9 @@ import { screenSections, type ScreenTemplate } from "./templates";
 import { type Translate, useT } from "../i18n";
 import { ChromeArea } from "../../../ui/HideableChrome";
 import { Popover } from "../../../ui/Popover";
+import { useEscapingPopup } from "../../../ui/popupHost";
+import { usePopupHost } from "../../../ui/UiProvider";
+import { UI_ANCHOR_GAP } from "../../../ui/anchor";
 import { useComposerChrome } from "../composerChrome";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
@@ -149,9 +152,13 @@ export function NewTabScreen(props: Props) {
     const model = entry.models.find((option) => option.id === chipSnapshot.summary?.model)?.name;
     return { harness, agent: entry.name, ...(model ? { model } : {}) };
   }, [snapshot.catalog, harness, chipSnapshot.summary?.model]);
+  // A dismiss in the host (another app, a resize) hides the rows until the text changes; it stays.
+  const [dismissed, setDismissed] = useState<string>();
+  const textRef = useRef(text);
+  textRef.current = text;
   const rows = useMemo(
-    () => (touched && !shell ? screenRows(text, { omnibar, home, ...(ask ? { ask } : {}) }) : []),
-    [touched, shell, text, omnibar, home, ask],
+    () => (touched && !shell && text !== dismissed ? screenRows(text, { omnibar, home, ...(ask ? { ask } : {}) }) : []),
+    [touched, shell, text, dismissed, omnibar, home, ask],
   );
   // New tabs or pages from the host can shorten the rows under a highlight.
   const current = selected === undefined ? defaultSelection(rows) : selected < rows.length ? selected : -1;
@@ -178,9 +185,28 @@ export function NewTabScreen(props: Props) {
     if (key) props.onOpenChatInTerminal?.(key);
   };
   const list = useRef<HTMLDivElement>(null);
+  // With no room under the box for every row, the rows go past the window's edge (cx-6k6cg); the
+  // field keeps the keyboard and the list its highlight.
+  const host = usePopupHost();
+  const [shown, setShown] = useState<HTMLDivElement | null>(null);
+  const attachList = useCallback(
+    (node: HTMLDivElement | null) => {
+      list.current = node;
+      if (host) setShown(node);
+    },
+    [host],
+  );
   // The suggestions' popover (Leo 2026-10-12) hangs under the composer box, on the popup layer:
   // it floats over every section, never covered and never moving the page.
   const [box, setBox] = useState<HTMLDivElement | null>(null);
+  useEscapingPopup(host, shown, () => box, {
+    side: "bottom",
+    align: "start",
+    gap: UI_ANCHOR_GAP,
+    kind: "list",
+    shell: "parent",
+    onDismiss: () => setDismissed(textRef.current),
+  });
   // The box scrolls past its cap; the selected row stays in view. Only the box scrolls (not the
   // screen around it, as scrollIntoView would). A callback ref: it runs when a row becomes the
   // selected one.
@@ -448,7 +474,7 @@ export function NewTabScreen(props: Props) {
           finalFocus={false}
         >
           {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-          <div ref={list} className="nt-rows" id="nt-rows" role="listbox" aria-label={nt("suggestions")}>
+          <div ref={attachList} className="nt-rows" id="nt-rows" role="listbox" aria-label={nt("suggestions")}>
             {rows.map((row, index) => (
               <div
                 key={rowKey(row)}
@@ -471,9 +497,9 @@ export function NewTabScreen(props: Props) {
                 ) : (
                   <RowGlyph kind={row.type} />
                 )}
-                <span className="nt-row-title">{rowTitle(nt, row)}</span>
+                <span className="nt-row-title">{rowTitle(nt, row)}</span>{" "}
                 {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
-                <span className="nt-row-action">
+                <span className="nt-row-action" data-popup-skip>
                   {rowAction(t, nt, row)}
                   {index === current && <kbd>↵</kbd>}
                 </span>

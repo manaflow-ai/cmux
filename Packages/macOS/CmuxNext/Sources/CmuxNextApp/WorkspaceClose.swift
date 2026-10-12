@@ -30,9 +30,12 @@ enum WorkspaceClose {
         }
     }
 
-    static func close(_ key: WorkspaceKey, terminals: [Terminal], on connection: DaemonConnection) async throws {
+    /// `reason` `.sessionEnd`: a workspace its creator closes again because its first tab did not
+    /// start, kept out of Recently Closed (`close-reason-v1`; an older daemon records it).
+    static func close(_ key: WorkspaceKey, terminals: [Terminal], on connection: DaemonConnection,
+                      reason: CloseReason? = nil) async throws {
         if await connection.supportsBatchClose {
-            _ = try await connection.closeWorkspace(key, endTerminals: true)
+            _ = try await connection.closeWorkspace(key, endTerminals: true, reason: reason)
             return
         }
         for terminal in terminals { try? await connection.closeTerminal(terminal.id, incarnation: terminal.incarnation) }
