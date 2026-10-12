@@ -11,7 +11,13 @@ Three paths now answer without calling Stack:
 | --- | --- | --- |
 | `verifyRequestIdentity` | iroh broker, `/api/relay/token` | The caller's user id, from a locally verified access token |
 | `verifyRequestFromSnapshot` | `/api/devices` GET and POST | User id plus team membership, from `stack_identity_snapshots` |
+| `verifyPolledReadRequest` | `GET /api/vm`, `GET /api/vm/[id]/stats`, `GET /api/coderouter/organizations`, `GET /api/coderouter/vm-usage/team` | The same snapshot answer for read-only polls; cookies, unlisted requested teams and misses keep the route's Stack path |
 | `verifyRequest` | billing, VM mutations, account, admin, `/api/devices` DELETE | Live Stack session, no caching of the decision |
+
+The polled routes made about 1.2M of the 1.43M Stack calls a day on
+2026-10-12 (one or two per poll, about 270 users an hour polling every ~40 s).
+Answered from the snapshot they cost two calls (user plus team list) per user
+per TTL instead.
 
 A snapshot is refreshed from Stack at most once per `CMUX_STACK_IDENTITY_
 SNAPSHOT_TTL_MS` (default ten minutes) per user,

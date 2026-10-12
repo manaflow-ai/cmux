@@ -13,7 +13,7 @@ const JSON_HEADERS = {
 export const GET = coderouterControlRoute("vm_usage", "/api/coderouter/vm-usage/team", handleGet);
 
 async function handleGet(request: Request): Promise<Response> {
-  const resolved = await resolveCoderouterUsageTeam(request);
+  const resolved = await resolveCoderouterUsageTeam(request, { readOnly: true });
   if (!resolved.ok) return resolved.response;
   let owned;
   try {

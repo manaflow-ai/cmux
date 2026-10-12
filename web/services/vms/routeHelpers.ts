@@ -14,6 +14,7 @@ import {
 import {
   parseNativeStackTokens,
   unauthorized,
+  verifyPolledReadRequest,
   verifyRequest,
   type AuthedUser,
 } from "./auth";
@@ -167,7 +168,7 @@ export async function withAuthedVmApiRoute(
         const authStart = performance.now();
         let user: AuthedUser | null;
         try {
-          user = await verifyRequest(request, { requestedTeamId: requestedVmTeamIdFromRequest(request) });
+          user = await verifyVmRouteRequest(request, operation);
         } catch (error) {
           return finalize(authProviderErrorResponse(error, `${route}.auth`));
         }
@@ -214,6 +215,22 @@ export async function withAuthedVmApiRoute(
       }
     },
   ));
+}
+
+/**
+ * Read-only VM polls the Mac app repeats every few tens of seconds per user.
+ * They may answer from the shared identity snapshot (see
+ * `verifyPolledReadRequest`); every other VM operation verifies with Stack.
+ * `POLLED_VM_OPERATIONS` is not reused: it includes a mutation.
+ */
+const SNAPSHOT_AUTH_VM_OPERATIONS: ReadonlySet<string> = new Set(["list", "stats"]);
+
+function verifyVmRouteRequest(request: Request, operation: string): Promise<AuthedUser | null> {
+  const requestedTeamId = requestedVmTeamIdFromRequest(request);
+  if (request.method === "GET" && SNAPSHOT_AUTH_VM_OPERATIONS.has(operation)) {
+    return verifyPolledReadRequest(request, { requestedTeamId });
+  }
+  return verifyRequest(request, { requestedTeamId });
 }
 
 function scheduleTraceFlush(): void {
