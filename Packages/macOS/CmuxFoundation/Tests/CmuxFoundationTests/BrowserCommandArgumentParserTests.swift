@@ -107,8 +107,26 @@ struct BrowserCommandArgumentParserTests {
         #expect(throws: BrowserCommandArgumentParser.ParseError.missingValue(option: "--selector")) {
             try parser.parse(["--selector"])
         }
-        #expect(throws: BrowserCommandArgumentParser.ParseError.missingValue(option: "--selector")) {
-            try parser.parse(["--selector", "--snapshot-after"])
+    }
+
+    @Test("Takes the token after a value option as its value, even when it starts with a dash")
+    func takesDashedOptionValues() throws {
+        let parser = BrowserCommandArgumentParser(valueOptions: ["--key", "--value"])
+
+        #expect(try parser.parse(["--key", "-"]).positionals.isEmpty)
+        #expect(try parser.parse(["#qty", "--value", "-1"]).positionals == ["#qty"])
+        #expect(try parser.parse(["--value", "--literal"]).positionals.isEmpty)
+    }
+
+    @Test("Accepts a bare dash and negative numbers as positionals")
+    func acceptsDashAndNegativeNumberPositionals() throws {
+        let parser = BrowserCommandArgumentParser()
+
+        #expect(try parser.parse(["-"]).positionals == ["-"])
+        #expect(try parser.parse(["-1"]).positionals == ["-1"])
+        #expect(try parser.parse(["-2.5"]).positionals == ["-2.5"])
+        #expect(throws: BrowserCommandArgumentParser.ParseError.unknownOption(name: "-x")) {
+            try parser.parse(["-x"])
         }
     }
 
