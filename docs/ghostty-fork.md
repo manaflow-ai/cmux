@@ -29,6 +29,9 @@ When we change the fork, update this document and the parent submodule SHA.
   linear correction when it is set. The fill is still skipped.
 - Coverage: `cmuxTests/GhosttyMinimumContrastLayerBackgroundTests` reads the
   presented IOSurface for Flexoki Light colors with `minimum-contrast = 2`.
+- GhosttyKit: built by
+  [run 38276408682](https://github.com/manaflow-ai/cmux/actions/runs/38276408682),
+  archive SHA-256 `33af7242117297ed796c72c2f60c801e4b3bb12a703edd9cf9a34b84a9a2d4fc`.
 - Conflict notes: the flag is set next to the glass and layer-background
   alpha zeroing in `updateFrame`; keep them together, and keep the Zig
   `Uniforms.bools` and the MSL `Uniforms` field order identical.
