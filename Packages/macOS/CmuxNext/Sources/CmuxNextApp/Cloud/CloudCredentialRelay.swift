@@ -22,6 +22,21 @@ nonisolated struct CloudCredentialRelay: Sendable {
     /// borrow it.
     static let app = "cmux/cloud"
     static let opPrefix = "cloud."
+    /// `cloud.*` ops the relay never sends, whatever the app asks. The app
+    /// server must never get a credential minted with this Mac's install
+    /// token: `cloud.machine.link_token` is the link's dial credential, and
+    /// only `cmux link` may mint it (decisions LINK-RESOLVE and
+    /// LINK-TOKEN-OP; cloud-client-contract.md 1.7). This list is the
+    /// guard; a Worker refusal of the request shape is not.
+    static let refusedOps: Set<String> = ["cloud.machine.link_token"]
+    /// The ops a Cloud VM sends about itself, with its own VM principal; a
+    /// Mac never sends them.
+    static let refusedPrefix = "cloud.vm."
+
+    /// True when the relay may send `op` for the app server.
+    static func mayRelay(_ op: String) -> Bool {
+        op.hasPrefix(opPrefix) && !refusedOps.contains(op) && !op.hasPrefix(refusedPrefix)
+    }
 
     /// POSTs `body` to `path` on the API Worker with `bearer`; returns the
     /// status and the body. Never logs the bearer.
@@ -67,6 +82,9 @@ nonisolated struct CloudCredentialRelay: Sendable {
         }
         guard op.hasPrefix(Self.opPrefix) else {
             return Self.failure("credential.op_refused", "the credential relay sends only \(Self.opPrefix)* ops")
+        }
+        guard Self.mayRelay(op) else {
+            return Self.failure("credential.op_refused", "the credential relay never sends \(op)")
         }
         guard await session().signedIn else { return Self.notSignedIn }
         let key = params["idempotency_key"]?.stringValue
