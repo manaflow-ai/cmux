@@ -108,6 +108,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
         )
         invocation.besideCaller = request.besideCaller
         invocation.newColumnBeside = request.newColumnBeside
+        invocation.callerAgentSession = request.callerAgentSession
         guard registry.isAvailable(id, for: invocation) else { return .unavailable }
         guard action.isEnabled() else { return .disabled }
         if registry.needsConfirmation(id, invocation) { return .confirmationRequired }

@@ -200,6 +200,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// Context Usage, or the mic's Hide dictation button, which the host writes to cmux.json at `path`
     /// (`agentPane.showContextUsage`, `agentPane.showDictation`).
     case composerSetting(path: [String], show: Bool)
+    /// `chat.toolCard.respond {id, action}`: a click on a button of a tool card (``AgentPaneToolCard``).
+    case toolCard(card: String, action: String)
     case unsupported(String)
 
     /// Most frames in one `transport.send` (the page sends what one task wrote).

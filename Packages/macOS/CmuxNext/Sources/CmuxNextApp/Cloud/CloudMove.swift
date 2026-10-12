@@ -83,14 +83,20 @@ struct CloudMove {
         let tabID = tab.id
         let retries = services.cloud.moveRetries
         toast(toastID, CloudMoveStrings.moving, duration: .seconds(600))
+        // An agent's ask in the chat shows the move too (``CloudMoveAsks``).
+        let asks = services.cloud.moveAsks
+        asks.moveStarted(tabID, services: services)
         let work: ActionWork = Task { @MainActor in
             do {
                 let machine = try await body()
                 retries[tabID] = nil
                 toast(toastID, CloudMoveStrings.moved(machine), duration: .seconds(6))
+                asks.moveEnded(tabID, failure: nil, services: services)
                 return nil
             } catch {
-                return stopped(error, tab: tabID, toast: toastID, invocation: invocation)
+                let failure = stopped(error, tab: tabID, toast: toastID, invocation: invocation)
+                asks.moveEnded(tabID, failure: failure.message, services: services)
+                return failure
             }
         }
         services.registry.track(work)
@@ -206,7 +212,7 @@ struct CloudMove {
     /// relative one absolute in the caller's folder), the chat's own folder
     /// (its tab's, else its session's), else a chat's folder in its workspace,
     /// else a terminal's there.
-    private func chatFolder(tab: TabModel, workspace: WorkspaceModel?, session: String, invocation: ActionInvocation) async throws -> String? {
+    func chatFolder(tab: TabModel, workspace: WorkspaceModel?, session: String, invocation: ActionInvocation) async throws -> String? {
         if let path = invocation["path"]?.stringValue, !path.isEmpty {
             let expanded = (path as NSString).expandingTildeInPath
             guard expanded.hasPrefix("/") else { throw Failure(message: CloudMoveStrings.relativePath(path)) }
