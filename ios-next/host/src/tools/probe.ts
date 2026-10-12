@@ -30,6 +30,7 @@ async function main(): Promise<void> {
       layout: { type: "boolean", default: false },
       focus: { type: "string" },
       "browser-attach": { type: "string" },
+      "browser-create": { type: "string" },
       "bring-forward": { type: "boolean", default: false },
       "agent-prompt": { type: "string" },
       "agent-mode": { type: "string" },
@@ -144,6 +145,14 @@ async function main(): Promise<void> {
       const after = await Promise.race([changed, new Promise((r) => setTimeout(() => r(null), 3000))]);
       log(`after focus: ${after ? JSON.stringify((after as any).workspaces.flatMap((w: any) => w.panes.map((p: any) => ({ pane: p.id, active: p.active, focusedTabId: p.focusedTabId })))) : "no layout.changed"}`);
     }
+  }
+  if (values["browser-create"]) {
+    const status = await client.request("browser.macStatus").catch(() => null);
+    const before = (await client.request("browser.list", {}, 60_000)).tabs.length;
+    const { tab } = await client.request("browser.create", { url: values["browser-create"] }, 60_000);
+    const after = (await client.request("browser.list", {}, 60_000)).tabs;
+    report.browserCreate = { macStatus: status?.state ?? null, tab, before, after: after.length, listed: after.some((t: any) => t.id === tab.id) };
+    log(`browser.create (macStatus ${status?.state ?? "n/a"}): ${JSON.stringify(tab)}; tabs ${before} -> ${after.length}, listed ${after.some((t: any) => t.id === tab.id)}`);
   }
   if (values["browser-attach"]) {
     // Attach a browser tab, count frames, scroll it, count again.
