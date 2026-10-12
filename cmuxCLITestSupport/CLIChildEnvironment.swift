@@ -19,8 +19,19 @@ struct CLIChildEnvironment {
         }
         var resolved = environment
         resolved["CFFIXED_USER_HOME"] = rawHome
-        resolved["XDG_CONFIG_HOME"] = URL(fileURLWithPath: rawHome, isDirectory: true)
-            .appendingPathComponent(".config", isDirectory: true).path
+        // A root inside the fixture's own home is the fixture testing that
+        // override; any other value could reach a shared configuration root.
+        if !Self.isInside(environment["XDG_CONFIG_HOME"], home: rawHome) {
+            resolved["XDG_CONFIG_HOME"] = URL(fileURLWithPath: rawHome, isDirectory: true)
+                .appendingPathComponent(".config", isDirectory: true).path
+        }
         return resolved
+    }
+
+    private static func isInside(_ path: String?, home: String) -> Bool {
+        guard let path, !path.isEmpty else { return false }
+        let root = URL(fileURLWithPath: home, isDirectory: true).standardizedFileURL.path
+        let candidate = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL.path
+        return candidate.hasPrefix(root.hasSuffix("/") ? root : root + "/")
     }
 }
