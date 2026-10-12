@@ -223,10 +223,10 @@ def shell_launch(shell):
     integration = '. ' + shlex.quote(str(directory / 'init.sh'))
     name = Path(shell).name
     if name == 'bash':
-        command = integration + '; exec ' + shlex.join([shell, '--norc', '-i'])
+        command = integration + '; exec ' + shlex.join([shell, '-i'])
         os.execv(shell, [shell, '-lic', command])
     if name == 'zsh':
-        command = integration + '; exec ' + shlex.join([shell, '-fi'])
+        command = integration + '; exec ' + shlex.join([shell, '-i'])
         os.execv(shell, [shell, '-lic', command])
     if name == 'fish':
         command = 'set -gx PATH ' + shlex.quote(str(shim_dir)) + ' $PATH'

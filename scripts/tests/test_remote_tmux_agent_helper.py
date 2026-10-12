@@ -219,6 +219,35 @@ with open(os.environ['PROVIDER_LOG'], 'w') as f: json.dump(sys.argv[1:], f)
         self.assertFalse(namespace["session_launch"]("codex", ["mcp", "list"]))
         self.assertTrue(namespace["session_launch"]("codex", ["exec", "hello"]))
 
+    def test_managed_bash_and_zsh_keep_interactive_startup(self):
+        module_source = HELPER.read_text()
+        calls = []
+
+        class ExecCalled(Exception):
+            pass
+
+        class FakeOS:
+            environ = os.environ
+
+            @staticmethod
+            def execv(path, argv):
+                calls.append((path, argv))
+                raise ExecCalled
+
+        namespace = {"__name__": "cmux_tmux_agent_test", "__file__": str(HELPER)}
+        exec(compile(module_source, str(HELPER), "exec"), namespace)
+        namespace["os"] = FakeOS
+        for shell in ("/bin/bash", "/bin/zsh"):
+            with self.assertRaises(ExecCalled):
+                namespace["shell_launch"](shell)
+
+        self.assertEqual(calls[0][1][:2], ["/bin/bash", "-lic"])
+        self.assertIn("exec /bin/bash -i", calls[0][1][2])
+        self.assertNotIn("--norc", calls[0][1][2])
+        self.assertEqual(calls[1][1][:2], ["/bin/zsh", "-lic"])
+        self.assertIn("exec /bin/zsh -i", calls[1][1][2])
+        self.assertNotIn("-f", calls[1][1][2])
+
 
 if __name__ == "__main__":
     unittest.main()
