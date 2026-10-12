@@ -918,7 +918,7 @@ export default agentPaneEntry({
       },
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-secret-card-field" });
-        await ctx.type("sk-test-51Hx9");
+        await ctx.type("sk-test-51Hx9", { selector: ".acpmux-secret-card-field" });
         await ctx.click({ role: "button", name: "Provide" });
         await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-secret-card"));
       },
