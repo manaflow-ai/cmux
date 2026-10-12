@@ -286,6 +286,10 @@ export type SettingsOps = {
   "cmux.settings.theme.set": [{ level: string; spec: string | null }, unknown];
   /** Native: the colors of every published theme, for the theme preview and the picker's swatches. */
   "cmux.settings.theme.colors": [Record<string, never>, { themes: GhosttyTheme[] }];
+  /** Native: write `base` with its saved edits as the Ghostty theme file `name` (the person only). */
+  "cmux.settings.theme.save": [{ name: string; base: string; replace: boolean }, { name?: string }];
+  /** Native: copy a theme file the person picks into their Ghostty themes; `token` retries a name in use. */
+  "cmux.settings.theme.import": [{ token?: string; replace?: boolean }, { name?: string }];
   /** Native: whether typed text is a theme spec Ghostty accepts (a pair, a path). */
   "cmux.settings.theme.accepts": [{ text: string }, { accepts: boolean }];
   /** Native: the cmux picker chooses folders for a folder list row; the host writes them. */

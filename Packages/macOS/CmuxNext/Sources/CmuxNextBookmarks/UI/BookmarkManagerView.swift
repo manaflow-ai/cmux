@@ -37,6 +37,7 @@ struct BookmarkManagerView: View {
             Spacer(minLength: Metrics.space6)
             TextField(BookmarkStrings.searchPlaceholder, text: $model.query)
                 .textFieldStyle(.roundedBorder)
+                .focusEffectDisabled()
                 .focused($searchFocused)
                 .frame(maxWidth: Metrics.paletteWidth / 2)
                 .accessibilityIdentifier("cmux.bookmarks.manager.search")

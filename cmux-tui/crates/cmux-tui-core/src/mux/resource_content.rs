@@ -168,7 +168,35 @@ impl Mux {
                     Some(terminal.as_ref()),
                     terminal_tab_ids,
                 )?;
-                let mut deltas = Vec::with_capacity(tabs.len().saturating_add(1));
+                // The destination screen's layout lists its panes' tabs, so
+                // the new view restates the screen, as a tab create's
+                // projection does (cx-gzh.24): a client that builds pane
+                // tabs from the layout shows the view in this delta.
+                let screen = topology
+                    .screens
+                    .iter()
+                    .find(|screen| screen.public_id == destination_pane.screen_id)
+                    .context("destination pane has no durable screen")?;
+                let mut panes = topology.panes.clone();
+                for candidate in &mut panes {
+                    if candidate.public_id == pane_id {
+                        *candidate = destination_pane.clone();
+                    }
+                }
+                let screen_value = crate::resource_screen::public_screen_value(
+                    &topology,
+                    screen,
+                    &crate::resource_screen::tabs_by_pane(&all_tabs),
+                    &crate::resource_screen::panes_by_id(&panes),
+                )?;
+                let mut deltas = Vec::with_capacity(tabs.len().saturating_add(2));
+                deltas.push(json!({
+                    "kind":"upsert",
+                    "sequence":0,
+                    "resource":"screen",
+                    "id":screen.public_id,
+                    "value":screen_value,
+                }));
                 for tab in &tabs {
                     push_tab_delta(
                         &mut deltas,

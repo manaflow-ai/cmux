@@ -143,7 +143,7 @@ import { ChatHeaderTools, HEADER_ACTIONS, menuGroups, type ChatMenuItem } from "
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { PullRequestDock } from "./summary/PullRequestDock";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
-import { archiveRow } from "./header/archiveRow";
+import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { copyRow } from "./header/copyRow";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
 import { sideChatRow } from "./header/sideChatRow";
@@ -1857,11 +1857,14 @@ function AcpmuxPane() {
   // client (or the mock daemon), else the native host.
   const fileRoot = movedTo ?? snapshot.summary?.cwd;
   // The + menu's Attach Screenshot… and Attach Window… (cx-ncc.71): the host runs macOS
-  // screencapture's own pick and answers the PNG; a cancelled pick answers no data.
+  // screencapture's own pick and answers the PNG; a cancelled pick answers no data, and a capture
+  // that would not fit the image cap answers `tooLarge` with its name.
   const captureScreen = useCallback(async (mode: "screen" | "window") => {
-    const shot = await callNative<{ name?: string; mimeType?: string; data?: string } | null>("composer.capture", {
-      mode,
-    }).catch(() => null);
+    const shot = await callNative<{ name?: string; mimeType?: string; data?: string; tooLarge?: boolean } | null>(
+      "composer.capture",
+      { mode },
+    ).catch(() => null);
+    if (shot?.tooLarge) return { name: shot.name ?? "Screenshot.png", reason: "tooLarge" } as const;
     if (!shot?.data) return undefined;
     const bytes = Uint8Array.from(atob(shot.data), (char) => char.charCodeAt(0));
     return new File([bytes], shot.name ?? "Screenshot.png", { type: shot.mimeType ?? "image/png" });
@@ -2687,6 +2690,7 @@ function AcpmuxPane() {
     // A seeded first prompt (onboarding's first task). Swift hands it out once, so it is kept
     // here until a connect succeeds: a first connect that fails retries without it.
     let pendingPrompt: string | undefined;
+    let pendingTicket: { promptId: string; ticket: string } | undefined;
     // The harness that seeded prompt starts on (`newTab.submit --agent`), kept with it.
     let pendingHarness: string | undefined;
     /// The connected client as the harness switch sees it.
@@ -2723,6 +2727,7 @@ function AcpmuxPane() {
           cwd?: string;
           draft?: string;
           prompt?: string;
+          promptTicket?: { promptId?: unknown; ticket?: unknown };
           harness?: string;
           adopt?: unknown;
           surface?: unknown;
@@ -2784,6 +2789,10 @@ function AcpmuxPane() {
         const seeded = composerDraft(host.draft);
         if (seeded) setDraft(seeded);
         pendingPrompt = composerDraft(host.prompt) ?? pendingPrompt;
+        // A prompt a person's action seeded has a single-use host ticket bound to its promptId
+        // (cx-k21v gap 4); a CLI, MCP or script seed has none and the host refuses its send.
+        if (host.prompt && typeof host.promptTicket?.promptId === "string" && typeof host.promptTicket.ticket === "string")
+          pendingTicket = { promptId: host.promptTicket.promptId, ticket: host.promptTicket.ticket };
         if (typeof host.harness === "string" && host.harness) pendingHarness = host.harness;
         // Mock mode runs this same client against an in-page daemon.
         const mock = host.transport === "mock";
@@ -2875,6 +2884,7 @@ function AcpmuxPane() {
           attachments: import("./attachments").ComposerAttachment[] = [],
           accepted?: () => void,
           steer = false,
+          promptId?: string,
         ) => {
           // acpmux holds the prompt while the folder's trust question is open (on session/new
           // or session/prompt): the question shows for the folder acpmux named, and Trust sends
@@ -2891,7 +2901,7 @@ function AcpmuxPane() {
           };
           // A harness switch holds the prompt in its own row until its session is ready, and
           // hands it back to the composer when the switch fails.
-          const held = harnessSwitch.send(text, attachments, () => promptLanded.current());
+          const held = harnessSwitch.send(text, attachments, () => promptLanded.current(), promptId);
           if (held) {
             accepted?.();
             return held.catch((error: unknown) =>
@@ -3185,14 +3195,18 @@ function AcpmuxPane() {
         // the prompt waits in the composer instead of vanishing.
         const prompt = pendingPrompt;
         const harness = pendingHarness;
+        const ticket = pendingTicket;
         pendingPrompt = undefined;
         pendingHarness = undefined;
+        pendingTicket = undefined;
+        // The seeded prompt goes with its ticket, under the ticket's promptId.
+        if (prompt && ticket) heldPrompt.keep(ticket);
         // A chat seeded with an agent starts on it, the prompt queued on the switch; a switch
         // that fails hands it back to the composer.
         if (harness && prompt) {
           void harnessSwitch.switchTo(harness, host.cwd);
-          void send(prompt).catch(() => undefined);
-        } else if (prompt) void send(prompt).catch(() => setDraft(prompt));
+          void send(prompt, [], undefined, false, ticket?.promptId).catch(() => undefined);
+        } else if (prompt) void send(prompt, [], undefined, false, ticket?.promptId).catch(() => setDraft(prompt));
       } catch (error) {
         if (!cancelled) {
           acpWire.lifecycle("handshake failed", { message: String(error) });
@@ -3290,6 +3304,16 @@ function AcpmuxPane() {
     t,
   );
   archiveChatRef.current = archive && !archived ? archive.onSelect : undefined;
+  const markUnread = markUnreadRow(
+    {
+      sessionId: snapshot.sessionId,
+      archived,
+      local: localCwd !== undefined,
+      unread: snapshot.sessions.some((session) => session.sessionId === snapshot.sessionId && session.unread === true),
+    },
+    () => ignoreFailure(callNative("chat.markUnread")),
+    t,
+  );
   const readTabState = () => callNative("pane.tabState").then(setHeaderState);
   const refreshTabState = () => void readTabState().catch(() => undefined);
   // Terminal and Browser change what is beside the chat: [+] follows once their split lands.
@@ -3466,6 +3490,7 @@ function AcpmuxPane() {
       ],
       tools,
       [
+        ...(markUnread ? [markUnread] : []),
         ...(archive ? [archive] : []),
         {
           key: "close",

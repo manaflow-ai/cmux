@@ -11,6 +11,11 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
     public var draft: String?
     /// The first prompt, sent without the user pressing Send.
     public var prompt: String?
+    /// Who seeded ``prompt``. Only a person's own action or onboarding's first task gets the
+    /// single-use gesture ticket the prompt needs to go out by itself (cx-k21v gap 4, chief:
+    /// person only); a prompt seeded by the CLI, MCP, a script or another client gets none, so
+    /// the relay refuses it (`transport.gesture_required`) and the prompt waits in the composer.
+    public var promptBy: PromptBy
     /// An outside chat to resume instead of starting a new one. Kept across
     /// page reloads: acpmux adopts one id into one session.
     public var adopt: AgentPaneAdopt?
@@ -25,9 +30,23 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
     /// trust question holds the replay. Kept across page reloads.
     public var pastChat: String?
 
-    public init(cwd: String? = nil, draft: String? = nil, prompt: String? = nil, adopt: AgentPaneAdopt? = nil,
-                surface: AgentPaneSurface? = nil, harness: String? = nil, folderNeeded: AgentPaneFolderNeeded? = nil,
-                pastChat: String? = nil) {
+    /// Who seeded a prompt that goes out by itself.
+    public nonisolated enum PromptBy: Sendable, Equatable {
+        /// A person's own action in this app (`ActionOrigin.user`).
+        case person
+        /// Onboarding's first task.
+        case onboarding
+        /// The CLI, MCP, a script, a page or another client: no ticket.
+        case automation
+
+        /// Whether the prompt gets the ticket that lets it go out by itself.
+        public var sendsBySelf: Bool { self != .automation }
+    }
+
+    public init(cwd: String? = nil, draft: String? = nil, prompt: String? = nil, promptBy: PromptBy = .automation,
+                adopt: AgentPaneAdopt? = nil, surface: AgentPaneSurface? = nil, harness: String? = nil,
+                folderNeeded: AgentPaneFolderNeeded? = nil, pastChat: String? = nil) {
+        self.promptBy = promptBy
         self.folderNeeded = folderNeeded
         self.pastChat = pastChat
         self.cwd = cwd

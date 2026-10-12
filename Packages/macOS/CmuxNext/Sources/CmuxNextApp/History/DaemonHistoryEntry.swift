@@ -2,8 +2,9 @@ import CmuxNextHistory
 import Foundation
 
 /// One entry of the daemon's merged history (`history.entries.list`; serde snake_case of
-/// cmux-history's `HistoryEntry`, times as the catalog's decimal strings).
-struct DaemonHistoryEntry: Decodable, Sendable, Equatable {
+/// cmux-history's `HistoryEntry`, times as the catalog's decimal strings). Nonisolated, so
+/// `DaemonHistoryClient.decode` builds it off the main actor.
+nonisolated struct DaemonHistoryEntry: Decodable, Sendable, Equatable {
     var id: String
     var kind: HistoryEntry.Kind
     var atMS: Double
@@ -65,7 +66,7 @@ struct DaemonHistoryEntry: Decodable, Sendable, Equatable {
 
     /// The app's entry for the restore paths (history.open, palette pages). Locations are nil: the
     /// app owns the trail and reads its own entries.
-    func historyEntry() -> HistoryEntry? {
+    @MainActor func historyEntry() -> HistoryEntry? {
         // The daemon leaves a closed terminal with no name, URL or directory untitled; the app
         // localizes the default.
         let title = kind == .closed && self.title.isEmpty ? Strings.untitledTerminal : self.title
@@ -101,12 +102,12 @@ struct DaemonHistoryEntry: Decodable, Sendable, Equatable {
     }
 }
 
-struct DaemonHistoryList: Decodable, Sendable {
+nonisolated struct DaemonHistoryList: Decodable, Sendable {
     var entries: [DaemonHistoryEntry]
 }
 
 /// `history.visit.summaries` row: the omnibox seed of a browser profile.
-struct DaemonVisitSummary: Decodable, Sendable, Equatable {
+nonisolated struct DaemonVisitSummary: Decodable, Sendable, Equatable {
     var url: String
     var title: String?
     var visitCount: Int
@@ -135,7 +136,7 @@ struct DaemonVisitSummary: Decodable, Sendable, Equatable {
 }
 
 /// The v2 catalog sends 64-bit integers as decimal strings (and smaller ones as numbers): accept both.
-extension KeyedDecodingContainer {
+nonisolated extension KeyedDecodingContainer {
     func decodeCatalogNumber(forKey key: Key) throws -> Double {
         if let number = try? decode(Double.self, forKey: key) { return number }
         let text = try decode(String.self, forKey: key)

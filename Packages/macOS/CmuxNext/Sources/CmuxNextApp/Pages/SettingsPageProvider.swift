@@ -43,6 +43,8 @@ final class SettingsPageProvider: PageProvider {
     /// The cmux picker for folders (R89): the paths the person chose (`~/` for home), nil when
     /// they left it.
     var pickFolders: (@MainActor () async -> [String]?)?
+    /// Save as Ghostty Theme and Import Theme File (`cmux.settings.theme.save`/`.import`).
+    var themeFiles: SettingsThemeFiles?
     /// The registry's buttons for a section (`SettingsSchema.actions(in:)`): id, localized title,
     /// and whether it can run now.
     var sectionActions: (@MainActor (SettingsSection) -> JSONValue)?
@@ -123,6 +125,9 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.theme.colors":
             guard let themeColors else { throw PageError(code: "cmux.page.unavailable", message: "no theme colors") }
             return ["themes": .array(themeColors().map(Self.json))]
+        case "cmux.settings.theme.save", "cmux.settings.theme.import":
+            guard let themeFiles else { throw PageError(code: "cmux.page.unavailable", message: "no theme files") }
+            return try await themeFiles.call(op, params: params, edits: settings.applied.themeEdits, writer: Self.writer(context))
         case "cmux.settings.theme.accepts":
             return ["accepts": .bool(acceptsTheme?(params["text"]?.stringValue ?? "") ?? false)]
         case "cmux.settings.folders.add":
