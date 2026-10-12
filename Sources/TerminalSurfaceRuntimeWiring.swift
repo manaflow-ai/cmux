@@ -118,6 +118,8 @@ final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProvidin
 /// Installs the libghostty PTY tee for `MobileTerminalByteTee` and keys
 /// drop/replay state by surface id (the legacy inline
 /// `ghostty_surface_set_pty_tee_cb` + `MobileTerminalByteTee.shared` calls).
+/// It also installs the surface's link filter, whose userdata shares the
+/// tee's lifetime: both are released only after the surface is freed.
 final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
     private let scrollbackCheckpointActivity: TerminalScrollbackCheckpointActivity
 
@@ -132,13 +134,16 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
     /// transport.
     final class Lease: TerminalByteTeeLease, @unchecked Sendable {
         private let context: Unmanaged<TerminalOutputTeeContext>
+        private let linkFilter: Unmanaged<TerminalLinkHoverFilter>
         private let scrollbackCheckpointActivity: TerminalScrollbackCheckpointActivity
 
         init(
             context: Unmanaged<TerminalOutputTeeContext>,
+            linkFilter: Unmanaged<TerminalLinkHoverFilter>,
             scrollbackCheckpointActivity: TerminalScrollbackCheckpointActivity
         ) {
             self.context = context
+            self.linkFilter = linkFilter
             self.scrollbackCheckpointActivity = scrollbackCheckpointActivity
         }
 
@@ -149,6 +154,7 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
                 registration: teeContext.scrollbackCheckpointFlags
             )
             context.release()
+            linkFilter.release()
         }
     }
 
@@ -170,7 +176,13 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
             cmuxTerminalOutputTeeCallback,
             teeContext.toOpaque()
         )
-        return Lease(context: teeContext, scrollbackCheckpointActivity: scrollbackCheckpointActivity)
+        let linkFilter = Unmanaged.passRetained(TerminalLinkHoverFilter(surfaceID: surfaceID))
+        ghostty_surface_set_link_filter(surface, cmuxTerminalLinkFilterCallback, linkFilter.toOpaque())
+        return Lease(
+            context: teeContext,
+            linkFilter: linkFilter,
+            scrollbackCheckpointActivity: scrollbackCheckpointActivity
+        )
     }
 
     @MainActor

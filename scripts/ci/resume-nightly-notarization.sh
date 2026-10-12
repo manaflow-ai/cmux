@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Resume a timed-out nightly DMG submission without rebuilding or re-submitting.
+# Resume a timed-out nightly, RC or stable DMG submission without rebuilding or
+# re-submitting.
 # The state file and signed DMG must come from the same recovery artifact.
 
 set -euo pipefail
@@ -125,7 +126,7 @@ if [ "$(basename "$RECORDED_IMMUTABLE")" != "$(basename "$DMG_IMMUTABLE")" ]; th
   exit 1
 fi
 case "$CHANNEL" in
-  nightly|rc) ;;
+  nightly|rc|stable) ;;
   *) echo "Unsupported recovery channel: $CHANNEL" >&2; exit 1 ;;
 esac
 if [ "$CHANNEL" != "$RECORDED_CHANNEL" ]; then
