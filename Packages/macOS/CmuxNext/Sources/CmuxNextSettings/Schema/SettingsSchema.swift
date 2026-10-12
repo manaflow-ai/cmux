@@ -123,6 +123,26 @@ public nonisolated enum SettingsSchema {
                 keywords: ["history", "commands", "retention", "delete", "privacy", "days"]
             ),
             SettingDescriptor(
+                ClosedHistoryRetentionSetting.maxGroupsPath, section: .general, group: history,
+                title: SettingsText.keyed("settings.history.closed.maxGroups", "Recently Closed Items to Keep"),
+                help: SettingsText.keyed("settings.history.closed.maxGroups.help",
+                                        "Each machine deletes its oldest closed tabs, screens, workspaces and windows past this many. 0 keeps them all."),
+                kind: .number(SettingNumber(Double(ClosedHistoryRetentionSetting.groupRange.lowerBound)...Double(ClosedHistoryRetentionSetting.groupRange.upperBound),
+                                            step: 1, unit: .count)),
+                default: .number(0),
+                keywords: ["history", "recently closed", "reopen", "retention", "delete", "privacy"]
+            ),
+            SettingDescriptor(
+                ClosedHistoryRetentionSetting.maxAgeDaysPath, section: .general, group: history,
+                title: SettingsText.keyed("settings.history.closed.maxAgeDays", "Keep Recently Closed Items For"),
+                help: SettingsText.keyed("settings.history.closed.maxAgeDays.help",
+                                        "Each machine deletes closed items that are older. 0 keeps them however old they are."),
+                kind: .number(SettingNumber(Double(ClosedHistoryRetentionSetting.dayRange.lowerBound)...Double(ClosedHistoryRetentionSetting.dayRange.upperBound),
+                                            step: 1, unit: .days)),
+                default: .number(0),
+                keywords: ["history", "recently closed", "reopen", "retention", "delete", "privacy", "days"]
+            ),
+            SettingDescriptor(
                 WindowTitlebarSetting.configPath, section: .general, group: window,
                 title: SettingsText.keyed("settings.window.titlebar", "Titlebar"),
                 help: SettingsText.keyed("settings.window.titlebar.help", "Minimal has no titlebar strip; the top row moves the window."),
