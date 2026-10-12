@@ -327,6 +327,16 @@ def --wrapped grok [...args: string] {
     }
 }
 
+# Routes muse through the bundled cmux wrapper when present.
+def --wrapped muse [...args: string] {
+    let wrapper = (_cmux_wrapper_path "muse")
+    if ($wrapper != "") {
+        ^$wrapper ...$args
+    } else {
+        ^muse ...$args
+    }
+}
+
 # pre_execution hook: report tty + busy state and kick a port scan before a
 # command runs.
 def --env _cmux_pre_execution [] {
