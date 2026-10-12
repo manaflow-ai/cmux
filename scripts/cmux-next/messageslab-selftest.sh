@@ -16,7 +16,8 @@
 #   Prints "selftest PASSED / TOTAL" and each failing step.
 set -uo pipefail
 src="${1:?usage: messageslab-selftest.sh SRC [--key]}"; key="${2:-}"
-out="$(mktemp -d /tmp/messageslab-selftest.XXXX)"
+# The real path: an app launched by open runs as /private/tmp/..., and the PID lookup matches its path.
+out="$(cd "$(mktemp -d /tmp/messageslab-selftest.XXXX)" && pwd -P)"
 app="$out/MessagesLabAppKitNative.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 files=( "$src"/appkit-native/Sources/*.swift )
@@ -52,7 +53,7 @@ if [ "$key" = "--key" ]; then
   opener=$!
   pid=""
   for _ in $(seq 40); do pid="$(pgrep -f "^$exe" | head -1)"; [ -n "$pid" ] && break; sleep 0.25; done
-  [ -n "$pid" ] || { echo "selftest: the app did not start"; kill "$opener" 2>/dev/null; exit 3; }
+  [ -n "$pid" ] || { echo "selftest: the app did not start ($exe)"; cat "$out/app.log" 2>/dev/null; kill "$opener" 2>/dev/null; exit 3; }
   stop_after "$pid" 120
   wait "$opener" 2>/dev/null
 else
