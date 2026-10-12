@@ -938,6 +938,12 @@ pub fn foreground_process_name(pid: u32) -> Option<String> {
     process_name(foreground_process_group(pid)?)
 }
 
+/// Whether the PTY child `pid` is itself its terminal's foreground job (an
+/// idle shell at its prompt), not a program it started. One PTY query.
+pub fn is_foreground(pid: u32) -> bool {
+    foreground_process_group(pid) == Some(pid)
+}
+
 /// Program name (basename only, never arguments) of the job a terminal runs
 /// in the foreground when that job is not the terminal's own PTY child
 /// `pid`: the program a shell started and waits for. `None` when the child

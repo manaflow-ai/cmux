@@ -303,7 +303,12 @@ impl Surface {
                             let cursor_activity = term
                                 .cursor_activity()
                                 .expect("valid local terminals expose cursor activity");
-                            let normalized = term.vt_write_with_normalized(&buf[..n]);
+                            let pid = pty.pid;
+                            let normalized = crate::prompt_mode_reset::write_output(
+                                &mut term,
+                                &buf[..n],
+                                || pid.is_some_and(crate::platform::is_foreground),
+                            );
                             terminal_notifications = pty.observe_terminal_output(&buf[..n]);
                             finished_commands = pty.observe_shell_marks(&mut term, || {
                                 mux.upgrade()

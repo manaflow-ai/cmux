@@ -144,7 +144,12 @@ pub(crate) fn run_host_parser(
                     let cursor_activity = term
                         .cursor_activity()
                         .expect("valid host terminals expose cursor activity");
-                    let normalized = term.vt_write_with_normalized(&bytes).into_owned();
+                    let pid = parser_host.pid;
+                    let normalized =
+                        crate::prompt_mode_reset::write_output(&mut term, &bytes, || {
+                            pid.is_some_and(crate::platform::is_foreground)
+                        })
+                        .into_owned();
                     parser_host.terminal_metadata.lock().unwrap().observe_output(&bytes);
                     let title = title_changed
                         .swap(false, Ordering::AcqRel)
