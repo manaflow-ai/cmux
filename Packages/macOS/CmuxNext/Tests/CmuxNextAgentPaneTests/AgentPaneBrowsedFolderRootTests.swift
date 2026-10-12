@@ -52,6 +52,6 @@ struct AgentPaneBrowsedFolderRootTests {
         #expect(model.transport.addedRoots.isEmpty)
         model.onBrowseProject = { inside }
         _ = await model.respond(to: .browseProject)
-        #expect(model.transport.addedRoots == [inside])
+        #expect(model.transport.addedRoots == [AcpmuxPathPolicy.canonical(inside)].compactMap { $0 })
     }
 }
