@@ -49,6 +49,15 @@ struct CommandBusyStatusTests {
         #expect(try activity(store) == .busy(progress: nil))
     }
 
+    /// An agent CLI is one long shell command: idle at its own prompt, its row shows the agent's
+    /// state, never the command running.
+    @Test func anIdleAgentsTerminalDoesNotShowItsCommandRunning() throws {
+        let store = try store(extra: running(since: 10))
+        let tab = try #require(store.workspaces.first?.screens.first?.panes.first?.tabs.first)
+        tab.setAgent(AgentStatus(surface: 1, state: .idle, source: "hook", agent: "claude"))
+        #expect(try activity(store) == .idle)
+    }
+
     @Test func aPromptOrTheSettingOffShowsIdle() throws {
         #expect(try activity(store(extra: "{}")) == .idle)
         let saved = DesignSettings.shared.statusBehavior

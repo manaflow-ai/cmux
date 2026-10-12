@@ -62,6 +62,8 @@ public final class TabModel: Identifiable {
     /// When the terminal's running shell command started (`extra.busy.since_ms`: the daemon's
     /// OSC 133 C..D fact), nil at a prompt. How long it must run to show is the client's call.
     public internal(set) var commandSinceMs: UInt64?
+    /// This clock's time when `commandSinceMs` arrived: another machine's daemon may run ahead.
+    @ObservationIgnored public private(set) var commandSeenMs: UInt64?
     /// Bumped when `recheckCommand(after:)` fires: whoever read the command's age reads it again.
     public private(set) var commandRecheck = 0
     @ObservationIgnored private var commandTimer: DemandTimer?
@@ -177,6 +179,7 @@ public final class TabModel: Identifiable {
         if self.progress != progress { self.progress = progress }
         if self.programStatus != programStatus { self.programStatus = programStatus }
         if self.commandSinceMs != commandSinceMs {
+            commandSeenMs = commandSinceMs.map { _ in UInt64(Date().timeIntervalSince1970 * 1000) }
             self.commandSinceMs = commandSinceMs
             commandTimer?.cancel()
         }
@@ -187,7 +190,8 @@ public final class TabModel: Identifiable {
     public func recheckCommand(after delay: Duration) {
         let timer = commandTimer ?? DemandTimer(owner: "tab.command-busy")
         commandTimer = timer
-        timer.scheduleIfIdle(after: delay) { @MainActor [weak self] in self?.commandRecheck += 1 }
+        // A replace, not scheduleIfIdle: a lowered threshold moves the deadline earlier.
+        timer.schedule(after: delay) { @MainActor [weak self] in self?.commandRecheck += 1 }
     }
 
     /// Point updates from surface events (no full snapshot).
