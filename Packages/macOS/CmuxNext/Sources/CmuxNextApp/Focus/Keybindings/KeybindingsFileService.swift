@@ -12,7 +12,7 @@ import OSLog
 /// hold are written here; each returns once the table shows it.
 @MainActor
 final class KeybindingsFileService {
-    private unowned let services: AppServices
+    private weak var services: AppServices?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "keybindings")
     private var listeners: [UUID: @MainActor () -> Void] = [:]
     /// The newest read: reads run one after another, so the last one wins.
@@ -26,10 +26,10 @@ final class KeybindingsFileService {
     }
 
     /// The home daemon serves keybindings.json.
-    var serves: Bool { services.machines.local.supports(DaemonCapabilities.shared.keybindings) }
+    var serves: Bool { services?.machines.local.supports(DaemonCapabilities.shared.keybindings) ?? false }
 
     func start() {
-        services.machines.local.store.sideEvents.subscribe { [weak self] event in
+        services?.machines.local.store.sideEvents.subscribe { [weak self] event in
             if case .keybindingsChanged = event { self?.read() }
         }
         // task-owner: lives as long as the service; event-driven (Observation)
@@ -86,7 +86,7 @@ final class KeybindingsFileService {
         let task = Task { [weak self] in
             await previous?.value
             guard let self else { return }
-            guard serves, let connection = services.machines.local.connection else {
+            guard serves, let connection = services?.machines.local.connection else {
                 load([])
                 return
             }
@@ -115,9 +115,10 @@ final class KeybindingsFileService {
                 user.append(KeyBinding(keys: keys, command: command, arguments: arguments, when: when, source: .user))
             }
         }
-        let layers = services.registry.keyBindingLayers
+        guard let registry = services?.registry else { return }
+        let layers = registry.keyBindingLayers
         guard layers.user != user || layers.removals != removals else { return notify() }
-        issues = KeyBindingLoader(services.registry).load(KeyBindingLayers(app: layers.app, user: user, removals: removals))
+        issues = KeyBindingLoader(registry).load(KeyBindingLayers(app: layers.app, user: user, removals: removals))
         notify()
     }
 
@@ -126,7 +127,7 @@ final class KeybindingsFileService {
     }
 
     private func client() throws -> KeybindingsFileClient {
-        guard serves, let connection = services.machines.local.connection else {
+        guard serves, let connection = services?.machines.local.connection else {
             throw KeybindingsFileError.notServed
         }
         return KeybindingsFileClient(connection: connection)
