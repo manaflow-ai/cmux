@@ -24,16 +24,6 @@ extension AppControl {
                     "cloud_unavailable": cloud.unavailableReason.map(JSONValue.string) ?? .null,
                 ]))
             },
-            // Starts this Mac's cmux link the way a connect does and reports
-            // the ensure and the apps-link-changed answer (cx-rtipa S3).
-            .async("cloud.link.ensure") { [weak services] _ in
-                guard let cloud = await MainActor.run(body: { services?.cloud }) else { return .null }
-                // The daemon wire value, as this socket's JSON value.
-                let report = await cloud.ensureLinkReport()
-                guard let data = try? JSONEncoder().encode(report),
-                      let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else { return .null }
-                return CmuxNextSettings.JSONValue(foundation: object) ?? .null
-            },
             .mainActor("cloud.machines") { _ in
                 if let refusal = Self.policyRefusal("cloud.machines", disabled: services.registry.disabledFeatures) { throw refusal }
                 let rows: [JSONValue] = services.machines.cloud.map { session in
@@ -71,5 +61,21 @@ extension AppControl {
                                        "last_error": services.cloud.lastError.map(JSONValue.string) ?? .null]))
             },
         ])
+        // Tagged DEV builds only (debug.* methods; a release build registers
+        // none, and ControlRouter drops them too).
+        #if DEBUG
+        service?.router.register([
+            // Starts this Mac's cmux link the way a connect does and reports
+            // the ensure and the apps-link-changed answer (cx-rtipa S3).
+            .async("debug.cloud.link_ensure") { [weak services] _ in
+                guard let cloud = await MainActor.run(body: { services?.cloud }) else { return .null }
+                // The daemon wire value, as this socket's JSON value.
+                let report = await cloud.ensureLinkReport()
+                guard let data = try? JSONEncoder().encode(report),
+                      let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else { return .null }
+                return CmuxNextSettings.JSONValue(foundation: object) ?? .null
+            },
+        ])
+        #endif
     }
 }

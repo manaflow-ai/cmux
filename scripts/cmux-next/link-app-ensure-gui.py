@@ -13,7 +13,7 @@ Checks (each a PASS/FAIL line, all in $NX_ARTIFACTS/link.json):
 3. the release registration (`~/Library/Application Support/cmux-tui/sessions/link.json`) is
    the same before and after;
 4. with the Cloud app server running, a link stopped behind the app is started again by the
-   app's own ensure (`cloud.link.ensure` on the debug socket), and the app's `apps-link-changed`
+   app's own ensure (`debug.cloud.link_ensure` on the debug socket, DEBUG builds only), and the app's `apps-link-changed`
    passes on its verified connection and tells at least one app server;
 5. the link outlives the app (quit by exact pid), then `link stop` ends it and removes
    `link.json`.
@@ -165,7 +165,7 @@ try:
     record("the Cloud app server answers the machine list", isinstance(listed, dict) and "error" not in listed,
            json.dumps(listed)[:200])
     record("the link stops behind the app (CLI link stop)", link("stop").get("stopped") is True, "")
-    report = rpc("cloud.link.ensure", timeout=60) or {}
+    report = rpc("debug.cloud.link_ensure", timeout=60) or {}
     changed = report.get("link_changed") or {}
     record("the app's ensure starts the link and its apps-link-changed passes on the verified connection",
            report.get("status") == "started" and "error" not in changed and (changed.get("servers") or 0) >= 1,

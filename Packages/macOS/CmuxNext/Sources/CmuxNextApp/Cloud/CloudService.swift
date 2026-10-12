@@ -391,8 +391,8 @@ final class CloudService {
     /// the connect then answers that the helper is not running.
     func ensureLink() async { _ = await ensureLinkReport() }
 
-    /// ``ensureLink()`` with what happened, for `cloud.link.ensure` on the
-    /// debug socket: the ensure status and pid, and when the link started,
+    /// ``ensureLink()`` with what happened, for `debug.cloud.link_ensure` on
+    /// the debug socket (DEBUG builds): the ensure status and pid, and when the link started,
     /// how many app servers `apps-link-changed` told (or its refusal).
     func ensureLinkReport() async -> JSONValue {
         guard let linkLauncher else { return .object(["error": .string("not the app server link path")]) }
