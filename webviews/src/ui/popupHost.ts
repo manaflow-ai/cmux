@@ -43,11 +43,17 @@ export type AnchorBox = { getBoundingClientRect(): { left: number; top: number; 
 
 export type PopupEvent = { type: "pick"; id: string } | { type: "highlight"; id: string } | { type: "dismiss" };
 
+/**
+ * One panel per page: the surface that showed it (`owner`) updates and hides it; another surface
+ * finds it taken and stays in the page.
+ */
 export interface PopupHost {
-  /** Resolves `{shown: true}` once the rows show; anything else leaves the menu in the page. */
-  show(model: PopupModel): Promise<unknown>;
-  update(model: PopupModel): void;
-  hide(): void;
+  /** Resolves `{shown: true}` once the rows show; anything else leaves the surface in the page. */
+  show(model: PopupModel, owner: object): Promise<unknown>;
+  update(model: PopupModel, owner: object): void;
+  hide(owner: object): void;
+  /** The surface showing the panel, if any. */
+  owner(): object | null;
   listen(listener: (event: PopupEvent) => void): () => void;
 }
 
@@ -56,10 +62,21 @@ export function nativePopupHost(
   post: (method: string, params: Record<string, unknown>) => Promise<unknown>,
 ): PopupHost {
   const quiet = (method: string, params: Record<string, unknown> = {}) => post(method, params).catch(() => undefined);
+  let current: object | null = null;
   return {
-    show: (model) => quiet("popup.show", { ...model }),
-    update: (model) => void quiet("popup.update", { ...model }),
-    hide: () => void quiet("popup.hide"),
+    show(model, owner) {
+      current = owner;
+      return quiet("popup.show", { ...model });
+    },
+    update(model, owner) {
+      if (owner === current) void quiet("popup.update", { ...model });
+    },
+    hide(owner) {
+      if (owner !== current) return;
+      current = null;
+      void quiet("popup.hide");
+    },
+    owner: () => current,
     listen(listener) {
       const receive = (event: Event) => listener((event as CustomEvent<PopupEvent>).detail);
       window.addEventListener("cmux-popup", receive);
@@ -144,6 +161,18 @@ export function fitsInPage(
   return height <= (only === "top" ? above : only === "bottom" ? below : Math.max(below, above));
 }
 
+/** A tooltip's text on one line (its page box wraps at the tooltip's max width). */
+function textWidth(tooltip: HTMLElement): number {
+  const probe = tooltip.cloneNode(true) as HTMLElement;
+  probe.style.cssText +=
+    ";position:fixed;left:0;top:0;visibility:hidden;max-width:none;width:max-content;white-space:nowrap";
+  document.body.append(probe);
+  const width = probe.getBoundingClientRect().width;
+  probe.remove();
+  // Room for the native row's padding and its own font.
+  return Math.ceil(width) + 24;
+}
+
 export interface EscapeOptions {
   side: "bottom" | "top";
   align: "start" | "end";
@@ -167,8 +196,10 @@ export function useEscapingPopup(
   anchorRef.current = anchor;
   useEffect(() => {
     if (!host || !element) return;
+    const me = {};
     let escaped = false;
     let alive = true;
+    let frame = 0;
     let observer: MutationObserver | undefined;
     let stopListening: (() => void) | undefined;
     // A Base UI surface hides by its positioner; a list positioned by its own CSS, by itself.
@@ -184,7 +215,7 @@ export function useEscapingPopup(
         anchor: { left: box.left, top: box.top, right: box.right, bottom: box.bottom },
         side,
         align,
-        width: kind === "tooltip" ? element.scrollWidth + 2 : element.getBoundingClientRect().width,
+        width: kind === "tooltip" ? textWidth(element) : element.getBoundingClientRect().width,
         kind,
       };
     };
@@ -197,10 +228,14 @@ export function useEscapingPopup(
       shell?.removeAttribute("data-escaped");
       shell?.style.removeProperty("opacity");
       shell?.style.removeProperty("pointer-events");
-      host.hide();
+      host.hide(me);
     };
-    // After the page placed the surface (one frame), measure every row against the room.
-    const frame = requestAnimationFrame(() => {
+    // Measure every row against the room, after the page placed the surface (one frame) and
+    // again whenever its rows change (a list's results arrive after it opens).
+    const measure = () => {
+      if (!alive || escaped) return;
+      // Another surface shows the panel: this one stays in the page.
+      if (host.owner() && host.owner() !== me) return;
       const at = anchorRef.current();
       const flat = kind !== "menu" || !element.querySelector("[aria-haspopup], input, textarea, [contenteditable]");
       const { items } = popupItems(element, kind);
@@ -208,23 +243,24 @@ export function useEscapingPopup(
       const fits =
         !room ||
         (fitsInPage(room, naturalHeight(element), gap, innerHeight, flip ? undefined : side) &&
-          (kind !== "tooltip" || element.scrollWidth <= innerWidth - 2 * EDGE));
+          (kind !== "tooltip" || textWidth(element) <= innerWidth - 2 * EDGE));
       if (!flat || items.length === 0 || fits) return;
       const first = model();
       if (!first) return;
       escaped = true;
+      observer?.disconnect();
       // Invisible, not hidden: the page's surface keeps focus and its rows for the keyboard.
       shell?.setAttribute("data-escaped", "");
       shell?.style.setProperty("opacity", "0");
       shell?.style.setProperty("pointer-events", "none");
       // The host could not show it (no screen, a hidden window): the surface stays in the page.
-      void host.show(first).then((reply) => {
+      void host.show(first, me).then((reply) => {
         if (!alive || (reply as { shown?: boolean } | undefined)?.shown === true) return;
         restore();
       });
       observer = new MutationObserver(() => {
         const next = model();
-        if (next) host.update(next);
+        if (next) host.update(next, me);
       });
       observer.observe(element, {
         subtree: true,
@@ -256,7 +292,14 @@ export function useEscapingPopup(
           to.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
         }
       });
-    });
+    };
+    const schedule = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(measure);
+    };
+    schedule();
+    observer = new MutationObserver(schedule);
+    observer.observe(element, { subtree: true, childList: true, characterData: true });
     return () => {
       alive = false;
       cancelAnimationFrame(frame);
