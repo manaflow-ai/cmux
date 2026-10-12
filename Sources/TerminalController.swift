@@ -2134,7 +2134,7 @@ class TerminalController {
             // validates params, and bind it so every control-plane request the
             // handler makes states the earliest budget (CloudRequestBudget).
             let budget = Self.socketWorkerVMDispatch(request.params)
-            return CloudRequestBudget.withBudgetSync(seconds: budget.seconds) {
+            return CloudRequestBudget.live.withBudgetSync(seconds: budget.seconds) {
                 socketWorkerCloudVMResponse(method: method, id: request.id, params: budget.params)
             }
         case let method where method.hasPrefix("remotes."):
@@ -3974,7 +3974,7 @@ class TerminalController {
         // (the Task inherits it), so the server answers before either gives up.
         let task = Task {
             do {
-                result = .success(try await CloudRequestBudget.withBudget(seconds: timeoutSeconds) { try await work() })
+                result = .success(try await CloudRequestBudget.live.withBudget(seconds: timeoutSeconds) { try await work() })
             } catch {
                 result = .failure(error)
             }

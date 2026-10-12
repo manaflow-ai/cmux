@@ -12,7 +12,7 @@ extension TerminalController {
     /// The params a `vm.*` handler sees and the socket client's budget the
     /// dispatcher binds; see the `vm.` case of the socket worker dispatch.
     nonisolated static func socketWorkerVMDispatch(_ params: [String: Any]) -> (params: [String: Any], seconds: TimeInterval?) {
-        CloudRequestBudget.socketClientBudget(from: params)
+        CloudRequestBudget.live.socketClientBudget(from: params)
     }
 
     nonisolated func socketWorkerFileTransferFailureResponse(id: Any?, params: [String: Any]) -> String {

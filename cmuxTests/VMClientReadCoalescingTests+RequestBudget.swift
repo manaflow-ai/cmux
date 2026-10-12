@@ -13,26 +13,27 @@ import Testing
 /// server answers inside it (web/services/vms/routeDeadline.ts).
 @MainActor
 extension VMClientReadCoalescingTests {
+    /// A budget on a frozen clock: deadlines and stated budgets are exact.
+    private static let frozenBudget = CloudRequestBudget(clock: { 1_000 })
+
     @Test("A request states its timeout cut by the caller's earlier budget")
     func requestStatesCallerBudget() async throws {
-        let fixture = try await CloudRefreshFixture.make(authClient: TeamChangeAuthClient(), fixtureTeams: true)
+        let budget = Self.frozenBudget
+        let fixture = try await CloudRefreshFixture.make(authClient: TeamChangeAuthClient(), fixtureTeams: true, requestBudget: budget)
         defer { fixture.session.invalidateAndCancel() }
         await CloudRefreshURLProtocol.reset()
 
         // The URLRequest alone would wait 60 s; the socket worker or CLI waits 12 s.
-        _ = try? await CloudRequestBudget.withBudget(seconds: 12) {
+        _ = try? await budget.withBudget(seconds: 12) {
             try await fixture.client.status(id: "fixture-0")
         }
 
-        let stated = try #require(await CloudRefreshURLProtocol.budgetHeaders().first ?? nil)
-        let statedBudget = try #require(Int(stated))
-        #expect(statedBudget <= 12_000)
-        #expect(statedBudget > 10_000)
+        #expect(await CloudRefreshURLProtocol.budgetHeaders() == ["12000"])
     }
 
     @Test("A request with no caller budget states its own URLRequest timeout")
     func requestStatesOwnTimeout() async throws {
-        let fixture = try await CloudRefreshFixture.make(authClient: TeamChangeAuthClient(), fixtureTeams: true)
+        let fixture = try await CloudRefreshFixture.make(authClient: TeamChangeAuthClient(), fixtureTeams: true, requestBudget: Self.frozenBudget)
         defer { fixture.session.invalidateAndCancel() }
         await CloudRefreshURLProtocol.reset()
 
@@ -43,18 +44,52 @@ extension VMClientReadCoalescingTests {
 
     @Test("A shared read states the transport's budget, not the first caller's shorter one")
     func sharedReadStatesTransportBudget() async throws {
-        let fixture = try await CloudRefreshFixture.make(authClient: TeamChangeAuthClient(), fixtureTeams: true)
+        let budget = Self.frozenBudget
+        let fixture = try await CloudRefreshFixture.make(authClient: TeamChangeAuthClient(), fixtureTeams: true, requestBudget: budget)
         defer { fixture.session.invalidateAndCancel() }
         await CloudRefreshURLProtocol.reset()
 
-        _ = try? await CloudRequestBudget.withBudget(seconds: 5) {
+        _ = try? await budget.withBudget(seconds: 5) {
             try await fixture.client.stats(id: "fixture-0")
         }
 
-        let stated = try #require(await CloudRefreshURLProtocol.budgetHeaders().first ?? nil)
-        let statedBudget = try #require(Int(stated))
-        #expect(statedBudget > 5_000)
-        #expect(statedBudget <= 30_000)
+        // The read coordinator's transport cap is 30 s.
+        #expect(await CloudRefreshURLProtocol.budgetHeaders() == ["30000"])
+    }
+
+    @Test("A 429 whose Retry-After outlasts the caller's budget is answered, not waited out")
+    func throttleWaitStopsAtBudget() async throws {
+        let budget = Self.frozenBudget
+        let fixture = try await CloudRefreshFixture.make(authClient: TeamChangeAuthClient(), fixtureTeams: true, requestBudget: budget)
+        defer { fixture.session.invalidateAndCancel() }
+        await CloudRefreshURLProtocol.reset()
+        await CloudRefreshURLProtocol.configure(.throttled)
+
+        // Retry-After is 60 s; the caller waits 5 s, so there is no second attempt.
+        _ = try? await budget.withBudget(seconds: 5) {
+            try await fixture.client.status(id: "fixture-0")
+        }
+
+        #expect(await CloudRefreshURLProtocol.requestCounts()["/api/vm/fixture-0"] == 1)
+    }
+
+    @Test("No attempt starts once the caller's budget is spent")
+    func spentBudgetSendsNothing() async throws {
+        let budget = Self.frozenBudget
+        let fixture = try await CloudRefreshFixture.make(authClient: TeamChangeAuthClient(), fixtureTeams: true, requestBudget: budget)
+        defer { fixture.session.invalidateAndCancel() }
+        await CloudRefreshURLProtocol.reset()
+
+        let outcome: Result<VMSummary, any Error> = await budget.withBudget(seconds: 0) {
+            do { return .success(try await fixture.client.status(id: "fixture-0")) } catch { return .failure(error) }
+        }
+
+        guard case .failure(let error) = outcome else {
+            Issue.record("A spent budget still sent the request")
+            return
+        }
+        #expect((error as? URLError)?.code == .timedOut)
+        #expect(await CloudRefreshURLProtocol.requestCounts().isEmpty)
     }
 }
 
