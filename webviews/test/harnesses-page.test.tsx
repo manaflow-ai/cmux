@@ -62,7 +62,7 @@ type Page = {
   closed?: string[];
   acpmux?: AcpmuxSnapshot["catalog"];
   /// What the install command prints, and its exit code.
-  shell?: { output: string[]; code: number };
+  shell?: { output: string[]; code: number; ends?: Promise<void> };
   /// The sign-in check's answer for each harness (default: Codex signed out, the rest signed in).
   auth?: Record<string, HarnessHealth["auth"]>;
   update?: HarnessHealth["update"];
@@ -90,11 +90,12 @@ async function renderPage(calls: Call[] = [], closed: string[] = [], page: Page 
       const output = page.shell?.output ?? [];
       const chunk = output[reads];
       reads += 1;
-      return Promise.resolve(
-        chunk !== undefined
-          ? { output: chunk, next: reads }
-          : { output: "", next: reads, exit: { code: page.shell?.code ?? 0 } },
-      );
+      if (chunk !== undefined) return Promise.resolve({ output: chunk, next: reads });
+      return (page.shell?.ends ?? Promise.resolve()).then(() => ({
+        output: "",
+        next: reads,
+        exit: { code: page.shell?.code ?? 0 },
+      }));
     }
     return Promise.resolve({});
   };
@@ -184,8 +185,10 @@ test("Install… opens the setup page of a harness with no install command in a 
 test("Install runs the install command in place, shows its progress, then checks the harness again", async () => {
   const calls: Call[] = [];
   const refreshed: string[] = [];
+  let end = () => {};
+  const ends = new Promise<void>((resolve) => (end = resolve));
   const container = await renderPage(calls, [], {
-    shell: { output: ["npm warn deprecated\n", "added 1 package in 3s\n"], code: 0 },
+    shell: { output: ["npm warn deprecated\n", "added 1 package in 3s\n"], code: 0, ends },
     refreshed,
   });
   await act(async () => row(container, "OpenCode")!.querySelector<HTMLButtonElement>("button")!.click());
@@ -195,7 +198,12 @@ test("Install runs the install command in place, shows its progress, then checks
     command: "npm install -g opencode-ai",
     cwd: "/Users/you/src/cmux",
   });
-  expect(row(container, "OpenCode")!.dataset.harnessStatus).toBe("installing");
+  await settle(20);
+  const installing = row(container, "OpenCode")!;
+  expect(installing.dataset.harnessStatus).toBe("installing");
+  expect(installing.querySelector(".acpmux-harness-status")?.textContent).toBe("added 1 package in 3s");
+  expect(installing.querySelectorAll("button").length).toBe(0);
+  end();
   await settle(20);
   // Done: acpmux looks for harnesses again (`rescan`) and the page reads its catalog again.
   expect(calls.filter((call) => call.method === "harness.health" && call.params.id === "opencode")).toEqual([
