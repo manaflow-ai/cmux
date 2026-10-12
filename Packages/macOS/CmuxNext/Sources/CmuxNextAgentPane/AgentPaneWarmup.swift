@@ -18,6 +18,7 @@ public enum AgentPaneWarmup {
         configuration.processPool = AgentPaneView.processPool
         // diag (to drop): load the real page here to see how early it can be live.
         let source = AgentPaneView.bundledPage.map { AgentPaneSource.bundled($0) }
+        source?.register(on: configuration)
         configuration.userContentController.addUserScript(WKUserScript(source: """
         window.__cmuxT = {docStart: performance.now()};
         document.addEventListener('DOMContentLoaded', () => { window.__cmuxT.dcl = performance.now();
@@ -27,11 +28,18 @@ public enum AgentPaneWarmup {
         let view = WKWebView(frame: NSRect(x: 0, y: 0, width: 900, height: 700), configuration: configuration)
         view.navigationDelegate = diagDelegate
         AgentPaneLaunchTimings.shared.mark("diag.warm.load")
-        // probe1 (to drop): an inline page, no scheme handler: when does the web process run its JS?
-        _ = source
-        view.loadHTMLString("<!doctype html><title></title><script>window.__cmuxT.script = performance.now()</script>", baseURL: nil)
+        if let source { source.load(into: view) } else { view.loadHTMLString("<!doctype html><title></title>", baseURL: nil) }
         self.view = view
         WebKitProcessProbe.start()
+        // probe3 (to drop): the main thread serves only WebKit until the page loaded (+60 ms for its
+        // first paint) or 400 ms: how soon can the real page be live with a free main thread?
+        let cap = Date().addingTimeInterval(0.4)
+        var settle: Date?
+        while Date() < (settle ?? cap) {
+            if settle == nil, diagDelegate.finished { settle = min(cap, Date().addingTimeInterval(0.06)) }
+            _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.002))
+        }
+        AgentPaneLaunchTimings.shared.mark("diag.warm.spin_end")
     }
 
     public static func finish() {
@@ -41,6 +49,7 @@ public enum AgentPaneWarmup {
 
 /// diag (to drop): the warm-up page's navigation and page timings, as `diag.warm.*` marks.
 private final class WarmupDiagDelegate: NSObject, WKNavigationDelegate {
+    var finished = false
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation?) {
         AgentPaneLaunchTimings.shared.mark("diag.warm.nav_start")
     }
@@ -51,6 +60,7 @@ private final class WarmupDiagDelegate: NSObject, WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
         AgentPaneLaunchTimings.shared.mark("diag.warm.page_loaded")
+        finished = true
         webView.callAsyncJavaScript("await new Promise(r => setTimeout(r, 300)); const t = window.__cmuxT || {}; return JSON.stringify(Object.entries(t).map(([k, v]) => [k, performance.timeOrigin + v]));", arguments: [:], in: nil, in: .page) { result in
             guard case .success(let value) = result, let text = value as? String, let data = text.data(using: .utf8),
                   let rows = try? JSONSerialization.jsonObject(with: data) as? [[Any]] else { return }
