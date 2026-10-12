@@ -109,13 +109,16 @@ function placement() {
     top: Number(/translateY\(([-\d.]+)px\)/.exec(node.style.transform)?.[1]),
   }));
   rows.sort((a, b) => a.index - b.index);
-  return rows
+  const pairs = rows
     .slice(1)
     .flatMap((next, index) =>
       next.index === rows[index]!.index + 1
         ? [{ id: next.id, gap: Math.round((next.top - rows[index]!.top - drawnHeight(rows[index]!.id)) * 100) / 100 }]
         : [],
     );
+  // The view's rows are always mounted together, so an empty list means nothing was compared.
+  expect(pairs.length).toBeGreaterThan(0);
+  return pairs;
 }
 
 /// The same rows as new objects, so nothing is reused from an earlier look at them.

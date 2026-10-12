@@ -634,9 +634,9 @@ export function mergeRowRanges(ranges: RowRange[]): RowRange[] {
 }
 
 /// The rows a transcript at `scrollTop` mounts while it moves `delta` per scroll: the view and
-/// `steps` scrolls of motion ahead of it, as one range while that lead fits in `maxLead`. Past it (a
-/// fling or a scrollbar drag that moves several viewports a frame) the view and each view the next
-/// `steps` frames show, with a margin for uneven frames: the rows scrolled past between them are
+/// `steps` scrolls of motion ahead of it, capped at `maxLead`. A scroll past the cap (a fling or a
+/// scrollbar drag that moves several viewports a frame) also mounts each view the next `steps`
+/// frames reach, with a margin for uneven frames: the rows between them and the capped lead are
 /// never on screen, so they are not built (cx-j33s4).
 export function scrollLeadRanges(
   layoutModel: ConversationLayout,
@@ -646,11 +646,10 @@ export function scrollLeadRanges(
   steps: number,
   maxLead: number,
 ): RowRange[] {
-  const lead = Math.abs(delta) * steps;
-  if (lead <= maxLead)
-    return [visibleLayoutRange(layoutModel, delta < 0 ? scrollTop - lead : scrollTop, viewportHeight + lead)];
+  const lead = Math.min(Math.abs(delta) * steps, maxLead);
+  const ranges = [visibleLayoutRange(layoutModel, delta < 0 ? scrollTop - lead : scrollTop, viewportHeight + lead)];
+  if (Math.abs(delta) * steps <= maxLead) return ranges;
   const margin = Math.min(Math.abs(delta) / 4, viewportHeight / 2);
-  const ranges = [visibleLayoutRange(layoutModel, scrollTop, viewportHeight)];
   for (let step = 1; step <= steps; step += 1)
     ranges.push(visibleLayoutRange(layoutModel, scrollTop + delta * step - margin, viewportHeight + 2 * margin));
   return mergeRowRanges(ranges);
