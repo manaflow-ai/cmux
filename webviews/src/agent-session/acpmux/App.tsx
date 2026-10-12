@@ -2502,10 +2502,18 @@ function AcpmuxPane() {
   /// New Worktree (cx-lyqio.2): the new chat starts in a worktree of its folder, or says why not.
   const [worktreeError, setWorktreeError] = useState<string | undefined>();
   const startInWorktree = useCallback((cwd: string) => {
+    // A newer folder pick wins over this worktree, as between two picks.
+    const pick = ++folderPick.current;
+    setFolderAsk(undefined);
     setWorktreeError(undefined);
     void newWorktree(callNative, cwd, (folder) => {
+      if (pick !== folderPick.current) return;
+      // A chat that started meanwhile keeps its folder: the worktree gets a new chat of its own.
       if (freshRef.current) setProjectDraft(folder);
-    }).catch((error: unknown) => setWorktreeError(errorMessage(error) || String(error)));
+      else void callNative("chat.new", { cwd: folder }).catch(() => undefined);
+    }).catch((error: unknown) => {
+      if (pick === folderPick.current) setWorktreeError(errorMessage(error) || String(error));
+    });
   }, []);
   const automationPick = useRef<(cwd: string) => void>(undefined);
   automationPick.current = (cwd) => chooseProject(cwd);

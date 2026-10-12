@@ -26,17 +26,23 @@ enum AgentPaneGitWriteReply {
         return await AgentPaneModel.gitReply(message: message) { try await onGitWrite(write, folder.cwd) }
     }
 
-    /// New Worktree: a new chat's own worktree of `cwd`, made on the user's click, only before
-    /// the chat starts and only of a folder this pane has (a workspace root or the chat's start
-    /// folder), so a page cannot branch an arbitrary repository. The page then starts the chat in
-    /// the worktree through `workspace.useFolder`.
+    /// New Worktree: a new chat's own worktree of `cwd`, made on the user's click and only before
+    /// the chat starts. The folder passes the same check as one the user picks for a chat
+    /// (`workspace.useFolder`): a project folder, never the home folder or a folder above it, and
+    /// the worktree is made of the folder as that check names it (symlinks resolved). The page then
+    /// starts the chat in the worktree through `workspace.useFolder`.
     private static func newWorktree(_ write: AgentPaneGitWrite, in cwd: String, model: AgentPaneModel) async -> [String: Any] {
         let message = AgentPaneModel.gitWriteFailedMessage
         guard let onGitWrite = model.onGitWrite else { return AgentPaneModel.gitFailure(.notConnected, message: message) }
         guard model.sessionId == nil else { return AgentPaneModel.gitFailure(.sessionChanged, message: message) }
-        let folders = (model.workspaceRoots?() ?? []) + [model.startFolders.current(of: model)].compactMap { $0 }
-        guard folders.contains(cwd) else { return AgentPaneModel.gitFailure(.noSessionFolder, message: message) }
         guard model.transport.gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
-        return await AgentPaneModel.gitReply(message: message) { try await onGitWrite(write, cwd) }
+        let answer = await model.startFolders.use(cwd, confirm: false, transport: model.transport)
+        guard let value = answer["value"] as? [String: Any], value["status"] as? String == "ok",
+              let folder = value["cwd"] as? String, folder.hasPrefix("/") else {
+            return AgentPaneModel.gitFailure(.noSessionFolder, message: message)
+        }
+        guard case .worktree(_, let name, let key) = write else { return AgentPaneModel.gitFailure(.failed, message: message) }
+        let named = AgentPaneGitWrite.worktree(cwd: folder, name: name, key: key)
+        return await AgentPaneModel.gitReply(message: message) { try await onGitWrite(named, folder) }
     }
 }

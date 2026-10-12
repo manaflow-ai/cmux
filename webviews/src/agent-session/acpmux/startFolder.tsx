@@ -62,9 +62,16 @@ export async function newWorktree(
   cwd: string,
   use: (cwd: string) => void,
 ): Promise<{ root: string; branch?: string }> {
-  const reply = (await callNative("git.worktree.create", { cwd, idempotency_key: crypto.randomUUID() })) as
-    | { value?: { root?: unknown; branch?: unknown } }
-    | undefined;
+  let reply: { value?: { root?: unknown; branch?: unknown } } | undefined;
+  try {
+    reply = (await callNative("git.worktree.create", { cwd, idempotency_key: crypto.randomUUID() })) as typeof reply;
+  } catch (error) {
+    // The session host's own words (`details.extra.message`: a base that names nothing, not a
+    // repository) say more than the pane's generic failure.
+    const details = (error as { details?: { extra?: { message?: unknown } } } | null)?.details;
+    const reason = details?.extra?.message;
+    throw typeof reason === "string" && reason ? new Error(reason) : error;
+  }
   const root = reply?.value?.root;
   if (typeof root !== "string" || !root) throw new Error(translate("worktree.failed"));
   await pickFolder(callNative, root, use);

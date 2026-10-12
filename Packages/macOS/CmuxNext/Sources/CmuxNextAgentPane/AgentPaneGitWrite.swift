@@ -15,7 +15,8 @@ import Foundation
 ///
 /// `git.worktree.create` with `{cwd, name?, idempotency_key}` (cx-lyqio.2) is
 /// a new chat's New Worktree: it has no session yet, so it runs in the `cwd`
-/// the page names, which the model takes only when the pane has that folder.
+/// the page names, which the model takes only when a chat may start there
+/// (the check a picked folder gets).
 ///
 /// The page offers only what its buttons do: no paths, amend, no-verify,
 /// remote or branch. The key is the page's, one per user action, so a
@@ -28,7 +29,7 @@ public nonisolated enum AgentPaneGitWrite: Equatable, Sendable {
     case commit(sessionId: String, message: String, all: Bool, includeUntracked: Bool, expectedHead: String?, key: String)
     /// The current branch to where `git push` would send it; never forced.
     case push(sessionId: String, expectedHead: String?, key: String)
-    /// A new chat's own worktree of `cwd`, a folder the pane has (cx-lyqio.2).
+    /// A new chat's own worktree of `cwd`, the chat's folder (cx-lyqio.2).
     case worktree(cwd: String, name: String?, key: String)
 
     /// The page methods that carry a write.

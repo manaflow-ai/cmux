@@ -134,3 +134,13 @@ test("a refused worktree starts nothing and says why", async () => {
   expect(calls).toEqual(["git.worktree.create"]);
   expect(used).toEqual([]);
 });
+
+test("the refusal names the session host's reason, not the pane's generic failure", async () => {
+  const native = async () => {
+    throw Object.assign(new Error("The commit or push did not go through."), {
+      code: "operation.failed",
+      details: { reason: "not_a_repository", extra: { message: "/Users/me/app is not in a git repository" } },
+    });
+  };
+  await expect(newWorktree(native, FOLDER, () => {})).rejects.toThrow("/Users/me/app is not in a git repository");
+});
