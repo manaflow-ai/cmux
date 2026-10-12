@@ -592,7 +592,9 @@ impl Hub {
                     }
                     Err(e) => {
                         tracing::warn!(session = %session.id, "session/load failed: {e}");
-                        self.append(session, "mux", "resume_failed", json!({"error": e.message}));
+                        // codex-acp says why in `data` (message "Internal error").
+                        let failed = json!({"error": e.message, "data": e.data});
+                        self.append(session, "mux", "resume_failed", failed);
                         false
                     }
                 }
