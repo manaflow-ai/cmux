@@ -219,7 +219,6 @@ type Props = {
   cwd?: string;
   /// The machine it runs on (the handshake's `machineName`); "This Mac" when absent.
   host?: string;
-  tools?: NewTabHost["tools"];
   inputToken?: string;
   onInputReady?(token: string): void;
   /// The agent's composer chips (model, mode), shown under the field for Agent.
@@ -241,12 +240,9 @@ type Props = {
   onJump?(target: "tab" | "workspace", id: string): void;
   onOpenSession(sessionId: string): void;
   onShowAll(): void;
-  onRunAction?(id: string): void;
   onEditShortcut?(kind: TabKind): void;
   /// Choose Folder…: the host's folder panel; resolves to the picked folder.
   onBrowseProject?(): Promise<string | undefined>;
-  /// Opens the host's Integrate a harness flow (`palette.addHarness`).
-  onAddHarness?(): void;
   now?: number;
 };
 
@@ -271,7 +267,6 @@ export function NewTabPage({
   onShowAll,
   onEditShortcut,
   onBrowseProject,
-  onAddHarness,
   inputToken,
   onInputReady,
 }: Props) {
@@ -316,18 +311,22 @@ export function NewTabPage({
   const placeholder = NEW_TAB_LABELS.placeholder[kind](t, kind === "agent" ? agent : folder);
 
   // The field takes the keyboard when the page appears, as a browser's new tab does, and
-  // again on Cmd-L (the host's FOCUS_LOCATION_EVENT), wherever focus moved on the page.
+  // again on Cmd-L (the host's FOCUS_LOCATION_EVENT), wherever focus moved on the page; only
+  // then, so an update (the App hands a new callback on each render) or a click into the field
+  // never moves its caret or restarts its blink.
+  const inputReady = useRef(onInputReady);
+  inputReady.current = onInputReady;
   useEffect(() => {
     const focus = () => {
       field.current?.focus();
       field.current?.select();
     };
     focus();
-    if (inputToken) onInputReady?.(inputToken);
+    if (inputToken) inputReady.current?.(inputToken);
     const host = field.current?.ownerDocument.defaultView;
     host?.addEventListener(FOCUS_LOCATION_EVENT, focus);
     return () => host?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
-  }, [inputToken, onInputReady]);
+  }, [inputToken]);
   const choose = (next: TabKind) => {
     setKind(next);
     setBeforePrefix(undefined);
@@ -548,16 +547,13 @@ export function NewTabPage({
           ))}
         </div>
       )}
-      <div className="acpmux-newtab-actions">
-        <button type="button" className="acpmux-newtab-all" onClick={onShowAll}>
-          {t(NEW_TAB_LABELS.allSessions)}
-          <ChevronRight />
+      <div className="acpmux-newtab-actions ui-ghost-row">
+        <button type="button" className="acpmux-newtab-all ui-ghost" onClick={onShowAll}>
+          <span>{t(NEW_TAB_LABELS.allSessions)}</span>
+          <span className="ui-ghost-icon" aria-hidden="true">
+            <ChevronRight />
+          </span>
         </button>
-        {onAddHarness && (
-          <button type="button" className="acpmux-newtab-all" onClick={onAddHarness}>
-            {t("newtab.addHarness")}
-          </button>
-        )}
       </div>
     </div>
   );

@@ -7,23 +7,9 @@
   padding: 5px;
   border: 1px solid var(--ui-line, var(--acpmux-composer-edge));
   border-radius: 10px;
-  background-color: color-mix(in srgb, var(--acpmux-menu-bg) var(--surface-text-min, 92%), transparent);
-  -webkit-backdrop-filter: var(--surface-blur, blur(20px) saturate(1.4));
-  backdrop-filter: var(--surface-blur, blur(20px) saturate(1.4));
+  background-color: var(--surface-popup);
   box-shadow: var(--ui-popup-shadow);
   color: var(--agent-text);
-}
-@media (prefers-reduced-transparency: reduce) {
-  .acpmux-effort-menu {
-    background-color: var(--acpmux-menu-bg);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-}
-:root[data-reduce-transparency] .acpmux-effort-menu {
-  background-color: var(--acpmux-menu-bg);
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
 }
 .ui-menu-item.acpmux-effort-item {
   display: flex;

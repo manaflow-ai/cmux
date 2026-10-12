@@ -1,5 +1,6 @@
 import CmuxNextIcons
 import SwiftUI
+import CmuxNextDesign
 
 /// `list`: grouped list (apps, health, devices) with inline actions.
 struct ListPanel: View {
@@ -52,7 +53,7 @@ struct AppServerRow: View {
                 Text(app.name).font(.system(size: 12.5)).foregroundStyle(app.holdsLease ? colors.primary : colors.secondary)
                 if app.durability == .zeroLoss {
                     Icon(.cloudSynced, size: 12).foregroundStyle(colors.tertiary)
-                        .help(ServerStrings.zeroLoss)
+                        .themedHelp(ServerStrings.zeroLoss)
                 }
                 Spacer(minLength: 8)
                 Text(app.holdsLease ? ServerStrings.state(app.state) : ServerStrings.elsewhere)

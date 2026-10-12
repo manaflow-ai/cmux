@@ -101,32 +101,68 @@ extension WorkspaceSpawn {
 }
 
 extension WindowManager {
-    /// Creates a workspace with one terminal, or on the New Tab page
-    /// (`opensNewTabPage`), and returns its id. The terminal gets this app's
-    /// launch identity plus `CMUX_WORKSPACE_ID` and `CMUX_SURFACE_ID` (its
-    /// reserved terminal id), so `cmux` and agent hooks inside it know where
-    /// they run. On a Cloud machine (`daemon`), it gets no Mac environment
-    /// (only the placement keys) and starts in the machine's default directory.
-    /// `windowID` claims the workspace for that window before the command
-    /// is sent (`claimNew`), so it lands there, or opens that window, in the
-    /// step that first mirrors it; nil leaves it to reconcile (the most
-    /// recent window). It goes to `spawn.slot`, else by `workspaces.newPlacement`.
+    /// Creates a workspace and returns its id (`WorkspaceSpawner`).
     func createWorkspace(_ spawn: WorkspaceSpawn, on daemon: DaemonService? = nil, into windowID: String? = nil,
                          frame: CGRect? = nil) async throws -> String {
-        let daemon = daemon ?? services.daemon
-        guard let connection = daemon.connection else { throw DaemonError.notConnected }
+        try await WorkspaceSpawner(windows: self, spawn: spawn, daemon: daemon ?? services.daemon,
+                                   windowID: windowID, frame: frame).create()
+    }
+}
+
+/// One workspace create: one terminal, or the New Tab page
+/// (`opensNewTabPage`). It waits for the window's earlier creates and
+/// closes (`WorkspaceLanes`). The terminal gets this app's launch identity plus
+/// `CMUX_WORKSPACE_ID` and `CMUX_SURFACE_ID` (its reserved terminal id), so
+/// `cmux` and agent hooks inside it know where they run. On a Cloud machine
+/// (`daemon`), it gets no Mac environment (only the placement keys) and
+/// starts in the machine's default directory. `windowID` claims the
+/// workspace for that window before the command is sent (`claimNew`), so it
+/// lands there, or opens that window, in the step that first mirrors it; nil
+/// leaves it to reconcile (the most recent window). It goes to `spawn.slot`,
+/// else by `workspaces.newPlacement`.
+@MainActor
+struct WorkspaceSpawner {
+    let windows: WindowManager
+    let spawn: WorkspaceSpawn
+    let daemon: DaemonService
+    let windowID: String?
+    let frame: CGRect?
+
+    /// The key is fixed at the press, so a close pressed while this create
+    /// waits its turn or is in flight takes exactly this workspace.
+    func create() async throws -> String {
+        guard daemon.connection != nil else { throw DaemonError.notConnected }
         let key = WorkspaceKey.generate()
-        let rule = spawn.slot == nil && spawn.placesBySetting ? NewWorkspacePlacements.rule(for: windowID, in: self) : nil
+        let daemon = daemon, services = windows.services
+        WorkspaceLanes.shared.prune(windowID ?? "") { services.workspace(id: $0) != nil }
+        return try await WorkspaceLanes.shared.create(key, window: windowID, close: { id in
+            let terminals = services.workspace(id: id).map { WorkspaceClose.closing($0, on: daemon) } ?? []
+            _ = await daemon.failure("close-workspace") { connection in
+                try await WorkspaceClose.close(WorkspaceKey(rawValue: id), terminals: terminals, on: connection)
+            }
+        }) { try await create(key) }
+    }
+
+    /// The profile the workspace is born in: its window's, else the active
+    /// window's, else `default`.
+    private var profile: ProfileID {
+        windowID.flatMap { windows.states[$0]?.profileID } ?? windows.active?.state.profileID ?? .defaultProfile
+    }
+
+    private func create(_ key: WorkspaceKey) async throws -> String {
+        guard let connection = daemon.connection else { throw DaemonError.notConnected }
+        let services = windows.services
+        let rule = spawn.slot == nil && spawn.placesBySetting ? NewWorkspacePlacements.rule(for: windowID, in: windows) : nil
         NewWorkspacePlacements.expect(key.rawValue, in: windowID, slot: spawn.slot, byDefault: rule,
-                                      then: windowID == nil ? nil : spawn.onListed, windows: self)
-        if let windowID { claimNew(workspaceID: key.rawValue, window: windowID, frame: frame) }
+                                      then: windowID == nil ? nil : spawn.onListed, windows: windows)
+        if let windowID { windows.claimNew(workspaceID: key.rawValue, window: windowID, frame: frame) }
         let terminal = TerminalID.generate()
         // The workspace is born in its window's room (or the one asked for):
         // pinned there in the home session before the create command, so no
         // snapshot shows it in another room; its first terminal gets the
         // room's terminal defaults (data-model.md 3.2, 3.3).
         let home = services.machines.local
-        let room = home.store.profile(spawn.profile ?? profileForNewWorkspace(window: windowID))
+        let room = home.store.profile(spawn.profile ?? profile)
         if let room, let session = daemon.store.registryID, let homeConnection = home.connection {
             try await homeConnection.pinWorkspace(session: session, key: key, to: room.id)
         }
@@ -145,10 +181,11 @@ extension WindowManager {
         let keep: Bool? = spawn.keep && daemon.supports(DaemonCapabilities.shared.terminalReap) ? true : nil
         let repair: EmptyWorkspaceRepair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
         let cwd = spawn.cwd ?? defaults?.cwd.flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath } ?? daemon.defaultCwd
-        if let page = try await WorkspaceCreation.newTabPage(spawn.honoring(services.settings?.snapshot.newTabTemplate), key, cwd: cwd, on: daemon, repair: repair, tabs: services.agentTabs) { return page }
+        if let page = try await FirstTabHold.creating(key.rawValue, windows: windows, { try await WorkspaceCreation.newTabPage(spawn.honoring(services.settings?.snapshot.newTabTemplate), key, cwd: cwd, on: daemon, repair: repair, tabs: services.agentTabs) }) { return page }
+        let command = spawn.command
         return try await WorkspaceCreation.create(key, name: spawn.name, on: connection, repair: repair) { created in
             _ = try await connection.request(CreateTerminalRequest(
-                workspace: .key(created), command: spawn.command, cwd: cwd,
+                workspace: .key(created), command: command, cwd: cwd,
                 terminalID: terminal, env: env, keep: keep, mutation: connection.mutation()))
             return created.rawValue
         }

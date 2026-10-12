@@ -66,7 +66,6 @@
   "pages/settings/components/SearchField.tsx": 1,
   "pages/settings/components/SettingRow.tsx": 1,
   "pages/settings/editors/ColorEditor.tsx": 1,
-  "pages/settings/editors/DomainListEditor.tsx": 1,
   "pages/settings/editors/HostListEditor.tsx": 1,
   "pages/settings/editors/NumberEditor.tsx": 1,
   "pages/settings/editors/NumberField.tsx": 1,

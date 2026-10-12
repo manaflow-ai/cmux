@@ -11,7 +11,7 @@ a build below one either feed already offers. Run ids only grow, so the first
 run that is not above them ends the search.
 
 Usage: find-nightly-next-recovery.py --repo OWNER/NAME --current-run-id ID
-           --feed URL_OR_PATH [--feed ...] [--limit N]
+           --feed URL_OR_PATH [--feed ...] [--feed-if-present URL_OR_PATH ...] [--limit N]
 Reads the runs and their artifacts with `gh api`; an unreadable feed fails.
 
        find-nightly-next-recovery.py check-manifest MANIFEST --run-id ID
@@ -119,15 +119,22 @@ def main(argv):
     parser.add_argument("--repo", required=True)
     parser.add_argument("--current-run-id", required=True, type=int)
     parser.add_argument("--feed", action="append", required=True)
+    parser.add_argument("--feed-if-present", action="append", default=[], help="a feed that may not exist yet")
     parser.add_argument("--limit", type=int, default=3)
     args = parser.parse_args(argv)
 
     nightly_version = load_nightly_version()
+    def feed_highest(source):
+        try:
+            root = nightly_version.read_feed(source)
+        except nightly_version.Missing:
+            if source not in args.feed_if_present:
+                raise
+            return 0
+        return max(nightly_version.feed_builds(root), default=0)
+
     try:
-        highest = max(
-            (max(nightly_version.feed_builds(nightly_version.read_feed(source)), default=0) for source in args.feed),
-            default=0,
-        )
+        highest = max((feed_highest(source) for source in [*args.feed, *args.feed_if_present]), default=0)
     except nightly_version.Refused as error:
         print(f"find-nightly-next-recovery: {error}", file=sys.stderr)
         return 1

@@ -131,7 +131,18 @@ pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
 fn landed_here(mux: &Mux, host: &str, session: &str) -> bool {
     // This store's host, as agent-session-start names it.
     let own = format!("{MACHINE_HOST_PREFIX}{}", mux.registry_identity().0);
-    host == own && mux.landed_agent_session(session)
+    host == own && landed_agent_session(mux, session)
+}
+
+#[cfg(unix)]
+fn landed_agent_session(mux: &Mux, session: &str) -> bool {
+    mux.landed_agent_session(session)
+}
+
+/// agent-transfer is unix-only (server.rs), so no chat lands here.
+#[cfg(not(unix))]
+fn landed_agent_session(_mux: &Mux, _session: &str) -> bool {
+    false
 }
 
 fn record_of(

@@ -2,6 +2,7 @@
 // row starts the chat in this page; everything else asks the host to replace the tab.
 import type { AllChatsPage } from "./AllChatsList";
 import type { NewTabScreenActions } from "./NewTabScreen";
+import { openHarnessesPage } from "../harnesses/harnessesPage";
 
 type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 
@@ -68,8 +69,8 @@ export function newTabScreenActions(deps: {
     onOpenChatInTerminal: (key) => ignore(callNative("chats.openInTerminal", { key })),
     loadChatsPage: (params) => callNative("chats.page", params) as Promise<AllChatsPage | undefined>,
     onShowAll: deps.showAllChats,
-    onRunAction: (id) => ignore(callNative("action.run", { id })),
-    onAddHarness: () => ignore(callNative("action.run", { id: "palette.addHarness" })),
+    // No agent to ask: the Harnesses page, in place (cx-uj5g8).
+    onAddHarness: () => void openHarnessesPage(),
     onTouched: () => ignore(callNative("newTab.touched")),
     onInputReady: (token) => ignore(callNative("newTab.inputReady", { token })),
   };

@@ -89,9 +89,23 @@ public final class ReduceTransparency {
 }
 
 extension ThemeTokens {
-    /// The Reduce Transparency overlay fill: the window background moved
-    /// `lift` toward the primary text, both opaque.
+    /// The popup surface (`Palette.popupSurface`): the window background,
+    /// opaque, lifted by up to `lift` toward white on a light theme (a white
+    /// page gets a white popup, set apart by its hairline and shadow, like
+    /// native light menus) and toward the text on a dark one (a lighter
+    /// card). A dark lift stops where secondary text would drop below 4.5:1
+    /// on a hovered row.
     nonisolated public func opaqueOverlayFill(lift: Double) -> ThemeRGB {
-        windowBackground.withAlpha(1).mixed(toward: textPrimary.withAlpha(1), lift)
+        let page = windowBackground.withAlpha(1)
+        guard isDark else { return page.mixed(toward: .white, lift) }
+        let text = textPrimary.withAlpha(1)
+        let secondary = textSecondary.withAlpha(1)
+        var step = (lift * 100).rounded() / 100
+        while step > 0 {
+            let fill = page.mixed(toward: text, step)
+            if secondary.contrast(with: hoverFill.composited(over: fill)) >= ThemeTokens.minimumTextContrast { return fill }
+            step -= 0.01
+        }
+        return page
     }
 }

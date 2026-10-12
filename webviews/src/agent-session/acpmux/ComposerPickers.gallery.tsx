@@ -108,7 +108,6 @@ function GalleryComposerPickers() {
         onModel={setModel}
         onMode={setMode}
         onEffort={(id, value) => (id === "fast-mode" ? setFast(value) : setEffort(value))}
-        onShowContextUsage={() => undefined}
         showPlan
       />
     </div>

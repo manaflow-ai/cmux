@@ -39,7 +39,9 @@ import { HistoryScreen } from "./newtab/HistoryScreen";
 import type { AllChatsPage } from "./newtab/AllChatsList";
 import { newTabScreenActions } from "./newtab/screenActions";
 import { newTabChipSnapshot } from "./newtab/chipDefaults";
-import { useEarlyNewTabContext, useNewTabAdoption } from "./newtab/adoption";
+import { HarnessesScreen } from "./harnesses/HarnessesScreen";
+import { registerHarnessesPage, useHarnessesPage } from "./harnesses/harnessesPage";
+import { useEarlyNewTabContext, useNewTabAdoption, useNewTabPlaces } from "./newtab/adoption";
 import { TemplateDots } from "./newtab/TemplateDots";
 import { pickNewTabTemplate, screenTemplate, shownTemplate } from "./newtab/templates";
 import { playTemplateSwitch, templatePlaces } from "./newtab/templateMotion";
@@ -50,7 +52,7 @@ import { paneContext } from "./paneContext";
 import { createPaneQueryClient, followHarnessChanges, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
 import { usePickerCatalog } from "./modelCatalogHost";
 import { isDefaultChoice } from "./defaultChoice";
-import { applySwitch, HarnessSwitch, type SwitchPort } from "./harnessSwitch";
+import { applySwitch, HarnessSwitch, lastOfferedModel, type SwitchPort } from "./harnessSwitch";
 import { harnessProfiles } from "./harnessProfiles";
 import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
 import { BridgeSocket } from "./bridgeSocket";
@@ -87,10 +89,12 @@ import { turnCounts, turnDisplay } from "./changes/turnCheckpoint";
 import { TurnCountsContext, type TurnCountsFor } from "./changes/TurnCountsContext";
 import { useTurnCheckpoints } from "./changes/useTurnCheckpoints";
 import { readTurnFromRows, type CheckpointDiff } from "./changes/turnCheckpointSource";
+import { registerComposerHost } from "./composerSettings";
+import { WHOLE_FILE_CONTEXT } from "./changes/wholeFile";
 import { restoredDecisions, type HunkDecision, type HunkReview } from "./changes/hunkReview";
-import { configureDictation, deliverDictation, useDictation } from "./dictation";
+import { configureDictation, deliverDictation, useDictation, type DictationField } from "./dictation";
 import type { DictationUpdate } from "./dictationText";
-import { DictationButton } from "./DictationButton";
+import { DictationMic } from "./DictationMic";
 import { DictationNotice } from "./DictationNotice";
 import type { MarkdownFieldHandle } from "./MarkdownField";
 import type { ChangesSource } from "./changes/model";
@@ -99,6 +103,7 @@ import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { PlanList } from "./conversation/PlanList";
+import { BackgroundTaskNote } from "./conversation/BackgroundTaskNote";
 import {
   SessionCwdContext,
   SessionEditsContext,
@@ -391,6 +396,8 @@ const trustSource: TrustSource = {
 /// folder and asks the native host (or, in mock mode, the in-page daemon).
 const changesSource: ChangesSource = {
   diff: (scope) => callNative("git.diff", { scope, include_patch: true }),
+  wholeFile: (scope, path) =>
+    callNative("git.diff", { scope, include_patch: true, paths: [path], context_lines: WHOLE_FILE_CONTEXT }),
   status: () => callNative("git.status", {}),
   commit: (params) => callNative("git.commit", params),
   push: (params) => callNative("git.push", params),
@@ -399,6 +406,9 @@ const changesSource: ChangesSource = {
   pullRequest: () => callNative("git.pullRequest", {}),
   reviewThreads: () => callNative("git.pullRequest", { action: "threads" }),
 };
+// The composer's Hide and Show (composerChrome.tsx) persist through the host, which pushes the
+// setting back to every page and on the next launch.
+registerComposerHost((method, show) => void callNative(method, { show }).catch(() => undefined));
 /// A folder's `git.status` from the native host, named by the folder: a new chat has no session to
 /// name it by (the header's worktree pill, cx-lyqio.3b).
 const readFolderStatus = (cwd: string) => postNative("git.status", { cwd });
@@ -549,6 +559,12 @@ const PlanRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
+const BackgroundTaskRow = memo(
+  function BackgroundTaskRow({ row }: RowProps) {
+    return row.backgroundTask ? <BackgroundTaskNote task={row.backgroundTask} /> : null;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
 const NoticeRow = memo(
   function NoticeRow({ row }: RowProps) {
     return <div className="acpmux-muted">{row.text}</div>;
@@ -615,6 +631,7 @@ const defaultRegistry: NativeRegistry = {
   turnSummary: SummaryRow,
   notice: NoticeRow,
   plan: PlanRow,
+  backgroundTask: BackgroundTaskRow,
   typing: NoticeRow,
   permission: PermissionRow,
   [SHELL_ROW]: ShellRow,
@@ -1657,7 +1674,7 @@ function PermissionAsk({ permission }: { permission: AcpmuxPermission }) {
 /// switch to the shown agent in the page's project (`chat.new {deferred}`): acpmux starts the session
 /// behind the page, which stays, and the pick lands on it (harnessSwitch keeps picks made while a
 /// switch runs). Enter asks the same agent in the same folder, the same switch, which then shows.
-function NewTabComposerChips({ snapshot, cwd }: { snapshot: AcpmuxSnapshot; cwd?: string }) {
+export function NewTabComposerChips({ snapshot, cwd }: { snapshot: AcpmuxSnapshot; cwd?: string }) {
   return <DefaultComposerChips snapshot={snapshot} cwd={cwd} startsChat />;
 }
 
@@ -1676,6 +1693,7 @@ function DefaultComposerChips({
   startsChat?: boolean;
 }) {
   const inFolder = startsChat ? { ...(cwd ? { cwd } : {}), deferred: true } : {};
+  const addAgent = useHarnessesPage();
   // `chat.new` for the same agent and folder is the switch already running, so a second pick
   // never restarts it.
   const start = () => {
@@ -1714,14 +1732,14 @@ function DefaultComposerChips({
         start();
         void callNative("chat.effort", { configId, value });
       }}
-      onHarness={(harness) => void callNative("chat.new", { harness, ...inFolder })}
+      onHarness={(harness, model) => void callNative("chat.new", { harness, ...(model ? { model } : {}), ...inFolder })}
+      {...(cwd ? { folder: cwd } : {})}
       // Sent from the pick's own handler: the host's Enable confirmation needs the gesture.
       onHarnessEnable={(folder, id) => void callNative("chat.harness.enable", { folder, id }).catch(() => undefined)}
       // The rail's + (BRING-YOUR-OWN-HARNESS): Settings > Agents > Add, from this click's gesture.
-      onAddAgent={() => void callNative("action.run", { id: "agent.harness.add" }).catch(() => undefined)}
+      {...(addAgent ? { onAddAgent: addAgent } : {})}
       showPlan={false}
       onCompact={() => void callNative("chat.send", { text: "/compact", attachments: [] })}
-      onShowContextUsage={(show) => void callNative("pane.showContextUsage", { show }).catch(() => undefined)}
       pickerCatalog={picker.catalog}
       catalogRefresh={{ status: refreshStatus, date: picker.date, refresh: refreshCatalog }}
       // A prewarm hint for the direct client only: the native host has no daemon to warm.
@@ -2273,6 +2291,12 @@ function AcpmuxPane() {
     [snapshot.summary?.harness, snapshot.summary?.configOptions],
   );
   const pickerCatalog = usePickerCatalog(snapshot.catalog, pickerSession).catalog;
+  // Integrate a harness (cx-uj5g8): the Harnesses page, in place of what the pane shows.
+  const [harnessesOpen, setHarnessesOpen] = useState(false);
+  // Another chat in this pane (the sidebar, a link) shows that chat, not the page.
+  useEffect(() => setHarnessesOpen(false), [snapshot.sessionId]);
+  // A chat it starts, and a login it runs, go to the chat's folder (a new chat's start folder).
+  const harnessFolder = snapshot.summary?.cwd ?? startFolder;
   const retryModelsKey = (
     pickerCatalog.harnesses.find(
       (entry) => entry.acpmuxHarness === snapshot.summary?.harness || entry.id === snapshot.summary?.harness,
@@ -2484,6 +2508,7 @@ function AcpmuxPane() {
   const [newTab, setNewTab] = useState<NewTabHost | undefined>();
   // A prewarmed spare page gets its real context when Cmd-T adopts it; the generation remounts the screen.
   const newTabGeneration = useNewTabAdoption(setNewTab);
+  useNewTabPlaces(setNewTab);
   const earlyNewTab = useEarlyNewTabContext(callNative, setNewTab);
   // Agent chats live in the window's one sidebar (Projects and Recents); the pane opens what it picks.
   const selectSession = useCallback((sessionId: string) => {
@@ -2511,6 +2536,8 @@ function AcpmuxPane() {
   /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
   const [surface, setSurface] = useState<PaneSurface>("pane");
   const quick = surface === "quick";
+  // The Quick Composer cannot show the Harnesses page: it registers no opener, so its + hides.
+  useEffect(() => (quick ? undefined : registerHarnessesPage(() => setHarnessesOpen(true))), [quick]);
   // `/btw` (cx-ef2m), behind its experiment; the Quick Composer never shows a side question.
   const asksAside = !quick && experimentArm(sideQuestion) === "on";
   // Start Agent's floating chat (cx-b9qi): the App says when its panel holds this chat.
@@ -2596,7 +2623,14 @@ function AcpmuxPane() {
     prompt.current.focus();
     return true;
   });
-  const dictation = useDictation(prompt, callNative);
+  /// The New Tab page's field, while it shows: dictation writes there then (it has no composer).
+  const newTabDictationField = useRef<DictationField | null>(null);
+  const dictationTarget = useRef<{ readonly current: DictationField | null }>({
+    get current() {
+      return newTabDictationField.current ?? prompt.current;
+    },
+  }).current;
+  const dictation = useDictation(dictationTarget, callNative);
   /// Why the host could not hand this pane acpmux (not installed, a daemon that will not start),
   /// in the host's words; cleared once a handshake succeeds.
   const [hostError, setHostError] = useState<string | undefined>();
@@ -2697,15 +2731,22 @@ function AcpmuxPane() {
   const startInWorktree = useCallback((cwd: string) => {
     // A newer folder pick wins over this worktree, as between two picks.
     const pick = ++folderPick.current;
+    const sessionId = shownSession.current;
     setFolderAsk(undefined);
     setWorktreeError(undefined);
     setWorktreeCreating(true);
-    void newWorktree(callNative, cwd, (folder) => {
-      if (pick !== folderPick.current) return;
+    const use = (folder: string) => {
       // A chat that started meanwhile keeps its folder: the worktree gets a new chat of its own.
       if (freshRef.current) setProjectDraft(folder);
       else void callNative("chat.new", { cwd: folder }).catch(() => undefined);
+    };
+    void newWorktree(callNative, cwd, (folder) => {
+      if (pick === folderPick.current) use(folder);
     })
+      .then(({ ask }) => {
+        // The host asks about the worktree's folder first: the question shows as a picked folder's.
+        if (ask && pick === folderPick.current) setFolderAsk({ ask, use, sessionId });
+      })
       .catch((error: unknown) => {
         if (pick === folderPick.current) setWorktreeError(errorMessage(error) || String(error));
       })
@@ -2925,6 +2966,7 @@ function AcpmuxPane() {
           pastTurns?: unknown;
           machineName?: unknown;
           githubRepository?: unknown;
+          harnesses?: unknown;
         }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
         acpmuxPerf.markAgent("handshakeReady");
@@ -2974,6 +3016,8 @@ function AcpmuxPane() {
         // draft out once, so a retried `ready` after a failed connect has none and keeps this one.
         const seeded = composerDraft(host.draft);
         if (seeded) setDraft(seeded);
+        // Integrate a Harness… from the palette or the menu opened this tab (cx-uj5g8).
+        if (host.harnesses === true) setHarnessesOpen(true);
         pendingPrompt = composerDraft(host.prompt) ?? pendingPrompt;
         // A prompt a person's action seeded has a single-use host ticket bound to its promptId
         // (cx-k21v gap 4); a CLI, MCP or script seed has none and the host refuses its send.
@@ -3175,10 +3219,18 @@ function AcpmuxPane() {
           // A pick of another harness is a switch: drawn now, started behind it.
           // A new chat without a folder starts in the chat's start folder (startFolder.tsx);
           // a chat with no project (`noProject`) or for a peer gets no start folder.
-          "chat.new": async ({ harness, cwd, peer, deferred, noProject }) => {
+          "chat.new": async ({ harness, cwd, peer, deferred, noProject, model }) => {
             const folder = cwd ? String(cwd) : peer || noProject === true ? undefined : startFolderRef.current;
-            if (harness && !peer && noProject !== true)
-              return harnessSwitch.switchTo(String(harness), folder, { deferred: deferred === true });
+            if (harness && !peer && noProject !== true) {
+              // A new chat starts on its pick, else on the model last picked on that harness here.
+              const picked = model
+                ? String(model)
+                : lastOfferedModel(String(harness), snapshotRef.current?.catalog ?? [], folder);
+              return harnessSwitch.switchTo(String(harness), folder, {
+                deferred: deferred === true,
+                ...(picked ? { model: picked } : {}),
+              });
+            }
             harnessSwitch.cancel();
             return persistSession(
               await client.create(
@@ -3292,7 +3344,11 @@ function AcpmuxPane() {
           "chat.handoff.draft": ({ review }) => client.saveHandoff(review as HandoffReviewInput),
           "chat.handoff.start": ({ review }) => client.startHandoff(review as HandoffReviewInput),
           "chat.handoff.discard": async () => persistSession(await client.discardHandoff()),
-          "git.diff": ({ scope }) => client.gitDiff(String(scope)),
+          "git.diff": ({ scope, paths, context_lines }) =>
+            client.gitDiff(String(scope), {
+              ...(Array.isArray(paths) ? { paths: paths.map(String) } : {}),
+              ...(typeof context_lines === "number" ? { context_lines } : {}),
+            }),
           "git.status": () => client.gitStatus(),
           "git.checkpoint.diff": ({ from, to }) => client.gitCheckpointDiff(String(from), String(to)),
           "git.commit": (params) => client.gitCommit(params),
@@ -4229,7 +4285,7 @@ function AcpmuxPane() {
           handle={composerRef}
           // No prompt goes while a picked folder waits for the user's answer.
           blocked={pendingFolder ? {} : trustAsk.blocked}
-          accessory={<DictationButton dictation={dictation} />}
+          accessory={<DictationMic dictation={dictation} />}
           onImportFile={importFile}
           onEdit={(command) => ignoreFailure(callNative("pane.edit", { command }))}
         />
@@ -4337,7 +4393,19 @@ function AcpmuxPane() {
               }
             />
           )}
-          {showNewTab && newTab.history ? (
+          {harnessesOpen ? (
+            <HarnessesScreen
+              catalog={pickerCatalog}
+              acpmux={snapshot.catalog}
+              {...(harnessFolder ? { cwd: harnessFolder } : {})}
+              callNative={callNative}
+              onClose={() => setHarnessesOpen(false)}
+              onStart={() => {
+                setHarnessesOpen(false);
+                setNewTab(undefined);
+              }}
+            />
+          ) : showNewTab && newTab.history ? (
             <HistoryScreen
               load={(params) => callNative<AllChatsPage | undefined>("chats.page", params)}
               onOpen={(key) => void callNative("chats.open", { key }).catch(() => undefined)}
@@ -4346,13 +4414,15 @@ function AcpmuxPane() {
           ) : showNewTab && shownTemplate(newTab) !== "classic" ? (
             <NewTabScreen
               key={newTabGeneration}
+              accessory={<DictationMic dictation={dictation} />}
+              dictationField={newTabDictationField}
+              notice={<DictationNotice dictation={dictation} />}
               template={screenTemplate(shownTemplate(newTab))}
               snapshot={composerSnapshot}
               omnibar={newTab.omnibar}
               location={newTab.location}
               lastAgent={newTab.lastAgent}
               home={newTab.home}
-              tools={newTab.tools}
               {...(newTab.openTabs ? { openTabs: newTab.openTabs } : {})}
               // The field takes keys from its first render (the host's buffer hands them over at
               // once); only a submit waits for acpmux (`whenHandshaken`).
@@ -4408,7 +4478,6 @@ function AcpmuxPane() {
                   .then((result) => result?.cwd)
                   .catch(() => undefined)
               }
-              onAddHarness={() => void callNative("action.run", { id: "palette.addHarness" }).catch(() => undefined)}
               onEditShortcut={(kind) => void callNative("shortcut.edit", { kind })}
               inputToken={newTab.inputToken}
               onInputReady={(token) => void callNative("newTab.inputReady", { token })}

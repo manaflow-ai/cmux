@@ -38,6 +38,7 @@ nonisolated enum OmnibarSettingsSchema {
                 title: SettingsText.keyed("settings.browser.omnibar.remoteSuggestions", "Search Suggestions"),
                 help: SettingsText.keyed("settings.browser.omnibar.remoteSuggestions.help",
                                          "Sends what you type to the search engine for suggestions. Never addresses, files or local hosts."),
+                summary: SettingsText.keyed("settings.browser.omnibar.remoteSuggestions.summary", "Sends what you type to the search engine"),
                 kind: .toggle, default: .bool(fallback.remoteSuggestions), keywords: ["suggest", "search", "omnibox", "privacy"]
             ),
             SettingDescriptor(

@@ -47,6 +47,15 @@ impl TerminalHostReconnectBackoff {
     }
 }
 
+/// Tell clients the terminal's host link changed state (`terminal_state`
+/// `reconnecting`, `failed`, `running` again).
+#[cfg(any(unix, windows))]
+pub(super) fn publish_host_link_state(pty: &PtySurface) {
+    if let Some(mux) = pty.mux.upgrade() {
+        mux.emit_terminal_host_link_changed(pty.event_surface_id);
+    }
+}
+
 #[cfg(any(unix, windows))]
 pub(super) fn wait_for_reconnect_after_geometry_failure(
     retry: &mut TerminalHostReconnectBackoff,

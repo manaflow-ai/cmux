@@ -28,32 +28,26 @@ public struct BackdropArtMetadata: Equatable, Sendable {
     public let dominantPalette: [BackdropPaletteColor]
     public let quietZone: BackdropQuietZone
     /// The least theme tint drawn over the art at full window opacity, above the theme's own
-    /// `ThemeTokens.wallpaperTintOpacity`: a pale paper sheet under a dark theme would
-    /// otherwise lift the background past readable text contrast. 0 leaves the theme's tint.
+    /// `ThemeTokens.wallpaperTintOpacity`. 0 leaves the theme's tint.
     public let minimumTintOpacity: Double
+    /// The tint this work looks best under, replacing the theme's own when set: dark works show
+    /// more of themselves. The legibility floor still applies on top.
+    public let preferredTintOpacity: Double?
+    /// The measured darkest and lightest colors of the work, so the legibility floor need not
+    /// assume the art could be anything from black to white.
+    public let range: BackdropArtRange?
 
     public nonisolated init(focalAnchor: BackdropFocalAnchor, tone: BackdropArtTone,
                 dominantPalette: [BackdropPaletteColor], quietZone: BackdropQuietZone,
-                minimumTintOpacity: Double = 0) {
+                minimumTintOpacity: Double = 0, preferredTintOpacity: Double? = nil,
+                range: BackdropArtRange? = nil) {
         self.focalAnchor = focalAnchor
         self.tone = tone
         self.dominantPalette = dominantPalette
         self.quietZone = quietZone
         self.minimumTintOpacity = minimumTintOpacity
-    }
-
-    /// The tint every figure drawing keeps at least: the drawing reads as a faint, theme-colored
-    /// sketch behind the panes.
-    public nonisolated static let drawingTintOpacity = 0.84
-
-    /// A grayscale figure drawing's hints: gray palette levels, and ``drawingTintOpacity``.
-    nonisolated static func drawing(focal: (Double, Double), tone: BackdropArtTone, grays: [UInt8],
-                                    quiet: (Double, Double, Double, Double)) -> BackdropArtMetadata {
-        BackdropArtMetadata(
-            focalAnchor: .init(x: focal.0, y: focal.1), tone: tone,
-            dominantPalette: grays.map { BackdropPaletteColor(red: $0, green: $0, blue: $0) },
-            quietZone: .init(x: quiet.0, y: quiet.1, width: quiet.2, height: quiet.3),
-            minimumTintOpacity: drawingTintOpacity)
+        self.preferredTintOpacity = preferredTintOpacity
+        self.range = range
     }
 
     /// Returns the normalized aspect-fill crop, keeping the focal anchor visible.

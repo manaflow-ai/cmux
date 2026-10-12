@@ -309,19 +309,10 @@
   padding: 0 14px;
   border-radius: calc(var(--icon-bar-height) / 2);
   border: 1px solid var(--page-separator);
-  background: color-mix(in srgb, var(--page-elevated) 90%, transparent);
-  -webkit-backdrop-filter: blur(20px) saturate(1.5);
-  backdrop-filter: blur(20px) saturate(1.5);
+  /* The solid popup surface: the grid's icons never show through the pill's labels. */
+  background: var(--surface-popup);
   box-shadow: 0 4px 18px color-mix(in srgb, black 16%, transparent);
   pointer-events: auto;
-}
-
-@media (prefers-reduced-transparency: reduce) {
-  .icon-bar-pill {
-    background: var(--page-elevated);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
 }
 
 .icon-bar-item {

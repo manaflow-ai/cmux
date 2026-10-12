@@ -15,13 +15,16 @@ public nonisolated struct AgentPaneOpenTab: Equatable, Sendable {
     public var search: Bool
     /// Terminal: run `text` (variant A's Enter) or only type it at the prompt (`!`).
     public var run: Bool
+    /// The page stays open beside the new tab (the Harnesses page's Sign In and Install…).
+    public var keep: Bool
 
-    public init(kind: AgentPaneTabKind, text: String, cwd: String? = nil, search: Bool = false, run: Bool = true) {
+    public init(kind: AgentPaneTabKind, text: String, cwd: String? = nil, search: Bool = false, run: Bool = true, keep: Bool = false) {
         self.kind = kind
         self.text = text
         self.cwd = cwd
         self.search = search
         self.run = run
+        self.keep = keep
     }
 }
 
