@@ -8,6 +8,9 @@ import Foundation
 public struct SignalMessage: Codable, Equatable, Sendable {
     public enum Kind: String, Codable, Sendable {
         case offer, answer, ice, bye, error, presence, ping, pong
+        /// Worker → host: a notification response (`action` holds
+        /// `{event_id, surface, type, text?, key?}`), stamped with `user_id`.
+        case action
     }
 
     public var t: Kind
@@ -20,16 +23,17 @@ public struct SignalMessage: Codable, Equatable, Sendable {
     public var userID: String?
     public var reason: String?
     public var online: Bool?
+    public var action: JSONValue?
 
     enum CodingKeys: String, CodingKey {
-        case t, sid, sdp, candidate, code, message, from, reason, online
+        case t, sid, sdp, candidate, code, message, from, reason, online, action
         case userID = "user_id"
     }
 
     public init(
         t: Kind, sid: String? = nil, sdp: String? = nil, candidate: IceCandidate? = nil, code: String? = nil,
         message: String? = nil, from: String? = nil, userID: String? = nil, reason: String? = nil,
-        online: Bool? = nil
+        online: Bool? = nil, action: JSONValue? = nil
     ) {
         self.t = t
         self.sid = sid
@@ -41,6 +45,7 @@ public struct SignalMessage: Codable, Equatable, Sendable {
         self.userID = userID
         self.reason = reason
         self.online = online
+        self.action = action
     }
 
     public static func offer(sid: String, sdp: String) -> SignalMessage { .init(t: .offer, sid: sid, sdp: sdp) }

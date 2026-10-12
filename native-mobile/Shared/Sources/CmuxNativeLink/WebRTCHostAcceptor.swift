@@ -225,6 +225,11 @@ actor HostAcceptorEngine {
     }
 
     private func handle(_ message: SignalMessage) async {
+        if message.t == .action {
+            guard let action = message.action else { return }
+            notify { $0.hostAcceptor($1, didReceiveAction: action, from: message.userID) }
+            return
+        }
         guard let sid = message.sid else { return }
         switch message.t {
         case .offer:

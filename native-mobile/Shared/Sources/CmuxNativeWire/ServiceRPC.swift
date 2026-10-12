@@ -128,6 +128,9 @@ public struct ServiceMethod: RawRepresentable, Hashable, Sendable, ExpressibleBy
     public static let feedSubscribe: ServiceMethod = "feed.subscribe"
     public static let feedReply: ServiceMethod = "feed.reply"
     public static let feedAnswer: ServiceMethod = "feed.answer"
+    /// `{visible: Bool}`: the phone is showing cmux in the foreground; the
+    /// host holds back push alerts while any phone is visible.
+    public static let presenceSet: ServiceMethod = "presence.set"
 }
 
 // MARK: - Typed params and results (snake_case on the wire)
