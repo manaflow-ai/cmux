@@ -14,8 +14,8 @@ enum AgentHistoryPage {
             services.windowController(showing: pane)?.focus.send(.focusPane(pane.paneKey, source: .intent))
             return
         }
-        let cwd = pane.selectedTab?.cwd
-        var page = NewTabPage.page(services, selected: pane.selectedTab)
+        var page = NewTabPage.page(services, selected: pane.selectedTab, pane: pane)
+        let cwd = page.cwd
         page.history = true
         page.focusesField = false
         let handler = NewTabPage.handler(services, cwd: cwd) { _, _ in }

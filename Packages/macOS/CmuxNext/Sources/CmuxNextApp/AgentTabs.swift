@@ -128,7 +128,8 @@ final class AgentTabStore {
     /// Shared conversion and project actions for a direct blank chat, without a chooser page.
     var blankChatHandler: ((String) -> NewTabPageHandler?)?
     /// The New Tab page a new workspace's first tab shows, starting in the given folder.
-    var firstPageNewTab: ((String?) -> (page: AgentPaneNewTab, handler: NewTabPageHandler)?)?
+    /// `(cwd, beside)`: `beside` is the tab whose machine the page opens on (nil: this Mac).
+    var firstPageNewTab: ((String?, String?) -> (page: AgentPaneNewTab, handler: NewTabPageHandler)?)?
 
     /// Tabs opened as the chooser page, and the actions for their selected kind.
     var newTabPages: [String: (page: AgentPaneNewTab, handler: NewTabPageHandler)] = [:] {
@@ -292,7 +293,7 @@ final class AgentTabStore {
         // new-conversation-tab replied): it stays the chat, never the page (cx-vurv).
         if local, seed == nil, newTabPages[key] == nil, tabStores[key] == nil, (sessions[key] ?? record.session) == nil,
            !linkedSessions.contains(key) {
-            newTabPages[key] = firstPageNewTab?(nil)
+            newTabPages[key] = firstPageNewTab?(nil, nil)
         }
         // A New Tab page made now (Cmd-N's first page, a restored page) adopts the prewarmed spare
         // when there is one: no cold load and React mount on the open path (cx-ec99).

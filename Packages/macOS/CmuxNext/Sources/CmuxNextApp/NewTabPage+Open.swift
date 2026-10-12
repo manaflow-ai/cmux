@@ -40,8 +40,9 @@ extension NewTabPage {
             openingPanes.remove(openingKey)
             return
         }
-        let cwd = pane.selectedTab?.cwd
-        var page = Self.page(services, selected: pane.selectedTab, window: pane.view.window)
+        var page = Self.page(services, selected: pane.selectedTab, window: pane.view.window, pane: pane)
+        // The page's folder: the selected tab's, or (an empty pane of another machine) its workspace's there.
+        let cwd = page.cwd
         page.inputToken = inputToken
         var handler = Self.handler(services, cwd: cwd) { [weak pane] key, request in
             if let pane { BenchSpans.measure("newTab.replace") { Self.replace(key, with: request, cwd: request.cwd ?? cwd, in: pane) } }

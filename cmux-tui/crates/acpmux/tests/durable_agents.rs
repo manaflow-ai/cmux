@@ -475,6 +475,32 @@ async fn the_cli_shutdown_ends_every_agent_and_its_host() {
     );
 }
 
+/// A harness helper that moved into its own session (setsid) is out of reach
+/// of the harness group signal; `acpmux daemon shutdown` still ends it.
+#[tokio::test]
+async fn the_cli_shutdown_ends_a_harness_child_that_left_its_group() {
+    let helper_file = std::env::temp_dir().join(format!("amd-sid-{}", std::process::id()));
+    let _ = std::fs::remove_file(&helper_file);
+    let mut daemon = Daemon::with_env(
+        "clisid",
+        "approve-all",
+        &[("FAKE_SETSID_CHILD", helper_file.to_str().unwrap())],
+    );
+    let (_session, _host, client) = gated_turn(&daemon).await;
+    let helper: i64 = std::fs::read_to_string(&helper_file).unwrap().trim().parse().unwrap();
+    let _ = std::fs::remove_file(&helper_file);
+    let out = cli_shutdown(&daemon, &[]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    daemon.wait_exit();
+    drop(client);
+    let gone = gone_within(helper, Duration::from_secs(10));
+    if !gone {
+        // SAFETY: this test's agent started the helper; end it before failing.
+        unsafe { libc::kill(helper as i32, libc::SIGKILL) };
+    }
+    assert!(gone, "a harness child that left its group outlived acpmux daemon shutdown");
+}
+
 /// `--keep-agents` is the explicit durable stop (a restart): hosted agents
 /// keep running for the next daemon to adopt.
 #[tokio::test]

@@ -4,10 +4,22 @@ public import AppKit
 /// colors in its theme scope while it is open: a theme change repaints the
 /// scope and calls `viewDidChangeEffectiveAppearance`, which re-applies the
 /// field's colors and those of its active field editor (text, caret,
-/// selection).
+/// selection). It draws no focus ring: it sits inside a styled container
+/// whose own state shows focus, and AppKit's ring is a system-blue square
+/// around the field (cx-ncc.57).
 public final class ThemedTextField: NSTextField {
     /// The fill behind the text, resolved in the field's scope.
     public var fill: @MainActor () -> NSColor = { Palette.windowBackground }
+
+    public override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        focusRingType = .none
+    }
+
+    public required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        focusRingType = .none
+    }
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()

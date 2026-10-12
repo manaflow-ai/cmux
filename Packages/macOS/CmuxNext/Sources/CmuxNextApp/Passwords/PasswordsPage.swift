@@ -6,10 +6,10 @@ import Foundation
 
 extension PageDescriptor {
     /// The Passwords page (plans/cmux-next/passwords.md 1.4): cmux-page://cmux.passwords/. It
-    /// calls its own namespace, and its Import buttons run the two person-only import actions
-    /// (PASSWORDS-IMPORT-ANY-BROWSER), which the host runs only on a click or key in the page.
+    /// calls its own namespace, and its Import buttons run the person-only import actions
+    /// (PASSWORDS-IMPORT-ANY-BROWSER, cx-d0d.65), which the host runs only on a click or key in the page.
     static let passwords = PageDescriptor(id: "cmux.passwords", resource: "passwords", namespaces: ["cmux.passwords."],
-                                          nativeOps: [PageNativeOp.actionRun], actions: ["importFromBrowser", "password.importCSV"],
+                                          nativeOps: [PageNativeOp.actionRun], actions: ["importFromBrowser", "browser.importFromFiles"],
                                           ownsSearchField: true)
 }
 

@@ -204,6 +204,8 @@ extension AgentPaneRequest {
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .sideChat(id) } else { self = .unsupported(method) }
         case "chat.archive":
             if let archived = params?["archived"] as? Bool { self = .archive(archived) } else { self = .unsupported(method) }
+        case "chat.markUnread":
+            self = .markUnread
         case "shortcut.edit":
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneTabKind.init(rawValue:)) {
                 self = .editShortcut(kind)
@@ -259,7 +261,7 @@ extension AgentPaneRequest {
             } else {
                 self = .invalidGit(method)
             }
-        case "git.commit", "git.push", "git.worktree.create":
+        case "git.commit", "git.push", "git.worktree.create", "git.worktree.apply":
             self = AgentPaneGitWrite(method: method, params: params).map(AgentPaneRequest.gitWrite) ?? .invalidGit(method)
         case "transport.open": self = .transportOpen
         case "transport.gesture": self = .transportGesture(AgentPaneGestureIntent(gestureParams: params))

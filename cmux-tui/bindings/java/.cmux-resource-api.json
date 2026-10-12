@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "4c67482fffad3866dc583be75b5a57cc1f7323dd6d1f020be3629268a9968f4c",
+  "catalog_sha256": "85f63ad881293ef89e9c0e67d0de62609f6c5f654a2507fb87bdf1cd36e226a6",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -177,6 +177,9 @@
     },
     "git.status": {
       "class": "read"
+    },
+    "git.worktree.apply": {
+      "class": "mutation"
     },
     "git.worktree.create": {
       "class": "mutation"

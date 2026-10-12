@@ -20,6 +20,11 @@ FAKE_SESSION_PREFIX=<p>: session ids are <p><n> instead of fake-<n> (an id as
 long as a real agent's, for checks that refuse short ones).
 
 FAKE_EXIT_AFTER_NEW=1: the agent exits once its session starts, before any prompt.
+
+FAKE_ASK_MODE=1: the sample harness of `cmux harness add sample` (cx-00p) as a remote
+start takes it: its one mode is "ask" (an acpmux config.json `webAskingModes` entry
+{"sample": ["ask"]} lists it), and a prompt naming "hostname" runs `hostname` as a tool
+call through the ACP permission flow: announced, asked, run only after an allow.
 """
 import json
 import sys
@@ -92,10 +97,33 @@ def codex_prompt(rid, params):
     send({"jsonrpc": "2.0", "id": ids[-1], "result": {"stopReason": "end_turn"}})
 
 
+def run_hostname(rid, sid):
+    """FAKE_ASK_MODE: `hostname` as a tool call, run only after the person's allow."""
+    call = {"toolCallId": "hostname-1", "title": "hostname", "kind": "execute", "status": "pending",
+            "rawInput": {"command": "hostname"}}
+    update(sid, dict(call, sessionUpdate="tool_call"))
+    res = request("session/request_permission", {"sessionId": sid, "toolCall": call, "options": [
+        {"optionId": "allow", "name": "Allow", "kind": "allow_once"},
+        {"optionId": "reject", "name": "Reject", "kind": "reject_once"},
+    ]})
+    if ((res or {}).get("outcome") or {}).get("optionId") == "allow":
+        import subprocess
+        out = subprocess.run(["hostname"], capture_output=True, text=True).stdout.strip()
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "hostname-1", "status": "completed",
+                     "content": [{"type": "content", "content": {"type": "text", "text": out}}]})
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "hostname: " + out}})
+    else:
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "hostname-1", "status": "failed"})
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "hostname: not run"}})
+    send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+
+
 def handle_prompt(rid, params):
     sid = params["sessionId"]
     blocks = params.get("prompt", [])
     text = "".join(b.get("text", "") for b in blocks)
+    if os.environ.get("FAKE_ASK_MODE") == "1" and "hostname" in text:
+        return run_hostname(rid, sid)
     links = [b for b in blocks if isinstance(b, dict) and b.get("type") == "resource_link"]
     if links:
         text += " " + " ".join(
@@ -458,6 +486,18 @@ def main():
         params = msg.get("params") or {}
         if m in ("session/new", "session/load", "session/fork"):
             LAST_MCP_SERVERS = params.get("mcpServers")
+        # FAKE_SETSID_CHILD=<path>: on session/new (the session's harness, not a probe),
+        # start a child that leaves this process group (setsid), as a harness that
+        # daemonizes a helper does, and write its pid to that file.
+        if m == "session/new" and os.environ.get("FAKE_SETSID_CHILD"):
+            import subprocess
+            helper = subprocess.Popen(
+                [sys.executable, "-c", "import os, time; os.setsid(); time.sleep(600)"],
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            tmp = f"{os.environ['FAKE_SETSID_CHILD']}.{os.getpid()}.tmp"
+            with open(tmp, "w") as f:
+                f.write(str(helper.pid))
+            os.replace(tmp, os.environ["FAKE_SETSID_CHILD"])
         # FAKE_CWD_LOG=<path>: append the process folder and the session/new cwd.
         if m == "session/new" and os.environ.get("FAKE_CWD_LOG"):
             with open(os.environ["FAKE_CWD_LOG"], "a") as log:
@@ -506,6 +546,9 @@ def main():
             # FAKE_NO_MODES=1: an adapter that reports no session modes.
             if os.environ.get("FAKE_NO_MODES") == "1":
                 del result["modes"]
+            # FAKE_ASK_MODE=1: the sample harness's one mode, "ask".
+            if os.environ.get("FAKE_ASK_MODE") == "1":
+                result["modes"] = {"currentModeId": "ask", "availableModes": [{"id": "ask", "name": "Ask"}]}
             send({"jsonrpc": "2.0", "id": rid, "result": result})
             # FAKE_EXIT_AFTER_NEW=1: the agent exits once its session starts,
             # before any prompt.

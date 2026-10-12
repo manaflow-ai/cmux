@@ -206,3 +206,63 @@ fn a_muted_chat_posts_nothing_until_unmuted() {
     acpmux.prompt(&session, "hello again");
     notice(&daemon, surface, |row| row["body"].as_str().is_some_and(|b| b.contains("hello again")));
 }
+
+/// Stops the daemon and starts a new one on the same state; acpmux and its
+/// chats keep running.
+fn restart(daemon: &Daemon) {
+    for action in ["stop", "ensure"] {
+        let output = daemon.server(action).output().unwrap();
+        assert!(output.status.success(), "{action}: {}", String::from_utf8_lossy(&output.stderr));
+    }
+}
+
+/// Every notification of the daemon, on any tab.
+fn all_notices(daemon: &Daemon) -> Vec<Value> {
+    let listed = daemon.rpc(json!({"id": 9, "cmd": "list-notifications"}));
+    listed["data"]["notifications"].as_array().cloned().unwrap_or_default()
+}
+
+#[test]
+fn a_daemon_restart_while_a_chat_waits_posts_needs_input_once() {
+    let daemon = machine("notice-restart");
+    let (surface, session) = chat(&daemon);
+    let (_, other_session) = chat(&daemon);
+    let mut acpmux = Acpmux::connect(&daemon, &session);
+    let asking = {
+        let mut asker = Acpmux::connect(&daemon, &session);
+        let session = session.clone();
+        std::thread::spawn(move || asker.prompt(&session, "ask: write the file"))
+    };
+    notice(&daemon, surface, |row| {
+        row["title"].as_str().is_some_and(|t| t.ends_with("needs input"))
+    });
+    // The chat records more while it waits, so its last record moves on.
+    let tagged =
+        acpmux.call("_acpmux/tag", json!({"sessionId": session, "set": {"note": "waiting"}}));
+    assert!(tagged.get("error").is_none(), "{tagged}");
+
+    restart(&daemon);
+    // The new daemon's watch has caught up once the other chat's later turn notified.
+    Acpmux::connect(&daemon, &other_session).prompt(&other_session, "hello after restart");
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while !all_notices(&daemon)
+        .iter()
+        .any(|row| row["body"].as_str().is_some_and(|b| b.contains("hello after restart")))
+    {
+        assert!(Instant::now() < deadline, "no notice after restart: {:?}", all_notices(&daemon));
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let waiting: Vec<Value> = all_notices(&daemon)
+        .into_iter()
+        .filter(|row| row["title"].as_str().is_some_and(|t| t.ends_with("needs input")))
+        .collect();
+    assert_eq!(waiting.len(), 1, "one wait, one needs-input notice: {waiting:?}");
+
+    let info = acpmux.call("_acpmux/info", json!({"sessionId": session}));
+    let permission = info["result"]["pending"][0]["permissionId"].clone();
+    acpmux.call(
+        "_acpmux/permission_respond",
+        json!({"sessionId": session, "permissionId": permission, "optionId": "no"}),
+    );
+    asking.join().unwrap();
+}
