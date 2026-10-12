@@ -23,6 +23,11 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             logger.error("agent pane message rejected as untrusted name=\(message.name, privacy: .public) url=\(message.frameInfo.request.url?.absoluteString ?? "", privacy: .public)")
             return replyHandler(AgentPaneReply.failure(code: "untrusted_frame", message: "Untrusted frame"), nil)
         }
+        // A page menu with no room in the pane draws past the window's edge (AgentPaneView+Popup).
+        if let body = message.body as? [String: Any], let method = body["method"] as? String, method.hasPrefix("popup."),
+           let view {
+            return replyHandler(view.popup(method, params: body["params"] as? [String: Any] ?? [:]), nil)
+        }
         let request = AgentPaneRequest(body: message.body)
         // A page frame for the host's socket goes out on this turn when it can (no Task hop).
         if case .transportSend(let connection, let frames) = request, let model = view?.model {
