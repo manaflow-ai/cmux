@@ -51,6 +51,7 @@ impl Surface {
             opts,
             mux,
             HostedSurfaceLaunch {
+                adopted: true,
                 attachment,
                 kitty_reservation,
                 terminate_on_error: false,
@@ -87,6 +88,7 @@ impl Surface {
             opts,
             mux,
             HostedSurfaceLaunch {
+                adopted: true,
                 attachment,
                 kitty_reservation,
                 terminate_on_error: false,

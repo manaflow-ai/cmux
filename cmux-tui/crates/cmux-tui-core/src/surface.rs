@@ -528,6 +528,9 @@ struct HostedSurfaceLaunch {
     lifetime: PtyLifetime,
     terminal_public_id: Option<TerminalPublicId>,
     resource_identity: Option<TabResourceIdentity>,
+    /// The host's program was already running (an adopted session), so its
+    /// shell may be mid-command when the mirror starts reading.
+    adopted: bool,
 }
 
 fn encode_key_from_terminal(term: &Terminal, input: &KeyInput) -> anyhow::Result<Vec<u8>> {
@@ -633,6 +636,7 @@ impl Surface {
             lifetime,
             terminal_public_id,
             resource_identity,
+            adopted,
         } = launch;
         anyhow::ensure!(
             lifetime == PtyLifetime::SessionOwned,
@@ -859,6 +863,11 @@ impl Surface {
             applied_color_overrides,
             applied_color_revision: initial_color_revision,
             applied_cursor_activity: initial_cursor_activity,
+            shell_marks: if adopted {
+                crate::prompt_mode_reset::ShellMarks::joined_midway()
+            } else {
+                crate::prompt_mode_reset::ShellMarks::default()
+            },
             title_changed,
             pending_bells,
             output_apply_delay: HostedReader::output_apply_delay_from_env(),
