@@ -21,10 +21,10 @@ actor ServiceClient {
     func start() {
         guard reader == nil else { return }
         let incoming = channel.incoming
-        let generation = generation
+        let current = self.generation
         reader = Task { [weak self] in
             for await line in incoming { await self?.handle(line) }
-            await self?.finish(generation: generation)
+            await self?.finish(generation: current)
         }
     }
 
