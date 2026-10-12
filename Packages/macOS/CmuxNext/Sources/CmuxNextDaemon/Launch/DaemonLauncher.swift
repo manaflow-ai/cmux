@@ -126,17 +126,19 @@ public struct DaemonLauncher: Sendable {
     /// environment at startup and honors it only inside its own app bundle, so no child inherits it (bead cx-e0cs).
     public static func forApp(
         tag: String?,
+        bundleID: String?,
         terminalEnvironment: [String: String],
         daemonEnvironment: [String: String] = [:],
         bundle: Bundle = .main,
         processEnvironment: [String: String] = ProcessInfo.processInfo.environment,
-        socketMemory: DaemonSocketMemory = DaemonSocketMemory()
+        socketMemory: DaemonSocketMemory = DaemonSocketMemory(),
+        applicationSupport: URL = DaemonLauncher.applicationSupportDirectory()
     ) throws -> DaemonLauncher {
         let tag = tag.flatMap { $0.isEmpty ? nil : $0 }
         let binary = try resolveBinary(bundle: bundle, environment: processEnvironment)
         DaemonLaunchTimings.shared.mark("daemon.binary_resolved")
         let session = try sessionName(tag: tag)
-        let stateDirectory = tag.map { tagStateDirectory(tag: $0) }
+        let stateDirectory = tag.map { tagStateDirectory(tag: $0, applicationSupport: applicationSupport) }
         let keyStore = FrontendInstallKeyStores.forApp(stateDirectory: stateDirectory)
         let configuration = Configuration(binary: binary, session: session, stateDirectory: stateDirectory,
                                           rememberedSocket: socketMemory.socket(session: session),
@@ -239,10 +241,19 @@ public struct DaemonLauncher: Sendable {
 
     /// `~/Library/Application Support/cmux/tags/<tag>/tui`.
     public static func tagStateDirectory(tag: String) -> URL {
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
+        tagStateDirectory(tag: tag, applicationSupport: applicationSupportDirectory())
+    }
+
+    /// `<applicationSupport>/cmux/tags/<tag>/tui`.
+    public static func tagStateDirectory(tag: String, applicationSupport: URL) -> URL {
         let component = (try? sessionName(tag: tag).dropFirst("cmux-app-".count)).map(String.init) ?? "default"
-        return support.appendingPathComponent("cmux/tags/\(component)/tui", isDirectory: true)
+        return applicationSupport.appendingPathComponent("cmux/tags/\(component)/tui", isDirectory: true)
+    }
+
+    /// The user's `~/Library/Application Support`.
+    public static func applicationSupportDirectory() -> URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
     }
 
     /// The user's per-user temp directory (`confstr(_CS_DARWIN_USER_TEMP_DIR)`),
