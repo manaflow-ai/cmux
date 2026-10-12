@@ -87,6 +87,8 @@ use crate::state::conversation_tabs_store::ConversationTabRecord;
 
 mod bundle;
 use bundle::{is_bundle_path, page_data_len, page_of, scrub_bundle};
+/// `access-request-v1`, served on a Cloud host as this is.
+pub mod access_requests;
 mod ask_first;
 mod askable;
 mod landed;
@@ -297,6 +299,12 @@ impl Mux {
     /// `agent_transfer.unavailable` and `agent-transfer-v1` is not advertised.
     pub fn set_agent_transfer_host(&self, host: Option<AgentTransferHost>) {
         *self.agent_transfers.host.write().unwrap_or_else(|e| e.into_inner()) = host;
+    }
+
+    /// True on a cmux Cloud host, as the binary set it at start
+    /// (`access-request-v1` is served there only).
+    pub(crate) fn on_cloud_host(&self) -> bool {
+        self.agent_transfers.host().is_some_and(|host| host.cloud)
     }
 
     /// True with an acpmux socket path and a host.
@@ -542,6 +550,9 @@ pub(super) fn try_handle(
     message: &str,
     writer: &MessageWriter,
 ) -> Option<bool> {
+    if let Some(keep_open) = access_requests::try_handle(mux, client, message, writer) {
+        return Some(keep_open);
+    }
     if !message.contains("\"agent-transfer-") {
         return None;
     }
