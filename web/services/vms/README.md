@@ -105,6 +105,15 @@ The auth regression tests live in `web/tests/vm-route-auth.test.ts`. They verify
   Live contention returns `409 vm_tunnel_enrollment_busy`; a deployment missing
   the migration fails closed with `503 vm_tunnel_enrollment_unavailable`. Apply
   the migration before deploying code that calls `/api/vm/tunnel`.
+- Each Mac's access grant has its own mutation lease (three-minute expiry), shared
+  by every build and tunnel role on that Mac, the reaper and grant revocation.
+  Enrollment holds it only for the tunnel's own peer mutation; team network
+  attachments are reconciled after it is released. Contention returns
+  `409 vm_access_grant_busy` with `retryAfterSeconds`, and the Mac waits as asked.
+- App sign-out deletes only that build's tunnels (`DELETE /api/vm/tunnel` with
+  `deviceFingerprint` and `tunnelPurpose`). Revoking by `deviceId` or access
+  grant id ends every login on the Mac and refuses re-enrollment to sessions
+  issued before the revoke (`403 vm_access_revoked`); that is "remove this Mac".
 
 Every create row gets a `slug`, a generated `adjective-color-animal` name (`sleepy-teal-otter`, `services/vms/vmNaming.ts`) picked inside the create transaction and never changed afterwards. It is unique among the team's live rows (`provisioning`, `running`, `paused`) via a partial unique index, so a destroyed or failed machine releases its name. Clients show it when no `display_name` is set; the provider VM id stays the machine's address. The same name is sent to the provider as its console label.
 

@@ -112,7 +112,8 @@ private struct CloudTreeStyleGalleryColumn: View {
                     catalog: { SurfaceCatalog.shared },
                     selectedWorkspaceID: { AppDelegate.shared?.tabManager?.selectedTabId },
                     selectLocalWorkspace: { workspaceID in
-                        AppDelegate.shared?.tabManager?.selectedTabId = workspaceID
+                        guard let app = AppDelegate.shared else { return }
+                        app.selectCloudTreeLocalWorkspace(workspaceID, from: app.tabManager)
                     },
                     onWillMutate: { _ in },
                     onDidMutate: {},
