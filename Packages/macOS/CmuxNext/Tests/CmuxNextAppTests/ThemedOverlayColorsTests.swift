@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextHome
+@testable import CmuxNextRemoteBrowser
 @testable import CmuxNextTerminal
 import Testing
 
@@ -87,6 +88,21 @@ import Testing
         for button in buttons {
             let bezel = try #require(button.bezelColor, "\(button.title)")
             #expect(Self.same(bezel, fill), "\(button.title)")
+        }
+    }
+
+    @Test func remoteBrowserNotesDrawInTheTheme() throws {
+        let scope = try Self.purpleRoom()
+        let state = MachineBrowserStateView(frame: .zero)
+        state.show(.starting("Starting the browser"), queued: URL(string: "https://example.com"))
+        let content = RemoteBrowserContentView(frame: .zero)
+        content.showFailure("The page could not load")
+        for view in [state, content] as [NSView] { scope.root(view) }
+
+        let labels = Self.labels(in: state) + Self.labels(in: content)
+        #expect(labels.count >= 3)
+        for label in labels {
+            #expect(Self.isThemeInk(label.textColor, scope), "\(label.stringValue)")
         }
     }
 

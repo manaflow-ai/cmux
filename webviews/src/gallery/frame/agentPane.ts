@@ -64,7 +64,15 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
     }
   };
   (window as unknown as { webkit: unknown }).webkit = {
-    messageHandlers: { agentSession: { postMessage: (message: Message) => Promise.resolve(handle(message)) } },
+    messageHandlers: {
+      agentSession: {
+        postMessage: (message: Message) => {
+          const reply = handle(message);
+          const delay = state.nativeDelayMs?.[message.method ?? ""];
+          return delay ? new Promise((resolve) => setTimeout(() => resolve(reply), delay)) : Promise.resolve(reply);
+        },
+      },
+    },
   };
   document.documentElement.dataset.cmuxWebviewKind = "acpmux-agent-session";
   await import("virtual:cmux-gallery/agent-pane.css");

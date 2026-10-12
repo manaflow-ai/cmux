@@ -22,16 +22,23 @@ export function hasTimestamp(at: number | undefined): at is number {
 /// For each turn, whether a line shows above it. `loadedFromStart` is false when the first
 /// turn here is not the thread's first (rows before it, or older history not paged in).
 export function timestampTurns(turns: readonly TurnTimes[], now: number, loadedFromStart: boolean): boolean[] {
-  let previousAnswer: number | undefined;
-  return turns.map((turn, index) => {
-    const show =
-      hasTimestamp(turn.promptAt) &&
-      ((index === 0 && loadedFromStart && now - turn.promptAt > HOUR_MS) ||
-        (previousAnswer !== undefined && turn.promptAt - previousAnswer > HOUR_MS));
-    // The previous message is this turn's answer, or its prompt when it has none.
-    previousAnswer = hasTimestamp(turn.answerAt) ? turn.answerAt : undefined;
-    return show;
-  });
+  return turns.map((turn, index) => showsTimestamp(turn, turns[index - 1], now, loadedFromStart));
+}
+
+/// Whether a line shows above `turn`, which follows `previous` (undefined for the first turn).
+export function showsTimestamp(
+  turn: TurnTimes,
+  previous: TurnTimes | undefined,
+  now: number,
+  loadedFromStart: boolean,
+): boolean {
+  // The previous message is the previous turn's answer, or its prompt when it has none.
+  const previousAnswer = previous && hasTimestamp(previous.answerAt) ? previous.answerAt : undefined;
+  return (
+    hasTimestamp(turn.promptAt) &&
+    ((!previous && loadedFromStart && now - turn.promptAt > HOUR_MS) ||
+      (previousAnswer !== undefined && turn.promptAt - previousAnswer > HOUR_MS))
+  );
 }
 
 export type Clock = { now: number; timeZone?: string; locale?: string };
