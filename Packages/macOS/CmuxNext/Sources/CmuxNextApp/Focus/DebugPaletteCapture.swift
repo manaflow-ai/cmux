@@ -1,12 +1,15 @@
 #if DEBUG
 import AppKit
+import CmuxNextDesign
 import CmuxNextSettings
 import Darwin
 
 /// `debug.palette.capture {path}` (DEBUG builds): writes the open palette
 /// panel to a PNG at `path` from this process (its own window, so no Screen
-/// Recording grant and no focus change). Falls back to drawing the layer
-/// tree on a flat backdrop when the window image is unavailable.
+/// Recording grant and no focus change). Falls back to AppKit drawing the
+/// panel on a flat backdrop when the window server gives no image of it (the
+/// Cmd-Shift-P palette over an inactive app, cx-ytt0): drawing only the layer
+/// tree left the views' content out, a flat gray image.
 enum DebugPaletteCapture {
     static func capture(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         guard let path = params["path"]?.stringValue, !path.isEmpty else { return .object(["error": .string("path is required")]) }
@@ -16,7 +19,7 @@ enum DebugPaletteCapture {
 
     /// Writes `panel` to `path`; `windowImage` is the window server's image of a window, if any.
     static func capture(_ panel: NSWindow, to path: String, windowImage: (CGWindowID) -> CGImage? = windowImage) -> JSONValue {
-        guard let view = panel.contentView, let layer = view.layer else { return .object(["error": .string("the palette is not open")]) }
+        guard let view = panel.contentView else { return .object(["error": .string("the palette is not open")]) }
         view.layoutSubtreeIfNeeded()
         view.displayIfNeeded()
         // The composited window (glass included). A process may capture its
@@ -24,6 +27,7 @@ enum DebugPaletteCapture {
         if let image = windowImage(CGWindowID(panel.windowNumber)), image.width > 1 {
             return write(image, to: path, source: "window")
         }
+        guard let drawn = panel.renderSnapshot()?.cgImage else { return .object(["error": .string("no image")]) }
         let size = view.bounds.size
         let scale = panel.backingScaleFactor
         guard let context = CGContext(data: nil, width: Int(size.width * scale), height: Int(size.height * scale), bitsPerComponent: 8,
@@ -34,9 +38,9 @@ enum DebugPaletteCapture {
         let dark = panel.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         context.setFillColor(dark ? CGColor(gray: 0.17, alpha: 1) : CGColor(gray: 0.93, alpha: 1))
         context.fill(CGRect(origin: .zero, size: size))
-        layer.render(in: context)
+        context.draw(drawn, in: CGRect(origin: .zero, size: size))
         guard let image = context.makeImage() else { return .object(["error": .string("no image")]) }
-        return write(image, to: path, source: "layers")
+        return write(image, to: path, source: "appkit")
     }
 
     /// The window-list capture, resolved at run time: the SDK marks it
