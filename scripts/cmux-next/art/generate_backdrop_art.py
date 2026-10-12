@@ -28,8 +28,9 @@ CATALOG = DESIGN / "Resources/Localizable.xcstrings"
 RESOURCES = DESIGN / "Resources/BackdropArt"
 LOCALES = ["ar", "bs", "da", "de", "en", "es", "fr", "it", "ja", "km", "ko", "nb", "pl", "pt-BR", "ru", "th", "tr",
            "uk", "vi", "zh-Hans", "zh-Hant"]
-# The backdrop keys that are not art: the desktop wallpaper and macOS system wallpaper tiles.
-NOT_ART = {"desktop", "system"}
+# The backdrop keys that are not art: the desktop wallpaper, macOS system wallpaper and own-image
+# tiles (the own image's attribution is also in STATIC).
+NOT_ART = {"desktop", "system", "file"}
 OMISSIONS = ROOT / "scripts/localization-allowed-omissions.json"
 TITLE_REASON = "The work is known by this title in this language too (a proper name or the usual local title)."
 STATIC = {
@@ -58,6 +59,18 @@ STATIC = {
         "en": "Doré", "ar": "دوريه", "de": "Doré", "es": "Doré", "fr": "Doré",
         "ja": "ドレ", "ko": "도레", "zh-Hans": "多雷", "zh-Hant": "多雷",
         "bs": "Doré", "da": "Doré", "it": "Doré", "km": "ដូរេ", "nb": "Doré", "pl": "Doré", "pt-BR": "Doré", "ru": "Доре", "th": "โดเร", "tr": "Doré", "uk": "Доре", "vi": "Doré",
+    },
+    "backdrop.collection.yours": {
+        "en": "Your images", "ar": "صورك", "bs": "Vaše slike", "da": "Dine billeder", "de": "Deine Bilder", "es": "Tus imágenes",
+        "fr": "Vos images", "it": "Le tue immagini", "ja": "自分の画像", "km": "រូបភាពរបស់អ្នក", "ko": "내 이미지", "nb": "Dine bilder",
+        "pl": "Twoje obrazy", "pt-BR": "Suas imagens", "ru": "Ваши изображения", "th": "รูปภาพของคุณ", "tr": "Görselleriniz", "uk": "Ваші зображення",
+        "vi": "Hình ảnh của bạn", "zh-Hans": "你的图片", "zh-Hant": "你的圖片",
+    },
+    "backdrop.file.attribution": {
+        "en": "Your image · %@", "ar": "صورتك · %@", "bs": "Vaša slika · %@", "da": "Dit billede · %@", "de": "Dein Bild · %@", "es": "Tu imagen · %@",
+        "fr": "Votre image · %@", "it": "La tua immagine · %@", "ja": "自分の画像 · %@", "km": "រូបភាពរបស់អ្នក · %@", "ko": "내 이미지 · %@", "nb": "Ditt bilde · %@",
+        "pl": "Twój obraz · %@", "pt-BR": "Sua imagem · %@", "ru": "Ваше изображение · %@", "th": "รูปภาพของคุณ · %@", "tr": "Görseliniz · %@", "uk": "Ваше зображення · %@",
+        "vi": "Hình ảnh của bạn · %@", "zh-Hans": "你的图片 · %@", "zh-Hant": "你的圖片 · %@",
     },
 }
 
