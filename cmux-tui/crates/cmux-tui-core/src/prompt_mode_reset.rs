@@ -1,12 +1,14 @@
 //! A program that dies without cleanup (SIGKILL, a crash) leaves the modes it
 //! set: mouse reporting stays on, so every mouse move types an SGR report
-//! (`35;1;13M`) into the shell, and an alternate screen stays up. When the
+//! (`35;1;13M`) into the shell, an alternate screen stays up and the cursor
+//! stays hidden. When the
 //! shell starts its next prompt (OSC 133;A) while it is the terminal's
 //! foreground job, nothing it runs can want them any more: they are reset
 //! right before the mark, so the prompt draws on a sane screen.
 //!
-//! Bracketed paste (2004) and focus reports (1004) are the shell's own prompt
-//! modes (zsh, bash and fish turn them on to read a line), so they stay.
+//! Bracketed paste (2004), focus reports (1004) and application cursor keys
+//! (1) are the line editor's own prompt modes (zsh, bash and fish turn them
+//! on to read a line), so they stay.
 
 use std::borrow::Cow;
 
@@ -23,10 +25,16 @@ const MOUSE_RESET: &[u8] =
 /// the cursor the program saved on entry.
 const ALT_SCREEN_RESET: &[u8] = b"\x1b[?47l\x1b[?1047l\x1b[?1049l";
 
+/// Show the cursor (DECTCEM).
+const CURSOR_SHOW: &[u8] = b"\x1b[?25h";
+
+/// The cursor-visible mode, a DEC private mode.
+const CURSOR_VISIBLE: u16 = 25;
+
 /// What a pane's terminal drops when its child exits: nothing runs there
-/// any more to want mouse reports, pasted-text brackets, focus reports or
-/// an alternate screen.
-pub(crate) const EXIT_RESET: &[u8] = b"\x1b[?9l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?1016l\x1b[?2004l\x1b[?1004l\x1b[?47l\x1b[?1047l\x1b[?1049l";
+/// any more to want mouse reports, pasted-text brackets, focus reports,
+/// application cursor keys, a hidden cursor or an alternate screen.
+pub(crate) const EXIT_RESET: &[u8] = b"\x1b[?9l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?1016l\x1b[?2004l\x1b[?1004l\x1b[?1l\x1b[?25h\x1b[?47l\x1b[?1047l\x1b[?1049l";
 
 /// Write `data` to `term`, resetting a dead program's modes right before
 /// each prompt mark when `shell_foreground` says the terminal's own child
@@ -73,6 +81,9 @@ fn leftover_modes(term: &Terminal) -> Vec<u8> {
     }
     if matches!(term.active_screen(), Screen::Alternate) {
         reset.extend_from_slice(ALT_SCREEN_RESET);
+    }
+    if !term.mode(CURSOR_VISIBLE, false) {
+        reset.extend_from_slice(CURSOR_SHOW);
     }
     reset
 }
