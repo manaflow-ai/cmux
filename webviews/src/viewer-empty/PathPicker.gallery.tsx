@@ -380,6 +380,6 @@ export default componentEntry<Props>({
     },
     virtualized: { props: { start: CMUX }, play: virtualized },
     rtl: { props: { direction: "rtl", start: PROJECTS, stableFilter: true }, play: rtlCompletion },
-    cancel: { props: {}, play: cancel },
+    cancel: { props: { start: `${HOME}/Desktop`, stableFilter: true }, play: cancel },
   },
 });

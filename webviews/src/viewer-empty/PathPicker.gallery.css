@@ -22,6 +22,13 @@
   scrollbar-gutter: stable;
 }
 
+/* VirtualList sets its own overflow shorthand inline; keep its gutter stable when a breadcrumb
+   navigation swaps a large virtualized level for a short ordinary level. */
+.ve-picker-list.ui-virtual {
+  overflow-y: scroll !important;
+  scrollbar-gutter: stable;
+}
+
 .path-picker-gallery-receipt {
   position: fixed;
   inset-block-end: 12px;
