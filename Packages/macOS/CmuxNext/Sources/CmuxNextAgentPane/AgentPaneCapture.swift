@@ -7,7 +7,8 @@ import UniformTypeIdentifiers
 /// `composer.capture {mode: "screen" | "window"}`. After a click in the pane, macOS `screencapture`
 /// runs its own region pick (`-i`) or window pick (`-iW`), so the selection UI and the Screen
 /// Recording permission are the system's. It answers `{name, mimeType, data}` (base64) for the
-/// page to attach as an image, or `{cancelled: true}` when the person presses Esc.
+/// page to attach as an image, `{tooLarge: true, name}` for one that does not fit the page's cap,
+/// or `{cancelled: true}` when the person presses Esc.
 enum AgentPaneCapture {
     nonisolated static let tool = "/usr/sbin/screencapture"
     /// The page's cap on an attached image (attachments.ts `MAX_IMAGE_BYTES`).
@@ -21,13 +22,26 @@ enum AgentPaneCapture {
         guard model.transport.gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-capture-\(UUID().uuidString).png")
         guard await capture(window: mode == "window", to: file) else { return AgentPaneReply.success(["cancelled": true]) }
-        let image = await Task.detached { () -> (data: Data, mimeType: String)? in
+        let taken = Date()
+        let value = await Task.detached { () -> [String: any Sendable] in
             defer { try? FileManager.default.removeItem(at: file) }
-            return (try? Data(contentsOf: file)).flatMap(fit)
+            return Self.answer((try? Data(contentsOf: file)) ?? Data(), taken: taken)
         }.value
-        guard let image else { return AgentPaneReply.success(["cancelled": true]) }
-        let name = image.mimeType == "image/png" ? "Screenshot.png" : "Screenshot.jpg"
-        return AgentPaneReply.success(["name": name, "mimeType": image.mimeType, "data": image.data.base64EncodedString()])
+        return AgentPaneReply.success(value)
+    }
+
+    /// The page's answer for the bytes `screencapture` wrote: the image named for when it was
+    /// `taken` (as macOS names its own, so two in one prompt differ), `tooLarge` with that name when
+    /// even a scaled copy is over the cap, `cancelled` for none (Esc).
+    nonisolated static func answer(_ png: Data, taken: Date) -> [String: any Sendable] {
+        guard !png.isEmpty else { return ["cancelled": true] }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH.mm.ss"
+        let stem = "Screenshot \(formatter.string(from: taken))"
+        guard let image = fit(png) else { return ["tooLarge": true, "name": "\(stem).png"] }
+        let name = image.mimeType == "image/png" ? "\(stem).png" : "\(stem).jpg"
+        return ["name": name, "mimeType": image.mimeType, "data": image.data.base64EncodedString()]
     }
 
     /// Runs the pick; false when `screencapture` could not start.

@@ -609,6 +609,10 @@
       "scope": "git:read",
       "class": "read"
     },
+    "git.worktree.apply": {
+      "scope": "git:execute",
+      "class": "mutation"
+    },
     "git.worktree.create": {
       "scope": "git:execute",
       "class": "mutation"

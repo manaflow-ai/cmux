@@ -143,7 +143,7 @@ import { ChatHeaderTools, HEADER_ACTIONS, menuGroups, type ChatMenuItem } from "
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { PullRequestDock } from "./summary/PullRequestDock";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
-import { archiveRow } from "./header/archiveRow";
+import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { copyRow } from "./header/copyRow";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
 import { sideChatRow } from "./header/sideChatRow";
@@ -1857,11 +1857,14 @@ function AcpmuxPane() {
   // client (or the mock daemon), else the native host.
   const fileRoot = movedTo ?? snapshot.summary?.cwd;
   // The + menu's Attach Screenshot… and Attach Window… (cx-ncc.71): the host runs macOS
-  // screencapture's own pick and answers the PNG; a cancelled pick answers no data.
+  // screencapture's own pick and answers the PNG; a cancelled pick answers no data, and a capture
+  // that would not fit the image cap answers `tooLarge` with its name.
   const captureScreen = useCallback(async (mode: "screen" | "window") => {
-    const shot = await callNative<{ name?: string; mimeType?: string; data?: string } | null>("composer.capture", {
-      mode,
-    }).catch(() => null);
+    const shot = await callNative<{ name?: string; mimeType?: string; data?: string; tooLarge?: boolean } | null>(
+      "composer.capture",
+      { mode },
+    ).catch(() => null);
+    if (shot?.tooLarge) return { name: shot.name ?? "Screenshot.png", reason: "tooLarge" } as const;
     if (!shot?.data) return undefined;
     const bytes = Uint8Array.from(atob(shot.data), (char) => char.charCodeAt(0));
     return new File([bytes], shot.name ?? "Screenshot.png", { type: shot.mimeType ?? "image/png" });
@@ -3301,6 +3304,16 @@ function AcpmuxPane() {
     t,
   );
   archiveChatRef.current = archive && !archived ? archive.onSelect : undefined;
+  const markUnread = markUnreadRow(
+    {
+      sessionId: snapshot.sessionId,
+      archived,
+      local: localCwd !== undefined,
+      unread: snapshot.sessions.some((session) => session.sessionId === snapshot.sessionId && session.unread === true),
+    },
+    () => ignoreFailure(callNative("chat.markUnread")),
+    t,
+  );
   const readTabState = () => callNative("pane.tabState").then(setHeaderState);
   const refreshTabState = () => void readTabState().catch(() => undefined);
   // Terminal and Browser change what is beside the chat: [+] follows once their split lands.
@@ -3477,6 +3490,7 @@ function AcpmuxPane() {
       ],
       tools,
       [
+        ...(markUnread ? [markUnread] : []),
         ...(archive ? [archive] : []),
         {
           key: "close",
