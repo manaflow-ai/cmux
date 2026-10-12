@@ -30,7 +30,9 @@ extension SettingsPageProvider {
             workspaceBackgrounds.preview(nil, workspace)
             return .object([:])
         }
-        let value = params["value"].flatMap { $0 == .null ? nil : $0 }
+        // JSONValue takes `nil` as its own `.null`, so a null value is dropped by a pattern.
+        var value: JSONValue?
+        if let given = params["value"], given != .null { value = given }
         if let value {
             guard let descriptor = SettingsSchema.descriptor(for: BackdropSelectionSetting().configPath), descriptor.accepts(value) else {
                 throw PageError(code: "cmux.settings.invalid", message: "not a background: \(value)")
