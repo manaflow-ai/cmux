@@ -136,3 +136,67 @@ test("a new chat's worktree has nothing to apply yet", async () => {
     await act(async () => root.unmount());
   }
 });
+
+const failure = (reason: string, extra: Record<string, unknown> = {}) =>
+  Object.assign(new Error("The commit or push did not go through."), {
+    code: "operation.failed",
+    details: { reason, extra },
+  });
+
+test("a retry after an apply that may have landed keeps its key, so the host can tell", async () => {
+  const keys: unknown[] = [];
+  const answers: (() => Promise<unknown>)[] = [
+    async () => {
+      throw Object.assign(new Error("timed out"), { code: "native.timed_out" });
+    },
+    async () => ({ value: { main_root: MAIN, files: ["a.txt"] }, replayed: true }),
+    async () => ({ value: { main_root: MAIN, files: ["b.txt"] }, replayed: false }),
+  ];
+  const root = await render(async (...args: unknown[]) => {
+    keys.push(args[0]);
+    return answers[keys.length - 1]!();
+  });
+  try {
+    await act(async () => button("Apply to main checkout")!.click());
+    await settle();
+    await act(async () => button("Apply to main checkout")!.click());
+    await settle();
+    expect(doc().querySelector(".acpmux-worktree-status output")?.textContent).toBe("Applied 1 file to /Users/me/app");
+    // Work the agent does later applies again, as a new action.
+    await act(async () => button("Apply to main checkout")!.click());
+    await settle();
+    expect(keys).toHaveLength(3);
+    expect(typeof keys[0]).toBe("string");
+    expect(keys[1]).toBe(keys[0]);
+    expect(keys[2]).not.toBe(keys[0]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("each refusal says what it means, a long list stays short", async () => {
+  const cases: [Error, string][] = [
+    [
+      failure("interrupted", { files: ["a.txt", "b.txt"] }),
+      "An earlier apply stopped partway: /Users/me/app may have part of a.txt, b.txt",
+    ],
+    [failure("unmerged"), "Finish the merge or rebase in this worktree first"],
+    [failure("no_base"), "This worktree has no recorded base to compare with"],
+    [
+      failure("main_checkout_changed", { files: ["1", "2", "3", "4", "5", "6", "7", "8"] }),
+      "/Users/me/app has its own changes to 1, 2, 3, 4, 5 +3",
+    ],
+  ];
+  for (const [error, said] of cases) {
+    const root = await render(async () => {
+      throw error;
+    });
+    try {
+      await act(async () => button("Apply to main checkout")!.click());
+      await settle();
+      expect(doc().querySelector(".acpmux-worktree-status [role=alert]")?.textContent).toBe(said);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  }
+});
