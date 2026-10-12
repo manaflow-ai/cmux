@@ -5,7 +5,7 @@ import Testing
 /// Palette rows act like menu rows: press, drag and release runs the row the release lands on,
 /// and a release off every row runs nothing (cx-bopcl).
 @MainActor
-@Suite struct PalettePressTests {
+@Suite(.serialized) struct PalettePressTests {
     private final class Rows: NSObject, NSTableViewDataSource {
         func numberOfRows(in tableView: NSTableView) -> Int { 3 }
     }
