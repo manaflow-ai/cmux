@@ -500,16 +500,19 @@ provider authority install
 `notify` takes the flags of the macOS `cmux notify` so scripts and agent hooks
 work unchanged inside a machine: `--title` (default `Notification`, at most
 512 characters), `--subtitle` (at most 512), `--body` (at most 4096),
-`--clear`, `--surface`, `--workspace`, `--json`, and `--desktop true|false`
-(`false`: the app shows no banner; the sidebar marker still shows); `--window`
+`--clear`, `--surface`, `--workspace`, `--json`, `--desktop true|false`
+(`false`: the app shows no banner; the sidebar marker still shows), and
+`--reply` (the banner takes a typed reply, which the app pastes into the
+notifying terminal and submits with Return); `--window`
 and `--id-format` are accepted and ignored. The target defaults to the caller's own terminal
 (`CMUX_TUI_TERMINAL_ID`, which the daemon injects into every PTY); `--surface
 current` says the same, `--surface <term_id>` names another terminal of this
 session, and `--workspace` alone posts a session-level row with no terminal.
 A machine can only address its own session. `--clear` removes the retained
 rows for that target on the machine (`notification.clear`), so every attached
-client drops them. `--reply` is refused: a reply would type into a terminal,
-and that channel does not cross the link. Every row is bounded because each
+client drops them. A reply goes only to the terminal that posted the
+notification, as text the user typed into its banner, over the same link the
+app's terminal input uses. Every row is bounded because each
 one is pushed to every attached client.
 
 `notification ack --client <id> <notification-id>...` records that one client
