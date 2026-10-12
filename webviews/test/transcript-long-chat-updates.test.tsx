@@ -6,6 +6,7 @@ import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { type TurnView, turnView, turnViewFrom } from "../src/agent-session/acpmux/conversation/turns";
+import { minimapTurns } from "../src/agent-session/acpmux/threadMinimap/model";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -185,4 +186,51 @@ test("a long chat draws each update as a fresh layout would: streaming, redraws,
   } finally {
     await act(async () => root.unmount());
   }
+});
+
+test("a new row registry places the whole chat again, as a fresh transcript does", async () => {
+  const rows = turnView(Array.from({ length: 300 }, (_, index) => finishedTurn(index)).flat(), new Set());
+  // A customization replaces the registry; its rows estimate taller before they are drawn.
+  const Tall = Object.assign(() => <div>tall</div>, { measure: () => 500 });
+  const registry = { assistant: Tall, user: Tall } as unknown as Parameters<typeof VirtualTranscript>[0]["registry"];
+  const spacer = (host: Element) => parseFloat(host.querySelector<HTMLElement>(".acpmux-spacer")!.style.height);
+  const transcript = (withRegistry: boolean) => (
+    <VirtualTranscript
+      rows={rows}
+      working={false}
+      registry={withRegistry ? registry : undefined}
+      onToggleActivity={() => {}}
+      expanded={new Set()}
+    />
+  );
+  const host = dom.window.document.getElementById("root")!;
+  const root = createRoot(host);
+  const other = dom.window.document.body.appendChild(dom.window.document.createElement("div"));
+  const fresh = createRoot(other);
+  try {
+    await act(async () => root.render(transcript(false)));
+    await act(async () => root.render(transcript(true)));
+    await act(async () => fresh.render(transcript(true)));
+    expect(spacer(host)).toBe(spacer(other));
+  } finally {
+    await act(async () => root.unmount());
+    await act(async () => fresh.unmount());
+    other.remove();
+  }
+});
+
+test("a late answer that lands before the next prompt previews in its own turn's minimap entry", () => {
+  const answered = [
+    row("m0-user", "user", { text: "First" }),
+    row("m0-read", "activity"),
+    row("m1-user", "user", { text: "Second" }),
+    row("m1-answer", "assistant", { text: "Second answer" }),
+  ];
+  const before = minimapTurns(answered, "s");
+  const late = [
+    ...answered.slice(0, 2),
+    row("m0-answer", "assistant", { text: "Late first answer" }),
+    ...answered.slice(2),
+  ];
+  expect(minimapTurns(late, "s", before).turns).toEqual(minimapTurns(late, "s").turns);
 });
