@@ -22,7 +22,11 @@ struct AgentPaneBrowsedFolderRootTests {
         model.onBrowseProject = { folder }
         let harnesses = #"{"jsonrpc":"2.0","id":3,"method":"_acpmux/harnesses","params":{"cwd":"\#(folder)"}}"#
         func check() async -> Bool {
-            let scope = AcpmuxPathPolicy.Scope(roots: model.transport.roots(), gestureRoots: model.transport.gestureRoots())
+            // The scope the relay checks a frame against (AgentPaneTransport.checkPathsInScope).
+            let transport = model.transport
+            let scope = AcpmuxPathPolicy.Scope(roots: transport.roots(), gestureRoots: transport.gestureRoots(),
+                                               fillCwd: transport.primaryRoot(), agentHome: transport.agentHome(),
+                                               home: transport.homeFolder, granted: transport.addedRoots)
             if case .success = await AcpmuxPathPolicy.check(harnesses, scope: scope) { return true }
             return false
         }
