@@ -39,43 +39,32 @@ public struct TabsRoot: View {
     }
 }
 
-/// One `TerminalHandle` per terminal (kept while the terminal exists, so a
-/// card and the full screen share one controller) and the grid's live
-/// terminal thumbnails.
+/// The grid's terminals: CNTerminalUI's handle pool (at most two live
+/// renderers, bounded off-screen thumbnails, released on memory warnings).
 @MainActor
 @Observable
 final class TerminalTabs {
     let connection: HostConnection
-    let thumbnails: TerminalThumbnails
-    @ObservationIgnored private var handles: [String: TerminalHandle] = [:]
+    let pool: TerminalHandlePool
+    var thumbnails: TerminalThumbnails { pool.thumbnails }
 
     init(connection: HostConnection) {
         self.connection = connection
-        thumbnails = TerminalThumbnails(connection: connection)
+        // The composer and key bar go above the tabs toolbar (TerminalAccessory).
+        pool = TerminalHandlePool(connection: connection, accessoryPlacement: .external)
     }
 
-    func handle(_ id: String) -> TerminalHandle {
-        if let h = handles[id] { return h }
-        // The composer and key bar go above the tabs toolbar (TerminalAccessory).
-        let h = TerminalHandle(connection: connection, terminalId: id, accessoryPlacement: .external)
-        handles[id] = h
-        return h
-    }
+    func handle(_ id: String) -> TerminalHandle { pool.handle(id) }
 
     func showCards(_ ids: [String]) {
         // Page proportions: cards and panes show the page scaled to their
         // width, so the text fills a tall pane too.
         let screen = UIScreen.main.bounds.size
         let cardWidth = ((screen.width - 48) / 2).rounded(.down)
-        thumbnails.show(ids, cardSize: CGSize(width: cardWidth, height: (cardWidth * screen.height / max(1, screen.width)).rounded()))
+        pool.showCards(ids, cardSize: CGSize(width: cardWidth, height: (cardWidth * screen.height / max(1, screen.width)).rounded()))
     }
 
     /// Drops handles and thumbnails of terminals that are gone.
-    func retain(_ ids: [String]) {
-        for id in handles.keys where !ids.contains(id) {
-            handles[id] = nil
-            thumbnails.forget(id)
-        }
-    }
+    func retain(_ ids: [String]) { pool.retain(ids) }
 }
 #endif

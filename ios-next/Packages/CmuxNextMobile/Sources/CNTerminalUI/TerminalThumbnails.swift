@@ -43,7 +43,11 @@ public final class TerminalThumbnails {
     @ObservationIgnored private var lastLines: [String: (lines: [String], grid: (cols: Int, rows: Int))] = [:]
     @ObservationIgnored private var observedWindows: [ObjectIdentifier: any UITraitChangeRegistration] = [:]
 
-    public init(connection: HostConnection, maxLive: Int = 20, refreshInterval: Duration = .milliseconds(500)) {
+    /// Terminals open full screen: their card comes from the open view when
+    /// it closes; no off-screen surface parses them meanwhile.
+    @ObservationIgnored private var suspended: Set<String> = []
+
+    public init(connection: HostConnection, maxLive: Int = 8, refreshInterval: Duration = .milliseconds(500)) {
         self.connection = connection
         self.maxLive = maxLive
         self.refreshInterval = refreshInterval
@@ -68,10 +72,10 @@ public final class TerminalThumbnails {
             for t in live.values { t.stop() }
             live.removeAll()
         }
-        for id in terminalIds {
+        for id in terminalIds where !suspended.contains(id) {
             order.removeAll { $0 == id }
             order.append(id)
-            if live[id] == nil, let client = connection.client {
+            if live[id] == nil, live.count < maxLive || evictOldest(keeping: terminalIds), let client = connection.client {
                 let headless = HeadlessTerminal(terminalId: id, client: client, interval: refreshInterval) { [weak self] lines, grid in
                     self?.render(id, lines: lines, grid: grid)
                 }
@@ -85,6 +89,26 @@ public final class TerminalThumbnails {
             live.removeValue(forKey: oldest)?.stop()
             order.removeAll { $0 == oldest }
         }
+    }
+
+    /// Frees one live surface not in `keeping` (least recently shown).
+    private func evictOldest(keeping: [String]) -> Bool {
+        guard let oldest = order.first(where: { live[$0] != nil && !keeping.contains($0) }) else { return false }
+        live.removeValue(forKey: oldest)?.stop()
+        return true
+    }
+
+    /// The terminal opened full screen: stop parsing it off screen.
+    public func suspend(_ terminalId: String) {
+        suspended.insert(terminalId)
+        live.removeValue(forKey: terminalId)?.stop()
+    }
+
+    /// The full-screen terminal closed: its last screen becomes the card, and
+    /// the next `show` resumes it off screen.
+    public func resume(_ terminalId: String, lines: [String]? = nil, grid: (cols: Int, rows: Int)? = nil) {
+        suspended.remove(terminalId)
+        if let lines, let grid { render(terminalId, lines: lines, grid: grid) }
     }
 
     /// Detaches every live terminal; images stay until replaced.
@@ -206,7 +230,11 @@ final class HeadlessTerminal {
 
     private let view = UIView(frame: CGRect(x: 0, y: 0, width: 320, height: 480))
     private var ref: SurfaceRef?
-    private let queue = DispatchQueue(label: "cmux.next.terminal.thumbnail", qos: .utility)
+    /// One serial parser queue for every off-screen surface.
+    static let parserQueue = DispatchQueue(label: "cmux.next.terminal.thumbnails", qos: .utility)
+    private var queue: DispatchQueue { Self.parserQueue }
+    /// DEBUG: live off-screen surfaces.
+    static var liveCount = 0
     private var task: Task<Void, Never>?
     private var streamId: UInt32?
     private var grid = (cols: 80, rows: 24)
@@ -235,6 +263,8 @@ final class HeadlessTerminal {
         ghostty_surface_set_content_scale(surface, 1, 1)
         ghostty_surface_set_size(surface, 64, 64)
         ref = SurfaceRef(surface)
+        Self.liveCount += 1
+        TerminalMemory.log()
         let client = self.client
         let id = terminalId
         task = Task { [weak self] in
@@ -269,6 +299,8 @@ final class HeadlessTerminal {
             Task { try? await client.detachTerminal(streamId: streamId) }
         }
         guard let ref else { return }
+        Self.liveCount -= 1
+        TerminalMemory.log()
         let view = Retained(self.view)
         queue.async {
             DispatchQueue.main.async {
@@ -318,25 +350,11 @@ final class HeadlessTerminal {
         }
     }
 
-    /// The viewport's rows as text (output queue only).
+    /// The viewport's rows as text (output queue only), within the grid the
+    /// surface really has.
     nonisolated private static func readLines(_ surface: ghostty_surface_t, cols wantedCols: Int, rows wantedRows: Int) -> [String] {
-        // Read only rows and columns the surface really has (a refused or
-        // later grid change must never send a selection past its edge).
         let actual = ghostty_surface_grid(surface)
-        let cols = min(wantedCols, Int(actual.columns)), rows = min(wantedRows, Int(actual.rows))
-        guard cols > 0, rows > 0 else { return [] }
-        return (0..<rows).map { row in
-            var selection = ghostty_selection_s()
-            selection.top_left = ghostty_point_s(tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_EXACT, x: 0, y: UInt32(row))
-            selection.bottom_right = ghostty_point_s(tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_EXACT,
-                                                     x: UInt32(max(0, cols - 1)), y: UInt32(row))
-            var text = ghostty_text_s()
-            guard ghostty_surface_read_text(surface, selection, &text) else { return "" }
-            defer { ghostty_surface_free_text(surface, &text) }
-            guard let base = text.text, text.text_len > 0 else { return "" }
-            let line = String(decoding: UnsafeRawBufferPointer(start: base, count: Int(text.text_len)), as: UTF8.self)
-            return line.replacingOccurrences(of: "\n", with: "")
-        }
+        return TerminalTextReader.lines(surface, cols: min(wantedCols, Int(actual.columns)), rows: min(wantedRows, Int(actual.rows)))
     }
 }
 #endif

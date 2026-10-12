@@ -43,6 +43,10 @@ final class GhosttyTerminalView: UIView {
     private let outputQueue = DispatchQueue(label: "cmux.next.terminal.output", qos: .userInteractive)
     private var inputBox: InputBox?
     private(set) var draws = 0
+    private let framePending = FramePending()
+    /// DEBUG: live Ghostty renderers (full terminal views).
+    static var liveCount = 0
+    private var contentRowComputedAt: CFTimeInterval = 0
     private var contentRowCache: (draws: Int, value: (row: Int, cellHeight: CGFloat, paddingTop: CGFloat)?)?
     private var appliedStyle: UIUserInterfaceStyle?
     /// The text size in points (setting `cmuxNext.terminalFontSize`).
@@ -86,6 +90,8 @@ final class GhosttyTerminalView: UIView {
     isolated deinit {
         for observer in keyboardObservers { NotificationCenter.default.removeObserver(observer) }
         guard let surface else { return }
+        Self.liveCount -= 1
+        TerminalMemory.log()
         // Free only after every queued process_output returned (contract), and
         // keep the input box alive until free returns (io_write_cb may run).
         let ref = SurfaceRef(surface)
@@ -139,6 +145,7 @@ final class GhosttyTerminalView: UIView {
             }
         }
         surface = ghostty_surface_new(app.app, &config)
+        if surface != nil { Self.liveCount += 1; TerminalMemory.log() }
         diagnostics["surface"] = surface == nil ? "nil" : "ok"
         if let surface {
             // Visible and focused: the renderer draws only for a visible surface.
@@ -238,9 +245,29 @@ final class GhosttyTerminalView: UIView {
     private func enqueueOutput(_ work: @escaping @Sendable (ghostty_surface_t) -> Void) {
         guard let surface else { return }
         let ref = SurfaceRef(surface)
+        let pending = framePending
         outputQueue.async {
             work(ref.surface)
-            Task { @MainActor [weak self] in self?.requestFrame() }
+            // One main-actor hop per burst, not per chunk: fast TUI redraws
+            // must not queue main-thread work proportional to output.
+            guard pending.claim() else { return }
+            Task { @MainActor [weak self] in
+                pending.release()
+                self?.requestFrame()
+            }
+        }
+    }
+
+    /// Reads the visible rows' text on the output queue (in order with the
+    /// output), then calls back on the main actor.
+    func readVisibleLines(_ done: @escaping @MainActor ([String], (cols: Int, rows: Int)) -> Void) {
+        guard let surface else { return }
+        let ref = SurfaceRef(surface)
+        outputQueue.async {
+            let grid = ghostty_surface_grid(ref.surface)
+            let cols = Int(grid.columns), rows = Int(grid.rows)
+            let lines = TerminalTextReader.lines(ref.surface, cols: cols, rows: rows)
+            Task { @MainActor in done(lines, (cols, rows)) }
         }
     }
 
@@ -328,9 +355,13 @@ final class GhosttyTerminalView: UIView {
     /// prompt do not. Cached per drawn frame: rows are read only after new
     /// output was drawn, not on every layout pass.
     var lastContentRow: (row: Int, cellHeight: CGFloat, paddingTop: CGFloat)? {
-        if let cache = contentRowCache, cache.draws == draws { return cache.value }
+        // Reads rows: at most every 100 ms, so a fast redraw stream does not
+        // make each frame read the whole screen.
+        let now = CACurrentMediaTime()
+        if let cache = contentRowCache, cache.draws == draws || now - contentRowComputedAt < 0.1 { return cache.value }
         let value = computeLastContentRow()
         contentRowCache = (draws, value)
+        contentRowComputedAt = now
         return value
     }
 
@@ -495,6 +526,55 @@ final class GhosttyTerminalView: UIView {
     override func copy(_ sender: Any?) {
         guard let text = selectedText, !text.isEmpty else { return }
         UIPasteboard.general.string = text
+    }
+}
+
+/// Coalesces "draw after output" hops: claimed on the output queue, released
+/// on the main actor when the frame is requested.
+final class FramePending: @unchecked Sendable {
+    private let lock = NSLock()
+    private var pending = false
+
+    func claim() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        if pending { return false }
+        pending = true
+        return true
+    }
+
+    func release() {
+        lock.lock(); pending = false; lock.unlock()
+    }
+}
+
+/// Reads a surface's visible rows as text (output queue only; the grid is
+/// what the surface really has).
+struct TerminalTextReader {
+    static func lines(_ surface: ghostty_surface_t, cols: Int, rows: Int) -> [String] {
+        guard cols > 0, rows > 0 else { return [] }
+        return (0..<rows).map { row in
+            var selection = ghostty_selection_s()
+            selection.top_left = ghostty_point_s(tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_EXACT, x: 0, y: UInt32(row))
+            selection.bottom_right = ghostty_point_s(tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_EXACT,
+                                                     x: UInt32(cols - 1), y: UInt32(row))
+            var text = ghostty_text_s()
+            guard ghostty_surface_read_text(surface, selection, &text) else { return "" }
+            defer { ghostty_surface_free_text(surface, &text) }
+            guard let base = text.text, text.text_len > 0 else { return "" }
+            return String(decoding: UnsafeRawBufferPointer(start: base, count: Int(text.text_len)), as: UTF8.self)
+                .replacingOccurrences(of: "\n", with: "")
+        }
+    }
+}
+
+/// DEBUG `CMUX_NEXT_TERMINAL_MEMORY=1`: logs live Ghostty surfaces to stderr.
+@MainActor
+struct TerminalMemory {
+    static func log() {
+        #if DEBUG
+        guard ProcessInfo.processInfo.environment["CMUX_NEXT_TERMINAL_MEMORY"] == "1" else { return }
+        FileHandle.standardError.write(Data("terminal surfaces: views=\(GhosttyTerminalView.liveCount) thumbnails=\(HeadlessTerminal.liveCount)\n".utf8))
+        #endif
     }
 }
 

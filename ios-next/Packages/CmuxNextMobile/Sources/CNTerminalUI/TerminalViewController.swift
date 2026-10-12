@@ -177,12 +177,23 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
         super.viewDidAppear(animated)
         visible = true
         sync()
+        onVisibilityChange?(true)
     }
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         visible = false
         detach()
+        onVisibilityChange?(false)
+    }
+
+    /// The terminal appeared on screen (true) or left it (false).
+    var onVisibilityChange: ((Bool) -> Void)?
+    var isOnScreen: Bool { visible }
+
+    /// The visible rows' text (for the card when the terminal closes).
+    func visibleLines(_ done: @escaping @MainActor ([String], (cols: Int, rows: Int)) -> Void) {
+        terminalView.readVisibleLines(done)
     }
 
     override func viewDidLayoutSubviews() {
@@ -395,7 +406,6 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
             for await bytes in frames {
                 guard let self else { return }
                 self.terminalView.feed(bytes)
-                self.model.outputBytes += bytes.count
             }
             // The link closed: the next generation re-attaches.
             guard let self, !Task.isCancelled else { return }

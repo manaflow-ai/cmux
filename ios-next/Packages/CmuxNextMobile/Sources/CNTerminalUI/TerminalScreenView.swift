@@ -34,7 +34,6 @@ final class TerminalScreenModel {
     var status: Status = .attaching
     var grid = ""
     var fontSize = TerminalFontSize.stored
-    var outputBytes = 0
     var keyboardShift: CGFloat = 0
     /// The composer row is shown (else typing goes straight to the terminal).
     var composerMode = false
@@ -113,6 +112,28 @@ public final class TerminalHandle {
         get { model.composerMode }
         set { model.controller?.setComposerMode(newValue) }
     }
+
+    /// Drops the Ghostty renderer (the view, its surface and stream) while the
+    /// terminal is not on screen; the next `TerminalContent` re-creates it and
+    /// re-attaches (the host replays the scrollback; a mirrored terminal
+    /// comes back at the Mac's grid). Returns false while it is on screen.
+    @discardableResult
+    public func releaseRenderer() -> Bool {
+        guard let controller else { return true }
+        if controller.isOnScreen || controller.view.window != nil { return false }
+        self.controller = nil
+        if model.controller === controller { model.controller = nil }
+        if model.status != .ended { model.status = .attaching }
+        return true
+    }
+
+    /// True while this terminal has a live renderer.
+    public var hasRenderer: Bool { controller != nil }
+    /// True while its content is on screen.
+    public var isOnScreen: Bool { controller?.isOnScreen ?? false }
+
+    /// The pool's hook: on screen (true) or off (false).
+    @ObservationIgnored var onVisibilityChange: ((TerminalHandle, Bool) -> Void)?
 
     /// Replaces an ended terminal with a new one in place.
     public func startNewTerminal() {
@@ -344,6 +365,10 @@ struct TerminalSurfaceRepresentable: UIViewControllerRepresentable {
         let controller = TerminalViewController(connection: handle.connection, terminalId: handle.route.existingId,
                                                 model: handle.model, externalAccessory: handle.accessoryPlacement == .external)
         controller.onCreated = { [weak handle] id in handle?.createdId = id }
+        controller.onVisibilityChange = { [weak handle] visible in
+            guard let handle else { return }
+            handle.onVisibilityChange?(handle, visible)
+        }
         handle.controller = controller
         return controller
     }
