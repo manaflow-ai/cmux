@@ -502,6 +502,15 @@ test("the last pick is the model of the next New Tab, after a restart too, and t
   expect(next.created).toEqual([]);
 });
 
+test("a context built before this page's pick does not take the pick back", async () => {
+  await pickOnNewTab("claude", "Codex", "gpt-6-astra");
+  // The early New Tab context (or a reloaded page's) arrives after the pick with the app's older copy.
+  const { newTabHost } = await import("../src/agent-session/acpmux/NewTabPage");
+  newTabHost({ newTab: { lastPicks: { global: { harness: "claude", model: "claude-haiku-5-5" }, folders: [] } } });
+  await mountNewTab({ harness: "claude" });
+  expect(chip()).toBe("GPT-6 Astra");
+});
+
 test("a folder keeps its own last pick; other folders take the latest pick anywhere", async () => {
   await pickOnNewTab("claude", "Codex", "gpt-6-astra", "/work/a");
   await pickOnNewTab("codex", "Claude Code", "claude-opus-5-5", "/work/b");

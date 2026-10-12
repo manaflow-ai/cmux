@@ -31,7 +31,8 @@ final class NewTabChoiceMemory {
     func remember(_ pick: AgentPaneRememberedPick) {
         guard !pick.agent.isEmpty, pick.agent.count <= 128 else { return }
         defaults.set(pick.agent, forKey: Self.agentKey)
-        guard let model = pick.model else { return }
+        // The agent's own "default" is not a pick.
+        guard let model = pick.model, model != "default" else { return }
         var picks = picks ?? AgentPaneLastPicks()
         picks.record(.init(harness: pick.agent, model: model), folder: pick.folder)
         if let data = try? JSONEncoder().encode(picks) { defaults.set(data, forKey: Self.picksKey) }

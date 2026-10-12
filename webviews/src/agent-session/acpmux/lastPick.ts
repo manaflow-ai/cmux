@@ -9,7 +9,9 @@ import { isDefaultChoice } from "./defaultChoice";
 import { postNative } from "./native";
 
 export type LastPick = { harness: string; model: string };
-type Stored = { global?: LastPick; folders?: Record<string, LastPick> };
+/// `picked`: this page picked since its storage began. The app's copy a later context carries can
+/// be older than that pick (a context built before it, a reloaded page), so it no longer seeds.
+type Stored = { global?: LastPick; folders?: Record<string, LastPick>; picked?: boolean };
 
 const STORAGE_KEY = "cmux.acpmux.lastPick";
 /// The folders kept; the oldest pick goes first.
@@ -44,9 +46,9 @@ function write(stored: Stored): void {
 }
 
 /// The app's copy (the New Tab context's `lastPicks`: `{global, folders: [{folder, harness, model}]}`,
-/// oldest folder first) replaces this page's: the app has every pick this page sent it.
+/// oldest folder first) replaces this page's until the page picks.
 export function seedLastPicks(value: unknown): void {
-  if (!value || typeof value !== "object") return;
+  if (read().picked || !value || typeof value !== "object") return;
   const { global, folders } = value as { global?: unknown; folders?: unknown };
   const kept = (Array.isArray(folders) ? folders.filter(isFolderPick) : []).slice(-MAX_FOLDERS);
   write({
@@ -71,9 +73,10 @@ function read(): Stored {
   try {
     const parsed: unknown = JSON.parse(globalThis.localStorage?.getItem(STORAGE_KEY) ?? "{}");
     if (!parsed || typeof parsed !== "object") return {};
-    const { global, folders } = parsed as Stored;
+    const { global, folders, picked } = parsed as Stored;
     return {
       ...(isPick(global) ? { global } : {}),
+      ...(picked === true ? { picked } : {}),
       folders: Object.fromEntries(Object.entries(folders ?? {}).filter((entry) => isPick(entry[1]))),
     };
   } catch {
@@ -83,14 +86,16 @@ function read(): Stored {
 
 /// Remembers `pick` for every folder and for `folder`. The agent's own "default" is not a pick.
 export function rememberPick(pick: LastPick, folder?: string): void {
+  // The app keeps what it can take (AgentPaneRequest+Decoding): a longer value is no pick.
   if (!isPick(pick) || isDefaultChoice({ id: pick.model })) return;
+  if (pick.harness.length > 128 || pick.model.length > 256 || (folder?.length ?? 0) > 4096) return;
   const stored = read();
   const folders = { ...stored.folders };
   if (folder) {
     delete folders[folder];
     folders[folder] = pick;
   }
-  write({ global: pick, folders: Object.fromEntries(Object.entries(folders).slice(-MAX_FOLDERS)) });
+  write({ global: pick, folders: Object.fromEntries(Object.entries(folders).slice(-MAX_FOLDERS)), picked: true });
   changed();
   const params = { agent: pick.harness, model: pick.model, ...(folder ? { folder } : {}) };
   const direct = window.cmuxAcpmuxActions?.["newTab.remember"];
