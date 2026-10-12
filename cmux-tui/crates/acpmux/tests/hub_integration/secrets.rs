@@ -8,6 +8,9 @@ use super::*;
 use acpmux::server::{Origin, serve_connection_with};
 
 const VALUE: &str = "sk-live-4f9a2c7e1b";
+/// A variable only the daemon has: the command a ref runs never sees it, as
+/// it never sees the helper tokens in the daemon's environment.
+const DAEMON_ONLY: &str = "ACPMUX_SECRET_TEST_DAEMON_ONLY";
 
 /// A connection that never proved the person key: the agent, through its
 /// `request_secret` tool on the unix socket, or a remote device.
@@ -54,6 +57,8 @@ async fn reply(c: &mut TestClient, id: i64) -> Result<Value, String> {
 
 #[tokio::test]
 async fn secrets_the_agent_gets_a_one_use_project_ref_never_the_value() {
+    // SAFETY: a name no other test reads, set before this test's command runs.
+    unsafe { std::env::set_var(DAEMON_ONLY, "daemon-only-7c1") };
     let (hub, mut person) = setup(PermissionPolicy::Ask).await;
     let id = session_in(&mut person, &cwd()).await;
     let mut agent = unproven(&hub, Origin::Local).await;
@@ -112,7 +117,11 @@ async fn secrets_the_agent_gets_a_one_use_project_ref_never_the_value() {
             "sessionId": session,
             "secretRef": secret_ref,
             "env": "STRIPE_API_KEY",
-            "argv": ["sh", "-c", "test \"$STRIPE_API_KEY\" = 'sk-live-4f9a2c7e1b' && printf 'key=%s' \"$STRIPE_API_KEY\""],
+            "argv": [
+                "sh",
+                "-c",
+                "test \"$STRIPE_API_KEY\" = 'sk-live-4f9a2c7e1b' && printf 'key=%s leak=%s' \"$STRIPE_API_KEY\" \"$ACPMUX_SECRET_TEST_DAEMON_ONLY\"",
+            ],
         })
     };
     let refused = agent.request("_acpmux/secret_run", run(&other)).await;
@@ -123,7 +132,7 @@ async fn secrets_the_agent_gets_a_one_use_project_ref_never_the_value() {
     let ran = agent.request("_acpmux/secret_run", run(&id)).await.unwrap();
     assert_eq!(ran["exitCode"], 0, "{ran}");
     assert!(!ran.to_string().contains(VALUE), "the run printed the value: {ran}");
-    assert!(ran["stdout"].as_str().unwrap().starts_with("key="), "{ran}");
+    assert_eq!(ran["stdout"], "key=•••••• leak=", "{ran}");
     let again = agent.request("_acpmux/secret_run", run(&id)).await;
     assert!(again.is_err(), "the ref was spent twice: {again:?}");
 }
@@ -166,4 +175,32 @@ async fn secrets_a_remote_device_can_neither_ask_answer_nor_spend() {
             .await;
         assert!(r.is_err(), "a remote device ran {m}: {r:?}");
     }
+}
+
+#[tokio::test]
+async fn secrets_a_cancelled_turn_closes_the_card_and_a_chat_holds_one_card() {
+    let (hub, mut person) = setup(PermissionPolicy::Ask).await;
+    let id = session_in(&mut person, &cwd()).await;
+    let mut agent = unproven(&hub, Origin::Local).await;
+    let ask = json!({"sessionId": id, "name": "NPM_TOKEN", "reason": "Publish"});
+    let asked = send(&mut agent, "_acpmux/secret_request", ask.clone()).await;
+    let card = person.wait_for(method::MUX_EVENT, |p| p["kind"] == "secret_request").await;
+    let secret_id = card["msg"]["secretId"].as_str().unwrap().to_owned();
+
+    // One open card per chat: a second ask waits for nothing.
+    let second = agent.request("_acpmux/secret_request", ask).await;
+    assert!(second.is_err(), "a second card opened: {second:?}");
+
+    // Stop ends the turn and the card with it; a late answer finds no card.
+    person.request(method::SESSION_CANCEL, json!({"sessionId": id})).await.unwrap();
+    let cancelled = reply(&mut agent, asked).await.unwrap();
+    assert_eq!(cancelled["outcome"], "cancelled", "{cancelled}");
+    assert!(cancelled.get("secretRef").is_none(), "{cancelled}");
+    let late = person
+        .request(
+            "_acpmux/secret_submit",
+            json!({"sessionId": id, "secretId": secret_id, "value": VALUE}),
+        )
+        .await;
+    assert!(late.is_err(), "a closed card took a value: {late:?}");
 }

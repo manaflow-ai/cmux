@@ -735,6 +735,7 @@ impl Hub {
             .agent_session_id
             .ok_or_else(|| RpcError::internal("no agent session"))?;
         self.cancel_pending_permissions(session);
+        self.cancel_pending_secrets(session);
         child
             .notify(method::SESSION_CANCEL, json!({"sessionId": sid}))
             .await
@@ -921,6 +922,7 @@ impl Hub {
     pub async fn kill(&self, session: &Arc<Session>, purge: bool) -> Result<(), RpcError> {
         self.revoke_permission_chat(session);
         self.cancel_pending_permissions(session);
+        self.cancel_pending_secrets(session);
         if let Some(child) = session.child.lock().await.take() {
             if let Some(sid) = session.meta().agent_session_id {
                 let _ = tokio::time::timeout(
@@ -969,6 +971,7 @@ impl Hub {
     pub async fn detach_child(&self, session: &Arc<Session>) {
         self.revoke_permission_chat(session);
         self.cancel_pending_permissions(session);
+        self.cancel_pending_secrets(session);
         if let Some(child) = session.child.lock().await.take() {
             child.kill().await;
         }

@@ -15,7 +15,16 @@
 //!   command runs in that folder with the value in `env`, and what it prints
 //!   comes back with the value masked. A refused run spends nothing.
 //! - An unspent ref expires after [`HELD_TTL`]; at most [`HELD_LIMIT`] are
-//!   held. A card nobody fills is cancelled after [`ASK_TTL`].
+//!   held. A card nobody fills is cancelled after [`ASK_TTL`], and with the
+//!   turn (a cancel, a kill, an ended agent): `cancel_pending_secrets`.
+//! - A chat has at most one open card, and a chat a remote device started
+//!   asks for none (its agent never gets the tools: `agent_tools::left_out`).
+//! - The command gets a clean environment: the login environment (PATH and
+//!   friends, `login_env.rs`), HOME, USER, the locale, TMPDIR and the
+//!   secret. Never the daemon's own, which holds helper tokens an agent must
+//!   not see (`cua_socket::scrub_agent_env`).
+//! - Any agent can reach the socket, so an ask names its chat but cannot
+//!   prove which agent made it; the card shows the chat it waits in.
 //!
 //! The masking covers the value as given. A command that prints it encoded
 //! (base64, reversed) shows it to the agent: the ref limits where and how
@@ -69,10 +78,20 @@ fn project_of(session: &Session) -> Result<String, RpcError> {
         .map_err(|e| RpcError::invalid_params(format!("the chat's folder: {e}")))
 }
 
+/// What a command printed, the value masked before the cap cuts it (a value
+/// across the cut would otherwise leave its first bytes).
 fn mask(bytes: &[u8], value: &str) -> String {
-    let cut = &bytes[..bytes.len().min(MAX_OUTPUT_BYTES)];
-    String::from_utf8_lossy(cut).replace(value, MASK)
+    let masked = String::from_utf8_lossy(bytes).replace(value, MASK);
+    let mut end = masked.len().min(MAX_OUTPUT_BYTES);
+    while !masked.is_char_boundary(end) {
+        end -= 1;
+    }
+    masked[..end].to_owned()
 }
+
+/// The variables a secret's command keeps from the daemon, besides the login
+/// environment: never a token or an acpmux setting.
+const KEPT_ENV: &[&str] = &["HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "LANG", "TERM"];
 
 impl Hub {
     /// The agent's ask: waits for the person's card and returns
@@ -88,15 +107,24 @@ impl Hub {
                 "name must be an environment variable name (A-Z, 0-9, _)",
             ));
         }
+        if session.meta().remote_origin {
+            return Err(RpcError::invalid_params(
+                "a chat a remote device started asks for no secrets",
+            ));
+        }
         let reason: String = reason.chars().take(MAX_REASON_CHARS).collect();
         let project = project_of(session)?;
         let secret_id = super::person::new_nonce();
         let (tx, rx) = oneshot::channel();
-        self.secrets
-            .pending
-            .lock()
-            .unwrap()
-            .insert(secret_id.clone(), Pending { session: session.id.clone(), reply: tx });
+        {
+            let mut pending = self.secrets.pending.lock().unwrap_or_else(|e| e.into_inner());
+            if pending.values().any(|p| p.session == session.id) {
+                return Err(RpcError::invalid_params(
+                    "this chat already has a secret card open: wait for its answer",
+                ));
+            }
+            pending.insert(secret_id.clone(), Pending { session: session.id.clone(), reply: tx });
+        }
         self.append(
             session,
             "mux",
@@ -207,18 +235,43 @@ impl Hub {
         let Some(value) = value else {
             return Err(RpcError::invalid_params("unknown, spent or expired secretRef"));
         };
-        let child = tokio::process::Command::new(program)
+        let mut command = tokio::process::Command::new(program);
+        command.env_clear();
+        for key in KEPT_ENV.iter().copied().chain(["PATH"]) {
+            if let Some(v) = std::env::var_os(key) {
+                command.env(key, v);
+            }
+        }
+        for (key, v) in std::env::vars_os() {
+            if key.to_str().is_some_and(|k| k.starts_with("LC_")) {
+                command.env(key, v);
+            }
+        }
+        crate::login_env::apply_tokio(&mut command);
+        crate::cua_socket::scrub_agent_env(&mut command);
+        command
             .args(args)
             .current_dir(&project)
             .env(env, value.as_str())
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
-            .kill_on_drop(true)
+            .kill_on_drop(true);
+        // Its own process group, so a timeout ends what it started too.
+        #[cfg(unix)]
+        command.process_group(0);
+        let child = command
             .spawn()
             .map_err(|e| RpcError::invalid_params(format!("could not run {program}: {e}")))?;
+        #[cfg(unix)]
+        let group = child.id();
         let result = match tokio::time::timeout(RUN_TIMEOUT, child.wait_with_output()).await {
             Err(_) => {
+                #[cfg(unix)]
+                if let Some(pid) = group.and_then(|p| i32::try_from(p).ok()) {
+                    // SAFETY: killpg has no memory preconditions; the group is the child's own.
+                    unsafe { libc::killpg(pid, libc::SIGKILL) };
+                }
                 json!({"exitCode": Value::Null, "timedOut": true, "stdout": "", "stderr": ""})
             }
             Ok(Err(e)) => return Err(RpcError::internal(format!("running {program}: {e}"))),
@@ -232,14 +285,28 @@ impl Hub {
             session,
             "mux",
             "secret_run",
-            json!({"env": env, "program": program, "exitCode": result["exitCode"]}),
+            json!({"env": env, "argv": argv, "exitCode": result["exitCode"]}),
         );
         Ok(result)
     }
 }
 
+impl Hub {
+    /// Closes the session's open card with its turn (a cancel, a kill, an
+    /// ended agent): the asker gets `cancelled`, and a late answer finds no card.
+    pub(super) fn cancel_pending_secrets(&self, session: &Session) {
+        // Dropping the reply ends the ask's wait.
+        self.secrets
+            .pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|_, p| p.session != session.id);
+    }
+}
+
 impl Secrets {
-    fn waiting_in(&self, session: &str) -> bool {
+    /// Whether `session` has an open card (the Waiting status stays for it).
+    pub(super) fn waiting_in(&self, session: &str) -> bool {
         self.pending
             .lock()
             .unwrap_or_else(|e| e.into_inner())

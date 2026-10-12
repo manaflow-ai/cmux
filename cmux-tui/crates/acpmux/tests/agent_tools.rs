@@ -107,6 +107,7 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
         std::env::set_var("CMUX_NEXT_CONFIG_FILE", &cmux_json);
         std::env::set_var("ACPMUX_HOME", root.join("home"));
         std::env::remove_var("ACPMUX_AGENT_TOOLS");
+        std::env::set_var("ACPMUX_SECRET_TOOLS", "1");
     }
     let hub = hub();
 

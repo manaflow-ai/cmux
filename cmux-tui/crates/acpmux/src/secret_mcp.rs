@@ -8,7 +8,6 @@ use crate::client::Client;
 use crate::rpc::method;
 use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
-use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
 
@@ -61,7 +60,6 @@ pub async fn run() -> Result<()> {
         }
     });
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
-    let mut client: Option<Arc<Client>> = None;
     while let Some(line) = lines.next_line().await? {
         let Ok(message) = serde_json::from_str::<Value>(&line) else { continue };
         let Some(id) = message.get("id").cloned() else { continue }; // a notification
@@ -75,23 +73,15 @@ pub async fn run() -> Result<()> {
             "ping" => json!({}),
             "tools/list" => json!({"tools": tools()}),
             "tools/call" => {
-                if client.is_none() {
-                    client = crate::daemon::connect(false).await.ok();
-                }
-                let Some(daemon) = client.clone() else {
-                    let _ = tx
-                        .send(response(
-                            &id,
-                            error_result("the acpmux daemon is not running".into()),
-                        ))
-                        .await;
-                    continue;
-                };
-                // A card waits on the person: the next request is read meanwhile.
+                // A card waits on the person: the next request is read meanwhile. Each call
+                // connects anew, so a restarted daemon serves the next one.
                 let (tx, session, params) =
                     (tx.clone(), session.clone(), message["params"].clone());
                 tokio::spawn(async move {
-                    let result = call(&daemon, &session, &params).await;
+                    let result = match crate::daemon::connect(false).await {
+                        Ok(daemon) => call(&daemon, &session, &params).await,
+                        Err(e) => error_result(format!("{e:#}")),
+                    };
                     let _ = tx.send(response(&id, result)).await;
                 });
                 continue;
@@ -105,8 +95,10 @@ pub async fn run() -> Result<()> {
         };
         let _ = tx.send(response(&id, reply)).await;
     }
+    // The agent closed the pipe: no one reads an answer still on its way, and
+    // ending here drops the calls' daemon connections with it.
     drop(tx);
-    let _ = writer.await;
+    writer.abort();
     Ok(())
 }
 
