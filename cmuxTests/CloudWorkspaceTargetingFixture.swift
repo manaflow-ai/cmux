@@ -25,6 +25,7 @@ final class CloudWorkspaceTargetingFixture {
     let manager: TabManager
     let windowID: UUID
     private let input: Input
+    private let cloudOptIn = CloudOptInTestOverride()
     var requests: [CloudWorkspaceCreationRequest] { input.requests }
     var scope: String? { get { input.scope } set { input.scope = newValue } }
     var available: Bool { get { input.available } set { input.available = newValue } }
@@ -63,5 +64,6 @@ final class CloudWorkspaceTargetingFixture {
         app.unregisterMainWindowContextForTesting(windowId: windowID)
         manager.finalizeAllWorkspacesForWindowClose()
         defaults.removePersistentDomain(forName: suite)
+        cloudOptIn.restore()
     }
 }
