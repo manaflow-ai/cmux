@@ -4,6 +4,7 @@ import { defineConfig } from "vite-plus";
 import { cmuxCheckConfig } from "../config/vite-plus/check";
 import { fileURLToPath } from "node:url";
 import { cmuxDevServer, DEV_SERVER_PORT } from "./dev-server/plugins";
+import { viteCacheDir } from "./dev-server/viteCacheDir.mjs";
 
 const outDir = process.env.CMUX_WEBVIEWS_OUT_DIR ?? "../Resources/markdown-viewer/webviews-app";
 // The code editor's copy of Pierre's extension map (pages/editor/pierre-filetypes.d.ts). The query
@@ -14,6 +15,7 @@ const pierreFiletypes =
   PIERRE_FILETYPES_QUERY;
 
 export default defineConfig({
+  cacheDir: viteCacheDir,
   // `vp check` reads `lint` and `fmt` from here; `vite build` ignores them.
   // ts-rs emits src/diff/generated; scripts/generate-diff-sidecar-types.sh --check
   // owns it. Stylesheets are inlined verbatim into the shipped agent pane, so

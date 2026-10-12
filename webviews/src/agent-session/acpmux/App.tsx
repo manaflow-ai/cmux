@@ -1871,8 +1871,18 @@ function AcpmuxPane() {
       ? (clientSnapshot.summary?.cwd ?? projectDraft ?? blockedHarness?.folder) || undefined
       : undefined;
   const catalog = useHarnessCatalog(catalogSource, clientSnapshot.catalog, undefined, catalogCwd);
+  // For the host actions, which read it when they run (`chat.new`'s remembered model).
+  const catalogRef = useRef(catalog);
+  catalogRef.current = catalog;
+  // The client's own snapshot never carries the catalog: every view of the pane (the Harnesses
+  // page, the picker catalog, the composer) reads the fetched one from here.
   const snapshot = useMemo(
-    () => applySwitch(clientSnapshot, switchView, catalog),
+    () =>
+      applySwitch(
+        catalog === clientSnapshot.catalog ? clientSnapshot : { ...clientSnapshot, catalog },
+        switchView,
+        catalog,
+      ),
     [clientSnapshot, switchView, catalog],
   );
   // Another chat ends the replay: coming back to this one opens it live.
@@ -2668,16 +2678,15 @@ function AcpmuxPane() {
     requestAnimationFrame(() => setTimeout(() => void callNative("pane.painted").catch(() => undefined), 0));
   }, [showsWhatItIs]);
   const composerSnapshot = useMemo(() => {
-    const current = catalog === snapshot.catalog ? snapshot : { ...snapshot, catalog };
     const enabledCmuxActions = new Set<CmuxCommand["action"]>(["import"]);
     if (forkable && forkSeq !== undefined) enabledCmuxActions.add("fork");
     if (continueAvailable) enabledCmuxActions.add("continue");
     if (asksAside && snapshot.sessionId) enabledCmuxActions.add("btw");
-    const withCommands = { ...current, commands: mergedCommands(snapshot.commands, enabledCmuxActions) };
+    const withCommands = { ...snapshot, commands: mergedCommands(snapshot.commands, enabledCmuxActions) };
     return projectDraft && !snapshot.sessionId
       ? { ...withCommands, summary: { sessionId: "", cwd: projectDraft } }
       : withCommands;
-  }, [snapshot, catalog, projectDraft, continueAvailable, forkable, forkSeq, asksAside]);
+  }, [snapshot, projectDraft, continueAvailable, forkable, forkSeq, asksAside]);
   useEffect(() => {
     if (snapshot.sessionId) setProjectDraft(undefined);
   }, [snapshot.sessionId]);
@@ -3236,9 +3245,7 @@ function AcpmuxPane() {
             const folder = cwd ? String(cwd) : peer || noProject === true ? undefined : startFolderRef.current;
             if (harness && !peer && noProject !== true) {
               // A new chat starts on its pick, else on the model last picked on that harness here.
-              const picked = model
-                ? String(model)
-                : lastOfferedModel(String(harness), snapshotRef.current?.catalog ?? [], folder);
+              const picked = model ? String(model) : lastOfferedModel(String(harness), catalogRef.current, folder);
               return harnessSwitch.switchTo(String(harness), folder, {
                 deferred: deferred === true,
                 ...(picked ? { model: picked } : {}),

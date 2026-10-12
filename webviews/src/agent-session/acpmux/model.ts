@@ -125,6 +125,8 @@ export type AcpmuxCatalogModel = {
   defaultEffort?: string;
   fast?: boolean;
   contextWindow?: number;
+  /** The catalog release an alias stands for (the picker catalog's alias rows). */
+  release?: string;
 };
 
 /// A change to a waiting prompt (`_acpmux/queue_edit`): its text, its place (0 runs next), or

@@ -470,6 +470,10 @@ final class RowCell: UICollectionViewCell {
     let connectorLine = CALayer()
     private(set) var connectorHeight: CGFloat = 0
     let typingContainer = CALayer()
+    /// macOS: the typing bubble's body, a vector layer under the dots (RowDraw.typingBubble; the row bitmap does not
+    /// draw it). The render server draws its edges at the final transform, so they stay one pixel wide while the
+    /// bubble grows and breathes, and its top sits on a whole device pixel at rest (snapTyping), as Messages'.
+    let typingBody = CAShapeLayer()
     var dots: [CALayer] = []
     /// The typing bubble's tail discs (RowDraw.typingDiscs): on macOS beside the scaled bubble in the
     /// row's content (they move on their own, Springs.typingDiscFrom); on iOS in the bubble's container.
@@ -549,10 +553,17 @@ final class RowCell: UICollectionViewCell {
         contentView.clipsToBounds = false
         let noActions: [String: CAAction] = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull(), "path": NSNull(),
                                              "hidden": NSNull(), "opacity": NSNull(), "strokeEnd": NSNull(), "transform": NSNull()]
-        for l in [fillContainer, fillGradient, fillMask, bitmap, connector, connectorLine, typingContainer, receiptOld] {
+        for l in [fillContainer, fillGradient, fillMask, bitmap, connector, connectorLine, typingContainer, typingBody, receiptOld] {
             l.actions = noActions
             l.contentsScale = Fixture.renderScale
         }
+        typingBody.actions = noActions.merging(["fillColor": NSNull()]) { a, _ in a }
+        typingBody.frame = RowDraw.typingBubble
+        // Circular ends with a flat top and bottom, as Messages' (its stills: the top row fully covered between the
+        // ends). UIBezierPath(roundedRect:cornerRadius:) curves continuously at this radius: no flat part at all.
+        let r = RowDraw.typingBubble.height / 2
+        typingBody.path = CGPath(roundedRect: typingBody.bounds, cornerWidth: r, cornerHeight: r, transform: nil)
+        typingBody.fillColor = Fixture.typingFill.cgColor
         connector.fillColor = nil
         connector.strokeColor = Fixture.connector.cgColor
         connector.lineWidth = 2.6
@@ -652,7 +663,7 @@ final class RowCell: UICollectionViewCell {
             palette = Fixture.paletteGeneration
             CATransaction.begin(); CATransaction.setDisableActions(true)
             // A scale change: every layer this cell owns follows the screen.
-            for l in [fillContainer, fillGradient, fillMask, bitmap, connector, connectorLine, typingContainer, receiptOld] {
+            for l in [fillContainer, fillGradient, fillMask, bitmap, connector, connectorLine, typingContainer, typingBody, receiptOld] {
                 l.contentsScale = Fixture.renderScale
             }
             connector.strokeColor = Fixture.connector.cgColor
@@ -868,6 +879,7 @@ final class RowCell: UICollectionViewCell {
         guard case .typing? = spec?.kind else { return }
         let c = Fixture.typingFill.cgColor
         for d in typingDiscs { d.backgroundColor = c }
+        typingBody.fillColor = c
         let dim = Fixture.typingDotDim.cgColor, lit = Fixture.typingDotLit.cgColor
         for d in dots {
             d.backgroundColor = dim
@@ -901,10 +913,17 @@ final class RowCell: UICollectionViewCell {
         // configure: after a palette change (the window losing or regaining key
         // status) it landed on top of the running dots and hid them (dogfood:
         // "if the user unfocuses, we lose the typing dots"; --typing-focus-check).
-        if bitmap.superlayer !== typingContainer || typingContainer.sublayers?.first !== bitmap {
+        // macOS: the body layer goes under the bitmap (first), the bitmap next.
+        if bitmap.superlayer !== typingContainer || typingContainer.sublayers?.first(where: { $0 !== typingBody }) !== bitmap {
             bitmap.removeFromSuperlayer()
             typingContainer.insertSublayer(bitmap, at: 0)
         }
+#if !os(iOS) || targetEnvironment(macCatalyst)
+        if typingContainer.sublayers?.first !== typingBody {
+            typingBody.removeFromSuperlayer()
+            typingContainer.insertSublayer(typingBody, at: 0)
+        }
+#endif
         dots.forEach { if $0.superlayer == nil { typingContainer.addSublayer($0) } }
 #if os(iOS) && !targetEnvironment(macCatalyst)
         let discParent = typingContainer
@@ -920,6 +939,27 @@ final class RowCell: UICollectionViewCell {
             discParent.insertSublayer(d, below: typingContainer)
 #endif
         }
+        snapTyping()
+    }
+
+    /// macOS: moves the typing group (bubble container and tail discs) by less than half a device pixel so that the
+    /// bubble's top edge lies on a whole device pixel in the window at rest (Messages' straight edges sit on the
+    /// pixel grid: top 1907.00 px in its stills; ours lay wherever the row's fractional window y put them). The
+    /// left edge (20 pt) is whole when the cell's window x is (the transcript pane starts at a whole point). Runs
+    /// when the row is configured and when its window y changes (scroll, layout); the group's animations are
+    /// additive, so they keep running about the snapped place.
+    private func snapTyping() {
+#if !os(iOS) || targetEnvironment(macCatalyst)
+        guard case .typing? = spec?.kind else { return }
+        let s = max(1, Fixture.renderScale), top = windowY + RowDraw.typingBubble.minY
+        guard top.isFinite else { return }
+        let dy = (top * s).rounded() / s - top
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        let a = RowDraw.typingAnchor
+        typingContainer.position = CGPoint(x: a.x, y: a.y + dy)
+        for (l, r) in zip(typingDiscs, RowDraw.typingDiscs) { l.position = CGPoint(x: r.midX, y: r.midY + dy) }
+        CATransaction.commit()
+#endif
     }
 
     // MARK: My tapback badge
@@ -1132,6 +1172,7 @@ final class RowCell: UICollectionViewCell {
     var windowY: CGFloat = 0 {
         didSet {
             guard windowY != oldValue else { return }
+            if case .typing? = spec?.kind { snapTyping() }
             let fill = !fillContainer.isHidden, mine = badge.map { !$0.isHidden } ?? false
             guard fill || mine else { return }
             CATransaction.begin(); CATransaction.setDisableActions(true)
