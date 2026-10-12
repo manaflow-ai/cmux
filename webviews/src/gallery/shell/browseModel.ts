@@ -14,6 +14,7 @@ export type BrowseState = {
   kind: BrowseKind;
   mode: BrowseMode;
   cycle: boolean;
+  picks: Record<string, string>;
 };
 
 export const DEFAULT_BROWSE: BrowseState = {
@@ -21,19 +22,38 @@ export const DEFAULT_BROWSE: BrowseState = {
   kind: "all",
   mode: "entries",
   cycle: false,
+  picks: {},
 };
 
-const BROWSE_QUERY_KEYS = ["browse-filter", "browse-kind", "browse-mode", "browse-cycle"] as const;
+const BROWSE_QUERY_KEYS = ["browse-filter", "browse-kind", "browse-mode", "browse-cycle", "browse-pick"] as const;
+
+function readPick(value: string): [string, string] | undefined {
+  const separator = value.indexOf("=");
+  if (separator <= 0) return undefined;
+  try {
+    const entry = decodeURIComponent(value.slice(0, separator));
+    const variant = decodeURIComponent(value.slice(separator + 1));
+    return entry && variant ? [entry, variant] : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /** Read the contact-sheet controls that make a Browse URL reproducible. */
 export function readBrowse(params: URLSearchParams): BrowseState {
   const kind = params.get("browse-kind");
   const mode = params.get("browse-mode");
+  const picks: Record<string, string> = {};
+  for (const value of params.getAll("browse-pick")) {
+    const pick = readPick(value);
+    if (pick) picks[pick[0]] = pick[1];
+  }
   return {
     filter: (params.get("browse-filter") ?? "").trim(),
     kind: kind === "static" || kind === "motion" ? kind : DEFAULT_BROWSE.kind,
     mode: mode === "variants" ? mode : DEFAULT_BROWSE.mode,
     cycle: params.get("browse-cycle") === "1" || params.get("browse-cycle") === "true",
+    picks,
   };
 }
 
@@ -45,6 +65,8 @@ export function writeBrowse(state: BrowseState, params = new URLSearchParams()):
   if (state.kind !== DEFAULT_BROWSE.kind) params.set("browse-kind", state.kind);
   if (state.mode !== DEFAULT_BROWSE.mode) params.set("browse-mode", state.mode);
   if (state.cycle) params.set("browse-cycle", "1");
+  for (const [entry, variant] of Object.entries(state.picks).sort(([a], [b]) => a.localeCompare(b)))
+    if (entry && variant) params.append("browse-pick", `${encodeURIComponent(entry)}=${encodeURIComponent(variant)}`);
   return params;
 }
 
@@ -123,6 +145,7 @@ export function filterBrowseItems(
   query: string,
   kind: BrowseKind = "all",
   mode: BrowseMode = "entries",
+  picks: Readonly<Record<string, string>> = {},
 ): BrowseItem[] {
   const needle = query.trim().toLowerCase();
   const variantQuery =
@@ -144,7 +167,9 @@ export function filterBrowseItems(
         browseKindMatches({ entry: item.entry, variant }, kind),
       );
       const variant =
-        browseMatchedVariant(variants, query) ?? (variants.includes(item.variant) ? item.variant : variants[0]);
+        browseMatchedVariant(variants, query) ??
+        (picks[item.entry.id] && variants.includes(picks[item.entry.id]!) ? picks[item.entry.id] : undefined) ??
+        (variants.includes(item.variant) ? item.variant : variants[0]);
       return variant ? [{ ...item, variant }] : [];
     });
 }

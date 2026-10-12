@@ -61,6 +61,22 @@ describe("gallery browse variants", () => {
     ]);
   });
 
+  test("starts an entry on its shareable pick when that pick matches the active kind", () => {
+    expect(
+      filterBrowseItems(entries, "", "all", "entries", { "composer.picker": "disabled" }).map(({ variant }) => variant),
+    ).toEqual(["disabled", "idle"]);
+    expect(
+      filterBrowseItems(entries, "", "motion", "entries", { "transcript.motion": "streaming" }).map(
+        ({ variant }) => variant,
+      ),
+    ).toEqual(["streaming"]);
+    expect(
+      filterBrowseItems(entries, "", "motion", "entries", { "transcript.motion": "idle" }).map(
+        ({ variant }) => variant,
+      ),
+    ).toEqual(["streaming"]);
+  });
+
   test("shows static variants from mixed entries and excludes motion-only entries", () => {
     const motionOnly = {
       ...entries[1]!,
