@@ -65,8 +65,6 @@ public final class WebPopupHost {
     private let send: ([String: Any]) -> Void
     private var panel: WebPopupPanel?
     private var model: Model?
-    /// Bumped by every show and hide: a close whose fade ends after a new show keeps the panel.
-    private var generation = 0
     /// The control the menu opened from (screen), which its close shrinks toward.
     private var anchor: CGRect = .zero
     private var observers: [NSObjectProtocol] = []
@@ -102,7 +100,8 @@ public final class WebPopupHost {
         let size = CGSize(width: model.width * scale, height: panel.rows.contentHeight)
         let (frame, side) = PopupPlacement.frame(anchor: anchor, size: size, preferred: model.side,
                                                  trailing: model.trailing, screen: screen.visibleFrame)
-        generation += 1
+        panel.generation += 1
+        panel.isClosing = false
         self.anchor = anchor
         let opening = !panel.isVisible || panel.alphaValue < 1
         panel.setFrame(PopupStyle.standard.windowFrame(forCard: frame), display: true)
@@ -122,7 +121,8 @@ public final class WebPopupHost {
 
     /// New rows or a new highlight (the page's arrows, its filter); the place stays.
     public func update(_ model: Model) {
-        guard panel?.isVisible == true else { return }
+        // A menu closing here stays closed: the page may still post an update for it.
+        guard self.model != nil, panel?.isVisible == true else { return }
         if model.items != self.model?.items || model.anchor != self.model?.anchor { show(model); return }
         self.model = model
         panel?.rows.update(model.items, highlighted: model.highlighted)
@@ -132,11 +132,14 @@ public final class WebPopupHost {
         model = nil
         unwatch()
         guard let panel, panel.isVisible else { return }
-        generation += 1
-        let closing = generation
-        panel.closePopup(pivot: panel.popupPivot(toward: anchor)) { [weak self, weak panel] in
+        panel.generation += 1
+        panel.isClosing = true
+        let closing = panel.generation
+        // The panel leaves even when its host goes during the fade (its tab closed).
+        panel.closePopup(pivot: panel.popupPivot(toward: anchor)) { [panel] in
             // A show during the close keeps the panel.
-            guard let self, let panel, self.generation == closing else { return }
+            guard panel.generation == closing else { return }
+            panel.isClosing = false
             panel.parent?.removeChildWindow(panel)
             panel.orderOut(nil)
             panel.resetPopupScale()
@@ -196,6 +199,10 @@ public final class WebPopupPanel: ContentChildPanel {
     /// that scrolls.
     public var rowCount: Int { rows.itemCount }
     public var contentHeight: CGFloat { rows.contentHeight }
+    /// Bumped by every show and hide: a close whose fade ends after a new show keeps the panel.
+    var generation = 0
+    /// Fading out after a hide: gone for the page and for `debug.page_popup`.
+    public internal(set) var isClosing = false
 
     init(onPick: @escaping (String) -> Void, onHover: @escaping (String) -> Void) {
         rows = WebPopupRows(onPick: onPick, onHover: onHover)

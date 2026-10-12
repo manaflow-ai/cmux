@@ -9,7 +9,7 @@ import CmuxNextDesign
 enum DebugPagePopup {
     static func list() -> JSONValue {
         .object(["popups": .array(NSApp.windows.compactMap { window -> JSONValue? in
-            guard let panel = window as? WebPopupPanel, panel.isVisible else { return nil }
+            guard let panel = window as? WebPopupPanel, panel.isVisible, !panel.isClosing else { return nil }
             let screen = panel.screen?.visibleFrame ?? .zero
             let card = panel.cardFrame
             return .object([

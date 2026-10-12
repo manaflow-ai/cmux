@@ -35,7 +35,13 @@ export default componentEntry({
   covers: ["ui/Dialog.tsx#Dialog"],
   anchors: [{ selector: ".menu-gallery-trigger" }],
   load: async () => DialogGallery,
-  styles: () => Promise.all([import("./ui.css"), import("./popupSurface.css"), import("./Menu.gallery.css")]),
+  styles: () =>
+    Promise.all([
+      import("./ui.css"),
+      import("./popupSurface.css"),
+      import("./Menu.gallery.css"),
+      import("./Dialog.gallery.css"),
+    ]),
   variants: {
     closed: { props: {} },
     open: { props: {}, play: open },
