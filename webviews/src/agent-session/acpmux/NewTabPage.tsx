@@ -398,153 +398,159 @@ export function NewTabPage({
 
   return (
     <div className="acpmux-newtab" data-kind={kind}>
-      <form className="acpmux-newtab-box" onSubmit={submit}>
-        <div className="acpmux-newtab-row">
-          <KindIcon kind={kind} />
-          <input
-            ref={field}
-            className="acpmux-newtab-field"
-            aria-label={placeholder}
-            placeholder={placeholder}
-            value={text}
-            aria-controls="acpmux-omni"
-            aria-activedescendant={selected >= 0 ? `acpmux-omni-${selected}` : undefined}
-            spellCheck={kind === "agent"}
-            autoCapitalize="off"
-            autoCorrect="off"
-            onChange={(event) => edit(event.target.value)}
-            onKeyDown={keyDown}
-            onCompositionStart={() => {
-              composing.current = true;
-            }}
-            onCompositionEnd={() => {
-              composing.current = false;
-            }}
-          />
-          <fieldset className="acpmux-newtab-switch" aria-label={t(NEW_TAB_LABELS.switchLabel)}>
-            {TAB_KINDS.map((option) => (
+      {/* The suggestions float under the field (cx-6k6cg): opening them moves nothing below. */}
+      <div className="acpmux-newtab-anchor">
+        <form className="acpmux-newtab-box" onSubmit={submit}>
+          <div className="acpmux-newtab-row">
+            <KindIcon kind={kind} />
+            <input
+              ref={field}
+              className="acpmux-newtab-field"
+              aria-label={placeholder}
+              placeholder={placeholder}
+              value={text}
+              aria-controls="acpmux-omni"
+              aria-activedescendant={selected >= 0 ? `acpmux-omni-${selected}` : undefined}
+              spellCheck={kind === "agent"}
+              autoCapitalize="off"
+              autoCorrect="off"
+              onChange={(event) => edit(event.target.value)}
+              onKeyDown={keyDown}
+              onCompositionStart={() => {
+                composing.current = true;
+              }}
+              onCompositionEnd={() => {
+                composing.current = false;
+              }}
+            />
+            <fieldset className="acpmux-newtab-switch" aria-label={t(NEW_TAB_LABELS.switchLabel)}>
+              {TAB_KINDS.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  aria-pressed={option === kind}
+                  tabIndex={-1}
+                  className={option === kind ? "acpmux-newtab-kind is-selected" : "acpmux-newtab-kind"}
+                  title={
+                    hotkeys[option]
+                      ? t(NEW_TAB_LABELS.editShortcut, {
+                          kind: t(NEW_TAB_LABELS.kinds[option]),
+                          keys: hotkeys[option]!,
+                        })
+                      : undefined
+                  }
+                  onClick={() => choose(option)}
+                  onContextMenu={(event) => {
+                    if (!onEditShortcut) return;
+                    event.preventDefault();
+                    onEditShortcut(option);
+                  }}
+                >
+                  <KindIcon kind={option} />
+                  <span>{t(NEW_TAB_LABELS.kinds[option])}</span>
+                  {hotkeys[option] && <kbd>{hotkeys[option]}</kbd>}
+                </button>
+              ))}
+            </fieldset>
+          </div>
+          <div className="acpmux-newtab-under">
+            <span className="acpmux-newtab-context">
+              {kind !== "browser" && (
+                <ProjectChooser
+                  projects={projects}
+                  current={projectCwd}
+                  currentLabel={selectedProject}
+                  icon={<FolderIcon />}
+                  onPick={setProjectCwd}
+                  onBrowse={
+                    onBrowseProject &&
+                    (() =>
+                      void onBrowseProject().then((picked) => {
+                        if (picked) setProjectCwd(picked);
+                      }))
+                  }
+                />
+              )}
+              {kind === "terminal" && (
+                <span className="acpmux-newtab-chip">
+                  <LaptopIcon />
+                  {host ?? t(NEW_TAB_LABELS.thisMac)}
+                </span>
+              )}
+              {kind === "agent" && (
+                <span className="acpmux-newtab-chip">
+                  <KindIcon kind="agent" />
+                  {agent}
+                </span>
+              )}
+              {kind === "agent" && Chips && <Chips snapshot={snapshot} />}
+            </span>
+            {defaultKind && onSetDefaultKind && (
               <button
-                key={option}
                 type="button"
-                aria-pressed={option === kind}
-                tabIndex={-1}
-                className={option === kind ? "acpmux-newtab-kind is-selected" : "acpmux-newtab-kind"}
-                title={
-                  hotkeys[option]
-                    ? t(NEW_TAB_LABELS.editShortcut, { kind: t(NEW_TAB_LABELS.kinds[option]), keys: hotkeys[option]! })
-                    : undefined
-                }
-                onClick={() => choose(option)}
-                onContextMenu={(event) => {
-                  if (!onEditShortcut) return;
-                  event.preventDefault();
-                  onEditShortcut(option);
+                className="acpmux-newtab-default"
+                title={t(NEW_TAB_LABELS.defaultKindHint)}
+                onClick={() => {
+                  const next = DEFAULT_KINDS[(DEFAULT_KINDS.indexOf(defaultKind) + 1) % DEFAULT_KINDS.length]!;
+                  setDefaultKind(next);
+                  onSetDefaultKind(next);
                 }}
               >
-                <KindIcon kind={option} />
-                <span>{t(NEW_TAB_LABELS.kinds[option])}</span>
-                {hotkeys[option] && <kbd>{hotkeys[option]}</kbd>}
+                {t(NEW_TAB_LABELS.defaultKind, { kind: t(NEW_TAB_LABELS.defaultKinds[defaultKind]) })}
               </button>
-            ))}
-          </fieldset>
-        </div>
-        <div className="acpmux-newtab-under">
-          <span className="acpmux-newtab-context">
-            {kind !== "browser" && (
-              <ProjectChooser
-                projects={projects}
-                current={projectCwd}
-                currentLabel={selectedProject}
-                icon={<FolderIcon />}
-                onPick={setProjectCwd}
-                onBrowse={
-                  onBrowseProject &&
-                  (() =>
-                    void onBrowseProject().then((picked) => {
-                      if (picked) setProjectCwd(picked);
-                    }))
-                }
-              />
             )}
-            {kind === "terminal" && (
-              <span className="acpmux-newtab-chip">
-                <LaptopIcon />
-                {host ?? t(NEW_TAB_LABELS.thisMac)}
-              </span>
-            )}
-            {kind === "agent" && (
-              <span className="acpmux-newtab-chip">
-                <KindIcon kind="agent" />
-                {agent}
-              </span>
-            )}
-            {kind === "agent" && Chips && <Chips snapshot={snapshot} />}
-          </span>
-          {defaultKind && onSetDefaultKind && (
             <button
-              type="button"
-              className="acpmux-newtab-default"
-              title={t(NEW_TAB_LABELS.defaultKindHint)}
-              onClick={() => {
-                const next = DEFAULT_KINDS[(DEFAULT_KINDS.indexOf(defaultKind) + 1) % DEFAULT_KINDS.length]!;
-                setDefaultKind(next);
-                onSetDefaultKind(next);
-              }}
+              type="submit"
+              className={`acpmux-send${query.trim() || kind !== "browser" ? " acpmux-send-ready" : ""}`}
+              aria-label={t(NEW_TAB_LABELS.open)}
+              title={`${t(NEW_TAB_LABELS.open)} ↵`}
             >
-              {t(NEW_TAB_LABELS.defaultKind, { kind: t(NEW_TAB_LABELS.defaultKinds[defaultKind]) })}
+              <ArrowUpIcon />
             </button>
-          )}
-          <button
-            type="submit"
-            className={`acpmux-send${query.trim() || kind !== "browser" ? " acpmux-send-ready" : ""}`}
-            aria-label={t(NEW_TAB_LABELS.open)}
-            title={`${t(NEW_TAB_LABELS.open)} ↵`}
+          </div>
+        </form>
+        {rows.length > 0 && (
+          <div
+            ref={list}
+            className="acpmux-omni"
+            id="acpmux-omni"
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+            role="listbox"
+            aria-label={t(NEW_TAB_LABELS.suggestions)}
           >
-            <ArrowUpIcon />
-          </button>
-        </div>
-      </form>
-      {rows.length > 0 && (
-        <div
-          ref={list}
-          className="acpmux-omni"
-          id="acpmux-omni"
-          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-          role="listbox"
-          aria-label={t(NEW_TAB_LABELS.suggestions)}
-        >
-          {/* Virtual focus, as the composer's slash menu: the field keeps focus and names the row. */}
-          {rows.map((row, index) => (
-            <div
-              key={rowKey(row)}
-              id={`acpmux-omni-${index}`}
-              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-              role="option"
-              tabIndex={-1}
-              aria-selected={index === selected}
-              className={index === selected ? "acpmux-omni-row is-selected" : "acpmux-omni-row"}
-              onMouseMove={() => index !== selected && setSelected(index)}
-              onMouseDown={(event) => {
-                event.preventDefault();
-                activate(row);
-              }}
-            >
-              <RowIcon row={row} agent={snapshot.summary?.harness ?? snapshot.catalog[0]?.id} />
-              <span className="acpmux-omni-text">
-                <span className="acpmux-omni-title">
-                  {row.type === "ask" && <b>{t(NEW_TAB_LABELS.ask, { agent })}: </b>}
-                  {rowTitle(row)}
+            {/* Virtual focus, as the composer's slash menu: the field keeps focus and names the row. */}
+            {rows.map((row, index) => (
+              <div
+                key={rowKey(row)}
+                id={`acpmux-omni-${index}`}
+                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                role="option"
+                tabIndex={-1}
+                aria-selected={index === selected}
+                className={index === selected ? "acpmux-omni-row is-selected" : "acpmux-omni-row"}
+                onMouseMove={() => index !== selected && setSelected(index)}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  activate(row);
+                }}
+              >
+                <RowIcon row={row} agent={snapshot.summary?.harness ?? snapshot.catalog[0]?.id} />
+                <span className="acpmux-omni-text">
+                  <span className="acpmux-omni-title">
+                    {row.type === "ask" && <b>{t(NEW_TAB_LABELS.ask, { agent })}: </b>}
+                    {rowTitle(row)}
+                  </span>
+                  {rowDetail(row) && <span className="acpmux-omni-detail">{rowDetail(row)}</span>}
                 </span>
-                {rowDetail(row) && <span className="acpmux-omni-detail">{rowDetail(row)}</span>}
-              </span>
-              <span className="acpmux-omni-action">
-                {row.type === "ask" ? t(NEW_TAB_LABELS.ask, { agent }) : t(NEW_TAB_LABELS.rows[row.type])}
-                {index === selected && <kbd>↵</kbd>}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
+                <span className="acpmux-omni-action">
+                  {row.type === "ask" ? t(NEW_TAB_LABELS.ask, { agent }) : t(NEW_TAB_LABELS.rows[row.type])}
+                  {index === selected && <kbd>↵</kbd>}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
       <div className="acpmux-newtab-actions ui-ghost-row">
         <button type="button" className="acpmux-newtab-all ui-ghost" onClick={onShowAll}>
           <span>{t(NEW_TAB_LABELS.allSessions)}</span>

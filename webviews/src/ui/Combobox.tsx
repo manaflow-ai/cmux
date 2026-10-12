@@ -2,7 +2,7 @@
 // caller computes the suggestions (they may arrive asynchronously) from `onQuery`. Return submits
 // the highlighted suggestion or the typed text, Tab completes, Escape cancels; Base UI owns the
 // combobox role, aria-activedescendant and the arrows.
-import { useState, type KeyboardEvent, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Autocomplete } from "@base-ui/react/autocomplete";
 import { usePortalContainer } from "./UiProvider";
 import { cx } from "./cx";
@@ -25,7 +25,9 @@ export interface ComboboxProps {
   listClassName?: string;
   itemClassName?: string;
   inputRef?: React.Ref<HTMLInputElement>;
-  /** Render the suggestions under the field in place (inside a popover) instead of in a popup. */
+  /** Render the suggestions under the field in place (inside a popover) instead of in a popup.
+   * The list keeps its tallest height while it is mounted, so narrowing it never resizes the
+   * popover and the field never moves under the caret (cx-6k6cg). */
   inline?: boolean;
   /** Keep a multi-control panel open when focus moves to its buttons. */
   cancelOnBlur?: boolean;
@@ -68,6 +70,13 @@ export function Combobox({
   const container = usePortalContainer();
   const [value, setValue] = useState(defaultValue);
   const [highlighted, setHighlighted] = useState<string | undefined>(undefined);
+  const listRef = useRef<HTMLDivElement>(null);
+  const [tallest, setTallest] = useState(0);
+  useLayoutEffect(() => {
+    if (!inline) return;
+    const height = listRef.current?.offsetHeight ?? 0;
+    if (height > tallest) setTallest(height);
+  }, [inline, suggestions, tallest]);
   const update = (next: string) => {
     setValue(next);
     onQuery(next);
@@ -98,9 +107,11 @@ export function Combobox({
   const renderItemContent = (item: string) => (renderItem ? renderItem(item) : item);
   const list = (
     <Autocomplete.List
+      ref={listRef}
       className={cx("ui-combobox-list", listClassName)}
       render={<ul />}
-      hidden={suggestions.length === 0}
+      hidden={suggestions.length === 0 && !(inline && tallest > 0)}
+      style={inline && tallest > 0 ? { minHeight: tallest } : undefined}
     >
       <Autocomplete.Collection>
         {(item: string) => (
