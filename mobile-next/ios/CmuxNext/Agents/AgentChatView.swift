@@ -163,7 +163,7 @@ struct AgentChatView: View {
                             }
                             // The latest turn fills the screen so its prompt can sit at
                             // the top while the reply grows under it (ChatGPT, T3).
-                            .frame(minHeight: index == turns.count - 1 && turns.count > 1 ? max(0, viewportHeight - 24) : 0, alignment: .top)
+                            .frame(minHeight: index == turns.count - 1 ? max(0, viewportHeight - 24) : 0, alignment: .top)
                             .id(turn.id)
                         }
                     }
