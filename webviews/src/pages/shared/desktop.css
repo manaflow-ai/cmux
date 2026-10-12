@@ -114,15 +114,24 @@ input[type="submit"] {
 
 /* Keep focus keyboard-only and consistent across pages, including controls with local focus
    rules. Mouse focus is removed above; keyboard focus gets a thin theme-toned ring with no glow.
-   A borderless field inside a box that shows focus itself (`data-focus-ring="none"`, the New Tab
-   field) is left out: a text field is :focus-visible on every focus, so the ring drew a rectangle
-   inside the box. Rows of menus, lists and palettes, and the containers that hold their active
-   row, show focus as the row tint below instead. */
-:focus-visible:not([data-focus-ring="none"], [data-focus-ring="row"], [data-focus-ring="rows"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"]) {
+   Text entry (text inputs, textareas, contenteditable prompts) is left out, and so is any element
+   marked `data-focus-ring="none"`: a text field is :focus-visible on every focus, mouse included,
+   and its box is a plain rectangle inside the rounded control that owns it, so a ring drew a
+   square inside the composer, the New Tab box and the model picker's search (cx-ncc.57). The
+   caret and the owning control's own rounded focus state (`:focus-within` on the box, or the
+   field's own border) show focus instead. Rows of menus, lists and palettes, and the containers
+   that hold their active row, show focus as the row tint below instead.
+   `scripts/cmux-next/check-text-focus-rings.py` refuses a new focus outline on a text field. */
+:focus-visible:not(:where(input:not([type="button"], [type="submit"], [type="reset"], [type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="image"]), textarea, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="searchbox"])):not([data-focus-ring="none"], [data-focus-ring="row"], [data-focus-ring="rows"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"]) {
   outline-width: var(--cmux-focus-ring-width) !important;
   outline-style: solid !important;
   outline-color: var(--cmux-focus-ring-color) !important;
   box-shadow: none !important;
+}
+
+/* Text entry never draws a ring of its own, not even WebKit's default `outline: auto` (see above). */
+:where(input:not([type="button"], [type="submit"], [type="reset"], [type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="image"]), textarea, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="searchbox"]):focus {
+  outline: none;
 }
 
 /* Text selection takes the Ghostty config's `selection-background`, else the theme accent's tint
@@ -200,7 +209,9 @@ input[type="submit"] {
     --acpmux-composer-dim: var(--agent-text, CanvasText) !important;
   }
 
-  :focus-visible {
+  /* Text entry stays out here too: the owning box takes this ring under Increase Contrast (the
+     composer, New Tab and model picker stylesheets), never a square around the field. */
+  :focus-visible:not(:where(input:not([type="button"], [type="submit"], [type="reset"], [type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="image"]), textarea, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="searchbox"])) {
     outline: var(--cmux-focus-ring-width) solid var(--cmux-focus-ring-color) !important;
     outline-offset: 2px;
   }

@@ -462,9 +462,8 @@ body {
   font: inherit;
   font-size: var(--text-detail);
 }
-.gallery-browse-filter input:focus-visible {
-  outline: 2px solid var(--g-text);
-  outline-offset: 1px;
+.gallery-browse-filter input:focus {
+  border-color: var(--g-text);
 }
 .gallery-browse-grid {
   display: grid;

@@ -16,6 +16,13 @@ enum AgentPaneHandshakeReply {
                 handshake.cwd = seed.cwd
                 handshake.draft = seed.draft
                 handshake.prompt = seed.prompt
+                // A prompt a person's own action seeded goes out by itself with a single-use
+                // ticket bound to its promptId (cx-k21v gap 4, chief: person only). The seed hands
+                // its prompt out once, so a reload gets neither the prompt nor a ticket again.
+                if let prompt = seed.prompt, !prompt.isEmpty, seed.promptBy.sendsBySelf {
+                    let issued = model.transport.gestures.issueSeedTicket()
+                    handshake.promptTicket = AgentPaneHandshake.PromptTicket(promptId: issued.promptId, ticket: issued.ticket)
+                }
                 handshake.harness = seed.harness
                 (handshake.adopt, handshake.pastTurns) = (seed.adopt, await AgentPanePastTurn.turns(of: seed.pastChat))
             }

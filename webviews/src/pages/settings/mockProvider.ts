@@ -30,6 +30,7 @@ import {
   type SnapshotResult,
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
+import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
 import { validate } from "./validate";
 import { MockAgents } from "./mockAgents";
 import { mockThemeColors } from "./mockThemes";
@@ -77,7 +78,10 @@ export class MockSettingsProvider {
   /** What `cmux.app.clipboard.write` last wrote. */
   clipboard: string | null = null;
   diagnostics: Diagnostic[];
-  readonly domains: Domains | null;
+  domains: Domains | null;
+  /** The theme file the mock picker returns for `cmux.settings.theme.import`; null: the person left it. */
+  importable: GhosttyTheme | null = null;
+  private readonly importTokens = new Map<string, GhosttyTheme>();
   private readonly chatFolders: ListRow["folders"];
   private readonly failing: Partial<Record<string, string>>;
   private readonly values = new Map<string, unknown>();
@@ -127,6 +131,28 @@ export class MockSettingsProvider {
         return {};
       },
       "cmux.settings.theme.colors": () => ({ themes: this.themeColors }),
+      "cmux.settings.theme.save": (params) => {
+        const { name, base, replace } = params as { name: string; base: string; replace: boolean };
+        const colors = this.themeColors.find((theme) => theme.name === base);
+        if (!colors) throw new ProtocolError("cmux.settings.theme.unknown_base", "the theme has no file");
+        return this.addTheme(
+          { ...withEdits(colors, this.values.get("appearance.themeEdits") as ThemeEditMap), name },
+          replace,
+        );
+      },
+      "cmux.settings.theme.import": (params) => {
+        const { token, replace } = params as { token?: string; replace?: boolean };
+        const file = token === undefined ? this.importable : this.importTokens.get(token);
+        if (!file) return {};
+        try {
+          return this.addTheme(file, replace ?? false);
+        } catch (error) {
+          if (!(error instanceof ProtocolError) || error.code !== "cmux.settings.theme.exists") throw error;
+          const retry = `token-${this.importTokens.size + 1}`;
+          this.importTokens.set(retry, file);
+          throw new ProtocolError(error.code, error.message, { details: { token: retry, name: file.name } });
+        }
+      },
       "cmux.settings.theme.accepts": (params) => ({ accepts: String((params as { text: string }).text).includes(":") }),
       "cmux.settings.file.reveal": () => ({}),
       // The registry buttons SettingsSchema.actions(in:) lists for these sections.
@@ -398,6 +424,26 @@ export class MockSettingsProvider {
   }
 
   /** Replaces the host lists and sends `cmux.settings.host.changed`. */
+  /** A theme file landing in the user's themes: listed and colored, like the catalog's reload. */
+  private addTheme(theme: GhosttyTheme, replace: boolean): { name: string } {
+    if (!theme.name || /[/=#"]/.test(theme.name) || theme.name.startsWith(".")) {
+      throw new ProtocolError("cmux.settings.theme.invalid_name", "not a theme name");
+    }
+    if (mockThemeColors.some((shipped) => shipped.name === theme.name)) {
+      throw new ProtocolError("cmux.settings.theme.shipped_name", "a theme that ships with cmux has this name");
+    }
+    if (!replace && this.themeColors.some((known) => known.name === theme.name)) {
+      throw new ProtocolError("cmux.settings.theme.exists", "a theme with this name exists", {
+        details: { name: theme.name },
+      });
+    }
+    this.themeColors = [...this.themeColors.filter((known) => known.name !== theme.name), theme];
+    if (this.domains && !this.domains.themes.includes(theme.name)) {
+      this.domains = { ...this.domains, themes: [...this.domains.themes, theme.name].sort() };
+    }
+    return { name: theme.name };
+  }
+
   setHost(host: HostLists): void {
     this.host = host;
     for (const ctx of this.hostChanged) ctx.emit(host);
