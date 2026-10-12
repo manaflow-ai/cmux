@@ -139,7 +139,7 @@ struct DarwinMemoryPressureCoalitionSampler: MemoryPressureCoalitionSampling {
         operatingSystemMajorVersion: Int =
             ProcessInfo.processInfo.operatingSystemVersion.majorVersion
     ) -> Bool {
-        [14, 15, 26].contains(operatingSystemMajorVersion) &&
+        [14, 15, 26, 27].contains(operatingSystemMajorVersion) &&
             MemoryLayout<CoalitionResourceUsagePrefix>.size == 328 &&
             MemoryLayout<CoalitionResourceUsagePrefix>.offset(of: \.physicalFootprint) == 320
     }
@@ -167,8 +167,8 @@ struct DarwinMemoryPressureCoalitionSampler: MemoryPressureCoalitionSampling {
         }
 
         // This private ABI is deliberately optional. The prefix layout is
-        // stable through macOS 15 and the kernel copies only the requested
-        // size; a missing/changed symbol simply selects the safe tree fallback.
+        // validated on the allowlisted releases and the kernel copies only the
+        // requested size; a missing symbol selects the safe tree fallback.
         typealias CoalitionInfoFunction = @convention(c) (
             UInt64,
             UnsafeMutableRawPointer,
