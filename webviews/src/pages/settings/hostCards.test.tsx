@@ -24,7 +24,7 @@ test("Change Background… shows the picker on Appearance: resting previews, lea
 
   const tile = picker.querySelector<HTMLButtonElement>('[aria-label="The Starry Night"]')!;
   await act(async () => {
-    tile.dispatchEvent(new PointerEvent("pointerover", { bubbles: true }));
+    tile.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true }));
     await new Promise((resolve) => setTimeout(resolve, 200));
   });
   await settle();
@@ -33,7 +33,7 @@ test("Change Background… shows the picker on Appearance: resting previews, lea
     value: "starryNight",
   });
   expect(runs(page, "cmux.settings.set").length).toBe(0);
-  await act(async () => tile.dispatchEvent(new PointerEvent("pointerout", { bubbles: true })));
+  await act(async () => tile.dispatchEvent(new window.MouseEvent("pointerout", { bubbles: true })));
   await settle();
   expect(runs(page, "cmux.settings.preview.end").at(-1)).toMatchObject({ key: "appearance.background" });
 
@@ -47,8 +47,8 @@ test("sweeping the pointer across the picker previews nothing", async () => {
   const page = await renderPage({ path: "/settings/appearance" });
   const tile = page.container.querySelector<HTMLButtonElement>('[aria-label="The Starry Night"]')!;
   await act(async () => {
-    tile.dispatchEvent(new PointerEvent("pointerover", { bubbles: true }));
-    tile.dispatchEvent(new PointerEvent("pointerout", { bubbles: true }));
+    tile.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true }));
+    tile.dispatchEvent(new window.MouseEvent("pointerout", { bubbles: true }));
     await new Promise((resolve) => setTimeout(resolve, 200));
   });
   await settle();

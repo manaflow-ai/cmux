@@ -107,7 +107,6 @@ export function Backdrops({ focus = null }: { focus?: string | null }) {
       className="group"
       data-card="backdrop"
       data-row-key={BACKGROUND_KEY}
-      tabIndex={-1}
       ref={focus === BACKGROUND_KEY && state.readable ? revealRow : undefined}
     >
       <h3 className="group-title">{t("settingsWindow.backdropPicker.title")}</h3>
