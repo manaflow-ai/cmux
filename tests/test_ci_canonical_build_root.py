@@ -559,8 +559,8 @@ class SeedGhosttyPinTests(unittest.TestCase):
     pin is part of the fingerprint every seed and cache key carries.
     """
 
-    def fingerprint(self, base: Path, ghostty: str) -> str:
-        workspace = base / f"checkout-{ghostty[:4]}"
+    def fingerprint(self, base: Path, ghostty: str, name: str = "checkout") -> str:
+        workspace = base / f"{name}-{ghostty[:4]}"
         workspace.mkdir(parents=True)
         git = ["git", "-C", str(workspace)]
         subprocess.run(git + ["init", "-q"], check=True)
@@ -584,7 +584,7 @@ class SeedGhosttyPinTests(unittest.TestCase):
             base = Path(tmp)
             before = self.fingerprint(base, "1" * 40)
             after = self.fingerprint(base, "2" * 40)
-            again = self.fingerprint(base / "again", "2" * 40)
+            again = self.fingerprint(base, "2" * 40, name="another-checkout")
         self.assertRegex(before, r"^[0-9a-f]{32}$")
         self.assertNotEqual(before, after)
         self.assertEqual(after, again)

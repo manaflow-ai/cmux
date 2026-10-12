@@ -61,6 +61,15 @@ XCBUILD_FILE_SYSTEM_MODE=checksum-only
 # does not honor -file-prefix-map.
 FILE_PATH_ROOT=/private/tmp/cmux-test-source
 
+# The ghostty pin the checkout builds against (its gitlink, so no submodule
+# checkout is needed). Xcode keeps its processed copy of the prebuilt
+# GhosttyKit.xcframework in DerivedData, so a seed or kept build from another
+# pin compiles against that pin's headers: after #19443's bump every main pull
+# request that adopted an older nightly seed failed with "cannot find
+# ghostty_surface_set_link_filter". Read before `canonical-*` enters the
+# canonical root, which holds no checkout at fingerprint time.
+GHOSTTY_PIN="$(git rev-parse HEAD:ghostty 2>/dev/null || echo none)"
+
 fingerprint() {
   local derived_data="$1"
   # Canonical only when both paths are fixed: the source at the canonical
@@ -75,6 +84,7 @@ fingerprint() {
       xcodebuild -version
       printf 'derived-data=%s\n' "${derived_data##*/}"
       printf 'file-system=%s\n' "$XCBUILD_FILE_SYSTEM_MODE"
+      printf 'ghostty=%s\n' "$GHOSTTY_PIN"
       # The default root adds nothing, so every existing seed and cache key
       # stays the same. Another root (an owned Mac's second compile slot)
       # compiles different absolute paths into every entry, so it gets keys
@@ -90,6 +100,7 @@ fingerprint() {
     printf 'workspace=%s\n' "$PWD"
     printf 'derived-data=%s\n' "$derived_data"
     printf 'file-system=%s\n' "$XCBUILD_FILE_SYSTEM_MODE"
+    printf 'ghostty=%s\n' "$GHOSTTY_PIN"
   } | shasum -a 256 | cut -c1-32
 }
 
