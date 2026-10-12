@@ -496,6 +496,8 @@ pub enum ResourceOperation {
     TabGroupAddTabs,
     #[serde(rename = "tab_group.close")]
     TabGroupClose,
+    #[serde(rename = "layout.bulk")]
+    LayoutBulk,
     #[serde(rename = "tab_group.create")]
     TabGroupCreate,
     #[serde(rename = "tab_group.get")]
