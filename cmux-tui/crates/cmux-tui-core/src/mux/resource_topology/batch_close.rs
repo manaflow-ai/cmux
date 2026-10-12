@@ -48,9 +48,11 @@ pub(crate) struct BatchCloseRequest<'a> {
 /// The space delete a batch close is part of (SPACE-DELETE-CLOSES-ITS-
 /// WORKSPACES): `before_patch` deletes the space and announces the closed
 /// group in the close's transaction; `result` is the request's result.
+/// `bare` are the space's workspaces with no tab: they close in the same plan.
 pub(crate) struct RoomClose<'a> {
     pub before_patch: &'a dyn Fn(&rusqlite::Transaction<'_>) -> anyhow::Result<()>,
     pub result: Value,
+    pub bare: Vec<WorkspaceId>,
 }
 
 /// Why a client closes tabs (`close-reason-v1`, SDK type `CloseReason`).
@@ -172,13 +174,14 @@ impl Mux {
         let mut tab_groups = None;
         let mut plan = match &request.target {
             BatchCloseTarget::Tabs(surfaces) => {
-                self.tabs_close_plan_locked(surfaces, &state, &registry, &notifications)?
+                let bare = request.room.as_ref().map_or(&[][..], |room| &room.bare[..]);
+                self.tabs_close_plan_locked(surfaces, bare, &state, &registry, &notifications)?
             }
             BatchCloseTarget::TabGroup(group) => {
                 let mut groups = self.presentation_snapshot().tab_groups.clone();
                 let members = tab_groups::take_tab_group(&state, &mut groups, group)?;
                 tab_groups = Some(groups);
-                self.tabs_close_plan_locked(&members, &state, &registry, &notifications)?
+                self.tabs_close_plan_locked(&members, &[], &state, &registry, &notifications)?
             }
             BatchCloseTarget::Pane(pane) => self.resource_close_plan_locked(
                 ResourceOperation::PaneClose,
@@ -290,10 +293,12 @@ impl Mux {
 
     /// Remove `surfaces` from a clone of the live state. Every surface must
     /// be a placed tab; duplicates are ignored. A workspace left without a
-    /// tab closes in the same plan (LAST-TAB-CLOSES-WORKSPACE).
+    /// tab closes in the same plan (LAST-TAB-CLOSES-WORKSPACE), and so does
+    /// each of `bare`, workspaces that have no tab (a space delete's).
     fn tabs_close_plan_locked(
         &self,
         surfaces: &[SurfaceId],
+        bare: &[WorkspaceId],
         state: &State,
         registry: &WorkspaceRegistry,
         notifications: &TreeDecorations,
@@ -301,7 +306,10 @@ impl Mux {
         let mut unique = HashSet::with_capacity(surfaces.len());
         let surfaces =
             surfaces.iter().copied().filter(|surface| unique.insert(*surface)).collect::<Vec<_>>();
-        anyhow::ensure!(!surfaces.is_empty(), "close-tabs needs at least one surface");
+        anyhow::ensure!(
+            !surfaces.is_empty() || !bare.is_empty(),
+            "close-tabs needs at least one surface"
+        );
         for surface in &surfaces {
             anyhow::ensure!(
                 state.surfaces.contains_key(surface) && state.pane_of(*surface).is_some(),
@@ -330,11 +338,12 @@ impl Mux {
             Self::rebuild_split_screen_index(&mut projected);
         }
         let mut selection_resync = selection_before != active_tree_selection(&projected);
-        let emptied = self.close_emptied_workspaces_locked(
+        let emptied = self.close_emptied_workspaces_with_locked(
             registry,
             state,
             &mut projected,
             Some(notifications),
+            bare,
         )?;
         let (workspace_close, delta, changed_screens) = match emptied {
             Some(emptied) => {
@@ -457,10 +466,12 @@ impl Mux {
     /// The batch close of a space delete (SPACE-DELETE-CLOSES-ITS-
     /// WORKSPACES): these tabs, ending their terminals, recorded as one
     /// closed group; `before_patch` deletes the space in the same
-    /// transaction and `result` is the request's result.
+    /// transaction and `result` is the request's result. `bare` are its
+    /// workspaces with no tab, closed in the same group.
     pub(crate) fn close_tabs_for_room_delete(
         &self,
         surfaces: Vec<SurfaceId>,
+        bare: Vec<WorkspaceId>,
         operation: &str,
         fingerprint: &Value,
         mutation: &WorkspaceMutation,
@@ -477,7 +488,7 @@ impl Mux {
             expected_workspace_revision: None,
             authorize_workspace: true,
             record_closed: true,
-            room: Some(RoomClose { before_patch, result }),
+            room: Some(RoomClose { before_patch, result, bare }),
         })
     }
 
