@@ -234,6 +234,7 @@ public actor SSHMachineLink {
             self.socket = socket
             handle(.linkUp)
             watchExit(child)
+            watchSnapshots(child)
             logger.info("ssh link up for \(self.host.destination.description, privacy: .public) pid \(child.pid ?? 0)")
             return socket
         } catch let error as SSHLinkError {
@@ -262,6 +263,29 @@ public actor SSHMachineLink {
         Task { [weak self] in
             _ = await child.waitForExit()
             await self?.linkExited(child)
+        }
+    }
+
+    /// The running link client redials on its own after sleep, a network
+    /// drop or change, and its local socket stays up meanwhile; only its
+    /// snapshots say so. The machine reads as reconnecting until it is back.
+    private func watchSnapshots(_ child: ChildProcess) {
+        let lines = child.lines
+        // task-owner: ends with the child's stdout
+        Task { [weak self] in
+            for await line in lines {
+                guard let connected = CloudLinkEvent.linkConnected(line) else { continue }
+                await self?.linkReported(child, connected: connected)
+            }
+        }
+    }
+
+    private func linkReported(_ reporting: ChildProcess, connected: Bool) {
+        guard child === reporting else { return }
+        if connected {
+            if machine.status == .reconnecting { handle(.linkUp) }
+        } else {
+            handle(.linkInterrupted)
         }
     }
 

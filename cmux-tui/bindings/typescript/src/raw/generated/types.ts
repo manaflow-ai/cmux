@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 25627fb62c15c4c64527841ff09b16a772d557087d129151b5bbe1d2d0e4e896. */
+/* cmux-tui mux protocol 12, IR 67d7ecb759ef04d91548819e9fc645194fd9a678113174603e80467e08021629. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -16,6 +16,8 @@ export type ActivitySnapshot = {
 export type ActivitySubscribeResult = {
   "activity": ActivitySnapshot;
 };
+
+export type AgentPresenceActivity = "thinking" | "editing" | "reading" | "running" | "browsing" | "computer_use" | "waiting";
 
 export type AgentRecord = {
   "session": (string) | null;
@@ -222,6 +224,8 @@ export type ConversationImportMessage = {
 };
 
 export type ConversationMessage = {
+  "answers"?: Array<string>;
+  "answers_pending"?: Array<string>;
   "author": string;
   "client_msg_id": string;
   "conversation": string;
@@ -233,6 +237,7 @@ export type ConversationMessage = {
   "reply_to"?: ConversationPartRef;
   "retracted_at"?: string;
   "seq": bigint;
+  "thread_root"?: string;
 };
 
 export type ConversationPart = {
@@ -314,6 +319,8 @@ export type ConversationTabRecord = {
   "owner"?: string;
   /** Page source (page-tabs-v1): the id of one of the app's own pages; exclusive with the other sources. */
   "page"?: string;
+  /** What the page shows (page-tab-route-v1): a viewer's file or folder or a page's sub-view, 1 to 4096 bytes without control characters; only with page. */
+  "route"?: string;
 };
 
 export type ConversationTextRun = {
@@ -321,6 +328,14 @@ export type ConversationTextRun = {
   "link"?: string;
   "mention"?: string;
   "start": number;
+};
+
+export type ConversationThreadSummary = {
+  "authors": Array<string>;
+  "last_reply_at": (string) | null;
+  "last_reply_seq": (bigint) | null;
+  "reply_count": bigint;
+  "root": string;
 };
 
 export type CopyResult = {
@@ -470,7 +485,9 @@ export type IdMapping = {
 export type IdentifyResult = {
   "app": "cmux-tui";
   "build_commit"?: (string) | null;
+  "build_id"?: (string) | null;
   "capabilities"?: Array<string>;
+  "cli_path"?: (string) | null;
   "daemon_handoff": 1;
   "generation": string;
   "ghostty_commit"?: (string) | null;
@@ -854,7 +871,7 @@ export type SavedTabGroupMember = {
 };
 
 export type SavedTabGroupRecord = {
-  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors. */
+  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors. */
   "color": string;
   "id": string;
   "members": Array<SavedTabGroupMember>;
@@ -1117,6 +1134,8 @@ export type Tab = {
   "size": (Size) | null;
   "supports_clear_history_key_fallback"?: boolean;
   "surface": Id;
+  /** Why a terminal will end with something other than its shell although terminal hosts are on: `breakaway_denied` (Windows: the host runs inside the daemon's kill-on-close Job Object and ends when that job closes) or `host_start_failed` (no host; the daemon runs the terminal and it ends with the daemon). Null otherwise and for browser tabs. A string, not an enum: clients read an unknown value as a notice for another reason. */
+  "terminal_host_fallback"?: (string) | null;
   "terminal_id"?: (string) | null;
   "terminal_incarnation"?: (string) | null;
   "terminal_resource_id"?: (string) | null;
@@ -1142,7 +1161,7 @@ export type TabGroupOutcome = {
 
 export type TabGroupRecord = {
   "collapsed": boolean;
-  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors. */
+  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors. */
   "color": string;
   "id": string;
   /** May be empty: the group shows only its color. */
@@ -1154,7 +1173,7 @@ export type TabGroupRecord = {
 
 export type TabGroupRun = {
   "collapsed": boolean;
-  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors. */
+  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors. */
   "color": string;
   "count": bigint;
   "id": string;
@@ -1206,8 +1225,31 @@ export type TerminalColors = {
   "selection_fg": (ColorHex) | null;
 };
 
+export type TerminalCommandDeleteResult = {
+  "deleted": bigint;
+};
+
 export type TerminalCommandHistoryResult = {
   "enabled": boolean;
+  "retention_days": number;
+};
+
+export type TerminalCommandList = {
+  "commands": Array<TerminalCommandRecord>;
+  "deletions": string;
+  "registry_id": string;
+  "retention_days": number;
+  "truncated": boolean;
+};
+
+export type TerminalCommandRecord = {
+  "command": (string) | null;
+  "cwd": (string) | null;
+  "duration_ms": string;
+  "exit_code": (number) | null;
+  "id": string;
+  "started_at_ms": string;
+  "terminal_id": string;
 };
 
 export type TerminalEventsResult = {

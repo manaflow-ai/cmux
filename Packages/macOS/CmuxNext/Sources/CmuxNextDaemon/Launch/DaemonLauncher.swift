@@ -80,6 +80,12 @@ public struct DaemonLauncher: Sendable {
         }
     }
 
+    /// `server ensure --json` error output on stderr.
+    struct EnsureFailure: Decodable {
+        var code: String
+        var message: String?
+    }
+
     /// Environment variable that overrides the bundled binary (dev builds).
     public static let binaryOverrideKey = "CMUX_NEXT_TUI_BIN"
 
@@ -93,6 +99,10 @@ public struct DaemonLauncher: Sendable {
     let handoff = DaemonHandoffState()
     let clock: any Clock<Duration>
     private let ensureTimeout: Duration
+    /// Hard cap on one `server ensure`. The daemon bounds a restore itself
+    /// (2 minutes, then `server.restore_timeout`), so this only has to be
+    /// longer than that bound plus the time to reach the owner.
+    static let ensureRestoreCap: Duration = .seconds(150)
     private let environmentProvider: @Sendable () async -> [String: String]
 
     public init(
@@ -276,7 +286,12 @@ public struct DaemonLauncher: Sendable {
         // The probe runs while the environment is gathered.
         async let reapGrace = supportsReapGrace()
         let environment = await ensureEnvironment()
-        let arguments = Self.ensureArguments(configuration, reapGrace: await reapGrace)
+        // The bundled binary reports restore progress (`--restore-progress`): the app
+        // then waits while the owner restores and gives up only when the
+        // progress stops for `ensureTimeout` (cx-n3bs). An external binary
+        // may lack the option; the daemon's own restore bound ends it.
+        let progress = configuration.binaryIsBundled
+        let arguments = Self.ensureArguments(configuration, reapGrace: await reapGrace, progress: progress)
         DaemonLaunchTimings.shared.mark("daemon.ensure_start")
         defer { DaemonLaunchTimings.shared.mark("daemon.ensure_end") }
         let result = try await ProcessRunner.run(
@@ -284,7 +299,8 @@ public struct DaemonLauncher: Sendable {
             arguments: arguments,
             environment: environment,
             stdin: configuration.installKey?.payload,
-            timeout: ensureTimeout,
+            timeout: progress ? Self.ensureRestoreCap : max(ensureTimeout, Self.ensureRestoreCap),
+            progressIdle: progress ? ensureTimeout : nil,
             clock: clock
         )
         return try Self.parseEnsure(result)
@@ -293,10 +309,12 @@ public struct DaemonLauncher: Sendable {
     /// The `server ensure` command line for `configuration`. `reapGrace`
     /// says whether the binary accepts `--terminal-reap-grace-seconds`
     /// (``supportsReapGrace()``); a client without it refuses the option.
-    static func ensureArguments(_ configuration: Configuration, reapGrace: Bool = true) -> [String] {
+    static func ensureArguments(_ configuration: Configuration, reapGrace: Bool = true,
+                                progress: Bool = false) -> [String] {
         ["--session", configuration.session, "--json", "server", "ensure"]
             + (reapGrace ? ["--terminal-reap-grace-seconds", String(configuration.terminalReapGraceSeconds)] : [])
             + (configuration.installKey == nil ? [] : ["--install-key-stdin"])
+            + (progress ? ["--restore-progress"] : [])
     }
 
     /// `server status`: the running owner, or nil when none runs (or the
@@ -336,6 +354,16 @@ public struct DaemonLauncher: Sendable {
             .filter { $0.hasPrefix("{") }
         guard result.status == 0, let last = lines.last,
               let parsed = try? JSONDecoder().decode(EnsureResult.self, from: Data(last.utf8)) else {
+            // The owner is alive but still restoring after the daemon's own
+            // bound: a typed error, so the window says so plainly.
+            let errorLine = String(decoding: result.stderr, as: UTF8.self)
+                .split(whereSeparator: \.isNewline)
+                .last { $0.trimmingCharacters(in: .whitespaces).hasPrefix("{") }
+            if let errorLine,
+               let failure = try? JSONDecoder().decode(EnsureFailure.self, from: Data(errorLine.utf8)),
+               failure.code == "server.restore_timeout" {
+                throw DaemonError.sessionRestoreTimedOut(failure.message ?? "")
+            }
             let stderr = String(decoding: result.stderr, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
             let stdout = String(decoding: result.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
             throw DaemonError.launchFailed("exit \(result.status): \(stderr.isEmpty ? stdout : stderr)")
@@ -352,8 +380,9 @@ public struct DaemonLauncher: Sendable {
         return {
             // A daemon exiting for a version handoff still answers `server
             // status` for a moment: start its successor only once it is gone.
-            if let exiting = handoff.takeExiting() {
+            if let exiting = handoff.exiting {
                 _ = await ProcessExit.exitEvent(pid: exiting, within: .seconds(60), clock: clock)
+                handoff.cancel(pid: exiting)
             }
             if let path = remembered.take() {
                 if DaemonSocketMemory.acceptsConnections(path) {

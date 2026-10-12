@@ -92,6 +92,14 @@ export const Copy = (p: CvIconProps) => (
   </Svg>
 );
 
+/** An arrow into a tray (Save a document to a file). */
+export const SaveTray = (p: CvIconProps) => (
+  <Svg {...p}>
+    <path d="M8 2.5v7.5M5 7l3 3 3-3" />
+    <path d="M2.75 10.5v1.75a1.25 1.25 0 0 0 1.25 1.25h8a1.25 1.25 0 0 0 1.25-1.25V10.5" />
+  </Svg>
+);
+
 export const Pencil = (p: CvIconProps) => (
   <Svg {...p}>
     <path d="M10.6 3.1a1.6 1.6 0 0 1 2.3 2.3l-7.6 7.6-3 .7.7-3Z" />

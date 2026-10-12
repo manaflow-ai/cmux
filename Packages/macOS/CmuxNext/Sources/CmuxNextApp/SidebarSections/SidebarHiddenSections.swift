@@ -61,7 +61,37 @@ enum SidebarHiddenSections {
         }) { invocation in
             try write(showHiddenPaths.map { ($0, true) }, invocation, context)
         }
+        bindBand(into: registry, context: context)
     }
+
+    /// The bottom band's pieces (cx-wab7m): Hide on the piece's own menu while it shows, Show on
+    /// the band's menu while it is hidden. Hide Profile Button is on the profile button's menu only.
+    private static func bindBand(into registry: ActionRegistry, context: AppActionContext) {
+        let settings = { @MainActor @Sendable in context.services.settings?.snapshot.sidebarSections ?? .defaults }
+        let isProfileButton = { @MainActor @Sendable (target: ActionTargetRef?) -> Bool in
+            guard let target else { return true }
+            let id = LayoutItemID(target.id)
+            return id == profileButtonID || context.services.sidebarLayout.document.item(id)?.ref == .builtIn(.account)
+        }
+        let pieces: [(hide: ActionID, show: ActionID, path: [String], shown: @MainActor @Sendable () -> Bool, offered: @MainActor @Sendable (ActionTargetRef?) -> Bool)] = [
+            ("sidebar.spaces.hide", "sidebar.spaces.show", SidebarSectionsSetting.showSpacesPath, { settings().showSpaces }, { _ in true }),
+            ("sidebar.profileControl.hide", "sidebar.profileControl.show", SidebarSectionsSetting.showProfileControlPath,
+             { settings().showProfileControl }, isProfileButton),
+        ]
+        for piece in pieces {
+            registry.bind(piece.hide, unavailable: { piece.shown() ? nil : SidebarSectionStrings.alreadyHidden }) { invocation in
+                try write([(piece.path, false)], invocation, context)
+            }
+            registry.bind(piece.show, unavailable: { piece.shown() ? SidebarSectionStrings.noneHidden : nil }) { invocation in
+                try write([(piece.path, true)], invocation, context)
+            }
+            ActionTargetVisibility.hide(piece.hide, in: registry) { !piece.shown() || !piece.offered($0.target) }
+            ActionTargetVisibility.hide(piece.show, in: registry) { _ in piece.shown() }
+        }
+    }
+
+    /// The default layout's profile button (`SidebarLayoutDocument`'s footer account item).
+    static let profileButtonID = LayoutItemID("itm_account")
 
     /// Writes each toggle through the settings schema (managed keys refuse).
     private static func write(_ values: [([String], Bool)], _ invocation: ActionInvocation, _ context: AppActionContext) throws {

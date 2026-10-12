@@ -42,6 +42,11 @@ public final class DaemonStore: StateResourceQueries {
     public let session = SessionStateStore()
     /// Recent notifications, newest last (bounded).
     public internal(set) var notifications: [DaemonNotification] = []
+    /// What the sidebar shows of a tab's unread notification
+    /// (`notificationText(for:)`): each live notification's text by id, and
+    /// the ledger's newest unread text by surface, seeded at connect.
+    var notificationTexts: [NotificationID: String] = [:]
+    var ledgerNotificationTexts: [SurfaceID: String] = [:]
     /// True once the first snapshot is applied.
     public internal(set) var isLoaded = false
     /// True while the tree is the daemon's launch snapshot (drawn before
@@ -90,7 +95,7 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored var workspacesByHandle: [WorkspaceHandle: WorkspaceModel] = [:]
     @ObservationIgnored var workspacesByKey: [WorkspaceKey: WorkspaceModel] = [:]
     @ObservationIgnored var tabGroupsByID: [TabGroupID: TabGroupModel] = [:]
-    @ObservationIgnored var agentsBySurface: [SurfaceID: AgentStatus] = [:]
+    @ObservationIgnored public internal(set) var agents = AgentRoster()
     @ObservationIgnored var directories = TerminalDirectories()
     /// Pending typed intents shown on top of the confirmed mirror
     /// (DaemonStore+Intents.swift).
@@ -152,6 +157,8 @@ public final class DaemonStore: StateResourceQueries {
         tab.setObservedCwd(directories.note(directory, surface: surface))
     }
     public func tab(terminal: TerminalID) -> TabModel? { tabsBySurface.values.first { $0.terminalID == terminal } }
+    /// The tab of a public terminal id (`term_…`, `CMUX_TUI_TERMINAL_ID`).
+    public func tab(terminalResource id: ResourceID) -> TabModel? { tabsBySurface.values.first { $0.terminalResourceID == id } }
     /// The tab with durable id `id` (`TabModel.id`).
     public func tab(id: String) -> TabModel? { tabsBySurface.values.first { $0.id == id } }
     public func tabGroup(_ id: TabGroupID) -> TabGroupModel? { tabGroupsByID[id] }
@@ -233,8 +240,8 @@ public final class DaemonStore: StateResourceQueries {
 
     /// Seeds agent state (`list-agents`), e.g. after connect.
     public func apply(agents: [AgentStatus]) {
-        agentsBySurface = Dictionary(agents.map { ($0.surface, $0) }, uniquingKeysWith: { $1 })
-        for (surface, tab) in tabsBySurface { tab.setAgent(agentsBySurface[surface]) }
+        self.agents.seed(agents)
+        for (surface, tab) in tabsBySurface { tab.setAgent(self.agents.bySurface[surface]) }
     }
 
     /// Records a completed handshake before its `.connected` event drains,
@@ -268,7 +275,7 @@ public final class DaemonStore: StateResourceQueries {
                     for group in pane.tabGroups { tabGroups[group.id] = group }
                     for tab in pane.tabs {
                         tabs[tab.surface] = tab
-                        if tab.agent == nil, let agent = agentsBySurface[tab.surface] { tab.setAgent(agent) }
+                        if tab.agent == nil, let agent = agents.bySurface[tab.surface] { tab.setAgent(agent) }
                         tab.setObservedCwd(directories.directory(for: tab.surface))
                     }
                 }

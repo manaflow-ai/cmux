@@ -166,6 +166,47 @@
   "breaks": false
  },
  {
+  "name": "acpmux steer and interrupt",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "s",
+    "prompt": [],
+    "_meta": {
+     "acpmux": {
+      "promptId": "p",
+      "steer": true,
+      "interrupt": true
+     }
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "acpmux steerOnly stays unknown",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "s",
+    "prompt": [],
+    "_meta": {
+     "acpmux": {
+      "promptId": "p",
+      "steerOnly": true
+     }
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
   "name": "mode field at top denied",
   "frame": {
    "jsonrpc": "2.0",
@@ -373,6 +414,39 @@
   },
   "mode_fields": null,
   "breaks": false
+ },
+ {
+  "name": "_acpmux/queue_edit every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/queue_edit",
+   "params": {
+    "sessionId": 1,
+    "promptId": 1,
+    "op": 1,
+    "text": 1,
+    "index": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/queue_edit prompt blocks are not the pane's",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/queue_edit",
+   "params": {
+    "sessionId": "s",
+    "promptId": "p",
+    "op": "update",
+    "prompt": []
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
  },
  {
   "name": "session/set_model every known param",

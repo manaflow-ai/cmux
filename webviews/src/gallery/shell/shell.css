@@ -403,7 +403,8 @@ body {
   color: var(--g-text);
   font: inherit;
 }
-.gallery-browse-kind-filter {
+.gallery-browse-kind-filter,
+.gallery-browse-view-filter {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -412,12 +413,14 @@ body {
   border: 1px solid var(--g-line);
   border-radius: 6px;
 }
-.gallery-browse-kind-filter legend {
+.gallery-browse-kind-filter legend,
+.gallery-browse-view-filter legend {
   padding: 0 4px;
   color: var(--g-muted);
   font-size: var(--text-caption);
 }
-.gallery-browse-kind-filter button {
+.gallery-browse-kind-filter button,
+.gallery-browse-view-filter button {
   padding: 3px 8px;
   border: 1px solid transparent;
   border-radius: 5px;
@@ -427,7 +430,9 @@ body {
   font-size: var(--text-caption);
 }
 .gallery-browse-kind-filter button:hover,
-.gallery-browse-kind-filter button[aria-pressed="true"] {
+.gallery-browse-kind-filter button[aria-pressed="true"],
+.gallery-browse-view-filter button:hover,
+.gallery-browse-view-filter button[aria-pressed="true"] {
   border-color: var(--g-muted);
   background: var(--g-current);
 }
@@ -457,9 +462,8 @@ body {
   font: inherit;
   font-size: var(--text-detail);
 }
-.gallery-browse-filter input:focus-visible {
-  outline: 2px solid var(--g-text);
-  outline-offset: 1px;
+.gallery-browse-filter input:focus {
+  border-color: var(--g-text);
 }
 .gallery-browse-grid {
   display: grid;

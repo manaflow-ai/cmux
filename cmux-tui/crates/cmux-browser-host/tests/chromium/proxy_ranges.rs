@@ -95,6 +95,7 @@ fn gated_session(
         on_behalf_of: None,
         origin: "cli".into(),
         label: String::new(),
+        terminal: None,
         implicit_session: false,
         engine: "headless".into(),
     };

@@ -27,7 +27,8 @@ public struct LayoutMapping {
             let screenID = LayoutScreenID(screen.id)
             handles.screens[screenID] = screen.handle
             guard let layout = layout(of: screen, paneIDs: paneIDs, handles: &handles) else { continue }
-            screens.append(LayoutScreen(id: screenID, name: screen.name ?? "", layout: layout))
+            let zoomed = screen.zoomedPane.flatMap { paneIDs[$0] } != nil
+            screens.append(LayoutScreen(id: screenID, name: screen.name ?? "", layout: layout, zoomed: zoomed))
         }
         return Result(screens: screens, handles: handles)
     }

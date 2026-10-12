@@ -1,6 +1,7 @@
 import CmuxAgentBrands
 import CmuxNextIcons
 import SwiftUI
+import CmuxNextDesign
 
 /// The selected task: title, status, agent session with its plan.
 struct TaskDetailView: View {
@@ -32,7 +33,7 @@ struct TaskDetailView: View {
                         AssigneeBadge(assignee: task.assignee, delegate: task.delegate)
                     }
                     .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
-                    .help(TasksStrings.assignee)
+                    .themedHelp(TasksStrings.assignee)
                 }
                 Text(task.title).font(.system(size: 17, weight: .semibold)).foregroundStyle(colors.primary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -43,6 +44,7 @@ struct TaskDetailView: View {
             }
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .thinScrollers()
         }
     }
 }

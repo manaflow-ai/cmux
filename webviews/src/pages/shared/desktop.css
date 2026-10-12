@@ -17,11 +17,18 @@
   -webkit-tap-highlight-color: transparent;
   -webkit-font-smoothing: antialiased;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
-  accent-color: AccentColor;
+  /* The theme accent: the text color by default (no system blue), the theme's hue with
+     appearance.accent. */
+  accent-color: var(--cmux-accent, currentColor);
   /* Keyboard focus stays visible without competing with the content. The host theme supplies
      the neutral focus token; the alpha is applied here so every first-party surface shares it. */
   --cmux-focus-ring-width: 1.5px;
   --cmux-focus-ring-color: color-mix(in srgb, var(--cmux-app-focus-ring, var(--cmux-focus-ring, currentColor)) 48%, transparent);
+  /* The highlighted row of a menu, list or palette (keyboard or pointer): a tint one step past
+     hover (the text at about 6%), never a ring and never the accent's selection tint. The left
+     bar in the theme accent is an option, 0 (off) by default. */
+  --cmux-row-focus: color-mix(in srgb, var(--cmux-text, currentColor) 10%, transparent);
+  --cmux-row-focus-bar: 0px;
   overscroll-behavior: none;
 }
 
@@ -49,23 +56,40 @@ select {
   cursor: pointer;
 }
 
-/* The shared title tooltip replaces WebKit's native title bubble on every first-party page. */
+/* One tooltip, the native one's (CmuxNextDesign/Tooltip/TooltipPanel.swift): Base UI's tooltip
+   (ui/Tooltip.tsx) and the title tooltip that replaces WebKit's bubble on every first-party page
+   (ui/titleTooltips.ts) both sit on the solid popup surface in the primary ink, with a separator
+   hairline, the caption font and a subtle shadow. A truncated row's title tooltip is as wide as
+   the row (tooltipWidth sets its min and max width). */
+.ui-tooltip,
 .ui-title-tooltip {
-  position: fixed;
-  z-index: var(--layer-tooltip);
+  box-sizing: border-box;
   max-width: min(320px, calc(100vw - 12px));
   padding: 4px 8px;
-  border: 1px solid color-mix(in srgb, var(--cmux-text, CanvasText) 18%, transparent);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--cmux-elevated-background, Canvas) 96%, var(--cmux-text, CanvasText));
-  box-shadow: 0 4px 14px color-mix(in srgb, black 30%, transparent);
+  border: 1px solid var(--cmux-separator, color-mix(in srgb, var(--cmux-text, CanvasText) 12%, transparent));
+  border-radius: 5px;
+  background: var(--surface-popup);
+  box-shadow: 0 2px 8px color-mix(in srgb, black 16%, transparent);
   color: var(--cmux-text, CanvasText);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
-  white-space: pre-line;
   overflow-wrap: anywhere;
   pointer-events: none;
+}
+
+.ui-title-tooltip {
+  position: fixed;
+  z-index: var(--layer-tooltip);
+  white-space: pre-line;
+}
+
+/* A shortcut hint after the text, in the secondary ink, at the tooltip's top right. */
+.ui-tooltip-hint {
+  float: inline-end;
+  margin-inline-start: 8px;
+  color: var(--cmux-text-secondary, color-mix(in srgb, var(--cmux-text, CanvasText) 64%, transparent));
+  white-space: nowrap;
 }
 
 img,
@@ -107,18 +131,61 @@ input[type="submit"] {
 
 /* Keep focus keyboard-only and consistent across pages, including controls with local focus
    rules. Mouse focus is removed above; keyboard focus gets a thin theme-toned ring with no glow.
-   A borderless field inside a box that shows focus itself (`data-focus-ring="none"`, the New Tab
-   field) is left out: a text field is :focus-visible on every focus, so the ring drew a rectangle
-   inside the box. */
-:focus-visible:not([data-focus-ring="none"]) {
+   Text entry (text inputs, textareas, contenteditable prompts) is left out, and so is any element
+   marked `data-focus-ring="none"`: a text field is :focus-visible on every focus, mouse included,
+   and its box is a plain rectangle inside the rounded control that owns it, so a ring drew a
+   square inside the composer, the New Tab box and the model picker's search (cx-ncc.57). The
+   caret and the owning control's own rounded focus state (`:focus-within` on the box, or the
+   field's own border) show focus instead. Rows of menus, lists and palettes, and the containers
+   that hold their active row, show focus as the row tint below instead. An open menu or
+   popover takes focus so its keys work; it never draws a ring around itself (Leo 2026-10-11).
+   `scripts/cmux-next/check-text-focus-rings.py` refuses a new focus outline on a text field. */
+:focus-visible:not(:where(input:not([type="button"], [type="submit"], [type="reset"], [type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="image"]), textarea, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="searchbox"])):not([data-focus-ring="none"], [data-focus-ring="row"], [data-focus-ring="rows"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"], [role="menu"], .ui-popup) {
   outline-width: var(--cmux-focus-ring-width) !important;
   outline-style: solid !important;
   outline-color: var(--cmux-focus-ring-color) !important;
   box-shadow: none !important;
 }
 
+/* Text entry never draws a ring of its own, not even WebKit's default `outline: auto` (see above). */
+:where(input:not([type="button"], [type="submit"], [type="reset"], [type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="image"]), textarea, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="searchbox"]):focus {
+  outline: none;
+}
+
+/* Text selection takes the Ghostty config's `selection-background`, else the theme accent's tint
+   (the text color under the default neutral accent), never the system highlight blue
+   (`--cmux-text-selection`, WebTheme.swift). A page with its own selection color sets it later.
+   Carets take the config's `cursor-color`, else the text color (`--cmux-caret`). */
+::selection {
+  background-color: var(--cmux-text-selection, color-mix(in srgb, var(--cmux-accent, CanvasText) 28%, transparent));
+}
+:root {
+  caret-color: var(--cmux-caret, auto);
+}
+
+/* A keyboard-focused row: the row tint, laid over the row's own fill as a background image so a
+   selected or checked row still changes when it takes focus, and the accent bar when it is on. A
+   row that marks its highlight itself (`data-highlighted`, the menus' and pickers' keyboard row)
+   draws that instead, and never the engine's own ring (macOS WebKit draws it in the system blue;
+   a page without ui.css, the agent pane, has nothing else removing it). */
+:is([data-focus-ring="row"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"]):focus-visible {
+  outline: none;
+}
+:is([data-focus-ring="row"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"]):focus-visible:not([data-highlighted]) {
+  background-image: linear-gradient(var(--cmux-row-focus), var(--cmux-row-focus));
+  box-shadow: inset var(--cmux-row-focus-bar) 0 0 var(--cmux-accent, currentColor);
+}
+
+/* A menu or list that always shows its active row highlighted (`data-focus-ring="rows"`) needs no
+   ring of its own around the rows. */
+[data-focus-ring="rows"]:focus-visible {
+  outline: none;
+}
+
+/* Reduce Motion stops every page animation, except the popup surfaces' fades: a menu, tooltip or
+   sheet that appeared in one frame flashed (POLISH; ui/popupSurface.css keeps them fade-only). */
 @media (prefers-reduced-motion: reduce) {
-  *,
+  *:not(.ui-popup, .ui-tooltip, .ui-sheet),
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
@@ -140,7 +207,9 @@ input[type="submit"] {
     --cmux-diff-text-muted: var(--cmux-diff-fg, CanvasText) !important;
     --cmux-diff-text-subtle: var(--cmux-diff-fg, CanvasText) !important;
     --cmux-focus-ring-width: 2px;
-    --cmux-focus-ring-color: currentColor;
+    /* The theme accent at full strength: the host fits it to 3:1 or better on the page's own
+       surfaces (the text color under the default neutral accent), never the system blue. */
+    --cmux-focus-ring-color: var(--cmux-accent, var(--cmux-app-focus-ring, CanvasText));
   }
 
   :root:not([data-borders="none"]) {
@@ -160,8 +229,10 @@ input[type="submit"] {
     --acpmux-composer-dim: var(--agent-text, CanvasText) !important;
   }
 
-  :focus-visible {
-    outline: var(--cmux-focus-ring-width) solid currentColor !important;
+  /* Text entry stays out here too: the owning box takes this ring under Increase Contrast (the
+     composer, New Tab and model picker stylesheets), never a square around the field. */
+  :focus-visible:not(:where(input:not([type="button"], [type="submit"], [type="reset"], [type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="image"]), textarea, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="searchbox"])):not([role="menu"], .ui-popup) {
+    outline: var(--cmux-focus-ring-width) solid var(--cmux-focus-ring-color) !important;
     outline-offset: 2px;
   }
 }
@@ -188,6 +259,14 @@ input[type="submit"] {
      tooltips stay opaque. Reduce Transparency makes every translucent surface opaque. */
   --surface-text-min: 92%;
   --surface-blur: blur(20px) saturate(1.4);
+  /* The one solid surface of every menu, popover, picker and tooltip, never translucent and never
+     blurred, so text under a popup never shows through (Leo, 2026-10-12): the host's popup fill
+     (WebTheme.swift, the same color as native overlays' Palette.popupSurface), else the page
+     color lifted toward the text. */
+  --surface-popup: var(
+    --cmux-popup-surface,
+    color-mix(in srgb, var(--cmux-text, CanvasText) 14%, var(--cmux-surface-solid, Canvas))
+  );
 }
 
 @media (prefers-reduced-transparency: reduce) {

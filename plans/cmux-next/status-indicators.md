@@ -90,7 +90,17 @@ collapsed group rolls up its workspaces.
 
 The client never infers death or clears a stale entry itself; it renders the owner's facts.
 
-## 5. API (daemon + Rust CLI; accepted by the #16174 owner 2026-10-02, not landed)
+## 5. API (daemon + Rust CLI; landed on feat-cmux-next 2026-10-10, PR 16819 re-applied, bead cx-6so.54)
+
+Landed: the `workspace_status.set` fields below (stored in the additive `workspace_status_meta` table), daemon
+auto-clear (TTL, owner terminal exit, owner process exit with start-time identity, re-armed at daemon start),
+`terminal-activity-v1` `extra.busy`, and `cmux status set|clear|list|run` plus the loading flags of
+`workspace status set` in the Rust CLI (cli/status.rs, cli/command/state/status_flags.rs). A process owner is
+accepted only from a local actor (the user's CLI or the verified app; never an app or a remote peer) and only
+where the daemon can watch a process exit (not Windows). Behavior proof: cmux-tui `tests/cli/status.rs`.
+Not landed: `--notify`, `cmux status wait`, `terminal wait --until` (section 9), the `braille` style hint, and
+agent-session owners (accepted and stored, not yet cleared on session end). OSC 7501 program status
+(`extra.program_status`) is a separate source and is not stored as status rows.
 
 Ops extend the v2 status ops instead of adding a parallel table:
 
@@ -161,7 +171,7 @@ Open: `none` hides loading but keeps waiting/error/done marks (current); alterna
 
 ## 9. Implementation state
 
-- Rust (PR into feat-cmux-next-acpmux, branch feat-cmux-next-status-rust): `workspace_status.set` loading fields
+- Rust (landed on feat-cmux-next, bead cx-6so.54; PR 16819 closed): `workspace_status.set` loading fields
   and owners, daemon auto-clear (TTL, owner terminal exit, owner process exit with start-time identity),
   `terminal-activity-v1` busy facts, `cmux status set|clear|list|run`. Not built yet: `cmux status wait` and
   `cmux terminal <term> wait --until idle|prompt` (need a new connection-owned wait op; `exit` and `output` exist

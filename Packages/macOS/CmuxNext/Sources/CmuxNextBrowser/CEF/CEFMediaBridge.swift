@@ -15,7 +15,8 @@ import os
 /// document commits, once that document's world exists; the observer holds
 /// its report until the binding appears.
 final class CEFMediaBridge {
-    private unowned let tab: CEFTab
+    /// Weak: the tab owns this bridge; after it is gone every entry point returns.
+    private weak var tab: CEFTab?
     private var observation: ObservationLoop?
     /// The committed document the binding was last added for.
     private var boundDocument: (url: URL?, phase: BrowserLoadPhase)?
@@ -24,6 +25,7 @@ final class CEFMediaBridge {
 
     /// The tab's browser exists (`CEFAgentRelay.browserAttached`).
     func attach(_ browser: Int32) {
+        guard let tab else { return }
         tab.agentRelay.mediaListens = true
         let channel = BrowserMediaState.channel
         let observer = BrowserMediaState.observerScript(post: "\(channel)(JSON.stringify(report))", ready: "typeof \(channel) === 'function'")
@@ -45,6 +47,7 @@ final class CEFMediaBridge {
 
     /// A document committed or finished: its world exists now.
     private func documentChanged() {
+        guard let tab else { return }
         let state = tab.state
         guard state.phase == .committed || state.phase == .finished, let browser = tab.browserID else { return }
         let document = (url: state.url, phase: state.phase)
@@ -75,7 +78,7 @@ final class CEFMediaBridge {
               message["method"] as? String == "Runtime.bindingCalled",
               let params = message["params"] as? [String: Any], params["name"] as? String == BrowserMediaState.channel
         else { return false }
-        if let payload = params["payload"] as? String, let media = BrowserMediaState.report(json: payload) {
+        if let tab, let payload = params["payload"] as? String, let media = BrowserMediaState.report(json: payload) {
             tab.machine.apply(.mediaChanged(media))
             tab.keepAudioMute(after: media)
         }

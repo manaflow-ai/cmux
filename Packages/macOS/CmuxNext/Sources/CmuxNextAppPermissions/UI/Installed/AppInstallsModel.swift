@@ -31,10 +31,6 @@ public final class AppInstallsModel {
     /// Apps with an op in flight; taps on them are ignored until it settles.
     public private(set) var sending: Set<String> = []
     @ObservationIgnored private let makeKey: @MainActor () -> String
-    /// The App presents the Show Hidden Apps sheet (`.hiddenApps`) here.
-    @ObservationIgnored public var onShowHidden: @MainActor () -> Void = {}
-    /// The sheet's Done.
-    @ObservationIgnored public var onDismissHidden: @MainActor () -> Void = {}
 
     public init(source: any AppInstallStateSource, makeKey: @escaping @MainActor () -> String = { UUID().uuidString }) {
         self.source = source
@@ -77,7 +73,4 @@ public final class AppInstallsModel {
         }
         await send(.remove(confirmed: true), app: app)
     }
-
-    public func presentHidden() { onShowHidden() }
-    public func dismissHidden() { onDismissHidden() }
 }

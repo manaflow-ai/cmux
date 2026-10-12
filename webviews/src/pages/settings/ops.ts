@@ -11,6 +11,16 @@
 
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 
+/** A museum search result (cmux.settings.art.search); its thumbnail is at `museum/<key>`. */
+export type MuseumArtResult = {
+  key: string;
+  title: string;
+  artist: string;
+  date: string;
+  source: string;
+  page: string;
+};
+
 export type ManagedInfo = { source: string; reason: string; team?: string | null };
 
 /** One `cmux.settings.list` row: the schema row plus what applies now. */
@@ -87,8 +97,11 @@ export type HostLists = {
   settings_file?: string | null;
   /** Computer Use Setup (Agents): the helper's grants; null while unknown (off, starting). */
   computer_use?: ComputerUseState | null;
-  /** Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. */
-  backdrops?: Array<{ id: string; title: string; attribution: string }>;
+  /**
+   * Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. Art carries its
+   * picker collection (`darkArt`, `museumIcons`, `calm`, `dore`) and its localized title.
+   */
+  backdrops?: Array<{ id: string; title: string; attribution: string; collection?: string; collection_title?: string }>;
   /** Where an unset number row's slider sits when the app resolves it (the theme's window opacity). */
   derived?: Record<string, number>;
 };
@@ -223,6 +236,18 @@ export type HarnessRow = {
   source: string;
   /** Why it cannot start, as acpmux says it (its own text). */
   problem: string | null;
+  /** From `_acpmux/harness/health` (absent from an older daemon): installed and newest versions. */
+  version?: string | null;
+  latest?: string | null;
+  outdated?: boolean;
+  /** Only from evidence (a profile's check or a probe's sign-in error). */
+  auth?: "signedIn" | "signedOut" | "unknown";
+  /** How to update it; `elevated`: needs sudo, so the page shows `command` and never runs it. */
+  update?: { command: string; elevated: boolean } | null;
+  /** acpmux runs its update on its own when a check finds it outdated (off by default). */
+  autoUpdate?: boolean;
+  /** What auto-update last did for it. */
+  lastAutoUpdate?: { ok: boolean; detail: string } | null;
 };
 
 /** The Harnesses part: acpmux's harnesses (the host reads `_acpmux/harnesses`). */
@@ -233,8 +258,16 @@ export type HarnessesState = {
   harnesses: HarnessRow[];
 };
 
-/** One Harnesses gesture: Sign in and Check open a terminal tab with `harness login`. */
-export type HarnessesRun = { action: "refresh" | "signIn" | "check" | "registry"; id?: string };
+/** One Harnesses gesture: Sign in and Check open a terminal tab with `harness login`; Update
+ * (one `id`) and Update all type the harness's own update command into a terminal tab. */
+export type HarnessesRun = {
+  action: "refresh" | "signIn" | "check" | "registry" | "update" | "updateAll" | "autoUpdate";
+  id?: string;
+  /** With `autoUpdate`: turn it on or off for `id`. */
+  on?: boolean;
+  /** With `refresh`: the daemon checks every harness again (after an update). */
+  recheck?: boolean;
+};
 
 /** The v2 mutation result: `revision` is a decimal string. */
 export type MutationResult = { value: { keys: string[] }; revision: string; replayed: boolean };
@@ -266,10 +299,20 @@ export type SettingsOps = {
   "cmux.settings.theme.set": [{ level: string; spec: string | null }, unknown];
   /** Native: the colors of every published theme, for the theme preview and the picker's swatches. */
   "cmux.settings.theme.colors": [Record<string, never>, { themes: GhosttyTheme[] }];
+  /** Native: write `base` with its saved edits as the Ghostty theme file `name` (the person only). */
+  "cmux.settings.theme.save": [{ name: string; base: string; replace: boolean }, { name?: string }];
+  /** Native: copy a theme file the person picks into their Ghostty themes; `token` retries a name in use. */
+  "cmux.settings.theme.import": [{ token?: string; replace?: boolean }, { name?: string }];
   /** Native: whether typed text is a theme spec Ghostty accepts (a pair, a path). */
   "cmux.settings.theme.accepts": [{ text: string }, { accepts: boolean }];
   /** Native: the cmux picker chooses folders for a folder list row; the host writes them. */
   "cmux.settings.folders.add": [{ key: string }, { added: string[] }];
+  /** The cmux picker for an image; the host copies it to the backgrounds folder and sets it. */
+  "cmux.settings.backdrop.choose_image": [Record<string, never>, { id: string | null }];
+  /** Browse More Art: public-domain works in open museum collections matching `query`. */
+  "cmux.settings.art.search": [{ query: string }, { results: MuseumArtResult[] }];
+  /** Downloads the work `key` into the backgrounds folder and sets it as the background. */
+  "cmux.settings.art.use": [{ key: string }, { id: string }];
   /** Native: the buttons at the end of a section (registry titles, localized by the app). */
   "cmux.settings.section.actions": [{ section: string }, Array<{ id: string; title: string; enabled: boolean }>];
   /** Native: show the settings file in Finder. */

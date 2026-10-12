@@ -23,7 +23,7 @@ final class TabCell {
         }
     }
     var isHovered = false { didSet { if oldValue != isHovered { stateChanged() } } }
-    var isCloseHovered = false { didSet { if oldValue != isCloseHovered { updateColors(animated: true) } } }
+    var isCloseHovered = false { didSet { if oldValue != isCloseHovered { updateColors(animated: true, showing: isCloseHovered) } } }
     var isClosePressed = false { didSet { if oldValue != isClosePressed { updateColors(animated: false) } } }
     var isLifted = false { didSet { if oldValue != isLifted { updateLift() } } }
     /// The strip's window is main (in front); off, the selected tab has no fill.
@@ -78,7 +78,7 @@ final class TabCell {
     /// The tab's rounded pill (its background) in this cell's coordinates.
     var pillFrameInCell: CGRect { backgroundLayer.frame }
 
-    private let backgroundLayer = CALayer()
+    let backgroundLayer = CALayer()
     let iconLayer = CALayer()
     let titleLayer = ChromeTextLayer()
     /// Fades the clipped title and runs its hover marquee (one mask layer,
@@ -97,10 +97,9 @@ final class TabCell {
     var machineLayer: ChromeTextLayer?
     var themeBadgeLayer: CALayer?
     var profileLayer: CALayer? // browser profile dot (TabCell+ProfileBadge)
+    var presenceLayer: CALayer? // the acting agent's dot (TabCell+PresenceDot)
     var audioLayer: CALayer? // speaker of a tab playing sound (TabCell+AudioBadge)
 
-    var hasSpinnerLayer: Bool { spinnerLayer != nil }
-    var hasBadgeLayer: Bool { badgeLayer != nil }
     var hasCloseLayers: Bool { closeBackgroundLayer != nil || closeGlyphLayer != nil }
 
     private(set) var visibility = TabChromeVisibility(showsIcon: true, showsTitle: true, showsClose: false, centersContent: false)
@@ -175,6 +174,7 @@ final class TabCell {
         if previous?.machineBadge != item.machineBadge { updateMachineBadge() }
         if previous?.themeBadge != item.themeBadge { updateThemeBadge() }
         if previous?.profileBadge != item.profileBadge { updateProfileBadge() }
+        if previous?.presence != item.presence { updatePresenceDot() }
         if previous?.audio != item.audio { updateAudioBadge() }
         updateColors(animated: false)
         updateAccessibility()
@@ -208,15 +208,27 @@ final class TabCell {
 
     private func updateLift() {
         themeScope.perform { backgroundLayer.shadowColor = Palette.shadow.cgColor }
-        backgroundLayer.shadowRadius = Metrics.space3
-        backgroundLayer.shadowOffset = CGSize(width: 0, height: Metrics.space1)
-        backgroundLayer.shadowOpacity = isLifted ? 0.22 : 0
+        // The one popover shadow (PopupStyle), not a darker drag shadow.
+        backgroundLayer.shadowRadius = PopupStyle.standard.shadowBlur
+        backgroundLayer.shadowOffset = CGSize(width: 0, height: PopupStyle.standard.shadowOffset)
+        Motion.set(backgroundLayer, "shadowOpacity", to: Float(isLifted ? PopupStyle.standard.shadowAlpha : 0), fade: .lift)
         updateStacking()
         if isLifted { titleFade.stopMarquee(animated: false) }
-        updateColors(animated: true)
+        // The lifted fill reads as solid from the first frame, so nothing it
+        // passes over (a group chip) shows through while it would ease in.
+        updateColors(animated: !isLifted)
     }
 
-    func updateColors(animated: Bool) { Motion.transaction(animated ? .hover : nil) { applyColors() } }
+    /// `showing` is whether the fill that changed shows: the tab's by
+    /// default, the close button's for its own hover.
+    func updateColors(animated: Bool, showing: Bool? = nil) {
+        let token = animated ? ChromeHover.fade(showing: showing ?? (isLifted || fillsSelection || isHovered)) : nil
+        // An instant change also ends a fill still easing in.
+        if (token.map(Motion.duration) ?? 0) == 0 {
+            for layer in [backgroundLayer, closeBackgroundLayer].compactMap({ $0 }) { layer.removeAnimation(forKey: "backgroundColor") }
+        }
+        Motion.transaction(token) { applyColors() }
+    }
 
     private func applyColors() {
         themeScope.perform {
@@ -231,12 +243,13 @@ final class TabCell {
             titleLayer.foregroundColor = text.cgColor
             machineLayer?.foregroundColor = Palette.textTertiary.cgColor
             applyProfileDotColors()
+            applyPresenceDotColor()
             applyAudioIcon()
             let indicatorColors = StatusIndicatorLayer.Colors.current(loading: StatusIndicatorAppearance.shared.config.settings.color)
             spinnerLayer?.colors = indicatorColors
             statusGlyphLayer?.colors = indicatorColors
             separatorLayer.backgroundColor = Palette.separator.cgColor
-            iconLayer.contents = iconImage(tint: item.tint?.swatch ?? text)
+            iconLayer.contents = iconImage(tint: item.tint?.markColor ?? text)
         }
         applyCloseColors()
         applyBadgeColor()
@@ -346,13 +359,8 @@ final class TabCell {
             closeBackgroundLayer.cornerRadius = max(0, m.cornerRadius - Metrics.space1)
             let inset = (closeRect.width - m.closeGlyphSize) / 2
             let glyph = closeRect.insetBy(dx: inset, dy: inset)
-            let path = CGMutablePath()
-            path.move(to: CGPoint(x: glyph.minX, y: glyph.minY))
-            path.addLine(to: CGPoint(x: glyph.maxX, y: glyph.maxY))
-            path.move(to: CGPoint(x: glyph.maxX, y: glyph.minY))
-            path.addLine(to: CGPoint(x: glyph.minX, y: glyph.maxY))
             closeGlyphLayer.frame = bounds
-            closeGlyphLayer.path = path
+            closeGlyphLayer.path = Self.closeGlyphPath(in: glyph)
             if appearing, animatesCloseChange {
                 for layer in [closeBackgroundLayer, closeGlyphLayer] as [CALayer] {
                     Motion.set(layer, "opacity", to: Float(1), fade: .hover, from: Float(0))
@@ -373,7 +381,8 @@ final class TabCell {
             titleLayer.opacity = 1
             let titleEnd = closeRect.map { $0.minX - m.titleCloseSpacing } ?? (bounds.width - m.contentTrailingInset)
             let badgesEnd = layoutAudioBadge(titleX: titleX, titleEnd: layoutMachineBadge(titleX: titleX, titleEnd: titleEnd, midY: midY), midY: midY)
-            let visibleEnd = layoutProfileBadge(titleX: titleX, titleEnd: badgesEnd, midY: midY)
+            let profileEnd = layoutProfileBadge(titleX: titleX, titleEnd: badgesEnd, midY: midY)
+            let visibleEnd = layoutPresenceDot(titleX: titleX, titleEnd: profileEnd, midY: midY)
             // The marquee fades glyphs out across the icon-title gap.
             let geometry = TitleFadeGeometry(
                 textWidth: titleWidth(), span: span, visibleWidth: visibleEnd - titleX,
@@ -385,7 +394,7 @@ final class TabCell {
             titleFade.stopMarquee(animated: false)
             titleLayer.opacity = 0
             titleLayer.mask = nil
-            for badge in [machineLayer, profileLayer, audioLayer] { badge?.opacity = 0 }
+            for badge in [machineLayer, profileLayer, presenceLayer, audioLayer] { badge?.opacity = 0 }
         }
     }
 

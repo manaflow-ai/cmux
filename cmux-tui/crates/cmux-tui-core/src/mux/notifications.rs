@@ -123,6 +123,8 @@ impl Mux {
         terminal_id: Option<TerminalPublicId>,
         created_at_ms: u64,
         source: NotificationSource,
+        desktop: bool,
+        reply: bool,
     ) -> u64 {
         let id = self.next_notification_id();
         {
@@ -138,6 +140,8 @@ impl Mux {
                 created_at_ms,
                 source,
                 surface,
+                desktop,
+                reply,
             });
             let mut evicted = Vec::new();
             while ledger.len() > NOTIFICATION_LEDGER_CAPACITY {
@@ -237,6 +241,21 @@ impl Mux {
     ) -> Value {
         let mut value = self.notification_snapshot_value(notification, session_id, &[]);
         value["unread"] = Value::Bool(notification.terminal_id.is_some());
+        // A non-terminal tab (an agent chat) is named by its content, so a
+        // restart finds the tab again to dedupe and acknowledge against.
+        if notification.terminal_id.is_none()
+            && let Some(surface) = notification.surface
+            && let Some(ContentPublicId::Browser(browser)) = self
+                .state
+                .lock()
+                .unwrap()
+                .surfaces
+                .get(&surface)
+                .and_then(|surface| surface.resource_identity())
+                .map(|identity| identity.content_id.clone())
+        {
+            value["extra"]["browser_id"] = serde_json::json!(browser);
+        }
         value
     }
 
@@ -352,6 +371,8 @@ impl Mux {
             terminal_id.clone(),
             created_at_ms,
             source,
+            true,
+            false,
         );
         let session_id = self.workspace_registry.lock().unwrap().session_id().clone();
         let notification = ResourceNotification {
@@ -364,6 +385,8 @@ impl Mux {
             created_at_ms,
             source,
             surface,
+            desktop: true,
+            reply: false,
         };
         let value = self.created_notification_value(&notification, &session_id);
         let outcome = ResourceEffectOutcome::Success(value.clone());

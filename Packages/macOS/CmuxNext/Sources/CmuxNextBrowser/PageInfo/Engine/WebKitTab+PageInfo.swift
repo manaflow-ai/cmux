@@ -9,10 +9,11 @@ public import WebKit
 extension WebKitTab: PageInfoProviding {
     public var pageInfoSettings: SiteSettingsRegistry { engine?.siteSettings ?? .shared }
 
-    /// WebKit has public API for these only: camera and microphone through
-    /// `WKUIDelegate`, JavaScript through `WKWebpagePreferences`. Location,
-    /// notifications, pop-ups, sound and the rest have no per-site hook.
-    public var supportedSitePermissions: Set<SitePermissionKind> { [.camera, .microphone, .javascript] }
+    /// WebKit has per-site hooks for these only: camera and microphone
+    /// through `WKUIDelegate`, location and notifications through its
+    /// private delegate methods (WebKitTab+Delegates), JavaScript through
+    /// `WKWebpagePreferences`. Pop-ups, sound and the rest have none.
+    public var supportedSitePermissions: Set<SitePermissionKind> { [.location, .camera, .microphone, .notifications, .javascript] }
 
     public var pageInfoInUse: Set<SitePermissionKind> {
         var kinds: Set<SitePermissionKind> = []
@@ -77,33 +78,12 @@ extension WebKitTab: PageInfoProviding {
 
     // MARK: Engine hooks (WebKitTab+Delegates)
 
-    /// Answers a media capture request from the stored decisions, asking
-    /// only when the site has none, and stores the answer.
-    func decideMediaCapture(_ kind: BrowserPermissionKind, origin: String, decisionHandler: @escaping @MainActor (WKPermissionDecision) -> Void) {
-        let kinds: Set<SitePermissionKind> = switch kind {
-        case .camera: [.camera]
-        case .microphone: [.microphone]
-        case .cameraAndMicrophone: [.camera, .microphone]
-        case .automaticDownloads: []
-        }
-        guard !kinds.isEmpty else { return decisionHandler(.deny) }
-        pageInfoActivity.recordRequest(kinds)
-        let store = sitePermissions
-        Task { [weak self] in
-            await store.whenLoaded()
-            let settings = kinds.map { store.setting($0, for: origin) }
-            if settings.contains(.block) { return decisionHandler(.deny) }
-            if settings.allSatisfy({ $0 == .allow }) { return decisionHandler(.grant) }
-            guard let self else { return decisionHandler(.deny) }
-            self.enqueuePrompt(.permission(kind), origin: origin) { response in
-                switch response {
-                case .allow: kinds.forEach { store.set(.allow, $0, for: origin) }
-                case .deny: kinds.forEach { store.set(.block, $0, for: origin) }
-                default: break
-                }
-                decisionHandler(response == .allow || response == .allowOnce ? .grant : .deny)
-            }
-        }
+    /// Answers a permission request (camera and microphone, location,
+    /// notifications) from the stored decisions, asking only when the site
+    /// has none (`SitePermissionRequest`).
+    func decidePermission(_ kind: BrowserPermissionKind, origin: String, granted: @escaping @MainActor (Bool) -> Void) {
+        pageInfoActivity.recordRequest(kind.siteKinds)
+        SitePermissionRequest(kind: kind, origin: origin, store: sitePermissions).decide(ask: enqueuePrompt) { granted($0 == .grant) }
     }
 
     /// JavaScript on or off for the document a navigation loads.

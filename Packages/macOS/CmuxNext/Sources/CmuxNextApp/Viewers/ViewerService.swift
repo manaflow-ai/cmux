@@ -28,6 +28,8 @@ final class ViewerService {
     private(set) lazy var markdownPages = FilePageService(services: owner, kind: .markdown)
     /// Code editor page tabs (diff-host S7).
     private(set) lazy var editorPages = FilePageService(services: owner, kind: .editor)
+    /// Files tree tabs beside a chat (cx-p4rt).
+    private(set) lazy var fileTrees = FileTreePageService(services: owner)
 
     init(services: AppServices, recents: ViewerRecents = ViewerRecents()) {
         self.services = services
@@ -74,15 +76,18 @@ final class ViewerService {
         try await diffViewer.openDiff(directory: directory, in: pane, focus: focus, created: created)
     }
 
-    /// The picker's folder mode for the diff viewer.
-    func diffPickerPage(for pane: PaneController) -> PalettePageSpec {
+    /// The picker's folder mode for the diff viewer. `beside`: the placement of a diff opened beside
+    /// a chat (the header's Changes), made when the folder is picked; else the diff opens focused in `pane`.
+    func diffPickerPage(for pane: PaneController,
+                        beside: (@MainActor () -> @MainActor (SurfaceID) -> Void)? = nil) -> PalettePageSpec {
         picker.openPage(.init(choose: .folders, startDirectory: Self.start(for: pane), recents: [.diff])) { [weak self, weak pane] urls in
             guard let self, let pane, let folder = urls?.first else { return }
             // One diff open at a time: a newer choice cancels the one before.
             self.diffOpen?.cancel()
-            self.diffOpen = Task { [weak self, weak pane] in
+            let created = beside?()
+            self.diffOpen = Task { @MainActor [weak self, weak pane] in
                 guard let self, let pane else { return }
-                do { try await self.openDiff(folder.path, in: pane, focus: true) } catch {
+                do { try await self.openDiff(folder.path, in: pane, focus: created == nil, created: created) } catch {
                     if !Task.isCancelled { self.showRefusal(Self.reason(error)) }
                 }
                 // A cancelled open leaves the handle to the one that replaced it.

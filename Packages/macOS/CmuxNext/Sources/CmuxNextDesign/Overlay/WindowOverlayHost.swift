@@ -125,8 +125,6 @@ public final class WindowOverlayHost {
         existingHost(for: window)?.reassertOrder()
     }
 
-    public var hasPresentations: Bool { !handles.isEmpty }
-
     /// Occluder rects (window coordinates), sorted by id.
     public var occluderRects: [NSRect] { occluders.sorted { $0.key < $1.key }.map(\.value) }
 

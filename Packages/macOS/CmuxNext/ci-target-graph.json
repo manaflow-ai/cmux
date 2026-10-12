@@ -7,6 +7,7 @@
     "CmuxAgentCursor": "Packages/Shared/CmuxAgentCursor",
     "CmuxAgentQuestion": "Packages/Shared/CmuxAgentQuestion",
     "CmuxAuthRuntime": "Packages/Shared/CmuxAuthRuntime",
+    "CmuxFeedPushCore": "Packages/Shared/CmuxFeedPushCore",
     "CmuxGhosttyKit": "Packages/Shared/CmuxGhosttyKit",
     "CmuxHomeCore": "Packages/Shared/CmuxHomeCore",
     "CmuxHomeRender": "Packages/Shared/CmuxHomeRender",
@@ -113,7 +114,10 @@
         "CmuxNextSettings"
       ],
       "packages": [],
-      "reads": []
+      "reads": [
+        "cmux-tui/crates/cmux-agent-pane-policy/tests/cases/environment.json",
+        "scripts/cmux-next/pin-cmux-tui.sh"
+      ]
     },
     "CmuxNextAgentQuestion": {
       "kind": "regular",
@@ -183,6 +187,7 @@
         "CmuxAgentBrands",
         "CmuxAgentCursor",
         "CmuxAgentQuestion",
+        "CmuxFeedPushCore",
         "CmuxHomeCore",
         "CmuxHomeRender"
       ]
@@ -202,13 +207,17 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests",
       "targets": [
         "CmuxNextActions",
+        "CmuxNextAgentCursor",
         "CmuxNextApp",
         "CmuxNextCopyMode",
         "CmuxNextCrashReporting",
         "CmuxNextDaemon",
         "CmuxNextHistory",
         "CmuxNextHome",
+        "CmuxNextLayout",
         "CmuxNextProcessEnvironment",
+        "CmuxNextTabs",
+        "CmuxNextTasks",
         "CmuxNextWakeups"
       ],
       "packages": [
@@ -218,7 +227,8 @@
       ],
       "reads": [
         "plans/cmux-next/",
-        "scripts/cmux-next/pin-cmux-tui.sh"
+        "scripts/cmux-next/pin-cmux-tui.sh",
+        "tests/fixtures/classic-to-next/"
       ]
     },
     "CmuxNextApps": {
@@ -724,6 +734,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextTasks",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextDesign",
         "CmuxNextIcons",
         "CmuxNextWakeups"

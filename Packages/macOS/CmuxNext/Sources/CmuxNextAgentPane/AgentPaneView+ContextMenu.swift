@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextPages
 import WebKit
 
 /// The agent pane's web view on the old host: WebKit's context menu goes through the pane
@@ -8,9 +9,32 @@ import WebKit
 final class AgentPaneWKWebView: WKWebView {
     var contextMenuEditor: (@MainActor (NSMenu) -> Void)?
 
+    /// Keeps macOS's AutoFill out of this view's context menu (``PageMenuAutoFill``).
+    private let menuAutoFill = PageMenuAutoFill()
+
+    override var inputContext: NSTextInputContext? {
+        menuAutoFill.hidesInputContext() ? nil : super.inputContext
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        menuAutoFill.noteContextClick(event)
+        super.mouseDown(with: event)
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        menuAutoFill.noteContextClick(event)
+        super.rightMouseDown(with: event)
+    }
+
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
+        menuAutoFill.menuWillOpen()
         contextMenuEditor?(menu)
         super.willOpenMenu(menu, with: event)
+    }
+
+    override func didCloseMenu(_ menu: NSMenu, with event: NSEvent?) {
+        menuAutoFill.menuDidClose()
+        super.didCloseMenu(menu, with: event)
     }
 }
 
@@ -91,10 +115,10 @@ extension AgentPaneView {
             edit: { [weak self] text in self?.runMessageAction("chat.editPrompt", ["text": text]) },
             open: { [weak self] url in self?.openLink(url) },
             search: { [weak self] text in self?.model.onSearchWeb?(text) },
-            openImage: { [weak self] in self?.runMessageAction("chat.menu.openImage", [:]) }))
+            page: { [weak self] name, params in self?.runMessageAction(name, params) }))
     }
 
-    /// Retry, Edit and Resend, and Open Image: the page's own actions, with the menu choice as the gesture.
+    /// Retry, Edit and Resend, Open Image and a path's Open: the page's own actions, with the menu choice as the gesture.
     private func runMessageAction(_ name: String, _ params: [String: String]) {
         guard let data = try? JSONSerialization.data(withJSONObject: params) else { return }
         model.transport.gestures.record()

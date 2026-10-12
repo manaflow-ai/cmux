@@ -4,7 +4,8 @@ import Foundation
 
 /// What the workspace hover card says (Leo 2026-10-08, Codex parity): a
 /// title row (the name, a kind or host icon, the relative age) and one row
-/// per meaningful fact, each with an icon. CPU and memory show as one line,
+/// per meaningful fact, each with an icon: folder, branch, pull request,
+/// computer, and the agent working there (cx-13w3). CPU and memory show as one line,
 /// and only when notable.
 struct WorkspaceHoverCardContent: Equatable {
     struct Fact: Equatable {
@@ -29,6 +30,7 @@ struct WorkspaceHoverCardContent: Equatable {
         if let branch = workspace.branch, !branch.isEmpty { facts.append(Fact(icon: .gitBranch, text: branch)) }
         if let pr = workspace.pullRequest, !pr.isEmpty { facts.append(Fact(icon: .gitPullrequest, text: pr)) }
         if let remote { facts.append(Fact(icon: hostIcon(remote), text: remote.name)) }
+        if let agent = workspace.agentName { facts.append(Fact(icon: .agentChat, text: agent)) }
         return WorkspaceHoverCardContent(
             title: workspace.title, icon: remote.map(hostIcon) ?? workspace.kind.iconName,
             age: workspace.lastActivity.flatMap { age(since: $0, now: now) }, facts: facts)

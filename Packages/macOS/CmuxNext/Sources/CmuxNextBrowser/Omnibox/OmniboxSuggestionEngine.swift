@@ -182,19 +182,6 @@ public final class OmniboxSuggestionEngine {
         history?.noteTyped(url)
     }
 
-    /// The row Enter picks when nothing is selected.
-    public func primarySuggestion(for text: String) -> BrowserSuggestion? {
-        OmniboxPhaseA.primary(for: text, resolver: resolver)
-    }
-
-    /// Resolves once every history change and bookmark set received so far
-    /// is in the index (tests).
-    public func historySettled() async {
-        await snapshotTask?.value
-        while let task = pumpTask { await task.value }
-        await bookmarkTask?.value
-    }
-
     // MARK: History pump
 
     private func enqueue(_ change: OmniboxHistoryChange) {

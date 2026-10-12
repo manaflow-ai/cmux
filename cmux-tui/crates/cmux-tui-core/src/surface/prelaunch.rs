@@ -92,6 +92,7 @@ impl Surface {
             opts,
             mux,
             HostedSurfaceLaunch {
+                adopted: false,
                 attachment,
                 kitty_reservation,
                 terminate_on_error: true,
@@ -104,7 +105,7 @@ impl Surface {
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 impl PrelaunchedHost {
     /// The caller's tab id (`split-client-keys-v1`) for the tab that adopts
     /// this host; the host's environment carries only the terminal id, so

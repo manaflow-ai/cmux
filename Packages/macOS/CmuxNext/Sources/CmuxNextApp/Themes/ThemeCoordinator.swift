@@ -53,15 +53,25 @@ final class ThemeCoordinator {
     /// `appearance.appTheme` as last read; nil follows the terminal theme.
     private var chromeTheme: String?
     private var chromeObservation: Task<Void, Never>?
+    private var accentObservation: Task<Void, Never>?
 
     /// Follows `appearance.appTheme`: the app theme pages get (`--cmux-app-*`, `WebTheme`),
     /// resolved like the other theme levels (the variant for the system appearance, the user's
     /// explicit config colors over it). `followTerminal` leaves each scope on its own theme.
     func followChromeTheme(_ settings: SettingsController) {
-        chromeTheme = settings.snapshot.chromeTheme
+        // `applied`: a live preview (a theme picker's highlighted row) shows too.
+        chromeTheme = settings.applied.chromeTheme
+        ThemeStore.shared.setAccent(settings.applied.accent)
         applyChromeTheme()
+        // `appearance.accent` re-derives the terminal-theme tokens (the store) and the app theme.
+        accentObservation = Task { [weak self] in
+            for await accent in ObservationStream({ settings.applied.accent }) {
+                guard let self, ThemeStore.shared.setAccent(accent) else { continue }
+                self.applyChromeTheme()
+            }
+        }
         chromeObservation = Task { [weak self] in
-            for await theme in ObservationStream({ settings.snapshot.chromeTheme }) {
+            for await theme in ObservationStream({ settings.applied.chromeTheme }) {
                 guard let self, theme != self.chromeTheme else { continue }
                 self.chromeTheme = theme
                 self.applyChromeTheme()
@@ -71,7 +81,11 @@ final class ThemeCoordinator {
 
     private func applyChromeTheme() {
         let resolved = chromeTheme.flatMap(ThemeSpec.init).flatMap(resolver.resolve)
-        ThemeStore.shared.setAppTheme(resolved.map { AppTheme.derive(from: $0.input) })
+        ThemeStore.shared.setAppTheme(resolved.map {
+            var input = $0.input
+            input.accent = ThemeStore.shared.accent
+            return AppTheme.derive(from: input)
+        })
     }
 
     func start() {
@@ -80,8 +94,20 @@ final class ThemeCoordinator {
             self?.pickerPreview(action, value: value, target: target)
         }
         registry.choiceState = { [weak self] action, target in self?.currentChoice(action, target: target) }
-        catalog.load()
         let catalog = catalog
+        // A theme's own accent: its `<theme>/accent` edit, else its file's `# cmux-accent`.
+        ThemeBridge.accent = { name in ThemeBridge.edited(name) ?? catalog.colors[name]?.accent }
+        // File accents arrive with the catalog's colors, which no config reload reports; only a
+        // change in them re-derives (and re-applies the surfaces).
+        var fileAccents: [String: ThemeRGB] = [:]
+        catalog.onRead = { [weak self] in
+            let read = catalog.colors.compactMapValues(\.accent)
+            guard read != fileAccents else { return }
+            fileAccents = read
+            ThemeBridge.refresh()
+            self?.resolver.changed()
+        }
+        catalog.load()
         registry.argumentSuggestions = { source in
             source == ActionSuggestions.ghosttyThemes ? catalog.names.map { ActionEnumCase(value: $0, title: $0) } : []
         }
@@ -265,6 +291,10 @@ final class TerminalThemeBinding: ThemeResponsive {
     weak var coordinator: ThemeCoordinator?
     private unowned let scope: ThemeScope
     private weak var session: TerminalSession?
+
+    // cx-qxxu: released with its terminal, which Cmd-T's New Tab page can withdraw while its
+    // action runs; a main-actor deinit's hop traps there (cx-t7hu).
+    nonisolated deinit {}
 
     init(scope: ThemeScope, session: TerminalSession) {
         self.scope = scope

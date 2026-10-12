@@ -26,6 +26,16 @@ public nonisolated enum BrowserToolbarButton: String, CaseIterable, Hashable, Se
     case devTools
     case overflow
 
+    /// A press opens a menu or popover (media, Downloads, profile, theme,
+    /// More), so a right-click presses it too (cx-2lm4). Zoom resets and
+    /// the toggles toggle, so a right-click leaves them alone.
+    public var opensMenu: Bool {
+        switch self {
+        case .media, .downloads, .profile, .theme, .overflow: true
+        case .zoom, .favorites, .designMode, .devTools: false
+        }
+    }
+
     /// Accessibility identifier (UI automation, `debug.extensions.toolbar`).
     public var identifier: String { "browser.toolbar.\(rawValue)" }
 

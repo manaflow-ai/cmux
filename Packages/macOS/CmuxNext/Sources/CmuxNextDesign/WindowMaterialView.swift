@@ -79,9 +79,6 @@ public final class WindowMaterialView: NSView {
         updateArtCrop()
     }
 
-    /// Waits until the art the last `apply` asked for has loaded (tests).
-    func artLoaded() async { await artLoad?.value }
-
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
@@ -97,7 +94,6 @@ public final class WindowMaterialView: NSView {
     /// Glass drops its `tintColor` then and draws the system's grey, so the
     /// tint comes back over it, as cmux classic does (dogfood 2026-10-08, C3).
     var inactiveTintAlpha: CGFloat { inactiveTintView.isHidden ? 0 : inactiveTintView.alphaValue }
-    var inactiveTintColor: CGColor? { inactiveTintView.isHidden ? nil : inactiveTintView.layer?.backgroundColor }
 
     /// Classic's wash over inactive glass: strong over a dark theme, light
     /// over a light one, none while the window is key or for other materials.

@@ -56,6 +56,12 @@ pub enum MuxEvent {
         agent: Option<Arc<str>>,
         updated_at_ms: u64,
     },
+    /// What the agent in one surface's terminal is touching now; `None`
+    /// clears it (`agent-presence-v1`).
+    AgentPresenceChanged {
+        surface: SurfaceId,
+        presence: Option<Arc<super::AgentPresence>>,
+    },
     Bell(SurfaceId),
     Notification(NotificationEvent),
     GraphicsStatus(GraphicsStatus),
@@ -92,9 +98,18 @@ pub enum MuxEvent {
         personal_revision: u64,
     },
     BookmarksChanged(personal::BookmarksChange),
+    /// The history module committed a change (`history-v1`): the history
+    /// revision and the entry kinds that changed. Consumers re-read
+    /// `history.entries.list`.
+    HistoryChanged {
+        revision: u64,
+        kinds: Vec<String>,
+    },
     /// The settings file or a managed layer changed (`settings-v1`;
     /// mux/settings.rs).
     SettingsChanged(cmux_config::Change),
+    /// keybindings.json changed (`keybindings-v1`; mux/keybindings.rs).
+    KeybindingsChanged(cmux_config::KeybindingsChange),
     Conversation(Arc<crate::conversation_store::ConversationEvent>),
     /// An event of the cloud conversations proxy (`cloud-conversations-v1`).
     CloudConversation(Arc<crate::cloud_conversations::CloudEvent>),

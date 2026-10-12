@@ -10,7 +10,8 @@ sidebar gap) still win.
 Each entry point is one check, run under each `workspaces.newPlacement` value:
   Cmd-N (`debug.key`), the sidebar's + (`debug.mouse` on `debug.sidebar_rows` `new_button`),
   New Workspace from the palette (`action.run` `newTab` with focus), `cmux workspace new` (the
-  same action without focus or a window), New <Kind> Tab with `newTerminal.opensWorkspace` on,
+  same action without focus or a window), New Terminal Tab (Ctrl-`) with
+  `newTerminal.opensWorkspace` on (a person's key press: the setting applies to user runs only),
   a link opened in a new workspace (`browser.link.openInNewWorkspace`), an agent-opened workspace
   (`agent.openSessionWorkspace`; its workspace is made before the session is looked up), and New
   Workspace Like This.
@@ -181,7 +182,9 @@ PATHS = [
     ("the sidebar's +", lambda anchor: click_new_button()),
     ("New Workspace in the palette", lambda anchor: action("newTab", focus=True)),
     ("cmux workspace new (no window, no focus)", lambda anchor: action("newTab")),
-    ("New <Kind> Tab with newTerminal.opensWorkspace", lambda anchor: action("newTab.ofKind", focus=True)),
+    # New Terminal Tab as a person presses it (Ctrl-`): a script's run (`action.run`) opens a tab even
+    # with the setting on, and Cmd-T opens the New Tab page under the default `tabs.newTabKind`.
+    ("New Terminal Tab (Ctrl-`) with newTerminal.opensWorkspace", lambda anchor: rpc("debug.key", {"key": "`", "modifiers": ["control"]})),
     ("a link opened in a new workspace", lambda anchor: action("browser.link.openInNewWorkspace", {"url": "about:blank"}, focus=True)),
     ("an agent-opened workspace (agent.openSessionWorkspace)",
      lambda anchor: action("agent.openSessionWorkspace", {"session": "cx-caoh-e2e-no-session", "name": "agent e2e"})),

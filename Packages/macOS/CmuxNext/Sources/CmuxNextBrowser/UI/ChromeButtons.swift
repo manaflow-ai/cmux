@@ -8,7 +8,7 @@ final class ChromeIconButton: NSButton {
     private let density = DensityBinding()
     private var iconName = IconName.placeholder
     private var iconLabel = ""
-    private var isHovering = false { didSet { updateFill() } }
+    private var isHovering = false { didSet { if isHovering != oldValue { updateFill(animated: true) } } }
     private var tracking: NSTrackingArea?
 
     /// Toolbar buttons use the omnibar geometry (`OmnibarStyle`); others the
@@ -30,7 +30,7 @@ final class ChromeIconButton: NSButton {
         iconLabel = label
         self.action = action
         self.target = target
-        toolTip = label
+        themedToolTip = label
         setAccessibilityLabel(label)
         wantsLayer = true
         NSLayoutConstraint.activate([
@@ -63,7 +63,7 @@ final class ChromeIconButton: NSButton {
         let icon = NSImage.icon(iconName, size: side)
         icon.accessibilityDescription = label
         image = icon
-        toolTip = label
+        themedToolTip = label
         setAccessibilityLabel(label)
     }
 
@@ -94,6 +94,15 @@ final class ChromeIconButton: NSButton {
 
     override func menu(for event: NSEvent) -> NSMenu? {
         menuProvider?() ?? super.menu(for: event)
+    }
+
+    /// A right-click presses a button whose press opens a menu (the toolbar's
+    /// profile, theme and More, cx-2lm4): right-click shows the same menu.
+    var rightClickPresses = false
+
+    override func rightMouseDown(with event: NSEvent) {
+        guard rightClickPresses, isEnabled else { return super.rightMouseDown(with: event) }
+        performClick(nil)
     }
 
     /// A press held for 0.4 s shows the menu under the button instead of
@@ -128,7 +137,7 @@ final class ChromeIconButton: NSButton {
         updateFill()
     }
 
-    private func updateFill() {
+    private func updateFill(animated: Bool = false) {
         performWithTheme {
             let color: NSColor = if !isEnabled {
                 .clear
@@ -139,7 +148,8 @@ final class ChromeIconButton: NSButton {
             } else {
                 .clear
             }
-            layer?.backgroundColor = color.cgColor
+            // Hover eases in and clears at once; a press shows at once (ChromeHover.fade).
+            if let layer { ChromeHover.paint(layer, color, animated: animated && window != nil, pressed: isHighlighted) }
             contentTintColor = isToolbar ? Palette.textPrimary : Palette.textSecondary
         }
     }
@@ -150,7 +160,7 @@ final class ChromeIconButton: NSButton {
 class ChromeTextButton: NSButton {
     private let density = DensityBinding()
     private let prominent: Bool
-    private var isHovering = false { didSet { updateFill() } }
+    private var isHovering = false { didSet { if isHovering != oldValue { updateFill(animated: true) } } }
     private var tracking: NSTrackingArea?
     private var titleText = ""
 
@@ -226,13 +236,13 @@ class ChromeTextButton: NSButton {
         }
     }
 
-    private func updateFill() {
+    private func updateFill(animated: Bool = false) {
         performWithTheme {
             var color = prominent ? Palette.selectionFill : Palette.hoverFill
             if isHighlighted || isHovering {
                 color = prominent ? Palette.focusRing.withAlphaComponent(0.35) : Palette.selectionFill
             }
-            layer?.backgroundColor = color.cgColor
+            if let layer { ChromeHover.paint(layer, color, animated: animated && window != nil, pressed: isHighlighted) }
         }
         applyTitle()
     }
@@ -299,7 +309,7 @@ class ChromeTextField: NSTextField {
     private func applyEditorColors() {
         guard let editor = currentEditor() as? NSTextView else { return }
         performWithTheme {
-            editor.insertionPointColor = Palette.textPrimary
+            editor.insertionPointColor = Palette.caret
             editor.selectedTextAttributes = [.backgroundColor: Palette.textSelection]
         }
     }
@@ -308,18 +318,5 @@ class ChromeTextField: NSTextField {
         let accepted = super.becomeFirstResponder()
         if accepted { applyEditorColors() }
         return accepted
-    }
-}
-
-extension NSTextField {
-    /// The field's setter ends and restarts an active edit, which runs the
-    /// end-editing and focus paths mid-typing; the cell's only redraws.
-    func setPlaceholderKeepingEdit(_ placeholder: NSAttributedString) {
-        guard currentEditor() != nil, let cell = cell as? NSTextFieldCell else {
-            placeholderAttributedString = placeholder
-            return
-        }
-        cell.placeholderAttributedString = placeholder
-        needsDisplay = true
     }
 }

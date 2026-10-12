@@ -36,6 +36,7 @@ import {
   type HostLists,
   type ListRow,
   type ManagedInfo,
+  type MuseumArtResult,
   type SettingsClient,
   type SettingsOpName,
   type SettingsOps,
@@ -234,6 +235,25 @@ export class SettingsStore {
     await this.refreshHost();
   }
 
+  /** Save as Ghostty Theme (cx-wqn5.1): the host writes `base` with its edits as the user theme `name`. */
+  async saveThemeFile(name: string, base: string, replace: boolean): Promise<Reply<{ name?: string }>> {
+    return this.themeFileSaved(await this.request("cmux.settings.theme.save", { name, base, replace }));
+  }
+
+  /**
+   * Import Theme File: the host asks for the file in the cmux picker (`{}` when the person left it).
+   * A name in use answers `cmux.settings.theme.exists` with a `token`; `token` and `replace` retry it.
+   */
+  async importThemeFile(retry?: { token: string; replace: boolean }): Promise<Reply<{ name?: string }>> {
+    return this.themeFileSaved(await this.request("cmux.settings.theme.import", retry ?? {}));
+  }
+
+  /** After a theme file lands, the theme names and colors are read again so every picker lists it. */
+  private async themeFileSaved(reply: Reply<{ name?: string }>): Promise<Reply<{ name?: string }>> {
+    if (reply.ok && reply.value.name) await Promise.all([this.refresh(), this.fetchNative(settingsKeys.themeColors)]);
+    return reply;
+  }
+
   /** Whether `text` is a theme spec the host accepts. */
   async acceptsTheme(text: string): Promise<boolean> {
     const reply = await this.request("cmux.settings.theme.accepts", { text });
@@ -256,6 +276,27 @@ export class SettingsStore {
     const reply = await this.request("cmux.settings.folders.add", { key });
     if (!reply.ok) this.setError(key, rowError(reply.error));
     else await this.refresh();
+  }
+
+  /** Opens the cmux picker for an image of the person's own; the host copies it into the
+   * backgrounds folder and sets it as the background. */
+  async chooseBackdropImage(): Promise<void> {
+    const reply = await this.request("cmux.settings.backdrop.choose_image", {});
+    if (!reply.ok) this.setError("appearance.background", rowError(reply.error));
+    else await Promise.all([this.refresh(), this.refreshHost()]);
+  }
+
+  /** Browse More Art: the works matching `query`, or null when the host could not search. */
+  async searchMuseumArt(query: string): Promise<MuseumArtResult[] | null> {
+    const reply = await this.request("cmux.settings.art.search", { query });
+    return reply.ok ? reply.value.results : null;
+  }
+
+  /** Downloads the work `key` and sets it as the background; false when that failed. */
+  async useMuseumArt(key: string): Promise<boolean> {
+    const reply = await this.request("cmux.settings.art.use", { key });
+    if (reply.ok) await Promise.all([this.refresh(), this.refreshHost()]);
+    return reply.ok;
   }
 
   /** Writes `text` to the pasteboard (a row's Copy Setting Key) through the host. */

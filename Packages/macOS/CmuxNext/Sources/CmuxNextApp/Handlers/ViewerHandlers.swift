@@ -29,11 +29,16 @@ enum ViewerHandlers {
             // An agent's diff beside its chat: selected in the column right of it, or moved into a new one.
             let created = invocation.besideCaller ? AgentBesidePlacement.placed(invocation, in: pane, then: nil) : nil
             // No repository at the pane's folder: the picker asks for one (only when the run may
-            // change the view; an agent or the CLI without focus gets needsFocus).
+            // change the view, as a person's click on the chat header's Changes may; an agent or
+            // the CLI without focus gets needsFocus).
             registry.track(Task { @MainActor in
                 do { try await viewers.openDiff(folder, in: pane, focus: focus, created: created) } catch {
-                    guard focus else { return backgroundPickerRefusal() }
-                    context.services.palette.show(page: viewers.diffPickerPage(for: pane), relativeTo: context.activeWindow?.window)
+                    guard invocation.allowsViewChange else { return backgroundPickerRefusal() }
+                    // The header's pick still opens beside the chat, as its diff would have.
+                    let page = invocation.besideCaller
+                        ? viewers.diffPickerPage(for: pane, beside: { AgentBesidePlacement.placed(invocation, in: pane, then: nil) })
+                        : viewers.diffPickerPage(for: pane)
+                    context.services.palette.show(page: page, relativeTo: context.activeWindow?.window)
                 }
                 return nil
             })

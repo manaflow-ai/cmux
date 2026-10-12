@@ -114,11 +114,21 @@ public final class PageRouter {
     /// The window's title bar action (DESKTOP-FEEL): a double-click on a title bar the page draws.
     public var titleBarDoubleClick: (@MainActor () -> Void)?
 
+    /// A popup op (`cmux.app.popup.*`, cx-6k6cg) with its params: the page view's WebPopupHost.
+    public var popup: (@MainActor (String, [String: Any]) -> JSONValue)?
+
     private func call(_ op: String, params: JSONValue, opid: String?) async throws -> JSONValue {
         if op == PageNativeOp.titleBarDoubleClick {
             guard !closed else { throw PageError.closed }
             titleBarDoubleClick?()
             return .object([:])
+        }
+        if op == PageNativeOp.popupShow || op == PageNativeOp.popupUpdate || op == PageNativeOp.popupHide {
+            guard !closed else { throw PageError.closed }
+            guard case .object = params, let fields = params.foundationObject as? [String: Any] else {
+                throw PageError.invalidParams("params must be an object")
+            }
+            return popup?(op, fields) ?? .object(["shown": .bool(false)])
         }
         let (provider, params) = try admit(op, params: params)
         return try await provider.call(op, params: params, context: PageCallContext(page: descriptor.id, opid: opid,
@@ -137,7 +147,7 @@ public final class PageRouter {
     }
 
     private func subscribe(_ stream: String, filter: JSONValue) async throws -> UInt64 {
-        if stream == PageNativeOp.pageCommand || stream == PageNativeOp.pageConnection {
+        if stream == PageNativeOp.pageCommand || stream == PageNativeOp.pageConnection || stream == PageNativeOp.pagePopup {
             guard !closed else { throw PageError.closed }
             let sub = nextSubscription
             nextSubscription += 1
@@ -215,6 +225,11 @@ public final class PageRouter {
         let subs = builtIn.filter { $0.value == PageNativeOp.pageCommand }.keys.sorted()
         for sub in subs { deliver(sub: sub, .object(data)) }
         return !subs.isEmpty
+    }
+
+    /// Sends a popup event (`{type, id?}`) to the page's popup subscribers.
+    public func publishPopup(_ event: JSONValue) {
+        for sub in builtIn.filter({ $0.value == PageNativeOp.pagePopup }).keys.sorted() { deliver(sub: sub, event) }
     }
 
     /// Records the owner link state and tells the page's connection subscribers when it changes.

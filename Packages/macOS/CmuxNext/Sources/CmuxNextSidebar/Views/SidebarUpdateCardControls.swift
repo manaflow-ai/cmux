@@ -44,10 +44,15 @@ final class SidebarUpdateButton: NSView {
     private let label = NSTextField(labelWithString: "")
     private var isHovered = false { didSet { if isHovered != oldValue { needsDisplay = true } } }
     private var isPressed = false { didSet { if isPressed != oldValue { needsDisplay = true } } }
+    /// Full Keyboard Access focus: a ring in the theme's focus color, not the system's blue.
+    private var isKeyFocused = false { didSet { if isKeyFocused != oldValue { needsDisplay = true } } }
+    private var showsKeyFocus: Bool { KeyWindowRepaint.showsFocus(self, focused: isKeyFocused) }
+    private lazy var keyRepaint = KeyWindowRepaint(self)
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        focusRingType = .none
         layer?.cornerCurve = .continuous
         label.alignment = .center
         label.lineBreakMode = .byTruncatingTail
@@ -116,6 +121,8 @@ final class SidebarUpdateButton: NSView {
     override func updateLayer() {
         performWithTheme {
             layer?.backgroundColor = fill.cgColor
+            layer?.borderColor = Palette.focusRing.cgColor
+            layer?.borderWidth = showsKeyFocus ? Metrics.lineWidth(1.5) : 0
             label.textColor = isQuiet ? Palette.textPrimary : Self.colors(SidebarTunables.updateCardButton.value).text
         }
     }
@@ -157,9 +164,19 @@ final class SidebarUpdateButton: NSView {
 
     override var acceptsFirstResponder: Bool { NSApp.isFullKeyboardAccessEnabled && isEnabled }
     override var canBecomeKeyView: Bool { acceptsFirstResponder && !isHiddenOrHasHiddenAncestor }
-    override var focusRingMaskBounds: NSRect { bounds }
-    override func drawFocusRingMask() {
-        NSBezierPath(roundedRect: bounds, xRadius: Metrics.space2, yRadius: Metrics.space2).fill()
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        keyRepaint.track()
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        isKeyFocused = true
+        return true
+    }
+
+    override func resignFirstResponder() -> Bool {
+        isKeyFocused = false
+        return true
     }
 
     override func keyDown(with event: NSEvent) {
@@ -178,11 +195,18 @@ final class SidebarUpdateCheckbox: NSView {
     private let mark = NSImageView()
     private let label = NSTextField(labelWithString: "")
 
+    /// Full Keyboard Access focus: the box's edge in the theme's focus color, not the system's blue ring.
+    private var isKeyFocused = false { didSet { if isKeyFocused != oldValue { needsDisplay = true } } }
+    private var showsKeyFocus: Bool { KeyWindowRepaint.showsFocus(self, focused: isKeyFocused) }
+    private lazy var keyRepaint = KeyWindowRepaint(self)
+
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        focusRingType = .none
         box.cornerCurve = .continuous
         box.borderWidth = 1
+        box.actions = ["borderColor": NSNull(), "borderWidth": NSNull()]
         layer?.addSublayer(box)
         mark.imageScaling = .scaleProportionallyDown
         label.lineBreakMode = .byTruncatingTail
@@ -237,7 +261,8 @@ final class SidebarUpdateCheckbox: NSView {
     override func updateLayer() {
         performWithTheme {
             box.backgroundColor = (isOn ? Palette.textPrimary : NSColor.clear).cgColor
-            box.borderColor = (isOn ? Palette.textPrimary : Palette.textTertiary).cgColor
+            box.borderColor = (showsKeyFocus ? Palette.focusRing : isOn ? Palette.textPrimary : Palette.textTertiary).cgColor
+            box.borderWidth = showsKeyFocus ? Metrics.lineWidth(1.5) : 1
             mark.contentTintColor = Palette.textOnPrimary
             mark.isHidden = !isOn
             label.textColor = Palette.textSecondary
@@ -264,9 +289,19 @@ final class SidebarUpdateCheckbox: NSView {
 
     override var acceptsFirstResponder: Bool { NSApp.isFullKeyboardAccessEnabled }
     override var canBecomeKeyView: Bool { acceptsFirstResponder && !isHiddenOrHasHiddenAncestor }
-    override var focusRingMaskBounds: NSRect { box.frame }
-    override func drawFocusRingMask() {
-        NSBezierPath(roundedRect: box.frame, xRadius: Metrics.space1, yRadius: Metrics.space1).fill()
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        keyRepaint.track()
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        isKeyFocused = true
+        return true
+    }
+
+    override func resignFirstResponder() -> Bool {
+        isKeyFocused = false
+        return true
     }
 
     override func keyDown(with event: NSEvent) {

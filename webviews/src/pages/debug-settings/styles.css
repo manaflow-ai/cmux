@@ -90,12 +90,8 @@
   background: var(--page-text);
 }
 
-.ds-row-label .ds-dot {
+.ds-dot:not([data-visible="true"]) {
   visibility: hidden;
-}
-
-.ds-row-label .ds-dot[data-visible="true"] {
-  visibility: visible;
 }
 
 /* An <output> is inline by default; the notice is its own line under the actions. */
@@ -172,7 +168,7 @@
 }
 
 .ds-destructive:not(:disabled) {
-  color: var(--app-danger, light-dark(rgba(196, 43, 28, 1), rgba(255, 105, 97, 1)));
+  color: var(--cmux-app-danger, light-dark(rgba(196, 43, 28, 1), rgba(255, 105, 97, 1)));
 }
 
 .ds-scroll {
@@ -372,4 +368,65 @@
 .ds-footer {
   font-size: var(--text-caption);
   color: var(--page-text-3);
+}
+
+/* A narrow pane (cx-bbe2): the label and help take the row's width, the control and its default
+   sit below them, and the reset stays at the row's end. */
+@media (max-width: 760px) {
+  .ds-row {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  .ds-row-text {
+    flex: 1 1 calc(100% - 40px);
+  }
+
+  .ds-row-control {
+    order: 3;
+    flex: 1 1 100%;
+    align-items: flex-start;
+    padding-inline-start: 12px;
+  }
+
+  .ds-slider {
+    width: 120px;
+  }
+}
+
+/* A very narrow pane: the sections become a wrapping strip above the list. */
+@media (max-width: 560px) {
+  .ds-page {
+    flex-direction: column;
+  }
+
+  .ds-sidebar {
+    flex: 0 0 auto;
+    flex-direction: row;
+    flex-wrap: wrap;
+    max-height: 35vh;
+    border-inline-end: 0;
+    border-bottom: 1px solid var(--page-separator);
+  }
+
+  .ds-search-box {
+    flex: 1 1 100%;
+  }
+
+  .ds-sidebar-row {
+    flex: 0 0 auto;
+  }
+
+  .ds-sidebar-separator {
+    display: none;
+  }
+
+  .ds-toolbar,
+  .ds-scroll {
+    padding-inline: 12px;
+  }
+
+  .ds-main {
+    min-height: 0;
+  }
 }

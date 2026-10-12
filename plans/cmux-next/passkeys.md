@@ -209,3 +209,46 @@ Each in a CEF tab and in a WebKit tab (New WebKit Tab from the palette):
 - K15 comes from code inspection, not a reproduction.
 - Stock Chromium (Chrome for Testing 153.0.8010.12, one major below our fork) passes every judged test RP scenario with a virtual authenticator, and its `getClientCapabilities()` reports `immediateGet`, `relatedOrigins`, `hybridTransport`, `signalAllAcceptedCredentials`, `signalCurrentUserDetails`, `signalUnknownCredential`, `extension:prf`, `extension:largeBlob` and the JSON helpers. PRF and largeBlob on iCloud Keychain itself (not a virtual authenticator) are unverified.
 - K8 oracle from that run: an allow list with `transports: ["internal", "hybrid"]` is answered by the local platform credential; `["hybrid"]` alone is not sent to it (Chromium goes to the phone flow; with no UI it ends in `NotAllowedError`). A WebKit bridge must route the same way.
+
+## 10. Measured 2026-10-12 (cx-d0d.5)
+
+Run on a fleet capture mini (no Touch ID, no iCloud account, no phone or security key) with
+`scripts/cmux-next/passkeys-matrix-e2e.py`, which serves the section 7 test RP and runs it in a real
+cmux-next pane over the app socket. In CEF each scenario gets Chromium's DevTools virtual
+authenticator through `debug.cef.devtools` (Debug builds); WebKit has none, so it runs only the
+scenarios that need no authenticator.
+
+| Scenario (known bug) | CEF, DEV build of 8f408161 | WebKit, DEV build | WebKit, signed cmux NEXT 1.0.0-nightly.3825679260001 |
+| --- | --- | --- | --- |
+| create-platform, get-discoverable, get-allow-list | pass | skip (no virtual authenticator) | skip |
+| get-large-challenge (K12) | pass | skip | skip |
+| get-no-user-handle (K11) | pass | skip | skip |
+| abort-conditional-then-modal (K15) | pass | skip | skip |
+| abort-modal (K15) | pass | fail: `NotAllowedError` (no passkey authorization, K18) | fail: `NotAllowedError` (no entitlement) |
+| prf-create-get, large-blob, cred-props (K17) | pass | skip | skip |
+| client-capabilities (K17) | pass | pass | pass |
+| user-id-too-long, insecure-rp-id | pass | pass | pass |
+| transports-internal-hybrid (K8) | pass (platform answers) | skip | skip |
+| transports-hybrid-only (K8, record only) | `NotAllowedError`, as the stock Chromium oracle | skip | skip |
+| cross-origin-iframe-denied, -allowed (K17) | pass, pass | pass (WebKit says "document is not focused"), skip | same |
+| opaque-origin-iframe-uvpa, sandboxed-iframe-create (R122) | pass, pass | pass, pass | pass, pass |
+| Probe: `isUserVerifyingPlatformAuthenticatorAvailable` (K1) | false (DEV: no entitlement) | false | false |
+
+Signed-build findings:
+- **K1 is open in signed cmux-next: cx-urd.62.** cmux NEXT (`com.cmuxterm.app.nightly.cmux-next`) is
+  signed with `cmux.next-dev.entitlements` and no provisioning profile, on purpose (nightly.yml, #19743).
+  The bundle has no `web-browser.public-key-credential`, application id or keychain group, so platform
+  passkeys fail in both engines. A plain WebKit `navigator.credentials.get` is refused with
+  `NotAllowedError`. No signed cmux-next build can run section 8 until cx-urd.62 lands.
+- K2 holds: the signed bundle has `NSBluetoothAlwaysUsageDescription`.
+- K9 holds: the passkey sources (`WebKitPasskey*.swift`, `*Passkey*.swift` in CEF,
+  `shim_passkeys.mm`) call no private selectors.
+- Not measured: the signed build's CEF tab did not answer the socket (`openBrowser` and page eval past
+  the 2 s deadline) in two launches on a fresh mini. Without the entitlement CEF has no platform
+  authenticator either, so this does not change the K1 result.
+
+Still UNVERIFIED (needs cx-urd.62 and real hardware): section 8 checks 1-7 (Touch ID, QR/hybrid
+cx-d0d.46, YubiKey, conditional UI on github.com, Google re-auth, agent refusal cx-d0d.48, background
+K10), K16 visibility (cx-d0d.47), and every WebKit row that needs an authenticator.
+Harness note: `debug.cef.devtools` replies arrive after the socket's 2 s deadline; the calls still
+run (`not_run: false`), and the script clears authenticators with `WebAuthn.disable`.

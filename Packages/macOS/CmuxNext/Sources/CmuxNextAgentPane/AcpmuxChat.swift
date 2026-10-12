@@ -13,6 +13,9 @@ public nonisolated struct AcpmuxChat: Hashable, Sendable, Identifiable {
     public let accounts: [String]
     public let roots: [String]
     public let sourcePath: String?
+    /// The agent mark id acpmux resolved for the chat's harness (design/agent-icons), nil
+    /// when it has none or the daemon predates it.
+    public let brand: String?
     /// What the live acpmux session continuing this chat needs from the
     /// person (`needsInput`, `failed`, `unread`), nil when nothing.
     public var attention: String?
@@ -21,7 +24,8 @@ public nonisolated struct AcpmuxChat: Hashable, Sendable, Identifiable {
 
     public init(id: String, sessionID: String, harness: String, title: String? = nil, cwd: String? = nil,
                 createdAt: Date? = nil, updatedAt: Date, messageCount: Int? = nil, accounts: [String] = [],
-                roots: [String] = [], sourcePath: String? = nil, attention: String? = nil, preview: String? = nil) {
+                roots: [String] = [], sourcePath: String? = nil, brand: String? = nil, attention: String? = nil,
+                preview: String? = nil) {
         self.id = id
         self.sessionID = sessionID
         self.harness = harness
@@ -33,6 +37,7 @@ public nonisolated struct AcpmuxChat: Hashable, Sendable, Identifiable {
         self.accounts = accounts
         self.roots = roots
         self.sourcePath = sourcePath
+        self.brand = brand
         self.attention = attention
         self.preview = preview
     }
@@ -51,7 +56,7 @@ public nonisolated struct AcpmuxChat: Hashable, Sendable, Identifiable {
                   updatedAt: Date(timeIntervalSince1970: updated / 1000),
                   messageCount: (json["messageCount"] as? NSNumber).map { $0.intValue },
                   accounts: json["accounts"] as? [String] ?? [], roots: json["roots"] as? [String] ?? [],
-                  sourcePath: json["sourcePath"] as? String,
+                  sourcePath: json["sourcePath"] as? String, brand: json["brand"] as? String,
                   attention: json["attention"] as? String, preview: json["preview"] as? String)
     }
 

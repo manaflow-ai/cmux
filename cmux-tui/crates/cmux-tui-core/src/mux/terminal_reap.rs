@@ -415,7 +415,7 @@ impl Mux {
         // record-cleanup retry thread, which dies when this daemon exits
         // after the handoff, so the host would outlive the call. Before
         // reporting success, prove every host of this session ended.
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         if let Some(root) = self.surface_options.lock().unwrap().terminal_host_root.clone() {
             let survivors =
                 end_surviving_terminal_hosts(&root, Instant::now() + END_TERMINALS_SURVIVOR_WAIT);
@@ -546,7 +546,7 @@ const END_TERMINALS_CLOSE_CEILING: Duration = Duration::from_secs(60);
 
 /// How long `end_all_terminals` waits for hosts that outlived their close
 /// deadline to die after `SIGKILL`.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 const END_TERMINALS_SURVIVOR_WAIT: Duration = Duration::from_secs(5);
 
 /// Forcibly ends every terminal host of this session (the host root is
@@ -557,7 +557,7 @@ const END_TERMINALS_SURVIVOR_WAIT: Duration = Duration::from_secs(5);
 /// Only a host whose exact incarnation still holds its start-nonce lock is
 /// signaled, so a reused PID is never killed. Records are reloaded on every
 /// pass, so a host that appeared during the shutdown is ended too.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn end_surviving_terminal_hosts(root: &Path, deadline: Instant) -> Vec<String> {
     use crate::terminal_host_runtime::{TerminalHostLiveness, terminal_host_record_liveness};
     let mut signaled = HashSet::new();
@@ -572,7 +572,7 @@ fn end_surviving_terminal_hosts(root: &Path, deadline: Instant) -> Vec<String> {
                     let _ = cleanup_terminal_host_record(&record, &path);
                 }
                 Ok(TerminalHostLiveness::Live) => {
-                    if let Ok(pid) = libc::pid_t::try_from(record.host_pid)
+                    if let Ok(pid) = i32::try_from(record.host_pid)
                         && pid > 0
                         && signaled.insert(record.incarnation.clone())
                     {
@@ -582,7 +582,12 @@ fn end_surviving_terminal_hosts(root: &Path, deadline: Instant) -> Vec<String> {
                         );
                         // SAFETY: the live start-nonce lock proves `pid` is
                         // this host incarnation; SIGKILL has no other effect.
-                        unsafe { libc::kill(pid, libc::SIGKILL) };
+                        #[cfg(unix)]
+                        unsafe {
+                            libc::kill(pid, libc::SIGKILL)
+                        };
+                        #[cfg(windows)]
+                        let _ = crate::terminal_host_runtime::kill_process_group(record.host_pid);
                     }
                     survivors.push(record.terminal_id);
                 }

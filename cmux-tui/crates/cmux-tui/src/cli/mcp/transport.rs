@@ -257,6 +257,18 @@ pub(super) fn browser_host_socket() -> std::path::PathBuf {
     base.join("browser-host.sock")
 }
 
+/// `params` with the server's own terminal (`CMUX_TUI_TERMINAL_ID`) on the
+/// operations that can open a session, so the app draws the session's lease
+/// in that agent's presence colour. Display only; the agent cannot name it.
+fn with_caller_terminal(method: &str, mut params: Value) -> Value {
+    let opens = matches!(method, "browser.repl.open" | "browser.repl.eval" | "browser.repl.reset");
+    let terminal = std::env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|id| !id.is_empty());
+    if let (true, Some(terminal), Some(fields)) = (opens, terminal, params.as_object_mut()) {
+        fields.insert("terminal".into(), Value::String(terminal));
+    }
+    params
+}
+
 /// One request to the browser host: `{id, method, params, origin: "mcp"}`
 /// as one JSON line, answered by `{id, result}` or `{id, error}`. The host
 /// runs each request at most once, so a lost answer to a change is
@@ -281,7 +293,7 @@ pub(super) fn browser_host(
     })?;
     let id = wire::random_request_id()
         .map_err(|error| CallFailure::local(FailureKind::NotRun, "usage.invalid", error.0))?;
-    let request = json!({"id": id, "method": method, "params": params, "origin": "mcp"});
+    let request = json!({"id": id, "method": method, "params": with_caller_terminal(method, params), "origin": "mcp"});
     let mut line = serde_json::to_vec(&request).expect("JSON values serialize");
     line.push(b'\n');
     let sent = if mutation { FailureKind::InProgress } else { FailureKind::NotRun };

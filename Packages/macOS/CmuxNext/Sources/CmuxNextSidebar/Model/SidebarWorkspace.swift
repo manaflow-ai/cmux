@@ -92,6 +92,13 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// The brand id (CmuxAgentBrands) of an agent running in one of the workspace's
     /// tabs, a working or waiting one first; the row draws its mark per `SidebarAgentMarkVariant`.
     public var agentBrand: String?
+    /// That agent's name ("Claude Code", "Codex"): the hover card's agent line (cx-13w3).
+    public var agentName: String?
+    /// The last message of the workspace's agent chat: an expanded row's second line (cx-13w3.1).
+    public var lastMessage: String?
+    /// The text of the newest unread notification in the workspace's tabs
+    /// (`WorkspaceRowElement.notification`); nil once they are read.
+    public var notificationText: String?
     /// Determinate or indeterminate bar under the row: the workspace's
     /// reported progress, else a terminal's OSC 9;4 progress.
     public var progress: SidebarProgress?
@@ -113,6 +120,13 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// carries it whatever `sidebar.workspaceRow` shows, until the machine's
     /// own workspace replaces the row. Nil for every other row.
     public var stage: String?
+    /// Agents acting in the workspace's tabs right now, in a stable order
+    /// (`agent-presence-v1`); drawn only with `sidebar.presenceDots` on.
+    public var presence: [SidebarPresence] = []
+    /// What agents and scripts reported (`cmux workspace status|log|progress`)
+    /// beyond the ports and pr entries: the row's status block. Nil when
+    /// nothing is reported.
+    public var reported: SidebarWorkspaceStatus?
 
     public init(
         id: WorkspaceID,
@@ -134,6 +148,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         activity: StatusIndicatorState = .idle,
         activityStyle: StatusIndicatorStyle? = nil,
         agentBrand: String? = nil,
+        agentName: String? = nil,
         progress: SidebarProgress? = nil,
         tabs: [SidebarTab] = [],
         rowState: SidebarRowState = .live,
@@ -161,6 +176,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         self.activity = activity
         self.activityStyle = activityStyle
         self.agentBrand = agentBrand
+        self.agentName = agentName
         self.progress = progress
         self.tabs = tabs
         self.rowState = rowState

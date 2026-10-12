@@ -1,0 +1,21 @@
+import CmuxNextActions
+
+extension CloudHandlers {
+    /// Move to Cloud and Bring Back Local: the palette, the tab and chat right-click
+    /// menus and `cmux cloud move` / `cmux cloud bring-back` each run one binding
+    /// (``CloudMove``, ``CloudBringBack``). An agent's run of either is never a move.
+    static func bindMove(into registry: ActionRegistry, context: AppActionContext) {
+        let services = context.services
+        let reason: @MainActor () -> String? = { services.machines.isFeatureDisabled(.cloud) ? RefusalStrings.turnedOffByOrganization : nil }
+        // An agent's run asks the person in its chat instead (``CloudMoveAsks``); the card's Move runs this action as theirs.
+        services.cloud.toolCards.view = { [weak services] tab, make in make ? services?.agentTabs.view(for: tab) : services?.agentTabs.existingView(tab) }
+        bind(CloudMove.action, registry, reason: reason) { invocation in
+            if CloudMoveAsks.isAgent(invocation) { return try services.cloud.moveAsks.ask(invocation, services: services) }
+            try CloudMove(services: services).start(invocation, context: context)
+        }
+        bind(CloudBringBack.action, registry, reason: reason) { invocation in
+            guard !CloudMoveAsks.isAgent(invocation) else { throw ActionFailure(message: CloudMoveAskStrings.bringBackIsPersons) }
+            try CloudBringBack(services: services).start(invocation, context: context)
+        }
+    }
+}

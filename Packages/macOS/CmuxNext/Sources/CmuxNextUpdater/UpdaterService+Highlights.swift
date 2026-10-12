@@ -1,0 +1,49 @@
+import CmuxUpdater
+import Foundation
+
+/// The staged update's highlights (cx-ncc.45.5): what the "Update ready"
+/// popover and card show before the restart, and the span "See all changes"
+/// opens. Data and flow only; the whats-new-design lane draws them.
+extension UpdaterService {
+    /// The staged update's top changes, or nil while nothing is staged.
+    /// Recomputed from the staged notes (fetched and verified at staging)
+    /// and the staged appcast item, so it is offline-safe once downloaded.
+    public var stagedHighlights: UpdateHighlights? {
+        guard let version = stagedVersion ?? stagedNotes?.shortVersion else { return nil }
+        let build = stagedBuild() ?? stagedNotes?.build ?? version
+        return UpdateHighlights(version: version, build: build, fromVersion: identity.shortVersion, fromBuild: identity.build,
+                                notes: stagedNotes, appcast: stagedChangelog)
+    }
+
+    /// The highlights of the update this launch completed, for the "cmux
+    /// Updated!" card: the ones the popover showed before the restart, else
+    /// built from the recorded changelog lines; the span runs from the
+    /// previous version to this one. Nil when no update is recorded.
+    public var lastUpdateHighlights: UpdateHighlights? {
+        guard let record = whatsNew.lastUpdate else { return nil }
+        var highlights = record.highlights ?? UpdateHighlights(version: record.toVersion, build: record.toBuild,
+                                                               fromVersion: record.fromVersion, fromBuild: record.fromBuild,
+                                                               notes: nil, appcast: record.changelog)
+        highlights.changelog = UpdateHighlights.Changelog(from: record.fromVersion, to: record.toVersion)
+        return highlights
+    }
+
+    /// The "cmux Updated!" card without a saved record (a manual or brew
+    /// install, an update from a build that saved none): this version, the
+    /// span from the last version seen, no items. Nil when not updated.
+    public var updatedWithoutRecordHighlights: UpdateHighlights? {
+        guard whatsNew.lastUpdate == nil, whatsNew.isUpdated else { return nil }
+        let from = whatsNew.lastSeen?.description ?? identity.shortVersion
+        return UpdateHighlights(version: identity.shortVersion, build: identity.build, fromVersion: from, fromBuild: "",
+                                notes: nil, appcast: nil)
+    }
+
+    /// "See all changes": the changelog page for the releases after this
+    /// build up to the staged one.
+    @discardableResult
+    public func openStagedChangelog() -> Bool {
+        guard let span = stagedHighlights?.changelog else { return openChangelog?() ?? false }
+        if let open = openChangelogSpan { return open(span.from, span.to) }
+        return openChangelog?() ?? false
+    }
+}

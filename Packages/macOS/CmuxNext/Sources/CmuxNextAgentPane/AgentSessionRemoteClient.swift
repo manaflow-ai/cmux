@@ -13,8 +13,9 @@ public nonisolated protocol AgentSessionRemoteClient: Sendable {
     /// Sends one text prompt; answers `{prompt_id, turn_id, queued}` once acpmux recorded it.
     func prompt(id: String, text: String) async throws -> Data
     func cancel() async throws
-    /// Answers a permission request the daemon announced on this attachment.
-    func permission(id: String, option: String) async throws
+    /// Answers a permission request the daemon announced on this attachment, with the person's
+    /// decision proof of a relayed allow when the pane made one (cx-0q7o; acpmux decides).
+    func permission(id: String, option: String, decisionNonce: String?, personDecision: String?) async throws
     func detach() async
     /// Ends the attachment and its daemon connection.
     func close() async

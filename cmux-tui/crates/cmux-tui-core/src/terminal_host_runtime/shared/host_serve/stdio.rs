@@ -14,12 +14,20 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use super::super::super::sys::{
-    HostListener, HostLivenessLease, acquire_terminal_host_publication_lock, adopt_launch,
+    self, HostListener, HostLivenessLease, acquire_terminal_host_publication_lock, adopt_launch,
     host_signals, prepare_private_dir,
 };
 use super::super::host_accept;
 use super::super::records::*;
 use super::*;
+
+/// The host process's entry (`__terminal-host --bootstrap-stdio ...`): its
+/// bootstrap streams are stdio on Unix and two named pipes on Windows
+/// (`sys::host_bootstrap_streams`).
+pub fn serve_terminal_host_process(args: &[String]) -> anyhow::Result<()> {
+    let (mut reader, mut writer) = sys::host_bootstrap_streams(args)?;
+    serve_terminal_host_stdio(args, &mut reader, &mut writer)
+}
 
 pub fn serve_terminal_host_stdio(
     args: &[String],
@@ -85,7 +93,7 @@ pub fn serve_terminal_host_stdio(
         supports_terminal_metadata: true,
         supports_clipboard_read: true,
         supports_viewer_size_priority: true,
-        supports_pty_custody: true,
+        supports_pty_custody: sys::SUPPORTS_PTY_CUSTODY,
     };
     let record_root = Path::new(&launch.record_path)
         .parent()
@@ -126,21 +134,10 @@ pub fn serve_terminal_host_stdio(
     {
         thread::sleep(Duration::from_millis(delay.min(5_000)));
     }
-    // Debug builds only: when the named FIFO exists, the host waits before
-    // Ready until the test opens it for writing, so a test can hold several
-    // launches open at once and prove they overlap. A test killed before it
-    // opens the gate leaves the host waiting 30 s at most.
+    // Debug builds only: a test can hold several launches open at once
+    // before Ready and prove they overlap.
     #[cfg(debug_assertions)]
-    if let Some(gate) = std::env::var_os("CMUX_TUI_TEST_HOST_READY_GATE")
-        && Path::new(&gate).exists()
-    {
-        let (opened, wait) = std::sync::mpsc::channel();
-        let _ = thread::Builder::new().name("host-ready-gate".into()).spawn(move || {
-            let _ = fs::File::open(&gate);
-            let _ = opened.send(());
-        });
-        let _ = wait.recv_timeout(Duration::from_secs(30));
-    }
+    wait_at_test_gate("CMUX_TUI_TEST_HOST_READY_GATE");
 
     let ready = HostReady {
         selected_version: PROTOCOL_VERSION,
@@ -263,7 +260,29 @@ pub fn serve_terminal_host_stdio(
             Err(error) => backoff.after_error(&shared, &error),
         }
     }
+    // Debug builds only (cx-6xk9): a test holds an ended host alive, with
+    // its record, endpoint and live marker, to prove a restart waits for
+    // the old host's exit.
+    #[cfg(debug_assertions)]
+    wait_at_test_gate("CMUX_TUI_TEST_HOST_EXIT_GATE");
     thread::sleep(Duration::from_millis(20));
     drop(guard);
     Ok(())
+}
+
+/// Test seam: when the FIFO that `variable` names exists, wait until a test
+/// opens it for writing. A test killed before it opens the gate leaves the
+/// host waiting 30 s at most. Only explicitly configured test daemons set
+/// the variable.
+#[cfg(debug_assertions)]
+fn wait_at_test_gate(variable: &str) {
+    let Some(gate) = std::env::var_os(variable).filter(|gate| Path::new(gate).exists()) else {
+        return;
+    };
+    let (opened, wait) = std::sync::mpsc::channel();
+    let _ = thread::Builder::new().name("host-test-gate".into()).spawn(move || {
+        let _ = fs::File::open(&gate);
+        let _ = opened.send(());
+    });
+    let _ = wait.recv_timeout(Duration::from_secs(30));
 }

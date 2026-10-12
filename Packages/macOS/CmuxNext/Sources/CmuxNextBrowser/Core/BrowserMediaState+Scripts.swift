@@ -147,6 +147,10 @@ nonisolated extension BrowserMediaCommand {
         switch self {
         case .playPause:
             return ("(() => { \(element)if (e.paused) { e.play().catch(() => {}); } else { e.pause(); } return true; })()", .isolated)
+        case .play:
+            return ("(() => { \(element)e.play().catch(() => {}); return true; })()", .isolated)
+        case .pause:
+            return ("(() => { \(element)e.pause(); return true; })()", .isolated)
         case .toggleMute:
             return ("(() => { \(element)e.muted = !e.muted; return true; })()", .isolated)
         case .muteTab(let on):

@@ -31,8 +31,8 @@ pub(super) fn run(mut session: Session, text: &str, args: &Args, output: OutputM
         eprintln!("cmux: {}", m.empty_message);
         return 2;
     }
-    let seq = match session.send(text) {
-        Ok(seq) => seq,
+    let (seq, id) = match session.send(text) {
+        Ok(sent) => sent,
         Err(LinkError::Transport(message)) => {
             eprintln!("cmux: {message}");
             return 3;
@@ -46,7 +46,7 @@ pub(super) fn run(mut session: Session, text: &str, args: &Args, output: OutputM
     let stream = !json && std::io::stdout().is_terminal();
     let links = !json && super::hyperlink::enabled();
     let mut out = Printer { streamed: String::new(), wrote: false, json, links };
-    let mut watch = TurnWatch::new(seq);
+    let mut watch = TurnWatch::new(seq).answering(&id, !args.no_wait_agents);
     let mut drafts = Drafts::default();
     let started = Instant::now();
     let deadline = args.timeout_secs.map(|s| started + Duration::from_secs(s));
@@ -60,7 +60,10 @@ pub(super) fn run(mut session: Session, text: &str, args: &Args, output: OutputM
         if !hinted && !watch.read {
             wait = wait.min((started + NOT_READ_AFTER).saturating_duration_since(now));
         }
-        if watch.ended {
+        if !watch.ended {
+            // A reply to other messages undoes a typing-off (E22).
+            ended_at = None;
+        } else {
             let since = *ended_at.get_or_insert(now);
             if now >= since + REPLY_GRACE {
                 break;

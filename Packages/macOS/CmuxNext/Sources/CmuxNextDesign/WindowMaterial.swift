@@ -31,12 +31,4 @@ public nonisolated enum WindowMaterial: Hashable, Sendable {
     /// resolved opacity. A translucent window with no blur
     /// (`background-blur = false`, or `appearance.backgroundBlur = "none"`).
     case translucent
-
-    /// Whether the window root hosts a material view for this material.
-    public var hasMaterialView: Bool {
-        switch self {
-        case .glass: true
-        case .opaque, .translucent, .frosted: false
-        }
-    }
 }

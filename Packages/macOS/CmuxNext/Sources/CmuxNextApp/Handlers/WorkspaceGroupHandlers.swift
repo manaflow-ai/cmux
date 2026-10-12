@@ -15,6 +15,7 @@ enum WorkspaceGroupHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         bindEdits(registry, context)
         bindMembers(registry, context)
+        WorkspaceGroupPlaces.bind(into: registry, context: context)
         registry.bind("nextWorkspaceGroup", requires: DaemonCapabilities.shared.profiles, daemon: context.services.machines.local,
                       run: { _ in selectGroup(context, offset: 1) })
         registry.bind("prevWorkspaceGroup", requires: DaemonCapabilities.shared.profiles, daemon: context.services.machines.local,
@@ -87,7 +88,9 @@ enum WorkspaceGroupHandlers {
         registry.bind("workspaceGroup.ungroup", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
             try WorkspaceGroupUndo.remove(invocation, context, message: WorkspaceGroupUndo.ungroupedToast)
         })
-        registry.bind("workspaceGroup.closeWorkspaces", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in try edit(invocation, context) { .closeGroup($0) } })
+        registry.bind("workspaceGroup.closeWorkspaces", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
+            try WorkspaceGroupClose.close(invocation, context)
+        })
         registry.bind("workspaceGroup.delete", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
             // RECOVERABLE-BY-DEFAULT: deleting a group keeps its workspaces
             // (Close All Workspaces in Group is the verb that closes them).
@@ -210,7 +213,7 @@ enum WorkspaceGroupHandlers {
     }
 
     /// The workspaces of the targeted group.
-    private static func members(_ invocation: ActionInvocation, _ context: AppActionContext) throws -> [WorkspaceModel] {
+    static func members(_ invocation: ActionInvocation, _ context: AppActionContext) throws -> [WorkspaceModel] {
         let id = try context.group(invocation).id
         return context.workspaces(inPersonalGroup: id)
     }

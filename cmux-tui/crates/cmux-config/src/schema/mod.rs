@@ -132,6 +132,10 @@ pub struct Row {
     pub section: String,
     pub group: Text,
     pub title: Text,
+    /// The one short line a Settings row shows under its title (at most 60
+    /// characters). Most rows have none; UI never draws `help` in its place.
+    pub summary: Option<Text>,
+    /// The long documentation text (docs, search), never drawn in a row.
     pub help: Option<Text>,
     pub kind: Kind,
     /// The value an absent key means; `None` when derived at run time.
@@ -175,6 +179,7 @@ struct RawRow {
     section: String,
     group: Text,
     title: Text,
+    summary: Option<Text>,
     help: Option<Text>,
     kind: String,
     #[serde(default)]
@@ -275,6 +280,7 @@ fn row(raw: Value) -> Result<Row, String> {
         section: parsed.section,
         group: parsed.group,
         title: parsed.title,
+        summary: parsed.summary,
         help: parsed.help,
         kind,
         default: parsed.default.map(canonical),

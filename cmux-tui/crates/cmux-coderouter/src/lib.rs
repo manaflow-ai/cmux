@@ -356,14 +356,111 @@ fn disable_core_dumps() {
     }
 }
 
-/// Start the admin UDS and loopback data-plane listener.
+/// Start the admin UDS and loopback data-plane listener. Returns when the
+/// router is told to stop (`shutdown`) or when its last owner is gone: with
+/// `CMUX_ROUTER_OWNER_FIFO` set, the router reads that FIFO and stops once
+/// no process holds its write end (the acpmux daemon and every agent host
+/// do), also while it still waits on router.lock.
 #[cfg(unix)]
 pub async fn serve(home: impl AsRef<Path>) -> anyhow::Result<()> {
     install_panic_hook();
     disable_core_dumps();
+    let owners =
+        std::env::var_os("CMUX_ROUTER_OWNER_FIFO").map(std::path::PathBuf::from).map(watch_owners);
+    tokio::select! {
+        result = serve_owned(home.as_ref()) => result,
+        () = owners_gone(owners) => {
+            tracing::info!("the local router has no owner left; it stops");
+            Ok(())
+        }
+    }
+}
+
+/// True once the owner watch saw no writer left: `adopt` is refused from
+/// then on, so a daemon never adopts a router that is stopping.
+#[cfg(unix)]
+static OWNERS_GONE: std::sync::Mutex<bool> = std::sync::Mutex::new(false);
+
+/// Reads the owner FIFO on its own thread (a blocking read: no polling, no
+/// timer). A read returns 0 when no process holds a write end. Under
+/// `OWNERS_GONE`'s lock the watch then checks again with a non-blocking read:
+/// a daemon that opened the FIFO to adopt this router makes it `EAGAIN`
+/// (a writer, no data), and the watch goes on.
+#[cfg(unix)]
+fn watch_owners(fifo: std::path::PathBuf) -> tokio::sync::oneshot::Receiver<()> {
+    use std::io::Read;
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::OpenOptionsExt;
+    let (gone, receiver) = tokio::sync::oneshot::channel();
+    let watch = move || {
+        // Opened non-blocking, so a daemon that died before this open makes
+        // the first check below find no writer (a blocking open would wait
+        // for one forever). Any failure: no owner can be watched, so the
+        // router stops as it would without one.
+        let Ok(mut owners) =
+            std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK).open(&fifo)
+        else {
+            return;
+        };
+        let fd = owners.as_raw_fd();
+        let set_nonblocking = |on: bool| {
+            // SAFETY: fcntl on a descriptor this thread owns.
+            unsafe {
+                let flags = libc::fcntl(fd, libc::F_GETFL);
+                let flags = if on { flags | libc::O_NONBLOCK } else { flags & !libc::O_NONBLOCK };
+                libc::fcntl(fd, libc::F_SETFL, flags);
+            }
+        };
+        // Blocking from here: a read waits for data or for the last writer.
+        set_nonblocking(false);
+        let mut byte = [0u8; 64];
+        loop {
+            match owners.read(&mut byte) {
+                Ok(0) => {}
+                Ok(_) => continue,
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(_) => return,
+            }
+            let mut stopped = OWNERS_GONE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            set_nonblocking(true);
+            let again = owners.read(&mut byte);
+            set_nonblocking(false);
+            match again {
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
+                Ok(n) if n > 0 => continue,
+                _ => {
+                    *stopped = true;
+                    return;
+                }
+            }
+        }
+    };
+    let spawned = std::thread::Builder::new().name("router-owners".into()).spawn(move || {
+        watch();
+        let _ = gone.send(());
+    });
+    if let Err(e) = spawned {
+        tracing::warn!("the router cannot watch its owners: {e}");
+    }
+    receiver
+}
+
+/// Resolves when the owners are gone; never without an owner FIFO.
+#[cfg(unix)]
+async fn owners_gone(owners: Option<tokio::sync::oneshot::Receiver<()>>) {
+    match owners {
+        Some(receiver) => {
+            let _ = receiver.await;
+        }
+        None => std::future::pending().await,
+    }
+}
+
+#[cfg(unix)]
+async fn serve_owned(home: &Path) -> anyhow::Result<()> {
     // reqwest is built without a default TLS provider; the relay's upstream calls need one.
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let router_dir = home.as_ref().join("router");
+    let router_dir = home.join("router");
     tokio::fs::create_dir_all(&router_dir).await?;
     #[cfg(unix)]
     {
@@ -371,7 +468,7 @@ pub async fn serve(home: impl AsRef<Path>) -> anyhow::Result<()> {
         tokio::fs::set_permissions(&router_dir, std::fs::Permissions::from_mode(0o700)).await?;
     }
     // One router per home: a second one waits here until the first exits
-    // (`shutdown`, from a daemon of a newer build), so it never takes the
+    // (`shutdown`, or its last owner gone), so it never takes the
     // socket from a router that still holds a bearer.
     let lock = std::fs::OpenOptions::new()
         .create(true)
@@ -379,12 +476,16 @@ pub async fn serve(home: impl AsRef<Path>) -> anyhow::Result<()> {
         .write(true)
         .open(router_dir.join("router.lock"))?;
     // Bounded: a router that never lets go (hung) must not collect waiters.
-    let lock = tokio::time::timeout(
-        std::time::Duration::from_secs(30),
-        tokio::task::spawn_blocking(move || fs4::FileExt::lock(&lock).map(|()| lock)),
-    )
-    .await
-    .map_err(|_| anyhow::anyhow!("another local router holds router.lock"))???;
+    // The wait runs on a plain thread, not the blocking pool: a router that
+    // stops during it (no owner left) returns from main without waiting
+    // for that thread.
+    let (locked, lock_rx) = tokio::sync::oneshot::channel();
+    std::thread::Builder::new().name("router-lock".into()).spawn(move || {
+        let _ = locked.send(fs4::FileExt::lock(&lock).map(|()| lock));
+    })?;
+    let lock = tokio::time::timeout(std::time::Duration::from_secs(30), lock_rx)
+        .await
+        .map_err(|_| anyhow::anyhow!("another local router holds router.lock"))???;
     let socket_path = router_dir.join("router.sock");
     let _ = tokio::fs::remove_file(&socket_path).await;
     let admin = UnixListener::bind(&socket_path)?;
@@ -477,7 +578,7 @@ async fn admin_loop(
 }
 
 /// The build of the acpmux that started this router (`CMUX_ROUTER_BUILD`):
-/// a daemon of another build replaces it (`shutdown`, then a new router).
+/// a daemon of another build replaces it once no agent uses it.
 fn router_build() -> String {
     std::env::var("CMUX_ROUTER_BUILD").unwrap_or_default()
 }
@@ -511,8 +612,13 @@ enum AdminRequest {
         expires_at: u64,
     },
     ClearUpstream,
-    /// Exit after the reply (a daemon of a newer build starts its own router).
+    /// Exit after the reply (the daemon ended every agent, or it replaces
+    /// a router of another build that no agent uses).
     Shutdown,
+    /// A daemon that holds the owner FIFO takes this running router over
+    /// (`{adopted, stopping, pid}`); refused once the router is stopping, or
+    /// when it has no owner FIFO (started by hand).
+    Adopt,
 }
 #[cfg(unix)]
 async fn admin_connection(
@@ -548,6 +654,18 @@ async fn admin_connection(
                 let up = upstream.read().await;
                 serde_json::json!({"port": port, "build": router_build(), "pid": std::process::id(), "upstream": up.as_ref().map(Upstream::view)})
             }
+            AdminRequest::Adopt => {
+                // The daemon opened the owner FIFO before it asked; a router
+                // whose owner watch already ended refuses.
+                let stopping =
+                    *OWNERS_GONE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let owned = std::env::var_os("CMUX_ROUTER_OWNER_FIFO").is_some();
+                serde_json::json!({
+                    "adopted": owned && !stopping,
+                    "stopping": stopping,
+                    "pid": std::process::id(),
+                })
+            }
             AdminRequest::MintKey { scope } => {
                 let id = format!("s{}", uuid::Uuid::new_v4().simple());
                 let key = keys.write().await.mint(id.clone(), scope)?;
@@ -561,7 +679,7 @@ async fn admin_connection(
                     Ok(next) => {
                         let view = next.view();
                         *upstream.write().await = Some(next);
-                        serde_json::json!({"upstream": view})
+                        serde_json::json!({"upstream": view, "pid": std::process::id()})
                     }
                     Err(error) => serde_json::json!({"error": error.to_string()}),
                 }

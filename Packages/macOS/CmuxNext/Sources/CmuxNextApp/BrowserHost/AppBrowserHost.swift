@@ -86,6 +86,7 @@ final class AppBrowserHost {
             provider.reportTabCreated(targetID: tab.id, openerTargetID: parent.id)
         }
         leaseObservation = provider.observeLeases { [cursorLeases] targetID, lease in
+            AgentCursorPresenceColors.shared.leaseChanged(target: targetID, session: lease?.session, terminal: lease?.terminal)
             cursorLeases.leaseChanged(target: targetID, session: lease?.session, wireState: lease?.state)
         }
         inputObservation = provider.observeInputs { [inputBridge, weak services] event in

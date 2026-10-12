@@ -1,7 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEscapingList } from "../../ui/popupHost";
 import { AgentMark as BrandMark } from "../shared/AgentMark";
 import { agentBrand } from "../shared/agentBrand";
 import { agentDisplayName } from "./agents";
+import { seedLastPicks } from "./lastPick";
 import { ArrowUpIcon } from "./ComposerPickers";
 import type { AcpmuxSnapshot } from "./model";
 import { ProjectChooser, type Project } from "./ProjectChooser";
@@ -76,7 +78,6 @@ export const NEW_TAB_LABELS = {
 /// What the host's handshake says about a tab opened as a new tab page.
 export type NewTabHost = {
   inputToken?: string;
-  tools?: { id: string; title: string; symbol: string; shortcut?: string; menu: string[] }[];
   hotkeys: Partial<Record<TabKind, string>>;
   initialKind: TabKind;
   cwd?: string;
@@ -93,7 +94,7 @@ export type NewTabHost = {
   layout: "a" | "b";
   /// The saved template (`tabs.newTabTemplate`); unset follows `layout` (newtab/templates.ts).
   template?: NewTabTemplate;
-  /// Shows the template dots (Debug Settings `newTab.templateSwitcher`, cx-7qqu); off until styled.
+  /// Shows the template dots (Debug Settings `newTab.templateSwitcher`, on by default since cx-l1jv).
   templateSwitcher?: boolean;
   /// The agent last picked (decision Q3).
   lastAgent?: string;
@@ -110,6 +111,8 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
   const value = handshake.newTab;
   if (value !== true && (typeof value !== "object" || value === null)) return undefined;
   const object = (typeof value === "object" ? value : {}) as Record<string, unknown>;
+  // The app's copy of the last picks: this page's own storage did not outlive the launch.
+  seedLastPicks(object.lastPicks);
   const keys = (typeof object.hotkeys === "object" && object.hotkeys !== null ? object.hotkeys : {}) as Record<
     string,
     unknown
@@ -122,24 +125,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
   const omnibar = omnibarContext(object.omnibar);
   const openTabs = Array.isArray(object.openTabs) ? omnibarContext({ tabs: object.openTabs })?.tabs : undefined;
   const template = parseNewTabTemplate(object.template);
-  const tools = Array.isArray(object.tools)
-    ? object.tools.flatMap((tool) => {
-        if (typeof tool !== "object" || tool === null) return [];
-        const value = tool as Record<string, unknown>;
-        const id = typeof value.id === "string" ? value.id : "";
-        const title = typeof value.title === "string" ? value.title : "";
-        const symbol = typeof value.symbol === "string" ? value.symbol : "square.grid.2x2";
-        if (!id || !title) return [];
-        const menu = Array.isArray(value.menu)
-          ? value.menu.filter((entry): entry is string => typeof entry === "string")
-          : [];
-        return [
-          { id, title, symbol, ...(typeof value.shortcut === "string" ? { shortcut: value.shortcut } : {}), menu },
-        ];
-      })
-    : [];
   return {
-    ...(tools.length ? { tools } : {}),
     hotkeys,
     initialKind,
     ...(cwd ? { cwd } : {}),
@@ -219,7 +205,6 @@ type Props = {
   cwd?: string;
   /// The machine it runs on (the handshake's `machineName`); "This Mac" when absent.
   host?: string;
-  tools?: NewTabHost["tools"];
   inputToken?: string;
   onInputReady?(token: string): void;
   /// The agent's composer chips (model, mode), shown under the field for Agent.
@@ -241,12 +226,9 @@ type Props = {
   onJump?(target: "tab" | "workspace", id: string): void;
   onOpenSession(sessionId: string): void;
   onShowAll(): void;
-  onRunAction?(id: string): void;
   onEditShortcut?(kind: TabKind): void;
   /// Choose Folder…: the host's folder panel; resolves to the picked folder.
   onBrowseProject?(): Promise<string | undefined>;
-  /// Opens the host's Integrate a harness flow (`palette.addHarness`).
-  onAddHarness?(): void;
   now?: number;
 };
 
@@ -271,7 +253,6 @@ export function NewTabPage({
   onShowAll,
   onEditShortcut,
   onBrowseProject,
-  onAddHarness,
   inputToken,
   onInputReady,
 }: Props) {
@@ -287,12 +268,29 @@ export function NewTabPage({
   // The field was wholly selected before this edit, so a typed prefix starts it over.
   const replacing = useRef(false);
   const list = useRef<HTMLDivElement>(null);
+  // With no room under the field for every row, the rows go past the window's edge (cx-6k6cg).
+  // A dismiss there (another app, a resize) hides the rows until the query changes; the text stays.
+  const [dismissed, setDismissed] = useState<string>();
+  const escape = useEscapingList("bottom", 10, () => setDismissed(queryRef.current));
+  const attachList = useCallback(
+    (node: HTMLDivElement | null) => {
+      list.current = node;
+      escape?.(node);
+    },
+    [escape],
+  );
   // The kind a prefix switched from, so Backspace in the empty field switches back.
   const [beforePrefix, setBeforePrefix] = useState<TabKind>();
   const field = useRef<HTMLInputElement>(null);
   const composing = useRef(false);
   const recent = useMemo(() => recentSessions(snapshot.sessions), [snapshot.sessions]);
-  const rows = useMemo(
+  // The suggestions float over the page under the field (cx-6k6cg), so they show only while the
+  // field has the keyboard and something is typed: at rest nothing covers the page below.
+  const [focused, setFocused] = useState(false);
+  const queryRef = useRef(query);
+  queryRef.current = query;
+  const open = focused && query.trim() !== "" && query !== dismissed;
+  const suggestions = useMemo(
     () =>
       omnibarRows(query, kind, {
         ...omnibar,
@@ -305,8 +303,11 @@ export function NewTabPage({
       }),
     [query, kind, omnibar, recent],
   );
+  const rows = useMemo(() => (open ? suggestions : []), [open, suggestions]);
   useEffect(() => setSelected(defaultRow(rows, kind, query)), [rows, kind, query]);
   useEffect(() => {
+    // Rows past the window's edge draw in the host; the invisible list never scrolls the page.
+    if (list.current?.hasAttribute("data-escaped")) return;
     list.current?.querySelector<HTMLElement>(`#acpmux-omni-${selected}`)?.scrollIntoView?.({ block: "nearest" });
   }, [selected]);
   // A pane without a known folder names none rather than showing "No folder".
@@ -316,18 +317,24 @@ export function NewTabPage({
   const placeholder = NEW_TAB_LABELS.placeholder[kind](t, kind === "agent" ? agent : folder);
 
   // The field takes the keyboard when the page appears, as a browser's new tab does, and
-  // again on Cmd-L (the host's FOCUS_LOCATION_EVENT), wherever focus moved on the page.
+  // again on Cmd-L (the host's FOCUS_LOCATION_EVENT), wherever focus moved on the page; only
+  // then, so an update (the App hands a new callback on each render) or a click into the field
+  // never moves its caret or restarts its blink.
+  const inputReady = useRef(onInputReady);
+  inputReady.current = onInputReady;
   useEffect(() => {
     const focus = () => {
       field.current?.focus();
       field.current?.select();
+      // A page shown in a window that is not key yet gets no focus event until it is.
+      setFocused(field.current === document.activeElement);
     };
     focus();
-    if (inputToken) onInputReady?.(inputToken);
+    if (inputToken) inputReady.current?.(inputToken);
     const host = field.current?.ownerDocument.defaultView;
     host?.addEventListener(FOCUS_LOCATION_EVENT, focus);
     return () => host?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
-  }, [inputToken, onInputReady]);
+  }, [inputToken]);
   const choose = (next: TabKind) => {
     setKind(next);
     setBeforePrefix(undefined);
@@ -401,163 +408,168 @@ export function NewTabPage({
 
   return (
     <div className="acpmux-newtab" data-kind={kind}>
-      <form className="acpmux-newtab-box" onSubmit={submit}>
-        <div className="acpmux-newtab-row">
-          <KindIcon kind={kind} />
-          <input
-            ref={field}
-            className="acpmux-newtab-field"
-            aria-label={placeholder}
-            placeholder={placeholder}
-            value={text}
-            aria-controls="acpmux-omni"
-            aria-activedescendant={selected >= 0 ? `acpmux-omni-${selected}` : undefined}
-            spellCheck={kind === "agent"}
-            autoCapitalize="off"
-            autoCorrect="off"
-            onChange={(event) => edit(event.target.value)}
-            onKeyDown={keyDown}
-            onCompositionStart={() => {
-              composing.current = true;
-            }}
-            onCompositionEnd={() => {
-              composing.current = false;
-            }}
-          />
-          <fieldset className="acpmux-newtab-switch" aria-label={t(NEW_TAB_LABELS.switchLabel)}>
-            {TAB_KINDS.map((option) => (
+      {/* The suggestions float under the field (cx-6k6cg): opening them moves nothing below. */}
+      <div className="acpmux-newtab-anchor">
+        <form className="acpmux-newtab-box" onSubmit={submit}>
+          <div className="acpmux-newtab-row">
+            <KindIcon kind={kind} />
+            <input
+              ref={field}
+              className="acpmux-newtab-field"
+              aria-label={placeholder}
+              placeholder={placeholder}
+              value={text}
+              aria-controls="acpmux-omni"
+              aria-activedescendant={selected >= 0 ? `acpmux-omni-${selected}` : undefined}
+              spellCheck={kind === "agent"}
+              autoCapitalize="off"
+              autoCorrect="off"
+              onChange={(event) => edit(event.target.value)}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              onKeyDown={keyDown}
+              onCompositionStart={() => {
+                composing.current = true;
+              }}
+              onCompositionEnd={() => {
+                composing.current = false;
+              }}
+            />
+            <fieldset className="acpmux-newtab-switch" aria-label={t(NEW_TAB_LABELS.switchLabel)}>
+              {TAB_KINDS.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  aria-pressed={option === kind}
+                  tabIndex={-1}
+                  className={option === kind ? "acpmux-newtab-kind is-selected" : "acpmux-newtab-kind"}
+                  title={
+                    hotkeys[option]
+                      ? t(NEW_TAB_LABELS.editShortcut, {
+                          kind: t(NEW_TAB_LABELS.kinds[option]),
+                          keys: hotkeys[option]!,
+                        })
+                      : undefined
+                  }
+                  onClick={() => choose(option)}
+                  onContextMenu={(event) => {
+                    if (!onEditShortcut) return;
+                    event.preventDefault();
+                    onEditShortcut(option);
+                  }}
+                >
+                  <KindIcon kind={option} />
+                  <span>{t(NEW_TAB_LABELS.kinds[option])}</span>
+                  {hotkeys[option] && <kbd>{hotkeys[option]}</kbd>}
+                </button>
+              ))}
+            </fieldset>
+          </div>
+          <div className="acpmux-newtab-under">
+            <span className="acpmux-newtab-context">
+              {kind !== "browser" && (
+                <ProjectChooser
+                  projects={projects}
+                  current={projectCwd}
+                  currentLabel={selectedProject}
+                  icon={<FolderIcon />}
+                  onPick={setProjectCwd}
+                  onBrowse={
+                    onBrowseProject &&
+                    (() =>
+                      void onBrowseProject().then((picked) => {
+                        if (picked) setProjectCwd(picked);
+                      }))
+                  }
+                />
+              )}
+              {kind === "terminal" && (
+                <span className="acpmux-newtab-chip">
+                  <LaptopIcon />
+                  {host ?? t(NEW_TAB_LABELS.thisMac)}
+                </span>
+              )}
+              {kind === "agent" && (
+                <span className="acpmux-newtab-chip">
+                  <KindIcon kind="agent" />
+                  {agent}
+                </span>
+              )}
+              {kind === "agent" && Chips && <Chips snapshot={snapshot} />}
+            </span>
+            {defaultKind && onSetDefaultKind && (
               <button
-                key={option}
                 type="button"
-                aria-pressed={option === kind}
-                tabIndex={-1}
-                className={option === kind ? "acpmux-newtab-kind is-selected" : "acpmux-newtab-kind"}
-                title={
-                  hotkeys[option]
-                    ? t(NEW_TAB_LABELS.editShortcut, { kind: t(NEW_TAB_LABELS.kinds[option]), keys: hotkeys[option]! })
-                    : undefined
-                }
-                onClick={() => choose(option)}
-                onContextMenu={(event) => {
-                  if (!onEditShortcut) return;
-                  event.preventDefault();
-                  onEditShortcut(option);
+                className="acpmux-newtab-default"
+                title={t(NEW_TAB_LABELS.defaultKindHint)}
+                onClick={() => {
+                  const next = DEFAULT_KINDS[(DEFAULT_KINDS.indexOf(defaultKind) + 1) % DEFAULT_KINDS.length]!;
+                  setDefaultKind(next);
+                  onSetDefaultKind(next);
                 }}
               >
-                <KindIcon kind={option} />
-                <span>{t(NEW_TAB_LABELS.kinds[option])}</span>
-                {hotkeys[option] && <kbd>{hotkeys[option]}</kbd>}
+                {t(NEW_TAB_LABELS.defaultKind, { kind: t(NEW_TAB_LABELS.defaultKinds[defaultKind]) })}
               </button>
-            ))}
-          </fieldset>
-        </div>
-        <div className="acpmux-newtab-under">
-          <span className="acpmux-newtab-context">
-            {kind !== "browser" && (
-              <ProjectChooser
-                projects={projects}
-                current={projectCwd}
-                currentLabel={selectedProject}
-                icon={<FolderIcon />}
-                onPick={setProjectCwd}
-                onBrowse={
-                  onBrowseProject &&
-                  (() =>
-                    void onBrowseProject().then((picked) => {
-                      if (picked) setProjectCwd(picked);
-                    }))
-                }
-              />
             )}
-            {kind === "terminal" && (
-              <span className="acpmux-newtab-chip">
-                <LaptopIcon />
-                {host ?? t(NEW_TAB_LABELS.thisMac)}
-              </span>
-            )}
-            {kind === "agent" && (
-              <span className="acpmux-newtab-chip">
-                <KindIcon kind="agent" />
-                {agent}
-              </span>
-            )}
-            {kind === "agent" && Chips && <Chips snapshot={snapshot} />}
-          </span>
-          {defaultKind && onSetDefaultKind && (
             <button
-              type="button"
-              className="acpmux-newtab-default"
-              title={t(NEW_TAB_LABELS.defaultKindHint)}
-              onClick={() => {
-                const next = DEFAULT_KINDS[(DEFAULT_KINDS.indexOf(defaultKind) + 1) % DEFAULT_KINDS.length]!;
-                setDefaultKind(next);
-                onSetDefaultKind(next);
-              }}
+              type="submit"
+              className={`acpmux-send${query.trim() || kind !== "browser" ? " acpmux-send-ready" : ""}`}
+              aria-label={t(NEW_TAB_LABELS.open)}
+              title={`${t(NEW_TAB_LABELS.open)} ↵`}
             >
-              {t(NEW_TAB_LABELS.defaultKind, { kind: t(NEW_TAB_LABELS.defaultKinds[defaultKind]) })}
+              <ArrowUpIcon />
             </button>
-          )}
-          <button
-            type="submit"
-            className={`acpmux-send${query.trim() || kind !== "browser" ? " acpmux-send-ready" : ""}`}
-            aria-label={t(NEW_TAB_LABELS.open)}
-            title={`${t(NEW_TAB_LABELS.open)} ↵`}
+          </div>
+        </form>
+        {rows.length > 0 && (
+          <div
+            ref={attachList}
+            className="acpmux-omni"
+            id="acpmux-omni"
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+            role="listbox"
+            aria-label={t(NEW_TAB_LABELS.suggestions)}
           >
-            <ArrowUpIcon />
-          </button>
-        </div>
-      </form>
-      {rows.length > 0 && (
-        <div
-          ref={list}
-          className="acpmux-omni"
-          id="acpmux-omni"
-          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-          role="listbox"
-          aria-label={t(NEW_TAB_LABELS.suggestions)}
-        >
-          {/* Virtual focus, as the composer's slash menu: the field keeps focus and names the row. */}
-          {rows.map((row, index) => (
-            <div
-              key={rowKey(row)}
-              id={`acpmux-omni-${index}`}
-              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-              role="option"
-              tabIndex={-1}
-              aria-selected={index === selected}
-              className={index === selected ? "acpmux-omni-row is-selected" : "acpmux-omni-row"}
-              onMouseMove={() => index !== selected && setSelected(index)}
-              onMouseDown={(event) => {
-                event.preventDefault();
-                activate(row);
-              }}
-            >
-              <RowIcon row={row} agent={snapshot.summary?.harness ?? snapshot.catalog[0]?.id} />
-              <span className="acpmux-omni-text">
-                <span className="acpmux-omni-title">
-                  {row.type === "ask" && <b>{t(NEW_TAB_LABELS.ask, { agent })}: </b>}
-                  {rowTitle(row)}
+            {/* Virtual focus, as the composer's slash menu: the field keeps focus and names the row. */}
+            {rows.map((row, index) => (
+              <div
+                key={rowKey(row)}
+                id={`acpmux-omni-${index}`}
+                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                role="option"
+                tabIndex={-1}
+                aria-selected={index === selected}
+                className={index === selected ? "acpmux-omni-row is-selected" : "acpmux-omni-row"}
+                onMouseMove={() => index !== selected && setSelected(index)}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  activate(row);
+                }}
+              >
+                <RowIcon row={row} agent={snapshot.summary?.harness ?? snapshot.catalog[0]?.id} />
+                <span className="acpmux-omni-text">
+                  <span className="acpmux-omni-title">
+                    {row.type === "ask" && <b>{t(NEW_TAB_LABELS.ask, { agent })}: </b>}
+                    {rowTitle(row)}
+                  </span>{" "}
+                  {rowDetail(row) && <span className="acpmux-omni-detail">{rowDetail(row)}</span>}
                 </span>
-                {rowDetail(row) && <span className="acpmux-omni-detail">{rowDetail(row)}</span>}
-              </span>
-              <span className="acpmux-omni-action">
-                {row.type === "ask" ? t(NEW_TAB_LABELS.ask, { agent }) : t(NEW_TAB_LABELS.rows[row.type])}
-                {index === selected && <kbd>↵</kbd>}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-      <div className="acpmux-newtab-actions">
-        <button type="button" className="acpmux-newtab-all" onClick={onShowAll}>
-          {t(NEW_TAB_LABELS.allSessions)}
-          <ChevronRight />
-        </button>
-        {onAddHarness && (
-          <button type="button" className="acpmux-newtab-all" onClick={onAddHarness}>
-            {t("newtab.addHarness")}
-          </button>
+                <span className="acpmux-omni-action" data-popup-skip>
+                  {row.type === "ask" ? t(NEW_TAB_LABELS.ask, { agent }) : t(NEW_TAB_LABELS.rows[row.type])}
+                  {index === selected && <kbd>↵</kbd>}
+                </span>
+              </div>
+            ))}
+          </div>
         )}
+      </div>
+      <div className="acpmux-newtab-actions ui-ghost-row">
+        <button type="button" className="acpmux-newtab-all ui-ghost" onClick={onShowAll}>
+          <span>{t(NEW_TAB_LABELS.allSessions)}</span>
+          <span className="ui-ghost-icon" aria-hidden="true">
+            <ChevronRight />
+          </span>
+        </button>
       </div>
     </div>
   );

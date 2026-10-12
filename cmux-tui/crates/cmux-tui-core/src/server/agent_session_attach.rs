@@ -28,9 +28,11 @@
 //! - `agent-session-prompt {surface, prompt_id, text}` sends one text prompt
 //!   and answers once acpmux recorded it (`{prompt_id, turn_id, queued}`).
 //! - `agent-session-cancel {surface}` cancels the running turn.
-//! - `agent-session-permission {surface, permission_id, option_id}` answers a
-//!   permission request acpmux announced on this attachment. The daemon never
-//!   answers one by itself.
+//! - `agent-session-permission {surface, permission_id, option_id,
+//!   decision_nonce?, person_decision?, answered_by?}` answers a permission
+//!   request acpmux announced on this attachment. The daemon never answers
+//!   one by itself, and never holds a person key: the proof fields go to
+//!   acpmux unchanged, which decides (cx-0q7o).
 //! - `agent-session-detach {surface}`.
 //!
 //! Events: `agent-session-record {surface, record}` (one acpmux record,
@@ -60,11 +62,16 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 #[path = "agent_session_link.rs"]
-mod agent_session_link;
+pub(super) mod agent_session_link;
+#[path = "agent_session_start.rs"]
+mod agent_session_start;
 use super::{MessageWriter, OutboundStream, Response, SurfaceId, send_response};
 use crate::mux::Mux;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
 use agent_session_link::{AcpmuxLink, Inbound, LinkError};
+pub use agent_session_start::{
+    AGENT_SESSION_START_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
+};
 
 pub const AGENT_SESSION_ATTACH_CAPABILITY: &str = "agent-session-attach-v1";
 
@@ -95,6 +102,8 @@ const THREAD_STACK_BYTES: usize = 256 * 1024;
 pub(crate) struct AgentSessions {
     socket: RwLock<Option<PathBuf>>,
     state: Mutex<AttachState>,
+    /// `agent-session-start-v1`: the acpmux starter and the tabs starting.
+    starts: agent_session_start::AgentSessionStarts,
 }
 
 #[derive(Default)]
@@ -306,6 +315,37 @@ struct PermissionParams {
     surface: SurfaceId,
     permission_id: String,
     option_id: String,
+    /// The person's decision proof for this answer (acpmux `hub/person.rs`,
+    /// cx-0q7o): passed to acpmux unchanged, and acpmux decides.
+    #[serde(default)]
+    decision_nonce: Option<String>,
+    #[serde(default)]
+    person_decision: Option<String>,
+    /// Which device the person answered on: acpmux records it only with a
+    /// proof that counts.
+    #[serde(default)]
+    answered_by: Option<AnsweredBy>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AnsweredBy {
+    device: String,
+    feed_item: String,
+}
+
+/// An `answered_by` field as acpmux takes it (`hub/person.rs` answered_by):
+/// 1 to 128 characters of `[A-Za-z0-9_.:-]`.
+fn is_answer_id(value: &str) -> bool {
+    (1..=128).contains(&value.len())
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-'))
+}
+
+/// 64 lowercase hex characters: a decision nonce or proof.
+fn is_hex64(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 /// Refusal codes (`error_code`).
@@ -320,6 +360,18 @@ pub(crate) enum Refusal {
     Timeout,
     Refused,
     UnknownPermission,
+    /// `agent-session-start`: the tab already has a session.
+    Bound,
+    /// `agent-session-start`: acpmux is not running and could not be started.
+    AcpmuxUnavailable,
+    /// `agent-session-start`: the agent has no mode that asks before acting.
+    NotAsking,
+    /// `agent-session-start`: the folder is not trusted on this machine.
+    UntrustedFolder,
+    /// `agent-session-start`: this daemon runs on a team VM.
+    TeamVmBlocked,
+    /// `agent-session-start`: a Cloud VM daemon that cannot tell its kind.
+    HostUnverified,
 }
 
 impl Refusal {
@@ -334,6 +386,12 @@ impl Refusal {
             Self::Timeout => "agent_session.timeout",
             Self::Refused => "agent_session.refused",
             Self::UnknownPermission => "agent_session.unknown_permission",
+            Self::Bound => "agent_session.bound",
+            Self::AcpmuxUnavailable => "agent_session.acpmux_unavailable",
+            Self::NotAsking => "agent_session.not_asking",
+            Self::UntrustedFolder => "agent_session.untrusted_folder",
+            Self::TeamVmBlocked => "agent_session.team_vm_blocked",
+            Self::HostUnverified => "agent_session.host_unverified",
         }
     }
 
@@ -348,6 +406,16 @@ impl Refusal {
             Self::Timeout => "acpmux did not answer in time",
             Self::Refused => "acpmux refused the request",
             Self::UnknownPermission => "no such pending permission request on this attachment",
+            Self::Bound => "the agent tab already has a session",
+            Self::AcpmuxUnavailable => {
+                "acpmux is not running on this machine and could not be started"
+            }
+            Self::NotAsking => "this agent has no mode that asks before each action",
+            Self::UntrustedFolder => "the folder is not trusted on this machine",
+            Self::TeamVmBlocked => "agent chats cannot be started remotely on a team VM",
+            Self::HostUnverified => {
+                "this machine cannot tell whether it is a team VM, so it starts no remote chat"
+            }
         }
     }
 
@@ -356,7 +424,7 @@ impl Refusal {
             LinkError::Closed => Self::Unavailable,
             LinkError::Timeout => Self::Timeout,
             LinkError::Busy => Self::Limit,
-            LinkError::Rpc(_) => Self::Refused,
+            LinkError::Rpc(..) => Self::Refused,
         }
     }
 }
@@ -381,6 +449,9 @@ pub(super) fn try_handle(
         _ => return None,
     };
     let id = object.remove("id");
+    if cmd == "agent-session-start" {
+        return Some(start(mux, client, id, object, writer));
+    }
     let Some(command) = AgentSessionCommand::parse(&cmd, Value::Object(object)) else {
         return Some(refuse(writer, id, Refusal::BadRequest));
     };
@@ -408,6 +479,27 @@ pub(super) fn try_handle(
             }
         }
     })
+}
+
+/// `agent-session-start` (agent_session_start.rs), with the attach verbs'
+/// trust and acpmux checks.
+fn start(
+    mux: &Arc<Mux>,
+    client: u64,
+    id: Option<Value>,
+    params: serde_json::Map<String, Value>,
+    writer: &MessageWriter,
+) -> bool {
+    let Ok(params) = serde_json::from_value(Value::Object(params)) else {
+        return refuse(writer, id, Refusal::BadRequest);
+    };
+    if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
+        return refuse(writer, id, Refusal::NotTrusted);
+    }
+    let Some(socket) = mux.control_clients.agent_sessions.socket() else {
+        return refuse(writer, id, Refusal::Unavailable);
+    };
+    agent_session_start::start(mux, client, id, socket, params, writer)
 }
 
 fn command_surface(command: &AgentSessionCommand) -> SurfaceId {
@@ -830,15 +922,46 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
         AgentSessionCommand::Prompt(PromptParams { prompt_id, text, .. }) => {
             prompt(attachment, prompt_id, text)
         }
-        AgentSessionCommand::Permission(PermissionParams { permission_id, option_id, .. }) => {
+        AgentSessionCommand::Permission(PermissionParams {
+            permission_id,
+            option_id,
+            decision_nonce,
+            person_decision,
+            answered_by,
+            ..
+        }) => {
             if option_id.is_empty() || option_id.len() > 256 {
+                return Err(Refusal::BadRequest);
+            }
+            if !decision_nonce.as_deref().is_none_or(is_hex64)
+                || !person_decision.as_deref().is_none_or(is_hex64)
+                || answered_by
+                    .as_ref()
+                    .is_some_and(|a| !is_answer_id(&a.device) || !is_answer_id(&a.feed_item))
+            {
                 return Err(Refusal::BadRequest);
             }
             if !attachment.has_permission(&permission_id) {
                 return Err(Refusal::UnknownPermission);
             }
-            let params =
+            let mut params =
                 json!({"sessionId": session, "permissionId": permission_id, "optionId": option_id});
+            let mut meta = serde_json::Map::new();
+            if let Some(nonce) = decision_nonce {
+                meta.insert("decisionNonce".into(), Value::String(nonce));
+            }
+            if let Some(proof) = person_decision {
+                meta.insert("personDecision".into(), Value::String(proof));
+            }
+            if let Some(by) = answered_by {
+                meta.insert(
+                    "answeredBy".into(),
+                    json!({"device": by.device, "feedItem": by.feed_item}),
+                );
+            }
+            if !meta.is_empty() {
+                params["_meta"] = json!({"acpmux": meta});
+            }
             let answered = attachment.link.call("_acpmux/permission_respond", params, CALL_TIMEOUT);
             // A failed answer stays answerable; a delivered one is spent.
             if answered.is_ok() {
@@ -935,5 +1058,26 @@ impl Mux {
     /// schedule, so the socket's presence at `identify` time proves nothing).
     pub(crate) fn serves_agent_session_attach(&self) -> bool {
         self.control_clients.agent_sessions.socket().is_some()
+    }
+
+    /// How this daemon starts its machine's acpmux when an
+    /// `agent-session-start` finds nothing on the socket (the binary's
+    /// `cmux acp daemon start`). Without one a start answers
+    /// `agent_session.acpmux_unavailable` while acpmux is down.
+    pub fn set_acpmux_starter(&self, starter: Option<AcpmuxStarter>) {
+        self.control_clients.agent_sessions.starts.set_starter(starter);
+    }
+
+    /// How the binary reads this machine's kind from its own identity (at
+    /// each `agent-session-start`). Until it is set, the verb refuses
+    /// (`agent_session.host_unverified`).
+    pub fn set_agent_start_host(&self, host: AgentStartHostSource) {
+        self.control_clients.agent_sessions.starts.set_host(host);
+    }
+
+    /// True when the daemon serves `agent-session-start` (as attach: an
+    /// acpmux socket path; without a starter a start needs acpmux running).
+    pub(crate) fn serves_agent_session_start(&self) -> bool {
+        self.serves_agent_session_attach()
     }
 }

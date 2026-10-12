@@ -14,9 +14,9 @@ use terminal_records::{
     commit_terminal_transition, is_template_terminal, template_terminal_launch_spec,
     terminal_create_fingerprint, terminal_launch_spec, terminal_lifecycle_name,
 };
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod terminal_host_records;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use terminal_host_records::{
     acknowledge_exact_terminal_host_exit, cleanup_terminal_host_record,
     terminal_host_record_liveness, terminate_discovered_terminal_host_in,
@@ -139,9 +139,9 @@ mod guards;
 use guards::CLIENT_FOCUS_MEMORY_LIMIT;
 use guards::ClientFocusRecord;
 use guards::ConfigReloadState;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(crate) use guards::PendingTerminalHostBinding;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use guards::PendingTerminalHostRelease;
 use guards::PendingWorkspaceSurface;
 pub(crate) use guards::ResourceWaitWake;
@@ -168,6 +168,8 @@ pub(crate) use browser_tab_create::{
 pub(crate) use spawn_options::{CLIENT_PANE_ID_FIELD, CLIENT_TAB_ID_FIELD, terminal_identity};
 pub use spawn_options::{PaneSurfaceCreation, TerminalSpawnOptions};
 mod agent_chat_columns;
+#[cfg(unix)]
+mod agent_chat_notices;
 pub(crate) mod app_terminals;
 mod cell_pixels;
 mod client_resize;
@@ -199,7 +201,10 @@ mod journal_retention;
 mod kitty_budget;
 mod kitty_reservation;
 mod launch_identity;
+mod workspace_name;
 use kitty_reservation::kitty_image_limits_exceed;
+mod agent_presence;
+pub use agent_presence::{AgentActivity, AgentPresence};
 mod agent_types;
 pub use agent_types::{AgentRecord, AgentSource, AgentState};
 use agent_types::{
@@ -223,7 +228,8 @@ pub use events::{GraphicsStatus, MachineUsage, MuxEvent, TreeDelta, TreeDeltaKin
 mod notification_types;
 mod notifications;
 pub use notification_types::{
-    NotificationEvent, NotificationSource, ResourceNotification, SurfaceNotification,
+    NOTIFICATION_DESKTOP_CAPABILITY, NOTIFICATION_REPLY_CAPABILITY, NotificationEvent,
+    NotificationSource, ResourceNotification, SurfaceNotification,
 };
 mod notification_level;
 pub use notification_level::NotificationLevel;
@@ -251,6 +257,9 @@ mod screen_changed;
 pub(crate) mod screen_groups;
 mod signaled_mutex;
 pub(crate) use signaled_mutex::SignaledMutex;
+mod command_history;
+pub(crate) mod keybindings;
+mod new_terminal_cwd;
 mod session_paths;
 pub(crate) mod settings;
 mod shell_history_feed;
@@ -288,7 +297,7 @@ mod terminal_reap;
 #[cfg(unix)]
 mod terminal_rehost;
 mod terminal_relaunch;
-mod terminal_respawn;
+pub(crate) mod terminal_respawn;
 mod terminal_sizing;
 mod terminal_work;
 mod topology_result;
@@ -388,7 +397,7 @@ use crate::terminal_host::TerminalId;
 #[cfg(test)]
 use crate::terminal_host_protocol::TerminalExit;
 use crate::terminal_host_runtime::TerminalHostIdentity;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use crate::terminal_host_runtime::TerminalHostLiveness;
 use crate::workspace_registry::{
     AgentHookPendingFailure, FrontendProjection, ProjectionCommit,
@@ -596,19 +605,21 @@ pub struct Mux {
     machine_usage: Mutex<Option<MachineUsage>>,
     agent_records: Mutex<HashMap<TerminalPublicId, TerminalAgentRecord>>,
     agent_hook_fences: Mutex<HashMap<TerminalPublicId, HookFence>>,
+    /// Live, never-persisted presence per terminal (`agent_presence.rs`).
+    agent_presence: Mutex<HashMap<TerminalPublicId, agent_presence::PresenceSlot>>,
     agent_roster: Mutex<AgentRosterHost>,
     agent_roster_fold: Mutex<()>,
     /// Nonterminal notifications remain placement-local. Terminal unread state is keyed by
     /// stable content identity so every view of one terminal shares the same attention marker.
     placement_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
     terminal_notifications: Mutex<HashMap<TerminalPublicId, SurfaceNotification>>,
-    /// Records finished shell commands in the journal (`terminal-command-journal-v1`). Off until
-    /// a trusted client turns it on (`set-terminal-command-history`); never persisted, so a
-    /// restarted daemon records nothing until asked again.
+    /// Records finished shell commands (`terminal-command-history-v1`). Off
+    /// until a trusted client turns it on (`set-terminal-command-history`);
+    /// never persisted, so a restarted daemon records nothing until asked
+    /// again. The rows live in the workspace registry (`terminal_commands`).
     terminal_command_history: AtomicBool,
-    /// The shell command journal worker's bounded queue (started on first use).
-    shell_command_journal:
-        Mutex<Option<SyncSender<(TerminalPublicId, crate::shell_history::FinishedCommand)>>>,
+    /// The command history worker's bounded queue (`mux/command_history.rs`).
+    command_history_worker: Mutex<Option<SyncSender<command_history::CommandHistoryMessage>>>,
     notification_ledger: Mutex<VecDeque<ResourceNotification>>,
     /// Per-client read marks. The shared unread marker above answers "does this terminal need
     /// attention on the shared console"; this map answers "has this client install seen this
@@ -691,6 +702,9 @@ pub struct Mux {
     /// for it blocks instead of polling the flag.
     daemon_shutdown_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     pub(crate) control_clients: crate::server::ClientRegistry,
+    /// Guarded chat moves (`agent-transfer-v1`, server/agent_transfer.rs).
+    #[cfg(unix)]
+    pub(crate) agent_transfers: crate::server::agent_transfer::AgentTransfers,
     /// VM activity facts for `subscribe-activity` (server/activity.rs).
     pub(crate) activity: crate::server::activity::ActivityStream,
     idle_close: Mutex<idle_close::IdleCloseTracker>,
@@ -708,13 +722,17 @@ pub struct Mux {
     /// The settings owner (the settings file), started on first use or at
     /// daemon start (mux/settings.rs).
     settings: settings::SettingsSlot,
+    /// The keybindings.json owner, beside the settings file (mux/keybindings.rs).
+    keybindings: keybindings::KeybindingsSlot,
     /// Parallel terminal host launches and reaps (`terminal_work`).
     terminal_work: terminal_work::TerminalWorkPool,
     /// Hosts launched ahead of their creation, by reserved terminal id.
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     prelaunched_terminals: Mutex<HashMap<String, terminal_work::PrelaunchedTerminal>>,
     #[cfg(unix)]
     pub(crate) image_pastes: crate::image_paste::ImagePasteStore,
+    /// The history module's session state: journal folds and revision.
+    pub(crate) history: crate::history_ops::HistoryHost,
     pub(crate) surface_operation_admission: Arc<crate::server::ServerSurfaceOperationAdmission>,
     pairing: PairingBroker,
     #[cfg(test)]
@@ -736,32 +754,13 @@ struct RestoredResourceState {
     contents: Vec<RestoredResourceContent>,
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 struct RestoredTerminalBinding {
     public_id: TerminalPublicId,
     placements: Vec<(SurfaceId, TabResourceIdentity)>,
 }
 
 impl Mux {
-    fn default_workspace_name(state: &State) -> String {
-        // Provider-created workspaces use a stable, human-readable sequence.
-        // Existing names (including user-renamed workspaces) are left untouched;
-        // only the next automatically generated name is derived here. The
-        // sequence never restarts below the number of workspaces that exist:
-        // renaming `workspace-1` to `shell` and creating another one yields
-        // `workspace-2` (the second workspace), not a second `workspace-1`.
-        let highest = state
-            .workspaces
-            .iter()
-            .filter_map(|workspace| {
-                workspace.name.strip_prefix("workspace-")?.parse::<usize>().ok()
-            })
-            .max()
-            .unwrap_or(0);
-        let next = highest.max(state.workspaces.len()).saturating_add(1);
-        format!("workspace-{next}")
-    }
-
     /// Resolve one public resource path from a single live-state snapshot.
     /// Direct content IDs use the reverse resource indexes and never trigger
     /// a registry snapshot or process query.
@@ -896,16 +895,6 @@ impl Mux {
         Ok(())
     }
 
-    /// Working directory of a pane's active surface, if reported.
-    fn pane_cwd(&self, pane: PaneId) -> Option<String> {
-        let surface = {
-            let state = self.state.lock().unwrap();
-            let active = state.panes.get(&pane)?.active_surface()?;
-            state.surfaces.get(&active).cloned()
-        };
-        surface.and_then(|surface| surface.local_cwd())
-    }
-
     fn workspace_key_for_pane(&self, pane: PaneId) -> Option<String> {
         let state = self.state.lock().unwrap();
         let (workspace, _) = state.screen_of(pane)?;
@@ -982,7 +971,7 @@ fn sidebar_retry_delay(failures: u32) -> Duration {
 impl Drop for Mux {
     fn drop(&mut self) {
         self.journal_plugin.shutdown();
-        self.finalize_terminal_journal("mux drop");
+        self.finalize_terminal_journal("mux drop", false);
         self.journal_kernel.shutdown();
         if let Ok(runtime) = self.browser_runtime.get_mut()
             && let Some(runtime) = runtime.take()

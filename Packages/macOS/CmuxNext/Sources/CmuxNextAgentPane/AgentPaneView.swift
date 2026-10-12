@@ -20,7 +20,7 @@ public final class AgentPaneView: NSView {
     public let webView: WKWebView
     /// Opens a link the user clicked in the transcript. Defaults to the
     /// system handler; the App can route it to a cmux browser tab.
-    public var openURL: (URL) -> Void = { NSWorkspace.shared.open($0) }
+    public var openURL: (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }
 
     public let source: AgentPaneSource
     public var customization = AgentPaneCustomization() {
@@ -48,8 +48,13 @@ public final class AgentPaneView: NSView {
     var crashReloads = PageCrashReloads()
     /// Shown instead of reloading once the page keeps crashing.
     var crashNotice: NSView?
+    /// The line that says the chat runs on another cmux install's acpmux (cx-fcaq).
+    var otherInstallNotice: NSTextField?
+    /// "Remote approvals are off" (cx-0q7o), and the restart the chat's machine offers.
+    var remoteApprovalsNotice: NSStackView?
+    var remoteApprovals: AgentPaneRemoteApprovals?
     /// Owns the inspector export panel and its in-flight state.
-    let logExport = AgentPaneLogExport()
+    let savePanel = AgentPaneSavePanel()
     /// On the shared page host (`cmux-page://cmux.agent/`, the `agent.pageHost` tunable): the page
     /// view and the provider that answers its calls and carries the host's pushes. Nil on the old
     /// host (`cmux-agent://pane`, deleted with P5 of the agent pane move).
@@ -69,6 +74,8 @@ public final class AgentPaneView: NSView {
     /// Records the user's real key and mouse events in this pane (``AgentPaneUserGestures``).
     private var gestureMonitor: Any?
     var transportPacer: AgentPaneFramePacer?
+    /// The page's menu shown past the window's edge (AgentPaneView+Popup).
+    var popupHostStorage: WebPopupHost?
     /// The message and the selected transcript text the page reported under the pointer for the
     /// next context menu, and where the menu's copies go (tests record them instead).
     var messageMenuTarget: AgentPaneMessageTarget?
@@ -79,9 +86,10 @@ public final class AgentPaneView: NSView {
     }
     /// The pane's first frame until its page paints (`AgentPaneView+Loading`).
     let loadingView = AgentPaneLoadingView()
+    public private(set) lazy var redraw = AgentPageRedraw(webView: webView) // a chat shown again draws first
     public private(set) lazy var topBar = AgentPaneTopBar(pane: self) // the App's omnibar row over a New Tab page (cx-e2aa)
     /// The process pool every agent page shares (R81: fonts are listed once per pool).
-    private static let processPool = WKProcessPool()
+    static let processPool = WKProcessPool()
 
     /// The bundled page, nil when it is missing (a broken build).
     public static var bundledPage: URL? {
@@ -120,7 +128,7 @@ public final class AgentPaneView: NSView {
             })
         } else {
             let configuration = WKWebViewConfiguration()
-            configuration.websiteDataStore = .nonPersistent()
+            configuration.websiteDataStore = AgentPaneWarmup.dataStore
             // One process pool for every agent page: a fresh pool per page made WebKit list the
             // user-installed fonts again for each new page (registerUserInstalledFonts, about
             // 25 ms of the 30 ms main-thread page build, R81 trace); a shared pool lists them once.
@@ -136,6 +144,11 @@ public final class AgentPaneView: NSView {
                 WKUserScript(source: WebTheme.bootstrapScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
             inputReadiness = PageInputReadiness(configuration: configuration)
             webView = AgentPaneWKWebView(frame: .zero, configuration: configuration)
+            #if DEBUG
+            // Automation launches (capture slots) keep a covered window's page drawing, as
+            // PageWebView does: WebKit hid the covered New Tab page, so it never drew (cx-zjtn.6).
+            if PageWebView.rendersWhenCovered(ProcessInfo.processInfo.environment) { PageWebView.keepRenderingWhenCovered(webView) }
+            #endif
             page = nil
             pageEvents = nil
             dictation = AgentPaneDictation(evaluate: { [weak webView] script in webView?.evaluateJavaScript(script, completionHandler: nil) })
@@ -167,10 +180,8 @@ public final class AgentPaneView: NSView {
         // Web Inspector and profiling for the pane (debug.agent_pane).
         webView.isInspectable = true
         #endif
-        model.onSaveLog = { [weak self] text, suggestedName in
-            guard let self else { return false }
-            return try await logExport.save(text, suggestedName: suggestedName, window: window)
-        }
+        model.onSaveFile = { [weak self] save in try await self?.savePanel.save(save, window: self?.window) ?? false }
+        model.onChooseFiles = { [weak self] in await AgentPaneFilePicker.pick(window: self?.window) }
         model.onFramePacing = { [weak self] _ in self?.framePacingSettings() ?? [:] }
         model.onRenderRate = { [weak self] full in
             guard let self, self.renderRate == .adaptive else { return }
@@ -245,8 +256,12 @@ public final class AgentPaneView: NSView {
         }
     }
 
-    deinit {
-        uiScaleObservation?.cancel()
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            uiScaleObservation?.cancel()
+        }
     }
 
     @available(*, unavailable)
@@ -256,11 +271,8 @@ public final class AgentPaneView: NSView {
         super.layout()
         if let page { page.frame = topBar.contentFrame(in: bounds) } else { webView.frame = topBar.contentFrame(in: bounds) }
         if loadingView.superview === self { loadingView.frame = topBar.contentFrame(in: bounds) }
+        redraw.laidOut(self)
     }
-
-    /// WebKit's feature that renders a page at the display-rate divisor
-    /// nearest 60 fps.
-    static let near60FPSFeature = WebKitRenderRate.near60FPSFeature
 
     public let renderRate: AgentPaneRenderRate
     /// The display's refresh rate when the pane has no window screen to ask
@@ -293,6 +305,7 @@ public final class AgentPaneView: NSView {
 
     /// Stops the page (and its WebSocket) for good; call when the tab closes.
     public func close() {
+        popupHostStorage?.hide()
         rateReapply?.cancel()
         motionObservation?.cancel()
         motionObservation = nil
@@ -305,6 +318,8 @@ public final class AgentPaneView: NSView {
         gestureMonitor = nil
         if let connection = model.transport.connection { model.transport.close(connection: connection) }
         model.transport.deliver = nil
+        model.transport.onOtherInstall = nil
+        model.transport.onRemoteApprovalsOff = nil
         transportPacer?.stop()
         removeContextMenu()
         if let page {
@@ -322,6 +337,7 @@ public final class AgentPaneView: NSView {
     public override func viewDidHide() {
         super.viewDidHide()
         dictation.handle(.stop)
+        popupHostStorage?.dismiss()
     }
 
     public override func viewDidChangeEffectiveAppearance() {
@@ -332,7 +348,10 @@ public final class AgentPaneView: NSView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         // Its tab or window closed, or it moved out of sight: stop listening, keep the words.
-        if window == nil { dictation.handle(.stop) }
+        if window == nil {
+            dictation.handle(.stop)
+            popupHostStorage?.dismiss()
+        }
         applyTheme()
     }
 
@@ -362,6 +381,7 @@ public final class AgentPaneView: NSView {
         let surface = surfaceKind
         webView.underPageBackgroundColor = AgentPaneTheme.underPageColor(tokens, surface: surface).nsColor
         themeCrashNotice(tokens)
+        otherInstallNotice?.textColor = tokens.textSecondary.nsColor
         themeLoadingState(tokens)
         page?.themeSurface = surface
         deliver(AgentPageEvent.theme(tokens, surface: surface).map { [$0] } ?? [],

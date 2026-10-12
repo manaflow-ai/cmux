@@ -8,7 +8,9 @@ public import CoreGraphics
 /// `SettingsSchemaTests` fails until the parser accepts every value the
 /// descriptor allows and rejects the rest.
 public nonisolated enum SettingsSchema {
-    public static var all: [SettingDescriptor] {
+    /// Built once per run: each descriptor looks its texts up in the strings bundle, and launch
+    /// reads it twice before the first window (about 20 ms in all on a cold launch, bd cx-z9kz0).
+    public static let all: [SettingDescriptor] = {
         let next = general + shortcutHints + UpdateSettingsSchema.descriptors + UpdateSettingsSchema.announcements
             + ComputerUseSettingsSchema.descriptors + ColumnLayoutSettingsSchema.descriptors
             + PanePlacementSettingsSchema.descriptors + WorkspaceListSettingsSchema.descriptors + PaletteSettingsSchema.descriptors
@@ -18,7 +20,7 @@ public nonisolated enum SettingsSchema {
             + AgentPaneEditedFilesSettingsSchema.descriptors + AgentPaneComposerSettingsSchema.descriptors + AgentPaneZoomSettingsSchema.descriptors
         return next.map { sharedWithBrowser.contains($0.id) ? $0.consumed(by: [.cmuxNext, .cmuxBrowser]) : $0 }
             + BrowserAppSettingsSchema.descriptors
-    }
+    }()
 
     /// cmux-next keys cmux-browser reads too (cmux-browser #567 moved its copies to cmux.json). The
     /// `appearance.metrics.*` rows say so themselves.
@@ -80,6 +82,7 @@ public nonisolated enum SettingsSchema {
                 title: SettingsText.keyed("settings.history.terminalCommands", "Record Terminal Commands"),
                 help: SettingsText.keyed("settings.history.terminalCommands.help",
                                         "Lists finished shell commands in History. Command lines can contain secrets."),
+                summary: SettingsText.keyed("settings.history.terminalCommands.summary", "Shows finished commands in History"),
                 kind: .toggle, default: .bool(TerminalCommandHistorySetting.fallback),
                 keywords: ["history", "commands", "shell", "privacy", "osc 133"]
             ),
@@ -101,12 +104,23 @@ public nonisolated enum SettingsSchema {
                 title: SettingsText.keyed("settings.navigation.historySteps", "Back and Forward Steps"),
                 help: SettingsText.keyed("settings.navigation.historySteps.help",
                                         "Workspaces: Go Back and Go Forward move between workspaces and top pages, and return to the tab each one last had focused. Everything: they also step through tabs and panes inside a workspace."),
+                summary: SettingsText.keyed("settings.navigation.historySteps.summary", "What Go Back and Go Forward step through"),
                 kind: .choice([
                     SettingChoice("workspaces", SettingsText.keyed("settings.navigation.historySteps.workspaces", "Workspaces")),
                     SettingChoice("everything", SettingsText.keyed("settings.navigation.historySteps.everything", "Everything")),
                 ]),
                 default: .string(NavigationHistoryStepSetting.fallback),
                 keywords: ["history", "back", "forward", "navigation", "workspace", "tab", "pane"]
+            ),
+            SettingDescriptor(
+                CommandRetentionSetting.configPath, section: .general, group: history,
+                title: SettingsText.keyed("settings.history.commandRetentionDays", "Keep Terminal Commands For"),
+                help: SettingsText.keyed("settings.history.commandRetentionDays.help",
+                                        "Each machine deletes recorded commands that are older."),
+                kind: .number(SettingNumber(Double(CommandRetentionSetting.range.lowerBound)...Double(CommandRetentionSetting.range.upperBound),
+                                            step: 1, unit: .days)),
+                default: .number(Double(CommandRetentionSetting.fallback)),
+                keywords: ["history", "commands", "retention", "delete", "privacy", "days"]
             ),
             SettingDescriptor(
                 WindowTitlebarSetting.configPath, section: .general, group: window,
@@ -135,6 +149,7 @@ public nonisolated enum SettingsSchema {
                 title: SettingsText.keyed("settings.app.globalHotKey", "Global Hot Key"),
                 help: SettingsText.keyed("settings.app.globalHotKey.help",
                                         "Show/Hide All Windows (⌃⌥⌘.) works while another app is in front."),
+                summary: SettingsText.keyed("settings.app.globalHotKey.summary", "Show or hide all windows from any app"),
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.globalHotKeyFallback),
                 keywords: ["global", "hotkey", "hot key", "summon", "show", "hide", "windows", "system-wide"]
@@ -176,6 +191,7 @@ public nonisolated enum SettingsSchema {
                 DefaultColumnWidthSetting.configPath, section: .general, group: columns,
                 title: SettingsText.keyed("settings.layout.fixedColumnWidth", "Fixed Column Width"),
                 help: SettingsText.keyed("settings.layout.fixedColumnWidth.help", "A share of the window width, for Fixed Width new columns."),
+                summary: SettingsText.keyed("settings.layout.fixedColumnWidth.summary", "Share of the window width"),
                 kind: .number(SettingNumber(DefaultColumnWidthSetting.range, step: 0.05, unit: .fraction)),
                 default: .number(DefaultColumnWidthSetting.fallback), keywords: ["width"]
             ),

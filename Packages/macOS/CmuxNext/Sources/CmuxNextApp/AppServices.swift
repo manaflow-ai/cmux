@@ -71,8 +71,9 @@ final class AppServices {
     /// Input invariants, desync reports, focus journaling and the no-activate keyboard guard.
     let input = InputVerificationService()
     private(set) lazy var emptyWorkspaces: EmptyWorkspaceRepair = EmptyWorkspaceRepair(daemon: daemon)  // first read in init (no IUO)
-    /// Reopen Closed Tab history; set when the tab handlers bind.
-    var closedTabs: ClosedTabTracker?
+    /// The closed-tab signal and the undo toasts of user closes; set when the tab handlers bind.
+    /// The daemon owns the closed history itself (`DaemonClosedHistory`).
+    var closedTabs: ClosedTabsFeed?
     /// The app-wide "where was I" trail (plans/cmux-next/history.md 4.2).
     private(set) lazy var locationTrail = LocationTrailService(services: self)
     /// The merged history read side and the per-profile visit logs.
@@ -92,8 +93,6 @@ final class AppServices {
     /// `cmux://agent-activity`: the computer use sessions page.
     private(set) lazy var agentActivityPage = AgentActivityPageService(services: self)
     private(set) lazy var remoteViewPages = RemoteViewPageService()
-    /// Recently closed workspaces (history lists).
-    private(set) lazy var closedWorkspaces = ClosedWorkspaceTracker(services: self)
     /// Bookmarks of every browser profile (plans/cmux-next/bookmarks.md).
     private(set) lazy var bookmarks = BookmarkService(services: self)
     /// App platform (DEV prototype): registry, JavaScriptCore app host, App Store.
@@ -115,8 +114,6 @@ final class AppServices {
         service.start()
         return service
     }()
-    /// Recently closed screens (Reopen Closed Screen).
-    let closedScreens = ClosedScreenHistory()
     /// The kinds of tabs opened on purpose, by folder, for `tabs.newTabKind: auto`.
     var newTabKinds = NewTabKindMemory()
     /// Each pane's own Show Tab Bar choice (`PaneTabBar`).
@@ -172,6 +169,8 @@ final class AppServices {
     let popups: BrowserPopupPanels
     /// The link-hint session (`f`, `F`) on a focused Chromium page.
     let linkHints = LinkHintController()
+    /// Click by Hint over the whole window (`hints.show`, Cmd-J).
+    let windowHints = WindowHintController()
     /// Browser profiles: records, the new-tab cascade, each tab's store.
     private(set) lazy var browserProfiles = BrowserProfileService(services: self)
     /// Agent chat tabs and their shared acpmux host (New Agent Chat).
@@ -201,6 +200,8 @@ final class AppServices {
     private(set) var browserHost: AppBrowserHost?
     /// Remote-terminal tabs: mount, placeholder, snapshot, moves.
     private(set) lazy var remoteTerminals: RemoteTerminalService = RemoteTerminalService(services: self)  // first read in init (no IUO)
+    /// Cross-build session discovery and acknowledge-then-close handoff.
+    private(set) lazy var sessionTransfer = SessionTransferService(services: self)
     /// - Parameter launchReveal: The launch load-in the windows' sidebars
     ///   hold for; the app-wide one by default.
     init(environment: AppEnvironment, launchReveal: LaunchReveal = .shared) {
@@ -225,7 +226,7 @@ final class AppServices {
         _ = themes  // built here, as before
         _ = remoteLocalhost  // built here, as before
         cache.configureBrowser = { [weak self] tab, url, base in  // a Cloud proxied tab's store first (ProxiedBrowserTabs)
-            let base = self?.cache.pageRequests.closedHistories.restoring(base, url: url, local: self?.machines.daemon(forTab: tab).isLocal == true) ?? base  // cx-d0d.59
+            let base = self?.cache.pageRequests.closedHistories.restoring(base, url: url, local: self?.machines.daemon(forTab: tab).isLocal == true, tab: tab.id) ?? base  // cx-d0d.59
             return await self?.cache.pageRequests.proxiedTabs.configuration(for: tab.id, url: url, base: base) { await self?.remoteLocalhost.configuration(for: tab, url: url, base: base) ?? base } ?? base
         }
         cache.findTab = { [weak self] key in self?.remoteLocalhost.tab(id: key) }
@@ -291,7 +292,6 @@ final class AppServices {
             BookmarkSuggestionFeed.follow(bookmarks, profile: bookmarks.profile(of: $1), into: $0)
         }
         cache.onRevealTab = { [weak self] key in _ = self?.revealTab(key) }
-        NewTabOmnibar.services = self
         cache.makeExtensionMenuHandler = { [weak self] key in self.map { ExtensionMenuRouter(services: $0, tabKey: key) } }
         cache.onDevToolsChange = { [weak self] key, state, focused in self?.devToolsDidChange(key, state: state, focused: focused) }
         registry.menuKeyEquivalentGate = { [weak self] id in self?.keyRouter.allowsMenuKeyEquivalent(id) ?? true }
@@ -337,6 +337,7 @@ final class AppServices {
             self?.browserHost?.noteInput(event)
             // A click anywhere ends link hints and a waiting chord (it may move the keyboard).
             self?.linkHints.cancel()
+            self?.windowHints.cancel()
             self?.keyRouter.cancelChord()
         }
     }
@@ -346,9 +347,9 @@ final class AppServices {
         for (workspace, _) in machines.allWorkspaces {
             for screen in workspace.screens {
                 for pane in screen.panes {
-                    // A tab first seen without a `tab_` resource id keeps
-                    // its first id; links name it by the resource id.
-                    if let tab = pane.tabs.first(where: { $0.id == id || $0.snapshot.tabResourceID?.rawValue == id }) {
+                    // A tab first seen without a `tab_` resource id keeps its first id; links
+                    // (and TabMirror's wait) name it by the observed resource id.
+                    if let tab = pane.tabs.first(where: { $0.id == id || $0.resourceID?.rawValue == id }) {
                         return (tab, pane)
                     }
                 }

@@ -26,7 +26,7 @@ fn connect() -> Result<(Arc<RpcClient>, Notes), String> {
     let socket = crate::acpmux_daemon::socket_path();
     let (tx, rx) = channel();
     let forward = tx.clone();
-    let client = RpcClient::connect(&socket, move |n| {
+    let client = crate::acpmux_peer::connect(&socket, move |n| {
         let _ = forward.send(n);
     })
     .map_err(|e| format!("acpmux is not reachable at {}: {e}", socket.display()))?;

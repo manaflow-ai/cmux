@@ -25,12 +25,15 @@ final class FieldTextView: NSTextView {
         if let up = NSApp.currentEvent, up.type == .leftMouseUp { onRelease(up) }
     }
 
-    /// The inset as given (UITextView's 6.24 pt): AppKit rounds the
-    /// container origin to whole points, which put the text 0.24 pt higher
-    /// than Catalyst's (measured by the text probe's first baseline).
-    override var textContainerOrigin: NSPoint { NSPoint(x: textContainerInset.width, y: textContainerInset.height) }
+    /// The inset above the first line (UITextView's 6.24 pt). `textContainerInset.height` is half of
+    /// the top and bottom insets together (AppKit adds it above and below the text when it sizes
+    /// the document); this origin puts the text at the top inset as given: AppKit rounds the
+    /// container origin to whole points, which put the text 0.24 pt higher than Catalyst's
+    /// (measured by the text probe's first baseline).
+    var textTopInset: CGFloat = 0
+    override var textContainerOrigin: NSPoint { NSPoint(x: textContainerInset.width, y: textTopInset) }
 
-    /// cmux: the caret's NSTextInsertionIndicator shows no effects view. Its
+    /// The caret's NSTextInsertionIndicator shows no effects view. Its
     /// glass bubble (input source, dictation, caps lock) sits just left of the
     /// caret, which is 7 pt into the field, so it covered the "+" glass. The
     /// text view adds (and rebuilds) its indicators as subviews.
@@ -53,6 +56,8 @@ final class FieldTextView: NSTextView {
     }
 
     override func keyDown(with event: NSEvent) {
+        if Self.caretLog { Self.log("key down \(event.keyCode)"); Self.logRunLoop() }
+        defer { if Self.caretLog { Self.log("key done") } }
         // Marked text (IME composition) owns Return and Esc.
         if hasMarkedText() { super.keyDown(with: event); return }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
@@ -80,9 +85,22 @@ final class FieldTextView: NSTextView {
     /// `--caret-log`: caret placements and blink restarts to /tmp/caret.log (diagnostics).
     static let caretLog = ProcessInfo.processInfo.arguments.contains("--caret-log")
     static func log(_ s: String) {
+        // Host time first (CACurrentMediaTime: the clock of the recorder's frame times).
+        let line = String(format: "%.6f ", CACurrentMediaTime()) + s + "\n"
         let url = URL(fileURLWithPath: "/tmp/caret.log")
-        if let h = try? FileHandle(forWritingTo: url) { h.seekToEndOfFile(); h.write(Data((s + "\n").utf8)); try? h.close() }
-        else { try? Data((s + "\n").utf8).write(to: url) }
+        if let h = try? FileHandle(forWritingTo: url) { h.seekToEndOfFile(); h.write(Data(line.utf8)); try? h.close() }
+        else { try? Data(line.utf8).write(to: url) }
+    }
+    /// `--caret-log`: the main run loop's waits, to place each key's work between Core Animation's
+    /// commits (the implicit transaction commits before the run loop waits).
+    private static var runLoopLog: CFRunLoopObserver?
+    static func logRunLoop() {
+        guard caretLog, runLoopLog == nil else { return }
+        let o = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue | CFRunLoopActivity.afterWaiting.rawValue, true, Int.max) { _, act in
+            log(act == .beforeWaiting ? "runloop wait" : "runloop wake")
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), o, .commonModes)
+        runLoopLog = o
     }
     var caretSuspended = false { didSet { updateCaret(reset: false) } }
 
@@ -97,36 +115,75 @@ final class FieldTextView: NSTextView {
         caretView.isHidden = true
     }
 
+    /// The field's clip (`ComposeTextView.clip`: the text view is the document of its scroll view).
+    private var fieldClip: NSView? { enclosingScrollView?.superview }
+
     /// Places the caret and, with `reset`, restarts its blink (solid first).
     func updateCaret(reset: Bool = true) {
-        guard Self.ownCaret, let window, let host = superview else { caretView.isHidden = true; return }
-        // A sibling view above the text view: Messages' caret starts 0.5 pt left of it.
-        if caretView.superview !== host { host.addSubview(caretView, positioned: .above, relativeTo: self) }
+        let anchor: NSView = fieldClip ?? self
+        guard Self.ownCaret, let window, let host = anchor.superview else { caretView.isHidden = true; return }
+        // A sibling view above the field's clip (Messages' caret starts 0.5 pt left of the text,
+        // outside the clip).
+        if caretView.superview !== host { host.addSubview(caretView, positioned: .above, relativeTo: anchor) }
         let sel = selectedRange()
-        let show = !caretSuspended && window.isKeyWindow && window.firstResponder === self && sel.length == 0
+        var show = !caretSuspended && window.isKeyWindow && window.firstResponder === self && sel.length == 0
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
+        var caretFrame = CGRect.zero
+        if Self.caretLog { Self.log("caret update reset \(reset)") }
+        if show {
+            // The caret's place in the text view (TextKit 2's caret segment, the text laid out), then in
+            // the host: right also before the field's first layout. AppKit's `firstRect` is in screen
+            // coordinates and gave a zero rect while the field was outside the window (focus before the
+            // window's first layout: --caret-log line (-1675, -57, 0, 0), the caret hidden; the layout
+            // that brought the field in moved no view of the field, so the caret stayed hidden).
+            let local: CGRect
+            if let r = caretRect(at: sel.location, upstream: textLayoutManager?.textSelections.first?.affinity == .upstream) {
+                local = CGRect(x: r.minX + Self.caretDX, y: r.minY, width: 1, height: 17)
+            } else {
+                let screen = firstRect(forCharacterRange: NSRange(location: sel.location, length: 0), actualRange: nil)
+                let r = convert(window.convertFromScreen(screen), from: nil)
+                local = CGRect(x: r.minX + Self.caretDX, y: r.midY + Self.caretDY, width: 1, height: 17)
+            }
+            caretFrame = convert(local, to: host)
+            // A caret line scrolled out of the field (past `ComposeView.maxHeight`) hides the caret,
+            // as UIKit's in Messages' field.
+            if let clip = fieldClip {
+                let v = clip.convert(clip.bounds, to: host)
+                show = caretFrame.midY >= v.minY && caretFrame.midY <= v.maxY
+            }
+            if Self.caretLog { Self.log("line \(local) caret \(caretFrame) shown \(show) reset \(reset)") }
+        }
         guard show else { caretView.isHidden = true; caretLayer.removeAllAnimations(); return }
-        let screen = firstRect(forCharacterRange: NSRange(location: sel.location, length: 0), actualRange: nil)
-        let r = convert(window.convertFromScreen(screen), from: nil)
-        caretView.frame = convert(CGRect(x: r.minX + Self.caretDX, y: r.midY + Self.caretDY, width: 1, height: 17), to: host)
-        if Self.caretLog { Self.log("line \(r) caret \(caretView.frame) reset \(reset)") }
+        caretView.frame = caretFrame
         let wasHidden = caretView.isHidden
         caretView.isHidden = false
         if reset || wasHidden || caretLayer.animation(forKey: "blink") == nil { startBlink() }
     }
 
-    /// Caret geometry against the line rect AppKit reports (fitted on swipe-partial and
-    /// field-focus-type: Messages' caret 62.5-63.5 x 1007-1024 pt in the one-line field).
-    static let caretDX: CGFloat = -0.5, caretDY: CGFloat = -8.5 + 1.75
+    /// The caret as drawn (self-test): shown, its frame in the field's host, its blink running.
+    var caretState: (shown: Bool, frame: CGRect, blinks: Bool) {
+        (!caretView.isHidden && caretView.superview != nil, caretView.frame, caretLayer.animation(forKey: "blink") != nil)
+    }
+
+    /// Caret geometry against the line rect AppKit reports: Messages' caret is 62.5-63.5 x
+    /// 1006-1023 pt in the 31 pt one-line field (field-focus-type, deactivate-activate, every
+    /// send take while typing), 7 pt under the field top; 1007-1024 in the 30 pt field after a send
+    /// (the first fit, 1007-1024, was of that field: ours sat 1 pt low while typing).
+    static let caretDX: CGFloat = -0.5, caretDY: CGFloat = -8.5 + 0.75
 
     /// Solid time after a reset (references: 0.55 s in reply-menu-send, 0.58 s in field-focus-type).
     static let caretSolid: CFTimeInterval = 0.56
+
+    /// `--still-grab` (still scenes, test only): the caret stays solid, its state in the grab does
+    /// not depend on the blink's phase at the grab (Messages' still references show it solid).
+    static let solidCaret = ProcessInfo.processInfo.arguments.contains("--still-grab")
 
     private func startBlink() {
         if Self.caretLog { Self.log("blink restart \(CACurrentMediaTime())") }
         caretLayer.removeAnimation(forKey: "blink")
         caretLayer.opacity = 1
+        if Self.solidCaret { return }
         let a = CAKeyframeAnimation(keyPath: "opacity")
         a.calculationMode = .discrete
         // One period from the first fade-out: out 1 -> 0 in four steps, off, in 0 -> 1.
@@ -141,12 +198,23 @@ final class FieldTextView: NSTextView {
         caretLayer.add(a, forKey: "blink")
     }
 
+    override func shouldChangeText(in affectedCharRange: NSRange, replacementString: String?) -> Bool {
+        let ok = super.shouldChangeText(in: affectedCharRange, replacementString: replacementString)
+        if ok { editing = true }
+        return ok
+    }
     override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
+        caretByEdit = editing
         super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
+        // A caret move (an arrow key) shows the caret by this rule whatever AppKit scrolls; an
+        // edit's caret is shown after the edit's layout (`scrollRangeToVisible`, `setFrameSize`).
+        if !editing, !stillSelecting, frame.height > (enclosingScrollView?.contentSize.height ?? .infinity) + 0.5 { scrollCaretIntoField() }
         updateCaret()
         if !stillSelecting, !DeferredSpellChecker.useAppKit { spell.selectionDidChange() }
     }
     override func didChangeText() {
+        editing = false
+        caretByEdit = true
         super.didChangeText()
         updateCaret()
         if !DeferredSpellChecker.useAppKit { spell.textDidChange() }
@@ -175,24 +243,172 @@ final class FieldTextView: NSTextView {
         DispatchQueue.main.async { [weak self] in self?.updateCaret(reset: false) }
         return ok
     }
-    // cmux: block observers on queue: .main (inline for AppKit's post on main), not selectors:
-    // a selector into this main-actor view trapped on a post off main (crash program).
+    // Block observers on queue: .main (inline for AppKit's post on main), not selectors: a selector
+    // into this main-actor view traps on a post off main (cmux-next's objc_observer rule).
     private var keyObservers: [NSObjectProtocol] = []
-    deinit { keyObservers.forEach { NotificationCenter.default.removeObserver($0) } }
+    deinit {
+        keyObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        storageObserver.map(NotificationCenter.default.removeObserver)
+    }
+    /// The text storage's edits (its `didProcessEditing` posts), the container's width and the layout
+    /// objects when `caretRect` last laid out the whole text.
+    private struct LayoutState: Equatable { var edits: Int; var width: CGFloat; var manager: ObjectIdentifier; var container: ObjectIdentifier? }
+    private var laidOut: LayoutState?
+    /// The layout inputs that are not in the text storage, so no `didProcessEditing` reports a change
+    /// of them (hq-6d): the text view's font, typing attributes, default paragraph style and container
+    /// inset (counted in `inputChanges` by their setters), and the container's and layout manager's
+    /// settings. A change lays out the whole text again, from scratch. (On macOS 27 TextKit 2 already
+    /// invalidated the caret's line for each input the self-test changes, so the line check alone was
+    /// right there: self-test "caret: a layout input changed ...", 2026-10-12; this key does not depend
+    /// on that undocumented behaviour, on any OS.)
+    /// (`textContainerOrigin` and `textTopInset` are read at each call, not laid out.)
+    private struct LayoutInputs: Equatable {
+        var changes: Int
+        var padding: CGFloat
+        var maxLines: Int
+        var lineBreak: NSLineBreakMode
+        var exclusions: [NSBezierPath]
+        var orientation: NSLayoutManager.TextLayoutOrientation
+        var fontLeading: Bool
+        var hyphenation: Bool
+    }
+    private var laidOutInputs: LayoutInputs?
+    private var inputChanges = 0
+    override var font: NSFont? { didSet { inputChanges &+= 1 } }
+    override var defaultParagraphStyle: NSParagraphStyle? { didSet { inputChanges &+= 1 } }
+    override var textContainerInset: NSSize { didSet { if textContainerInset != oldValue { inputChanges &+= 1 } } }
+    // AppKit sets the typing attributes again at caret moves: only a different value counts.
+    override var typingAttributes: [NSAttributedString.Key: Any] {
+        didSet { if !NSDictionary(dictionary: typingAttributes).isEqual(to: oldValue) { inputChanges &+= 1 } }
+    }
+    private var storageEdits = 0
+    private var storageObserver: NSObjectProtocol?
+    private var observedStorage: ObjectIdentifier?
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         applyScale()
         let nc = NotificationCenter.default
-        keyObservers.forEach { nc.removeObserver($0) }  // cmux
+        keyObservers.forEach { nc.removeObserver($0) }
         keyObservers = []
         guard let window else { return }
-        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {  // cmux
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
             keyObservers.append(nc.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in self?.updateCaret() })
         }
     }
     override func setFrameSize(_ newSize: NSSize) {
+        let heightChanged = newSize.height != frame.height
         super.setFrameSize(newSize)
+        // The document's height changed (an edit, or a rewrap at a new width): the caret line stays
+        // in view, as in Messages' field. (A narrowing rewrapped the lines after the clip's
+        // scroll: the last line stayed under the field.)
+        if heightChanged { keepCaretInView() }
         updateCaret(reset: false)
+    }
+    override func viewDidEndLiveResize() {
+        super.viewDidEndLiveResize()
+        keepCaretInView()
+    }
+    /// Scrolls the caret's line into the field (the clip of `ComposeTextView`), when the field scrolls.
+    func keepCaretInView() {
+        guard let sv = enclosingScrollView, frame.height > sv.contentSize.height + 0.5 else { return }
+        scrollRangeToVisible(selectedRange())
+    }
+
+    // MARK: Caret scrolling (UITextView's, as Messages' field scrolls)
+
+    /// An edit is between `shouldChangeText` and `didChangeText` (its selection change is the edit's).
+    private var editing = false
+    /// The caret was last placed by an edit (typing, paste, delete), not by a caret move.
+    private var caretByEdit = false
+
+    /// Messages' field (compose-e2e messages, 2026-10-10): a caret move (arrow keys) or a rewrap
+    /// scrolls the field by the least that shows the caret, the caret flush with the field's top
+    /// or bottom edge (AppKit's own scroll left the line 6 to 30 pt inside); an edit at the end of
+    /// the text scrolls to the end, `ComposeView.textBottomInset` under the last line. A
+    /// selection (not a caret) and a field without a window scroll as AppKit does.
+    /// The caret's rect at INDEX in the document (as `updateCaret` places it): from TextKit 2's
+    /// caret segment, after the field's whole text is laid out (TextKit 2 lays out only lines near
+    /// the viewport, and a line outside it has an estimated place: lab e2e 2026-10-10, Up to line 1
+    /// left the field at its end).
+    /// UPSTREAM: the caret at a soft wrap is at the end of the line above (the selection's affinity).
+    private func caretRect(at index: Int, upstream: Bool = false) -> CGRect? {
+        guard let tlm = textLayoutManager, let tcm = tlm.textContentManager,
+              let loc = tcm.location(tcm.documentRange.location, offsetBy: index) else { return nil }
+        // The whole text is laid out again only when an edit or a new container width can have
+        // changed a line since the last time (or the caret's own line is not laid out): over a laid-out
+        // text, `ensureLayout` still walks every line (caret bench, 20,000 characters: 0.15 ms per
+        // call, 2 to 3 calls per key; arrow keys edit nothing).
+        let storage = textStorage.map(ObjectIdentifier.init)
+        if observedStorage != storage {
+            storageObserver.map(NotificationCenter.default.removeObserver)
+            storageObserver = textStorage.map {
+                NotificationCenter.default.addObserver(forName: NSTextStorage.didProcessEditingNotification, object: $0, queue: .main) { [weak self] _ in
+                    self?.storageEdits += 1
+                }
+            }
+            observedStorage = storage
+            laidOut = nil
+        }
+        let inputs = LayoutInputs(changes: inputChanges, padding: textContainer?.lineFragmentPadding ?? -1,
+                                  maxLines: textContainer?.maximumNumberOfLines ?? -1, lineBreak: textContainer?.lineBreakMode ?? .byWordWrapping,
+                                  exclusions: textContainer?.exclusionPaths ?? [], orientation: textContainer?.layoutOrientation ?? .horizontal,
+                                  fontLeading: tlm.usesFontLeading, hyphenation: tlm.usesHyphenation)
+        if inputs != laidOutInputs {
+            // Kept first: a caret update inside the invalidation sees these inputs as laid out.
+            let had = laidOutInputs != nil
+            laidOutInputs = inputs
+            laidOut = nil
+            if had { tlm.invalidateLayout(for: tlm.documentRange) }
+        }
+        let state = LayoutState(edits: storageEdits, width: textContainer?.size.width ?? -1,
+                                manager: ObjectIdentifier(tlm), container: textContainer.map(ObjectIdentifier.init))
+        // The caret at the end of the text is in the last line's fragment (no fragment begins there).
+        let end = index > 0 && loc.compare(tcm.documentRange.endLocation) == .orderedSame
+        let probe = end ? tcm.location(loc, offsetBy: -1) ?? loc : loc
+        if laidOut != state || tlm.textLayoutFragment(for: probe)?.state != .layoutAvailable {
+            tlm.ensureLayout(for: tlm.documentRange)
+            laidOut = state
+        }
+        var line: CGRect?
+        tlm.enumerateTextSegments(in: NSTextRange(location: loc), type: .standard, options: upstream ? [.rangeNotRequired, .upstreamAffinity] : [.rangeNotRequired]) { _, r, _, _ in
+            line = r; return false
+        }
+        guard let l = line else { return nil }
+        let o = textContainerOrigin
+        return CGRect(x: l.minX + o.x, y: l.midY + o.y + Self.caretDY, width: 1, height: 17)
+    }
+    /// Self-test: the caret's rects at INDICES from the layout as `caretRect` keeps it, then after the
+    /// whole text is laid out again from scratch (equal when no layout input went stale).
+    func caretRects(at indices: [Int]) -> (kept: [CGRect?], fresh: [CGRect?]) {
+        let kept = indices.map { caretRect(at: $0) }
+        if let tlm = textLayoutManager { tlm.invalidateLayout(for: tlm.documentRange) }
+        laidOut = nil
+        return (kept, indices.map { caretRect(at: $0) })
+    }
+    @discardableResult
+    private func scrollCaretIntoField(_ range: NSRange? = nil) -> Bool {
+        let sel = range ?? selectedRange()
+        guard let sv = enclosingScrollView, window != nil, sel.length == 0, var target = caretRect(at: sel.location) else { return false }
+        let clip = sv.contentView
+        if Self.caretLog { Self.log("scroll caret \(sel.location) rect \(target) container \(textContainer?.size.width ?? -1) view \(frame.size) clip \(clip.bounds) edit \(caretByEdit) live \(inLiveResize)") }
+        if caretByEdit, sel.location >= (string as NSString).length { target.size.height = max(target.height, bounds.maxY - target.minY) }
+        let visible = clip.bounds
+        var y = visible.minY
+        if target.minY < visible.minY { y = target.minY } else if target.maxY > visible.maxY { y = target.maxY - visible.height }
+        y = min(max(0, y), max(0, bounds.height - visible.height))
+        if abs(y - visible.minY) > 0.01 {
+            clip.scroll(to: NSPoint(x: visible.minX, y: y))
+            sv.reflectScrolledClipView(clip)
+        }
+        return true
+    }
+    override func scrollRangeToVisible(_ range: NSRange) {
+        if !scrollCaretIntoField(range) { super.scrollRangeToVisible(range) }
+    }
+    /// AppKit's caret scrolling after a key can come here too (with its own margin).
+    override func scrollToVisible(_ rect: NSRect) -> Bool {
+        if scrollCaretIntoField() { return true }
+        return super.scrollToVisible(rect)
     }
 
     /// The pasteboard Paste reads (a check injects its own).
@@ -211,21 +427,85 @@ final class CaretView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
-/// `compose.textView` for the shared window view: the NSTextView and its
-/// layer (the shared code removes animations from it).
+/// The field's clip: a flipped view whose layer the field's growth animates (its top on the field
+/// top, its height revealing the new line, as UITextView's frame on Catalyst).
+final class FieldClipView: NSView {
+    override var isFlipped: Bool { true }
+}
+
+/// `compose.textView` for the shared window view: the NSTextView, the scroll view it is the
+/// document of, and the clip around them (the shared code removes animations from its layer).
+/// Messages' field is a UITextView, a scroll view: past `ComposeView.maxHeight` its text scrolls and
+/// keeps the caret line in view. Here AppKit does the same: the NSTextView scrolls its insertion
+/// point into view in its clip view after every edit and caret move.
 final class ComposeTextView {
     let view: FieldTextView
-    // cmux: init sets wantsLayer, so the layer exists; a detached layer stands in otherwise (crash program).
-    var layer: CALayer { view.layer ?? CALayer() }
+    let scrollView = NSScrollView()
+    let clip = FieldClipView()
+    // init sets the clip's wantsLayer, so the layer exists; a detached layer stands in otherwise.
+    var layer: CALayer { clip.layer ?? CALayer() }
     var onSend: () -> Void { get { view.onSend } set { view.onSend = newValue } }
     var onEscape: () -> Void { get { view.onEscape } set { view.onEscape = newValue } }
     var text: String { view.string }
+    private var scrolled: NSObjectProtocol?
     init() {
         // TextKit 2, as UITextView on Catalyst.
         view = FieldTextView(usingTextLayoutManager: true)
         view.wantsLayer = true
+        clip.wantsLayer = true
+        clip.layer?.masksToBounds = true
+        scrollView.drawsBackground = false
+        scrollView.contentView.drawsBackground = false
+        scrollView.borderType = .noBorder
+        scrollView.hasHorizontalScroller = false
+        scrollView.hasVerticalScroller = ComposeView.showsScroller
+        scrollView.scrollerStyle = .overlay
+        scrollView.autohidesScrollers = true
+        scrollView.verticalScrollElasticity = .automatic
+        scrollView.horizontalScrollElasticity = .none
+        scrollView.autoresizingMask = [.width, .height]
+        scrollView.documentView = view
+        clip.addSubview(scrollView)
+        // The caret follows the text when the field scrolls (a trackpad scroll over the field).
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        scrolled = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: scrollView.contentView, queue: nil) { [weak view] _ in
+            view?.updateCaret(reset: false)
+        }
     }
+    deinit { scrolled.map(NotificationCenter.default.removeObserver) }
     func insertText(_ s: String) { view.insertText(s, replacementRange: view.selectedRange()) }
+
+    /// The clip at FRAME (host coordinates): the document is at least the clip's height, as wide
+    /// as it; a size change keeps the caret line in view (a live resize rewraps the lines).
+    func place(_ frame: CGRect) {
+        guard clip.frame != frame else { return }
+        let rewrap = clip.frame.width != frame.width
+        if FieldTextView.caretLog { FieldTextView.log("place \(frame) from \(clip.frame) view \(view.frame.size) container \(view.textContainer?.size.width ?? -1)") }
+        defer { if FieldTextView.caretLog { FieldTextView.log("placed view \(view.frame.size) content \(scrollView.contentSize) container \(view.textContainer?.size.width ?? -1) clip \(scrollView.contentView.bounds)") } }
+        clip.frame = frame
+        let size = scrollView.contentSize
+        view.minSize = NSSize(width: 0, height: size.height)
+        if view.frame.width != size.width { view.setFrameSize(NSSize(width: size.width, height: view.frame.height)) }
+        // A new width rewraps the lines: TextKit lays them out again lazily, after this scroll.
+        // Laid out now, the document's height and the caret's line are the new ones when the
+        // caret is scrolled into view (the last line stayed under the field after a narrowing).
+        // The field sets its text container's width itself: with `widthTracksTextView` AppKit
+        // left the container at the old width through a live resize (probe 2026-10-10, --caret-log:
+        // the text view widened 311 -> 502 pt in a drag, its container stayed 308 pt until the
+        // drag ended; lab run 05:19's narrow step showed the lines unwrapped at the narrow width
+        // after the drag, its caret line under the field).
+        let width = size.width - 2 * view.textContainerInset.width
+        if let c = view.textContainer, c.size.width != width { c.size = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude) }
+        if rewrap, let tlm = view.textLayoutManager { tlm.ensureLayout(for: tlm.documentRange) }
+        view.sizeToFit()
+        view.keepCaretInView()
+        // The caret view is the clip's sibling: a move of the clip alone (a window height change)
+        // does not reach the text view's frame or scroll, so the caret follows here. Without it the caret stayed where the clip was when the field took
+        // focus (still gate 2026-10-11, --caret-log: the launch placed the clip at y 907, the
+        // window's resize to 1041 pt moved it to 999, the caret stayed at 915, 92 pt above the
+        // field, in the transcript; or hidden, when the focus came before the first layout).
+        view.updateCaret(reset: false)
+    }
 }
 
 /// Compose bar: "+" and emoji buttons, and the field with a real NSTextView.
@@ -265,6 +545,9 @@ final class ComposeView: UIView {
     private(set) var fieldHeight: CGFloat = ComposeMetrics.oneLine
     private(set) var chips: [Attachment] = []
     private(set) var text = ""
+    /// The field is empty because of a send (no character typed and no attachment since): Messages
+    /// keeps it at `ComposeMetrics.emptyAfterSend` (30 pt), not the one-line height.
+    private(set) var emptyAfterSend = false
     private var placeholder = Strings.placeholder
     var captureMode = false {
         didSet {
@@ -298,32 +581,49 @@ final class ComposeView: UIView {
     var onSendPulse: ((CFTimeInterval) -> Void)?
 
     static func height(lines: Int, chips: Bool) -> CGFloat { ComposeMetrics.height(lines: lines, chips: chips) }
-    /// cmux: per view (several Home tabs), from this compose bar's width.
+    /// per view (several Home tabs), from this compose bar's width.
     var textWidth: CGFloat { ComposeView.fieldWidth(bounds.width) - 24 }
     static func fieldWidth(_ windowWidth: CGFloat) -> CGFloat { 526 + windowWidth - Fixture.windowWidth }
     static let font = Fixture.bodyFont
-    static let maxLines = 8
-    @available(macOS 15, *) // cmux: macOS 14
+    /// `writingTools`' raw value for reports: -1 on macOS 14 (no Writing Tools).
+    static var writingToolsRaw: Int {
+        if #available(macOS 15, *) { return writingTools.rawValue }
+        return -1
+    }
+    @available(macOS 15, *)
     static let writingTools: NSWritingToolsBehavior = {
         let a = ProcessInfo.processInfo.arguments
-        switch a.firstIndex(of: "--writing-tools").flatMap({ a.dropFirst($0 + 1).first }) /* cmux: no index math */ {
+        switch a.firstIndex(of: "--writing-tools").flatMap({ a.dropFirst($0 + 1).first }) /* no index math */ {
         case "none": return .none
         case "complete": return .complete
         case "default": return .default
         default: return .limited
         }
     }()
-    /// cmux: per view (several Home tabs): this compose bar's width and its own memo.
-    func lines(_ text: String) -> Int {
+    /// per view (several Home tabs): the draft's lines at the text width of a window WINDOWWIDTH pt
+    /// wide, with this compose bar's own memo (no limit: the field's height stops at `maxHeight`,
+    /// its text scrolls past it).
+    func lines(_ text: String, windowWidth: CGFloat) -> Int {
         // One-entry memo: every compose update asks again for the same draft (a send asks for "").
-        let w = textWidth
+        let w = ComposeView.fieldWidth(windowWidth) - 24
         // The empty field (every send and every commit after it) has its own entry: the one-entry
         // memo held the last typed draft, so each send typeset " " again.
         if text.isEmpty, let e = emptyLinesMemo, e.0 == w { return e.1 }
         if let m = linesMemo, m.0 == text, m.1 == w { return m.2 }
-        let n = min(ComposeView.maxLines, TextLayout.make(text.isEmpty ? " " : text, runs: [], maxWidth: w, font: ComposeView.font).lines.count)
+        let n = TextLayout.make(text.isEmpty ? " " : text, runs: [], maxWidth: w, font: ComposeView.font).lines.count
         if text.isEmpty { emptyLinesMemo = (w, n) } else { linesMemo = (text, w, n) }
         return n
+    }
+    /// The field's tallest text part. Real Messages (compose-e2e messages, 2026-10-10, 628 pt
+    /// wide): the glass stops at the same height in a 940, 740 and 600 pt window (a fixed height,
+    /// not a share of the window): 293.6 pt by the e2e's glass detector, which reads Messages'
+    /// 1-line and 5-line fields 1.9 pt short (29.1 for 31, 93.1 for 95), so 295.5 pt, about 17.5
+    /// lines (the 8-line limit was Catalyst's guess). Past it the text scrolls.
+    static let maxHeight: CGFloat = 295.5
+    /// The field's height for the draft in a window WIDTH pt wide (the attachment row on top).
+    private func height(for text: String, width: CGFloat) -> CGFloat {
+        if emptyAfterSend && text.isEmpty && chips.isEmpty { return ComposeMetrics.emptyAfterSend }
+        return min(ComposeView.height(lines: lines(text, windowWidth: width), chips: false), ComposeView.maxHeight) + strip.height
     }
     private var linesMemo: (String, CGFloat, Int)?
     private var emptyLinesMemo: (CGFloat, Int)?
@@ -345,6 +645,15 @@ final class ComposeView: UIView {
     }
     /// UITextView's text container inset above the first line (Catalyst value).
     static let textTopInset: CGFloat = ComposeView.firstBaseline - 13.26 - 0.25
+    /// The space under the last line when the field scrolls (past `maxHeight`), scrolled to the end:
+    /// real Messages, 20 pasted lines (compose-e2e messages, 2026-10-09): the caret 2.1 pt above
+    /// the glass's bottom, its line 4.35 pt (unscrolled, 8.2 pt: the field's own margin). Below
+    /// `maxHeight` the document (top inset, lines, this) is shorter than the field, so nothing
+    /// scrolls and the text sits where it sat.
+    static let textBottomInset: CGFloat = 4.35
+    /// The field's scroll bar (an overlay scroller while the field scrolls). Off: Messages shows none
+    /// (not in a trackpad scroll over the field either, same take).
+    static let showsScroller = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -353,7 +662,7 @@ final class ComposeView: UIView {
             l.actions = none; l.contentsScale = DisplayScale.current
         }
         buttons.isUserInteractionEnabled = false
-        // cmux: weak capture, not unowned (crash program: no trap after the view is freed).
+        // weak capture, not unowned (crash program: no trap after the view is freed).
         buttons.drawer = { [weak self] ctx, _ in self?.drawButtons(ctx) }
         addSubview(buttons)
         glass.anchorPoint = CGPoint(x: 0.5, y: 1)
@@ -384,13 +693,24 @@ final class ComposeView: UIView {
         tv.insertionPointColor = Fixture.caret
         tv.installCaret()
         tv.textContainer?.lineFragmentPadding = 0
-        tv.textContainerInset = NSSize(width: 0, height: ComposeView.textTopInset)
+        // AppKit puts `textContainerInset.height` above and below the text when it sizes the
+        // document; the container origin puts the text at the top inset.
+        tv.textTopInset = ComposeView.textTopInset
+        tv.textContainerInset = NSSize(width: 0, height: (ComposeView.textTopInset + ComposeView.textBottomInset) / 2)
         tv.isRichText = false
         tv.allowsUndo = true
         tv.typingAttributes = ComposeView.typing
-        tv.isVerticallyResizable = false
+        // The document of the field's scroll view (ComposeTextView): as tall as its text, at
+        // least the field.
+        tv.isVerticallyResizable = true
         tv.isHorizontallyResizable = false
-        tv.textContainer?.widthTracksTextView = true
+        tv.autoresizingMask = [.width]
+        tv.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        // The container's width follows the field's width in `ComposeTextView.place`, not AppKit's
+        // tracking (which lagged through a live resize).
+        tv.textContainer?.widthTracksTextView = false
+        tv.textContainer?.heightTracksTextView = false
+        tv.textContainer?.containerSize = NSSize(width: ComposeView.fieldWidth(Metrics.current.width) - 24, height: CGFloat.greatestFiniteMagnitude)
         tv.layerContentsPlacement = .topLeft
         tv.layer?.masksToBounds = true
         tv.layer?.contentsGravity = .topLeft
@@ -411,7 +731,7 @@ final class ComposeView: UIView {
         tv.isAutomaticTextReplacementEnabled = NSSpellChecker.isAutomaticTextReplacementEnabled
         tv.isAutomaticQuoteSubstitutionEnabled = NSSpellChecker.isAutomaticQuoteSubstitutionEnabled
         tv.isAutomaticDashSubstitutionEnabled = NSSpellChecker.isAutomaticDashSubstitutionEnabled
-        if #available(macOS 15, *) { tv.writingToolsBehavior = ComposeView.writingTools } // cmux: macOS 14
+        if #available(macOS 15, *) { tv.writingToolsBehavior = ComposeView.writingTools }
         tv.setAccessibilityLabel(Strings.placeholder)
 
         caret.backgroundColor = Fixture.caret.cgColor
@@ -439,7 +759,13 @@ final class ComposeView: UIView {
         // the width (both were about a tenth of each resize frame on main, dogfood 2026-10-08).
         if !nativeChrome { renderGlass() }
         if placeholderScale != DisplayScale.current { renderPlaceholder() }
+        // A new window width rewraps the draft: the field's height follows at once, as Messages'
+        // (the window view lays the rows out on the new field top after this).
+        let h = height(for: text, width: bounds.width)
+        let jumped = h != fieldHeight
+        fieldHeight = h
         place(height: fieldHeight)
+        if jumped { onFieldJump?() }
     }
 
     /// The display scale changed: draw every image again at the new scale.
@@ -480,14 +806,19 @@ final class ComposeView: UIView {
         for l in [veil, rim, tint] { l.bounds = glass.bounds; l.position = glass.position }
         tint.backgroundColor = Fixture.background.withAlphaComponent(0.2).cgColor
         placeholderLayer.frame = CGRect(x: f.minX, y: f.minY + chipH, width: 300, height: 30)
-        waveLayer.frame = CGRect(x: f.maxX - 30, y: f.maxY - 30, width: 24, height: 30)
+        waveLayer.frame = CGRect(x: f.maxX - 30, y: ComposeView.waveY(f), width: 24, height: 30)
         chipsLayer.frame = CGRect(x: f.minX, y: f.minY, width: f.width, height: max(1, strip.height))
         strip.update(chips, width: f.width, scale: DisplayScale.current)
         textSnapshot.frame = textFrame(height: h)
         CATransaction.commit()
-        let tv = textFrame(height: h)
-        if textView.view.frame != tv { textView.view.frame = tv }
+        textView.place(textFrame(height: h))
     }
+
+    /// The audio glyph's layer top for the field F: centred in the field, as Messages' (its glyph
+    /// centre 1014.5 pt in the 31 pt field, 1015.0 in the 30 pt field after a send, macOS 27 and 26).
+    /// It is placed at once on a send, not animated with the field: in send-2line-take2 Messages'
+    /// glyph shows from +0.2 s at 1014.4-1015.0 pt while the field still shrinks.
+    static func waveY(_ f: CGRect) -> CGFloat { f.midY - 14.5 }
 
     /// Glass field image: top and bottom rims are fixed, the middle stretches.
     private func renderGlass() {
@@ -524,7 +855,7 @@ final class ComposeView: UIView {
             let grey = NSColor(white: 55 / 255, alpha: 1)
             let space = CGColorSpace(name: CGColorSpace.sRGB)
             for (stops, fromTop) in [(top, true), (bottom, false)] {
-                // cmux: an optional gradient draws nothing when it fails (CrashSafeGraphics).
+                // an optional gradient draws nothing when it fails (CrashSafeGraphics).
                 let g = CGGradient(colorsSpace: space, colors: stops.map { grey.withAlphaComponent($0.1).cgColor } as CFArray,
                                    locations: stops.map { $0.0 / cap })
                 c.drawLinearGradient(g, start: CGPoint(x: 0, y: fromTop ? 0 : h), end: CGPoint(x: 0, y: fromTop ? cap : h - cap), options: [])
@@ -585,6 +916,7 @@ final class ComposeView: UIView {
     /// transaction (catalyst's `ComposeView.update`).
     func update(state: AppState, send: Bool, begin: CFTimeInterval) {
         let d = state.ui.draft
+        let hadDraft = !text.isEmpty || !chips.isEmpty
         let tv = textView.view
         if tv.string != d.text {
             // Never replace text that holds marked (IME) text: the input
@@ -597,27 +929,31 @@ final class ComposeView: UIView {
         }
         let newPlaceholder = state.ui.openThread != nil ? ComposeView.placeholders.reply : ComposeView.placeholders.field
         if newPlaceholder != placeholder { placeholder = newPlaceholder; renderPlaceholder(); tv.setAccessibilityLabel(placeholder) }
-        // Messages grows the field for an attachment at once (no in-between frame at
-        // 120 Hz, compose-attach-image paste take); typing still uses the growth spring.
+        // Messages changes the field's height at once for an attachment (no in-between frame at
+        // 120 Hz, compose-attach-image paste take) and while typing (field-focus-type-take1 and
+        // compose-e2e: one frame, the transcript on the same frame); only a send animates it.
         let attachmentsChanged = d.attachments != chips
         if attachmentsChanged { chips = d.attachments; renderChips(); onAttachmentsChanged?() }
         text = d.text
+        // Only a send that took a draft (a rejected send is not committed: Store.apply).
+        if send && hadDraft { emptyAfterSend = d.text.isEmpty && d.attachments.isEmpty }
+        else if !d.text.isEmpty || !d.attachments.isEmpty { emptyAfterSend = false }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         // With an attachment Messages shows neither the placeholder nor the audio glyph
         // (compose-attach-image stills).
         placeholderLayer.opacity = text.isEmpty && chips.isEmpty ? 1 : 0
         waveLayer.opacity = text.isEmpty && chips.isEmpty ? 1 : 0
         CATransaction.commit()
-        let h = ComposeView.height(lines: lines(d.text), chips: false) + strip.height  // cmux: per view
+        let h = height(for: d.text, width: bounds.width)
         let old = fieldHeight
         fieldHeight = h
         if attachmentsChanged || placed.map({ $0.0 != h || $0.1 != text.isEmpty || $0.2 != strip.height || $0.3 != bounds.size }) ?? true {
             place(height: h)
         }
-        if h != old && attachmentsChanged && !send {
+        if h != old && !send {
             onFieldJump?()
         } else if h != old {
-            let e = send ? Springs.fieldTop : Springs.fieldGrow
+            let e = Springs.fieldTop
             onFieldResize?(old, h, e, begin)
             Animate.scalar(glass, "bounds.size.height", from: Double(old), to: Double(h), e, begin: begin)
             for l in [veil, rim, tint] { Animate.scalar(l, "bounds.size.height", from: Double(old), to: Double(h), e, begin: begin) }
@@ -627,8 +963,9 @@ final class ComposeView: UIView {
             }
             // The text view's top stays on the field top: Catalyst animates
             // the center by half the growth and the height by the growth
-            // (anchor 0.5). AppKit's text view layer is anchored at its
-            // top-left, so its top moves by the growth: the same frames.
+            // (anchor 0.5). The field's clip layer (ComposeTextView.clip, around
+            // the text view) is anchored at its top-left, so its top moves by the
+            // growth: the same frames.
             for l in [textView.layer, textSnapshot] {
                 let top = l.anchorPoint.y == 0 ? dTop : dTop / 2
                 Animate.scalar(l, "position.y", from: Double(l.position.y) + top, to: Double(l.position.y), e, begin: begin)
@@ -647,9 +984,9 @@ final class ComposeView: UIView {
     /// faded (catalyst's `tintOverBubble`).
     func tintOverBubble(begin: CFTimeInterval, exit: CFTimeInterval) {
         let e = Springs.fieldOpacity
-        let n = max(2, CrashGuard.int((exit - begin) * 240, in: 0...14_400) + 1) // cmux: at most 60 s, no trap on NaN
+        let n = max(2, CrashGuard.int((exit - begin) * 240, in: 0...14_400) + 1) // at most 60 s, no trap on NaN
         let samples: [Double] = (0...n).map { min(1, max(0, e.value(Double($0) / 240, from: 1, to: 1))) }
-        // cmux: no index math.
+        // no index math.
         let low = samples.enumerated().min { $0.element < $1.element }?.offset ?? n
         let values = samples.enumerated().map { $0.offset < low || $0.offset == n ? 0 : 1 - $0.element }
         let a = CAKeyframeAnimation(keyPath: "opacity")
@@ -669,12 +1006,14 @@ final class ComposeView: UIView {
         guard captureMode else { return }
         let tv = textView.view
         tv.layoutSubtreeIfNeeded()
-        let size = tv.bounds.size
-        guard size.width > 0, size.height > 0, var rep = tv.bitmapImageRepForCachingDisplay(in: tv.bounds) else { return }
+        // The part of the document in the field (all of it up to `maxHeight`).
+        let shown = tv.visibleRect.isEmpty ? tv.bounds : tv.visibleRect
+        let size = shown.size
+        guard size.width > 0, size.height > 0, var rep = tv.bitmapImageRepForCachingDisplay(in: shown) else { return }
         // AppKit sizes the cache for the main screen when the view has no window (1x on a Mac
         // whose main display is 1x); the snapshot is drawn at the scale of the tree it goes into.
         let scale = tv.window?.backingScaleFactor ?? DisplayScale.current
-        // cmux: no trap on a NaN or huge size (crash ratchet)
+        // no trap on a NaN or huge size (crash ratchet)
         let wide = CrashGuard.int((size.width * scale).rounded(.up), in: 0...1 << 16), high = CrashGuard.int((size.height * scale).rounded(.up), in: 0...1 << 16)
         if rep.pixelsWide != wide || rep.pixelsHigh != high,
            let scaled = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: wide, pixelsHigh: high,
@@ -685,7 +1024,7 @@ final class ComposeView: UIView {
             scaled.size = size
             rep = scaled
         }
-        tv.cacheDisplay(in: tv.bounds, to: rep)
+        tv.cacheDisplay(in: shown, to: rep)
         CATransaction.begin(); CATransaction.setDisableActions(true)
         textSnapshot.contents = rep.cgImage
         textSnapshot.contentsScale = CGFloat(rep.pixelsWide) / max(1, size.width)
@@ -709,7 +1048,8 @@ final class ComposeView: UIView {
         let cx = f.minX + 12 + TextDraw.width(last, font: ComposeView.font, kern: Fixture.bodyKern)
         let base = f.minY + (strip.height) + ComposeView.firstBaseline
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        caret.frame = CGRect(x: cx.px, y: base - 12.5 + row * 16, width: 1, height: 16.5)
+        // Messages' caret: 1 x 17 pt, its top 7 pt under the field top (13.25 above the first baseline).
+        caret.frame = CGRect(x: cx.px, y: base - 13.25 + row * 16, width: 1, height: 17)
         caret.backgroundColor = (gray ? NSColor(white: 0.5, alpha: 1) : Fixture.caret).cgColor
         caret.opacity = Float(alpha)
         CATransaction.commit()

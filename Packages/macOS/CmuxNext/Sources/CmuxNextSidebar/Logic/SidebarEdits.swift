@@ -33,8 +33,8 @@ public nonisolated enum SidebarEdits {
             return move(ids, toGroup: group, in: &sections)
         case let .reorderGroup(group, index):
             return reorderGroup(group, index: index, in: &sections)
-        case let .createGroup(id, name, color, ids, anchor, collapsed):
-            guard createGroup(id, name: name, color: color, workspaces: ids, anchor: anchor, in: &sections) else { return false }
+        case let .createGroup(id, name, color, ids, anchor, collapsed, index):
+            guard createGroup(id, name: name, color: color, workspaces: ids, anchor: anchor, index: index, in: &sections) else { return false }
             if collapsed { _ = mutateGroup(id, in: &sections) { $0.isCollapsed = true } }
             return true
         case let .renameGroup(id, name):
@@ -181,6 +181,7 @@ public nonisolated enum SidebarEdits {
         color: GroupColor,
         workspaces ids: [WorkspaceID],
         anchor target: WorkspaceID? = nil,
+        index: Int? = nil,
         in sections: inout [SidebarSection]
     ) -> Bool {
         let ordered = treeOrder(ids, in: sections)
@@ -203,7 +204,7 @@ public nonisolated enum SidebarEdits {
         })
         let removed = removeWorkspaces(joining, from: &sections)
         let group = SidebarGroup(id: id, name: SidebarGroup.named(name), color: color, workspaces: removed)
-        sections[s].nodes.insert(.group(group), at: min(insertion, sections[s].nodes.count))
+        sections[s].nodes.insert(.group(group), at: min(max(index ?? insertion, 0), sections[s].nodes.count))
         pruneEmptyGroups(in: &sections, keeping: id)
         return true
     }
@@ -291,7 +292,7 @@ public nonisolated enum SidebarEdits {
         return removed
     }
 
-    static func insert(_ workspaces: [SidebarWorkspace], at position: DropPosition, in sections: inout [SidebarSection]) {
+    public static func insert(_ workspaces: [SidebarWorkspace], at position: DropPosition, in sections: inout [SidebarSection]) {
         guard let s = sections.firstIndex(where: { $0.id == position.section }) else { return }
         if let group = position.group,
            let n = sections[s].nodes.firstIndex(where: { $0.id == .group(group) }),

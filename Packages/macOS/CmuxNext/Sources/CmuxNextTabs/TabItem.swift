@@ -30,9 +30,16 @@ public struct TabItem: Identifiable, Hashable, Sendable {
     /// What a `needsInput` badge waits for (OSC 7501 `kind`), so a status
     /// icon set can mark it (`StatusIconSet`); nil for other states.
     public var blockedKind: StatusBlockedKind?
+    /// The program's own words on its status (OSC 7501 title and message, one plain line), for
+    /// the hover card; nil when it reported none.
+    public var statusDetail: String?
     /// The page hibernated (released to save memory; reloads when
     /// selected): the icon and title are drawn dimmed.
     public var isDormant = false
+    /// The tab shows the New Tab page: its title says all there is, so it
+    /// takes no hover card. A blank browser tab is not one (an incognito or
+    /// app tab's record keeps about:blank while its page shows a site).
+    public var isNewTabPage = false
     /// Group this tab belongs to. Ignored for pinned tabs and
     /// for ids missing from `TabStripModel.groups`.
     public var groupID: TabGroupID?
@@ -51,6 +58,8 @@ public struct TabItem: Identifiable, Hashable, Sendable {
     /// gives new tabs: a small dot of its color, named in the hover card and
     /// to VoiceOver (plans/cmux-next/data-model.md section 5).
     public var profileBadge: TabProfileBadge?
+    /// The agent acting in the tab right now (cx-gg84): a dot in its presence color.
+    public var presence: TabPresence?
     /// A browser tab playing sound, or muted: a speaker after the title.
     public var audio: TabAudio?
 

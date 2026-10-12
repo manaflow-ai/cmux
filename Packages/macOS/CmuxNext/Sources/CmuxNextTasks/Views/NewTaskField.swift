@@ -15,6 +15,7 @@ struct NewTaskField: View {
             Icon(.actionAdd, size: 14).foregroundStyle(colors.tertiary)
             TextField(TasksStrings.newTaskPlaceholder, text: $title)
                 .textFieldStyle(.plain)
+                .focusEffectDisabled()
                 .font(.system(size: 12.5))
                 .foregroundStyle(colors.primary)
                 .focused($focused)

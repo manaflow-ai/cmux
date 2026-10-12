@@ -43,7 +43,8 @@ final class AppTabSearchSource: TabSearchSource {
     }
 
     func forgetClosedTab(id: String) {
-        _ = services.closedTabs?.take(id)
+        guard let entry = DaemonClosedHistory.entry(DaemonClosedHistory.daemonID(fromHistoryID: id) ?? id, in: services) else { return }
+        DaemonClosedHistory.delete(entry, services: services)
     }
 
     /// An open browser tab's favicon on this Mac: its live page's, else its record's (never an
@@ -55,9 +56,9 @@ final class AppTabSearchSource: TabSearchSource {
         return services.browserFavicon(key: entry.id, recordFavicon: record)?.cgImage
     }
 
-    /// The closed-tab tracker's change signal: it fires after every change
-    /// to the tabs it watches (every machine's structure) and to the closed
-    /// list, once the list is current, and when a favicon lands.
+    /// The closed-tab feed's change signal: it fires after every change to
+    /// the mirrored tabs (every machine's structure) and to the daemons'
+    /// closed items, and when a favicon lands.
     func changes() -> AsyncStream<Void> {
         guard let changes = services.closedTabs?.changes else { return AsyncStream { $0.finish() } }
         // The revision at subscribe time, read now: a change that lands

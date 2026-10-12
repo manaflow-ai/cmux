@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 25627fb62c15c4c64527841ff09b16a772d557087d129151b5bbe1d2d0e4e896. */
+/* cmux-tui mux protocol 12, IR 67d7ecb759ef04d91548819e9fc645194fd9a678113174603e80467e08021629. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "25627fb62c15c4c64527841ff09b16a772d557087d129151b5bbe1d2d0e4e896" as const;
+export const SDK_IR_SHA256 = "67d7ecb759ef04d91548819e9fc645194fd9a678113174603e80467e08021629" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -495,6 +495,10 @@ export const COMMAND_METADATA = {
       "origin": {
         "since": 7,
         "capability": null
+      },
+      "reason": {
+        "since": null,
+        "capability": "close-reason-v1"
       }
     },
     "stream": null,
@@ -540,6 +544,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Trusted local connections only. Shares one upstream socket per conversation; at most 64. Replies {conversation, state, reason?, account?} with the shared socket's current state, then emits that state as cloud-subscription-state. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    ]
+  },
+  "cloud-conversation-thread": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "conversation-thread-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. Needs cloud-conversations-v1 too. limit is 1-200. Calls the cloud. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
     ]
   },
   "cloud-conversation-unsubscribe": {
@@ -692,6 +706,16 @@ export const COMMAND_METADATA = {
       "Trusted local connections only. A replay of the same idempotency key and request returns the created conversation with replayed:true. See spec/commands.md."
     ]
   },
+  "conversation-draft": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "conversation-draft-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only; the connection's bound agent participant publishes. Ephemeral: never stored, only on conversation.events. See spec/commands.md."
+    ]
+  },
   "conversation-history": {
     "authority": "local-admin",
     "since": 12,
@@ -750,6 +774,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Trusted local connections only. tail is 1-500. See spec/commands.md."
+    ]
+  },
+  "conversation-thread": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "conversation-thread-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. limit is 1-500 (default 50). A root that is unknown, in another conversation or a thread reply is unknown_message. See spec/commands.md."
     ]
   },
   "conversation-typing": {
@@ -958,6 +992,16 @@ export const COMMAND_METADATA = {
       "See spec/commands.md for the result object."
     ]
   },
+  "delete-terminal-commands": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "terminal-command-history-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Runs after every command queued before it; deleted rows are zeroed (secure delete) and ids are never reused."
+    ]
+  },
   "delete-workspace-group": {
     "authority": "control",
     "since": 12,
@@ -1089,6 +1133,16 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "profiles-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "get-blob": {
+    "authority": "control",
+    "since": 12,
+    "capability": "icon-assets-v1",
     "fields": {},
     "stream": null,
     "constraints": [
@@ -1274,6 +1328,17 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
+    ]
+  },
+  "list-terminal-commands": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "terminal-command-history-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Returns the newest limit unexpired rows with an id above after_id, oldest first; truncated is true when older rows after after_id were left out.",
+      "deletions counts client deletes (not expiry); a reader that saw another deletions or registry_id reads again from the start and drops rows older than retention_days itself."
     ]
   },
   "list-terminals": {
@@ -1611,6 +1676,10 @@ export const COMMAND_METADATA = {
         "since": null,
         "capability": "page-tabs-v1"
       },
+      "route": {
+        "since": null,
+        "capability": "page-tab-route-v1"
+      },
       "transaction": {
         "since": null,
         "capability": "conversation-tab-transaction-v1"
@@ -1882,6 +1951,17 @@ export const COMMAND_METADATA = {
       "PTY surfaces only."
     ]
   },
+  "put-blob": {
+    "authority": "control",
+    "since": 12,
+    "capability": "icon-assets-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "media_type is image/png, image/jpeg, image/webp, or image/svg+xml; data is standard base64.",
+      "See spec/commands.md for the limits and the result object."
+    ]
+  },
   "put-frontend-projection": {
     "authority": "control",
     "since": 7,
@@ -2151,6 +2231,16 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": []
+  },
+  "restart-tab": {
+    "authority": "control",
+    "since": 12,
+    "capability": "tab-restart-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
   },
   "run": {
     "authority": "control",
@@ -2483,12 +2573,13 @@ export const COMMAND_METADATA = {
   "set-terminal-command-history": {
     "authority": "local-admin",
     "since": 12,
-    "capability": "terminal-command-journal-v1",
+    "capability": "terminal-command-history-v1",
     "fields": {},
     "stream": null,
     "constraints": [
       "Off by default and after a daemon restart.",
-      "When on, finished OSC 133 shell commands are journaled as sensitive shell.command.finished records."
+      "When on, finished OSC 133 shell commands are stored as deletable rows, read with list-terminal-commands.",
+      "Lists hide rows older than retention_days at once; the daemon deletes them when it starts, on every store and retention change, and at the oldest row's expiry time."
     ]
   },
   "set-terminal-idle-policy": {
@@ -3090,6 +3181,14 @@ export const EVENT_METADATA = {
     ],
     "emission": "emitted"
   },
+  "agent-presence-changed": {
+    "since": 12,
+    "capability": "agent-presence-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
   "bell": {
     "since": 5,
     "capability": null,
@@ -3234,6 +3333,14 @@ export const EVENT_METADATA = {
     ],
     "emission": "emitted"
   },
+  "conversation-draft": {
+    "since": 12,
+    "capability": "conversation-draft-events-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
   "conversation-typing": {
     "since": 12,
     "capability": "local-conversations-v1",
@@ -3287,6 +3394,22 @@ export const EVENT_METADATA = {
   "graphics-status": {
     "since": 10,
     "capability": null,
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "history-changed": {
+    "since": 12,
+    "capability": "history-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "keybindings-changed": {
+    "since": 12,
+    "capability": "keybindings-v1",
     "streams": [
       "subscribe"
     ],
@@ -3711,6 +3834,18 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       }
     },
     "kind": "object"
+  },
+  "AgentPresenceActivity": {
+    "kind": "enum",
+    "values": [
+      "thinking",
+      "editing",
+      "reading",
+      "running",
+      "browsing",
+      "computer_use",
+      "waiting"
+    ]
   },
   "AgentRecord": {
     "additional_properties": false,
@@ -4740,6 +4875,28 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "ConversationMessage": {
     "additional_properties": false,
     "fields": {
+      "answers": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "answers_pending": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
       "author": {
         "nullable": false,
         "presence": "required",
@@ -4832,6 +4989,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      },
+      "thread_root": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },
@@ -5234,6 +5399,16 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "kind": "scalar",
           "name": "string"
         }
+      },
+      "route": {
+        "capability": "page-tab-route-v1",
+        "description": "What the page shows (page-tab-route-v1): a viewer's file or folder or a page's sub-view, 1 to 4096 bytes without control characters; only with page.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
       }
     },
     "kind": "object"
@@ -5271,6 +5446,55 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint32"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ConversationThreadSummary": {
+    "additional_properties": false,
+    "fields": {
+      "authors": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "last_reply_at": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "last_reply_seq": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "reply_count": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "root": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },
@@ -6128,6 +6352,16 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "build_id": {
+        "capability": "daemon-build-v1",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "capabilities": {
         "default": [],
         "nullable": false,
@@ -6138,6 +6372,16 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
             "name": "string"
           },
           "kind": "array"
+        }
+      },
+      "cli_path": {
+        "capability": "daemon-build-v1",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       },
       "daemon_handoff": {
@@ -8447,7 +8691,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "additional_properties": true,
     "fields": {
       "color": {
-        "description": "Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors.",
+        "description": "Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors.",
         "nullable": false,
         "presence": "required",
         "type": {
@@ -10146,6 +10390,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "Id"
         }
       },
+      "terminal_host_fallback": {
+        "description": "Why a terminal will end with something other than its shell although terminal hosts are on: `breakaway_denied` (Windows: the host runs inside the daemon's kill-on-close Job Object and ends when that job closes) or `host_start_failed` (no host; the daemon runs the terminal and it ends with the daemon). Null otherwise and for browser tabs. A string, not an enum: clients read an unknown value as a notice for another reason.",
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "terminal_id": {
         "nullable": true,
         "presence": "optional",
@@ -10267,7 +10520,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "color": {
-        "description": "Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors.",
+        "description": "Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors.",
         "nullable": false,
         "presence": "required",
         "type": {
@@ -10316,7 +10569,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "color": {
-        "description": "Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors.",
+        "description": "Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors.",
         "nullable": false,
         "presence": "required",
         "type": {
@@ -10584,6 +10837,20 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "TerminalCommandDeleteResult": {
+    "additional_properties": false,
+    "fields": {
+      "deleted": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "TerminalCommandHistoryResult": {
     "additional_properties": false,
     "fields": {
@@ -10593,6 +10860,125 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "boolean"
+        }
+      },
+      "retention_days": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TerminalCommandList": {
+    "additional_properties": false,
+    "fields": {
+      "commands": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "TerminalCommandRecord"
+          },
+          "kind": "array"
+        }
+      },
+      "deletions": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "registry_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "retention_days": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "truncated": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TerminalCommandRecord": {
+    "additional_properties": false,
+    "fields": {
+      "command": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "cwd": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "duration_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "exit_code": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "int32"
+        }
+      },
+      "id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "started_at_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "terminal_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },
@@ -13457,6 +13843,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
+        "reason": {
+          "capability": "close-reason-v1",
+          "default": null,
+          "description": "With end_terminals: the close is not recorded in the closed history (session_end).",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "CloseReason"
+          }
+        },
         "workspace": {
           "default": null,
           "nullable": true,
@@ -13587,6 +13984,50 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "additional_properties": false,
       "fields": {
         "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-conversation-thread": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "after_seq": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "limit": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
+          }
+        },
+        "root": {
           "nullable": false,
           "presence": "required",
           "type": {
@@ -14315,6 +14756,108 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "kind": "object"
     }
   },
+  "conversation-draft": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "done": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "fresh": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "harness": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "kind": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "segment": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "seq": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "text": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "truncated": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "turn": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "published": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
   "conversation-history": {
     "request": {
       "additional_properties": false,
@@ -14356,6 +14899,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "items": {
               "kind": "ref",
               "name": "ConversationMessage"
+            },
+            "kind": "array"
+          }
+        },
+        "threads": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "ConversationThreadSummary"
             },
             "kind": "array"
           }
@@ -14627,6 +15181,98 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
               "name": "ConversationMessage"
             },
             "kind": "array"
+          }
+        },
+        "threads": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "ConversationThreadSummary"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "conversation-thread": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "after_seq": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "limit": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
+          }
+        },
+        "root": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "has_more": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "replies": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "ConversationMessage"
+            },
+            "kind": "array"
+          }
+        },
+        "root": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "ConversationMessage"
+          }
+        },
+        "thread": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "ConversationThreadSummary"
           }
         }
       },
@@ -15829,6 +16475,53 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "kind": "object"
     }
   },
+  "delete-terminal-commands": {
+    "request": {
+      "additional_properties": false,
+      "constraints": [
+        "Exactly one of ids, started_since_ms or all.",
+        "ids holds 1 to 1000 decimal strings; started_since_ms is a decimal string."
+      ],
+      "fields": {
+        "all": {
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "ids": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array",
+            "min_items": 1
+          }
+        },
+        "started_since_ms": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "TerminalCommandDeleteResult"
+    }
+  },
   "delete-workspace-group": {
     "request": {
       "additional_properties": false,
@@ -16157,6 +16850,26 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           }
         },
         "session_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "get-blob": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "blob": {
           "nullable": false,
           "presence": "required",
           "type": {
@@ -16731,6 +17444,40 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         }
       },
       "kind": "object"
+    }
+  },
+  "list-terminal-commands": {
+    "request": {
+      "additional_properties": false,
+      "constraints": [
+        "after_id is a decimal string.",
+        "limit is 1 to 1000 (default 1000)."
+      ],
+      "fields": {
+        "after_id": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "limit": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "TerminalCommandList"
     }
   },
   "list-terminals": {
@@ -18031,6 +18778,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "ref",
             "name": "Id"
+          }
+        },
+        "route": {
+          "capability": "page-tab-route-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         },
         "rows": {
@@ -19370,6 +20127,34 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "ProcessInfoResult"
     }
   },
+  "put-blob": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "data": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "media_type": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "put-frontend-projection": {
     "request": {
       "additional_properties": false,
@@ -20415,6 +21200,29 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "ResolveTerminalResult"
+    }
+  },
+  "restart-tab": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "surface": {
+          "aliases": [
+            "tab"
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "TabRef"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
     }
   },
   "run": {
@@ -21727,6 +22535,9 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
   "set-terminal-command-history": {
     "request": {
       "additional_properties": false,
+      "constraints": [
+        "retention_days is 1 to 3650; when absent the stored retention (default 30) is kept."
+      ],
       "fields": {
         "enabled": {
           "nullable": false,
@@ -21734,6 +22545,15 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "boolean"
+          }
+        },
+        "retention_days": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
           }
         }
       },
@@ -23634,6 +24454,91 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "agent-presence-changed": {
+    "additional_properties": false,
+    "fields": {
+      "activity": {
+        "description": "What the agent is doing now; null clears the surface's presence and every other field is then null.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "AgentPresenceActivity"
+        }
+      },
+      "agent": {
+        "description": "Adapter identity (claude, codex, ...).",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "agent-presence-changed"
+        }
+      },
+      "line": {
+        "description": "The 1-based line the tool call targets, when the tool input names one.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "path": {
+        "description": "The file the tool call targets, when the tool input names one.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "session": {
+        "description": "The agent's portable session id, a stable identity for colour.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "surface": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "tool": {
+        "description": "The native tool name of the current or last tool call.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "updated_at_ms": {
+        "description": "When the hook observed the event; null on clear.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "bell": {
     "additional_properties": false,
     "fields": {
@@ -24420,6 +25325,44 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "conversation-draft": {
+    "additional_properties": false,
+    "fields": {
+      "conversation": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "conversation-draft"
+        }
+      },
+      "item": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
+        }
+      },
+      "participant": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "conversation-typing": {
     "additional_properties": false,
     "fields": {
@@ -24750,6 +25693,77 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "history-changed": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "history-changed"
+        }
+      },
+      "kinds": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "revision": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "keybindings-changed": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "keybindings-changed"
+        }
+      },
+      "origin": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "enum",
+          "values": [
+            "user",
+            "cli",
+            "mcp",
+            "script",
+            "remote",
+            "app",
+            "file"
+          ]
+        }
+      },
+      "revision": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "layout-changed": {
     "additional_properties": false,
     "fields": {
@@ -24805,6 +25819,16 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "desktop": {
+        "capability": "notification-desktop-v1",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",
@@ -24827,6 +25851,16 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      },
+      "reply": {
+        "capability": "notification-reply-v1",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
         }
       },
       "source": {

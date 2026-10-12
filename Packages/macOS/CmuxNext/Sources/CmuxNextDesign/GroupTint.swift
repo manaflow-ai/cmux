@@ -46,6 +46,28 @@ public nonisolated enum GroupTint: Hashable, Sendable {
         }
     }
 
+    /// The solid group header chip (cx-qno.22): its rest color and the one
+    /// ink every glyph on it takes (`ThemeTokens.chip`), in the active scope.
+    @MainActor public var headerChip: (fill: ThemeRGB, ink: ThemeRGB) {
+        let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+        let color = switch self {
+        case let .palette(token): token.headerRGB(tokens)
+        case let .custom(rgb): Self.readable(rgb)
+        }
+        return tokens.chip(color)
+    }
+
+    /// A tab group chip's fill in the active scope (`GroupColor.themedChipFill`): the color washed
+    /// into the sidebar so the name stays primary text.
+    @MainActor public var chipFill: NSColor {
+        switch self {
+        case let .palette(token): return token.themedChipFill
+        case let .custom(rgb):
+            let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+            return tokens.sidebarBackground.withAlpha(1).mixed(toward: Self.readable(rgb), tokens.isDark ? 0.34 : 0.26).nsColor
+        }
+    }
+
     /// Black or white text and glyphs on `headerFill`.
     @MainActor public var headerInk: NSColor {
         switch self {

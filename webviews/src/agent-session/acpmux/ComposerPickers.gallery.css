@@ -1,0 +1,22 @@
+.acpmux-composer-gallery-shell {
+  display: grid;
+  align-content: end;
+  gap: 14px;
+  min-height: 210px;
+  padding: 28px;
+  color: var(--cmux-text, CanvasText);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+}
+
+.acpmux-composer-gallery-copy {
+  display: grid;
+  gap: 4px;
+  color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
+  font-size: var(--text-body);
+}
+
+.acpmux-composer-gallery-copy strong {
+  color: var(--cmux-text, CanvasText);
+  font-size: var(--text-title);
+  font-weight: 600;
+}

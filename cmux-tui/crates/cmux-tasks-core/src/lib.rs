@@ -27,6 +27,7 @@ pub mod ids;
 pub mod invariants;
 pub mod model;
 pub mod op;
+pub mod preview;
 pub mod query;
 pub mod reduce;
 pub mod sort_key;

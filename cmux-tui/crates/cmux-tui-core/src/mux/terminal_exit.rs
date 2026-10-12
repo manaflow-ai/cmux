@@ -165,7 +165,7 @@ impl Mux {
         let end = surface.terminal_end().unwrap_or_else(|| TerminalEnd::host_lost(reason));
         self.persist_terminal_exit(&identity.terminal_id, Some(&identity.incarnation), &end)?;
         self.detach_exited_terminal_topology(&identity.terminal_id)?;
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         if let Some((path, expected)) = surface.terminal_host_exit_sidecar() {
             crate::terminal_host_runtime::acknowledge_terminal_host_exit_record(&path, &expected)?;
         }
@@ -201,7 +201,7 @@ impl Mux {
         // The host's loss breadcrumbs are read before the commit, so the
         // exit and its cause become visible in the same locked section
         // (a client never reads a host_lost end without its cause).
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         let host_loss =
             self.surface_options.lock().unwrap().terminal_host_root.clone().map(|root| {
                 crate::terminal_loss_log::HostLoss::read(
@@ -212,7 +212,7 @@ impl Mux {
                 )
             });
         // cx-6so.49: whether this loss may respawn, checked before the locks.
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         let respawn_candidate =
             settle_until_ms.is_none().then(|| self.respawn_candidate(incarnation, end)).flatten();
         let mut registry = self.workspace_registry.lock().unwrap();
@@ -309,7 +309,7 @@ impl Mux {
             .commit_terminal_exit(terminal_id, incarnation, exit, terminal_snapshot, topology)?;
         let mut detach_effects = None;
         if !replayed {
-            #[cfg(unix)]
+            #[cfg(any(unix, windows))]
             if let Some(cause) = host_loss.as_ref().and_then(|loss| loss.cause())
                 && let Some(public_id) = public_terminal_id.as_ref()
             {
@@ -326,7 +326,7 @@ impl Mux {
         // cx-6so.49 L2: a placed terminal whose shell was lost with its host
         // gets a new shell under the same id. Decided in this critical
         // section, so no tree read sees its tabs dead in between.
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         let respawn = if replayed {
             None
         } else {
@@ -367,7 +367,7 @@ impl Mux {
             // A host loss is logged once, with the signals its host recorded
             // (cx-6so.49); best effort, after the exit latch. Its cause is
             // on the tab already (recorded with the commit above).
-            #[cfg(unix)]
+            #[cfg(any(unix, windows))]
             {
                 #[cfg(debug_assertions)]
                 if matches!(end, TerminalEnd::HostLost(_)) {
@@ -378,7 +378,7 @@ impl Mux {
                 }
             }
             // The respawn decided above starts here, with no lock held.
-            #[cfg(unix)]
+            #[cfg(any(unix, windows))]
             if let Some(decision) = respawn {
                 self.start_terminal_respawn(terminal_id, end, decision);
             }
@@ -412,7 +412,7 @@ impl Mux {
         terminal_id: &str,
     ) -> anyhow::Result<bool> {
         let detached = self.detach_exited_terminal_topology_only(terminal_id);
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         self.record_terminal_end(terminal_id);
         detached
     }
@@ -555,7 +555,7 @@ impl Mux {
 /// owner between a host loss's exit commit and its loss log, so integration
 /// tests can read the tab in that window. Bounded so a stray setting cannot
 /// wedge an owner; release builds have no seam.
-#[cfg(all(unix, debug_assertions))]
+#[cfg(all(any(unix, windows), debug_assertions))]
 fn host_loss_log_test_delay() {
     if let Ok(delay) = std::env::var("CMUX_TUI_TEST_HOST_LOSS_LOG_DELAY_MS")
         && let Ok(delay) = delay.parse::<u64>()

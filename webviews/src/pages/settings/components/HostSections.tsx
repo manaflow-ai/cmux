@@ -19,7 +19,11 @@ function ListRows({ rows, empty }: { rows: HostListRow[]; empty: string }) {
       <div className="row-main">
         <div className="row-label">
           <div className="row-title">{row.title}</div>
-          {row.subtitle && <div className="row-help">{row.subtitle}</div>}
+          {row.subtitle && (
+            <div className="row-help" title={row.subtitle}>
+              {row.subtitle}
+            </div>
+          )}
         </div>
         {row.active && <span className="host-active" aria-hidden="true" />}
       </div>
@@ -92,7 +96,6 @@ function BrowserProfilesSection({ host }: { host: HostLists }) {
         >
           {t("settingsWindow.newBrowserProfile")}
         </button>
-        <span className="row-help">{t("settingsWindow.browserProfilesHint")}</span>
       </div>
     </section>
   );

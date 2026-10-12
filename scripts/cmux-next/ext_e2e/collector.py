@@ -144,6 +144,15 @@ class Collector:
             self.lock.notify_all()
             return len(self.events) - 1
 
+    def reclassify(self, suite, api, test, status, detail):
+        """Replaces a result the harness has evidence about (record never lets a
+        later result hide a fail)."""
+        with self.lock:
+            key = (suite, api, test)
+            if key in self.results:
+                self.results[key] = dict(self.results[key], status=status, detail=detail, source="runner")
+            self.lock.notify_all()
+
     def ack(self, index):
         with self.lock:
             self.acked.add(index)

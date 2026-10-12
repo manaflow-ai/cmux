@@ -53,7 +53,7 @@ pub(super) async fn check(
         {
             return Ok(());
         }
-        return check_new(hub, &paths, params).await;
+        return check_new(hub, &paths, params, origin.web_class()).await;
     }
     if m == method::MUX_PREWARM {
         return check_prewarm(hub, &paths, params).await;
@@ -121,6 +121,7 @@ async fn check_new(
     hub: &Arc<Hub>,
     paths: &crate::trust::Paths,
     params: &Value,
+    remote: bool,
 ) -> Result<(), RpcError> {
     let cwd = params.get("cwd").and_then(Value::as_str).map(str::to_owned);
     let meta = params.get("_meta").and_then(|v| v.get("acpmux"));
@@ -142,7 +143,7 @@ async fn check_new(
             } else {
                 &family
             };
-            hub.adopted_cwd_for_trust(family, id).await?.unwrap_or_default()
+            hub.adopted_cwd_for_trust(family, id, remote).await?.unwrap_or_default()
         }
     };
     if cwd.is_empty() {

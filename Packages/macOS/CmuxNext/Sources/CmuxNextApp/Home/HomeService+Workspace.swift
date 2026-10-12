@@ -13,8 +13,6 @@ import Foundation
 /// conversation lives in the Chief home's owner (`ChiefConversationOwner`),
 /// so the tab names a conversation of that owner.
 extension HomeService {
-    /// The idempotency key of the chief conversation's creation.
-    static let chiefKey = HomeChiefName.createKey
     /// The origin of the chief conversation tab's creation key; the
     /// `mutation_id` comes from `chiefTabKey` (one per creation).
     static let tabOrigin = "cmux-next-home"

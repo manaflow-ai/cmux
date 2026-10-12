@@ -56,9 +56,30 @@
     "git.checkpoint.list",
     "git.checkpoint.pin",
     "git.checkpoint.unpin",
+    "git.commit",
     "git.diff",
+    "git.files.list",
     "git.files.search",
+    "git.push",
     "git.status",
+    "git.worktree.apply",
+    "git.worktree.create",
+    "git.worktree.remove",
+    "history.backups.purge",
+    "history.clear",
+    "history.entries.list",
+    "history.entries.remove",
+    "history.restore",
+    "history.site.remove",
+    "history.visit.import",
+    "history.visit.record",
+    "history.visit.remove",
+    "history.visit.summaries",
+    "history.visit.title",
+    "keybindings.get",
+    "keybindings.remove",
+    "keybindings.reset",
+    "keybindings.set",
     "machine.get",
     "machine.list",
     "notification.ack",
@@ -209,6 +230,7 @@
     "window_record.list",
     "window_record.put",
     "workspace.agent_folder.set",
+    "workspace.agent_start.get",
     "workspace.close",
     "workspace.create",
     "workspace.ensure_app",
@@ -286,6 +308,7 @@
       "focus-direction",
       "focus-pane",
       "forget-session",
+      "get-blob",
       "get-frontend-browser-history",
       "get-frontend-projection",
       "get-size-state",
@@ -343,6 +366,7 @@
       "pin-workspace",
       "ping",
       "process-info",
+      "put-blob",
       "put-frontend-projection",
       "put-session",
       "read-screen",
@@ -363,6 +387,7 @@
       "report-focus",
       "resize-surface",
       "resolve-terminal",
+      "restart-tab",
       "run",
       "save-screen-group",
       "save-tab-group",
@@ -453,6 +478,8 @@
       "server-stats",
       "subscribe-activity",
       "set-terminal-command-history",
+      "list-terminal-commands",
+      "delete-terminal-commands",
       "register-browser-provider",
       "get-browser-provider",
       "unregister-browser-provider",
@@ -463,10 +490,12 @@
       "conversation-create",
       "conversation-snapshot",
       "conversation-history",
+      "conversation-thread",
       "conversation-search",
       "history-search",
       "conversation-op",
       "conversation-typing",
+      "conversation-draft",
       "conversation-bind",
       "conversation-agent-token",
       "conversation-import",
@@ -478,6 +507,7 @@
       "cloud-inbox-list",
       "cloud-conversation-snapshot",
       "cloud-conversation-history",
+      "cloud-conversation-thread",
       "cloud-conversation-op",
       "cloud-inbox-subscribe",
       "cloud-inbox-unsubscribe",
@@ -506,6 +536,12 @@
       ]
     },
     {
+      "name": "agent-presence-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
       "name": "bell",
       "streams": [
         "subscribe"
@@ -513,6 +549,12 @@
     },
     {
       "name": "bookmarks-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "history-changed",
       "streams": [
         "subscribe"
       ]
@@ -573,6 +615,12 @@
       ]
     },
     {
+      "name": "conversation-draft",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
       "name": "daemon-shutdown",
       "streams": [
         "control"
@@ -606,6 +654,12 @@
     },
     {
       "name": "graphics-status",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "keybindings-changed",
       "streams": [
         "subscribe"
       ]

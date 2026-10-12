@@ -17,15 +17,19 @@ nonisolated public struct WhatsNewLastUpdate: Codable, Equatable, Sendable {
     public var stagedAt: Date
     /// The staged update's changelog (the update cards' type, cx-lntk).
     public var changelog: UpdateChangelog
+    /// The staged update's highlights as the popover showed them
+    /// (cx-ncc.45.5); nil in records older builds wrote.
+    public var highlights: UpdateHighlights?
 
     public init(fromVersion: String, fromBuild: String, toVersion: String, toBuild: String, stagedAt: Date,
-                changelog: UpdateChangelog) {
+                changelog: UpdateChangelog, highlights: UpdateHighlights? = nil) {
         self.fromVersion = fromVersion
         self.fromBuild = fromBuild
         self.toVersion = toVersion
         self.toBuild = toBuild
         self.stagedAt = stagedAt
         self.changelog = changelog
+        self.highlights = highlights
     }
 }
 
@@ -73,8 +77,20 @@ nonisolated public struct WhatsNewLastUpdateStore: Sendable {
         return record
     }
 
-    /// The user saw it (page opened or card closed).
+    /// Removes the record.
     public func clear() {
         try? FileManager.default.removeItem(at: url)
+    }
+
+    /// The user saw the update to `build` (page opened or card closed):
+    /// removes the record only when it is that update's. A newer update may
+    /// have staged since launch and written its own record, which the next
+    /// launch shows.
+    public func clear(ifFor build: String) {
+        guard let data = try? Data(contentsOf: url) else { return }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        if let record = try? decoder.decode(WhatsNewLastUpdate.self, from: data), record.toBuild != build { return }
+        clear()
     }
 }

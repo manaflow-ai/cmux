@@ -33,9 +33,6 @@ public actor DaemonLaneSplice {
         self.policy = policy
     }
 
-    /// Commands refused so far (diagnostics, tests).
-    public var refusedCount: Int { refusals }
-
     /// Runs until either side closes; returns why it ended. Both lanes are
     /// closed on return.
     public func run() async -> EndReason {

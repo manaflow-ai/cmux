@@ -274,6 +274,13 @@ wherever its tier allows).
 - K-T6 (coordinator): keybindings.json is parsed by the Rust `cmux-config` (one config
   owner); that slice needs a cmux-tui landing window.
 - R59 is done only after a live Ctrl-Tab proof on cmux-lawrence-2 (never the laptop).
+  Proof recorded 2026-10-12 (cx-9ce.18) on capture minis, real keys through cua-driver; since
+  Leo 2026-10-12 these keys select sidebar items, not pane tabs. cmux-next (DEV build of
+  8f408161, `scripts/cmux-next/chrome-tab-keys-e2e.py --real --tidy`): Ctrl-Tab, Ctrl-Shift-Tab,
+  Cmd-Shift-] and Cmd-Shift-[, pressed and as Leo's Karabiner sequences, pass from a terminal,
+  terminal copy mode, a web page, Settings and Home (40/40). Classic (main a5cb091d): the same four
+  keys pass from a terminal, copy mode, a browser page and the Markdown page (16/16); classic
+  has no Home.
 - R85 (Lawrence, 2026-10-04): Ctrl-1...9 = Select Tab N (the common editor default), Spaces on
   Ctrl-Opt-1...9, Cmd-1...9 Select Workspace N; all rebindable. #17182 had given Ctrl-digits to
   Spaces, so with one Space they did nothing. macOS Mission Control "Switch to Desktop N" uses

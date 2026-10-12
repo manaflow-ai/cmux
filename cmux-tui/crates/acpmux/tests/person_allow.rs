@@ -752,3 +752,393 @@ fn a_taken_explicit_listen_port_makes_the_daemon_exit() {
     drop(squatter);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The decision proof the app sends for an allow relayed from another machine
+/// (cx-0q7o), as `hub/person.rs` defines it: lowercase hex HMAC-SHA256(key,
+/// "acpmux-person-decision-v1" 0 instance 0 session 0 permission 0 option 0
+/// nonce). Written out here so the test states the wire contract.
+fn decision_proof(
+    key: &str,
+    instance: &str,
+    session: &str,
+    permission: &str,
+    option: &str,
+    nonce: &str,
+) -> String {
+    use cmux_local_auth::frontend_proof::{hex, hmac_sha256, unhex};
+    let key = unhex::<32>(key).unwrap();
+    let mut message = b"acpmux-person-decision-v1".to_vec();
+    for part in [instance, session, permission, option, nonce] {
+        message.push(0);
+        message.extend_from_slice(part.as_bytes());
+    }
+    hex(&hmac_sha256(&key, &message))
+}
+
+/// `permission_respond` with an allow and a decision proof.
+fn decided(session: &str, permission: &str, option: &str, nonce: &str, proof: &str) -> Value {
+    json!({"sessionId": session, "permissionId": permission, "optionId": option,
+           "_meta": {"acpmux": {"decisionNonce": nonce, "personDecision": proof}}})
+}
+
+/// cx-0q7o: an allow that comes through a relay (a peer daemon, the remote
+/// cmux-tui server), on a connection that is never the person, counts only
+/// with the person's decision proof for that exact prompt, option, nonce and
+/// daemon instance, and only once.
+#[tokio::test]
+async fn a_relayed_allow_counts_only_with_the_persons_decision_proof_and_only_once() {
+    let d = Daemon::start("decide", Some(KEY));
+    let mut relay = Rpc::connect(&d.socket).await;
+    let id = new_session(&mut relay, &d).await;
+
+    let rid = relay.send("session/prompt", prompt(&id, "ask: write")).await;
+    let pending = relay.note("_acpmux/permission_pending", |_| true).await;
+    let pid = pending["permissionId"].as_str().unwrap().to_owned();
+    let nonce = pending["decisionNonce"].as_str().expect("a decision nonce").to_owned();
+    let instance = pending["personInstance"].as_str().expect("the daemon instance").to_owned();
+
+    // No proof, a proof for another option, another daemon instance, or
+    // another key: refused, and the prompt stays pending.
+    let plain = json!({"sessionId": id, "permissionId": pid, "optionId": "yes"});
+    assert_eq!(reason(&relay.call("_acpmux/permission_respond", plain).await), REASON);
+    let other_option = decision_proof(KEY, &instance, &id, &pid, "no", &nonce);
+    let r = relay
+        .call("_acpmux/permission_respond", decided(&id, &pid, "yes", &nonce, &other_option))
+        .await;
+    assert_eq!(reason(&r), REASON, "{r}");
+    let other_instance = decision_proof(KEY, "0123456789abcdef", &id, &pid, "yes", &nonce);
+    let r = relay
+        .call("_acpmux/permission_respond", decided(&id, &pid, "yes", &nonce, &other_instance))
+        .await;
+    assert_eq!(reason(&r), REASON, "{r}");
+    let other_key = decision_proof(&"7".repeat(64), &instance, &id, &pid, "yes", &nonce);
+    let r = relay
+        .call("_acpmux/permission_respond", decided(&id, &pid, "yes", &nonce, &other_key))
+        .await;
+    assert_eq!(reason(&r), REASON, "{r}");
+    assert_eq!(pending_ids(&mut relay, &id).await, vec![pid.clone()]);
+
+    // The person's proof: the allow counts.
+    let good = decision_proof(KEY, &instance, &id, &pid, "yes", &nonce);
+    relay.ok("_acpmux/permission_respond", decided(&id, &pid, "yes", &nonce, &good)).await;
+    assert_eq!(turn_said(&mut relay, rid).await, "chose yes");
+
+    // The next prompt has its own nonce; the old nonce (spent) and the old
+    // proof answer nothing there.
+    let rid = relay.send("session/prompt", prompt(&id, "ask: again")).await;
+    let next = relay.note("_acpmux/permission_pending", |p| p["permissionId"] != json!(pid)).await;
+    let pid2 = next["permissionId"].as_str().unwrap().to_owned();
+    let nonce2 = next["decisionNonce"].as_str().unwrap().to_owned();
+    assert_ne!(nonce2, nonce);
+    let replayed = decision_proof(KEY, &instance, &id, &pid2, "yes", &nonce);
+    let r = relay
+        .call("_acpmux/permission_respond", decided(&id, &pid2, "yes", &nonce, &replayed))
+        .await;
+    assert_eq!(reason(&r), REASON, "{r}");
+    let r =
+        relay.call("_acpmux/permission_respond", decided(&id, &pid2, "yes", &nonce2, &good)).await;
+    assert_eq!(reason(&r), REASON, "{r}");
+    let ok = decision_proof(KEY, &instance, &id, &pid2, "yes", &nonce2);
+    relay.ok("_acpmux/permission_respond", decided(&id, &pid2, "yes", &nonce2, &ok)).await;
+    assert_eq!(turn_said(&mut relay, rid).await, "chose yes");
+}
+
+/// cx-0q7o: a daemon that holds a person key is not dumpable (Linux), so an
+/// agent it starts (same uid) cannot ptrace it or read its memory through
+/// /proc: the kernel then owns its /proc files.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_keyed_daemon_is_not_dumpable() {
+    use std::os::unix::fs::MetadataExt;
+    let d = Daemon::start("dump", Some(KEY));
+    let meta = std::fs::metadata(format!("/proc/{}/environ", d.child.id())).unwrap();
+    assert_eq!(meta.uid(), 0, "a dumpable daemon's /proc files belong to its user");
+}
+
+/// cx-0q7o: the nonce is spent only by an answer that counts. An allow that
+/// the daemon refuses after the proof checks (here: the session policy is
+/// deny-all for a moment) leaves the prompt answerable with the same proof,
+/// and two answers with that proof racing on two connections count once.
+#[tokio::test]
+async fn a_refused_relayed_allow_keeps_its_nonce_and_racing_answers_count_once() {
+    let d = Daemon::start("race", Some(KEY));
+    let mut relay = Rpc::connect(&d.socket).await;
+    let id = new_session(&mut relay, &d).await;
+    let rid = relay.send("session/prompt", prompt(&id, "ask: write")).await;
+    let pending = relay.note("_acpmux/permission_pending", |_| true).await;
+    let pid = pending["permissionId"].as_str().unwrap().to_owned();
+    let nonce = pending["decisionNonce"].as_str().unwrap().to_owned();
+    let instance = pending["personInstance"].as_str().unwrap().to_owned();
+    let good = decision_proof(KEY, &instance, &id, &pid, "yes", &nonce);
+
+    relay.ok("_acpmux/set_policy", json!({"sessionId": id, "policy": "deny-all"})).await;
+    let r =
+        relay.call("_acpmux/permission_respond", decided(&id, &pid, "yes", &nonce, &good)).await;
+    assert_eq!(reason(&r), "policy_changed", "{r}");
+    relay.ok("_acpmux/set_policy", json!({"sessionId": id, "policy": "ask"})).await;
+
+    let mut other = Rpc::connect(&d.socket).await;
+    let a =
+        relay.send("_acpmux/permission_respond", decided(&id, &pid, "yes", &nonce, &good)).await;
+    let b =
+        other.send("_acpmux/permission_respond", decided(&id, &pid, "yes", &nonce, &good)).await;
+    let (ra, rb) = (relay.reply(a).await, other.reply(b).await);
+    let counted = [&ra, &rb].iter().filter(|r| r.get("error").is_none()).count();
+    assert_eq!(counted, 1, "{ra} {rb}");
+    assert_eq!(turn_said(&mut relay, rid).await, "chose yes");
+}
+
+/// cx-0q7o slice 2a: `initialize` names the daemon run that decision proofs
+/// bind (`personInstance`), the same one its prompts carry, so the app can
+/// tell a daemon it started from one that someone else restarted.
+#[tokio::test]
+async fn initialize_names_the_daemon_run_that_decision_proofs_bind() {
+    let d = Daemon::start("inst", Some(KEY));
+    let mut relay = Rpc::connect(&d.socket).await;
+    let init = relay.call("initialize", json!({"protocolVersion": 1})).await;
+    let named = init["result"]["_meta"]["acpmux"]["personInstance"].as_str().expect("an instance");
+    let named = named.to_owned();
+    let id = new_session(&mut relay, &d).await;
+    relay.send("session/prompt", prompt(&id, "ask: write")).await;
+    let pending = relay.note("_acpmux/permission_pending", |_| true).await;
+    assert_eq!(pending["personInstance"], json!(named));
+}
+
+/// A config home for a daemon that `acpmux daemon start` launches.
+fn start_home(tag: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("ams-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("work")).unwrap();
+    let dir = std::fs::canonicalize(&dir).unwrap();
+    std::fs::write(
+        dir.join("config.json"),
+        json!({"harnesses": {"fake": {"argv": ["python3", FAKE]}}, "defaultHarness": "fake",
+               "permissionPolicy": "ask"})
+        .to_string(),
+    )
+    .unwrap();
+    dir
+}
+
+/// `acpmux <args>` with this home, `stdin` as its standard input.
+fn acpmux_cli(home: &Path, args: &[&str], stdin: Option<&str>) -> std::process::Output {
+    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"));
+    cmd.args(args)
+        .env("ACPMUX_HOME", home)
+        .env("ACPMUX_SOCKET", home.join("s.sock"))
+        .env_remove("ACPMUX_LOGIN_ENV")
+        .env_remove("XPC_SERVICE_NAME")
+        .env_remove("CLAUDECODE")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let mut child = cmd.spawn().unwrap();
+    {
+        use std::io::Write;
+        let mut input = child.stdin.take().unwrap();
+        if let Some(text) = stdin {
+            input.write_all(text.as_bytes()).unwrap();
+        }
+    }
+    child.wait_with_output().unwrap()
+}
+
+/// cx-0q7o slice 2a (D2): the app's own ssh exec runs `acpmux daemon start
+/// --person-key-fd 0` with the key on stdin. The daemon it starts holds that
+/// key (the app's proof makes a connection the person); a second keyed start
+/// while a daemon runs refuses, since that daemon holds another key or none
+/// (a keyed restart stops it first).
+#[tokio::test]
+async fn daemon_start_hands_its_stdin_key_to_the_daemon_it_starts() {
+    let home = start_home("keyed");
+    let out = acpmux_cli(
+        &home,
+        &["--json", "daemon", "start", "--person-key-fd", "0"],
+        Some(&format!("{KEY}\n")),
+    );
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let status: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(status["personKey"], true, "{status}");
+    let socket = home.join("s.sock");
+    let (_app, reply, _) = Rpc::person_with(&socket, KEY).await;
+    assert!(reply.get("error").is_none(), "the started daemon does not hold the key: {reply}");
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let pid = status["pid"].as_u64().unwrap();
+        let meta = std::fs::metadata(format!("/proc/{pid}/environ")).unwrap();
+        assert_eq!(meta.uid(), 0, "the keyed daemon is dumpable");
+    }
+    let again =
+        acpmux_cli(&home, &["daemon", "start", "--person-key-fd", "0"], Some(&format!("{KEY}\n")));
+    assert!(!again.status.success(), "a keyed start went on while a daemon runs");
+    assert!(
+        String::from_utf8_lossy(&again.stderr).contains("already runs"),
+        "{}",
+        String::from_utf8_lossy(&again.stderr)
+    );
+    let _ = acpmux_cli(&home, &["daemon", "shutdown"], None);
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+/// cx-0q7o slice 2a (reviewer note 1): on a socket key descriptor the
+/// daemon first makes itself not dumpable and says so ("nodump"), and only
+/// then reads the key, so a same-uid process that opens
+/// /proc/<pid>/fd/<n> before that finds no key to read.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_key_reaches_the_daemon_only_after_it_is_not_dumpable() {
+    use std::io::{Read, Write};
+    use std::os::fd::FromRawFd;
+    use std::os::unix::fs::MetadataExt;
+    let home = start_home("nodump");
+    let mut fds = [-1i32; 2];
+    // SAFETY: a fresh socket pair; both ends are owned here.
+    let kind = libc::SOCK_STREAM | libc::SOCK_CLOEXEC;
+    assert_eq!(unsafe { libc::socketpair(libc::AF_UNIX, kind, 0, fds.as_mut_ptr()) }, 0);
+    let (ours, theirs) = (fds[0], fds[1]);
+    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"));
+    cmd.args([
+        "daemon",
+        "run",
+        "--memory",
+        "--ready-fd",
+        "1",
+        "--log",
+        "warn",
+        "--person-key-fd",
+        "3",
+    ])
+    .env("ACPMUX_HOME", &home)
+    .env("ACPMUX_SOCKET", home.join("s.sock"))
+    .env_remove("ACPMUX_LOGIN_ENV")
+    .env_remove("XPC_SERVICE_NAME")
+    .stdin(std::process::Stdio::null())
+    .stdout(std::process::Stdio::piped())
+    .stderr(std::process::Stdio::null());
+    // SAFETY: only dup2 between fork and exec (async-signal-safe).
+    unsafe {
+        cmd.pre_exec(move || {
+            if libc::dup2(theirs, 3) < 0 || libc::fcntl(3, libc::F_SETFD, 0) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    let mut child = cmd.spawn().unwrap();
+    // SAFETY: the child has its own copy on fd 3.
+    unsafe { libc::close(theirs) };
+    // SAFETY: our end, owned from here on.
+    let mut link = unsafe { std::os::unix::net::UnixStream::from_raw_fd(ours) };
+    link.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+    let mut said = [0u8; 7];
+    link.read_exact(&mut said).expect("the daemon says nodump before it reads the key");
+    assert_eq!(&said, b"nodump\n");
+    let meta = std::fs::metadata(format!("/proc/{}/environ", child.id())).unwrap();
+    assert_eq!(meta.uid(), 0, "the daemon asked for the key while dumpable");
+    link.write_all(format!("{KEY}\n").as_bytes()).unwrap();
+    link.shutdown(std::net::Shutdown::Write).unwrap();
+    let ready = BufReader::new(child.stdout.take().unwrap())
+        .lines()
+        .map_while(Result::ok)
+        .any(|line| serde_json::from_str::<Value>(&line).is_ok_and(|v| v["ready"] == true));
+    assert!(ready, "the daemon exited before its ready line");
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let (_app, reply, _) = rt.block_on(Rpc::person_with(&home.join("s.sock"), KEY));
+    assert!(reply.get("error").is_none(), "the daemon does not hold the key: {reply}");
+    // SAFETY: the pid of the child this test spawned and still owns.
+    unsafe { libc::kill(child.id() as i32, libc::SIGTERM) };
+    let _ = child.wait();
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+/// cx-0q7o slice 2b review: a relayed allow for a prompt of THIS daemon,
+/// from a connection that is not the person, counts only with the person's
+/// proof for that prompt's own nonce. Proof fields with another nonce, or
+/// the right nonce with a proof that is not the person's, are refused, and
+/// the prompt stays pending (the person rule under the prompt's lock).
+#[tokio::test]
+async fn a_local_allow_with_a_wrong_nonce_or_a_wrong_proof_is_refused_and_stays_pending() {
+    let d = Daemon::start("lock", Some(KEY));
+    let mut relay = Rpc::connect(&d.socket).await;
+    let id = new_session(&mut relay, &d).await;
+    let rid = relay.send("session/prompt", prompt(&id, "ask: write")).await;
+    let pending = relay.note("_acpmux/permission_pending", |_| true).await;
+    let pid = pending["permissionId"].as_str().unwrap().to_owned();
+    let nonce = pending["decisionNonce"].as_str().unwrap().to_owned();
+    let instance = pending["personInstance"].as_str().unwrap().to_owned();
+
+    // (a) A nonce that is not this prompt's, with a proof that matches it.
+    let other_nonce = "0".repeat(64);
+    let for_other = decision_proof(KEY, &instance, &id, &pid, "yes", &other_nonce);
+    let r = relay
+        .call("_acpmux/permission_respond", decided(&id, &pid, "yes", &other_nonce, &for_other))
+        .await;
+    assert_eq!(reason(&r), REASON, "{r}");
+    assert_eq!(pending_ids(&mut relay, &id).await, vec![pid.clone()]);
+    // (b) This prompt's nonce, with a proof that is not the person's.
+    let forged = "ab".repeat(32);
+    let r =
+        relay.call("_acpmux/permission_respond", decided(&id, &pid, "yes", &nonce, &forged)).await;
+    assert_eq!(reason(&r), REASON, "{r}");
+    assert_eq!(pending_ids(&mut relay, &id).await, vec![pid.clone()]);
+    // The refused tries spent nothing: the person's proof for this nonce counts.
+    let good = decision_proof(KEY, &instance, &id, &pid, "yes", &nonce);
+    relay.ok("_acpmux/permission_respond", decided(&id, &pid, "yes", &nonce, &good)).await;
+    assert_eq!(turn_said(&mut relay, rid).await, "chose yes");
+}
+
+/// The answer to `_acpmux/person_holds` (cx-0q7o slice 2c), as
+/// `hub/person.rs` defines it: lowercase hex HMAC-SHA256(key,
+/// "acpmux-person-holds-v1" 0 instance 0 nonce). Its own domain: it is never
+/// a decision proof or a connection proof.
+fn holds_proof(key: &str, instance: &str, nonce: &str) -> String {
+    use cmux_local_auth::frontend_proof::{hex, hmac_sha256, unhex};
+    let key = unhex::<32>(key).unwrap();
+    let mut message = b"acpmux-person-holds-v1".to_vec();
+    for part in [instance, nonce] {
+        message.push(0);
+        message.extend_from_slice(part.as_bytes());
+    }
+    hex(&hmac_sha256(&key, &message))
+}
+
+/// cx-0q7o slice 2c: the app checks that a daemon it started holds ITS key,
+/// over a fresh nonce of its own, before it relays any allow there. Whatever
+/// answers on the socket path without the key cannot answer this. A daemon
+/// without a key refuses; a malformed nonce is invalid; one connection gets
+/// a few answers only.
+#[tokio::test]
+async fn a_keyed_daemon_proves_it_holds_the_key_over_the_apps_nonce() {
+    let d = Daemon::start("holds", Some(KEY));
+    let mut app = Rpc::connect(&d.socket).await;
+    let init = app.call("initialize", json!({"protocolVersion": 1})).await;
+    let instance = init["result"]["_meta"]["acpmux"]["personInstance"].as_str().unwrap().to_owned();
+    let nonce = "3c".repeat(32);
+    let r = app.call("_acpmux/person_holds", json!({"nonce": nonce})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(r["result"]["instance"], json!(instance), "{r}");
+    assert_eq!(r["result"]["proof"], json!(holds_proof(KEY, &instance, &nonce)), "{r}");
+    assert_ne!(r["result"]["proof"], json!(holds_proof(&"7".repeat(64), &instance, &nonce)));
+    assert_ne!(
+        r["result"]["proof"],
+        json!(decision_proof(KEY, &instance, &nonce, "", "", "")),
+        "the holds answer shares a domain with decision proofs"
+    );
+    let bad = app.call("_acpmux/person_holds", json!({"nonce": "short"})).await;
+    assert_eq!(bad["error"]["code"], json!(-32602), "{bad}");
+    for _ in 0..6 {
+        let again = app.call("_acpmux/person_holds", json!({"nonce": "4d".repeat(32)})).await;
+        assert!(again.get("error").is_none(), "{again}");
+    }
+    let limited = app.call("_acpmux/person_holds", json!({"nonce": "5e".repeat(32)})).await;
+    assert_eq!(reason(&limited), "person.holds_limit", "{limited}");
+    let mut fresh = Rpc::connect(&d.socket).await;
+    let r = fresh.call("_acpmux/person_holds", json!({"nonce": nonce})).await;
+    assert!(r.get("error").is_none(), "a new connection answers again: {r}");
+
+    let plain = Daemon::start("noholds", None);
+    let mut c = Rpc::connect(&plain.socket).await;
+    let r = c.call("_acpmux/person_holds", json!({"nonce": nonce})).await;
+    assert_eq!(reason(&r), "person.no_key", "{r}");
+}

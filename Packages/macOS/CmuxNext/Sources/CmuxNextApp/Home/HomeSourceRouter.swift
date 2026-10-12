@@ -42,11 +42,6 @@ nonisolated final class HomeSourceRouter: HomeSource {
 
     private let state = Mutex(State())
 
-    /// Each owner's last connection as this router applied it (tests and
-    /// diagnostics; the merged connection is the one the store sees).
-    var ownerConnections: (local: HomeConnection, cloud: HomeConnection?) {
-        state.withLock { ($0.localConnection, $0.cloudConnection) }
-    }
     private static let eventBuffer = 1024
     let local: any HomeSource
     let cloud: CloudHomeSource
@@ -101,6 +96,14 @@ nonisolated final class HomeSourceRouter: HomeSource {
 
     func history(of conversation: ConversationID, before beforeSeq: Seq, limit: Int) async throws -> [Message] {
         try await source(for: conversation).history(of: conversation, before: beforeSeq, limit: limit)
+    }
+
+    func historyPage(of conversation: ConversationID, before beforeSeq: Seq, limit: Int) async throws -> HistoryPage {
+        try await source(for: conversation).historyPage(of: conversation, before: beforeSeq, limit: limit)
+    }
+
+    func thread(of conversation: ConversationID, root: MessageID, after afterSeq: Seq, limit: Int) async throws -> ThreadPage {
+        try await source(for: conversation).thread(of: conversation, root: root, after: afterSeq, limit: limit)
     }
 
     /// Ops on a conversation go to its owner. Ops that create or invite name

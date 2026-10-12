@@ -83,8 +83,8 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
   const choices = row.choices?.map((choice) => choice.value) ?? [];
   if (row.validation === "domain:backdrop_selection") {
     // A listed painting or a macOS wallpaper by absolute path (each Mac has its own set).
-    if (typeof value === "string" && (choices.includes(value) || value.startsWith("system:/"))) return null;
-    return "expected none, a listed painting or system:<absolute path>";
+    if (typeof value === "string" && (choices.includes(value) || /^(system|file):\//.test(value))) return null;
+    return "expected none, a listed painting, system:<absolute path> or file:<absolute path>";
   }
   if (row.validation === "domain:search_template") {
     return isSearchTemplate(value) ? null : "expected a web address with %s or {searchTerms}, or empty";

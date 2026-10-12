@@ -29,6 +29,7 @@ extension SidebarBridge {
         switch link {
         case .offline: return .offline
         case .installing: return .installing
+        case .reconnecting: return .reconnecting
         case .authFailed, .hostKeyUntrusted: return .authFailed
         case .unreachable: return .unreachable
         case .needsInstall(.protocolMismatch), .needsInstall(.refused(.protocolOlder)): return .updateRequired

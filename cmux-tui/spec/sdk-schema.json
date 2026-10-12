@@ -1409,6 +1409,15 @@
      "nullable": true,
      "since": 9
     },
+    "terminal_host_fallback": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "description": "Why a terminal will end with something other than its shell although terminal hosts are on: `breakaway_denied` (Windows: the host runs inside the daemon's kill-on-close Job Object and ends when that job closes) or `host_start_failed` (no host; the daemon runs the terminal and it ends with the daemon). Null otherwise and for browser tabs. A string, not an enum: clients read an unknown value as a notice for another reason."
+    },
     "short_id": {
      "type": {
       "kind": "scalar",
@@ -1997,6 +2006,26 @@
      "nullable": true,
      "since": 12,
      "capability": "launch-snapshot-v1"
+    },
+    "build_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "capability": "daemon-build-v1"
+    },
+    "cli_path": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "capability": "daemon-build-v1"
     }
    },
    "additional_properties": false
@@ -6426,6 +6455,14 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "retention_days": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "required",
+     "nullable": false
     }
    },
    "additional_properties": false
@@ -7164,6 +7201,36 @@
      "presence": "optional",
      "nullable": false
     },
+    "answers": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "answers_pending": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "thread_root": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
     "created_at": {
      "type": {
       "kind": "scalar",
@@ -7194,6 +7261,55 @@
       "items": {
        "kind": "ref",
        "name": "ConversationReaction"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "ConversationThreadSummary": {
+   "kind": "object",
+   "fields": {
+    "root": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "reply_count": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "last_reply_seq": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "last_reply_at": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "authors": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
       }
      },
      "presence": "required",
@@ -7541,6 +7657,16 @@
      "nullable": false,
      "description": "Page source (page-tabs-v1): the id of one of the app's own pages; exclusive with the other sources.",
      "capability": "page-tabs-v1"
+    },
+    "route": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "What the page shows (page-tab-route-v1): a viewer's file or folder or a page's sub-view, 1 to 4096 bytes without control characters; only with page.",
+     "capability": "page-tab-route-v1"
     }
    },
    "additional_properties": false
@@ -7690,7 +7816,7 @@
      },
      "presence": "required",
      "nullable": false,
-     "description": "Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors."
+     "description": "Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors."
     },
     "collapsed": {
      "type": {
@@ -7782,7 +7908,7 @@
      },
      "presence": "required",
      "nullable": false,
-     "description": "Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors."
+     "description": "Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors."
     },
     "collapsed": {
      "type": {
@@ -7964,7 +8090,7 @@
      },
      "presence": "required",
      "nullable": false,
-     "description": "Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors."
+     "description": "Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors."
     },
     "updated_at_ms": {
      "type": {
@@ -8230,6 +8356,131 @@
    },
    "additional_properties": false
   },
+  "TerminalCommandRecord": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "terminal_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "command": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "cwd": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "exit_code": {
+     "type": {
+      "kind": "scalar",
+      "name": "int32"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "started_at_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "duration_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "TerminalCommandList": {
+   "kind": "object",
+   "fields": {
+    "commands": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "TerminalCommandRecord"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "truncated": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "deletions": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "registry_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "retention_days": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "TerminalCommandDeleteResult": {
+   "kind": "object",
+   "fields": {
+    "deleted": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
   "HistorySearchRange": {
    "kind": "object",
    "fields": {
@@ -8324,6 +8575,18 @@
     }
    },
    "additional_properties": false
+  },
+  "AgentPresenceActivity": {
+   "kind": "enum",
+   "values": [
+    "thinking",
+    "editing",
+    "reading",
+    "running",
+    "browsing",
+    "computer_use",
+    "waiting"
+   ]
   }
  },
  "commands": {
@@ -12787,6 +13050,17 @@
       "since": 12,
       "capability": "batch-close-v1"
      },
+     "reason": {
+      "type": {
+       "kind": "ref",
+       "name": "CloseReason"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "close-reason-v1",
+      "description": "With end_terminals: the close is not recorded in the closed history (session_end)."
+     },
      "origin": {
       "type": {
        "kind": "scalar",
@@ -15729,6 +16003,16 @@
       "default": null,
       "capability": "page-tabs-v1"
      },
+     "route": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "page-tab-route-v1"
+     },
      "pane": {
       "type": {
        "kind": "ref",
@@ -16102,6 +16386,36 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "restart-tab": {
+   "authority": "control",
+   "since": 12,
+   "capability": "tab-restart-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "TabRef"
+      },
+      "presence": "required",
+      "nullable": false,
+      "aliases": [
+       "tab"
+      ]
      }
     },
     "additional_properties": false
@@ -19470,7 +19784,7 @@
   "set-terminal-command-history": {
    "authority": "local-admin",
    "since": 12,
-   "capability": "terminal-command-journal-v1",
+   "capability": "terminal-command-history-v1",
    "request": {
     "kind": "object",
     "fields": {
@@ -19481,9 +19795,21 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "retention_days": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint32"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
      }
     },
-    "additional_properties": false
+    "additional_properties": false,
+    "constraints": [
+     "retention_days is 1 to 3650; when absent the stored retention (default 30) is kept."
+    ]
    },
    "result": {
     "kind": "ref",
@@ -19492,7 +19818,8 @@
    "stream": null,
    "constraints": [
     "Off by default and after a daemon restart.",
-    "When on, finished OSC 133 shell commands are journaled as sensitive shell.command.finished records."
+    "When on, finished OSC 133 shell commands are stored as deletable rows, read with list-terminal-commands.",
+    "Lists hide rows older than retention_days at once; the daemon deletes them when it starts, on every store and retention change, and at the oldest row's expiry time."
    ]
   },
   "conversation-list": {
@@ -19642,6 +19969,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "threads": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "ConversationThreadSummary"
+       }
+      },
+      "presence": "optional",
+      "nullable": false
      }
     },
     "additional_properties": false
@@ -19698,6 +20036,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "threads": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "ConversationThreadSummary"
+       }
+      },
+      "presence": "optional",
+      "nullable": false
      }
     },
     "additional_properties": false
@@ -19705,6 +20054,94 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. limit is 1-500. See spec/commands.md."
+   ]
+  },
+  "conversation-thread": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "conversation-thread-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "root": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "after_seq": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": false
+     },
+     "limit": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint32"
+      },
+      "presence": "optional",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "root": {
+      "type": {
+       "kind": "ref",
+       "name": "ConversationMessage"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "replies": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "ConversationMessage"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "has_more": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "thread": {
+      "type": {
+       "kind": "ref",
+       "name": "ConversationThreadSummary"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. limit is 1-500 (default 50). A root that is unknown, in another conversation or a thread reply is unknown_message. See spec/commands.md."
    ]
   },
   "conversation-search": {
@@ -19965,6 +20402,115 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. Ephemeral: never stored. See spec/commands.md."
+   ]
+  },
+  "conversation-draft": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "conversation-draft-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "turn": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "segment": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "seq": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "kind": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "text": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "fresh": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "done": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "truncated": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
+     "harness": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "published": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only; the connection's bound agent participant publishes. Ephemeral: never stored, only on conversation.events. See spec/commands.md."
    ]
   },
   "conversation-bind": {
@@ -20761,6 +21307,57 @@
     "Trusted local connections only. limit is 1-200. Calls the cloud. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
    ]
   },
+  "cloud-conversation-thread": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "conversation-thread-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "root": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "after_seq": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
+     "limit": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint32"
+      },
+      "presence": "optional",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. Needs cloud-conversations-v1 too. limit is 1-200. Calls the cloud. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+   ]
+  },
   "cloud-conversation-op": {
    "authority": "local-admin",
    "since": 12,
@@ -21418,6 +22015,165 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. mux.ack for the lease's own chief (agent from the token; an agent field is refused): the wakes of conversation up to seq are handled. Idempotency key mux-ack:<conversation>:<seq>, so a repeated ack is a replay. Replies with the owner's mutation result."
+   ]
+  },
+  "list-terminal-commands": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "terminal-command-history-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "after_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "limit": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint32"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false,
+    "constraints": [
+     "after_id is a decimal string.",
+     "limit is 1 to 1000 (default 1000)."
+    ]
+   },
+   "result": {
+    "kind": "ref",
+    "name": "TerminalCommandList"
+   },
+   "stream": null,
+   "constraints": [
+    "Returns the newest limit unexpired rows with an id above after_id, oldest first; truncated is true when older rows after after_id were left out.",
+    "deletions counts client deletes (not expiry); a reader that saw another deletions or registry_id reads again from the start and drops rows older than retention_days itself."
+   ]
+  },
+  "delete-terminal-commands": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "terminal-command-history-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "ids": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       },
+       "min_items": 1
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "started_since_ms": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "all": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false
+     }
+    },
+    "additional_properties": false,
+    "constraints": [
+     "Exactly one of ids, started_since_ms or all.",
+     "ids holds 1 to 1000 decimal strings; started_since_ms is a decimal string."
+    ]
+   },
+   "result": {
+    "kind": "ref",
+    "name": "TerminalCommandDeleteResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Runs after every command queued before it; deleted rows are zeroed (secure delete) and ids are never reused."
+   ]
+  },
+  "put-blob": {
+   "authority": "control",
+   "since": 12,
+   "capability": "icon-assets-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "media_type": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "data": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "media_type is image/png, image/jpeg, image/webp, or image/svg+xml; data is standard base64.",
+    "See spec/commands.md for the limits and the result object."
+   ]
+  },
+  "get-blob": {
+   "authority": "control",
+   "since": 12,
+   "capability": "icon-assets-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "blob": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
    ]
   },
   "feed-local-list": {
@@ -22583,6 +23339,52 @@
     ]
    }
   },
+  "keybindings-changed": {
+   "since": 12,
+   "capability": "keybindings-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "keybindings-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "revision": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "origin": {
+      "type": {
+       "kind": "enum",
+       "values": [
+        "user",
+        "cli",
+        "mcp",
+        "script",
+        "remote",
+        "app",
+        "file"
+       ]
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
   "layout-changed": {
    "since": 6,
    "capability": null,
@@ -22682,6 +23484,26 @@
       "nullable": false,
       "since": 12,
       "capability": "notification-source-v1"
+     },
+     "desktop": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "notification-desktop-v1"
+     },
+     "reply": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "notification-reply-v1"
      }
     },
     "additional_properties": false
@@ -25099,6 +25921,47 @@
     "additional_properties": false
    }
   },
+  "history-changed": {
+   "since": 12,
+   "capability": "history-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "history-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "revision": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "kinds": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
   "conversation-changed": {
    "since": 12,
    "capability": "local-conversations-v1",
@@ -25191,6 +26054,52 @@
       "type": {
        "kind": "scalar",
        "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "conversation-draft": {
+   "since": 12,
+   "capability": "conversation-draft-events-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "conversation-draft"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "participant": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "item": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
       },
       "presence": "required",
       "nullable": false
@@ -25648,6 +26557,99 @@
       },
       "presence": "optional",
       "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "agent-presence-changed": {
+   "since": 12,
+   "capability": "agent-presence-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "agent-presence-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "activity": {
+      "type": {
+       "kind": "ref",
+       "name": "AgentPresenceActivity"
+      },
+      "presence": "required",
+      "nullable": true,
+      "description": "What the agent is doing now; null clears the surface's presence and every other field is then null."
+     },
+     "agent": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": true,
+      "description": "Adapter identity (claude, codex, ...)."
+     },
+     "session": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": true,
+      "description": "The agent's portable session id, a stable identity for colour."
+     },
+     "tool": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": true,
+      "description": "The native tool name of the current or last tool call."
+     },
+     "path": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": true,
+      "description": "The file the tool call targets, when the tool input names one."
+     },
+     "line": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": true,
+      "description": "The 1-based line the tool call targets, when the tool input names one."
+     },
+     "updated_at_ms": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": true,
+      "description": "When the hook observed the event; null on clear."
      }
     },
     "additional_properties": false

@@ -7,6 +7,8 @@ use scope::canonical_resource_scope;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+mod selector_tokens;
+pub use selector_tokens::is_reserved_selector_token;
 mod error;
 mod idempotency;
 mod request_id;
@@ -148,12 +150,46 @@ pub enum ResourceOperation {
     ConversationDraft,
     #[serde(rename = "conversation.events")]
     ConversationEvents,
+    #[serde(rename = "git.commit")]
+    GitCommit,
     #[serde(rename = "git.diff")]
     GitDiff,
+    #[serde(rename = "git.files.list")]
+    GitFilesList,
     #[serde(rename = "git.files.search")]
     GitFilesSearch,
+    #[serde(rename = "git.push")]
+    GitPush,
     #[serde(rename = "git.status")]
     GitStatus,
+    #[serde(rename = "git.worktree.create")]
+    GitWorktreeCreate,
+    #[serde(rename = "git.worktree.apply")]
+    GitWorktreeApply,
+    #[serde(rename = "git.worktree.remove")]
+    GitWorktreeRemove,
+    #[serde(rename = "history.entries.list")]
+    HistoryEntriesList,
+    #[serde(rename = "history.entries.remove")]
+    HistoryEntriesRemove,
+    #[serde(rename = "history.site.remove")]
+    HistorySiteRemove,
+    #[serde(rename = "history.clear")]
+    HistoryClear,
+    #[serde(rename = "history.restore")]
+    HistoryRestore,
+    #[serde(rename = "history.backups.purge")]
+    HistoryBackupsPurge,
+    #[serde(rename = "history.visit.record")]
+    HistoryVisitRecord,
+    #[serde(rename = "history.visit.title")]
+    HistoryVisitTitle,
+    #[serde(rename = "history.visit.remove")]
+    HistoryVisitRemove,
+    #[serde(rename = "history.visit.summaries")]
+    HistoryVisitSummaries,
+    #[serde(rename = "history.visit.import")]
+    HistoryVisitImport,
     #[serde(rename = "workspace.list")]
     WorkspaceList,
     #[serde(rename = "workspace.get")]
@@ -368,6 +404,14 @@ pub enum ResourceOperation {
     SettingsReset,
     #[serde(rename = "settings.reset_all")]
     SettingsResetAll,
+    #[serde(rename = "keybindings.get")]
+    KeybindingsGet,
+    #[serde(rename = "keybindings.set")]
+    KeybindingsSet,
+    #[serde(rename = "keybindings.remove")]
+    KeybindingsRemove,
+    #[serde(rename = "keybindings.reset")]
+    KeybindingsReset,
     #[serde(rename = "window_record.list")]
     WindowRecordList,
     #[serde(rename = "window_record.put")]
@@ -474,6 +518,8 @@ pub enum ResourceOperation {
     WorkspaceUpdate,
     #[serde(rename = "workspace.agent_folder.set")]
     WorkspaceAgentFolderSet,
+    #[serde(rename = "workspace.agent_start.get")]
+    WorkspaceAgentStartGet,
     #[serde(rename = "workspace_group.create")]
     WorkspaceGroupCreate,
     #[serde(rename = "workspace_group.delete")]
@@ -534,123 +580,7 @@ impl LocalOperation {
     }
 }
 
-impl ResourceOperation {
-    pub const fn class(self) -> OperationClass {
-        if matches!(
-            self,
-            Self::SessionEvents
-                | Self::SessionJournalSubscribe
-                | Self::ConversationEvents
-                | Self::TerminalAttach
-                | Self::BrowserAttach
-                | Self::SidebarViewAttach
-        ) {
-            OperationClass::StreamOpen
-        } else if matches!(
-            self,
-            Self::RequestCancel
-                | Self::StreamCancel
-                | Self::OriginConfirmationIssue
-                | Self::ClientMetadataUpdate
-                | Self::ClientSizingSet
-                | Self::ClientSizingRelease
-                | Self::ClientCellPixelsSet
-                | Self::ClientDetach
-                | Self::TerminalRendererGrantCreate
-                | Self::TerminalViewerResize
-                | Self::TerminalViewerRelease
-                | Self::BrowserViewerResize
-                | Self::BrowserViewerRelease
-        ) {
-            OperationClass::ConnectionControl
-        } else if matches!(
-            self,
-            Self::MachineList
-                | Self::MachineGet
-                | Self::SessionList
-                | Self::SessionGet
-                | Self::SessionSnapshot
-                | Self::SessionCreationResolve
-                | Self::SessionPing
-                | Self::SessionJournalProducerList
-                | Self::SessionJournalHookList
-                | Self::SessionJournalCheckpointList
-                | Self::SessionJournalRestorePreview
-                | Self::SessionJournalSegmentList
-                | Self::ClientList
-                | Self::ClientGet
-                | Self::PairingRequestList
-                | Self::FrontendProjectionGet
-                | Self::ChiefEngineGet
-                | Self::CredentialVerify
-                | Self::CredentialMint
-                | Self::ConversationList
-                | Self::ConversationGet
-                | Self::ConversationHistory
-                | Self::ConversationSearch
-                | Self::GitCheckpointDiff
-                | Self::GitCheckpointGet
-                | Self::GitCheckpointList
-                | Self::GitDiff
-                | Self::GitFilesSearch
-                | Self::GitStatus
-                | Self::WorkspaceList
-                | Self::WorkspaceGet
-                | Self::ScreenList
-                | Self::ScreenGet
-                | Self::ScreenLayoutExport
-                | Self::PaneList
-                | Self::PaneGet
-                | Self::PaneNeighborGet
-                | Self::TabList
-                | Self::TabGet
-                | Self::TerminalList
-                | Self::TerminalGet
-                | Self::TerminalScreenRead
-                | Self::TerminalStateRead
-                | Self::TerminalHistoryRead
-                | Self::TerminalOutputRead
-                | Self::TerminalWait
-                | Self::TerminalWaitExit
-                | Self::TerminalCopy
-                | Self::TerminalProcessGet
-                | Self::BrowserList
-                | Self::BrowserGet
-                | Self::NotificationList
-                | Self::AgentList
-                | Self::AgentMessageList
-                | Self::SidebarViewGet
-                | Self::ClosedList
-                | Self::WindowRecordList
-                | Self::SettingsSchema
-                | Self::SettingsList
-                | Self::SettingsGet
-                | Self::SettingsSnapshot
-                | Self::SidebarLayoutGet
-                | Self::ProjectList
-                | Self::PaletteUsageGet
-                | Self::RoomList
-                | Self::SavedTabGroupList
-                | Self::ScreenGroupGet
-                | Self::ScreenGroupList
-                | Self::TabGroupGet
-                | Self::TabGroupList
-                | Self::WorkspacePlacementList
-                | Self::WorkspaceGroupList
-                | Self::WorkspaceLogList
-                | Self::WorkspaceStatusList
-        ) {
-            OperationClass::Read
-        } else {
-            OperationClass::Mutation
-        }
-    }
-
-    pub const fn is_mutation(self) -> bool {
-        matches!(self.class(), OperationClass::Mutation)
-    }
-}
-
+mod class;
 mod envelope;
 mod hex;
 mod journal;
@@ -827,94 +757,6 @@ impl Selector {
         }
         Ok(Self::Name(value.to_string()))
     }
-}
-
-/// A noun-first CLI token: a resource may keep the name; callers select it with `name:`.
-pub fn is_reserved_selector_token(value: &str) -> bool {
-    matches!(
-        value,
-        "machine"
-            | "session"
-            | "client"
-            | "window"
-            | "pairing"
-            | "request"
-            | "frontend"
-            | "projection"
-            | "workspace"
-            | "screen"
-            | "pane"
-            | "tab"
-            | "terminal"
-            | "browser"
-            | "split"
-            | "notification"
-            | "agent"
-            | "sidebar"
-            | "view"
-            | "plugin"
-            | "provider"
-            | "scope"
-            | "action"
-            | "notice"
-            | "list"
-            | "get"
-            | "show"
-            | "create"
-            | "open"
-            | "rename"
-            | "delete"
-            | "restore"
-            | "purge"
-            | "connect"
-            | "snapshot"
-            | "events"
-            | "ping"
-            | "shutdown"
-            | "update"
-            | "metadata"
-            | "detach"
-            | "set"
-            | "clear"
-            | "resolve"
-            | "put"
-            | "move"
-            | "focus"
-            | "close"
-            | "run"
-            | "apply"
-            | "export"
-            | "undo"
-            | "neighbor"
-            | "swap"
-            | "zoom"
-            | "resize"
-            | "send"
-            | "keys"
-            | "read"
-            | "history"
-            | "state"
-            | "direction"
-            | "process"
-            | "renderer"
-            | "grant"
-            | "cell"
-            | "pixels"
-            | "copy"
-            | "attach"
-            | "navigate"
-            | "back"
-            | "forward"
-            | "reload"
-            | "activate"
-            | "install"
-            | "use"
-            | "builtin"
-            | "disable"
-            | "remove"
-            | "report"
-            | "notify"
-    )
 }
 
 fn is_registered_public_id(value: &str) -> bool {

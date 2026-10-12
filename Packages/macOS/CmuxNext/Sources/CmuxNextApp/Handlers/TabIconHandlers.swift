@@ -97,4 +97,8 @@ enum TabIconHandlers {
 @MainActor
 final class UndoToastWindow {
     weak var window: NSWindow?
+
+    // Each icon change releases this inside the action's task-local scope; teardown must not
+    // need a main-actor hop (cx-bpcj, cx-t7hu).
+    nonisolated deinit {}
 }

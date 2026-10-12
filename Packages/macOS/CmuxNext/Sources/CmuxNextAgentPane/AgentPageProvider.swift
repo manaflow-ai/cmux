@@ -27,13 +27,13 @@ public nonisolated struct AgentPageOps {
     /// Op suffix to the old bridge method that ``AgentPaneRequest`` parses.
     static let methods: [String: String] = {
         var methods = Dictionary(uniqueKeysWithValues: [
-            "pane.checkpointAvailability", "pane.framePacing", "pane.painted", "pane.renderRate", "pane.saveLog", "pane.showContextUsage",
+            "pane.checkpointAvailability", "pane.framePacing", "pane.painted", "pane.renderRate", "pane.saveLog", "pane.saveFile", "pane.showContextUsage", "pane.showDictation",
             "pane.edit", "tab.open", "tab.typeAhead", "tab.jump", "tab.setDefaultKind",
-            "newTab.remember", "newTab.setTemplate", "newTab.inputReady", "newTab.touched", "shortcut.edit", "action.run", "file.open", "browser.open",
-            "project.list", "project.browse", "workspace.chooseFolder", "chat.folder.choose", "app.action", "chats.open", "chats.openInTerminal", "chats.page",
-            "quick.dismiss", "quick.openInWindow", "quick.startInBackground", "pane.action", "pane.tabState", "chat.archive", "chat.sideChat",
-            "shell.run", "shell.read", "shell.stop",
-            "git.diff", "git.status", "git.githubRepository", "file.search", "git.checkpoint.diff", "turn.undo",
+            "newTab.remember", "newTab.setTemplate", "newTab.inputReady", "newTab.touched", "newTab.context", "shortcut.edit", "action.run", "file.open", "browser.open",
+            "project.list", "project.browse", "workspace.chooseFolder", "workspace.useFolder", "chat.folder.choose", "app.action", "chats.open", "chats.openInTerminal", "chats.page",
+            "quick.dismiss", "quick.openInWindow", "quick.startInBackground", "quick.setOnTop", "quick.setCollapsed", "quick.floatingState", "quick.context", "pane.action", "pane.tabState", "chat.archive", "chat.markUnread", "chat.toolCard.respond", "chat.sideChat", "chat.unsentDraft", "chat.scrollAnchor", "chat.scrollAnchor.get",
+            "shell.run", "shell.read", "shell.stop", "harness.health",
+            "git.diff", "git.status", "git.commit", "git.push", "git.worktree.create", "git.worktree.apply", "git.worktree.remove", "git.githubRepository", "file.search", "git.checkpoint.diff", "turn.undo", "git.stage", "git.unstage", "git.stageHunk", "git.unstageHunk", "git.pullRequest", "project.instructions", "project.addFiles", "composer.capture",
             "dictation.toggle", "dictation.start", "dictation.stop", "dictation.cancel", "dictation.openSettings",
             "transport.open", "transport.send", "transport.close", "transport.gesture", "transport.gesture.release",
         ].map { ($0, $0) })
@@ -102,6 +102,7 @@ public final class AgentPageProvider: PageProvider {
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         guard let method = AgentPageOps.method(for: op) else { throw PageError.unknownOp(op) }
         if method == "pane.edit" { return try edit(params, op: op, context: context) }
+        if method.hasPrefix("chat.scrollAnchor") { return try Self.scrollAnchor(method, params: params, op: op) }
         let request = AgentPaneRequest(body: ["method": method, "params": params.foundationObject])
         if case .unsupported = request { throw PageError.invalidParams(op) }
         guard let model = prepare(request) else { throw PageError.closed }

@@ -8,11 +8,11 @@ import { ComputerUseCard } from "./ComputerUseCard";
 import { GhosttyDiagnostics } from "./GhosttyDiagnostics";
 import { GroupList } from "./GroupList";
 import { HarnessesCard } from "./HarnessesCard";
-import { AdvancedInfo, Backdrops, TerminalInfo } from "./HostCards";
+import { AdvancedInfo, BACKDROP_ROWS, Backdrops, TerminalInfo, useBackdropsShown } from "./HostCards";
 import { BrowserProfiles, MachinesSection, SpacesSection } from "./HostSections";
 import { PlaceholderSection } from "./PlaceholderSection";
 import { SectionActions } from "./SectionActions";
-import { APP_THEME_KEY, THEME_KEY, ThemeStudio } from "./ThemeStudio";
+import { APP_THEME_KEY, THEME_EDITS_KEY, THEME_KEY, ThemeStudio } from "./ThemeStudio";
 
 const machinesTitle = () => text(sections.find((section) => section.id === "machines")?.title);
 
@@ -30,7 +30,7 @@ const CARDS: Record<CategoryCard, (focus: string | null) => ReactNode> = {
   agentHarnesses: (focus) => <AgentHarnesses focus={focus} />,
   advancedInfo: () => <AdvancedInfo />,
   advancedActions: () => <PlaceholderSection section="advanced" />,
-  backdrops: () => <Backdrops />,
+  backdrops: (focus) => <Backdrops focus={focus} />,
 };
 
 /** One category: its title, the cards before its groups, the groups, the cards after, actions. */
@@ -39,7 +39,15 @@ export function SectionView({ section, focus }: { section: string; focus: string
   // The theme studio draws appearance.theme and appearance.appTheme itself.
   const studio = category.lead.includes("themeStudio");
   const drawn = new Set([THEME_KEY, APP_THEME_KEY]);
-  const groups = category.groups.filter((group) => !(studio && group.rows.every((row) => drawn.has(row.key))));
+  // The background picker draws appearance.background and its Opacity while it shows.
+  const picker = useBackdropsShown() && [...category.lead, ...category.trail].includes("backdrops");
+  // appearance.themeEdits is the pickers' "(custom)" themes, never a row of its own.
+  const groups = category.groups
+    .map((group) => ({
+      ...group,
+      rows: group.rows.filter((row) => row.key !== THEME_EDITS_KEY && !(picker && BACKDROP_ROWS.has(row.key))),
+    }))
+    .filter((group) => group.rows.length > 0 && !(studio && group.rows.every((row) => drawn.has(row.key))));
   return (
     <div className="section" data-section={category.id}>
       <h1 className="section-title">{text(category.title)}</h1>

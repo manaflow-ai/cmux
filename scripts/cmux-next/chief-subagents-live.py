@@ -456,6 +456,27 @@ def flow(fn):
 
 
 @flow
+def subagent_task_only_on_empty_chat():
+    """cx-qqs1: a subagent spawned while the Chief's chat is empty gets only its task (no view to
+    give), and its pane shows exactly the task, with no "Your task:" label. Run it first, on a new
+    Chief home (`--only`), so the chat is empty."""
+    task = "Reply with only the word empty-probe."
+    empty = not log_items()
+    answer = spawn([task])
+    ids = ids_in(answer)
+    wait_done(ids, 300)
+    ws = wait(lambda: next((w for w in workspaces() if ws_name(w).lstrip("✓ ").startswith(ids[0] + " ")), None) if ids else None, 60)
+    if ws:
+        focus_workspace(ws.get("id"), f"empty-{ids[0]}")
+    state = wait(lambda: (lambda st: st if st.get("transcript") else None)(
+        rpc("debug.agent_pane", {"action": "chat_state"}) or {}), 30) or {}
+    first = next((r.get("text") for r in state.get("transcript") or [] if r.get("kind") == "user"), None)
+    row("empty-chat subagent gets only its task", "the chat was empty; the pane's first message is exactly the task",
+        f"empty chat={empty}; first message {first!r}", empty and first == task)
+    show_home()
+
+
+@flow
 def parallel_three():
     """3 parallel subagents on a real task; the Chief combines their reports."""
     for name, n in (("alpha", 3), ("beta", 5), ("gamma", 7)):

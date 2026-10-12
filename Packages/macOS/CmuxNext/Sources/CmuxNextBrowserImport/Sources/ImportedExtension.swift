@@ -19,12 +19,6 @@ public struct ImportedExtension: Sendable, Codable, Hashable, Identifiable {
         self.fromWebStore = fromWebStore
     }
 
-    /// The extension's Chrome Web Store page, where Chromium installs it.
-    /// nil for an id that does not form a URL (ids come from the imported profile's files).
-    public var webStoreURL: URL? {
-        URL(string: "https://chromewebstore.google.com/detail/\(id)")
-    }
-
     /// Chrome extension ids are 32 letters from a to p.
     public static func isValidID(_ id: String) -> Bool {
         id.count == 32 && id.allSatisfy { ("a"..."p").contains($0) }

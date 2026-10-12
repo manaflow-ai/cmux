@@ -57,7 +57,7 @@ final class SectionHeaderRowView: SidebarRowView {
             title = Strings.pinned
             statusTone = nil
             badgeText = nil
-            toolTip = nil
+            themedToolTip = nil
         case let .machine(machine):
             switch machine.kind {
             case .local: symbol = .machineLocal
@@ -68,7 +68,7 @@ final class SectionHeaderRowView: SidebarRowView {
             switch (machine.kind, machine.status) {
             case (.local, .connected): statusTone = nil
             case (_, .connected), (_, .updateAvailable): statusTone = .success
-            case (_, .connecting), (_, .installing), (_, .installRequired): statusTone = .attention
+            case (_, .connecting), (_, .reconnecting), (_, .installing), (_, .installRequired): statusTone = .attention
             case (_, .offline): statusTone = .quiet
             case (_, .updateRequired), (_, .authFailed), (_, .unreachable), (_, .failed): statusTone = .danger
             }
@@ -76,6 +76,7 @@ final class SectionHeaderRowView: SidebarRowView {
             switch machine.status {
             case .connected: label += ", " + Strings.statusConnected
             case .connecting: label += ", " + Strings.statusConnecting
+            case .reconnecting: label += ", " + Strings.statusReconnecting
             case .offline: label += ", " + Strings.statusOffline
             case .updateAvailable: label += ", " + Strings.statusUpdateAvailable
             case .updateRequired: label += ", " + Strings.statusUpdateRequired
@@ -87,6 +88,7 @@ final class SectionHeaderRowView: SidebarRowView {
             }
             badgeText = switch machine.status {
             case .updateAvailable: Strings.statusUpdateAvailable
+            case .reconnecting: Strings.statusReconnecting
             case .updateRequired: Strings.statusUpdateRequired
             case .installRequired: Strings.statusInstallRequired
             case .installing: Strings.statusInstalling
@@ -95,7 +97,7 @@ final class SectionHeaderRowView: SidebarRowView {
             case .failed: Strings.statusFailed
             default: nil
             }
-            toolTip = machine.detail
+            themedToolTip = machine.detail
             setAccessibilityLabel(label)
             setAccessibilityHelp(machine.detail)
         }
@@ -105,7 +107,7 @@ final class SectionHeaderRowView: SidebarRowView {
             title = Strings.projects
             statusTone = nil
             badgeText = nil
-            toolTip = nil
+            themedToolTip = nil
             setAccessibilityHelp(nil)
         }
         if section.kind == .pinned || row.titlesProjects { setAccessibilityLabel(title) }
@@ -198,7 +200,6 @@ final class SectionHeaderRowView: SidebarRowView {
         needsLayout = true
     }
 
-    var nameFrame: NSRect { name.frame }
     /// Whether the fold chevron shows (tests).
     var showsChevron: Bool { !chevron.isHidden }
 }

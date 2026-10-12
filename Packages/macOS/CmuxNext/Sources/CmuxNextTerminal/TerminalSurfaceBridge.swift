@@ -19,8 +19,15 @@ nonisolated final class SurfaceBridge: @unchecked Sendable {
     /// The last font scale Ghostty reported, nil at the configured size.
     @MainActor var fontScale: Double?
 
+    /// The cached answers to Ghostty's link filter (cx-do47.1).
+    let linkFilter = TerminalLinkFilter()
+
     init(input: TerminalInputSink) {
         self.input = input
+        // An answer that changed shows at once: the pointer goes to Ghostty again.
+        linkFilter.onChange { [weak self] in
+            MainDelivery().run { self?.sendPointerAgain() }
+        }
     }
 
     static func from(_ raw: UnsafeMutableRawPointer?) -> SurfaceBridge? {

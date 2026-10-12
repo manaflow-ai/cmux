@@ -128,7 +128,11 @@ const fenced = "code block text";
     return page.evaluate(selectedText);
   }
 
+  /// The target's box once layout has settled: the same in two reads 100 ms apart. A box read
+  /// while the page still lays out (WebKit's markdown page moves its prose after the first paint)
+  /// sends the drag across whatever is there by the time it runs.
   async function rectOf(page: Page, find: () => Element | Range | null | undefined) {
+    let last: { x: number; y: number; width: number; height: number } | null = null;
     for (let tries = 0; tries < 100; tries += 1) {
       const handle = await page.evaluateHandle(find);
       const rect = await handle.evaluate((target) => {
@@ -136,10 +140,11 @@ const fenced = "code block text";
         return box && box.width > 0 ? { x: box.x, y: box.y, width: box.width, height: box.height } : null;
       });
       await handle.dispose();
-      if (rect) return rect;
+      if (rect && last && rect.x === last.x && rect.y === last.y && rect.width === last.width) return rect;
+      last = rect;
       await page.waitForTimeout(100);
     }
-    throw new Error(`nothing laid out for ${find.toString()}`);
+    throw new Error(`nothing laid out (or still moving) for ${find.toString()}`);
   }
 
   /** A file drop on the page: whether the layer refused it and the page stayed where it was. */
@@ -200,7 +205,7 @@ const fenced = "code block text";
         await page.evaluate(() => document.getSelection()?.removeAllRanges());
         await page.mouse.dblclick(word.x + word.width / 2, word.y + word.height / 2);
         expect(await page.evaluate(selectedText)).toContain("value_");
-        if (name === "webkit") expect(await dragAcross(page, word)).toContain("value");
+        if (name === "webkit") expect(await dragAcross(page, word, 0.08)).toContain("value");
 
         const filePath = await rectOf(page, () => document.querySelector(".file-header-path .file-header-name"));
         expect(await dragAcross(page, filePath)).toContain(".ts");

@@ -171,6 +171,8 @@ fn conversation_create_send_snapshot_and_history_round_trip() {
     let summary = &snapshot["conversation"];
     assert_eq!(summary["last_seq"], 3);
     assert_eq!(summary["rev"], 6);
+    // The agent sent seq 3 without having read seqs 1 and 2, so it keeps no
+    // cursor: an unread message stays unread to it (cx-59n8.4).
     assert_eq!(summary["read_cursors"], json!({"user_local":3}));
     assert_eq!(summary["last_message"]["seq"], 3);
     assert_eq!(summary["participants"][1]["agent_class"], "mux");

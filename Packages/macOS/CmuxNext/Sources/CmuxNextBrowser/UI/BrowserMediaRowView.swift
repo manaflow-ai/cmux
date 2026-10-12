@@ -95,7 +95,7 @@ public final class BrowserMediaRowView: NSView {
         let (icon, title): (IconName, String) = switch command {
         case .previousTrack: (.mediaPrevious, Strings.mediaPrevious)
         case .nextTrack: (.mediaNext, Strings.mediaNext)
-        case .playPause: (.mediaPlay, Strings.mediaPlay)
+        case .playPause, .play, .pause: (.mediaPlay, Strings.mediaPlay)
         case .toggleMute, .muteTab: (.mediaAudio, Strings.mediaMute)
         }
         let view = ChromeIconButton(icon: icon, label: title, action: #selector(pressed(_:)), target: self, toolbar: true)

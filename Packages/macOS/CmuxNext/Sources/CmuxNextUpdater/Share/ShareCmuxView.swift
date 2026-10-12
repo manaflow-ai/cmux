@@ -40,7 +40,7 @@ public final class ShareCmuxView: NSView {
     /// (tests record it instead).
     public init(writeToPasteboard: @escaping @MainActor (String) -> Void = ShareCmuxView.writeToGeneralPasteboard) {
         self.writeToPasteboard = writeToPasteboard
-        surface = OverlaySurfaceView(interactive: true)
+        surface = OverlaySurfaceView(material: .opaque, interactive: true)
         copyButton = CmuxDialogButtonView(CmuxDialogButton(id: "copy-link", title: ShareCmuxStrings.copyLink, role: .default),
                                           target: nil, action: #selector(ShareCmuxView.copyMessage))
         closeButton = NSButton(image: NSImage.icon(.actionClose, size: 12),
@@ -123,7 +123,7 @@ public final class ShareCmuxView: NSView {
         closeButton.bezelStyle = .regularSquare
         closeButton.imagePosition = .imageOnly
         closeButton.setAccessibilityLabel(ShareCmuxStrings.close)
-        closeButton.toolTip = ShareCmuxStrings.close
+        closeButton.themedToolTip = ShareCmuxStrings.close
         closeButton.identifier = NSUserInterfaceItemIdentifier("cmux.shareCmux.close")
         closeButton.translatesAutoresizingMaskIntoConstraints = false
         closeButton.widthAnchor.constraint(equalToConstant: 20).isActive = true
@@ -158,7 +158,7 @@ public final class ShareCmuxView: NSView {
         }
         messageScroll.documentView = messageView
         messageScroll.hasVerticalScroller = true
-        messageScroll.autohidesScrollers = true
+        SystemScrollers.follow(messageScroll)
         messageScroll.drawsBackground = false
         messageScroll.borderType = .noBorder
         messageScroll.wantsLayer = true
@@ -191,7 +191,7 @@ public final class ShareCmuxView: NSView {
             titleLabel.textColor = Palette.textPrimary
             bodyLabel.textColor = Palette.textSecondary
             messageView.textColor = Palette.textPrimary
-            messageView.insertionPointColor = Palette.textPrimary
+            messageView.insertionPointColor = Palette.caret
             messageScroll.layer?.backgroundColor = Palette.hoverFill.cgColor
             closeButton.contentTintColor = Palette.textSecondary
         }

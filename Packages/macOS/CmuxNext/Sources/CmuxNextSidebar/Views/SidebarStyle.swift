@@ -58,8 +58,6 @@ enum SidebarStyle {
     /// How far a group member's content moves in past the row's own
     /// leading edge, which already starts right of the line (`groupGutter`).
     static var groupMemberIndent: CGFloat { Metrics.space1 }
-    /// Where a group header's bar starts: the row's leading edge (full width).
-    static var groupChipLeading: CGFloat { 0 }
     /// The header bar inside its row: 26 of 32 pt, scaled with the row height.
     static func groupHeaderBarHeight(rowHeight: CGFloat) -> CGFloat { rowHeight - 2 * (rowHeight * 0.09).rounded() }
     /// The header's name: medium weight (cx-qno.17: more contrast on the
@@ -85,9 +83,9 @@ enum SidebarStyle {
         NSImage.icon(collapsed ? .disclosureCollapsed : .disclosureExpanded, size: Metrics.smallIconSize)
     }
 
-    /// Muted tint for a user color, shared with tab groups (`GroupColor`).
+    /// A user color in the theme's palette, shared with tab groups (`GroupColor.markColor`).
     static func color(_ color: GroupColor) -> NSColor {
-        color.swatch
+        color.markColor
     }
 
 }

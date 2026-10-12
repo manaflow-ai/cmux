@@ -495,6 +495,7 @@ fn close_by_key(daemon: &Path, key: &str) -> Result<(), String> {
             key: Optional::Value(key.to_owned()),
             mutation_id: Optional::Value(format!("optchat-subagent-close-{key}")),
             origin: Optional::Value(MUTATION_ORIGIN.to_owned()),
+            reason: Optional::Missing,
             workspace: Optional::Missing,
         })
         .map(|_| ())

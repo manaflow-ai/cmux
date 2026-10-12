@@ -15,15 +15,20 @@ pub(crate) mod agent_folder;
 mod agent_folder_tests;
 pub(crate) mod agent_message_store;
 pub(crate) mod agent_messages;
+pub(crate) mod agent_start;
 pub(crate) mod app_workspaces;
+#[cfg(test)]
+mod closed_browser_history_tests;
 pub(crate) mod closed_history;
 pub(crate) mod closed_history_delete;
+pub(crate) mod closed_history_privacy;
 pub(crate) mod closed_history_query;
 pub(crate) mod closed_history_store;
 #[cfg(test)]
 mod closed_history_tests;
 #[cfg(test)]
 mod closed_relaunch_tests;
+pub(crate) mod command_history_store;
 pub(crate) mod commit;
 pub(crate) mod conversation_tabs;
 pub(crate) mod conversation_tabs_store;
@@ -70,11 +75,13 @@ mod room_delete_tests;
 pub(crate) mod router;
 pub(crate) mod screen_state_store;
 pub(crate) mod screens;
-pub(crate) mod sidebar_layout;
+pub(crate) use cmux_layout_reducer::sidebar_layout;
 pub(crate) mod sidebar_layout_ops;
 #[cfg(test)]
 mod sidebar_layout_protocol_tests;
 pub(crate) mod sidebar_layout_store;
+pub(crate) mod status_meta;
+pub(crate) mod status_owners;
 pub(crate) mod store;
 pub(crate) mod tab_state_store;
 pub(crate) mod tabs;

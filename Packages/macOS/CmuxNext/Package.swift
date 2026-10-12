@@ -55,8 +55,9 @@ import PackageDescription
 //   CmuxNextApps -> Design, Icons, Wakeups (app platform: manifest model, scene store + native renderer, JavaScriptCore
 //     prototype engine, prototype registry, App Store window; no daemon; the App supplies the
 //     operation sink; plans/cmux-next/app-platform.md)
-//   CmuxNextTasks -> Design, Icons (Tasks pane: list, board and inbox prototypes over a mirror + intent
-//     log of the Tasks owner; no daemon; the App supplies the source; plans/cmux-next/tasks.md)
+//   CmuxNextTasks -> Design, Icons, CCmuxAppFFI (Tasks pane: list, board and inbox prototypes over a
+//     mirror + intent log of the Tasks owner, whose reducer previews pending intents over the FFI;
+//     no daemon; the App supplies the source; plans/cmux-next/tasks.md)
 //   CmuxNextFeed -> Design, Wakeups (feed panel: list, inbox and menu bar prototypes over a mirror + intent
 //     log of the feed owner; no daemon; the App supplies the source; plans/cmux-next/feed.md)
 //   CmuxNextServer -> Design, Icons (server menubar panel, pairing, approver sheet and health prototypes
@@ -105,8 +106,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-d2fc4491bc2ddeaead5bfe28a6f09483abcd9334/CCmuxAppFFI.xcframework.zip",
-    checksum: "62dce8413e1a5355411ac5768c92d9e7f4bc950ca5a3bcd85195d623db2c538c"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-18e22c27f089b23ab6ec37b804833707efe1ffd4/CCmuxAppFFI.xcframework.zip",
+    checksum: "3b20a36bb987a107fa7444c9930dc7d2030259290c37fadb60aa8ce80d7c4dbf"
 )
 
 let package = Package(
@@ -129,6 +130,7 @@ let package = Package(
         // Vendored from manaflow-ai/cmux-cua at CMUX_CUA_PINNED_SHA (scripts/cmux_agent_cursor_vendor.py).
         .package(path: "../../Shared/CmuxAgentCursor"),
         .package(path: "../../Shared/CmuxHomeCore"),
+        .package(path: "../../Shared/CmuxFeedPushCore"),
         .package(path: "../../Shared/CmuxHomeRender"),
         // Agent questions: one harness-neutral model (plans/cmux-next/agent-questions.md).
         .package(path: "../../Shared/CmuxAgentQuestion"),
@@ -164,6 +166,8 @@ let package = Package(
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
+                // The signed approve answer format shared with the iPhone (cx-aocz).
+                .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
                 "CmuxNextWakeups",
                 "CmuxNextActions",
                 "CmuxNextDaemon",
@@ -430,7 +434,7 @@ let package = Package(
         // confirmed mirror + intent log; the App supplies the source.
         .target(
             name: "CmuxNextTasks",
-            dependencies: ["CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands")],
+            dependencies: ["CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"), "CCmuxAppFFI"],
             resources: [
                 .process("Resources"),
             ],
@@ -797,7 +801,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextAppTests",
-            dependencies: ["CmuxNextWakeups", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextCrashReporting", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
+            dependencies: ["CmuxNextWakeups", "CmuxNextLayout", "CmuxNextTasks", "CmuxNextAgentCursor", "CmuxNextTabs", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextCrashReporting", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
                            "CmuxNextDaemon", "CmuxNextHome", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                            .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                            .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion")],

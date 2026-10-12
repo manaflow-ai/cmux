@@ -47,6 +47,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     private let limits: AgentPaneTransport.Limits
     private let options: AcpmuxPermissionOptions
     private let sessions: AcpmuxPaneSessions
+    private let decisions: AcpmuxDecisionContexts
     private let ids: AcpmuxRequestIds
     private let signal: @Sendable () -> Void
     private let state = Mutex(State())
@@ -54,13 +55,14 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     private let inbound = DispatchQueue(label: "com.cmuxterm.app.next.agent-pane.inbound", qos: .userInitiated)
 
     init(request: URLRequest, wire: (any AcpmuxPaneWire)? = nil, limits: AgentPaneTransport.Limits,
-         options: AcpmuxPermissionOptions, sessions: AcpmuxPaneSessions, ids: AcpmuxRequestIds,
-         signal: @escaping @Sendable () -> Void) {
+         options: AcpmuxPermissionOptions, sessions: AcpmuxPaneSessions, decisions: AcpmuxDecisionContexts = AcpmuxDecisionContexts(),
+         ids: AcpmuxRequestIds, signal: @escaping @Sendable () -> Void) {
         self.request = request
         self.wire = wire
         self.limits = limits
         self.options = options
         self.sessions = sessions
+        self.decisions = decisions
         self.ids = ids
         self.signal = signal
     }
@@ -163,6 +165,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                     options.observe(object, replyTo: method)
                     sessions.observe(object)
                     sessions.observeFolder(object, replyTo: method)
+                    decisions.observe(object, replyTo: method)
                     page.append(fresh)
                 }
             }
@@ -233,9 +236,6 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         if wake { signal() }
         onQueued?(queued)
     }
-
-    /// Calls `hook` with the page queue's length after every enqueue (an event, not a poll).
-    func observeQueued(_ hook: (@Sendable (Int) -> Void)?) { state.withLock { $0.onQueued = hook } }
 
     var queuedFrames: Int { state.withLock { $0.inbox.count } }
 

@@ -9,19 +9,66 @@ public nonisolated enum AgentPaneGitScope: String, CaseIterable, Equatable, Send
     case branch
 }
 
+/// Which files a diff covers and how much unchanged text its patches carry: the changes view's
+/// Show more lines (cx-ncc.85) asks for one file with enough context to hold the whole file.
+/// Empty `paths` is every changed file; nil `contextLines` is git's default.
+public nonisolated struct AgentPaneGitDiffOptions: Equatable, Sendable {
+    public var paths: [String]
+    public var contextLines: Int?
+
+    public init(paths: [String] = [], contextLines: Int? = nil) {
+        self.paths = paths
+        self.contextLines = contextLines
+    }
+
+    /// The session host's limits.
+    public static let maximumPaths = 256
+    public static let maximumContextLines = 1_000_000
+
+    /// Nil when `params` name paths or a count the session host would refuse: a path that is not
+    /// relative to the repository and inside it, or a count outside 0 to ``maximumContextLines``.
+    init?(params: [String: Any]?) {
+        var options = AgentPaneGitDiffOptions()
+        switch params?["paths"] {
+        case nil, is NSNull: break
+        case let list as [Any]:
+            guard (1...Self.maximumPaths).contains(list.count) else { return nil }
+            for entry in list {
+                guard let path = entry as? String, Self.isInside(path) else { return nil }
+                options.paths.append(path)
+            }
+        default: return nil
+        }
+        switch params?["context_lines"] {
+        case nil, is NSNull: break
+        case let number as NSNumber where CFGetTypeID(number) != CFBooleanGetTypeID():
+            guard let exact = Int(exactly: number.doubleValue), (0...Self.maximumContextLines).contains(exact) else { return nil }
+            options.contextLines = exact
+        default: return nil
+        }
+        self = options
+    }
+
+    /// A non-empty path relative to the repository that stays inside it.
+    static func isInside(_ path: String) -> Bool {
+        !path.isEmpty && !path.hasPrefix("/") && !path.contains("\u{0}")
+            && path.split(separator: "/", omittingEmptySubsequences: false).allSatisfy { $0 != ".." && !$0.isEmpty }
+    }
+}
+
 /// A read of the chat session's repository that the pane asks for:
-/// `git.diff` with `{cwd, scope, include_patch}`, `git.status` with
+/// `git.diff` with `{cwd, scope, include_patch, paths?, context_lines?}`, `git.status` with
 /// `{cwd}`, or `file.search` with `{cwd or path, query, limit?}`. The App
 /// runs it as the session host's resource operation (`git.diff`,
 /// `git.status`, `git.files.search`) with `cwd` as its `path`; it reads the
 /// repository and changes nothing.
 public nonisolated enum AgentPaneGitRequest: Equatable, Sendable {
-    case diff(cwd: String, scope: AgentPaneGitScope, includePatch: Bool)
+    case diff(cwd: String, scope: AgentPaneGitScope, includePatch: Bool, options: AgentPaneGitDiffOptions = .init())
     case status(cwd: String)
     /// Files under `cwd` whose path matches `query`, best first.
     case filesSearch(cwd: String, query: String, limit: Int)
     /// One turn's changes: checkpoint `from` against `to`, or the working tree.
-    case checkpointDiff(cwd: String, from: String, to: String?, includePatch: Bool)
+    case checkpointDiff(cwd: String, from: String, to: String?, includePatch: Bool, options: AgentPaneGitDiffOptions = .init())
 
     /// The longest query the session host takes, in characters.
     public static let maximumQueryLength = 256
@@ -43,7 +90,7 @@ public nonisolated enum AgentPaneGitRequest: Equatable, Sendable {
     /// relative path against its own directory, not the chat's.
     public var cwd: String {
         switch self {
-        case .diff(let cwd, _, _), .status(let cwd), .filesSearch(let cwd, _, _), .checkpointDiff(let cwd, _, _, _): cwd
+        case .diff(let cwd, _, _, _), .status(let cwd), .filesSearch(let cwd, _, _), .checkpointDiff(let cwd, _, _, _, _): cwd
         }
     }
 
@@ -71,7 +118,9 @@ public nonisolated enum AgentPaneGitRequest: Equatable, Sendable {
             case let id as String where Self.isCheckpointId(id): to = id
             default: return nil
             }
-            self = .checkpointDiff(cwd: cwd, from: from, to: to, includePatch: params?["include_patch"] as? Bool ?? false)
+            guard let options = AgentPaneGitDiffOptions(params: params) else { return nil }
+            self = .checkpointDiff(cwd: cwd, from: from, to: to, includePatch: params?["include_patch"] as? Bool ?? false,
+                                   options: options)
         case "file.search":
             guard let query = params?["query"] as? String, query.count <= Self.maximumQueryLength,
                   !query.contains("\u{0}") else { return nil }
@@ -87,7 +136,8 @@ public nonisolated enum AgentPaneGitRequest: Equatable, Sendable {
             self = .filesSearch(cwd: cwd, query: query, limit: limit)
         case "git.diff":
             guard let raw = params?["scope"] as? String, let scope = AgentPaneGitScope(rawValue: raw) else { return nil }
-            self = .diff(cwd: cwd, scope: scope, includePatch: params?["include_patch"] as? Bool ?? false)
+            guard let options = AgentPaneGitDiffOptions(params: params) else { return nil }
+            self = .diff(cwd: cwd, scope: scope, includePatch: params?["include_patch"] as? Bool ?? false, options: options)
         case "git.status":
             self = .status(cwd: cwd)
         default:
@@ -137,4 +187,10 @@ public nonisolated struct AgentPaneGitFailure: Error, Equatable, Sendable {
     public static let invalidRequest = AgentPaneGitFailure(native: "native.invalid_request")
     /// Anything else, such as a result that is not JSON.
     public static let failed = AgentPaneGitFailure(native: "native.failed")
+    /// A commit or push for a pane with no session, or whose session has no
+    /// folder on this Mac (another machine's chat); never sent.
+    public static let noSessionFolder = AgentPaneGitFailure(native: "native.no_session_folder")
+    /// A commit or push built on a status read for another session than the
+    /// pane's; never sent.
+    public static let sessionChanged = AgentPaneGitFailure(native: "native.session_changed")
 }

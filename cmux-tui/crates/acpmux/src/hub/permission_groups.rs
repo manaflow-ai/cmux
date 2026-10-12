@@ -90,7 +90,7 @@ impl PermissionState {
             .iter()
             .map(|(id, pending)| {
                 let group = self.groups.iter().find(|g| g.items.iter().any(|item| &item.id == id));
-                json!({"permissionId":id,"request":pending.request,
+                json!({"permissionId":id,"request":pending.request,"decisionNonce":pending.decision_nonce,
                     "groupId":group.map(|g| &g.id),"turnId":group.and_then(|g| g.turn_id.as_ref())})
             })
             .collect()

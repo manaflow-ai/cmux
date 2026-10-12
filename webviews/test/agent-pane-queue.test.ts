@@ -1,0 +1,282 @@
+// Managing queued prompts from the keyboard, in the real agent pane (cx-xtg0.4). The page is the
+// pane's dev entry (vite.config.acpmux-pane.mjs) with its browser host, talking JSON-RPC over a
+// WebSocket to a stand-in acpmux daemon whose one chat has a turn running and three prompts queued
+// behind it, and which answers `_acpmux/queue_edit` and `_acpmux/queue_remove` as acpmux does: a
+// change is a record every client hears (`queue_order`, `queue_updated`, `dequeued`).
+//
+// - ↑ on the empty prompt reaches the last queued prompt; ⌥↑ moves it up, and it keeps focus.
+// - Return edits a queued prompt in its row; it keeps its place.
+// - ⌘Return sends one now; Delete removes one.
+// - A queue a failed turn paused says so, and Resume runs it again.
+//
+// Real Chromium from Playwright; skipped where it is not installed (the hosted webviews job).
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import path from "node:path";
+import { chromium, type Browser, type Page } from "playwright";
+import { requireBrowserLane } from "./support/requireBrowserLane";
+
+await requireBrowserLane("agent-pane-queue.test.ts", async () => {
+  setDefaultTimeout(120_000);
+  try {
+    await (await chromium.launch({ headless: true })).close();
+  } catch {
+    console.warn("agent-pane-queue: skipping (run `bunx playwright install chromium`)");
+    describe.skip("queue management", () => test("chromium", () => {}));
+    return;
+  }
+  const { createServer } = await import("vite");
+  const webviews = path.resolve(import.meta.dir, "..");
+
+  const SESSION = "queue-session";
+  const turn = { turnId: "turn-1", promptId: "p-turn", startedAt: Date.now(), prompt: "Refactor the parser" };
+  let queue: { promptId: string; prompt: string }[] = [];
+  let paused = false;
+  const summary = () => ({
+    sessionId: SESSION,
+    cwd: "/home/dev/api",
+    title: "Refactor the parser",
+    harness: "codex",
+    status: "running",
+    steering: true,
+    queuePaused: paused,
+    queued: queue.length,
+    queue,
+    turn,
+    updatedAt: Date.now(),
+  });
+  const opening = [
+    {
+      sessionId: SESSION,
+      seq: 1,
+      at: Date.now(),
+      dir: "mux",
+      kind: "user_message",
+      msg: { text: turn.prompt, promptId: "p-turn", turnId: "turn-1" },
+    },
+  ];
+  let seq = opening.length;
+  const edits: Record<string, any>[] = [];
+
+  type Socket = { send(data: string): void };
+  const event = (ws: Socket, kind: string, msg: Record<string, unknown>) =>
+    ws.send(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "_acpmux/event",
+        params: { sessionId: SESSION, seq: ++seq, at: Date.now(), dir: "mux", kind, msg },
+      }),
+    );
+
+  /// acpmux's answer, and the records every client hears.
+  function answer(ws: Socket, method: string, params: Record<string, any>): unknown {
+    switch (method) {
+      case "initialize":
+        return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [] } } };
+      case "_acpmux/watch":
+        return { sessions: [summary()] };
+      case "_acpmux/attach":
+        return { session: summary(), lastSeq: seq, events: opening };
+      case "_acpmux/events":
+        return { events: [], hasMore: false, lastSeq: seq };
+      case "_acpmux/queue_remove": {
+        edits.push({ op: "remove", promptId: params.promptId });
+        queue = queue.filter((q) => q.promptId !== params.promptId);
+        event(ws, "queue_removed", { promptId: params.promptId });
+        return { removed: true };
+      }
+      case "_acpmux/queue_edit": {
+        edits.push({ ...params });
+        delete edits.at(-1)!.sessionId;
+        const entry = queue.find((q) => q.promptId === params.promptId);
+        if (!entry) return { ok: false };
+        if (params.op === "move") {
+          queue = queue.filter((q) => q !== entry);
+          queue.splice(params.index, 0, entry);
+          event(ws, "queue_order", { promptId: entry.promptId, order: queue.map((q) => q.promptId) });
+        } else if (params.op === "update") {
+          entry.prompt = params.text;
+          event(ws, "queue_updated", { promptId: entry.promptId, text: params.text });
+        } else if (params.op === "resume") {
+          paused = false;
+          event(ws, "queue_resumed", { queued: queue.length });
+          ws.send(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              method: "_acpmux/session_changed",
+              params: { sessionId: SESSION, session: summary(), kind: "queue", recordKind: "queue_resumed", seq },
+            }),
+          );
+        } else if (params.op === "send_now") {
+          queue = queue.filter((q) => q !== entry);
+          event(ws, "dequeued", { promptId: entry.promptId });
+          event(ws, "user_message", { text: entry.prompt, promptId: entry.promptId, turnId: "turn-1", steer: true });
+        }
+        return { ok: true, ...(params.op === "send_now" ? { sent: "steer" } : {}) };
+      }
+      default:
+        return null;
+    }
+  }
+
+  let daemon: ReturnType<typeof Bun.serve> | undefined;
+  let vite: Awaited<ReturnType<typeof createServer>> | undefined;
+  let browser: Browser | undefined;
+  beforeAll(async () => {
+    daemon = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch(request, server) {
+        return server.upgrade(request, { data: undefined }) ? undefined : new Response("acpmux", { status: 426 });
+      },
+      websocket: {
+        message(ws, raw) {
+          const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
+          const result = answer(ws, message.method, message.params ?? {});
+          if (message.id !== undefined) ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
+        },
+      },
+    });
+    vite = await createServer({
+      configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+      server: { port: 0, host: "127.0.0.1", strictPort: false },
+      logLevel: "error",
+    });
+    await vite.listen();
+    browser = await chromium.launch({ headless: true });
+  });
+  afterAll(async () => {
+    await browser?.close();
+    await vite?.close();
+    await daemon?.stop(true);
+  });
+
+  async function openChat(first = "first", pausedQueue = false): Promise<Page> {
+    paused = pausedQueue;
+    queue = [
+      { promptId: "q-1", prompt: first },
+      { promptId: "q-2", prompt: "second" },
+      { promptId: "q-3", prompt: "third" },
+    ];
+    edits.length = 0;
+    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
+    await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
+    await page.locator(".acpmux-queued", { hasText: "third" }).waitFor();
+    return page;
+  }
+
+  const rows = (page: Page) => page.locator(".acpmux-queued .acpmux-queued-text").allInnerTexts();
+  const focused = (page: Page) =>
+    page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset.promptId ?? null);
+
+  describe("queued prompts from the keyboard", () => {
+    test("a queue a failed turn paused says so, and Resume runs it again", async () => {
+      const page = await openChat("first", true);
+      const note = page.locator(".acpmux-queue-paused", { hasText: "Paused after an error" });
+      await note.waitFor({ timeout: 10_000 });
+      await note.getByRole("button", { name: "Resume" }).click();
+      await note.waitFor({ state: "detached" });
+      expect({ edits, rows: await rows(page) }).toEqual({
+        edits: [{ op: "resume", promptId: "q-1" }],
+        rows: ["first", "second", "third"],
+      });
+      await page.close();
+    });
+
+    test("↑ on the empty prompt reaches the last queued prompt; ⌥↑ moves it up", async () => {
+      const page = await openChat();
+      await page.locator(".acpmux-composer-prompt").click();
+      await page.keyboard.press("ArrowUp");
+      expect(await focused(page)).toBe("q-3");
+      await page.keyboard.press("Alt+ArrowUp");
+      await page.waitForFunction(
+        () => document.querySelectorAll(".acpmux-queued .acpmux-queued-text")[1]?.textContent === "third",
+      );
+      await page.waitForFunction(() => (document.activeElement as HTMLElement | null)?.dataset.promptId === "q-3");
+      expect({ edits, rows: await rows(page) }).toEqual({
+        edits: [{ op: "move", promptId: "q-3", index: 1 }],
+        rows: ["first", "third", "second"],
+      });
+      await page.close();
+    });
+
+    test("Return edits a queued prompt in its row, and it keeps its place", async () => {
+      const page = await openChat();
+      await page.locator(".acpmux-composer-prompt").click();
+      for (let i = 0; i < 3; i++) await page.keyboard.press("ArrowUp");
+      expect(await focused(page)).toBe("q-1");
+      await page.keyboard.press("Enter");
+      const input = page.getByRole("textbox", { name: "Edit queued prompt" });
+      await input.waitFor();
+      await input.fill("first, edited");
+      await page.keyboard.press("Enter");
+      await page.locator(".acpmux-queued-text", { hasText: "first, edited" }).waitFor();
+      expect({ edits, rows: await rows(page) }).toEqual({
+        edits: [{ op: "update", promptId: "q-1", text: "first, edited" }],
+        rows: ["first, edited", "second", "third"],
+      });
+      await page.close();
+    });
+
+    test("⌥↓ keeps focus on the prompt it moved", async () => {
+      const page = await openChat();
+      await page.locator(".acpmux-composer-prompt").click();
+      for (let i = 0; i < 3; i++) await page.keyboard.press("ArrowUp");
+      await page.keyboard.press("Alt+ArrowDown");
+      await page.waitForFunction(
+        () => document.querySelectorAll(".acpmux-queued .acpmux-queued-text")[1]?.textContent === "first",
+      );
+      await page.waitForFunction(() => (document.activeElement as HTMLElement | null)?.dataset.promptId === "q-1");
+      await page.keyboard.press("Alt+ArrowDown");
+      await page.waitForFunction(
+        () => document.querySelectorAll(".acpmux-queued .acpmux-queued-text")[2]?.textContent === "first",
+      );
+      expect({ edits, rows: await rows(page), focused: await focused(page) }).toEqual({
+        edits: [
+          { op: "move", promptId: "q-1", index: 1 },
+          { op: "move", promptId: "q-1", index: 2 },
+        ],
+        rows: ["second", "third", "first"],
+        focused: "q-1",
+      });
+      await page.close();
+    });
+
+    test("an edit opened and saved unchanged keeps a prompt's lines and sends nothing", async () => {
+      const page = await openChat("line one\nline two");
+      await page.locator(".acpmux-composer-prompt").click();
+      for (let i = 0; i < 3; i++) await page.keyboard.press("ArrowUp");
+      await page.keyboard.press("Enter");
+      const input = page.getByRole("textbox", { name: "Edit queued prompt" });
+      await input.waitFor();
+      expect(await input.inputValue()).toBe("line one\nline two");
+      await page.keyboard.press("Enter");
+      await input.waitFor({ state: "detached" });
+      await page.waitForTimeout(300);
+      expect(edits).toEqual([]);
+      await page.close();
+    });
+
+    test("⌘Return sends a queued prompt now; Delete removes one", async () => {
+      const page = await openChat();
+      await page.locator(".acpmux-composer-prompt").click();
+      await page.keyboard.press("ArrowUp");
+      await page.keyboard.press("ArrowUp");
+      expect(await focused(page)).toBe("q-2");
+      await page.keyboard.press("Meta+Enter");
+      await page.waitForFunction(() => document.querySelectorAll(".acpmux-queued").length === 2);
+      await page.waitForFunction(() => (document.activeElement as HTMLElement | null)?.dataset.promptId === "q-3");
+      await page.keyboard.press("Delete");
+      await page.waitForFunction(() => document.querySelectorAll(".acpmux-queued").length === 1);
+      expect({ edits, rows: await rows(page) }).toEqual({
+        edits: [
+          { op: "send_now", promptId: "q-2" },
+          { op: "remove", promptId: "q-3" },
+        ],
+        rows: ["first"],
+      });
+      await page.close();
+    });
+  });
+});

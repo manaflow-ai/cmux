@@ -63,6 +63,9 @@ final class BrowserTabService {
     /// `get-frontend-browser-history`; nil when there is none or the daemon
     /// does not store it.
     var fetchHistory: @MainActor (DaemonService, SurfaceID) async -> FrontendBrowserHistory?
+    /// True once for a tab whose page already restored its history in
+    /// memory (`ClosedBrowserHistories`): the daemon's copy is not applied.
+    var restoredInMemory: @MainActor (String, BrowserEngineKind) -> Bool = { _, _ in false }
     /// Whether `daemon` serves `frontend-browser-tabs-v1`.
     var serves: @MainActor (DaemonService) -> Bool = { $0.supports(DaemonCapabilities.shared.frontendBrowserTabs) }
     /// Why Chromium cannot open a tab now; nil when it can (or may still
@@ -199,8 +202,6 @@ final class BrowserTabService {
     /// Forgets incognito start URLs (the incognito session ended).
     func forgetIncognitoURLs() { incognitoURLs.removeAll() }
 
-    func cefAvailable() -> Bool { cefUnavailable() == nil }
-
     /// Why Chromium cannot open a tab (localized), nil when it can.
     func cefUnavailableReason() -> String? {
         cefUnavailable().map(Self.message)
@@ -327,6 +328,7 @@ final class BrowserTabService {
                               while record: BrowserRecordWriter) {
         guard let restoring = page as? any BrowserTab & BrowserSessionRestoring else { return }
         let fetchHistory = fetchHistory, storeHistory = storeHistory, daemonForTab = daemonForTab
+        let restored = restoredInMemory(id, page.engineKind)
         historyFetches[id]?.cancel()
         historyFetches[id] = Task { [weak self, weak record] in
             let saved = await fetchHistory(daemon, surface)
@@ -338,7 +340,7 @@ final class BrowserTabService {
             guard let self, let record, self.writers[id] === record, self.historyWriters[id] == nil else { return }
             // The saved page is the one the tab reopened at, and the user
             // has not gone elsewhere while the daemon answered.
-            if let saved, let session = BrowserHistoryWriter.session(saved),
+            if !restored, let saved, let session = BrowserHistoryWriter.session(saved),
                session.entries[session.current].url.absoluteString == recordURL,
                restoring.state.url.map({ $0.absoluteString == recordURL }) ?? true {
                 restoring.restoreSession(session.entries, current: session.current)

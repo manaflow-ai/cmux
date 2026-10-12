@@ -299,6 +299,18 @@ pub enum Command {
         name: Option<String>,
     },
     #[command(hide = true)]
+    Transfer {
+        session: String,
+        #[arg(long)]
+        to: PathBuf,
+        #[arg(long)]
+        cwd: Option<String>,
+        #[arg(long, short)]
+        name: Option<String>,
+        #[arg(long)]
+        interrupt: bool,
+    },
+    #[command(hide = true)]
     Harnesses,
     #[command(hide = true)]
     Reload,
@@ -306,7 +318,7 @@ pub enum Command {
     Status,
     /// `daemon start`: status, starting a daemon first when none runs.
     #[command(hide = true)]
-    DaemonStart,
+    DaemonStart { person_key_fd: Option<i32> },
     #[command(hide = true, alias = "kill-server")]
     Shutdown {
         /// Leave hosted agents running for the next daemon to adopt.
@@ -528,6 +540,21 @@ pub enum SessionCmd {
         #[arg(long, short)]
         name: Option<String>,
     },
+    /// Move a chat, with its history, queue and draft, to the daemon at another socket.
+    Transfer {
+        session: String,
+        /// The other daemon's socket (a sibling build's).
+        #[arg(long)]
+        to: PathBuf,
+        /// The chat's folder there, when it has another path.
+        #[arg(long)]
+        cwd: Option<String>,
+        #[arg(long, short)]
+        name: Option<String>,
+        /// Stop a running turn instead of refusing the move.
+        #[arg(long)]
+        interrupt: bool,
+    },
     /// Print the last raw events as JSON lines; -f keeps following.
     Tail {
         session: String,
@@ -601,7 +628,14 @@ pub enum DaemonCmd {
     /// Daemon status, hosts, and the web URL.
     Status,
     /// Start the daemon unless one runs, wait until it accepts clients, and print its status.
-    Start,
+    Start {
+        /// Read this launch's person key (64 hex characters, one line) from
+        /// this descriptor (0: stdin) and hand it to the daemon it starts,
+        /// once that daemon is not dumpable. Only the cmux app's own ssh exec
+        /// or VM provisioning passes it; refused while a daemon runs.
+        #[arg(long)]
+        person_key_fd: Option<i32>,
+    },
     /// Stop the daemon and every agent process, agent hosts included;
     /// returns once they all exited, and fails naming any host left.
     /// `--keep-agents` leaves hosted agents running for the next daemon to
@@ -728,6 +762,9 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Answer { session, answer } => Command::Answer { session, answer },
             SessionCmd::Export { session, dest } => Command::Export { session, dest },
             SessionCmd::Import { path, name } => Command::Import { path, name },
+            SessionCmd::Transfer { session, to, cwd, name, interrupt } => {
+                Command::Transfer { session, to, cwd, name, interrupt }
+            }
             SessionCmd::Tail { session, last, follow, since } => {
                 Command::Tail { session, last, follow, since }
             }
@@ -760,7 +797,7 @@ pub fn flatten(c: Command) -> Command {
                 dev,
             },
             DaemonCmd::Status => Command::Status,
-            DaemonCmd::Start => Command::DaemonStart,
+            DaemonCmd::Start { person_key_fd } => Command::DaemonStart { person_key_fd },
             DaemonCmd::Shutdown { keep_agents } => Command::Shutdown { keep_agents },
             DaemonCmd::Config => Command::Config,
             DaemonCmd::Harnesses => Command::Harnesses,

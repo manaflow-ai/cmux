@@ -43,7 +43,13 @@ final class HoverCardPanel: NSPanel {
         collectionBehavior = [.transient, .ignoresCycle, .fullScreenAuxiliary]
     }
 
-    isolated deinit { Self.liveInstances -= 1 }
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            Self.liveInstances -= 1
+        }
+    }
 
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
@@ -58,7 +64,7 @@ final class HoverCardPanel: NSPanel {
     /// Shows `body` at `anchor` (screen) as a child of `parent`. `themeAnchor`
     /// is the view the card describes; the card draws in its theme scope.
     /// `sliding` (a retarget of a visible card) moves it in the same frame
-    /// like any other placement; only a first show fades in.
+    /// like any other placement; every show is at full strength on the first frame.
     func present(body newBody: NSView, anchor: CGRect, placement: HoverCardPlacement, parent: NSWindow,
                  themeAnchor: NSView?, sliding: Bool, applyTheme: @escaping () -> Void) {
         let wasDismissing = isDismissing
@@ -97,11 +103,14 @@ final class HoverCardPanel: NSPanel {
         self.anchor = anchor
         self.placement = placement
         place()
-        // A fade-out in flight (hide and show in one turn) is replaced by a fade-in.
+        // The card shows on the first frame at full strength; a fade-out in flight (hide and
+        // show in one turn) is replaced at once.
         if !isVisible || alphaValue < 1 || wasDismissing {
-            if !isVisible { alphaValue = 0 }
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0
+                animator().alphaValue = 1
+            }
             orderFront(nil)
-            Motion.animateTimed(.fadeIn, in: contentView) { animator().alphaValue = 1 }
         }
     }
 

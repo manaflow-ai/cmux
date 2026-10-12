@@ -47,6 +47,8 @@ public struct NewConversationTabRequest: DaemonRequest {
     public var owner: String?
     public var agentSession: AgentSessionRef?
     public var page: String?
+    /// What the page shows (`page-tab-route-v1`); only with `page`.
+    public var route: String?
     public var pane: PaneID?
     /// Exclusive with `pane`: the workspace's active pane, or its first pane
     /// when it is empty (the home workspace starts empty).
@@ -77,10 +79,11 @@ public struct NewConversationTabRequest: DaemonRequest {
         self.transaction = transaction
     }
 
-    /// A page tab in `pane` showing `page` (`page-tabs-v1`).
-    public init(page: String, pane: PaneID, origin: String? = nil, mutationID: String? = nil,
+    /// A page tab in `pane` showing `page` (`page-tabs-v1`) on `route` (`page-tab-route-v1`).
+    public init(page: String, route: String? = nil, pane: PaneID, origin: String? = nil, mutationID: String? = nil,
                 transaction: ClientTransactionID? = nil) {
         self.page = page
+        self.route = route
         self.pane = pane
         self.origin = origin
         self.mutationID = mutationID
@@ -96,7 +99,7 @@ public struct NewConversationTabRequest: DaemonRequest {
     }
 
     enum CodingKeys: String, CodingKey {
-        case conversation, owner, page, pane, workspace, origin, transaction
+        case conversation, owner, page, route, pane, workspace, origin, transaction
         case agentSession = "agent_session"
         case mutationID = "mutation_id"
     }

@@ -7,6 +7,7 @@ export { providerName } from "./domains/cloud-plan.ts"
 import { FakeCloudDriver } from "./cloud-driver-fake.ts"
 import { redactReason } from "./cloud-redact.ts"
 import { createBody, type EdgeTlsRule } from "./cloud-driver-body.ts"
+import { freestyleExecStdin, type GuestExecResult } from "./cloud-driver-exec.ts"
 export { createBody, type EdgeTlsRule } from "./cloud-driver-body.ts"
 
 /**
@@ -50,6 +51,8 @@ export interface RawCloudDriver {
   list(filter: string, offset: number): Promise<{ readonly vms: ReadonlyArray<ListedVm>; readonly total: number }>
   /** Replaces the VM's rule for `rule.domain` in place (Freestyle `GET /v5/tls?vmId&domain`, `PUT /v5/tls/{id}`); false when it has none. */
   replaceTlsRule(vmId: string, rule: EdgeTlsRule): Promise<boolean>
+  /** One command as root, `stdin` (if any) as its stdin, answered inline (cloud-driver-exec.ts; cx-kvmz). */
+  execStdin(id: string, command: string, stdin: Uint8Array | null, timeoutMs: number): Promise<GuestExecResult>
 }
 
 export interface VmResources {
@@ -269,6 +272,14 @@ export class GuardedCloudDriver {
     if (found) await this.raw.deleteSnapshot(found.id)
   }
 
+  /** cx-kvmz: one root command on our VM under `name` (metadata checked), stdin = a person key or a person_holds frame. */
+  async execStdin(name: string, tag: VmTag, command: string, stdin: Uint8Array | null, timeoutMs: number): Promise<GuestExecResult> {
+    this.guard(name)
+    const found = await this.raw.find(name)
+    if (!found) throw new DriverError("cloud.provider.vm_missing", "guest exec: no VM under the recorded name", true)
+    if (!ours(found.tag, tag)) throw new DriverError("cloud.provider.name_conflict", "the name belongs to another VM", true)
+    return this.raw.execStdin(found.id, command, stdin, timeoutMs)
+  }
   /** Deletes the VM under `name`; no VM there is success. */
   async remove(name: string, tag: VmTag): Promise<void> {
     this.guard(name)
@@ -388,6 +399,7 @@ export class FreestyleCloudDriver implements RawCloudDriver {
     this.fail(r.status, {}, "replace TLS rule")
   }
 
+  execStdin = (id: string, command: string, stdin: Uint8Array | null, timeoutMs: number) => freestyleExecStdin(this.fetchFn, this.baseUrl, this.apiKey, id, command, stdin, timeoutMs)
   async delete(id: string) {
     const r = await this.call("DELETE", `/v5/vms/${encodeURIComponent(id)}`)
     if (r.status === 404 || (r.status >= 200 && r.status < 300)) return

@@ -122,6 +122,9 @@ fn commit_reopen(
     // A deleted personal workspace group (Ungroup, Delete Group) has no
     // member: its reopen forms the group again around its open workspaces.
     let group = record.get("group").filter(|group| group.is_object()).cloned();
+    // A closed window (`window` group) reopens no workspace: the app shows
+    // that window again, with the workspaces it kept.
+    let window = (kind == "window").then(|| record["window_record"].clone());
     let change = if keep.is_empty() {
         remove_closed(transaction, closed_id)?;
         state_delete("closed", closed_id)
@@ -136,7 +139,9 @@ fn commit_reopen(
         .first()
         .cloned()
         .or_else(|| {
-            active_workspace.filter(|_| room.is_some() || group.is_some()).map(str::to_string)
+            active_workspace
+                .filter(|_| room.is_some() || group.is_some() || window.is_some())
+                .map(str::to_string)
         })
         .context("reopened item has no workspace")?;
     let mut changes = vec![change];
@@ -185,6 +190,7 @@ fn commit_reopen(
             "screen_ids": reopened.screens,
             "tab_ids": reopened.tabs,
             "remaining": remaining,
+            "window": window,
         }),
         changes,
     ))
@@ -337,21 +343,35 @@ impl Mux {
                 let url = tab["url"].as_str().unwrap_or("about:blank").to_string();
                 match tab["engine"].as_str() {
                     Some(engine) => {
-                        self.new_frontend_browser_tab_as(
-                            actor,
-                            Some(pane),
-                            crate::workspace_registry::FrontendBrowserRecord {
-                                engine: engine.to_string(),
-                                url,
-                                title: None,
-                                favicon_url: None,
-                                profile_id: tab["browser_profile_id"].as_str().map(str::to_string),
-                                // The app that shows the reopened tab claims it.
-                                owner: None,
-                            },
-                            None,
-                        )?
-                        .id
+                        let surface = self
+                            .new_frontend_browser_tab_as(
+                                actor,
+                                Some(pane),
+                                crate::workspace_registry::FrontendBrowserRecord {
+                                    engine: engine.to_string(),
+                                    url,
+                                    title: None,
+                                    favicon_url: None,
+                                    profile_id: tab["browser_profile_id"]
+                                        .as_str()
+                                        .map(str::to_string),
+                                    // The app that shows the reopened tab claims it.
+                                    owner: None,
+                                },
+                                None,
+                            )?
+                            .id;
+                        // The page restores its back/forward entries and
+                        // scroll from here, as at relaunch (cx-d0d.11).
+                        if let Some(history) = tab["browser_history"].as_str()
+                            && let Err(error) =
+                                self.set_frontend_browser_history(surface, Some(history.into()))
+                        {
+                            eprintln!(
+                                "cmux-tui: reopened browser tab lost its session history: {error}"
+                            );
+                        }
+                        surface
                     }
                     None => self.new_browser_tab_as(actor, url, Some(pane), None)?.id,
                 }

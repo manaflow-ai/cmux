@@ -82,15 +82,36 @@ sampler() {
 }
 sampler >/dev/null 2>&1 &
 sampler_pid=$!
-trap 'kill "$sampler_pid" 2>/dev/null || true' EXIT
+driver_pid=""
+# A cancelled step (SIGTERM, SIGINT, SIGHUP) stops the driver with SIGTERM, so
+# its own cleanup runs (it stops the brain's acpmux daemon and checks that
+# nothing holds that home's locks), and waits for it.
+stop_driver() {
+  if [[ -n "$driver_pid" ]] && kill -0 "$driver_pid" 2>/dev/null; then
+    kill -TERM "$driver_pid" 2>/dev/null || true
+    wait "$driver_pid" 2>/dev/null || true
+  fi
+}
+trap 'stop_driver; kill "$sampler_pid" 2>/dev/null || true' EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
+trap 'exit 129' HUP
 echo "CHIEF-IMPORT-LOAD start $(sysctl -n vm.loadavg) claude_procs=$(claude_count)"
 status=0
 HOME="$work/home" python3 Native/OptChat/optchat-chief/measure/chief_driver.py --scenario import \
   --out "$work/run" --bins "$work/bin" --import-timeout "$import_timeout" \
   --env "ANTHROPIC_BASE_URL=$base_url" --env "ANTHROPIC_API_KEY=sk-ant-placeholder-the-route-signs" \
-  --env "OPTCHAT_COMPACTOR_SESSIONS=$sessions" --env "CLAUDE_CONFIG_DIR=$work/home/.claude" > "$work/driver.log" 2>&1 || status=$?
+  --env "OPTCHAT_COMPACTOR_SESSIONS=$sessions" --env "CLAUDE_CONFIG_DIR=$work/home/.claude" > "$work/driver.log" 2>&1 &
+driver_pid=$!
+wait "$driver_pid" || status=$?
+driver_pid=""
 echo "CHIEF-IMPORT-LOAD end $(sysctl -n vm.loadavg) claude_procs=$(claude_count)"
 tail -5 "$work/driver.log"
+# The driver's cleanup line: a daemon still holding the run's acpmux home fails the step.
+if ! grep -q "acpmux cleanup: .*no process holds its locks" "$work/driver.log"; then
+  echo "CHIEF-IMPORT acpmux cleanup not confirmed: $(grep "acpmux cleanup" "$work/driver.log" || echo 'no cleanup line')" >&2
+  status=1
+fi
 python3 - "$work" <<'EOF' || status=$?
 import glob, json, os, statistics, sys
 work = sys.argv[1]

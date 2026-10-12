@@ -63,7 +63,6 @@ build() {
     -derivedDataPath "$derived_data"
     ONLY_ACTIVE_ARCH=YES COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO
   )
-  [[ -n "$product_name" ]] && xcode_args+=("PRODUCT_NAME=$product_name")
   [[ -n "$bundle_id" ]] && xcode_args+=("PRODUCT_BUNDLE_IDENTIFIER=$bundle_id")
   [[ -n "$code_sign_entitlements" ]] && xcode_args+=("CODE_SIGN_ENTITLEMENTS=$code_sign_entitlements")
   [[ -n "$auth_callback_scheme" ]] && xcode_args+=("CMUX_AUTH_CALLBACK_SCHEME=$auth_callback_scheme")
@@ -80,5 +79,26 @@ if (( status && kept_path )) && "$repo_root/scripts/cmux-next/stale-pcm-retry-ne
   "$repo_root/scripts/cmux-next/clear-stale-scheme-build-state.sh" "$derived_data"
   status=0
   build || status=$?
+fi
+# A product name renames the built app afterwards, as reload.sh does. Passed to
+# xcodebuild, PRODUCT_NAME would rename every target, and every package's
+# resource bundle would then be written to the same "<name>.bundle".
+if (( status == 0 )) && [[ -n "$product_name" ]]; then
+  case "$configuration" in
+    Release) built_name="cmux" ;;
+    Debug) built_name="cmux DEV" ;;
+  esac
+  products="$derived_data/Build/Products/$configuration"
+  built="$products/$built_name.app"
+  renamed="$products/$product_name.app"
+  [[ -d "$built" ]] || { echo "check-cmux-scheme-compile: no $built_name.app in $products" >&2; exit 1; }
+  rm -rf -- "$renamed"
+  /bin/cp -cR "$built" "$renamed"
+  plist="$renamed/Contents/Info.plist"
+  for key in CFBundleName CFBundleDisplayName; do
+    /usr/libexec/PlistBuddy -c "Set :$key $product_name" "$plist" 2>/dev/null \
+      || /usr/libexec/PlistBuddy -c "Add :$key string $product_name" "$plist"
+  done
+  echo "check-cmux-scheme-compile: $product_name.app from $built_name.app"
 fi
 exit "$status"

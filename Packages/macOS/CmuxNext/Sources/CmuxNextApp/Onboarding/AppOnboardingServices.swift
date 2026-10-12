@@ -6,6 +6,7 @@ import CmuxNextDesign
 import CmuxNextOnboarding
 import CmuxNextSettings
 import LocalAuthentication
+import CmuxNextCompat
 
 /// `OnboardingServices` over the app for the tool window: the importer
 /// (cookies and passwords into each profile's Chromium store) and the
@@ -70,7 +71,12 @@ final class AppOnboardingServices: OnboardingServices {
     }
 
     func openExternal(_ url: URL) {
-        NSWorkspace.shared.open(url)
+        NSWorkspace.shared.openInBackground(url)
+    }
+
+    /// The person's click in the import step: the same run as the palette's Import from Another Browser….
+    func importFromFiles(into profile: String?) {
+        BrowserFileImport(services: services).run(profile: profile ?? BrowserProfileRecord.defaultID)
     }
 
     /// Computer Use Setup's grants (`ComputerUseSetup`, the same state the

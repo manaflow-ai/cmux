@@ -46,7 +46,8 @@ typedef enum {
   CMUX_SHIM_LOADING_STATE = 7,    // a = loading | back << 1 | forward << 2
   CMUX_SHIM_LOAD_START = 8,       // main frame; s1 = url
   CMUX_SHIM_LOAD_END = 9,         // main frame; a = http status
-  CMUX_SHIM_LOAD_ERROR = 10,      // main frame; a = cef_errorcode_t, s1 = text, s2 = url
+  CMUX_SHIM_LOAD_ERROR = 10,      // main frame; a = cef_errorcode_t, b = 1 when Chromium shows its certificate
+                                  // interstitial for it, s1 = text, s2 = url
   CMUX_SHIM_PROGRESS = 11,        // a = progress * 1000
   CMUX_SHIM_FULLSCREEN = 12,      // a = 1 entering
   CMUX_SHIM_DEVTOOLS_RESULT = 13, // request = message id, a = success, s1 = JSON
@@ -137,6 +138,25 @@ typedef enum {
   // CEFShim/src/local_file_handoff.h). The shim cancelled it; s1 = url. The
   // host opens the file in cmux's markdown page or a WebKit tab.
   CMUX_SHIM_LOCAL_FILE_HANDOFF = 38,
+  // The chrome.bookmarks bridge (fork API 22): s1 = one cmux_bookmarks_observe
+  // event (JSON), s2 = the profile cache path. Every persistent profile is
+  // watched once its request context is initialized; {"op": "loaded"} asks
+  // the host to sync (cmux_shim_bookmarks_sync).
+  CMUX_SHIM_BOOKMARKS_EVENT = 39,
+  // A main-frame navigation to a scheme neither Chromium nor cmux loads
+  // (mailto:, an app's own scheme; CEFShim/src/external_url.h). The shim
+  // cancelled it; s1 = url, a = 1 when the user's gesture started it. The
+  // host opens it in its app or asks first (BrowserExternalApps).
+  CMUX_SHIM_EXTERNAL_URL = 40,
+  // A page asks for a permission the host decides (location;
+  // CEFShim/src/shim_permissions.mm). Chromium waits for
+  // cmux_shim_permission_continue (during the event or later). request =
+  // the prompt's token, a = the cef_permission_request_types_t bits,
+  // s1 = the requesting origin.
+  CMUX_SHIM_PERMISSION_PROMPT = 41,
+  // Chromium ended a waiting PERMISSION_PROMPT itself (the page navigated or
+  // closed); request = its token. Not sent after the host's answer.
+  CMUX_SHIM_PERMISSION_DISMISSED = 42,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -294,6 +314,9 @@ CMUX_SHIM_EXPORT void cmux_shim_set_focus(int browser_id, int focus);
 // Without a handler every focus request wins (CEF's default).
 CMUX_SHIM_EXPORT void cmux_shim_set_focus_request_handler(cmux_shim_focus_request_fn handler);
 CMUX_SHIM_EXPORT void cmux_shim_set_zoom_level(int browser_id, double level);
+// File > Print… (CefBrowserHost::Print): Chromium's print preview over the
+// page, as the page's own window.print(). Returns 0 when the browser is gone.
+CMUX_SHIM_EXPORT int cmux_shim_print(int browser_id);
 // FIND_RESULT events carry `find_id`.
 CMUX_SHIM_EXPORT void cmux_shim_find(int browser_id, int find_id, const char* text, int forward, int match_case, int find_next);
 CMUX_SHIM_EXPORT void cmux_shim_stop_finding(int browser_id, int clear_selection);
@@ -432,6 +455,11 @@ CMUX_SHIM_EXPORT int cmux_shim_download_continue(int download_id, const char* pa
 // when the download is unknown or has finished, or for pause/resume before
 // its first update.
 CMUX_SHIM_EXPORT int cmux_shim_download_control(int download_id, int command);
+// Answers PERMISSION_PROMPT (prompt_token = its token): result 1 allows,
+// 2 denies (Chromium remembers both for the origin); any other value drops
+// it unanswered (no dismissal is recorded; Chromium ends it with the page).
+// Returns 0 when the prompt is not waiting.
+CMUX_SHIM_EXPORT int cmux_shim_permission_continue(int prompt_token, int result);
 
 // Shutdown ordering (fork API v2).
 CMUX_SHIM_EXPORT void cmux_shim_close_all(void);
@@ -567,6 +595,13 @@ CMUX_SHIM_EXPORT char* cmux_shim_ssl_status(int browser_id);
 // as Chrome does) so the next load verifies the server again. REPLY with
 // `reply` follows once both finished, a = 1. Returns 0 when not started.
 CMUX_SHIM_EXPORT int cmux_shim_clear_certificate_exceptions(int browser_id, int reply);
+// Proceed on the host's certificate warning page. Chromium fails a main-frame
+// load with a certificate error (the host shows its warning) unless this was
+// called for the browser, `host` and error `code` first: that error then
+// continues (Chromium remembers it for the profile), or, with
+// `chromium_decides`, goes to Chromium's own interstitial, which knows
+// whether HSTS allows proceeding. Returns 0 when the browser is gone.
+CMUX_SHIM_EXPORT int cmux_shim_certificate_proceed(int browser_id, const char* host, int code, int chromium_decides);
 CMUX_SHIM_EXPORT void cmux_shim_free_owned(char* s);
 
 // Renderer processes of a tab (resource hover cards). Writes at most
@@ -629,6 +664,13 @@ CMUX_SHIM_EXPORT int cmux_shim_pref_set_bool(const char* profile_cache_path, con
 // unknown profile (enable only), a name not allowed, or a failed
 // registration. Shutdown releases every watch.
 CMUX_SHIM_EXPORT int cmux_shim_pref_watch(const char* profile_cache_path, const char* pref_name, int enabled);
+
+// The chrome.bookmarks bridge (fork API 22, cmux_bookmarks_sync): makes
+// Chromium's Bookmarks bar and Other bookmarks of the profile equal to
+// tree_json ({"nodes": [...]}, pre-order). 1 applied; 0 the model is not
+// loaded yet (CMUX_SHIM_BOOKMARKS_EVENT "loaded" follows); -1 refused, also
+// when the engine has no bridge.
+CMUX_SHIM_EXPORT int cmux_shim_bookmarks_sync(const char* profile_cache_path, const char* tree_json);
 
 // cmux-page:// pages served from a folder. The scheme
 // is registered at startup in every process (standard, secure,

@@ -1,9 +1,10 @@
 public import AppKit
+public import CmuxNextDesign
 
 #if DEBUG
 /// The native macOS UI of a remote tab, built from the client reducer's
 /// effects (RT5): the page's context menu and `<select>` as an `NSMenu`, a
-/// JavaScript dialog as a sheet on the pane's window, and the page cursor
+/// JavaScript dialog as the cmux dialog over the tab, and the page cursor
 /// as an `NSCursor`. Each answer goes back through `onMenuChoice` and
 /// `onDialogAnswer` with the token the effect named; the reducer drops
 /// answers for tokens that are no longer open.
@@ -15,10 +16,13 @@ public final class RemoteBrowserNativeUI: NSObject {
     /// The open menu and its token (at most one, like Chrome).
     private var openMenu: (token: UInt64, menu: NSMenu)?
     private var chosen: RbMenuChoice?
-    private var openDialog: (token: UInt64, alert: NSAlert)?
+    /// The open dialog's token and its cmux dialog id.
+    private var openDialog: (token: UInt64, id: Int)?
+    private let dialogs: CmuxDialogCenter
 
-    public init(view: RemoteBrowserContentView) {
+    public init(view: RemoteBrowserContentView, dialogs: CmuxDialogCenter = .shared) {
         self.view = view
+        self.dialogs = dialogs
     }
 
     /// The menu the reducer has open, for tests and the debug socket.
@@ -85,52 +89,57 @@ public final class RemoteBrowserNativeUI: NSObject {
 
     // MARK: Dialogs
 
-    /// A JavaScript dialog as a sheet on the pane's window.
+    /// A JavaScript dialog as the themed cmux dialog over the tab (an `NSAlert` sheet's chrome
+    /// can't take the room's theme). Return accepts (a prompt answers its text), Escape declines.
     public func showDialog(token: UInt64, dialog: RbDialog) {
-        guard let window = view?.window else { return onDialogAnswer?(token, false, nil) ?? () }
-        let alert = NSAlert()
-        alert.messageText = dialog.origin
-        alert.informativeText = dialog.message
-        let ok = String(localized: "remoteBrowser.dialog.ok", defaultValue: "OK", bundle: .module)
-        let cancel = String(localized: "remoteBrowser.dialog.cancel", defaultValue: "Cancel", bundle: .module)
-        let field: NSTextField?
-        switch dialog.kind {
-        case "alert":
-            alert.addButton(withTitle: ok)
-            field = nil
-        case "prompt":
-            alert.addButton(withTitle: ok)
-            alert.addButton(withTitle: cancel)
-            let input = NSTextField(string: dialog.defaultText ?? "")
-            input.frame = NSRect(x: 0, y: 0, width: 260, height: 24)
-            alert.accessoryView = input
-            field = input
-        case "beforeunload":
-            alert.addButton(withTitle: dialog.isReload
-                ? String(localized: "remoteBrowser.dialog.reload", defaultValue: "Reload", bundle: .module)
-                : String(localized: "remoteBrowser.dialog.leave", defaultValue: "Leave", bundle: .module))
-            alert.addButton(withTitle: cancel)
-            field = nil
-        default:
-            alert.addButton(withTitle: ok)
-            alert.addButton(withTitle: cancel)
-            field = nil
+        guard let view, view.window != nil else { return onDialogAnswer?(token, false, nil) ?? () }
+        if let open = openDialog {
+            openDialog = nil
+            dialogs.dismiss(open.id)
         }
-        openDialog = (token, alert)
-        alert.beginSheetModal(for: window) { [weak self] response in
+        let id = dialogs.present(Self.spec(for: dialog), in: .tab(view)) { [weak self] answer in
             guard let self, openDialog?.token == token else { return }
             openDialog = nil
-            let accept = response == .alertFirstButtonReturn
-            onDialogAnswer?(token, accept, accept ? field?.stringValue : nil)
+            let accept = !answer.isDismissal && answer.role == .default
+            onDialogAnswer?(token, accept, accept && dialog.kind == "prompt" ? answer.values[Self.textField]?.text ?? "" : nil)
         }
+        // A dialog answered before `present` returned (none today) has already cleared its token.
+        if dialogs.record(id) != nil { openDialog = (token, id) }
     }
 
-    /// The host or the reducer closed the dialog (`close_dialog`): the sheet
-    /// goes away without an answer.
+    /// The prompt's field id.
+    static let textField = "text"
+
+    /// The cmux dialog of a page's JavaScript dialog: the page's origin as the title, its message as
+    /// the line, and the buttons Chrome shows for that kind.
+    static func spec(for dialog: RbDialog) -> CmuxDialogSpec {
+        let ok = String(localized: "remoteBrowser.dialog.ok", defaultValue: "OK", bundle: .module)
+        let cancel = String(localized: "remoteBrowser.dialog.cancel", defaultValue: "Cancel", bundle: .module)
+        var fields: [CmuxDialogField] = []
+        let buttons: [CmuxDialogButton]
+        switch dialog.kind {
+        case "alert":
+            buttons = [.ok(ok)]
+        case "prompt":
+            fields = [.text(textField, initial: dialog.defaultText ?? "")]
+            buttons = [.cancel(cancel), .ok(ok)]
+        case "beforeunload":
+            let leave = dialog.isReload
+                ? String(localized: "remoteBrowser.dialog.reload", defaultValue: "Reload", bundle: .module)
+                : String(localized: "remoteBrowser.dialog.leave", defaultValue: "Leave", bundle: .module)
+            buttons = [.cancel(cancel), .ok(leave)]
+        default:
+            buttons = [.cancel(cancel), .ok(ok)]
+        }
+        return CmuxDialogSpec(title: dialog.origin, lines: dialog.message.isEmpty ? [] : [dialog.message], fields: fields,
+                              buttons: buttons, identifier: "cmux.remoteBrowser.dialog")
+    }
+
+    /// The host or the reducer closed the dialog (`close_dialog`): it goes away without an answer.
     public func closeDialog(token: UInt64) {
         guard let open = openDialog, open.token == token else { return }
         openDialog = nil
-        if let sheet = open.alert.window.sheetParent { sheet.endSheet(open.alert.window) }
+        dialogs.dismiss(open.id)
     }
 
     // MARK: Cursor

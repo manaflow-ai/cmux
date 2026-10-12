@@ -204,7 +204,9 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     paths = pr_trigger.get("paths")
     assert paths and paths[0] == "cmux-tui/**"
     push_trigger = triggers["push"]
-    assert push_trigger.get("branches") == ["main", "feat-cmux-next", "cmux-tui-pin-*"]
+    # Every branch of this repository (forks never push here); tree-preflight
+    # is the filter: a push whose tree is published builds nothing.
+    assert push_trigger.get("branches") == ["**"]
     assert "paths" not in push_trigger
     preflight = workflow_job(artifacts, "tree-preflight")
     assert "runs-on:" in preflight and "ubuntu" in preflight
@@ -223,6 +225,15 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert "actions/runs/$OWNER_RUN_ID" in owner_wait
     assert "skipping duplicate build" in owner_wait
     assert "taking over" in owner_wait
+    # The elections read the REST API: $SERVER_URL/repos/... is github.com's
+    # 404 page, which the silent curls took for "no other run", so every
+    # concurrent run of a key built it (cmuxterm-hq#1279).
+    assert "$SERVER_URL/repos/" not in artifacts
+    for body in (preflight, owner_wait):
+        assert "API_URL: ${{ github.api_url }}" in body
+    assert "$API_URL/repos/$REPOSITORY/actions/runs/$OWNER_RUN_ID" in owner_wait
+    # Any branch's run of the same commit owns it, not only feat-cmux-next's.
+    assert "runs?head_sha=$SHA&event=push" in preflight
     assert "refs/heads/main" in preflight
     for job in ("build", "cmux-next-daemon-tests"):
         body = workflow_job(artifacts, job)
@@ -269,6 +280,24 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert "cmux-tui-cloud-server-aarch64-apple-darwin" in companions
 
 
+def test_same_repo_branch_pushes_publish_their_trees() -> None:
+    # A pull request head's tree is published by its branch push, so its
+    # same-tree checks need no hand-pushed cmux-tui-pin-* ref.
+    artifacts = workflow("cmux-tui-artifacts.yml")
+    trusted = ("github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || "
+               "startsWith(github.ref, 'refs/heads/cmux-tui-pin-')")
+    for job in ("publish", "publish-tree", "notify-unpublished-tree"):
+        body = workflow_job(artifacts, job)
+        assert f"github.event_name == 'push' || {trusted})" in body, job
+    # A dispatch from another branch stays build-only.
+    notice = workflow_job(artifacts, "publish-ref-notice")
+    assert f"!(github.event_name == 'push' || {trusted})" in notice
+    # Branch-published trees are their own family (the R2 pruner's candidates).
+    tree = workflow_job(artifacts, "publish-tree")
+    assert '"family": "trunk" if os.environ["GITHUB_REF"] in ("refs/heads/main", "refs/heads/feat-cmux-next") else "branch"' in tree
+    assert '"ref": os.environ["GITHUB_REF"]' in tree
+
+
 def test_feat_push_concurrency_cannot_drop_an_unpublished_tree_key() -> None:
     artifacts = workflow("cmux-tui-artifacts.yml")
     assert "format('sha-{0}', github.sha)" in artifacts
@@ -280,14 +309,20 @@ def test_feat_push_concurrency_cannot_drop_an_unpublished_tree_key() -> None:
     assert '"$current_key" == "$key"' in preflight
     assert "retaining publication for superseded tree" in preflight
     assert "deterministic owner" in preflight
+    # cx-73f2: the controller's tree-claim authority elects atomically; the
+    # run-list election is only its fallback.
+    assert "scripts/ci/cmux-tui-tree-claim.sh" in preflight
+    assert "id-token: write" in preflight
+    owner_wait = workflow_job(artifacts, "tree-owner-wait")
+    assert "scripts/ci/cmux-tui-tree-claim.sh" in owner_wait
+    assert "id-token: write" in owner_wait
     assert "owner_run_id" in preflight
-    # cx-73f2: a feat-cmux-next push builds in one group per tree key, so runs
-    # of one key share a builder and no key is cancelled or delayed by another;
-    # every other run keeps a group of its own, and the daemon tests and the
-    # publish stay per run, so the run that holds the build slot publishes.
+    # cx-73f2: no run's build, daemon tests or publish shares a group with
+    # another run, so no run cancels another's work.
     build = workflow_job(artifacts, "build")
-    assert ("group: cmux-tui-build-${{ needs.tree-preflight.outputs.key }}${{ !(github.event_name == 'push' && "
-            "github.ref == 'refs/heads/feat-cmux-next') && format('-{0}', github.run_id) || '' }}") in build
+    # The build job calls a reusable workflow: a shared group let each newer
+    # same-key build cancel the running one (run 38126073200), so it is per run.
+    assert "group: cmux-tui-build-${{ needs.tree-preflight.outputs.key }}-${{ github.run_id }}" in build
     assert "cancel-in-progress: false" in build
     daemon = workflow_job(artifacts, "cmux-next-daemon-tests")
     assert "group: cmux-tui-daemon-${{ needs.tree-preflight.outputs.key }}-${{ github.sha }}" in daemon
@@ -295,8 +330,9 @@ def test_feat_push_concurrency_cannot_drop_an_unpublished_tree_key() -> None:
     tree_publisher = workflow_job(artifacts, "publish-tree")
     assert "group: cmux-tui-tree-${{ needs.cmux-next-daemon-tests.outputs.key }}-${{ github.sha }}" in tree_publisher
     assert "cancel-in-progress: false" in tree_publisher
-    notify = workflow_job(artifacts, "notify-unpublished-tree")
-    assert "needs.build.result == 'cancelled'" in notify
+    pr_tree_publisher = workflow_job(artifacts, "publish-pr-tree")
+    assert "group: cmux-tui-tree-${{ needs.cmux-next-daemon-tests.outputs.key }}-${{ github.run_id }}" in pr_tree_publisher
+    assert "cancel-in-progress: false" in pr_tree_publisher
     assert "replaces an older pending job" in artifacts
 
 
@@ -2236,6 +2272,23 @@ def test_cmux_tui_artifacts_never_drops_a_feat_cmux_next_push() -> None:
     dispatched = evaluate("workflow_dispatch", feat, "c" * 40)
     assert dispatched != evaluate("push", feat, "c" * 40)
     assert "c" * 40 in dispatched
+
+def test_cmux_next_daemon_tests_take_the_owned_side_lane_like_the_build_legs() -> None:
+    # 2026-10-11: the daemon tests named MACOS_RUNNER_PR directly while the
+    # build legs beside them take the owned side lane on attempt 1. Once every
+    # same-repo branch push ran this workflow (#19169), 16 daemon-test jobs sat
+    # queued on Blacksmith macOS at its cap while the minis had room. The first
+    # attempt uses the same route as the build legs; a rerun goes to the PR pool.
+    document = yaml.load(workflow("cmux-tui-artifacts.yml"), Loader=yaml.BaseLoader)
+    jobs = document["jobs"]
+    build_route = jobs["build"]["with"]["macos_runner"]
+    retry_route = jobs["build"]["with"]["macos_retry_runner"]
+    daemon = jobs["cmux-next-daemon-tests"]["runs-on"]
+    assert "vars.CI_SIDE_LANE_RUNNER" in build_route
+    assert daemon == build_route, daemon
+    assert "github.run_attempt == 1" in daemon
+    assert retry_route.split("|| ", 1)[1] in daemon  # a rerun falls back to the PR pool
+
 
 if __name__ == "__main__":
     unittest.main()

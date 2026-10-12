@@ -45,10 +45,13 @@ extension DaemonConnection {
 
     /// Closes a workspace. `endTerminals` also ends, in the same daemon
     /// commit, each of its terminals not shown elsewhere and not kept; it is
-    /// sent only to a daemon with `batch-close-v1` (see `supportsBatchClose`).
+    /// sent only to a daemon with `batch-close-v1` (see `supportsBatchClose`). `reason` goes
+    /// with `endTerminals` only.
     @discardableResult
-    public func closeWorkspace(_ key: WorkspaceKey, endTerminals: Bool = false) async throws -> WorkspaceMutationResult {
-        try await request(CloseWorkspaceRequest(workspace: .key(key), endTerminals: endTerminals, mutation: mutation()))
+    public func closeWorkspace(_ key: WorkspaceKey, endTerminals: Bool = false,
+                               reason: CloseReason? = nil) async throws -> WorkspaceMutationResult {
+        try await request(CloseWorkspaceRequest(workspace: .key(key), endTerminals: endTerminals,
+                                                reason: endTerminals ? reason : nil, mutation: mutation()))
     }
 
     /// Whether this daemon closes many tabs, and the terminals they end, in

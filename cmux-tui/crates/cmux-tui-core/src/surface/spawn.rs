@@ -161,9 +161,9 @@ impl Surface {
                     supports_clear_history_key_fallback,
                 ),
                 host_identity: None,
-                #[cfg(unix)]
+                #[cfg(any(unix, windows))]
                 pending_host_binding: Mutex::new(None),
-                #[cfg(unix)]
+                #[cfg(any(unix, windows))]
                 host_exit_record_path: None,
                 pid,
                 command: argv,
@@ -174,6 +174,7 @@ impl Surface {
                 dead: AtomicBool::new(false),
                 owner_detaching: AtomicBool::new(false),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
+                host_fallback: std::sync::OnceLock::new(),
                 dirty: AtomicBool::new(false),
                 title: RankedMutex::new(LockRank::Leaf, "pty.title", String::new()),
                 pwd: Mutex::new(None),
@@ -250,6 +251,7 @@ impl Surface {
                             .clone(),
                     );
                     let mut buf = [0u8; 64 * 1024];
+                    let mut shell_marks = crate::prompt_mode_reset::ShellMarks::default();
                     // The PTY master is blocking, so WouldBlock should not
                     // happen; if it does, retries are spaced instead of the
                     // old fixed 1 ms (1 kHz) poll.
@@ -302,7 +304,11 @@ impl Surface {
                             let cursor_activity = term
                                 .cursor_activity()
                                 .expect("valid local terminals expose cursor activity");
-                            let normalized = term.vt_write_with_normalized(&buf[..n]);
+                            let normalized = crate::prompt_mode_reset::write_output(
+                                &mut term,
+                                &buf[..n],
+                                &mut shell_marks,
+                            );
                             terminal_notifications = pty.observe_terminal_output(&buf[..n]);
                             finished_commands = pty.observe_shell_marks(&mut term, || {
                                 mux.upgrade()

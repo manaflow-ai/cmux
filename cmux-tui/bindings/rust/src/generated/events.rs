@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 25627fb62c15c4c64527841ff09b16a772d557087d129151b5bbe1d2d0e4e896.
+// cmux-tui mux protocol 12, IR 67d7ecb759ef04d91548819e9fc645194fd9a678113174603e80467e08021629.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -26,6 +26,26 @@ pub struct AgentChangedEvent {
     pub state: T::AgentState,
     pub surface: T::Id,
     pub updated_at_ms: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentPresenceChangedEvent {
+    /// What the agent is doing now; null clears the surface's presence and every other field is then null.
+    pub activity: Nullable<T::AgentPresenceActivity>,
+    /// Adapter identity (claude, codex, ...).
+    pub agent: Nullable<String>,
+    /// The 1-based line the tool call targets, when the tool input names one.
+    pub line: Nullable<u64>,
+    /// The file the tool call targets, when the tool input names one.
+    pub path: Nullable<String>,
+    /// The agent's portable session id, a stable identity for colour.
+    pub session: Nullable<String>,
+    pub surface: T::Id,
+    /// The native tool name of the current or last tool call.
+    pub tool: Nullable<String>,
+    /// When the hook observed the event; null on clear.
+    pub updated_at_ms: Nullable<u64>,
 }
 
 #[rustfmt::skip]
@@ -223,6 +243,14 @@ pub struct ConversationChangedEvent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationDraftEvent {
+    pub conversation: String,
+    pub item: T::JsonValue,
+    pub participant: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConversationTypingEvent {
     pub conversation: String,
     pub on: bool,
@@ -307,6 +335,39 @@ pub struct GraphicsStatusEvent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HistoryChangedEvent {
+    pub kinds: Vec<String>,
+    pub revision: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum KeybindingsChangedEventOrigin {
+    #[serde(rename = "user")]
+    User,
+    #[serde(rename = "cli")]
+    Cli,
+    #[serde(rename = "mcp")]
+    Mcp,
+    #[serde(rename = "script")]
+    Script,
+    #[serde(rename = "remote")]
+    Remote,
+    #[serde(rename = "app")]
+    App,
+    #[serde(rename = "file")]
+    File,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct KeybindingsChangedEvent {
+    pub origin: KeybindingsChangedEventOrigin,
+    pub revision: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LayoutChangedEvent {
     pub screen: T::Id,
 }
@@ -321,8 +382,12 @@ pub struct MachineUsageChangedEvent {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NotificationEvent {
     pub body: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub desktop: Option<bool>,
     pub level: T::NotificationLevel,
     pub notification: T::Id,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub reply: Option<bool>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub source: Option<T::NotificationSource>,
     pub surface: Nullable<T::Id>,
@@ -771,6 +836,7 @@ pub struct UnknownEvent {
 pub enum Event {
     ActivityChanged(ActivityChangedEvent),
     AgentChanged(AgentChangedEvent),
+    AgentPresenceChanged(AgentPresenceChangedEvent),
     Bell(BellEvent),
     BookmarksChanged(BookmarksChangedEvent),
     BrowserState(BrowserStateEvent),
@@ -789,6 +855,7 @@ pub enum Event {
     ColorsChanged(ColorsChangedEvent),
     ConfigReloadRequested(ConfigReloadRequestedEvent),
     ConversationChanged(ConversationChangedEvent),
+    ConversationDraft(ConversationDraftEvent),
     ConversationTyping(ConversationTypingEvent),
     DaemonShutdown(DaemonShutdownEvent),
     Detached(DetachedEvent),
@@ -796,6 +863,8 @@ pub enum Event {
     Frame(FrameEvent),
     FrontendProjectionChanged(FrontendProjectionChangedEvent),
     GraphicsStatus(GraphicsStatusEvent),
+    HistoryChanged(HistoryChangedEvent),
+    KeybindingsChanged(KeybindingsChangedEvent),
     LayoutChanged(LayoutChangedEvent),
     MachineUsageChanged(MachineUsageChangedEvent),
     Notification(NotificationEvent),
@@ -848,6 +917,7 @@ impl Event {
         match self {
             Self::ActivityChanged(_) => Some("activity-changed"),
             Self::AgentChanged(_) => Some("agent-changed"),
+            Self::AgentPresenceChanged(_) => Some("agent-presence-changed"),
             Self::Bell(_) => Some("bell"),
             Self::BookmarksChanged(_) => Some("bookmarks-changed"),
             Self::BrowserState(_) => Some("browser-state"),
@@ -866,6 +936,7 @@ impl Event {
             Self::ColorsChanged(_) => Some("colors-changed"),
             Self::ConfigReloadRequested(_) => Some("config-reload-requested"),
             Self::ConversationChanged(_) => Some("conversation-changed"),
+            Self::ConversationDraft(_) => Some("conversation-draft"),
             Self::ConversationTyping(_) => Some("conversation-typing"),
             Self::DaemonShutdown(_) => Some("daemon-shutdown"),
             Self::Detached(_) => Some("detached"),
@@ -873,6 +944,8 @@ impl Event {
             Self::Frame(_) => Some("frame"),
             Self::FrontendProjectionChanged(_) => Some("frontend-projection-changed"),
             Self::GraphicsStatus(_) => Some("graphics-status"),
+            Self::HistoryChanged(_) => Some("history-changed"),
+            Self::KeybindingsChanged(_) => Some("keybindings-changed"),
             Self::LayoutChanged(_) => Some("layout-changed"),
             Self::MachineUsageChanged(_) => Some("machine-usage-changed"),
             Self::Notification(_) => Some("notification"),
@@ -924,6 +997,7 @@ impl Event {
         match self {
             Self::ActivityChanged(_) => Some(&ACTIVITY_CHANGED_EVENT_METADATA),
             Self::AgentChanged(_) => Some(&AGENT_CHANGED_EVENT_METADATA),
+            Self::AgentPresenceChanged(_) => Some(&AGENT_PRESENCE_CHANGED_EVENT_METADATA),
             Self::Bell(_) => Some(&BELL_EVENT_METADATA),
             Self::BookmarksChanged(_) => Some(&BOOKMARKS_CHANGED_EVENT_METADATA),
             Self::BrowserState(_) => Some(&BROWSER_STATE_EVENT_METADATA),
@@ -942,6 +1016,7 @@ impl Event {
             Self::ColorsChanged(_) => Some(&COLORS_CHANGED_EVENT_METADATA),
             Self::ConfigReloadRequested(_) => Some(&CONFIG_RELOAD_REQUESTED_EVENT_METADATA),
             Self::ConversationChanged(_) => Some(&CONVERSATION_CHANGED_EVENT_METADATA),
+            Self::ConversationDraft(_) => Some(&CONVERSATION_DRAFT_EVENT_METADATA),
             Self::ConversationTyping(_) => Some(&CONVERSATION_TYPING_EVENT_METADATA),
             Self::DaemonShutdown(_) => Some(&DAEMON_SHUTDOWN_EVENT_METADATA),
             Self::Detached(_) => Some(&DETACHED_EVENT_METADATA),
@@ -949,6 +1024,8 @@ impl Event {
             Self::Frame(_) => Some(&FRAME_EVENT_METADATA),
             Self::FrontendProjectionChanged(_) => Some(&FRONTEND_PROJECTION_CHANGED_EVENT_METADATA),
             Self::GraphicsStatus(_) => Some(&GRAPHICS_STATUS_EVENT_METADATA),
+            Self::HistoryChanged(_) => Some(&HISTORY_CHANGED_EVENT_METADATA),
+            Self::KeybindingsChanged(_) => Some(&KEYBINDINGS_CHANGED_EVENT_METADATA),
             Self::LayoutChanged(_) => Some(&LAYOUT_CHANGED_EVENT_METADATA),
             Self::MachineUsageChanged(_) => Some(&MACHINE_USAGE_CHANGED_EVENT_METADATA),
             Self::Notification(_) => Some(&NOTIFICATION_EVENT_METADATA),
@@ -1011,6 +1088,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("agent-changed") => match serde_json::from_value::<AgentChangedEvent>(raw.clone()) {
             Ok(event) => Event::AgentChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("agent-presence-changed") => match serde_json::from_value::<AgentPresenceChangedEvent>(raw.clone()) {
+            Ok(event) => Event::AgentPresenceChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,
@@ -1161,6 +1246,14 @@ pub fn decode_event(raw: Value) -> Event {
                 decode_error: Some(error.to_string()),
             }),
         },
+        Some("conversation-draft") => match serde_json::from_value::<ConversationDraftEvent>(raw.clone()) {
+            Ok(event) => Event::ConversationDraft(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
         Some("conversation-typing") => match serde_json::from_value::<ConversationTypingEvent>(raw.clone()) {
             Ok(event) => Event::ConversationTyping(event),
             Err(error) => Event::Unknown(UnknownEvent {
@@ -1211,6 +1304,22 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("graphics-status") => match serde_json::from_value::<GraphicsStatusEvent>(raw.clone()) {
             Ok(event) => Event::GraphicsStatus(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("history-changed") => match serde_json::from_value::<HistoryChangedEvent>(raw.clone()) {
+            Ok(event) => Event::HistoryChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("keybindings-changed") => match serde_json::from_value::<KeybindingsChangedEvent>(raw.clone()) {
+            Ok(event) => Event::KeybindingsChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

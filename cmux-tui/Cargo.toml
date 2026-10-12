@@ -34,6 +34,7 @@ members = [
     "crates/cmux-tui-cloud-conversations",
     "crates/cmux-tui-platform",
     "crates/cmux-tui-image-paste",
+    "crates/cmux-tui-hooks",
     "crates/cmux-tui-util",
     "crates/cmux-tui-remote-access",
     "crates/cmux-layout-reducer",
@@ -91,6 +92,7 @@ default-members = [
     "crates/cmux-tui-cloud-conversations",
     "crates/cmux-tui-platform",
     "crates/cmux-tui-image-paste",
+    "crates/cmux-tui-hooks",
     "crates/cmux-tui-util",
     "crates/cmux-tui-remote-access",
     "crates/cmux-layout-reducer",
@@ -157,6 +159,7 @@ cmux-tui-core = { path = "crates/cmux-tui-core" }
 cmux-feed-core = { path = "crates/cmux-feed-core" }
 cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
 cmux-unix-socket = { path = "crates/cmux-unix-socket" }
+cmux-agent-pane-policy = { path = "crates/cmux-agent-pane-policy" }
 cmux-chat-index = { path = "crates/cmux-chat-index" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 cmux-pty = { path = "crates/cmux-pty" }
@@ -168,6 +171,7 @@ cmux-config = { path = "crates/cmux-config" }
 cmux-tui-cloud-conversations = { path = "crates/cmux-tui-cloud-conversations" }
 cmux-tui-platform = { path = "crates/cmux-tui-platform" }
 cmux-tui-image-paste = { path = "crates/cmux-tui-image-paste" }
+cmux-tui-hooks = { path = "crates/cmux-tui-hooks" }
 cmux-tui-util = { path = "crates/cmux-tui-util" }
 cmux-tui-remote-access = { path = "crates/cmux-tui-remote-access" }
 cmux-link = { path = "crates/cmux-link" }
@@ -224,7 +228,7 @@ regex = "1"
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "json"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 time = { version = "0.3", default-features = false, features = ["parsing", "std"] }
-jsonschema = { version = "0.30", default-features = false }
+jsonschema = { version = "0.34", default-features = false }
 # QuickJS-ng for the app host (one VM per app process). Exact pin: the app
 # host is a sandbox boundary, so engine upgrades are deliberate. `allocator`
 # lets the host count every byte the VM allocates (32 MiB limit per app).
@@ -290,14 +294,22 @@ crossterm = { path = "vendor/crossterm" }
 # exhaustive event mapping in the same source-controlled compatibility layer.
 terminput-crossterm = { path = "vendor/terminput-crossterm" }
 
+# Fat LTO with one codegen unit, as on main (#19666): the nightly-next client is
+# 79 MB stripped on thin LTO. Each release link takes about 2 minutes longer.
 [profile.release]
-lto = "thin"
+lto = "fat"
+codegen-units = 1
 
 # Debug builds are what mux-dev dogfood runs; opt-level 0 makes the
 # per-frame render/diff path visibly laggy. Light optimization for our
 # code, full for dependencies (ratatui/crossterm do the heavy lifting).
 [profile.dev]
 opt-level = 1
+# opt-level 1 with many codegen units turns on rustc's crate-local ThinLTO,
+# which reruns over every codegen unit of the edited crate: 5.3 s of a 9.8 s
+# cmux-tui rebuild after a one-line edit (-Z time-passes, crate-split lane 3).
+# Off: about 11 s -> 5.5 s per edit; release builds keep lto = "thin".
+lto = "off"
 
 [profile.dev.package."*"]
 opt-level = 3

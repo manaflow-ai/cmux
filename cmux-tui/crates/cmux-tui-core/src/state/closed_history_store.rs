@@ -18,6 +18,7 @@ use std::collections::HashSet;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Value, json};
 
+use super::closed_history_privacy as privacy;
 pub(crate) use super::closed_history_query::closed_items;
 use super::closed_history_query::public_item;
 use super::store::{state_delete, state_upsert};
@@ -296,11 +297,21 @@ fn tab_record(connection: &Connection, tab_id: &str) -> anyhow::Result<Option<Va
             .optional()?;
         match frontend {
             Some((url, profile, engine)) => {
-                record["url"] = json!(url);
+                record["url"] = json!(privacy::strip_url(&url));
                 record["browser_profile_id"] = json!(profile);
                 record["engine"] = json!(engine);
+                // Back/forward entries and scroll come back on reopen
+                // (cx-d0d.11); `closed.list` never shows them.
+                record["browser_history"] = connection
+                    .query_row(
+                        "SELECT history FROM frontend_browser_history WHERE browser_id = ?1",
+                        [&content_id],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .optional()?
+                    .map_or(Value::Null, |history| privacy::strip_history(&history));
             }
-            None => record["url"] = json!(url),
+            None => record["url"] = json!(url.map(|url| privacy::strip_url(&url))),
         }
         // A conversation tab reopens as one, from this record.
         if let Some(conversation) =
@@ -393,6 +404,78 @@ fn insert_group(
         ],
     )?;
     queue_change(transaction, &state_upsert("closed", &closed_id, public_item(&record)))
+}
+
+/// A window the app closed (`window_record.put` turned its record's `open`
+/// to false): one `window` group with no member that names the window
+/// record `window` (`install/window`). The window keeps its workspaces, so
+/// reopening the group only tells the app to show that window again
+/// (plans/cmux-next/reopen-closed.md 4). The `kind` column's CHECK predates
+/// window groups; the record's `kind` is the group's level. An incognito
+/// window (`keys` are only ephemeral workspaces) records nothing: None.
+/// Returns the group's public change.
+pub(crate) fn insert_window_group(
+    transaction: &Transaction<'_>,
+    window: &str,
+    name: Option<String>,
+    keys: &[String],
+) -> anyhow::Result<Option<Value>> {
+    if privacy::is_private_window(transaction, keys)? {
+        return Ok(None);
+    }
+    let closed_id = new_closed_id();
+    let closed_at_ms = unix_epoch_ms()?;
+    let record = json!({
+        "id": closed_id,
+        "kind": "window",
+        "window": window,
+        "window_record": window,
+        "name": name,
+        "closed_at_ms": closed_at_ms.to_string(),
+        "members": [],
+    });
+    transaction.execute(
+        "INSERT INTO closed_groups(closed_id, kind, window_id, closed_at_ms, record_json)
+         VALUES(?1, 'workspace', ?2, ?3, ?4)",
+        params![closed_id, window, i64::try_from(closed_at_ms)?, serde_json::to_string(&record)?],
+    )?;
+    Ok(Some(state_upsert("closed", &closed_id, public_item(&record))))
+}
+
+/// Remove the window groups of window record `window` (it opened again or
+/// is gone). Returns their public deletes.
+pub(crate) fn remove_window_groups(
+    transaction: &Transaction<'_>,
+    window: &str,
+) -> anyhow::Result<Vec<Value>> {
+    let ids = {
+        let mut statement = transaction.prepare(
+            "SELECT closed_id FROM closed_groups
+             WHERE window_id = ?1 AND json_extract(record_json, '$.kind') = 'window'",
+        )?;
+        statement
+            .query_map([window], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    let mut changes = Vec::with_capacity(ids.len());
+    for id in ids {
+        super::closed_history_query::remove_closed(transaction, &id)?;
+        changes.push(state_delete("closed", &id));
+    }
+    Ok(changes)
+}
+
+/// The name of the workspace whose key is `key`, for a window group's title.
+pub(crate) fn workspace_name(
+    transaction: &Transaction<'_>,
+    key: &str,
+) -> anyhow::Result<Option<String>> {
+    Ok(transaction
+        .query_row("SELECT name FROM workspaces WHERE workspace_key = ?1", [key], |row| {
+            row.get::<_, Option<String>>(0)
+        })
+        .optional()?
+        .flatten())
 }
 
 /// A new closed group id.

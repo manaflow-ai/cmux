@@ -382,6 +382,20 @@ jobs:
           cargo clippy --all-targets --locked -- -D warnings
           cargo test --locked
 
+      # cmux-layout-reducer-ffi is its own workspace too (no committed
+      # Cargo.lock): its C ABI tests cover the sidebar reducer and the Tasks
+      # preview. cmux-app-ffi links it, and build-app-ffi.sh builds --locked,
+      # so a stale cmux-app-ffi/Cargo.lock fails here with the needed diff.
+      - name: cmux-layout-reducer-ffi (own workspace)
+        working-directory: cmux-tui/crates/cmux-layout-reducer-ffi
+        run: |
+          cargo fmt --check
+          cargo clippy --all-targets -- -D warnings
+          cargo test
+          cd ../cmux-app-ffi
+          cargo metadata --format-version 1 > /dev/null
+          git diff --exit-code -- Cargo.lock
+
   valgrind-leak-check-shard:
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
@@ -665,6 +679,19 @@ jobs:
         working-directory: cmux-tui
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
+      # Focused mode runs the requested filter here too (cx-jcfoz): before, this job ran only
+      # its fixed groups, so a filtered dispatch reported macOS green without running the
+      # test, and a macOS-only regression landed. No match fails, as on Linux.
+      - name: Focused test filter (macOS)
+        if: inputs.mode == 'focused'
+        working-directory: cmux-tui
+        env:
+          TEST_FILTER: ${{ inputs.test_filter }}
+          # Linux-only test files compile to nothing here; the Linux job stays strict.
+          CMUX_TUI_FOCUSED_ALLOW_NONE_ON_HOST: "1"
+        shell: bash
+        run: ../scripts/ci/cmux-tui-focused-test.sh "$TEST_FILTER" --test-threads=2
+
       - name: Mac discovery and socket tests
         working-directory: cmux-tui
         # The platform module contains the macOS discovery, socket and cwd
@@ -703,6 +730,20 @@ jobs:
             macos_app_support_loads_after_xdg -- --exact
           ../scripts/ci/cargo-test-selected.sh -p cmux-server-core --test units_golden launch_ \
             -- --test-threads=1
+
+      # An app update replaces the daemon while terminals run; the new build
+      # must adopt the hosts the previous one spawned (durable-sessions.md
+      # 4.2). The cross-build test is ignored without a previous binary, so
+      # run it here against the release-pinned daemon, the one release users
+      # update from.
+      - name: Previous release upgrade adoption
+        working-directory: cmux-tui
+        run: |
+          ../scripts/cmux-next/pin-cmux-tui.sh fetch --pin
+          pin_commit="$(sed -n 's/^commit=//p' ../scripts/cmux-next/cmux-tui.pin)"
+          CMUX_TUI_PREVIOUS_BIN="$PWD/target/hosted/$pin_commit/cmux-tui" \
+            ../scripts/ci/cargo-test-selected.sh -p cmux-tui --test terminal_host_recovery \
+            hosts_of_a_previous_build_survive_an_upgrade_restart_and_are_adopted -- --ignored
 
       # The macOS arm64 host snapshot digests that the GhosttyNextKit cross
       # check compares against (schemas/terminal-corpus/crosscheck/run.sh).
@@ -902,32 +943,8 @@ jobs:
             cargo test -p cmux-tui-core --doc --locked
             exit 0
           fi
-          if [[ "$TEST_FILTER" == "chatmux_relay" || "$TEST_FILTER" == "chatmux-relay" ]]; then
-            # Cargo test names do not include their package name. Keep this
-            # explicit selector so focused verification can exercise the
-            # relay crate instead of silently selecting zero tests.
-            cargo test -p chatmux-relay --locked
-            exit 0
-          fi
-          cargo test --workspace --locked "$TEST_FILTER" -- --list \
-            | tee "$RUNNER_TEMP/cmux-tui-focused-tests.txt"
-          normal_names="$RUNNER_TEMP/cmux-tui-focused-normal.txt"
-          grep -E ': test$' "$RUNNER_TEMP/cmux-tui-focused-tests.txt" | sort > "$normal_names" || true
-          ignored_names="$RUNNER_TEMP/cmux-tui-focused-ignored.txt"
-          ignored_listing="$RUNNER_TEMP/cmux-tui-focused-ignored-list.txt"
-          cargo test --workspace --locked "$TEST_FILTER" -- --list --ignored > "$ignored_listing"
-          grep -E ': test$' "$ignored_listing" | sort > "$ignored_names" || [[ "$?" -eq 1 ]]
-          runnable_names="$RUNNER_TEMP/cmux-tui-focused-runnable.txt"
-          comm -23 "$normal_names" "$ignored_names" > "$runnable_names" || true
-          if [[ ! -s "$runnable_names" && -s "$ignored_names" ]]; then
-            echo "::error::test_filter '$TEST_FILTER' matches only ignored tests" >&2
-            exit 1
-          fi
-          if [[ ! -s "$normal_names" ]]; then
-            echo "::error::test_filter '$TEST_FILTER' selected no Rust tests" >&2
-            exit 1
-          fi
-          cargo test --workspace --locked "$TEST_FILTER"
+          # The same script runs the filter on macOS (`macos` job), cx-jcfoz.
+          ../scripts/ci/cmux-tui-focused-test.sh "$TEST_FILTER"
 
       - name: Optional Iroh route and auth tests
         if: inputs.mode == 'full'
@@ -1034,6 +1051,12 @@ jobs:
           # socket, lock and start are stubs until then): every target,
           # tests included, so no Unix-only code comes back ungated.
           cargo check --locked --target x86_64-pc-windows-gnu -p acpmux --all-targets
+          # Per-terminal hosts on Windows (bead cx-ko2e,
+          # plans/cmux-next/windows-terminal-hosts.md): a terminal survives a
+          # fenced daemon restart, and a daemon in a kill-on-close job without
+          # breakaway marks its terminal (behavior tests through the daemon).
+          cargo test --locked --target x86_64-pc-windows-gnu -p cmux-tui \
+            --test windows_terminal_hosts -- --test-threads=1
 
       # A peer of another user is refused by cmux::local_socket's accept.
       # The peer runs as LocalService (another SID, no new account) through

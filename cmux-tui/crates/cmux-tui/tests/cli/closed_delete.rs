@@ -1,4 +1,5 @@
-//! `closed.delete` through the CLI and a real daemon.
+//! `closed.delete` through the CLI and a real daemon, and the screen that
+//! `closed.reopen` publishes on `session.events` (cx-gzh.24).
 #![cfg(unix)]
 
 use super::*;
@@ -114,4 +115,431 @@ fn state_cli_closed_delete_and_clear_through_a_real_daemon() {
         .unwrap();
     assert!(!bad.status.success());
     assert!(String::from_utf8_lossy(&bad.stderr).contains("--since-ms"));
+}
+
+/// A `session.events` subscription; its lines arrive on the receiver. The
+/// returned writer keeps the stream's connection open.
+fn session_events(server: &HeadlessServer) -> (impl Sized + use<>, mpsc::Receiver<String>) {
+    let stream = transport::connect(&server.socket).unwrap();
+    let mut writer = stream.try_clone_box().unwrap();
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stream).lines() {
+            let Ok(line) = line else { break };
+            if tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    let request = serde_json::json!({
+        "protocol": "cmux.protocol/2",
+        "type": "request",
+        "id": "reopen-screen-events",
+        "operation": "session.events",
+        "params": {
+            "machine": "current",
+            "session": "current",
+            "stream_id": "stream_44444444444444448444444444444444",
+        },
+    });
+    writeln!(writer, "{request}").unwrap();
+    writer.flush().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let remaining =
+            deadline.checked_duration_since(Instant::now()).expect("no session.events reply");
+        let line = rx.recv_timeout(remaining).expect("no session.events reply");
+        let message: serde_json::Value = serde_json::from_str(&line).unwrap();
+        if message["id"] == "reopen-screen-events" {
+            assert_eq!(message["ok"], true, "session.events failed: {message}");
+            return (writer, rx);
+        }
+    }
+}
+
+/// The tab ids of the session snapshot.
+fn tab_ids(server: &HeadlessServer) -> Vec<String> {
+    state_cli_topology(server)["tabs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|tab| tab["id"].as_str().unwrap().to_string())
+        .collect()
+}
+
+/// The one tab that `after` has and `before` lacks.
+fn new_tab(before: &[String], after: &[String]) -> String {
+    let fresh = after.iter().filter(|tab| !before.contains(tab)).collect::<Vec<_>>();
+    assert_eq!(fresh.len(), 1, "expected one new tab: before={before:?} after={after:?}");
+    fresh[0].clone()
+}
+
+/// Read delta items until one upserts `tab`; return the changes of that
+/// item and every delta item before it since the last call.
+fn changes_through_tab_upsert(rx: &mpsc::Receiver<String>, tab: &str) -> Vec<serde_json::Value> {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut seen = Vec::new();
+    while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+        let Ok(line) = rx.recv_timeout(remaining) else { break };
+        let message: serde_json::Value = serde_json::from_str(&line).unwrap();
+        let item = &message["item"];
+        if message["type"] != "stream_item" || item["kind"] != "delta" {
+            continue;
+        }
+        let changes = item["changes"].as_array().cloned().unwrap_or_default();
+        let has_tab = changes.iter().any(|change| {
+            change["kind"] == "upsert" && change["resource"] == "tab" && change["id"] == tab
+        });
+        seen.push(changes);
+        if has_tab {
+            return seen.pop().unwrap();
+        }
+    }
+    panic!("no delta upserted tab {tab}; deltas={seen:?}");
+}
+
+/// The content id of `tab`'s upsert in `changes`.
+fn tab_content(changes: &[serde_json::Value], tab: &str) -> serde_json::Value {
+    changes
+        .iter()
+        .find(|change| change["resource"] == "tab" && change["id"] == tab)
+        .map(|change| change["value"]["content_id"].clone())
+        .unwrap_or_else(|| panic!("no upsert of tab {tab}: {changes:?}"))
+}
+
+/// Whether `changes` upsert a screen whose layout holds `tab`.
+fn screen_holds_tab(changes: &[serde_json::Value], tab: &str) -> bool {
+    changes.iter().any(|change| {
+        change["kind"] == "upsert"
+            && change["resource"] == "screen"
+            && change["value"]["layout"].to_string().contains(&format!("\"{tab}\""))
+    })
+}
+
+/// A client that builds pane tabs from the screen layout sees a reopened
+/// tab at once: the delta that upserts the reopened tab also upserts its
+/// screen with the tab in the layout, as for a normal `tab create`.
+#[test]
+fn closed_reopen_publishes_the_reopened_tab_in_its_screen_like_a_tab_create() {
+    let server = HeadlessServer::start("closed-reopen-screen");
+    state_cli(&server, None, &["workspace", "create", "--name", "alpha"]);
+    let snapshot = state_cli_topology(&server);
+    let pane = snapshot["tabs"].as_array().unwrap()[0]["pane_id"].as_str().unwrap().to_string();
+    let (_stream, rx) = session_events(&server);
+
+    let before = tab_ids(&server);
+    state_cli(&server, None, &["tab", "create", "terminal", "--pane", &pane]);
+    let created = new_tab(&before, &tab_ids(&server));
+    let changes = changes_through_tab_upsert(&rx, &created);
+    let terminal = tab_content(&changes, &created);
+    assert!(
+        screen_holds_tab(&changes, &created),
+        "a tab create published no screen with tab {created}: {changes:?}"
+    );
+
+    state_cli(&server, None, &["tab", &created, "close"]);
+    let before = tab_ids(&server);
+    assert!(!before.contains(&created), "the closed tab is still open: {before:?}");
+    let reopen = state_cli(&server, None, &["closed", "reopen"]);
+    let reopened = new_tab(&before, &tab_ids(&server));
+    assert_eq!(reopen["value"]["tab_ids"], serde_json::json!([reopened]), "{reopen}");
+    let changes = changes_through_tab_upsert(&rx, &reopened);
+    // The reopen gave the still-running terminal a new view
+    // (`terminal.project`), not a new shell.
+    assert_eq!(tab_content(&changes, &reopened), terminal, "{changes:?}");
+    assert!(
+        screen_holds_tab(&changes, &reopened),
+        "closed.reopen published tab {reopened} with no screen that holds it: {changes:?}"
+    );
+}
+
+/// The tab ids of `pane`'s layout leaf in the screen upserts of `changes`.
+fn leaf_tabs(changes: &[serde_json::Value], pane: &str) -> Option<serde_json::Value> {
+    fn find(node: &serde_json::Value, pane: &str) -> Option<serde_json::Value> {
+        if !node.is_object() {
+            return None;
+        }
+        if node["kind"] == "leaf" && node["pane_id"] == pane {
+            return Some(node["tab_ids"].clone());
+        }
+        ["first", "second"]
+            .iter()
+            .find_map(|side| find(&node[*side], pane))
+            .or_else(|| node["columns"].as_array()?.iter().find_map(|column| find(column, pane)))
+    }
+    changes
+        .iter()
+        .filter(|change| change["kind"] == "upsert" && change["resource"] == "screen")
+        .find_map(|change| find(&change["value"]["layout"]["root"], pane))
+}
+
+/// `terminal.move` to another pane restates the screen in the delta that
+/// moves the tab, so a client that builds pane tabs from the screen layout
+/// shows the tab in its new pane at once (cx-gzh.25).
+#[test]
+fn terminal_move_to_another_pane_publishes_the_changed_screen() {
+    let server = HeadlessServer::start("terminal-move-screen");
+    state_cli(&server, None, &["workspace", "create", "--name", "alpha"]);
+    let snapshot = state_cli_topology(&server);
+    let first = snapshot["tabs"].as_array().unwrap()[0].clone();
+    let source = first["pane_id"].as_str().unwrap().to_string();
+    let before = tab_ids(&server);
+    state_cli(&server, None, &["tab", "create", "terminal", "--pane", &source]);
+    let moved = new_tab(&before, &tab_ids(&server));
+    let pane_ids = |snapshot: &serde_json::Value| -> Vec<String> {
+        snapshot["panes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|pane| pane["id"].as_str().unwrap().to_string())
+            .collect()
+    };
+    let before = pane_ids(&state_cli_topology(&server));
+    state_cli(&server, None, &["pane", &source, "split", "--right"]);
+    let snapshot = state_cli_topology(&server);
+    let target = pane_ids(&snapshot)
+        .into_iter()
+        .find(|pane| !before.contains(pane))
+        .expect("the split made no pane");
+    let find = |kind: &str, field: &str, value: &str| {
+        snapshot[kind]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item[field] == value)
+            .unwrap_or_else(|| panic!("no {kind} with {field} {value}: {snapshot}"))
+            .clone()
+    };
+    let terminal = find("terminals", "tab_id", &moved)["id"].as_str().unwrap().to_string();
+    let screen = find("panes", "id", &target)["screen_id"].as_str().unwrap().to_string();
+    let workspace = find("screens", "id", &screen)["workspace_id"].as_str().unwrap().to_string();
+    let (_stream, rx) = session_events(&server);
+
+    state_cli(
+        &server,
+        None,
+        &[
+            "terminal",
+            &terminal,
+            "move",
+            "--workspace",
+            &workspace,
+            "--screen",
+            &screen,
+            "--pane",
+            &target,
+            "--index",
+            "0",
+        ],
+    );
+    let changes = changes_through_tab_upsert(&rx, &moved);
+    let Some(target_tabs) = leaf_tabs(&changes, &target) else {
+        panic!("terminal.move published no screen with pane {target}: {changes:?}");
+    };
+    assert!(target_tabs.as_array().unwrap().contains(&serde_json::json!(moved)), "{changes:?}");
+    let source_tabs = leaf_tabs(&changes, &source).expect("no source leaf");
+    assert!(!source_tabs.as_array().unwrap().contains(&serde_json::json!(moved)), "{changes:?}");
+}
+
+/// The value of the `resource` upsert of `id` in `changes`.
+fn upsert_of(changes: &[serde_json::Value], resource: &str, id: &str) -> serde_json::Value {
+    changes
+        .iter()
+        .find(|change| {
+            change["kind"] == "upsert" && change["resource"] == resource && change["id"] == id
+        })
+        .map(|change| change["value"].clone())
+        .unwrap_or_else(|| panic!("no upsert of {resource} {id}: {changes:?}"))
+}
+
+/// Ids of `kind` in a session snapshot whose `field` is `value`.
+fn ids_where(snapshot: &serde_json::Value, kind: &str, field: &str, value: &str) -> Vec<String> {
+    snapshot[kind]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|item| item[field] == value)
+        .map(|item| item["id"].as_str().unwrap().to_string())
+        .collect()
+}
+
+/// Move `tab`'s terminal into `pane` over the CLI.
+fn move_terminal(server: &HeadlessServer, tab: &str, pane: &str) {
+    let snapshot = state_cli_topology(server);
+    let terminal = ids_where(&snapshot, "terminals", "tab_id", tab).remove(0);
+    let screen = snapshot["panes"].as_array().unwrap().iter().find(|item| item["id"] == pane);
+    let screen = screen.and_then(|item| item["screen_id"].as_str()).unwrap().to_string();
+    let workspace =
+        snapshot["screens"].as_array().unwrap().iter().find(|item| item["id"] == screen);
+    let workspace = workspace.and_then(|item| item["workspace_id"].as_str()).unwrap().to_string();
+    let args = ["--workspace", &workspace, "--screen", &screen, "--pane", pane, "--index", "0"];
+    state_cli(server, None, &[&["terminal", &terminal, "move"][..], &args[..]].concat());
+}
+
+/// A `terminal.move` to another workspace sends the focus change of the
+/// one focus path: the workspace upserts, the screen that had focus (here
+/// in a third workspace) and the source and destination screens. A move
+/// to another screen of the same workspace restates both screens
+/// (cx-gzh.26).
+#[test]
+fn terminal_move_to_another_workspace_or_screen_publishes_the_focus_change() {
+    let server = HeadlessServer::start("terminal-move-focus");
+    for name in ["alpha", "beta", "gamma"] {
+        state_cli(&server, None, &["workspace", "create", "--name", name]);
+    }
+    let [alpha, beta, gamma] =
+        ["alpha", "beta", "gamma"].map(|name| workspace_id_named(&server, name));
+    let snapshot = state_cli_topology(&server);
+    let screen_of =
+        |workspace: &str| ids_where(&snapshot, "screens", "workspace_id", workspace).remove(0);
+    let pane_of = |screen: &str| ids_where(&snapshot, "panes", "screen_id", screen).remove(0);
+    let [screen_a, screen_b, screen_g] = [&alpha, &beta, &gamma].map(|id| screen_of(id));
+    let [pane_a, pane_b] = [&screen_a, &screen_b].map(|id| pane_of(id));
+    let mut fresh = Vec::new();
+    for _ in 0..2 {
+        let before = tab_ids(&server);
+        state_cli(&server, None, &["tab", "create", "terminal", "--pane", &pane_a]);
+        fresh.push(new_tab(&before, &tab_ids(&server)));
+    }
+    state_cli(&server, None, &["workspace", &gamma, "focus"]);
+    let (_stream, rx) = session_events(&server);
+
+    move_terminal(&server, &fresh[0], &pane_b);
+    let changes = changes_through_tab_upsert(&rx, &fresh[0]);
+    assert_eq!(upsert_of(&changes, "workspace", &gamma)["focused"], false, "{changes:?}");
+    assert_eq!(upsert_of(&changes, "workspace", &beta)["focused"], true, "{changes:?}");
+    assert_eq!(upsert_of(&changes, "screen", &screen_g)["focused"], false, "{changes:?}");
+    assert_eq!(upsert_of(&changes, "screen", &screen_b)["focused"], true, "{changes:?}");
+    let tab = serde_json::json!(fresh[0]);
+    assert!(leaf_tabs(&changes, &pane_b).unwrap().as_array().unwrap().contains(&tab));
+    assert!(!leaf_tabs(&changes, &pane_a).unwrap().as_array().unwrap().contains(&tab));
+
+    state_cli(&server, None, &["workspace", &alpha, "focus"]);
+    state_cli(&server, None, &["screen", "create"]);
+    let snapshot = state_cli_topology(&server);
+    let screens = ids_where(&snapshot, "screens", "workspace_id", &alpha);
+    let screen_a2 = screens.into_iter().find(|id| *id != screen_a).expect("no second screen");
+    let pane_a2 = ids_where(&snapshot, "panes", "screen_id", &screen_a2).remove(0);
+    state_cli(&server, None, &["screen", &screen_a, "focus"]);
+    move_terminal(&server, &fresh[1], &pane_a2);
+    let changes = changes_through_tab_upsert(&rx, &fresh[1]);
+    let tab = serde_json::json!(fresh[1]);
+    assert!(leaf_tabs(&changes, &pane_a2).unwrap().as_array().unwrap().contains(&tab));
+    assert!(!leaf_tabs(&changes, &pane_a).unwrap().as_array().unwrap().contains(&tab));
+    assert_eq!(upsert_of(&changes, "screen", &screen_a2)["focused"], true, "{changes:?}");
+    assert_eq!(upsert_of(&changes, "screen", &screen_a)["focused"], false, "{changes:?}");
+
+    // A move of a pane's only tab (the pane closes) sends the same focus
+    // change: a split in gamma moves into beta while alpha has focus.
+    let before = ids_where(&state_cli_topology(&server), "panes", "screen_id", &screen_g);
+    state_cli(&server, None, &["pane", &before[0], "split", "--right"]);
+    let snapshot = state_cli_topology(&server);
+    let panes = ids_where(&snapshot, "panes", "screen_id", &screen_g);
+    let pane_g2 = panes.into_iter().find(|pane| !before.contains(pane)).expect("no split pane");
+    let lone = ids_where(&snapshot, "tabs", "pane_id", &pane_g2).remove(0);
+    // The split's own delta upserts the new tab first.
+    changes_through_tab_upsert(&rx, &lone);
+    state_cli(&server, None, &["workspace", &alpha, "focus"]);
+    move_terminal(&server, &lone, &pane_b);
+    let changes = changes_through_tab_upsert(&rx, &lone);
+    assert_eq!(upsert_of(&changes, "workspace", &alpha)["focused"], false, "{changes:?}");
+    assert_eq!(upsert_of(&changes, "workspace", &beta)["focused"], true, "{changes:?}");
+    assert_eq!(upsert_of(&changes, "screen", &screen_a2)["focused"], false, "{changes:?}");
+    assert_eq!(upsert_of(&changes, "screen", &screen_b)["focused"], true, "{changes:?}");
+    let tab = serde_json::json!(lone);
+    assert!(leaf_tabs(&changes, &pane_b).unwrap().as_array().unwrap().contains(&tab));
+    assert!(leaf_tabs(&changes, &pane_g2).is_none(), "{changes:?}");
+}
+
+/// A pane with three tabs and a split beside it: (pane, tabs, split pane).
+fn three_tabs_and_a_split(server: &HeadlessServer) -> (String, Vec<String>, String) {
+    state_cli(server, None, &["workspace", "create", "--name", "alpha"]);
+    let snapshot = state_cli_topology(server);
+    let first = snapshot["tabs"].as_array().unwrap()[0].clone();
+    let pane = first["pane_id"].as_str().unwrap().to_string();
+    let mut tabs = vec![first["id"].as_str().unwrap().to_string()];
+    for _ in 0..2 {
+        let before = tab_ids(server);
+        state_cli(server, None, &["tab", "create", "terminal", "--pane", &pane]);
+        tabs.push(new_tab(&before, &tab_ids(server)));
+    }
+    let screen = first_screen_of_pane(&snapshot, &pane);
+    let before = ids_where(&state_cli_topology(server), "panes", "screen_id", &screen);
+    state_cli(server, None, &["pane", &pane, "split", "--right"]);
+    let after = ids_where(&state_cli_topology(server), "panes", "screen_id", &screen);
+    let split = after.into_iter().find(|id| !before.contains(id)).expect("no split pane");
+    (pane, tabs, split)
+}
+
+fn first_screen_of_pane(snapshot: &serde_json::Value, pane: &str) -> String {
+    let pane = snapshot["panes"].as_array().unwrap().iter().find(|item| item["id"] == pane);
+    pane.and_then(|item| item["screen_id"].as_str()).unwrap().to_string()
+}
+
+/// A move from a zoomed pane keeps the pane's zoom in the delta, as the
+/// session snapshot stores it (cx-gzh.27).
+#[test]
+fn terminal_move_from_a_zoomed_pane_keeps_its_zoom() {
+    let server = HeadlessServer::start("terminal-move-zoom");
+    let (pane, tabs, split) = three_tabs_and_a_split(&server);
+    state_cli(&server, None, &["pane", &pane, "zoom", "--enabled", "true"]);
+    let (_stream, rx) = session_events(&server);
+    move_terminal(&server, &tabs[2], &split);
+    let changes = changes_through_tab_upsert(&rx, &tabs[2]);
+    let stored = state_cli_topology(&server)["panes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["id"] == pane.as_str())
+        .map(|item| item["zoomed"].clone())
+        .unwrap();
+    assert_eq!(stored, true, "the source pane lost its zoom");
+    assert_eq!(upsert_of(&changes, "pane", &pane)["zoomed"], stored, "{changes:?}");
+}
+
+/// After a move out of a pane whose active tab is not its first tab, the
+/// live tree and the stored state show the same active tab (cx-gzh.27).
+#[test]
+fn terminal_move_keeps_one_active_tab_in_the_source_pane() {
+    let server = HeadlessServer::start("terminal-move-active-tab");
+    let (pane, tabs, split) = three_tabs_and_a_split(&server);
+    state_cli(&server, None, &["tab", &tabs[1], "focus"]);
+    move_terminal(&server, &tabs[0], &split);
+    let snapshot = state_cli_topology(&server);
+    let screen = first_screen_of_pane(&snapshot, &pane);
+    let screen = snapshot["screens"].as_array().unwrap().iter().find(|item| item["id"] == screen);
+    let changes = vec![serde_json::json!({
+        "kind": "upsert", "resource": "screen", "value": screen.unwrap().clone(),
+    })];
+    let stored = leaf_active(&changes, &pane);
+    assert_eq!(stored, serde_json::json!(tabs[1]), "the stored active tab moved: {changes:?}");
+    let tree =
+        json_socket_request(&server.socket, serde_json::json!({"id": 1, "cmd": "list-workspaces"}));
+    let live = tree["workspaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|workspace| workspace["screens"].as_array().cloned().unwrap_or_default())
+        .flat_map(|screen| screen["panes"].as_array().cloned().unwrap_or_default())
+        .find(|item| item["resource_id"] == pane.as_str())
+        .expect("no live pane");
+    let index = live["active_tab"].as_u64().unwrap() as usize;
+    assert_eq!(live["tabs"][index]["tab_resource_id"], stored, "{live}");
+}
+
+/// The active tab of `pane`'s layout leaf in the screen upserts of `changes`.
+fn leaf_active(changes: &[serde_json::Value], pane: &str) -> serde_json::Value {
+    fn find(node: &serde_json::Value, pane: &str) -> Option<serde_json::Value> {
+        if !node.is_object() {
+            return None;
+        }
+        if node["kind"] == "leaf" && node["pane_id"] == pane {
+            return Some(node["active_tab_id"].clone());
+        }
+        ["first", "second"].iter().find_map(|side| find(&node[*side], pane))
+    }
+    changes
+        .iter()
+        .find_map(|change| find(&change["value"]["layout"]["root"], pane))
+        .unwrap_or_else(|| panic!("no leaf of pane {pane}: {changes:?}"))
 }

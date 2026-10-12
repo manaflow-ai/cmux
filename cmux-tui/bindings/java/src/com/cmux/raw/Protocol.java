@@ -9,7 +9,7 @@ public final class Protocol {
     public static final String SDK_VERSION = "1.0.0";
     public static final int VERSION = 12;
     public static final int SCHEMA_VERSION = 2;
-    public static final String IR_SHA256 = "25627fb62c15c4c64527841ff09b16a772d557087d129151b5bbe1d2d0e4e896";
+    public static final String IR_SHA256 = "67d7ecb759ef04d91548819e9fc645194fd9a678113174603e80467e08021629";
     private Protocol() {}
 
     public static ProtocolEvent decodeEvent(Object value) {
@@ -18,6 +18,7 @@ public final class Protocol {
         return switch (event) {
             case "activity-changed" -> ActivityChangedEvent.fromWire(value);
             case "agent-changed" -> AgentChangedEvent.fromWire(value);
+            case "agent-presence-changed" -> AgentPresenceChangedEvent.fromWire(value);
             case "bell" -> BellEvent.fromWire(value);
             case "bookmarks-changed" -> BookmarksChangedEvent.fromWire(value);
             case "browser-state" -> BrowserStateEvent.fromWire(value);
@@ -36,6 +37,7 @@ public final class Protocol {
             case "colors-changed" -> ColorsChangedEvent.fromWire(value);
             case "config-reload-requested" -> ConfigReloadRequestedEvent.fromWire(value);
             case "conversation-changed" -> ConversationChangedEvent.fromWire(value);
+            case "conversation-draft" -> ConversationDraftEvent.fromWire(value);
             case "conversation-typing" -> ConversationTypingEvent.fromWire(value);
             case "daemon-shutdown" -> DaemonShutdownEvent.fromWire(value);
             case "detached" -> DetachedEvent.fromWire(value);
@@ -43,6 +45,8 @@ public final class Protocol {
             case "frame" -> FrameEvent.fromWire(value);
             case "frontend-projection-changed" -> FrontendProjectionChangedEvent.fromWire(value);
             case "graphics-status" -> GraphicsStatusEvent.fromWire(value);
+            case "history-changed" -> HistoryChangedEvent.fromWire(value);
+            case "keybindings-changed" -> KeybindingsChangedEvent.fromWire(value);
             case "layout-changed" -> LayoutChangedEvent.fromWire(value);
             case "machine-usage-changed" -> MachineUsageChangedEvent.fromWire(value);
             case "notification" -> NotificationEvent.fromWire(value);

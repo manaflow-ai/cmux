@@ -21,7 +21,7 @@ enum DebugScreens {
         let tabs: [JSONValue] = (bar?.model.orderedTabs ?? []).map { .string($0.title) }
         let groups: [JSONValue] = (bar?.model.groups ?? []).map { group in
             .object(["id": .string(group.id.rawValue), "name": .string(group.name),
-                     "color": .string(group.colorToken.rawValue), "collapsed": .bool(group.isCollapsed)])
+                     "color": .string(group.tint.wire), "collapsed": .bool(group.isCollapsed)])
         }
         var result: [String: JSONValue] = [:]
         result["window"] = .string(id)

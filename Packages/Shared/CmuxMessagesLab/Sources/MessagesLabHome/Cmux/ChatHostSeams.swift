@@ -17,7 +17,8 @@ protocol ChatIntents: AnyObject {
     /// Tapbacks are offered (false offline: H17).
     var canReact: Bool { get }
     /// The owner can take a reply (MessagesLab's `.reply`: swipe-to-reply,
-    /// Reply in the menu). False until HomeOp has a reply operation.
+    /// Reply in the menu, "N Replies" opens the thread view); the reply is a
+    /// send with the open thread's root.
     var canReply: Bool { get }
     /// The "+" button: the host's file picker.
     func pickAttachments()

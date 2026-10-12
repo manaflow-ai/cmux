@@ -26,7 +26,9 @@ impl Drop for Home {
 }
 
 fn home(tag: &str) -> Home {
-    let base = std::env::temp_dir().join(format!("acpmux-chats-{tag}-{}", uuid::Uuid::now_v7()));
+    // Under /tmp, not the temp dir: a worker's temp dir may be on another volume (`/Volumes`),
+    // where no chat root is ever listed.
+    let base = PathBuf::from("/tmp").join(format!("acpmux-chats-{tag}-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(&base).unwrap();
     Home(std::fs::canonicalize(&base).unwrap())
 }
@@ -327,6 +329,7 @@ async fn websocket_origins_never_get_chats() {
             "_acpmux/chat_roots",
             "_acpmux/chat_roots_record",
             "_acpmux/chat_open",
+            "_acpmux/chat_transcript",
         ] {
             let reply = c.call(m, json!({})).await;
             assert_eq!(reply["error"]["code"], -32601, "{origin:?} {m}: {reply}");
@@ -341,4 +344,87 @@ async fn chats_answer_not_ready_before_the_index_starts() {
     let mut c = Client::new(&hub, Origin::Local);
     let reply = c.ok("_acpmux/chats", json!({})).await;
     assert_eq!((reply["ready"].clone(), reply["chats"].clone()), (json!(false), json!([])));
+}
+
+/// cx-fllj: the daemon's own reads of a live Codex state database (WAL
+/// mode, held open by the harness) must not count as changes. inotify
+/// reports every open, and each store scan opens the database, so a
+/// watcher that took opens (or the `-shm` file) as changes scanned the
+/// whole database again every burst, forever (~28k pread/s seen on
+/// cmux-lawrence-2). A real write still lands.
+#[cfg(target_os = "linux")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_idle_codex_state_db_is_not_read_again_and_again() {
+    use notify::Watcher as _;
+    use std::io::{BufRead, Write};
+    let h = home("codexdb");
+    let codex = h.0.join(".codex");
+    std::fs::create_dir_all(&codex).unwrap();
+    let db = codex.join("state_5.sqlite");
+    // The harness: creates the WAL database, keeps it open, inserts a
+    // thread per stdin line and prints "ok" after each commit.
+    let script = r#"
+import sqlite3, sys
+conn = sqlite3.connect(sys.argv[1], isolation_level=None)
+conn.execute("pragma journal_mode=wal")
+conn.execute("create table threads (id text primary key, rollout_path text, created_at integer, updated_at integer, cwd text, title text, first_user_message text, has_user_event integer, archived integer)")
+def add(i, title):
+    conn.execute("insert into threads values (?, '', 1759312800, 1759312800 + ?, '/work/app', ?, ?, 1, 0)", (i, len(title), title, title))
+    print("ok", flush=True)
+add(sys.argv[2], "first codex chat")
+for line in sys.stdin:
+    i, title = line.strip().split(" ", 1)
+    add(i, title)
+"#;
+    let mut harness = std::process::Command::new("python3")
+        .args(["-c", script])
+        .arg(&db)
+        .arg(A)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut harness_in = harness.stdin.take().unwrap();
+    let mut harness_out = std::io::BufReader::new(harness.stdout.take().unwrap()).lines();
+    assert_eq!(harness_out.next().unwrap().unwrap(), "ok");
+    assert!(codex.join("state_5.sqlite-wal").exists(), "the database is live in WAL mode");
+
+    let hub = hub();
+    hub.start_chats(sources(&h.0, &[])).await.unwrap();
+    let mut c = Client::new(&hub, Origin::Local);
+    let snapshot = c.ok("_acpmux/chats_watch", json!({})).await;
+    assert_eq!(keys(&snapshot), vec![format!("codex:{A}")]);
+
+    // Count every open of the database files from now on.
+    let (tx, rx) = std::sync::mpsc::channel();
+    let mut spy = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+        if let Ok(event) = event
+            && matches!(event.kind, notify::EventKind::Access(notify::event::AccessKind::Open(_)))
+            && event.paths.iter().any(|p| {
+                p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("state_5"))
+            })
+        {
+            let _ = tx.send(());
+        }
+    })
+    .unwrap();
+    spy.watch(&codex, notify::RecursiveMode::NonRecursive).unwrap();
+    // The first scan's burst may still end inside this window: one more
+    // scan is fine. A loop scans every 300 ms quiet window (10+ in 4 s).
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    let opens = rx.try_iter().count();
+    assert!(
+        opens <= 4,
+        "the idle database was opened {opens} times in 4 s (one scan opens up to 3 files)"
+    );
+
+    // A real commit still reaches the watcher.
+    writeln!(harness_in, "{B} second codex chat").unwrap();
+    assert_eq!(harness_out.next().unwrap().unwrap(), "ok");
+    let added = c.change(&format!("codex:{B}"), |p| p["kind"] == "upsert").await;
+    assert_eq!(added["chat"]["title"], "second codex chat");
+
+    drop(spy);
+    drop(harness_in);
+    let _ = harness.wait();
 }

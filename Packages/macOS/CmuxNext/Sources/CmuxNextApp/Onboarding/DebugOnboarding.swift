@@ -13,7 +13,8 @@ import CmuxNextSettings
 /// `action`: `open` (`step`: importData, computerUse), `state`, `next`,
 /// `skip`, `close`, `skip_all`, `detect`, `toggle_profile` (`id`),
 /// `toggle_kind` (`kind`), `import`, `cancel_import`, `toggle_consent`
-/// (`id`), `skip_passwords`, `consent_back`, `allow` (`pane`:
+/// (`id`), `skip_passwords`, `consent_back`, `import_from_files` (Import
+/// from Another Browser…, the step's button), `allow` (`pane`:
 /// accessibility or screenRecording), `dismiss_helper`, `grant` (`pane`,
 /// `on`; the mock computer use source only).
 @MainActor
@@ -47,6 +48,7 @@ enum DebugOnboarding {
             }
         case "skip_passwords": model.importer.skipPasswords()
         case "consent_back": model.importer.backFromConsent()
+        case "import_from_files": model.importer.importFromFiles()
         case "allow": if let pane = params["pane"]?.stringValue.flatMap(ComputerUsePermissionPane.init(rawValue:)) { model.computerUse.allow(pane) }
         case "dismiss_helper": model.computerUse.dismissHelper()
         case "grant":

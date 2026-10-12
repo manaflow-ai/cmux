@@ -292,7 +292,7 @@ pub(crate) fn history_data(value: Value) -> Result<Value, CloudError> {
             CloudError::Unavailable("conversation.history without messages".into())
         })?;
     let has_more = value.get("has_more").and_then(Value::as_bool).unwrap_or(false);
-    Ok(json!({"messages": messages, "has_more": has_more}))
+    Ok(with_threads(json!({"messages": messages, "has_more": has_more}), &value))
 }
 
 /// An invite as subscribers see it: never its token hash.
@@ -359,7 +359,19 @@ pub(crate) fn snapshot_parts(frame: &Value) -> Result<(Value, Vec<Value>, u64, u
 
 pub(crate) fn snapshot_data(frame: &Value) -> Result<Value, CloudError> {
     let (summary, messages, rev, seq) = snapshot_parts(frame)?;
-    Ok(json!({"conversation": summary, "messages": messages, "rev": rev, "seq": seq}))
+    Ok(with_threads(
+        json!({"conversation": summary, "messages": messages, "rev": rev, "seq": seq}),
+        frame,
+    ))
+}
+
+/// The owner's `threads` root stats (`conversation-thread-v1`), unchanged,
+/// when the owner sent them (an older owner does not).
+fn with_threads(mut data: Value, owner: &Value) -> Value {
+    if let Some(threads) = owner.get("threads").filter(|threads| threads.is_array()) {
+        data["threads"] = threads.clone();
+    }
+    data
 }
 
 /// The participant id of an event's public actor (home-core `actorOf`).

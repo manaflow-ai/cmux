@@ -14,22 +14,6 @@ extension MockBrowserTab: BrowserExtensionActionHosting {
     public func showExtensionActionMenu(_ id: String, atScreenPoint point: CGPoint) {
         record(.showExtensionActionMenu(id))
     }
-
-    /// Installs `extensions` (their toolbar actions follow `hasAction` and
-    /// `isPinned`) and shows the Extensions button.
-    public func installMockExtensions(_ extensions: [BrowserExtensionInfo]) {
-        showsExtensionToolbar = true
-        extensionBackend.extensions = extensions
-        extensionBackend.onChange = { [weak self] in self?.syncMockActions() }
-        syncMockActions()
-    }
-
-    private func syncMockActions() {
-        extensionActions = extensionBackend.extensions.filter { $0.isEnabled && $0.hasAction }.map {
-            CEFExtensionAction(id: $0.id, name: $0.name, title: $0.name, isPinned: $0.isPinned, hasPopup: true)
-        }
-        extensionStore.refresh()
-    }
 }
 
 /// In-memory extensions for demos and tests. Every management call

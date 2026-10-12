@@ -7,8 +7,6 @@
 Packages/macOS/CmuxNext/Sources/CmuxNextActions/ActionCatalog.swift:ActionCatalog
 Packages/macOS/CmuxNext/Sources/CmuxNextActions/ActionSurfaceExport.swift:ActionSurfaceExport
 Packages/macOS/CmuxNext/Sources/CmuxNextActions/DevTools.swift:DevTools
-Packages/macOS/CmuxNext/Sources/CmuxNextActions/FuzzyMatch.swift:FuzzyMatch
-Packages/macOS/CmuxNext/Sources/CmuxNextActions/FuzzyMatcher.swift:FuzzyMatcher
 Packages/macOS/CmuxNext/Sources/CmuxNextActions/ShortcutRecorderStrings.swift:ShortcutRecorderStrings
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/AgentActivityColor.swift:AgentActivityColor
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/AgentActivityPageAddress.swift:AgentActivityPageAddress

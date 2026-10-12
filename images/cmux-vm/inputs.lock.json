@@ -353,27 +353,27 @@
   "programs": [
     {
       "name": "cmux-tui",
-      "version": "09827ef9e27b1dd538be0dca019c48e41c16f13f",
-      "url": "https://files.cmux.com/cmux-tui/09827ef9e27b1dd538be0dca019c48e41c16f13f/cmux-tui-x86_64-unknown-linux-musl",
-      "sha256": "f44d6a65abffb0a22fecfd299161c5421a7bc5b48a143bd87b36124d9e2fe98a",
-      "size": 79097184,
+      "version": "bb1999443c165ce16144b01bd6609497c3974601",
+      "url": "https://files.cmux.com/cmux-tui/bb1999443c165ce16144b01bd6609497c3974601/cmux-tui-x86_64-unknown-linux-musl",
+      "sha256": "0b8458302755ffacdc8010eacd431f8b2f240e94c718035e2b86f0901192c99c",
+      "size": 88300832,
       "format": "raw",
       "fileName": "cmux-tui",
       "bin": { "cmux": "cmux-tui", "cmux-tui": "cmux-tui" },
       "versionArgs": ["--version"],
-      "source": "https://files.cmux.com/cmux-tui/09827ef9e27b1dd538be0dca019c48e41c16f13f/manifest.json (cmux-tui-artifacts run 37940126061, feat-cmux-next push 09827ef9e27b; contains 89d2e5ddd194 palette-usage-v1; bead cx-4l51 tip rebake)"
+      "source": "https://files.cmux.com/cmux-tui/bb1999443c165ce16144b01bd6609497c3974601/manifest.json (cmux-tui-artifacts run 38193946642, feat-cmux-next push bb1999443c16; contains 287ee287a708 cmux-host writes /etc/cmux/vm-kind and 90c6df25d73f acpmux daemon start --person-key-fd; bead cx-w6u84 hostrun8)"
     },
     {
       "name": "cmux-tui-hook",
-      "version": "09827ef9e27b1dd538be0dca019c48e41c16f13f",
-      "url": "https://files.cmux.com/cmux-tui/09827ef9e27b1dd538be0dca019c48e41c16f13f/cmux-tui-hook-x86_64-unknown-linux-musl",
-      "sha256": "3851906633bdd78602c9c3ff9c7edc2d54cc49701e2b4426c1957565e5d10a3a",
-      "size": 3676200,
+      "version": "bb1999443c165ce16144b01bd6609497c3974601",
+      "url": "https://files.cmux.com/cmux-tui/bb1999443c165ce16144b01bd6609497c3974601/cmux-tui-hook-x86_64-unknown-linux-musl",
+      "sha256": "c423180cfe0ad45afbfbacc6e0b415135e6aad57e674b0873fd4bd3f7bd9757d",
+      "size": 3840344,
       "format": "raw",
       "fileName": "cmux-tui-hook",
       "bin": { "cmux-tui-hook": "cmux-tui-hook" },
       "versionArgs": [],
-      "source": "https://files.cmux.com/cmux-tui/09827ef9e27b1dd538be0dca019c48e41c16f13f/manifest.json (cmux-tui-artifacts run 37940126061, feat-cmux-next push 09827ef9e27b; contains 89d2e5ddd194 palette-usage-v1; bead cx-4l51 tip rebake)"
+      "source": "https://files.cmux.com/cmux-tui/bb1999443c165ce16144b01bd6609497c3974601/manifest.json (cmux-tui-artifacts run 38193946642, feat-cmux-next push bb1999443c16; contains 287ee287a708 cmux-host writes /etc/cmux/vm-kind and 90c6df25d73f acpmux daemon start --person-key-fd; bead cx-w6u84 hostrun8)"
     },
     {
       "name": "coderouter",

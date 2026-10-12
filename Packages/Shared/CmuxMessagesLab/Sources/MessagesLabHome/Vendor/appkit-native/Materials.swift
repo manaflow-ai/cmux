@@ -17,7 +17,7 @@ import SwiftUI
 /// them. The field follows the shared field geometry; a height change is
 /// animated by `FieldAnimation`.
 final class FieldChrome: NSView {
-    // cmux: LabGlass surfaces (system glass on macOS 26+, a visual-effect stand-in on 14/15).
+    // LabGlass: system glass on macOS 26 and newer, a visual-effect stand-in on 14 and 15.
     let container = LabGlass.container()
     private let group = FlippedView()
     let fieldContainer = LabGlass.container()
@@ -48,14 +48,14 @@ final class FieldChrome: NSView {
         // it (Xcode 27), Swift 6.3.3 with the 26.5 SDK (Xcode 26.6), where #available
         // cannot hide an undeclared symbol.
         #if compiler(>=6.4)
-        if #available(macOS 27.0, *) { (field as? NSGlassEffectView)?.effectIsInteractive = true } // cmux: LabGlass
+        if #available(macOS 27.0, *) { (field as? NSGlassEffectView)?.effectIsInteractive = true }
         #endif
         fieldGroup.addSubview(field)
         for (g, b, sym, label, sel) in [(plusGlass, plus, "plus", NativeStrings.attach, #selector(plusClicked)),
                                          (emojiGlass, emoji, "face.smiling", NativeStrings.emoji, #selector(emojiClicked))] {
             g.cornerRadius = 15
             #if compiler(>=6.4)
-            if #available(macOS 27.0, *) { (g as? NSGlassEffectView)?.effectIsInteractive = true } // cmux: LabGlass
+            if #available(macOS 27.0, *) { (g as? NSGlassEffectView)?.effectIsInteractive = true }
             #endif
             b.isBordered = false
             b.bezelStyle = .regularSquare
@@ -124,7 +124,7 @@ final class FieldChrome: NSView {
     private let pressLightLayer: CALayer = {
         let l = CALayer()
         let w = 256, s = Double(w) / 8
-        let px = (0..<w).map { i -> UInt8 in let x = (Double(i) + 0.5 - Double(w) / 2) / s; return UInt8(clamping: CrashGuard.int((exp(-x * x / 2) * 255).rounded(), in: 0...255)) } // cmux: no trap
+        let px = (0..<w).map { i -> UInt8 in let x = (Double(i) + 0.5 - Double(w) / 2) / s; return UInt8(clamping: CrashGuard.int((exp(-x * x / 2) * 255).rounded(), in: 0...255)) } // no trap
         let data = px.flatMap { [UInt8(255), UInt8(255), UInt8(255), $0] }
         if let p = CGDataProvider(data: Data(data) as CFData) {
             l.contents = CGImage(width: w, height: 1, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: w * 4, space: CGColorSpaceCreateDeviceRGB(),
@@ -300,7 +300,7 @@ enum FieldAnimation: String {
 
     static let mode: FieldAnimation = {
         let a = ProcessInfo.processInfo.arguments
-        return a.firstIndex(of: "--field-anim").flatMap { a.dropFirst($0 + 1).first }.flatMap { FieldAnimation(rawValue: $0) } /* cmux */ ?? .`internal`
+        return a.firstIndex(of: "--field-anim").flatMap { a.dropFirst($0 + 1).first }.flatMap { FieldAnimation(rawValue: $0) } ?? .`internal`
     }()
 
     func run(_ chrome: FieldChrome, from start: CGRect, to target: CGRect, _ el: SpringElement, begin: CFTimeInterval) {
@@ -330,7 +330,7 @@ enum FieldAnimation: String {
         case .swiftui:
             chrome.setFrameNow(start)
             chrome.markAnimating(to: target)
-            // cmux: SwiftUI-spring NSAnimationContext needs macOS 15; 14 takes the size at once.
+            // The SwiftUI-spring NSAnimationContext needs macOS 15; 14 takes the size at once.
             guard #available(macOS 15, *) else { chrome.setFrameNow(target); return }
             NSAnimationContext.animate(.spring(duration: c.spring.duration, bounce: c.spring.bounce)) {
                 NSAnimationContext.current.allowsImplicitAnimation = true
@@ -385,8 +385,9 @@ final class FlippedView: NSView {
 // MARK: Tapback picker
 
 /// Double-click picker: six tapbacks in a glass capsule above the bubble.
-/// Real buttons (keyboard and VoiceOver reach each one).
-final class TapbackPickerView: NSView { // cmux: hosts a LabGlass surface (macOS 14)
+/// Real buttons (keyboard and VoiceOver reach each one). The capsule is a
+/// LabGlass surface that fills this view (macOS 14 has no NSGlassEffectView).
+final class TapbackPickerView: NSView {
     let ref: PartRef
     private let glass = LabGlass.surface()
     private let stack = NSStackView()
@@ -408,7 +409,6 @@ final class TapbackPickerView: NSView { // cmux: hosts a LabGlass surface (macOS
         self.pick = pick
         super.init(frame: .zero)
         glass.frame = bounds
-        glass.autoresizingMask = [.width, .height]
         addSubview(glass)
         glass.cornerRadius = Self.size.height / 2
         stack.orientation = .horizontal
@@ -440,6 +440,14 @@ final class TapbackPickerView: NSView { // cmux: hosts a LabGlass surface (macOS
         setAccessibilityLabel(Strings.menuTapback)
     }
     required init?(coder: NSCoder) { fatalError() }
+
+    /// The glass fills the picker, set on every size change: autoresizing from the zero
+    /// size of init put the glass 0.5 pt off (y -0.5 for 42 pt), one pixel row lower than
+    /// the picker that was itself the glass view.
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        glass.frame = bounds
+    }
 
     override var fittingSize: NSSize { Self.size }
 
@@ -528,7 +536,7 @@ final class InlineEditor: NSView {
         textView.typingAttributes = ComposeView.typing
         textView.insertionPointColor = Fixture.caret
         textView.isContinuousSpellCheckingEnabled = true
-        if #available(macOS 15, *) { textView.writingToolsBehavior = ComposeView.writingTools } // cmux: macOS 14
+        if #available(macOS 15, *) { textView.writingToolsBehavior = ComposeView.writingTools }
         textView.setAccessibilityLabel(Strings.menuEdit)
         textView.onSend = { [weak textView] in commit(textView?.string ?? text) }
         textView.onEscape = cancel

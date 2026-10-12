@@ -52,14 +52,10 @@ public struct StatusMapping {
         return records.contains { ($0.updatedAtMs ?? .max) >= agent.updatedAtMs }
     }
 
-    /// The turn state still to show: a completed turn the user has seen is
-    /// nothing (client seen state, like an OSC 7501 done).
+    /// The turn state still to show. acpmux owns what the person has seen of
+    /// a chat (cx-n8ou): a completed turn is `done` only while it is unread.
     public func visibleTurn(_ tab: TabModel) -> AgentTurnState? {
-        guard let turn = turn(tab) else { return nil }
-        if case .done(let id) = turn, let session = tab.agentSession?.session, seen.isTurnSeen(session: session, turn: id) {
-            return nil
-        }
-        return turn
+        turn(tab)
     }
 
     /// The acpmux turn state of an agent chat tab, nil for every other tab.
@@ -93,10 +89,21 @@ public struct StatusMapping {
         default: break
         }
         switch visibleTurn(tab) {
-        case .failed?: return .failure
+        case .failed?, .lost?: return .failure
         case .done?: return .success
         default: return nil
         }
+    }
+
+    /// The shown OSC 7501 record's title and message for a hover detail (cx-6so.36.9): program
+    /// text, untrusted, folded to one plain line after the program's `app` name, so it says
+    /// whose words they are; nil when it has neither or nothing shows.
+    public func detail(_ tab: TabModel) -> String? {
+        guard let record = ProgramStatusRecord.strongest(seen.visible(tab)) else { return nil }
+        let parts = [record.title, record.msg].compactMap { $0?.split(whereSeparator: \.isWhitespace).joined(separator: " ") }
+            .filter { !$0.isEmpty }
+        guard !parts.isEmpty else { return nil }
+        return (record.app.map { "\($0): " } ?? "") + parts.joined(separator: " · ")
     }
 
     /// One tab's merged status.
@@ -157,7 +164,7 @@ public struct StatusMapping {
         switch turn {
         case .working: .working
         case .needsInput: .waiting
-        case .failed: .error
+        case .failed, .lost: .error
         case .done: .success
         }
     }

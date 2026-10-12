@@ -38,6 +38,10 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
     }
     for (args, expected) in [
         (vec!["workspace", WORKSPACE, "run", "shell", "printf ok"], "workspace.run"),
+        (vec!["notify", "--workspace", "current", "--desktop", "false"], "notification.create"),
+        (vec!["notify", "--workspace", "current", "--reply"], "notification.create"),
+        (vec!["workspace", "create", "--cwd", "/tmp", "--", "make", "watch"], "workspace.create"),
+        (vec!["workspace", "create", "--shell", "make watch"], "workspace.create"),
         (vec!["workspace", "group", "g", "update", "--clear-top-index"], "workspace_group.update"),
         // closed.delete takes either a group (with members) or all.
         (vec!["closed", "c1", "delete", "--members", "1"], "closed.delete"),
@@ -67,6 +71,19 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                 r#"[{"type":"text","text":"hi"}]"#,
             ],
             "conversation.send",
+        ),
+        (
+            vec![
+                "git",
+                "commit",
+                "--path",
+                "/repo",
+                "--message",
+                "m",
+                "--all",
+                "--include-untracked",
+            ],
+            "git.commit",
         ),
         (
             vec![
@@ -139,6 +156,9 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         // Only the user sets where a workspace's agents run,
                         // through the verified app (gate A2).
                         | "workspace.agent_folder.set"
+                        // The app's agent pane asks where a new chat starts;
+                        // an agent already runs in its folder (cx-9aps).
+                        | "workspace.agent_start.get"
                         // Typing and live reply drafts are published by the
                         // participant's own client (the Chief's brain); the
                         // CLI's `cmux chief` only reads them.
@@ -165,6 +185,27 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "settings.schema"
                         | "settings.set"
                         | "settings.snapshot"
+                        // The daemon's keybindings ops (cx-9ce.17) are the
+                        // Keyboard Shortcuts page's, with no CLI verb or MCP
+                        // tool yet, like the settings ops.
+                        | "keybindings.get"
+                        | "keybindings.remove"
+                        | "keybindings.reset"
+                        | "keybindings.set"
+                        // History ops are reached through `cmux history`
+                        // (cx-gzh.15), not the noun grammar; the page and
+                        // omnibox ops are the browser host's and the app's.
+                        | "history.entries.list"
+                        | "history.entries.remove"
+                        | "history.site.remove"
+                        | "history.clear"
+                        | "history.restore"
+                        | "history.backups.purge"
+                        | "history.visit.record"
+                        | "history.visit.title"
+                        | "history.visit.import"
+                        | "history.visit.remove"
+                        | "history.visit.summaries"
             )
         })
         .map(String::as_str)

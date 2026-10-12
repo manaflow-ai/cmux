@@ -17,9 +17,16 @@ extension BookmarkService {
             for await serves in ObservationStream({ [weak self] in self?.usesDaemon ?? false }) {
                 guard let self else { return }
                 fetched.removeAll()
+                loadedFromDaemon.removeAll()
+                homeSettled = false
                 if serves {
                     await migrateFileToDaemon()
-                    for profile in Set(trees.keys).union([BrowserProfileRecord.defaultID]) { fetch(profile) }
+                    homeSettled = true
+                    // A read started during the copy saw part of it: read again.
+                    for profile in Set(trees.keys).union([BrowserProfileRecord.defaultID]) {
+                        await fetching[profile]?.value
+                        fetch(profile)
+                    }
                 } else if fileLoaded {
                     trees = fileTrees.mapValues(BookmarkTree.init(ordered:))
                     changed(profiles: Set(trees.keys))
@@ -32,6 +39,7 @@ extension BookmarkService {
     func fetch(_ profile: String) {
         guard fetching[profile] == nil, let connection = services.machines.local.connection else { return }
         fetched.insert(profile)
+        let complete = homeSettled
         // task-owner: one list-bookmarks read; ends with its reply
         fetching[profile] = Task { [weak self] in
             defer { self?.fetching[profile] = nil }
@@ -39,6 +47,7 @@ extension BookmarkService {
                 let list = try await connection.listBookmarks(browserProfileID: profile)
                 guard let self else { return }
                 trees[profile] = BookmarkTree(ordered: list.bookmarks.map(Self.node(from:)))
+                if complete { loadedFromDaemon.insert(profile) }
                 changed(profiles: [profile])
             } catch {
                 self?.fetched.remove(profile)

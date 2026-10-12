@@ -412,6 +412,8 @@ pub struct Brain {
     steer_seq: u64,
     /// A draft could not be published (logged once).
     draft_failed: bool,
+    /// The owner said once that it takes no typing indicator (cloud).
+    typing_unsupported: bool,
     after_turn: Option<TurnHook>,
     /// Notices waiting for the conversation to be known.
     notices: Vec<(String, String)>,
@@ -527,6 +529,7 @@ impl Brain {
             steering: Vec::new(),
             steer_seq: 0,
             draft_failed: false,
+            typing_unsupported: false,
             marker_refused: crate::prompt::MarkLatch::default(),
             ttl_refused: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             prewarm_ttl: None,
@@ -999,6 +1002,17 @@ fn op_entry(conversation: String, key: &str, op: Op) -> OutboxEntry {
 }
 
 fn reply_entry(conversation: String, key: &str, text: &str) -> OutboxEntry {
+    answer_entry(conversation, key, text, Vec::new(), Vec::new())
+}
+
+/// A turn reply that names the messages it answers (E22).
+fn answer_entry(
+    conversation: String,
+    key: &str,
+    text: &str,
+    answers: Vec<String>,
+    answers_pending: Vec<String>,
+) -> OutboxEntry {
     let text = if text.len() > REPLY_BYTES {
         let mut cut = REPLY_BYTES;
         while !text.is_char_boundary(cut) {
@@ -1019,6 +1033,9 @@ fn reply_entry(conversation: String, key: &str, text: &str) -> OutboxEntry {
             client_msg_id: key.to_owned(),
             parts: vec![Part::Text { text, runs: None }],
             reply_to: None,
+            answers,
+            answers_pending,
+            thread_root: None,
         },
         rate_retried: false,
         not_before: None,

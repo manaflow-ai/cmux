@@ -1,6 +1,7 @@
 // l10n-allow-file: gallery fixtures (public-safe release notes), not shipped UI.
 import { changelogPageEntry } from "../../gallery/format";
 import { sampleNotes } from "./mockProvider";
+import { journalNotes } from "./whatsNewFixtures";
 
 const manyNotes = Array.from({ length: 18 }, (_, index) => ({
   build: `37203579${String(6000 + index)}`,
@@ -25,8 +26,34 @@ export default changelogPageEntry({
   area: "Pages",
   height: 640,
   widths: { narrow: 560, normal: 1000, wide: 1400 },
-  covers: ["page:cmux.changelog", "pages/changelog/ChangelogPage.tsx"],
+  covers: [
+    "page:cmux.changelog",
+    "pages/changelog/ChangelogPage.tsx",
+    "pages/changelog/JournalPage.tsx",
+    "pages/changelog/RailPage.tsx",
+    "pages/changelog/DigestPage.tsx",
+    "pages/changelog/ReleaseParts.tsx",
+  ],
   variants: {
+    journal: {
+      note: "Design A (default): four nightlies stacked; the lead change with light/dark media, grouped rows, folded commits.",
+      notes: journalNotes,
+    },
+    "journal-update-span": {
+      note: "Design A opened by See What's New after an update from 1.0.0-nightly.410 to 413: those releases come first under Since your last update.",
+      notes: journalNotes,
+      route: "#/?from=1.0.0-nightly.410&to=1.0.0-nightly.413",
+    },
+    rail: {
+      note: "Design B (Debug Settings whatsNew.design = rail) on the same update span.",
+      notes: journalNotes,
+      route: "#/?design=rail&from=1.0.0-nightly.410&to=1.0.0-nightly.413",
+    },
+    digest: {
+      note: "Design C (Debug Settings whatsNew.design = digest) on the same update span.",
+      notes: journalNotes,
+      route: "#/?design=digest&from=1.0.0-nightly.410&to=1.0.0-nightly.413",
+    },
     current: {
       note: "The current build with a highlight action and a full change list.",
       notes: sampleNotes,

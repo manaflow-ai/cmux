@@ -5,12 +5,14 @@ import { useId, useLayoutEffect, useRef, useState } from "react";
 import { DIFFS_TAG_NAME, File as PierreFile } from "@pierre/diffs";
 import { AGENT_DIFF_THEME, AGENT_DIFF_THEME_LIGHT, diffUnsafeCSS, registerAgentDiffTheme } from "../diffTheme";
 import { isHighlighted } from "../shikiLanguages";
-import { copyText } from "./clipboard";
-import { CodeBrackets, Copy, WrapLines } from "./icons";
+import { CopyButton } from "./CopyButton";
+import { menuPartRef } from "./menuParts";
+import { CodeBrackets, WrapLines } from "./icons";
 import { translate, type Translate, useT } from "../i18n";
 import { highlightsCode, MAX_TOKENIZED_LINE } from "./highlightLimits";
 import { onHighlightTimeout, paneHighlightPool } from "./highlightPool";
 import { PlainCode } from "./StreamingCode";
+import { OpenPreview } from "./OpenPreview";
 
 /// Pierre paints its own lines; they are transparent so the card's fill shows through.
 const codeUnsafeCSS = `${diffUnsafeCSS}
@@ -39,6 +41,11 @@ const LANG_LABELS: Record<string, string> = {
   swift: "Swift",
   sh: "Shell",
   bash: "Shell",
+  html: "HTML",
+  htm: "HTML",
+  svg: "SVG",
+  markdown: "Markdown",
+  md: "Markdown",
 };
 
 export function languageLabel(lang: string, t: Translate = translate) {
@@ -81,7 +88,6 @@ function HighlightedCode({ code, lang = "text", label }: CodeBlockProps) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<PierreFile | undefined>(undefined);
   const [wrap, setWrap] = useState(false);
-  const [copied, setCopied] = useState(false);
   // A highlight job past its budget (highlightWatchdog.ts) draws the card as plain text.
   const name = `snippet-${useId()}`;
   const [tooSlow, setTooSlow] = useState(false);
@@ -127,11 +133,12 @@ function HighlightedCode({ code, lang = "text", label }: CodeBlockProps) {
   }, [code, lang, wrap, name]);
   if (tooSlow) return <PlainCode code={code} lang={lang} />;
   return (
-    <div className="cv-codeblock">
+    <div className="cv-codeblock" ref={menuPartRef({ code })}>
       <div className="cv-codeblock__header">
         <CodeBrackets size={17} strokeWidth={1.2} />
         <span>{label ?? languageLabel(lang, t)}</span>
         <span className="cv-codeblock__actions">
+          <OpenPreview code={code} lang={lang} />
           <button
             type="button"
             className="cv-codeblock__action"
@@ -142,15 +149,7 @@ function HighlightedCode({ code, lang = "text", label }: CodeBlockProps) {
           >
             <WrapLines />
           </button>
-          <button
-            type="button"
-            className="cv-codeblock__action"
-            aria-label={copied ? t("code.copied") : t("code.copy")}
-            title={copied ? t("code.copied") : t("code.copy")}
-            onClick={() => void copyText(code).then(() => setCopied(true))}
-          >
-            <Copy />
-          </button>
+          <CopyButton text={code} label={t("code.copy")} />
         </span>
       </div>
       <DiffsHost ref={host} className="cv-codeblock__body selectable" />

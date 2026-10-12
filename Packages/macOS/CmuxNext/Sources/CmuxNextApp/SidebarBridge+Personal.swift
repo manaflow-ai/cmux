@@ -26,7 +26,7 @@ extension SidebarBridge {
             // The drag's rule for every path: a group holds one machine row's workspaces.
             guard SidebarEdits.canMove(ids, toGroup: group, in: model.sections) else { resync(); return true }
             groupFlow.move(ids, into: group, intent)
-        case .createGroup(let group, let name, let color, let ids, _, let collapsed):
+        case .createGroup(let group, let name, let color, let ids, _, let collapsed, _):
             groupFlow.create(group, name: name, color: color, ids, collapsed: collapsed, room: state.profileID, intent)
         case .groupEditorEnded(let group):
             groupFlow.editorEnded(WorkspaceGroupID(rawValue: group.rawValue))

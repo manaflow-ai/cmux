@@ -19,9 +19,9 @@ final class TabGroupChipCell {
         didSet {
             guard oldValue != isLifted else { return }
             themeScope.perform { pill.shadowColor = Palette.shadow.cgColor }
-            pill.shadowRadius = Metrics.space3
-            pill.shadowOffset = CGSize(width: 0, height: Metrics.space1)
-            pill.shadowOpacity = isLifted ? 0.22 : 0
+            pill.shadowRadius = PopupStyle.standard.shadowBlur
+            pill.shadowOffset = CGSize(width: 0, height: PopupStyle.standard.shadowOffset)
+            pill.shadowOpacity = isLifted ? Float(PopupStyle.standard.shadowAlpha) : 0
             layer.zPosition = isLifted ? 11 : 1
         }
     }
@@ -38,11 +38,14 @@ final class TabGroupChipCell {
         }
     }
 
-    private let pill = CALayer()
+    let pill = CALayer()
     private let nameLayer = ChromeTextLayer()
     private let nameMask = CAGradientLayer()
     private let countLayer = ChromeTextLayer()
     private var measured: (name: String, count: String, font: NSFont, content: TabGroupChipLayout.Content)?
+    /// The count an expanding chip still draws while its pill shrinks over
+    /// it (cx-f6i7), and that count's width.
+    private var leavingCount: (text: String, width: CGFloat)?
 
     init(group: TabGroupItem, memberCount: Int) {
         self.group = group
@@ -107,10 +110,13 @@ final class TabGroupChipCell {
     var pillFrame: CGRect { pill.frame }
 
     private func contentChanged() {
+        // An unnamed group's chip turns into a dot on expand: no count to cover.
+        let shown = countLayer.string
+        countLayer.font = font
+        leavingCount = countText.isEmpty && !shown.isEmpty && !group.name.isEmpty ? (shown, countLayer.textWidth) : nil
         nameLayer.string = group.name
         nameLayer.font = font
-        countLayer.string = countText
-        countLayer.font = font
+        countLayer.string = leavingCount?.text ?? countText
         updateColors(animated: false)
         updateAccessibility()
         layoutLayers()
@@ -122,7 +128,14 @@ final class TabGroupChipCell {
         defer { CATransaction.commit() }
         let m = metrics
         let bounds = CGRect(origin: .zero, size: layer.bounds.size)
-        let content = content
+        var content = content
+        // A count that is going away (expand) stays drawn until the slot has
+        // shrunk to the content without it; the pill's edge covers it.
+        if leavingCount != nil, bounds.width <= TabGroupChipLayout.slotWidth(content, metrics: m) + 0.5 {
+            leavingCount = nil
+            countLayer.string = countText
+        }
+        if let leavingCount { content.countWidth = leavingCount.width }
         let height = min(m.groupChipHeight, bounds.height)
         let isDot = content.nameWidth == 0 && content.countWidth == nil
         let side = isDot ? m.groupChipDotSize : height
@@ -134,7 +147,11 @@ final class TabGroupChipCell {
         let lineHeight = ceil(font.ascender - font.descender + font.leading)
         let textY = pixel((side - lineHeight) / 2)
         var x = m.groupChipPadding
-        let nameWidth = min(content.nameWidth, max(0, width - 2 * m.groupChipPadding - (content.countWidth.map { $0 + m.groupChipCountSpacing } ?? 0)))
+        // The pill is narrower than its content only while its width springs
+        // (collapse, expand): the name keeps its width and the pill's edge
+        // reveals or covers the count, so the name never clips (cx-f6i7).
+        let fullName = min(content.nameWidth, m.groupChipMaxNameWidth)
+        let nameWidth = min(fullName, max(0, width - 2 * m.groupChipPadding))
         nameLayer.frame = CGRect(x: pixel(x), y: textY, width: nameWidth, height: lineHeight)
         nameLayer.opacity = nameWidth > 0 ? 1 : 0
         if content.nameWidth > nameWidth, nameWidth > 0 {
@@ -147,8 +164,9 @@ final class TabGroupChipCell {
         }
         if nameWidth > 0 { x += nameWidth + m.groupChipCountSpacing }
         let countWidth = content.countWidth ?? 0
-        countLayer.frame = CGRect(x: pixel(x), y: textY, width: countWidth, height: lineHeight)
-        countLayer.opacity = (countWidth > 0 && x + countWidth <= width) ? 1 : 0
+        let shownCount = min(countWidth, max(0, width - x))
+        countLayer.frame = CGRect(x: pixel(x), y: textY, width: shownCount, height: lineHeight)
+        countLayer.opacity = shownCount > 0 ? 1 : 0
     }
 
     func updateColors(animated: Bool) {
@@ -158,7 +176,7 @@ final class TabGroupChipCell {
     private func applyColors() {
         themeScope.perform {
             pill.shadowColor = Palette.shadow.cgColor
-            var fill = group.colorToken.fill
+            var fill = group.tint.chipFill
             if isPressed {
                 fill = fill.blended(withFraction: 0.16, of: Palette.textPrimary) ?? fill
             } else if isHovered {

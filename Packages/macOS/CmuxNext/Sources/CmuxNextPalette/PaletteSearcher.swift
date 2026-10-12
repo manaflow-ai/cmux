@@ -33,11 +33,6 @@ public actor PaletteSearcher {
         }
     }
 
-    /// Tests: sets ``betweenCalls``.
-    func setBetweenCalls(_ hook: (@Sendable (isolated PaletteSearcher) -> Void)?) {
-        betweenCalls = hook
-    }
-
     private func endCall() {
         guard let hook = betweenCalls else { return }
         betweenCalls = nil

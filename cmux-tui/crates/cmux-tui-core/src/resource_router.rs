@@ -157,18 +157,34 @@ pub(crate) fn handle_trusted_local_auxiliary(
 
 pub(crate) fn malformed_resource_response(message: &str, error: ResourceError) -> Value {
     let request = serde_json::from_str::<Value>(message).ok();
-    let id = request
-        .as_ref()
-        .and_then(|value| value.get("id").and_then(Value::as_str).map(str::to_string))
+    let raw_id = request.as_ref().and_then(|value| value.get("id"));
+    let id = raw_id
+        .and_then(Value::as_str)
         .and_then(|id| RequestId::parse(id).ok())
         .unwrap_or_else(|| RequestId::parse("invalid").expect("static request id"));
+    // A v1-style numeric id (a line client that numbers its requests): the
+    // refusal names the id, and the response carries it as sent, so the
+    // client gets its answer instead of waiting for it (cx-rhf2).
+    let numeric_id = raw_id.filter(|id| id.is_i64() || id.is_u64()).cloned();
+    let error = if numeric_id.is_some() {
+        ResourceError::validation_invalid(
+            Some("id"),
+            "request id must be a string of 1 to 128 UTF-8 bytes",
+        )
+    } else {
+        error
+    };
     let error = request
         .as_ref()
         .and_then(|value| value.get("operation").cloned())
         .and_then(|operation| serde_json::from_value(operation).ok())
         .map_or(error.clone(), |operation| validate_operation_error(operation, error));
-    serde_json::to_value(ResponseEnvelope::failure(id, error))
-        .expect("resource failure envelopes are serializable")
+    let mut response = serde_json::to_value(ResponseEnvelope::failure(id, error))
+        .expect("resource failure envelopes are serializable");
+    if let Some(numeric_id) = numeric_id {
+        response["id"] = numeric_id;
+    }
+    response
 }
 
 impl ParsedResourceRequest {
@@ -234,6 +250,7 @@ fn dispatch_resource_request(
         OperationOwner::Auxiliary => auxiliary::dispatch(mux, request),
         OperationOwner::State => crate::state::router::dispatch(mux, request),
         OperationOwner::Git => crate::git_ops::dispatch(mux, request),
+        OperationOwner::History => crate::history_ops::dispatch(mux, request),
         OperationOwner::Credential => credential::dispatch(mux, request),
         OperationOwner::Config => config::dispatch(mux, request),
         OperationOwner::Machine => {
@@ -495,6 +512,8 @@ fn create_notification(mux: &Mux, request: ParsedResourceRequest) -> Result<Valu
         "terminal_id": terminal_id,
         "created_at_ms": created_at_ms,
         "source": crate::NotificationSource::Cli.as_str(),
+        "desktop": request.fields.get("desktop").and_then(Value::as_bool).unwrap_or(true),
+        "reply": request.fields.get("reply").and_then(Value::as_bool).unwrap_or(false),
     });
     let preparation = mux
         .prepare_resource_effect(
@@ -625,6 +644,9 @@ fn execute_notification_effect(
         .and_then(Value::as_str)
         .and_then(crate::NotificationSource::parse)
         .unwrap_or(crate::NotificationSource::Cli);
+    // Intents written before the field existed post a banner.
+    let desktop = intent.get("desktop").and_then(Value::as_bool).unwrap_or(true);
+    let reply = intent.get("reply").and_then(Value::as_bool).unwrap_or(false);
     let numeric_id = mux.post_resource_notification(
         notification_id.clone(),
         title.to_string(),
@@ -635,6 +657,8 @@ fn execute_notification_effect(
         terminal_id.clone(),
         created_at_ms,
         source,
+        desktop,
+        reply,
     );
     let notification = crate::ResourceNotification {
         id: notification_id.clone(),
@@ -646,6 +670,8 @@ fn execute_notification_effect(
         created_at_ms,
         source,
         surface,
+        desktop,
+        reply,
     };
     let value = mux.created_notification_value(&notification, &session_id);
     let outcome = ResourceEffectOutcome::Success(value.clone());

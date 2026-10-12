@@ -192,3 +192,54 @@ export function filesFrom(transfer: DataTransfer | null): File[] {
 export function dragHasFiles(transfer: DataTransfer | null): boolean {
   return Boolean(transfer && [...transfer.types].includes("Files"));
 }
+
+/** Installs the document-level file-drop contract used by the composer. */
+export function installFileDropLifecycle(
+  onDrop: (files: File[]) => void,
+  onActiveChange: (active: boolean) => void,
+  target: Document = document,
+  view: Window = window,
+): () => void {
+  let depth = 0;
+  const reset = () => {
+    depth = 0;
+    onActiveChange(false);
+  };
+  const enter = (event: DragEvent) => {
+    if (!dragHasFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    depth += 1;
+    onActiveChange(true);
+  };
+  const over = (event: DragEvent) => {
+    if (!dragHasFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    onActiveChange(true);
+  };
+  const leave = (event: DragEvent) => {
+    if (!dragHasFiles(event.dataTransfer)) return;
+    depth = Math.max(0, depth - 1);
+    if (depth === 0) onActiveChange(false);
+  };
+  const drop = (event: DragEvent) => {
+    if (!dragHasFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    const files = filesFrom(event.dataTransfer);
+    reset();
+    onDrop(files);
+  };
+  target.addEventListener("dragenter", enter);
+  target.addEventListener("dragover", over);
+  target.addEventListener("dragleave", leave);
+  target.addEventListener("drop", drop);
+  target.addEventListener("dragend", reset);
+  view.addEventListener("blur", reset);
+  return () => {
+    target.removeEventListener("dragenter", enter);
+    target.removeEventListener("dragover", over);
+    target.removeEventListener("dragleave", leave);
+    target.removeEventListener("drop", drop);
+    target.removeEventListener("dragend", reset);
+    view.removeEventListener("blur", reset);
+  };
+}

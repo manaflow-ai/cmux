@@ -116,7 +116,9 @@ public final class BrowserHostProvider {
         self.dial = dial
     }
 
-    isolated deinit {
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // Sendable cleanup only, so it runs on whatever thread releases the provider.
+    nonisolated deinit {
         cycle?.cancel()
         credentialCheck?.cancel()
         eventsTask?.cancel()

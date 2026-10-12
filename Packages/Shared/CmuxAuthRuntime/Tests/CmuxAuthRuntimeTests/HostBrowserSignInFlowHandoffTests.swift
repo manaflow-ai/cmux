@@ -99,4 +99,43 @@ import Testing
         #expect(harness.openedURLs.isEmpty)
         #expect(harness.factory.sessions.count == 2)
     }
+
+    /// A default browser that cannot host the sign-in popup (seen with Helium,
+    /// cx-13h6w) ends it at once as `canceledLogin`. The sign-in continues in
+    /// the default browser and its `<scheme>://auth-callback` signs the app in.
+    @Test func aPopupTheBrowserEndsAtOnceContinuesInTheDefaultBrowser() async {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let clock = ManualTestClock()
+        let harness = HostBrowserSignInFlowHarness(user: user, clock: clock)
+        let attempt = Task { await harness.flow.signIn(timeout: 60) }
+        await harness.waitForSession()
+        let callbackState = harness.callbackState(harness.factory.sessions[0])
+
+        harness.factory.sessions[0].deliver(.cancelled(reason: "canceled_login"))
+        await harness.waitForCondition { harness.flow.signInIsSlow || !harness.flow.isSigningIn }
+
+        #expect(harness.openedURLs == [
+            URL(string: "https://example.test/handler/sign-in?cmux_auth_state=\(callbackState)")!
+        ])
+        #expect(harness.flow.isSigningIn)
+        #expect(await harness.flow.handleCallbackURL(harness.callbackURL(state: callbackState)))
+        #expect(await attempt.value)
+        #expect(harness.coordinator.isAuthenticated)
+    }
+
+    /// The person closing the popup after it showed ends the attempt; nothing
+    /// opens in the default browser.
+    @Test func aPopupThePersonClosesEndsTheAttempt() async {
+        let clock = ManualTestClock()
+        let harness = HostBrowserSignInFlowHarness(clock: clock)
+        let attempt = Task { await harness.flow.signIn(timeout: 60) }
+        await harness.waitForSession()
+
+        clock.advance(by: .seconds(5))
+        harness.factory.sessions[0].deliver(.cancelled(reason: "canceled_login"))
+
+        #expect(await attempt.value == false)
+        #expect(harness.openedURLs.isEmpty)
+        #expect(!harness.flow.isSigningIn)
+    }
 }

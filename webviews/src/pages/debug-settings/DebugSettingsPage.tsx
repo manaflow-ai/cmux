@@ -49,7 +49,8 @@ function SidebarRow({
       data-testid={testId}
     >
       <span className="ds-sidebar-label">{label}</span>
-      {changed > 0 ? <span className="ds-dot" aria-hidden="true" /> : null}
+      {/* Always laid out, shown when the section holds changes: a change never reflows the sidebar. */}
+      <span className="ds-dot" aria-hidden="true" data-visible={changed > 0 ? "true" : undefined} />
       <span className="ds-count">{count}</span>
     </button>
   );

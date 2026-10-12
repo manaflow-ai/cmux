@@ -35,6 +35,7 @@ nonisolated enum BrowserSettingsSchema {
                 BrowserHibernationSetting.configPath, section: .browser, group: memory,
                 title: SettingsText.keyed("settings.browser.hibernation", "Hibernate Hidden Tabs"),
                 help: SettingsText.keyed("settings.browser.hibernation.help", "Frees memory; history and position are kept."),
+                summary: SettingsText.keyed("settings.browser.hibernation.summary", "Frees memory; history and scroll are kept"),
                 kind: .choiceOrNumber([
                     SettingChoice("moderate", SettingsText.keyed("settings.choice.moderate", "After 1 Hour")),
                     SettingChoice("aggressive", SettingsText.keyed("settings.choice.aggressive", "After 10 Minutes")),
@@ -65,6 +66,6 @@ nonisolated enum BrowserSettingsSchema {
                                          "Lets cmux's iPhone app view and control Chromium tabs on this Mac. Takes effect after restarting cmux."),
                 kind: .toggle, default: .bool(false), keywords: ["phone", "mobile", "devtools", "remote debugging"]
             ),
-        ] + OmnibarSettingsSchema.descriptors + BrowserLinkClickSchema.descriptors
+        ] + OmnibarSettingsSchema.descriptors + BrowserLinkClickSchema.descriptors + TerminalLinkRoutingSchema.descriptors
     }
 }

@@ -119,6 +119,21 @@ pub(crate) fn liveness_path(record_path: &Path, record: &TerminalHostRecord) -> 
     record_path.with_extension(format!("{}-{}.live", record.incarnation, record.host_start_nonce))
 }
 
+/// Block until the host of `record` has exited: the host holds its live
+/// marker's lease for its whole life, so taking the lease exclusively is the
+/// exit event (no polling). A marker that is already gone means the host
+/// already left.
+pub fn wait_for_terminal_host_exit(
+    record_path: &Path,
+    record: &TerminalHostRecord,
+) -> anyhow::Result<()> {
+    match sys::open_private(&liveness_path(record_path, record), PrivateOpen::ExistingNoFollow) {
+        Ok(marker) => Ok(sys::wait_lease_exclusive(&marker)?),
+        Err(error) if error.kind() == std_io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
 /// Probe the process-lifetime nonce lock. `Dead` is positive evidence
 /// tied to this exact incarnation even if `host_pid` has since been
 /// assigned to another process.

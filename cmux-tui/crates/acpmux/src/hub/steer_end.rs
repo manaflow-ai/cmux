@@ -8,6 +8,8 @@
 //! steer and the turn runs on) answers every other prompt of that turn with
 //! the same answer. Claude Code's steers are answered `steered` and change
 //! nothing here.
+//!
+//! Also the steer itself (`Hub::steer_turn`): a prompt sent into a running turn.
 
 use super::*;
 
@@ -52,5 +54,60 @@ pub(super) async fn agent_prompt(
                 }
             }
         }
+    }
+}
+
+impl Hub {
+    /// Sends a prompt into the running turn `turn_id` of an agent that steers. The turn may end
+    /// between the check and the agent: without `steer_only` the prompt then becomes the next one.
+    pub(super) async fn steer_turn(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        blocks: Vec<Value>,
+        client: &str,
+        turn_id: &str,
+        opts: PromptOptions,
+        accept: &mut impl FnMut(Value),
+    ) -> Result<Value, RpcError> {
+        let (control, trust_gate) = (opts.control, opts.trust_gate);
+        let prompt_id = opts.prompt_id.unwrap_or_default();
+        self.check_steer(session, control)?;
+        // A running turn has a live agent.
+        let child = self.child_for(session).await?;
+        let agent_sid = session
+            .meta()
+            .agent_session_id
+            .ok_or_else(|| RpcError::internal("no agent session"))?;
+        let text = prompt_text(&blocks);
+        self.append(
+            session,
+            "mux",
+            "user_message",
+            json!({"text": text, "steer": true, "client": client, "promptId": prompt_id, "turnId": turn_id}),
+        );
+        accept(
+            json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false, "steer": true}),
+        );
+        let fallback = (!opts.steer_only).then(|| blocks.clone());
+        let wire_blocks = super::turns::acp_prompt_blocks(session, &blocks)?;
+        let mut params = json!({"sessionId": agent_sid, "prompt": wire_blocks});
+        params["_meta"] = json!({"steer": true});
+        let mut r = match agent_prompt(session, &child, params, turn_id, true).await {
+            Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN) => {
+                let Some(blocks) = fallback else { return Err(e) };
+                // A send-now (`interrupt`) still goes next.
+                let opts = PromptOptions {
+                    prompt_id: Some(prompt_id),
+                    control,
+                    trust_gate,
+                    interrupt: opts.interrupt,
+                    ..PromptOptions::default()
+                };
+                return Box::pin(self.run_prompt(session, blocks, client, false, opts)).await;
+            }
+            r => r?,
+        };
+        merge_mux_meta(&mut r, json!({"promptId": prompt_id, "turnId": turn_id, "steer": true}));
+        Ok(r)
     }
 }

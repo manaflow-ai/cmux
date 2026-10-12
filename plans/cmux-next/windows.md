@@ -114,6 +114,7 @@ pane does this in `AgentPaneTheme.script`). Payload:
   "variables": {
     "--cmux-surface-background": "rgba(30, 30, 46, 1.0)",
     "--cmux-surface-token": "rgba(30, 30, 46, 0.6)",
+    "--cmux-surface-solid": "rgba(30, 30, 46, 1.0)",
     "--cmux-elevated-background": "rgba(...)",
     "--cmux-text": "rgba(...)",
     "--cmux-text-secondary": "rgba(...)",
@@ -128,7 +129,9 @@ pane does this in `AgentPaneTheme.script`). Payload:
 `--cmux-surface-background` is the page background: the opaque token in an
 opaque window, `rgba(..., 0.0)` over a see-through window (the window's one
 backdrop shows through). `--cmux-surface-token` is the token itself with its
-opacity. A page listens to `cmux-theme` events (`detail` = payload) for live
+opacity. `--cmux-surface-solid` is the page color made opaque (a page's own
+`appearance.surfaces` background over the token): rings, pills and glyphs on
+fills use it, so nothing shows through them. A page listens to `cmux-theme` events (`detail` = payload) for live
 changes. The React Settings page is transparent over it.
 
 ## One keyboard table

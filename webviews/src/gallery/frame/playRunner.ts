@@ -19,12 +19,13 @@ import {
 } from "../play";
 
 /** What the matrix runner installs for trusted input (Playwright's mouse and keyboard). */
-type InputDriver = (action: {
-  kind: "click" | "hover" | "down" | "move" | "up" | "type" | "press";
+export type GalleryInputAction = {
+  kind: "click" | "contextmenu" | "hover" | "down" | "move" | "up" | "type" | "press";
   x?: number;
   y?: number;
   text?: string;
-}) => Promise<void>;
+};
+type InputDriver = (action: GalleryInputAction) => Promise<void>;
 
 /** What the matrix runner installs to take one still per settled step (a filmstrip). */
 type StepStill = (step: { index: number; step: string }) => Promise<void>;
@@ -44,16 +45,57 @@ const rectOf = (element: Element | null): Rect | null => {
 };
 
 /** The element's center in the top page's coordinates (through same-origin parent frames). */
-function pageCenter(element: Element): { x: number; y: number } {
-  const rect = element.getBoundingClientRect();
-  let x = rect.x + rect.width / 2;
-  let y = rect.y + rect.height / 2;
+function pagePoint(point: { x: number; y: number }): { x: number; y: number } {
+  let x = point.x;
+  let y = point.y;
   for (let frame: Window = window; frame !== frame.parent && frame.frameElement; frame = frame.parent) {
     const offset = frame.frameElement.getBoundingClientRect();
     x += offset.x;
     y += offset.y;
   }
   return { x, y };
+}
+
+function pageCenter(element: Element): { x: number; y: number } {
+  const rect = element.getBoundingClientRect();
+  return pagePoint({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 });
+}
+
+type SelectionRect = Pick<DOMRect, "left" | "right" | "top" | "width" | "height">;
+type SelectionPoint = { x: number; y: number };
+
+/** The first and last line points a trusted mouse drag should cross for a text range. */
+export function selectionDragPoints(
+  rects: readonly SelectionRect[],
+): { start: SelectionPoint; end: SelectionPoint } | undefined {
+  const visible = rects.filter((rect) => rect.width > 0 && rect.height > 0);
+  const first = visible[0];
+  const last = visible.at(-1);
+  if (!first || !last) return undefined;
+  const inset = (rect: SelectionRect) => Math.min(2, Math.max(0.5, rect.width / 2));
+  return {
+    start: { x: first.left + inset(first), y: first.top + first.height / 2 },
+    end: { x: last.right - inset(last), y: last.top + last.height / 2 },
+  };
+}
+
+/** Selects text with the matrix's trusted pointer driver, falling back to a DOM range in the shell. */
+export async function selectTextWithDriver(element: Element, driver?: InputDriver): Promise<void> {
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  const points = selectionDragPoints(Array.from(range.getClientRects()));
+  if (driver && points) {
+    const start = pagePoint(points.start);
+    const end = pagePoint(points.end);
+    await driver({ kind: "down", ...start });
+    await driver({ kind: "move", ...end });
+    await driver({ kind: "up", ...end });
+    return;
+  }
+  const selection = document.getSelection();
+  if (!selection) return;
+  selection.removeAllRanges();
+  selection.addRange(range);
 }
 
 const nextFrame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
@@ -83,7 +125,8 @@ function synthetic(element: Element, kind: string): void {
     composed: true,
     clientX: x,
     clientY: y,
-    button: 0,
+    button: kind === "contextmenu" ? 2 : 0,
+    buttons: kind === "contextmenu" ? 2 : 0,
     pointerId: 1,
     pointerType: "mouse",
     isPrimary: true,
@@ -96,9 +139,93 @@ function synthetic(element: Element, kind: string): void {
   if (kind === "move") ["pointermove", "mousemove"].forEach(fire);
   if (kind === "up" || kind === "click") ["pointerup", "mouseup"].forEach(fire);
   if (kind === "click") fire("click");
+  if (kind === "contextmenu") fire("contextmenu");
 }
 
-function syntheticKey(key: string): void {
+const TABBABLE_SELECTOR = [
+  "a[href]",
+  "area[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "iframe",
+  "object",
+  "embed",
+  "audio[controls]",
+  "video[controls]",
+  "summary",
+  '[contenteditable]:not([contenteditable="false"])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(",");
+
+function tabOrder(element: Element): number {
+  const value = element.getAttribute("tabindex");
+  if (value === null) return 0;
+  const parsed = Number(value.trim());
+  return Number.isInteger(parsed) ? parsed : -1;
+}
+
+function composedParent(element: Element): Element | null {
+  if (element.parentElement) return element.parentElement;
+  const root = element.getRootNode();
+  return root instanceof ShadowRoot ? root.host : null;
+}
+
+function hiddenByAncestor(element: Element): boolean {
+  for (let ancestor: Element | null = element; ancestor; ancestor = composedParent(ancestor)) {
+    if (ancestor.hasAttribute("hidden") || ancestor.hasAttribute("inert")) return true;
+    const style = ancestor.ownerDocument.defaultView?.getComputedStyle(ancestor);
+    if (style?.display === "none" || style?.visibility === "hidden" || style?.visibility === "collapse") return true;
+    if (ancestor.tagName === "DETAILS" && !ancestor.hasAttribute("open")) {
+      const summary = Array.from(ancestor.children).find((child) => child.tagName === "SUMMARY");
+      if (!summary?.contains(element)) return true;
+    }
+  }
+  return false;
+}
+
+function isTabbable(element: Element): element is HTMLElement {
+  if (!(element instanceof HTMLElement) || !element.matches(TABBABLE_SELECTOR) || tabOrder(element) < 0) return false;
+  if (element.tagName === "INPUT" && (element as HTMLInputElement).type === "hidden") return false;
+  return !hiddenByAncestor(element);
+}
+
+function tabbableElements(): HTMLElement[] {
+  const elements: HTMLElement[] = [];
+  const visit = (root: Document | Element | ShadowRoot) => {
+    for (const child of Array.from(root.children)) {
+      if (isTabbable(child)) elements.push(child);
+      if (child.shadowRoot) visit(child.shadowRoot);
+      visit(child);
+    }
+  };
+  visit(document);
+  const normal = elements.filter((element) => tabOrder(element) === 0);
+  const positive = elements
+    .map((element, index) => ({ element, index }))
+    .filter(({ element }) => tabOrder(element) > 0)
+    .sort((a, b) => tabOrder(a.element) - tabOrder(b.element) || a.index - b.index)
+    .map(({ element }) => element);
+  return [...positive, ...normal];
+}
+
+function deepestActiveElement(): Element {
+  let target: Element = document.activeElement ?? document.body;
+  while (target instanceof HTMLElement && target.shadowRoot?.activeElement) target = target.shadowRoot.activeElement;
+  return target;
+}
+
+function moveFocusForTab(backward: boolean): void {
+  const elements = tabbableElements();
+  if (!elements.length) return;
+  const current = deepestActiveElement();
+  const index = elements.indexOf(current as HTMLElement);
+  const next = index < 0 ? (backward ? elements.at(-1) : elements[0]) : elements[index + (backward ? -1 : 1)];
+  if (next && next !== current) next.focus({ preventScroll: true });
+}
+
+export function syntheticKey(key: string): void {
   const parts = key.split("+");
   const name = parts.pop()!;
   // Playwright exposes the space key as " "; the gallery DSL spells it "Space".
@@ -110,8 +237,7 @@ function syntheticKey(key: string): void {
     shiftKey: parts.includes("Shift"),
   };
   // The focused element, inside open shadow roots too (a web component's focused row).
-  let target: Element = document.activeElement ?? document.body;
-  while (target.shadowRoot?.activeElement) target = target.shadowRoot.activeElement;
+  const target = deepestActiveElement();
   const keydown = new KeyboardEvent("keydown", {
     key: eventKey,
     bubbles: true,
@@ -120,7 +246,11 @@ function syntheticKey(key: string): void {
     ...modifiers,
   });
   target.dispatchEvent(keydown);
-  target.dispatchEvent(
+  // KeyboardEvent dispatch does not run the browser's default focus traversal. Reproduce Tab for
+  // the gallery shell, which has no trusted-input driver. The hosted matrix runner uses Playwright
+  // instead, so its native traversal remains authoritative.
+  if (!keydown.defaultPrevented && eventKey === "Tab") moveFocusForTab(modifiers.shiftKey);
+  deepestActiveElement().dispatchEvent(
     new KeyboardEvent("keyup", { key: eventKey, bubbles: true, cancelable: true, composed: true, ...modifiers }),
   );
   // KeyboardEvent dispatch does not run the browser's default button activation.
@@ -315,9 +445,10 @@ export async function runPlay(
     if (!element) throw new Error(`play: no element for ${describeTarget(target)}`);
     return element;
   };
-  const input = async (kind: "click" | "hover" | "down" | "move" | "up", target: PlayTarget) => {
+  const input = async (kind: "click" | "contextmenu" | "hover" | "down" | "move" | "up", target: PlayTarget) => {
     const element = find(target);
-    const action: PlayAction = kind === "click" ? "click" : kind === "hover" ? "hover" : "press-drag";
+    const action: PlayAction =
+      kind === "click" ? "click" : kind === "contextmenu" ? "context-menu" : kind === "hover" ? "hover" : "press-drag";
     await measured(`${kind} ${describeTarget(target)}`, action, element, anchors, checks, async () => {
       if (window.top?.cmuxGalleryInput) await window.top.cmuxGalleryInput({ kind, ...pageCenter(element) });
       else synthetic(element, kind);
@@ -339,6 +470,7 @@ export async function runPlay(
     document,
     find,
     click: (target) => input("click", target),
+    contextMenu: (target) => input("contextmenu", target),
     hover: (target) => input("hover", target),
     focus: async (target) => {
       const element = find(target) as HTMLElement;
@@ -363,14 +495,9 @@ export async function runPlay(
     },
     selectText: async (target) => {
       const element = find(target);
-      await gesture(`select text in ${describeTarget(target)}`, "select", element, () => {
-        const selection = document.getSelection();
-        if (!selection) return;
-        const range = document.createRange();
-        range.selectNodeContents(element);
-        selection.removeAllRanges();
-        selection.addRange(range);
-      });
+      await gesture(`select text in ${describeTarget(target)}`, "select", element, () =>
+        selectTextWithDriver(element, window.top?.cmuxGalleryInput),
+      );
     },
     type: async (text, target) => {
       const element = target ? (find(target) as HTMLElement) : (document.activeElement as HTMLElement | null);

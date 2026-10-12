@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextSettings
 public import Foundation
+import CmuxNextCompat
 
 /// What cmux already knows about a web page a reply links to: its site's favicon (PNG) and the
 /// page's title, from the user's own browsing. Never fetched for a chip (D4).
@@ -25,7 +26,7 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     /// Asks the user to open a file outside the project (the view's native sheet).
     public var confirmOutside: (@MainActor (_ path: String, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
     /// Shows a folder (in Finder: nothing in it runs).
-    public var revealFolder: @MainActor (URL) -> Void = { NSWorkspace.shared.activateFileViewerSelecting([$0]) }
+    public var revealFolder: @MainActor (URL) -> Void = { NSWorkspace.shared.revealInBackground([$0]) }
     public var browsers: any AgentPaneBrowserApps = AgentPaneWorkspaceBrowsers()
     var fetcher: any AgentPaneImageFetching = AgentPaneSafeFetch()
     /// The fetch for web video and audio (``AgentPaneSafeFetch/media``).

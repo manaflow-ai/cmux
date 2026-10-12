@@ -1,0 +1,420 @@
+//! Reopen Closed (cx-gzh.9, plans/cmux-next/reopen-closed.md 3.0 and 4):
+//! every surface kind the daemon owns comes back from its closed history,
+//! driven over the daemon socket as the app drives it. A terminal, a
+//! frontend browser tab, an agent chat tab, a page tab and a viewer page tab
+//! on a route (`page-tab-route-v1`, the viewer's file) each close and reopen
+//! through `closed.reopen`; the reopened tab has the same kind and record.
+
+use super::*;
+
+/// One connection that reads conversation, agent session and page tabs in
+/// their canonical form (as the app negotiates them).
+struct AppConnection {
+    writer: Box<dyn transport::Stream>,
+    reader: BufReader<Box<dyn transport::Stream>>,
+    next: u64,
+}
+
+impl AppConnection {
+    fn open(harness: &RecoveryHarness) -> Self {
+        // A just-started owner answers `server.restoring` until its terminals
+        // are restored (cx-n3bs); the app retries on a new connection.
+        let deadline = Instant::now() + test_timeout(Duration::from_secs(15));
+        loop {
+            let stream = transport::connect(&harness.socket).unwrap();
+            let mut writer = stream.try_clone_box().unwrap();
+            let mut reader = BufReader::new(stream);
+            let hello = serde_json::json!({
+                "id":1,"cmd":"set-client-info","name":"reopen-kinds","kind":"test",
+                "capabilities":["conversation-tabs-v1","agent-session-tabs-v1","page-tabs-v1"],
+            });
+            writeln!(writer, "{hello}").unwrap();
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            let reply: serde_json::Value = serde_json::from_str(&line).unwrap();
+            if reply["ok"] == true {
+                return Self { writer, reader, next: 2 };
+            }
+            assert_eq!(reply["error_code"], "server.restoring", "set-client-info failed: {reply}");
+            assert!(Instant::now() < deadline, "the owner is still restoring: {reply}");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+
+    fn send(&mut self, mut value: serde_json::Value) -> serde_json::Value {
+        value["id"] = serde_json::json!(self.next);
+        self.next += 1;
+        // `stream_request` checks `ok` and returns the reply's `data`.
+        stream_request(&mut self.writer, &mut self.reader, value)
+    }
+
+    fn tabs(&mut self) -> Vec<serde_json::Value> {
+        let tree = self.send(serde_json::json!({"cmd":"list-workspaces"}));
+        tree["workspaces"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .flat_map(|workspace| workspace["screens"].as_array().into_iter().flatten())
+            .flat_map(|screen| screen["panes"].as_array().into_iter().flatten())
+            .flat_map(|pane| pane["tabs"].as_array().into_iter().flatten())
+            .cloned()
+            .collect()
+    }
+
+    fn tab(&mut self, surface: u64) -> serde_json::Value {
+        self.tabs()
+            .into_iter()
+            .find(|tab| tab["surface"].as_u64() == Some(surface))
+            .unwrap_or_else(|| panic!("no tab shows surface {surface}"))
+    }
+
+    /// The tab of public id `tab_id`, once the tree lists it.
+    fn tab_by_id(&mut self, tab_id: &str) -> serde_json::Value {
+        let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+        loop {
+            if let Some(tab) = self.tabs().into_iter().find(|tab| tab["tab_resource_id"] == tab_id)
+            {
+                return tab;
+            }
+            assert!(Instant::now() < deadline, "no tab {tab_id} after the reopen");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+}
+
+/// A daemon with one workspace; returns it, an app connection and the pane.
+fn start(tag: &str) -> (RecoveryHarness, AppConnection, u64) {
+    let harness = RecoveryHarness::start(tag);
+    let mut app = AppConnection::open(&harness);
+    app.send(serde_json::json!({"cmd":"new-workspace","name":"kinds"}));
+    let pane = app.send(serde_json::json!({"cmd":"list-workspaces"}))["workspaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|workspace| workspace["name"] == "kinds")
+        .and_then(|workspace| workspace["screens"][0]["panes"][0]["id"].as_u64())
+        .expect("the workspace has a pane");
+    (harness, app, pane)
+}
+
+/// Close `surface` as Cmd-W does, then reopen the newest closed group as
+/// Cmd-Shift-T does; returns the reopened tab as the tree lists it.
+fn close_and_reopen(
+    harness: &RecoveryHarness,
+    app: &mut AppConnection,
+    surface: u64,
+    key: &str,
+) -> serde_json::Value {
+    app.send(serde_json::json!({"cmd":"close-tabs","surfaces":[surface],"end_terminals":false}));
+    let closed = resource_request(
+        &harness.socket,
+        &format!("{key}-list"),
+        "closed.list",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    let id =
+        closed[0]["id"].as_str().unwrap_or_else(|| panic!("the close was not recorded: {closed}"));
+    let reopened = resource_request(
+        &harness.socket,
+        &format!("{key}-reopen"),
+        "closed.reopen",
+        serde_json::json!({"machine":"current","session":"current","closed":id}),
+        Some(&format!("{key}-reopen")),
+    );
+    let tab_id =
+        reopened["value"]["tab_ids"][0].as_str().expect("the reopen returned no tab").to_string();
+    app.tab_by_id(&tab_id)
+}
+
+#[test]
+fn a_closed_terminal_tab_reopens_as_a_terminal() {
+    let _exclusive = exclusive_process_test();
+    let (harness, mut app, pane) = start("reopen-terminal");
+    let surface =
+        app.send(serde_json::json!({"cmd":"new-tab","pane":pane}))["surface"].as_u64().unwrap();
+    let kind = app.tab(surface)["kind"].clone();
+    let back = close_and_reopen(&harness, &mut app, surface, "terminal");
+    assert_eq!(back["kind"], kind, "{back}");
+    assert!(back["terminal_id"].is_string(), "a reopened terminal has a terminal: {back}");
+}
+
+#[test]
+fn a_closed_browser_tab_reopens_on_its_url() {
+    let _exclusive = exclusive_process_test();
+    let (harness, mut app, pane) = start("reopen-browser");
+    let created = app.send(serde_json::json!({
+        "cmd":"new-frontend-browser-tab","pane":pane,"url":"https://example.com/reopen","engine":"webkit",
+    }));
+    let surface = created["surface"].as_u64().expect("no browser surface");
+    let back = close_and_reopen(&harness, &mut app, surface, "browser");
+    assert_eq!(back["kind"], "browser", "{back}");
+    assert_eq!(back["url"], "https://example.com/reopen", "{back}");
+}
+
+#[test]
+fn a_closed_agent_chat_tab_reopens_on_its_session() {
+    let _exclusive = exclusive_process_test();
+    let (harness, mut app, pane) = start("reopen-agent");
+    let source =
+        serde_json::json!({"host":"install:reopen-kinds","session":"ses-reopen","harness":"codex"});
+    let created = app
+        .send(serde_json::json!({"cmd":"new-conversation-tab","pane":pane,"agent_session":source}));
+    let surface = created["surface"].as_u64().expect("no agent surface");
+    let back = close_and_reopen(&harness, &mut app, surface, "agent");
+    assert_eq!(back["kind"], "conversation", "{back}");
+    assert_eq!(back["conversation"]["agent_session"]["session"], "ses-reopen", "{back}");
+}
+
+#[test]
+fn a_closed_page_tab_reopens_on_its_page() {
+    let _exclusive = exclusive_process_test();
+    let (harness, mut app, pane) = start("reopen-page");
+    let created =
+        app.send(serde_json::json!({"cmd":"new-conversation-tab","pane":pane,"page":"settings"}));
+    let surface = created["surface"].as_u64().expect("no page surface");
+    let back = close_and_reopen(&harness, &mut app, surface, "page");
+    assert_eq!(back["kind"], "conversation", "{back}");
+    assert_eq!(back["conversation"], serde_json::json!({"page":"settings"}), "{back}");
+}
+
+/// A viewer is a page tab on a route (`page-tab-route-v1`): the reopened tab
+/// shows the same file.
+#[test]
+fn a_closed_viewer_tab_reopens_on_its_file() {
+    let _exclusive = exclusive_process_test();
+    let (harness, mut app, pane) = start("reopen-viewer");
+    let route = "/tmp/reopen kinds/notes.md";
+    let created =
+        app.send(serde_json::json!({"cmd":"new-conversation-tab","pane":pane,"page":"markdown","route":route}));
+    assert_eq!(created["conversation"], serde_json::json!({"page":"markdown","route":route}));
+    let surface = created["surface"].as_u64().expect("no viewer surface");
+    let back = close_and_reopen(&harness, &mut app, surface, "viewer");
+    assert_eq!(back["kind"], "conversation", "{back}");
+    assert_eq!(
+        back["conversation"],
+        serde_json::json!({"page":"markdown","route":route}),
+        "{back}"
+    );
+}
+
+/// `window_record.put` of window `window` of install `reopen-kinds`, listing
+/// workspace `key`, open or closed.
+fn put_window(
+    harness: &RecoveryHarness,
+    window: &str,
+    key: Option<&str>,
+    open: bool,
+    request: &str,
+) {
+    let record = serde_json::json!({
+        "id": window, "workspace_key": key, "workspace_keys": key.map(|key| vec![key]).unwrap_or_default(),
+        "open": open,
+    });
+    resource_request(
+        &harness.socket,
+        request,
+        "window_record.put",
+        serde_json::json!({"machine":"current","session":"current",
+                           "install_id":"reopen-kinds","window_id":window,"record":record}),
+        Some(request),
+    );
+}
+
+fn closed_list(harness: &RecoveryHarness, request: &str) -> Vec<serde_json::Value> {
+    resource_request(
+        &harness.socket,
+        request,
+        "closed.list",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    )
+    .as_array()
+    .cloned()
+    .unwrap_or_default()
+}
+
+/// Cmd-Shift-T from window `window`: the reply, ok or not.
+fn reopen_from(harness: &RecoveryHarness, window: &str, request: &str) -> serde_json::Value {
+    request_response(
+        &harness.socket,
+        serde_json::json!({
+            "protocol":"cmux.protocol/2","type":"request","id":request,"operation":"closed.reopen",
+            "params":{"machine":"current","session":"current","window":window},
+            "idempotency_key":request,
+        }),
+    )
+}
+
+/// A window the app closes becomes a `window` group, and Cmd-Shift-T in
+/// another window reopens it (the reply names the window to show). A
+/// window shown again drops its group.
+#[test]
+fn a_closed_window_reopens_from_another_window() {
+    let _exclusive = exclusive_process_test();
+    let (harness, mut app, _) = start("reopen-window");
+    let key = app.send(serde_json::json!({"cmd":"list-workspaces"}))["workspaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|workspace| workspace["name"] == "kinds")
+        .and_then(|workspace| workspace["key"].as_str().map(str::to_string))
+        .expect("the workspace has a key");
+    // A window first written closed (restored closed) records nothing.
+    put_window(&harness, "win-c", None, false, "win-c-first-closed");
+    put_window(&harness, "win-a", Some(&key), true, "win-a-open");
+    put_window(&harness, "win-b", None, true, "win-b-open");
+    put_window(&harness, "win-a", Some(&key), false, "win-a-close");
+    let window_groups = |list: Vec<serde_json::Value>| -> Vec<serde_json::Value> {
+        list.into_iter().filter(|item| item["kind"] == "window").collect()
+    };
+    let groups = window_groups(closed_list(&harness, "list-1"));
+    assert_eq!(groups.len(), 1, "{groups:?}");
+    assert_eq!(groups[0]["window"], "reopen-kinds/win-a");
+    assert_eq!(groups[0]["name"], "kinds");
+
+    let reply = reopen_from(&harness, "reopen-kinds/win-b", "reopen-window-b");
+    assert_eq!(reply["ok"], true, "{reply}");
+    assert_eq!(reply["result"]["value"]["window"], "reopen-kinds/win-a", "{reply}");
+    assert!(window_groups(closed_list(&harness, "list-2")).is_empty());
+
+    // Closed again, then shown again by the app (Dock click): no group stays.
+    put_window(&harness, "win-a", Some(&key), true, "win-a-open-2");
+    put_window(&harness, "win-a", Some(&key), false, "win-a-close-2");
+    assert_eq!(window_groups(closed_list(&harness, "list-3")).len(), 1);
+    put_window(&harness, "win-a", Some(&key), true, "win-a-open-3");
+    assert!(window_groups(closed_list(&harness, "list-4")).is_empty());
+
+    // A window that is gone (its record deleted) leaves no group to reopen.
+    put_window(&harness, "win-a", Some(&key), false, "win-a-close-3");
+    assert_eq!(window_groups(closed_list(&harness, "list-5")).len(), 1);
+    resource_request(
+        &harness.socket,
+        "win-a-delete",
+        "window_record.delete",
+        serde_json::json!({"machine":"current","session":"current",
+                           "install_id":"reopen-kinds","window_id":"win-a"}),
+        Some("win-a-delete"),
+    );
+    assert!(window_groups(closed_list(&harness, "list-6")).is_empty());
+}
+
+/// A tab closed in window A's workspace belongs to A: Cmd-Shift-T in live
+/// window B never reopens it, Cmd-Shift-T in A does (decision 1).
+#[test]
+fn another_live_window_never_reopens_a_windows_closed_tab() {
+    let _exclusive = exclusive_process_test();
+    let (harness, mut app, pane) = start("reopen-scope");
+    let key = app.send(serde_json::json!({"cmd":"list-workspaces"}))["workspaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|workspace| workspace["name"] == "kinds")
+        .and_then(|workspace| workspace["key"].as_str().map(str::to_string))
+        .expect("the workspace has a key");
+    put_window(&harness, "win-a", Some(&key), true, "scope-a-open");
+    put_window(&harness, "win-b", None, true, "scope-b-open");
+    let surface =
+        app.send(serde_json::json!({"cmd":"new-tab","pane":pane}))["surface"].as_u64().unwrap();
+    app.send(serde_json::json!({"cmd":"close-tabs","surfaces":[surface],"end_terminals":false}));
+    let closed = closed_list(&harness, "scope-list");
+    assert_eq!(closed[0]["window"], "reopen-kinds/win-a", "{closed:?}");
+
+    let from_b = reopen_from(&harness, "reopen-kinds/win-b", "scope-from-b");
+    assert_eq!(from_b["ok"], false, "window B took window A's tab: {from_b}");
+    let from_a = reopen_from(&harness, "reopen-kinds/win-a", "scope-from-a");
+    assert_eq!(from_a["ok"], true, "{from_a}");
+    assert_eq!(from_a["result"]["value"]["tab_ids"].as_array().map(Vec::len), Some(1), "{from_a}");
+}
+
+/// Secrets in a closed browser tab's URL never reach closed history
+/// (reopen-closed.md 7.17): query keys on the deny-list (tokens, codes,
+/// signatures, keys, passwords) are dropped from the URL and from every
+/// back/forward entry before the group is stored; the rest of the query,
+/// the path and the fragment come back on reopen.
+#[test]
+fn a_closed_browser_tab_keeps_no_secret_query_keys() {
+    let _exclusive = exclusive_process_test();
+    let (harness, mut app, pane) = start("reopen-browser-secrets");
+    let url = "https://example.com/cb?page=2&access_token=abc&q=a%20b&code=oauth&X-Amz-Signature=s1&api_key=k&PHPSESSID=p9#top";
+    let created = app.send(serde_json::json!({
+        "cmd":"new-frontend-browser-tab","pane":pane,"url":url,"engine":"webkit",
+    }));
+    let surface = created["surface"].as_u64().expect("no browser surface");
+    let history = serde_json::json!({
+        "entries":[
+            {"url":"https://example.com/login?next=%2Fhome&password=hunter2","title":"Login"},
+            {"url":url,"title":"Callback"},
+            {"url":"https://docs.example.com/d/1/edit?authuser=1&pageToken=pg2&sort_key=name&accessKey=ak7","title":"Doc"},
+        ],
+        "index":1,"scroll":{"x":0,"y":40},
+    });
+    app.send(serde_json::json!({"cmd":"set-frontend-browser-history","surface":surface,"history":history}));
+    let back = close_and_reopen(&harness, &mut app, surface, "browser-secrets");
+    // Kept query bytes stay exactly as they were (no re-encoding).
+    assert_eq!(back["url"], "https://example.com/cb?page=2&q=a%20b#top", "{back}");
+    let surface = back["surface"].as_u64().expect("the reopened tab has a surface");
+    let restored =
+        app.send(serde_json::json!({"cmd":"get-frontend-browser-history","surface":surface}));
+    let text = restored.to_string();
+    for secret in
+        ["abc", "oauth", "s1", "hunter2", "api_key", "access_token", "password", "p9", "ak7"]
+    {
+        assert!(!text.contains(secret), "{secret} reached closed history: {restored}");
+    }
+    assert!(text.contains("next=%2Fhome"), "a harmless query key was dropped: {restored}");
+    // Account choice, pagination and sort keys are not secrets.
+    assert!(
+        text.contains("edit?authuser=1&pageToken=pg2&sort_key=name"),
+        "a harmless query key was dropped: {restored}"
+    );
+    assert!(text.contains("\"y\":40"), "the scroll position was lost: {restored}");
+}
+
+/// An incognito window (its workspaces are ephemeral) leaves no closed
+/// history (reopen-closed.md 7.5): closing it records no `window` group,
+/// while a normal window that closes still does.
+#[test]
+fn a_closed_incognito_window_is_never_recorded() {
+    let _exclusive = exclusive_process_test();
+    let (harness, mut app, _) = start("reopen-incognito-window");
+    resource_request(
+        &harness.socket,
+        "incognito-create",
+        "workspace.create",
+        serde_json::json!({"machine":"current","session":"current","name":"secret",
+                           "initial_content":"empty","ephemeral":true}),
+        Some("incognito-create"),
+    );
+    let key_of = |app: &mut AppConnection, name: &str| -> String {
+        app.send(serde_json::json!({"cmd":"list-workspaces"}))["workspaces"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|workspace| workspace["name"] == name)
+            .and_then(|workspace| workspace["key"].as_str().map(str::to_string))
+            .unwrap_or_else(|| panic!("no workspace {name}"))
+    };
+    let secret = key_of(&mut app, "secret");
+    let kinds = key_of(&mut app, "kinds");
+    put_window(&harness, "win-private", Some(&secret), true, "private-open");
+    put_window(&harness, "win-private", Some(&secret), false, "private-close");
+    let window_groups = |list: Vec<serde_json::Value>| -> Vec<serde_json::Value> {
+        list.into_iter().filter(|item| item["kind"] == "window").collect()
+    };
+    assert!(
+        window_groups(closed_list(&harness, "private-list")).is_empty(),
+        "an incognito window was recorded"
+    );
+    put_window(&harness, "win-normal", Some(&kinds), true, "normal-open");
+    put_window(&harness, "win-normal", Some(&kinds), false, "normal-close");
+    let groups = window_groups(closed_list(&harness, "normal-list"));
+    assert_eq!(groups.len(), 1, "{groups:?}");
+    assert_eq!(groups[0]["window"], "reopen-kinds/win-normal");
+    // A window listing only workspaces this daemon does not know (another
+    // machine's, or not loaded yet) is not incognito: it is recorded.
+    put_window(&harness, "win-remote", Some("ws-key-on-another-machine"), true, "remote-open");
+    put_window(&harness, "win-remote", Some("ws-key-on-another-machine"), false, "remote-close");
+    let groups = window_groups(closed_list(&harness, "remote-list"));
+    assert!(groups.iter().any(|group| group["window"] == "reopen-kinds/win-remote"), "{groups:?}");
+}

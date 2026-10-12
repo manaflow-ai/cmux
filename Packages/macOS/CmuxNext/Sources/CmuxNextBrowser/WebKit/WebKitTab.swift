@@ -41,6 +41,7 @@ public final class WebKitTab: NSObject, BrowserTab {
     @ObservationIgnored var navigationObservers: [UUID: (BrowserNavigationEvent) -> Void] = [:]
     /// This tab's downloads (`WebKitDownloads`).
     @ObservationIgnored private(set) lazy var downloads = WebKitDownloads(tab: self)
+    @ObservationIgnored lazy var restored = WebKitRestoredSessionHost.session(for: self)
     /// Chrome's automatic-downloads rule for this page (WebKitTab+AutomaticDownloads).
     @ObservationIgnored public private(set) lazy var automaticDownloads = makeAutomaticDownloadGate()
     /// The site of the page that started the current main-frame navigation.
@@ -83,16 +84,20 @@ public final class WebKitTab: NSObject, BrowserTab {
         WebKitContextHit.install(self, into: controller)
         WebKitMediaHandler.install(on: self, into: controller)
         WebKitPasskeyInstaller.install(self, into: controller)
-
+        WebKitNotificationBridge.install(on: self, into: controller)
         observeWebView()
         if configuration.zoom != 1 {
             setZoom(configuration.zoom)
         }
     }
 
-    isolated deinit {
-        faviconTask?.cancel()
-        rateReshow?.cancel()
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            faviconTask?.cancel()
+            rateReshow?.cancel()
+        }
     }
 
     /// WKWebView paints white behind every page by default. macOS has no
@@ -117,8 +122,8 @@ public final class WebKitTab: NSObject, BrowserTab {
         automaticDownloads.userGesture()
         startLoad(url)
     }
-    public func goBack() { startGoBack() }
-    public func goForward() { startGoForward() }
+    public func goBack() { if webView.canGoBack || !restored.step(by: -1) { startGoBack() } }
+    public func goForward() { if webView.canGoBack || !restored.step(by: 1) { startGoForward() } }
     public func reload() { startReload() }
 
     public func stop() {
@@ -364,7 +369,7 @@ public final class WebKitTab: NSObject, BrowserTab {
     }
 
     func syncHistory() {
-        apply(.historyChanged(canGoBack: webView.canGoBack, canGoForward: webView.canGoForward))
+        restored.syncAvailability()
         let list = webView.backForwardList
         apply(.historyListed(back: list.backList.suffix(Self.historyListLimit).map(\.url.absoluteString),
                              forward: list.forwardList.prefix(Self.historyListLimit).map(\.url.absoluteString)))

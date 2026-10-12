@@ -73,6 +73,10 @@ public nonisolated enum BrowserMediaAction: String, CaseIterable, Hashable, Send
 /// What the media hub asks a page to do.
 public nonisolated enum BrowserMediaCommand: Hashable, Sendable {
     case playPause
+    /// Plays or pauses whatever the page shows, as the media keys' Play and
+    /// Pause do (no toggle from a report that may be stale).
+    case play
+    case pause
     case previousTrack
     case nextTrack
     case toggleMute

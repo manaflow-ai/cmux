@@ -330,7 +330,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 /// reports every first-responder change to the window's focus coordinator
 /// (`FocusResponderClassifier`), and keeps app overlays above Chromium page
 /// windows (`WindowOverlayLayer`).
-final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionProviding, TitlebarAccessoryHosting, WindowChromeHosting {
+final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionProviding, TitlebarAccessoryHosting, WindowChromeHosting,
+    CursorRectHoldHosting {
+    /// A pane policy that may hold cursor-rect invalidations (ShellWindow+Events.swift).
+    weak var cursorRectHold: (any CursorRectHoldPolicy)?
     /// The incognito badge in the top row while the sidebar is hidden.
     var titlebarAccessoryFrame: CGRect? { (contentView as? WindowRootView)?.titlebarAccessoryFrame }
     var sidebarHidden: Bool { (contentView as? WindowRootView)?.sidebarHidden ?? false }
@@ -343,17 +346,6 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     /// (`WindowPlacement.containedOnTestScreen`), whichever path sets it.
     override func setFrame(_ frameRect: NSRect, display flag: Bool) {
         super.setFrame(WindowPlacement.containedOnTestScreen(frameRect), display: flag)
-    }
-
-    /// The window's one titlebar decision (`TitlebarDragPolicy`): a left
-    /// mouse-down in the band is delivered as usual, then moves the window
-    /// (or runs the double-click action) only when the policy says so.
-    override func sendEvent(_ event: NSEvent) {
-        guard event.type == .leftMouseDown, TitlebarDragPolicy.decide(at: event.locationInWindow, in: self) == .movesWindow else {
-            return super.sendEvent(event)
-        }
-        super.sendEvent(event)
-        WindowTitlebar.handleMouseDown(event, in: self)
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -427,11 +419,12 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
         overlayLayer.interactiveRects + (WindowOverlayHost.existingHost(for: self)?.occluderRects ?? [])
     }
 
+    /// Nested `endEditing(for:)` calls, and whether a responder change waits for them to end (ShellWindow+Events.swift).
+    var editTeardown = (depth: 0, pending: false)
+
     override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
         let accepted = super.makeFirstResponder(responder)
-        if accepted, let controller = windowController as? WindowController {
-            controller.focus.responderDidChange(FocusResponderClassifier.classify(firstResponder, in: controller), source: .current)
-        }
+        if accepted { cursorRectHold?.firstResponderDidChange(in: self); reportResponder() }
         return accepted
     }
 }

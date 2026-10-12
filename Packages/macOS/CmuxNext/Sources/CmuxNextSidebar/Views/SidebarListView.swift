@@ -49,7 +49,7 @@ final class SidebarListView: NSView {
     var external: ExternalDrag?
     /// The active row the last reload laid out (close-focus.md: reveal on change).
     var revealedActive: SidebarRowKey?
-    /// The row that paints the selection fill (`SidebarLayout.selectedRowKey`).
+    /// The row that stands for the selection (`SidebarLayout.selectedRowKey`).
     private(set) var selectedRowKey: SidebarRowKey?
     /// The anchor step moves the offset; rows wait for the new layout.
     var isShiftingViewport = false
@@ -86,10 +86,14 @@ final class SidebarListView: NSView {
     }
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
-    isolated deinit {
-        // The frame client deactivates in its own deinit (touching the lazy
-        // property here would create one that weakly captures a dying self).
-        if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            // Leave the frame client alone: an active one goes idle on its next tick
+            // once self is gone (touching the lazy property here would create one).
+            if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
+        }
     }
     // MARK: - Window occlusion
     private var observedWindow: NSWindow?
@@ -197,7 +201,7 @@ final class SidebarListView: NSView {
         var targets: [(SidebarRowView, NSRect)] = []
         var appearing: [(SidebarRowView, NSRect)] = []
         var keep = Set<SidebarRowKey>()
-        let animate = animated && !old.rows.isEmpty
+        let animate = animated && !old.rows.isEmpty && selectedRowKey.map { old.row(for: $0) != nil } != false // a row shown as it is added (Cmd-N) appears in place, with the rest (cx-8g3sn)
         // New rows open from their run's top, so only the rows below move; a row still opening
         // that the next update moves (appended, then placed below) opens again there, in a new view:
         // the old one's retargeted spring would carry its stale open on through the rows (cx-ai79).

@@ -7,23 +7,9 @@
   padding: 5px;
   border: 1px solid var(--ui-line, var(--acpmux-composer-edge));
   border-radius: 10px;
-  background-color: color-mix(in srgb, var(--acpmux-menu-bg) var(--surface-text-min, 92%), transparent);
-  -webkit-backdrop-filter: var(--surface-blur, blur(20px) saturate(1.4));
-  backdrop-filter: var(--surface-blur, blur(20px) saturate(1.4));
+  background-color: var(--surface-popup);
   box-shadow: var(--ui-popup-shadow);
   color: var(--agent-text);
-}
-@media (prefers-reduced-transparency: reduce) {
-  .acpmux-effort-menu {
-    background-color: var(--acpmux-menu-bg);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-}
-:root[data-reduce-transparency] .acpmux-effort-menu {
-  background-color: var(--acpmux-menu-bg);
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
 }
 .ui-menu-item.acpmux-effort-item {
   display: flex;
@@ -88,6 +74,25 @@
   box-shadow: 0 1px 3px var(--agent-shadow);
   pointer-events: none;
   transition: left 160ms ease;
+}
+/* Faster and Smarter at the track's ends (the track is physical left-to-right, so the row is too),
+   the recommended level on its own centred line under them: a narrow panel never cuts it. */
+.acpmux-effort-ends {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  column-gap: 8px;
+  margin-top: 6px;
+  direction: ltr;
+  font-size: var(--text-detail);
+  line-height: 16px;
+  color: var(--agent-muted);
+}
+.acpmux-effort-recommended {
+  order: 3;
+  flex-basis: 100%;
+  text-align: center;
+  direction: initial;
 }
 .acpmux-effort-range {
   position: absolute;

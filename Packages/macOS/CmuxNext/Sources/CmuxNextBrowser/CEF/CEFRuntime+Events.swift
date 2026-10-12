@@ -107,10 +107,15 @@ extension CEFRuntime {
             omniboxKeywords.suggestionsArrived(requestID: requestID, extensionID: extensionID, json: json)
         case .authCallback(let browser, let url):
             CEFSignInCallbacks.shared.stopped(browser: browser, url: url)
+        case .bookmarks(let json, let path):
+            CEFBookmarkBridge.shared.arrived(json: json, cachePath: path)
         case .unknown:
             break
         default:
             if let browser = event.browserID, let tab = tabsByBrowser[browser] {
+                #if DEBUG
+                CEFEventTrace.record(browser, event)
+                #endif
                 tab.handle(event)
             }
         }
@@ -239,12 +244,12 @@ extension CEFRuntime {
     static let devToolsTimeout: Duration = .seconds(5)
 
     /// Runs a DevTools method in process and returns its JSON result, or
-    /// throws `timedOut` when no result arrives within `devToolsTimeout`.
-    func devTools(_ browser: Int32, method: String, params: [String: Any] = [:]) async throws -> String {
+    /// throws `timedOut` when no result arrives within `timeout`.
+    func devTools(_ browser: Int32, method: String, params: [String: Any] = [:],
+                  timeout: Duration = CEFRuntime.devToolsTimeout) async throws -> String {
         guard let shim else { throw BrowserTabError.closed }
         let message = shim.devToolsCall(browser, method, CEFDevToolsResult.params(params))
         guard message != 0 else { throw BrowserTabError.closed }
-        let timeout = Self.devToolsTimeout
         return try await devToolsCalls.reply(for: CEFDevToolsKey(browser: browser, message: message), timeout: timeout) {
             BrowserTabError.timedOut("DevTools \(method) (\(timeout))")
         }
@@ -315,16 +320,16 @@ extension CEFShimEvent {
     var browserID: Int32? {
         switch self {
         case .address(let b, _), .title(let b, _), .favicon(let b, _), .loadingState(let b, _, _, _),
-             .loadStart(let b, _), .loadEnd(let b, _), .loadError(let b, _, _, _), .progress(let b, _),
+             .loadStart(let b, _), .loadEnd(let b, _), .loadError(let b, _, _, _, _), .progress(let b, _),
              .fullscreen(let b, _), .findResult(let b, _, _, _), .closeRequested(let b), .popup(let b, _, _, _),
              .afterCreated(let b, _, _, _), .beforeClose(let b), .chromeCommand(let b, _), .devToolsResult(let b, _, _, _), .tab(_, let b, _, _),
              .reply(let b, _, _, _), .contextMenu(let b, _, _, _, _, _),
              .devToolsWillOpen(let b), .devToolsOpened(let b, _, _), .devToolsClosed(let b, _),
              .renderTerminated(let b, _, _, _), .renderUnresponsive(let b), .renderResponsive(let b),
-             .navigationReroute(let b, _, _), .localFileHandoff(let b, _), .keyUnhandled(let b, _, _), .installPrompt(let b, _, _), .takeFocus(let b, _),
-             .devToolsMessage(let b, _), .authCallback(let b, _):
+             .navigationReroute(let b, _, _), .localFileHandoff(let b, _), .externalURL(let b, _, _), .keyUnhandled(let b, _, _), .installPrompt(let b, _, _), .takeFocus(let b, _),
+             .devToolsMessage(let b, _), .authCallback(let b, _), .permissionPrompt(let b, _, _, _), .permissionDismissed(let b, _):
             b
-        case .contextInitialized, .omniboxSuggestions, .preferenceChanged, .download, .unknown:
+        case .contextInitialized, .omniboxSuggestions, .preferenceChanged, .bookmarks, .download, .unknown:
             nil
         }
     }

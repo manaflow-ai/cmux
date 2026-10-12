@@ -33,7 +33,7 @@ struct AccountRowView: View {
                 }
                 Spacer(minLength: Metrics.space4)
                 HStack(spacing: Metrics.space2) {
-                    if row.isBusy, row.phase != .detecting { ProgressView().controlSize(.mini) }
+                    if row.isBusy, row.phase != .detecting { ThemedSpinner(size: 10) }
                     Circle().fill(palette.statusColor(row)).frame(width: 6, height: 6)
                     Text(AccountsStrings.status(row)).font(palette.caption).foregroundStyle(palette.secondary)
                 }

@@ -7,7 +7,7 @@ import QuartzCore
 /// <version> is ready", the Automatic Updates checkbox and one full-width
 /// Restart to Update button (one click installs and relaunches; disabled,
 /// Installing…, once taken). Hovering the card or its button shows the
-/// release notes popover (``SidebarUpdateNotesView``). Hidden without a
+/// update's highlights popover (the React surface, cx-urd.61.2). Hidden without a
 /// staged update.
 final class SidebarUpdateCardView: NSView {
     var onInstall: (() -> Void)?
@@ -23,8 +23,42 @@ final class SidebarUpdateCardView: NSView {
     let releaseNotesButton = SidebarUpdateButton()
     let checkbox = SidebarUpdateCheckbox()
     let button = SidebarUpdateButton()
-    let notesView = SidebarUpdateNotesView()
+    /// The staged update's highlights (the React ready surface; set by the sidebar).
+    var highlights: (any SidebarSurfaceIsland)? {
+        didSet {
+            popover = nil
+            oldValue?.view.removeFromSuperview()
+            highlights?.onAction = { [weak self] in self?.hideNotes() }
+            parkHighlights()
+        }
+    }
+
+    /// Makes ``highlights`` once a card shows: each is a web page, and two
+    /// per window built at launch with no update staged cost about 50 ms of
+    /// main thread before the first frame.
+    var surfaces: (any SidebarUpdateSurfaces)? {
+        didSet {
+            highlights?.close()
+            highlights = card == nil ? nil : surfaces?.island(.ready)
+        }
+    }
+
+    /// The highlights page waits in the card's view tree, transparent,
+    /// click-through and outside the card's bounds, so it loads and reports
+    /// its height while the card shows; the popover takes it while open and
+    /// gives it back when it closes.
+    func parkHighlights() {
+        guard let highlights, highlights.view.superview !== parking else { return }
+        if parking.superview == nil { addSubview(parking, positioned: .below, relativeTo: nil) }
+        parking.frame = NSRect(x: SidebarIslandParking.offscreenX, y: 0, width: Self.popoverWidth, height: max(1, highlights.contentHeight))
+        highlights.view.removeFromSuperview()
+        highlights.view.frame = parking.bounds
+        highlights.view.autoresizingMask = [.width, .height]
+        parking.addSubview(highlights.view)
+    }
     var popover: NSPopover?
+    /// The highlights page's place while the popover is closed.
+    let parking = SidebarIslandParking()
     /// Set by the hover owner (`PointerHover`, cx-3wu5).
     private(set) var isHovered = false
     private var pointerHover: PointerHover?
@@ -47,11 +81,6 @@ final class SidebarUpdateCardView: NSView {
         [titleLabel, detailLabel, checkbox, releaseNotesButton, button].forEach(addSubview)
         button.onPress = { [weak self] in self?.onInstall?() }
         checkbox.onToggle = { [weak self] on in self?.onAutomaticUpdates?(on) }
-        notesView.onOpenLink = { [weak self] url in
-            self?.hideNotes()
-            self?.onOpenLink?(url)
-        }
-        notesView.onPointerExit = { [weak self] in self?.pointerLeftNotes() }
         setAccessibilityElement(false)
         isHidden = true
         pointerHover = PointerHover(self) { [weak self] hovering in self?.setHovered(hovering) }
@@ -64,15 +93,22 @@ final class SidebarUpdateCardView: NSView {
     override var wantsUpdateLayer: Bool { true }
     override var mouseDownCanMoveWindow: Bool { false }
 
-    /// Shows `card`, or hides the view (and its popover) for nil.
+    /// Shows `card`, or hides the view (and its popover) for nil. The
+    /// highlights page is made when a card first shows, so it has loaded
+    /// and measured before the first hover, and closed when the card goes.
     func configure(_ card: SidebarUpdateCard?) {
         guard card != self.card else { return }
         self.card = card
         isHidden = card == nil
         guard let card else {
+            // The card went away: its page goes too (a web page per window
+            // kept loaded with no staged update, cx-asynu).
             hideNotes()
+            highlights?.close()
+            highlights = nil
             return
         }
+        if highlights == nil { highlights = surfaces?.island(.ready) }
         titleLabel.stringValue = card.title
         detailLabel.stringValue = card.detail ?? ""
         detailLabel.isHidden = card.detail == nil
@@ -81,7 +117,7 @@ final class SidebarUpdateCardView: NSView {
             let label = NSTextField(labelWithString: "• " + line)
             label.lineBreakMode = .byTruncatingTail
             label.maximumNumberOfLines = 1
-            label.toolTip = line
+            label.themedToolTip = line
             addSubview(label)
             return label
         }
@@ -90,7 +126,6 @@ final class SidebarUpdateCardView: NSView {
         checkbox.configure(title: card.automaticUpdatesTitle, isOn: card.automaticUpdates)
         button.configure(title: card.buttonTitle, enabled: card.isEnabled,
                          help: [card.notes.headline, card.notes.keepsRunning].joined(separator: " "))
-        notesView.configure(card.notes)
         needsLayout = true
         needsDisplay = true
     }
@@ -158,7 +193,6 @@ final class SidebarUpdateCardView: NSView {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true
-        notesView.applyColors()
     }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {

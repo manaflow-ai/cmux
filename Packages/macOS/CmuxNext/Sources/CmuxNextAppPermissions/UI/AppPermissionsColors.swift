@@ -37,22 +37,9 @@ public struct AppPermissionsColors: Equatable {
         onPrimary = color(tokens.contentBackground.withAlpha(1))
     }
 
-    /// System grays and the system yellow and red, before a host resolves the theme.
-    init() {
-        text = Color(nsColor: .labelColor)
-        secondary = Color(nsColor: .secondaryLabelColor)
-        tertiary = Color(nsColor: .tertiaryLabelColor)
-        background = Color(nsColor: .windowBackgroundColor)
-        card = Color(nsColor: .controlBackgroundColor)
-        field = Color(nsColor: .quaternaryLabelColor)
-        hover = Color(nsColor: .quaternaryLabelColor)
-        selection = Color(nsColor: .unemphasizedSelectedContentBackgroundColor)
-        separator = Color(nsColor: .separatorColor)
-        warning = Color(nsColor: .systemYellow)
-        danger = Color(nsColor: .systemRed)
-        success = Color(nsColor: .systemGreen)
-        onPrimary = Color(nsColor: .windowBackgroundColor)
-    }
+    /// The app theme's (`ThemeTokens.unresolved`) before a host resolves the view's own scope,
+    /// never macOS's grays.
+    init() { self.init(tokens: .unresolved) }
 
     func tone(_ tone: AppRiskTone) -> Color {
         switch tone {

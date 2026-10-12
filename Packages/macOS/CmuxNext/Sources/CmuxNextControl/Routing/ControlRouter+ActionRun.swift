@@ -99,7 +99,8 @@ extension ControlRouter {
             // The request may have answered `not_run` already: then never run.
             guard progress.begin() else { throw expired }
             if action.id == "tab.focus" { tabSwitchMark("run") }
-            return ControlCommandScope.$current.withValue(scope) { executor.performActionTracked(request) }
+            // The queue runs this from a run-loop block, where no task is current (cx-bpcj).
+            return ControlCommandScope.$current.withValueInTask(scope) { executor.performActionTracked(request) }
         }
         do {
             try Self.check(run.outcome, action: action.id)

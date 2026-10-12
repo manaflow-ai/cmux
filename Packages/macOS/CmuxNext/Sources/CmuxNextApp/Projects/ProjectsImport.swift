@@ -57,6 +57,12 @@ final class ProjectsImport {
         }
     }
 
+    /// `batches` over a mirror snapshot, off the main actor: it groups every chat (5000+ on a
+    /// real Mac) on each index change (cx-9c8m.6).
+    @concurrent nonisolated static func batches(of store: AcpmuxChatsStore, sent: [String: Int], complete: Bool) async -> [Batch] {
+        batches(store.chats, sent: sent, complete: complete)
+    }
+
     private weak var services: AppServices?
     private var connectionID: ObjectIdentifier?
     private var sent: [String: Int] = [:]
@@ -66,7 +72,13 @@ final class ProjectsImport {
 
     init(services: AppServices) { self.services = services }
 
-    isolated deinit { sending?.cancel() }
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            sending?.cancel()
+        }
+    }
 
     /// Follows the chat index and the local daemon connection for the app's life.
     func start(feed: ChatsFeed?) {
@@ -100,13 +112,23 @@ final class ProjectsImport {
         let fresh = connectionID != id
         if fresh { sent = [:] }
         let feed = services.chatsFeed
-        let batches = Self.batches(feed?.chats ?? [], sent: sent,
-                                   complete: (feed?.isReady ?? false) && (feed?.isEnabled ?? false))
-        guard fresh || !batches.isEmpty else { return }
+        // A copy-on-write snapshot (O(1) here); the walk over every chat runs off the main actor.
+        let store = feed?.store ?? AcpmuxChatsStore()
+        let complete = (feed?.isReady ?? false) && (feed?.isEnabled ?? false)
+        let alreadySent = sent
         let client = ProjectStateClient(connection: connection)
+        // task-owner: awaited at once by `sending` below. Only this task holds the snapshot, so it
+        // is released when the batches are ready, not after the sends: a held snapshot would make
+        // the next main-actor store change copy all 5000 chats.
+        let grouping = Task { await Self.batches(of: store, sent: alreadySent, complete: complete) }
         sending = Task { [weak self] in
+            let batches = await grouping.value
             var delivered: [String: Int] = [:]
             var synced = !fresh
+            guard fresh || !batches.isEmpty else {
+                self?.finished(id, synced: synced, delivered: delivered)
+                return
+            }
             do {
                 if fresh {
                     try await client.sync(existing: [], gone: [], idempotencyKey: UUID().uuidString)

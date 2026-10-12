@@ -292,8 +292,8 @@ impl PtySurface {
     /// and the frame worker holds only a weak reference. Building here keeps
     /// the final render frame ordered after the byte taps and before detach.
     pub(super) fn publish_final_frame(&self) {
-        let term = self.term.lock().unwrap();
-        let generation = self.render_generation.load(Ordering::Acquire);
+        let mut term = self.term.lock().unwrap();
+        let generation = self.drop_exited_modes(&mut term);
         let _ = self.build_producer_frame(term, generation);
     }
 
@@ -307,7 +307,7 @@ impl PtySurface {
         if self.dead.swap(true, Ordering::AcqRel) {
             return;
         }
-        let generation = self.render_generation.load(Ordering::Acquire);
+        let generation = self.drop_exited_modes(&mut term);
         let _ = self.build_frame_locked(&mut term, generation, true);
         self.taps.lock().unwrap().clear();
         self.render.lock().unwrap().taps.clear();
@@ -318,6 +318,19 @@ impl PtySurface {
             .store(TerminalHostConnectionState::Exited as u8, Ordering::Release);
         drop(term);
         self.mark_output_dirty();
+    }
+
+    /// The exited child's modes off, so its retained tab selects and
+    /// pastes like plain text instead of capturing the mouse. Published as
+    /// output: byte taps get the same reset and the returned generation
+    /// renders it.
+    fn drop_exited_modes(&self, term: &mut Terminal) -> u64 {
+        let reset = term.vt_write_with_normalized(crate::prompt_mode_reset::EXIT_RESET);
+        self.broadcast_attach_output(&reset);
+        self.mouse_encoders.lock().unwrap().sync_from_terminal(term);
+        let generation = self.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
+        self.stream_progress.notify();
+        generation
     }
 
     pub(super) fn mark_output_dirty(&self) {
@@ -401,7 +414,7 @@ impl PtySurface {
         let mut geometry = self.geometry.lock().unwrap();
         let next = PtyGeometry { cols, rows, ..*geometry };
         next.pty_size()?;
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         {
             let runtime = self.runtime.lock().unwrap();
             if let PtyRuntime::Hosted(host) = &*runtime {
@@ -445,7 +458,7 @@ impl PtySurface {
             PtyGeometry { cell_width: requested.0, cell_height: requested.1, ..*geometry }
                 .pty_size()?;
         }
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         {
             let runtime = self.runtime.lock().unwrap();
             match &*runtime {
@@ -497,7 +510,7 @@ impl PtySurface {
         self.commit_geometry_for_runtime(geometry, next, refresh_attach_colors, false)
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) fn commit_hosted_geometry(
         &self,
         geometry: &mut PtyGeometry,
@@ -531,9 +544,9 @@ impl PtySurface {
         let runtime = (!hosted_mirror).then(|| self.runtime.lock().unwrap());
         let master = match runtime.as_deref() {
             Some(PtyRuntime::Local { master, .. }) => master.as_deref(),
-            #[cfg(unix)]
+            #[cfg(any(unix, windows))]
             Some(PtyRuntime::Hosted(_)) => None,
-            #[cfg(unix)]
+            #[cfg(any(unix, windows))]
             Some(PtyRuntime::ExitedHosted) => return Ok(false),
             None => None,
         };

@@ -619,7 +619,7 @@ impl Mux {
                             id: workspace_id,
                             public_id: WorkspacePublicId::random()?,
                             key: Mux::new_workspace_key()?,
-                            name: Mux::default_workspace_name(state),
+                            name: mux.default_workspace_name(state),
                             screens: vec![Screen {
                                 id: screen_id,
                                 public_id: ScreenPublicId::random()?,

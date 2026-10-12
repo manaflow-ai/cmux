@@ -2,11 +2,12 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
 import UniformTypeIdentifiers
+import CmuxNextCompat
 
 /// The toolbar's Downloads menu (`browser.downloads.show`, Edge's downloads
 /// flyout, cx-6qwm.1): the newest downloads first, each with its progress
 /// or end and a submenu to open it, show it in Finder, pause, resume or
-/// cancel it, or copy its link; then Open Downloads Folder and Clear.
+/// cancel it, retry it, or copy its link; then Open Downloads Folder and Clear.
 /// cmux opens a file only on a click here, never by itself.
 enum BrowserDownloadsMenu {
     /// Rows listed; the list keeps more (`BrowserDownloadList.limit`).
@@ -23,7 +24,7 @@ enum BrowserDownloadsMenu {
             empty.isEnabled = false
             menu.addItem(empty)
         }
-        for download in items { menu.addItem(row(download)) }
+        for download in items { menu.addItem(row(download, list: list)) }
         menu.addItem(.separator())
         for item in registry.makeContextMenu(for: .browserPage, target: target, entries: [.action("browser.downloads.showFolder")]).items {
             item.menu?.removeItem(item)
@@ -35,8 +36,9 @@ enum BrowserDownloadsMenu {
         return menu
     }
 
-    private static func row(_ download: BrowserDownload) -> NSMenuItem {
-        let item = NSMenuItem(title: download.filename, action: nil, keyEquivalent: "")
+    private static func row(_ download: BrowserDownload, list: BrowserDownloadList) -> NSMenuItem {
+        let item = NSMenuItem(title: middleTruncated(download.filename), action: nil, keyEquivalent: "")
+        if item.title != download.filename { item.toolTip = download.filename }
         item.subtitle = status(download)
         let icon = NSWorkspace.shared.icon(for: UTType(filenameExtension: (download.filename as NSString).pathExtension) ?? .data)
         icon.size = NSSize(width: 16, height: 16)
@@ -44,12 +46,17 @@ enum BrowserDownloadsMenu {
         let submenu = NSMenu(title: download.filename)
         let file = download.status == .finished ? download.destination : nil
         if let file {
-            submenu.addItem(closure(BrowserHitStrings.downloadOpen) { NSWorkspace.shared.open(file) })
-            submenu.addItem(closure(BrowserHitStrings.downloadShowInFinder) { NSWorkspace.shared.activateFileViewerSelecting([file]) })
+            submenu.addItem(closure(BrowserHitStrings.downloadOpen) { NSWorkspace.shared.openInBackground(file) })
+            submenu.addItem(closure(BrowserHitStrings.downloadShowInFinder) { NSWorkspace.shared.revealInBackground([file]) })
         }
         if download.canPause {
             let title = download.isPaused ? BrowserHitStrings.downloadResume : BrowserHitStrings.downloadPause
             submenu.addItem(closure(title) { [weak download] in download.map { $0.setPaused(!$0.isPaused) } })
+        }
+        if download.canRetry {
+            submenu.addItem(closure(BrowserHitStrings.downloadRetry) { [weak list, weak download] in
+                if let list, let download { list.retry(download) }
+            })
         }
         if download.status == .inProgress {
             submenu.addItem(closure(BrowserHitStrings.downloadCancel) { [weak download] in download?.cancel() })
@@ -62,6 +69,14 @@ enum BrowserDownloadsMenu {
         }
         if !submenu.items.isEmpty { item.submenu = submenu }
         return item
+    }
+
+    /// A long file name is cut in the middle, so its extension stays readable.
+    static func middleTruncated(_ name: String) -> String {
+        let limit = 60
+        guard name.count > limit else { return name }
+        let tail = limit / 3
+        return String(name.prefix(limit - tail - 1)) + "…" + String(name.suffix(tail))
     }
 
     /// The row's second line: progress and size while running, else how

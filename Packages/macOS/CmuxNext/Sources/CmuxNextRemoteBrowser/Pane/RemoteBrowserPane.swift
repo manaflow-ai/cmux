@@ -27,14 +27,6 @@ public final class RemoteBrowserPane {
         self.presenter.onFrameSize = { [weak self] size in self?.frameSizeChanged(size) }
     }
 
-    /// Decoded frame sizes in device pixels, one value per change. Finishes
-    /// at `stop()`.
-    public func frameSizes() -> AsyncStream<CGSize> {
-        let (stream, continuation) = AsyncStream.makeStream(of: CGSize.self, bufferingPolicy: .bufferingNewest(4))
-        sizeContinuations.append(continuation)
-        return stream
-    }
-
     public func start() {
         guard pipelineTask == nil else { return }
         let presenter = self.presenter

@@ -41,8 +41,11 @@ pub(crate) use saved_tab_groups::{
 
 mod frontend_browser_history;
 mod icon;
-pub use icon::validate_presentation_icon;
-mod svg_icon;
+pub use icon::{
+    IconAssetKind, is_sha256_hex, parse_icon_asset, validate_icon_value,
+    validate_presentation_icon, validate_presentation_icon_asset,
+};
+pub(crate) mod svg_icon;
 
 /// Longest accepted group name or workspace title, in characters.
 pub const MAX_PRESENTATION_TEXT_CHARS: usize = 256;
@@ -221,7 +224,7 @@ impl WorkspacePresentationUpdate {
             validate_presentation_color(color)?;
         }
         if let Some(Some(icon)) = &self.icon {
-            validate_presentation_icon(icon)?;
+            validate_icon_value(icon)?;
         }
         if let Some(Some(title)) = &self.title {
             validate_presentation_text("workspace title", title)?;
@@ -290,10 +293,15 @@ pub struct PresentationSnapshot {
 pub const TAB_GROUP_COLORS: [&str; 9] =
     ["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"];
 
+/// A tab or screen group color: one of the nine tokens, or a custom `#RRGGBB` a person picked,
+/// stored as given (cx-wqn5).
 pub fn validate_tab_group_color(value: &str) -> anyhow::Result<()> {
+    let hex = value.len() == 7
+        && value.starts_with('#')
+        && value[1..].bytes().all(|byte| byte.is_ascii_hexdigit());
     anyhow::ensure!(
-        TAB_GROUP_COLORS.contains(&value),
-        "bad request: tab group color must be one of {}",
+        hex || TAB_GROUP_COLORS.contains(&value),
+        "bad request: tab group color must be one of {} or #RRGGBB",
         TAB_GROUP_COLORS.join(", ")
     );
     Ok(())
@@ -777,6 +785,9 @@ pub(crate) fn write_workspace_presentation(
     update: &WorkspacePresentationUpdate,
 ) -> anyhow::Result<()> {
     update.validate()?;
+    if let Some(Some(icon)) = &update.icon {
+        super::personal_store::require_icon_asset(transaction, icon)?;
+    }
     if let Some(Some(group)) = &update.group {
         let exists = transaction
             .query_row("SELECT 1 FROM workspace_groups WHERE group_id = ?1", [group], |_| Ok(()))

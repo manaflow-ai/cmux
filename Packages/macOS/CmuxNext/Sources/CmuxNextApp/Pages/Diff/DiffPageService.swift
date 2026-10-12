@@ -47,6 +47,8 @@ final class DiffPageService: InternalPageProvider {
     /// The diff page draws at the display's full rate (120 Hz), as the agent pane does, not
     /// WebKit's default nearest 60 fps.
     static let engineOptions = PageEngineOptions(fullFrameRate: true)
+    /// Every tab's Stage, Commit and Push (cx-ueuc8), through this Mac's agent git link.
+    private lazy var diffGit: any DiffGitRunning = DiffAgentGit(link: services.agentGit.local)
     /// The folder picker of `cmux.diff.chooseFolder`.
     var chooser: any DiffFolderChoosing = OpenPanelFolderChooser()
     private var tabs: [String: Tab] = [:]
@@ -127,6 +129,16 @@ final class DiffPageService: InternalPageProvider {
         Task { await recents.record(repository, source: source) }
     }
 
+    /// The repository root the tab opened on (page-tab-route-v1).
+    func route(for key: String) -> String? { tabs[key]?.repository?.root }
+
+    /// A store tab came back on repository root `route` (Reopen Closed,
+    /// relaunch): it shows that root against its default base.
+    func restore(_ route: String, for key: String) {
+        guard tabs[key] == nil, route.hasPrefix("/") else { return }
+        tabs[key] = Tab(repository: DiffRepository(root: route, branch: nil, base: nil), source: .default)
+    }
+
     /// The diff page of `key`, nil for any other tab or before its view exists.
     func pageView(_ key: String) -> PageWebView? { tabs[key]?.page }
 
@@ -167,7 +179,7 @@ final class DiffPageService: InternalPageProvider {
         let host = DiffTabHost(service: self, key: key)
         let ready = tab.repository.map { runtime.prepare(repository: $0, source: tab.source) }
         let provider = DiffPageProvider(ready: ready, sidecar: runtime.sidecar, languages: runtime.languages, host: host,
-                                        stores: stores)
+                                        stores: stores, git: diffGit)
         let native = AppPageNativeProvider(services: services, page: .diff)
         let routes = [PageRoute(prefix: "cmux.diff.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
         guard let page = PageWebView(descriptor: .diff, routes: routes, options: Self.engineOptions, surface: .diff,

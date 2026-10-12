@@ -67,7 +67,6 @@ extension DaemonStore {
 
     /// The pending intents in order.
     public var pendingIntents: [Intent] { intentLog.entries.map(\.kind) }
-    public var hasPendingIntents: Bool { !intentLog.isEmpty }
 
     /// The daemon echoed `transaction`. An echo carried by an event the
     /// store could not apply exactly (it resyncs) settles only once the

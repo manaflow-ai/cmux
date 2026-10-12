@@ -17,11 +17,14 @@ final class PaneHeaderView: NSView {
     let pillBacking = NSView()
     var title: String = "" { didSet { if title != oldValue { applyTitle() } } }
     /// The avatar's monogram (the conversation's other participant).
-    var initials: String = "" { didSet { if initials != oldValue { avatar.image = PaneHeaderView.avatarImage(initials, light: light) } } }
+    var initials: String = "" { didSet { if initials != oldValue { applyAvatar() } } }
+    /// A picture for the avatar (the Home Chief's), drawn in the disc over
+    /// the monogram; nil shows the monogram.
+    var picture: NSImage? { didSet { if picture !== oldValue { applyAvatar() } } }
     /// A light theme: the measured white disc would vanish on a light
     /// header, so the disc takes the theme's secondary text grey with a
     /// white monogram (Messages' light-mode avatar).
-    var light = false { didSet { if light != oldValue { avatar.image = PaneHeaderView.avatarImage(initials, light: light) } } }
+    var light = false { didSet { if light != oldValue { applyAvatar() } } }
     var onContact: () -> Void = {}
 
     static let avatarSize: CGFloat = 40
@@ -110,6 +113,10 @@ final class PaneHeaderView: NSView {
 
     @objc private func contactClicked() { onContact() }
 
+    private func applyAvatar() {
+        avatar.image = picture.map(PaneHeaderView.avatarImage(picture:)) ?? PaneHeaderView.avatarImage(initials, light: light)
+    }
+
     /// cmux: the pill's capsule color (translucent); nil leaves it clear.
     func setPillBacking(_ color: NSColor?) {
         pillBacking.layer?.backgroundColor = color?.cgColor
@@ -128,6 +135,17 @@ final class PaneHeaderView: NSView {
             let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: ink]
             let size = (initials as NSString).size(withAttributes: attrs)
             (initials as NSString).draw(at: CGPoint(x: r.midX - size.width / 2, y: r.midY - size.height / 2), withAttributes: attrs)
+            return true
+        }
+    }
+
+    /// A picture clipped to the avatar disc, filling it (its centered square).
+    static func avatarImage(picture: NSImage) -> NSImage {
+        NSImage(size: NSSize(width: avatarSize, height: avatarSize), flipped: false) { r in
+            NSBezierPath(ovalIn: r).addClip()
+            let size = picture.size, side = min(size.width, size.height)
+            let square = CGRect(x: (size.width - side) / 2, y: (size.height - side) / 2, width: side, height: side)
+            picture.draw(in: r, from: square, operation: .sourceOver, fraction: 1)
             return true
         }
     }

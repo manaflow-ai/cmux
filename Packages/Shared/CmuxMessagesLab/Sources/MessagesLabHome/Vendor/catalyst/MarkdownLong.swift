@@ -29,33 +29,33 @@ enum MarkdownLong {
 
     /// One scanned line: indentation and the leaf facts the cut rule needs.
     private static func indent(_ p: UnsafeBufferPointer<UInt8>, _ l: Line) -> (cols: Int, first: Int) {
-        // cmux: the line as a clamped slice (p is an unsafe buffer: its subscript does not check in release).
+        // the line as a clamped slice (p is an unsafe buffer: its subscript does not check in release).
         var col = 0, i = l.start
         for b in p.slice(l.start, l.end) { guard b == 32 || b == 9 else { break }; col += b == 9 ? 4 - col % 4 : 1; i += 1 }
         return (col, i)
     }
     private static func isBlank(_ p: UnsafeBufferPointer<UInt8>, _ l: Line) -> Bool {
-        p.slice(l.start, l.end).allSatisfy { $0 == 32 || $0 == 9 || $0 == 13 } // cmux: clamped slice
+        p.slice(l.start, l.end).allSatisfy { $0 == 32 || $0 == 9 || $0 == 13 } // clamped slice
     }
     private static func fence(_ p: UnsafeBufferPointer<UInt8>, _ l: Line) -> (UInt8, Int, Bool)? {
         let (cols, i) = indent(p, l)
-        guard cols < 4, i < l.end, let c = p[checked: i], c == 96 || c == 126 else { return nil } // cmux: checked
-        let n = p.slice(i, l.end).prefix(while: { $0 == c }).count // cmux: clamped slice
+        guard cols < 4, i < l.end, let c = p[checked: i], c == 96 || c == 126 else { return nil } // checked
+        let n = p.slice(i, l.end).prefix(while: { $0 == c }).count // clamped slice
         guard n >= 3 else { return nil }
         var rest = true, tick = false
-        for b in p.slice(i + n, l.end) { if b != 32, b != 9, b != 13 { rest = false }; if b == 96 { tick = true } } // cmux
+        for b in p.slice(i + n, l.end) { if b != 32, b != 9, b != 13 { rest = false }; if b == 96 { tick = true } }
         if c == 96, tick { return nil }
         return (c, n, rest)
     }
     private static func hasPipe(_ p: UnsafeBufferPointer<UInt8>, _ l: Line) -> Bool {
-        p.slice(l.start, l.end).contains(124) // cmux: clamped slice
+        p.slice(l.start, l.end).contains(124) // clamped slice
     }
     /// A GFM delimiter row ("|---|:--:|"): only | - : and spaces, at least one "-".
     private static func isDelimiter(_ p: UnsafeBufferPointer<UInt8>, _ l: Line) -> Bool {
         let (cols, i) = indent(p, l)
         guard cols < 4, i < l.end else { return false }
         var dash = false
-        for b in p.slice(i, l.end) { // cmux: clamped slice
+        for b in p.slice(i, l.end) { // clamped slice
             switch b { case 45: dash = true; case 124, 58, 32, 9, 13: break; default: return false }
         }
         return dash
@@ -63,27 +63,27 @@ enum MarkdownLong {
     /// "===" or "---" alone (a setext underline after a paragraph line, or a rule).
     private static func isUnderline(_ p: UnsafeBufferPointer<UInt8>, _ l: Line) -> Bool {
         let (cols, i) = indent(p, l)
-        guard cols < 4, i < l.end, let c = p[checked: i], c == 61 || c == 45 else { return false } // cmux: checked
-        return p.slice(i, l.end).allSatisfy { $0 == c || $0 == 32 || $0 == 9 || $0 == 13 } // cmux: clamped slice
+        guard cols < 4, i < l.end, let c = p[checked: i], c == 61 || c == 45 else { return false } // checked
+        return p.slice(i, l.end).allSatisfy { $0 == c || $0 == 32 || $0 == 9 || $0 == 13 } // clamped slice
     }
     /// A line that ends a table (GFM: a blank line or the start of another block).
     private static func endsTable(_ p: UnsafeBufferPointer<UInt8>, _ l: Line) -> Bool {
         if isBlank(p, l) || fence(p, l) != nil { return true }
         let (cols, i) = indent(p, l)
         guard cols < 4, i < l.end else { return false }
-        return p[checked: i] == 35 || p[checked: i] == 62 // cmux: checked
+        return p[checked: i] == 35 || p[checked: i] == 62 // checked
     }
     private static func listOrIndented(_ p: UnsafeBufferPointer<UInt8>, _ l: Line) -> Bool {
         let (cols, i) = indent(p, l)
         if cols > 0 { return true }
         guard i < l.end else { return false }
-        guard let b = p[checked: i] else { return false } // cmux: checked
-        if (b == 45 || b == 42 || b == 43), i + 1 < l.end, p[checked: i + 1] == 32 { return true } // cmux
-        let k = i + p.slice(i, l.end).prefix(9).prefix(while: { $0 >= 48 && $0 <= 57 }).count // cmux: up to 9 digits, clamped slice
+        guard let b = p[checked: i] else { return false } // checked
+        if (b == 45 || b == 42 || b == 43), i + 1 < l.end, p[checked: i + 1] == 32 { return true }
+        let k = i + p.slice(i, l.end).prefix(9).prefix(while: { $0 >= 48 && $0 <= 57 }).count // up to 9 digits, clamped slice
         return k > i && k < l.end && (p[checked: k] == 46 || p[checked: k] == 41)
     }
     private static func string(_ p: UnsafeBufferPointer<UInt8>, _ a: Int, _ b: Int) -> String {
-        String(decoding: UnsafeBufferPointer(rebasing: p.slice(a, b)), as: UTF8.self) // cmux: clamped slice
+        String(decoding: UnsafeBufferPointer(rebasing: p.slice(a, b)), as: UTF8.self) // clamped slice
     }
 
     /// The block end for a markdown text: the plain rule's `plainEnd` moved back to the last
@@ -103,7 +103,7 @@ enum MarkdownLong {
         while i < n {
             var e = i
             // A line past the plain end is read at most 8 KB far (a 5 MB line is not rescanned per block).
-            while e < n, e < plainEnd + 8192, p[checked: e] != 10 { e += 1 } // cmux: checked
+            while e < n, e < plainEnd + 8192, p[checked: e] != 10 { e += 1 } // checked
             let l = Line(start: i, end: e)
             // A cut before this line (i > from) is allowed when nothing is open and this line does
             // not belong to the line before it (a delimiter row, a setext underline).
@@ -168,7 +168,7 @@ enum MarkdownLong {
         if !carry.isOpen {
             // Leading blank lines: one 16 pt gap (a blank line at the top level).
             while let nl = content.firstIndex(of: "\n"), content.prefix(upTo: nl).allSatisfy({ $0 == " " || $0 == "\t" || $0 == "\r" }) {
-                lead += 1; content = content.suffix(from: content.index(after: nl)) // cmux: no range subscripts
+                lead += 1; content = content.suffix(from: content.index(after: nl)) // no range subscripts
             }
         }
         if openBottom {
@@ -229,12 +229,12 @@ enum MarkdownLong {
         ax = ax.map(shift)
         var textH = md.size.height - 2 * padY + dy
         if trail.count >= 2 { textH += Markdown.lineHeight }
-        let lines = max(1, CrashGuard.int(ceil(textH / Markdown.lineHeight - 0.001), in: CrashGuard.countRange)) // cmux: no trap on NaN
+        let lines = max(1, CrashGuard.int(ceil(textH / Markdown.lineHeight - 0.001), in: CrashGuard.countRange)) // no trap on NaN
         let bottom = padY + CGFloat(lines) * Markdown.lineHeight
         // Open edges: the continuing block's background, border and grid reach past the block's
         // slice (tiles clip them at the seam), so a code block or table runs through the cut.
         if carry.isOpen, let r0 = regions.first {
-            // cmux: mutated with map / update(at:) (no index math, crash program).
+            // mutated with map / update(at:) (no index math, crash program).
             boxes = boxes.map { box in
                 guard box.region == 0 else { return box }
                 var box = box
@@ -249,7 +249,7 @@ enum MarkdownLong {
             regions.update(at: 0) { $0.frame = CGRect(x: r0.frame.minX, y: padY, width: r0.frame.width, height: r0.frame.maxY - padY) }
         }
         if openBottom, let ri = regions.indices.last {
-            boxes = boxes.map { box in // cmux: no index math
+            boxes = boxes.map { box in // no index math
                 guard box.region == ri else { return box }
                 var box = box
                 switch box.kind {
@@ -258,7 +258,7 @@ enum MarkdownLong {
                 }
                 return box
             }
-            regions.update(at: ri) { $0.frame.size.height = bottom - $0.frame.minY } // cmux
+            regions.update(at: ri) { $0.frame.size.height = bottom - $0.frame.minY }
         }
         let display = String(repeating: "\n", count: lead) + plain + trail
         var h = Hasher(); h.combine(src); h.combine(column); h.combine(carry); h.combine(openBottom)

@@ -33,30 +33,36 @@
   display: inline-flex;
   min-width: 0;
 }
+/* The button's geometry and type are the shared small ghost button's (ui/ghost.css, cx-s6zvc);
+   the read-only face matches it by hand. The chevron's ink sits 4 px inside its 14 px box. */
 .acpmux-location-button,
 .acpmux-location-readonly {
   appearance: none;
   -webkit-appearance: none;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
   min-width: 0;
   width: 100%;
   max-width: 220px;
-  height: 22px;
   margin: 0;
-  padding: 0 6px;
   box-sizing: border-box;
   border: 0;
-  border-radius: 6px;
   background: none;
   box-shadow: none;
   color: var(--agent-muted);
-  font: inherit;
-  font-weight: inherit;
-  letter-spacing: inherit;
+  font-family: inherit;
   white-space: nowrap;
   outline: none;
+}
+.acpmux-location-button {
+  --ui-ghost-end-bearing: 4px;
+}
+.acpmux-location-readonly {
+  gap: 4px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 6px;
+  font: inherit;
 }
 .acpmux-location-button { cursor: default; }
 .acpmux-location-button:hover,
@@ -85,12 +91,17 @@
 .acpmux-context-divider { flex: none; color: var(--agent-muted); opacity: .65; }
 /* The menus: the composer menu's surface, rows highlighted with the theme's wash, never a system blue.
    Base UI's positioner places them (portaled to the body, which is why styles.css gives
-   .ui-positioner the pane's tokens), so the composer menu's own absolute placement is undone. */
-.acpmux-location-menu { position: relative; inset: auto; min-width: 200px; max-width: 320px; max-height: none; overflow: visible; font-size: var(--text-control); }
-/* The recent folders scroll; Choose folder… stays in view under them. The menu opens above its
-   control (ComposerContext.tsx useControlAnchor), so the list also fits the room the positioner
-   reports there, less Choose folder… and the menu's padding, but never under two rows. */
+   .ui-positioner the pane's tokens), so the composer menu's own absolute placement is undone. Both
+   classes, so this wins over styles.css's .acpmux-menu whichever loads last: losing it puts the
+   popup its own height above the positioner. */
+.acpmux-menu.acpmux-location-menu { position: relative; inset: auto; min-width: 200px; max-width: 320px; max-height: none; overflow: visible; font-size: var(--text-control); }
+/* The recent folders (and the folder field's suggestions) scroll; Choose folder… stays in view under
+   them. A location menu keeps the side it chose when it opened (ComposerContext.tsx
+   useLocationPopover), so the list fits the room the positioner reports there, less Choose folder…
+   and the menu's padding, but never under two rows. */
 .acpmux-location-folders {
+  /* Its height by design: a window too small for it sends the menu past its edge (popupHost.ts). */
+  --popup-scroll-cap: 260px;
   max-height: max(88px, min(260px, 45vh, calc(var(--available-height, 100vh) - 60px)));
   overflow: auto;
 }
@@ -131,31 +142,17 @@
   padding: var(--ui-popup-padding);
   border: 0;
   border-radius: var(--ui-popup-radius);
-  background-color: color-mix(in srgb, var(--acpmux-menu-bg) var(--surface-text-min, 92%), transparent);
-  -webkit-backdrop-filter: var(--surface-blur, blur(20px) saturate(1.4));
-  backdrop-filter: var(--surface-blur, blur(20px) saturate(1.4));
+  background-color: var(--surface-popup);
   box-shadow: var(--ui-popup-shadow);
   color: var(--agent-text);
   transform-origin: var(--transform-origin);
-}
-@media (prefers-reduced-transparency: reduce) {
-  .acpmux-access-menu {
-    background-color: var(--acpmux-menu-bg);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-}
-:root[data-reduce-transparency] .acpmux-access-menu {
-  background-color: var(--acpmux-menu-bg);
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
 }
 .ui-menu-item.acpmux-access-item {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
-  min-height: 44px;
+  min-height: var(--ui-row-height);
   padding: 5px var(--ui-row-padding-inline);
   border-radius: var(--ui-row-radius);
   color: var(--agent-text);
@@ -166,7 +163,7 @@
 .acpmux-access-item-icon .acpmux-icon { width: 16px; height: 16px; }
 .acpmux-access-item .acpmux-menu-text { order: 2; min-width: 0; }
 .acpmux-access-item .acpmux-menu-label { font-size: var(--text-control); font-weight: 500; }
-.acpmux-access-item .acpmux-menu-description { display: block; margin-top: 1px; overflow: hidden; color: var(--agent-muted); font-size: var(--text-detail); line-height: 15px; text-overflow: ellipsis; white-space: nowrap; }
+.acpmux-access-item .acpmux-menu-description { display: block; margin-top: 1px; color: var(--agent-muted); font-size: var(--text-detail); line-height: 15px; }
 .acpmux-access-item.acpmux-unrestricted .acpmux-access-item-icon { color: var(--acpmux-warning); }
 .acpmux-send { width: 32px; height: 32px; }
 .acpmux-context-ring { width: 32px; height: 32px; }
@@ -239,6 +236,8 @@
 .acpmux-location-button,
 .acpmux-location-readonly {
   max-width: 190px;
+}
+.acpmux-location-readonly {
   border-radius: 7px;
 }
 .acpmux-composer-context .acpmux-location-label {
@@ -247,7 +246,8 @@
 @media (max-width: 480px) {
   .acpmux-composer-context { padding-inline: 9px; gap: 2px; }
   .acpmux-location-button,
-  .acpmux-location-readonly { max-width: 145px; padding-inline: 4px; }
+  .acpmux-location-readonly { max-width: 145px; }
+  .acpmux-location-readonly { padding-inline: 4px; }
   .acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker + .acpmux-location-picker { padding-left: 2px; }
 }
 
@@ -264,7 +264,8 @@
   white-space: nowrap;
 }
 .acpmux-composer-bar .acpmux-access-trigger {
-  width: auto;
+  width: 180px;
+  box-sizing: border-box;
   max-width: 180px;
   gap: 5px;
   padding-inline: 8px;
@@ -308,8 +309,31 @@
   background: var(--acpmux-composer-edge);
 }
 @media (max-width: 480px) {
-  .acpmux-composer-bar .acpmux-access-trigger { max-width: 112px; }
+  /* At compact pane widths the rail keeps every action available but uses the same icon-first
+     treatment as the mode picker. The button labels remain in aria-label/title metadata, so
+     keyboard and assistive-technology users still get the full value. */
+  .acpmux-composer-bar .acpmux-model .acpmux-picker-button {
+    width: 32px !important;
+    max-width: 32px;
+    justify-content: center;
+    gap: 0;
+    padding-inline: 0;
+    overflow: hidden;
+  }
+  .acpmux-composer-bar .acpmux-model-name,
+  .acpmux-composer-bar .acpmux-model .acpmux-picker-button .acpmux-icon:last-child {
+    display: none;
+  }
+  .acpmux-composer-bar .acpmux-access-trigger { width: 112px; max-width: 112px; }
   .acpmux-composer-bar .acpmux-mode-text { display: none; }
+}
+/* Keep the complete control rail usable in a very narrow pane. The regular 112px access
+   control is comfortable at the 240px compact breakpoint, but plus + access + Send otherwise
+   exceed the bar's content box below 220px. Preserve every action and only tighten their rhythm. */
+@media (max-width: 220px) {
+  .acpmux-composer-bar { gap: 6px; padding-inline: 8px; }
+  .acpmux-composer-bar .acpmux-composer-plus .acpmux-picker-button { width: 24px; }
+  .acpmux-composer-bar .acpmux-access-trigger { width: 96px; max-width: 96px; }
 }
 /* Start Agent's panel (Composer contextFirst, cx-hkat): the row heads the card, so its hairline
    and rounded corners move to the top. */

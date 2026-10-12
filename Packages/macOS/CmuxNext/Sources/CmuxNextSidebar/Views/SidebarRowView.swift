@@ -16,7 +16,7 @@ class SidebarRowView: NSView {
             guard isSelected != oldValue else { return }
             fadesNextFill = false
             needsDisplay = true
-            // Rows show controls on the selected row too (the menu button, cx-a9h6).
+            // Rows show controls on the selected row too (the tab chevron, cx-fo2t).
             needsLayout = true
         }
     }
@@ -69,7 +69,7 @@ class SidebarRowView: NSView {
         targetSize = nil
         alphaValue = 1
         setTitleHidden(false)
-        toolTip = nil
+        themedToolTip = nil
     }
 
     /// Buttons that receive clicks directly.
@@ -86,16 +86,26 @@ class SidebarRowView: NSView {
     }
 
     /// The next fill change came from hover, so it fades
-    /// (`MotionFade.hover`); reloads and theme changes apply at once.
+    /// (`ChromeHover.fade`: eases in, clears at once); reloads and theme
+    /// changes apply at once.
     var fadesNextFill = false
 
     /// Paints `color` on the row's backing layer, fading when hover changed
     /// it. Call from `updateLayer()` inside the theme scope.
     func paintFill(_ color: NSColor?) {
+        paintsFill = color != nil
         guard let layer else { return }
         ChromeHover.paint(layer, color, animated: fadesNextFill)
         fadesNextFill = false
     }
+
+    /// The row paints a fill now (`paintFill`); debug.sidebar_rows `fill`.
+    private(set) var paintsFill = false
+    /// Any fill the row shows now, its own or a part's (debug).
+    var debugFill: Bool { paintsFill }
+    /// The row's disclosure chevron for debug.sidebar_rows: the pack icon it
+    /// draws, its frame in the row and whether it shows; nil without one.
+    var debugDisclosure: (icon: String, frame: CGRect, shown: Bool)? { nil }
 
     /// Counts the times this row started opening its slot (clipped): an
     /// earlier open's completion, run early when a later update reopens the

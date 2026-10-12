@@ -445,6 +445,10 @@
       "scope": "conversation:read",
       "class": "read"
     },
+    "conversation.thread": {
+      "scope": "conversation:read",
+      "class": "read"
+    },
     "conversation.typing": {
       "scope": "conversation:write",
       "class": "mutation"
@@ -581,7 +585,15 @@
       "scope": "git:write",
       "class": "mutation"
     },
+    "git.commit": {
+      "scope": "git:execute",
+      "class": "mutation"
+    },
     "git.diff": {
+      "scope": "git:read",
+      "class": "read"
+    },
+    "git.files.list": {
       "scope": "git:read",
       "class": "read"
     },
@@ -589,9 +601,25 @@
       "scope": "git:read",
       "class": "read"
     },
+    "git.push": {
+      "scope": "git:external",
+      "class": "mutation"
+    },
     "git.status": {
       "scope": "git:read",
       "class": "read"
+    },
+    "git.worktree.apply": {
+      "scope": "git:execute",
+      "class": "mutation"
+    },
+    "git.worktree.create": {
+      "scope": "git:execute",
+      "class": "mutation"
+    },
+    "git.worktree.remove": {
+      "scope": "git:execute",
+      "class": "mutation"
     },
     "github.issue.comment": {
       "scope": "github:external",
@@ -696,6 +724,10 @@
     "invite.revoke": {
       "scope": "invite:write",
       "class": "mutation"
+    },
+    "keybindings.get": {
+      "scope": "keybindings:read",
+      "class": "read"
     },
     "linear.issue.create": {
       "scope": "linear:write",
@@ -1680,6 +1712,17 @@
     "firewall.list",
     "frontend_projection.get",
     "frontend_projection.put",
+    "history.backups.purge",
+    "history.clear",
+    "history.entries.list",
+    "history.entries.remove",
+    "history.restore",
+    "history.site.remove",
+    "history.visit.import",
+    "history.visit.record",
+    "history.visit.remove",
+    "history.visit.summaries",
+    "history.visit.title",
     "home.settings.set",
     "host.enroll",
     "host.remove",
@@ -1694,6 +1737,9 @@
     "integration.policy.set",
     "integration.revoke",
     "invite.accept",
+    "keybindings.remove",
+    "keybindings.reset",
+    "keybindings.set",
     "network.list",
     "origin.confirmation.issue",
     "pairing_request.list",
@@ -1753,6 +1799,7 @@
     "user.text_confirm.lower",
     "user.text_confirm.lower.challenge",
     "workspace.agent_folder.set",
+    "workspace.agent_start.get",
     "workspace.close"
   ]
 }

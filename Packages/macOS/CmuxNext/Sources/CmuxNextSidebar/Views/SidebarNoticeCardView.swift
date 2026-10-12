@@ -25,7 +25,7 @@ final class SidebarNoticeCardView: NSView {
     /// List lines under the detail (a changelog), one label each.
     private var lineLabels: [NSTextField] = []
     private let icon = NSImageView()
-    private let spinner = NSProgressIndicator()
+    private let spinner = StatusIndicatorView.spinner()
     private let track = CALayer()
     private let bar = CALayer()
     private(set) var actionButtons: [SidebarUpdateButton] = []
@@ -54,10 +54,6 @@ final class SidebarNoticeCardView: NSView {
         detailLabel.isSelectable = false
         shortcutLabel.alignment = .right
         icon.imageScaling = .scaleProportionallyDown
-        spinner.style = .spinning
-        spinner.controlSize = .small
-        spinner.isIndeterminate = true
-        spinner.isDisplayedWhenStopped = false
         content.wantsLayer = true
         track.cornerRadius = 1.5
         bar.cornerRadius = 1.5
@@ -82,7 +78,7 @@ final class SidebarNoticeCardView: NSView {
         self.notice = notice
         isHidden = notice == nil
         guard let notice else {
-            spinner.stopAnimation(nil)
+            spinner.spin(false)
             return
         }
         eyebrowLabel.stringValue = notice.eyebrow ?? ""
@@ -96,7 +92,7 @@ final class SidebarNoticeCardView: NSView {
                 let label = NSTextField(labelWithString: "• " + line)
                 label.lineBreakMode = .byTruncatingTail
                 label.maximumNumberOfLines = 1
-                label.toolTip = line
+                label.themedToolTip = line
                 content.addSubview(label)
                 return label
             }
@@ -105,8 +101,7 @@ final class SidebarNoticeCardView: NSView {
         shortcutLabel.isHidden = notice.shortcut == nil || notice.actions.isEmpty
         let spins = notice.progress == .indeterminate
         icon.isHidden = notice.symbol == nil || spins
-        spinner.isHidden = !spins
-        if spins { spinner.startAnimation(nil) } else { spinner.stopAnimation(nil) }
+        spinner.spin(spins)
         closeButton.isHidden = notice.dismissLabel == nil
         closeButton.label = notice.dismissLabel ?? ""
         if previous?.actions != notice.actions { rebuildButtons(notice.actions) }
@@ -117,6 +112,27 @@ final class SidebarNoticeCardView: NSView {
         needsLayout = true
         applyColors()
     }
+
+    /// Right-click (cx-2lm4): the card's buttons, then its x (Dismiss), as menu items.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let notice else { return nil }
+        let menu = NSMenu()
+        for action in notice.actions.prefix(2) {
+            let item = menu.addItem(withTitle: action.title, action: #selector(menuAction(_:)), keyEquivalent: "")
+            (item.target, item.representedObject) = (self, action.id)
+        }
+        if let dismiss = notice.dismissLabel {
+            if !menu.items.isEmpty { menu.addItem(.separator()) }
+            menu.addItem(withTitle: dismiss, action: #selector(menuDismiss), keyEquivalent: "").target = self
+        }
+        return menu.items.isEmpty ? nil : menu
+    }
+
+    @objc private func menuAction(_ item: NSMenuItem) {
+        if let id = notice?.id, let action = item.representedObject as? String { onAction?(id, action) }
+    }
+
+    @objc private func menuDismiss() { if let id = notice?.id { onDismiss?(id) } }
 
     private func rebuildButtons(_ actions: [SidebarNoticeCard.Action]) {
         actionButtons.forEach { $0.removeFromSuperview() }
@@ -245,12 +261,6 @@ final class SidebarNoticeCardView: NSView {
     }
 
     // MARK: Tests
-
-    /// The text lines shown (heading, title, detail, shortcut).
-    var lineViews: [NSView] { [eyebrowLabel, titleLabel, detailLabel, shortcutLabel].filter { !$0.isHidden } }
-
-    /// Whether the icon (or the spinner) shows beside the title.
-    var showsSymbol: Bool { !icon.isHidden || !spinner.isHidden }
 
     /// Every line as shown, top to bottom.
     var shownText: [String] {

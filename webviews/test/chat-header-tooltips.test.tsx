@@ -1,5 +1,5 @@
 // The chat header's top right (cx-qom0): every button names itself in a tooltip, with its keycap
-// when the action has one, as in ChatGPT; [+] New tab reads Hide tabs in the same spot once the
+// as the tooltip's shortcut hint when the action has one, as in ChatGPT; [+] New tab reads Hide tabs in the same spot once the
 // tabs beside the chat show. The header renders in jsdom with the host's keycaps; the
 // pane's tooltip layer (ui/titleTooltips.ts) shows each `title`.
 import { afterAll, beforeAll, expect, test } from "bun:test";
@@ -58,18 +58,20 @@ test("every header button has a tooltip, with its shortcut when it has one; New 
     [...host.querySelectorAll(".acpmux-header-tools button")].map((button) => [
       button.getAttribute("aria-label"),
       button.getAttribute("title"),
+      button.getAttribute("data-tooltip-shortcut"),
     ]);
   render(false);
+  // The keycap is the tooltip's shortcut hint (secondary ink, like native), not part of the title.
   expect(named()).toEqual([
-    ["Terminal", "Terminal (⌘D)"],
-    ["Browser", "Browser (⇧⌘L)"],
-    ["New tab", "New tab"],
-    ["Chat actions", "Chat actions"],
+    ["Terminal", "Terminal", "⌘D"],
+    ["Browser", "Browser", "⇧⌘L"],
+    ["New tab", "New tab", null],
+    ["Chat actions", "Chat actions", null],
   ]);
   // [+] New tab becomes Hide tabs on the same button, so the next click lands on it again.
   const newTab = host.querySelectorAll(".acpmux-header-tools button")[2];
   render(true);
   expect(host.querySelectorAll(".acpmux-header-tools button")[2]).toBe(newTab);
-  expect(named()[2]).toEqual(["Hide tabs", "Hide tabs"]);
+  expect(named()[2]).toEqual(["Hide tabs", "Hide tabs", null]);
   expect(newTab.getAttribute("aria-pressed")).toBe("true");
 });

@@ -47,21 +47,24 @@ final class ChangelogPageTab: InternalPageProvider {
             services.pages.register(made)
             return made
         }()
-        let route = Self.route(from: from, to: to)
+        let route = Self.route(from: from, to: to, design: WhatsNewTunables.design.value)
         provider.pendingRoute = route
         let view = services.pages.show(.changelog, in: services.windows.active, focus: focus)
         provider.pendingRoute = nil
-        // An open tab moves to the new span.
-        if let route, let page = view?.content as? PageWebView, page.route != route { page.open(route: route) }
+        // An open tab moves to the new span (a design change alone applies the next time the page opens).
+        if let route, to?.isEmpty == false, let page = view?.content as? PageWebView, page.route != route { page.open(route: route) }
         return view != nil
     }
 
-    /// `#/?from=<from>&to=<to>`, nil without `to`.
-    static func route(from: String?, to: String?) -> String? {
-        guard let to, !to.isEmpty else { return nil }
+    /// `#/?design=<d>&from=<from>&to=<to>`: `design` only off the default journal, the span only
+    /// with `to`; nil when neither applies.
+    static func route(from: String?, to: String?, design: WhatsNewDesign = .journal) -> String? {
+        let span = to.flatMap { $0.isEmpty ? nil : $0 }
+        guard span != nil || design != .journal else { return nil }
         var query = URLComponents()
-        query.queryItems = [from.flatMap { $0.isEmpty ? nil : URLQueryItem(name: "from", value: $0) },
-                            URLQueryItem(name: "to", value: to)].compactMap { $0 }
+        query.queryItems = [design == .journal ? nil : URLQueryItem(name: "design", value: design.rawValue),
+                            span.flatMap { _ in from.flatMap { $0.isEmpty ? nil : URLQueryItem(name: "from", value: $0) } },
+                            span.map { URLQueryItem(name: "to", value: $0) }].compactMap { $0 }
         // URLSearchParams reads `+` as a space; a version may carry build metadata (`1.2.3+abc`).
         return "#/?" + (query.percentEncodedQuery ?? "").replacingOccurrences(of: "+", with: "%2B")
     }
@@ -76,7 +79,8 @@ extension PageFactory {
     /// (Try it runs only the descriptor's allow-listed actions).
     func changelogPage(route: String? = nil) -> PageWebView? {
         let updater = services.updater
-        let provider = ChangelogPageProvider(source: updater.releaseNotes, currentBuild: updater.identity.build)
+        let provider = ChangelogPageProvider(source: updater.releaseNotes, currentBuild: updater.identity.build,
+                                             media: updater.releaseMedia)
         let native = AppPageNativeProvider(services: services, page: .changelog)
         let routes = [PageRoute(prefix: "cmux.changelog.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
         let page = PageWebView(descriptor: .changelog, routes: routes, route: route)

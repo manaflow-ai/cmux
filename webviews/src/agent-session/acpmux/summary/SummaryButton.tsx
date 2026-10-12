@@ -5,27 +5,39 @@ import type { AcpmuxRow } from "../model";
 import { GalleryDialog } from "./GalleryDialog";
 import { chatGallery } from "./chatGallery";
 import { sessionSummary } from "./sessionSummary";
-import { SummaryPopover } from "./SummaryPopover";
+import { SummaryPopover, type SummaryChanges } from "./SummaryPopover";
 import { Popover } from "../../../ui/Popover";
 import { registerPicker } from "../pickerOpeners";
+import { Lineage } from "../subagents/Lineage";
+import { subagentsIn } from "../subagents/subagentRows";
 
 /// The header's summary button and its popover: what this chat has produced so far. The
 /// summary is read from the transcript only while the popover is open, so a live turn pays
 /// nothing for it while it is closed. Its Outputs section opens the chat's gallery; an image
-/// there opens the image viewer (`onOpenImage`) in the gallery's place.
+/// there opens the image viewer (`onOpenImage`) in the gallery's place. With `lineage`, its
+/// Lineage section opens a subagent's view, or the chat's, and closes the popover.
 export function SummaryButton({
   rows,
   onOpenOutput,
   onOpenImage,
   changes,
   onOpenChanges,
+  lineage,
 }: {
   rows: readonly AcpmuxRow[];
   onOpenOutput?: (path: string) => void;
   onOpenImage?: (src: string, alt: string) => void;
-  /// The last turn that edited files, with its counts; the popover's Changes row opens it.
-  changes?: { additions: number; deletions: number };
-  onOpenChanges?: () => void;
+  /// The last turn that edited files, with its counts and files; the popover's Changes rows open
+  /// its diff, or a file's.
+  changes?: SummaryChanges;
+  onOpenChanges?: (path?: string) => void;
+  lineage?: {
+    /// The subagents' own views (the snapshot's `subagentViews`), for their nested subagents.
+    views: Record<string, AcpmuxRow[]> | undefined;
+    current: string | undefined;
+    chat: string;
+    onOpen: (id: string | undefined) => void;
+  };
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -44,6 +56,12 @@ export function SummaryButton({
     setGallery(false);
   };
   const summary = useMemo(() => (open ? sessionSummary(rows) : undefined), [open, rows]);
+  const hasLineage = lineage !== undefined;
+  const lineageViews = lineage?.views;
+  const lineageAgents = useMemo(
+    () => (open && hasLineage ? [...subagentsIn(rows, lineageViews).values()] : []),
+    [open, rows, hasLineage, lineageViews],
+  );
   const galleryCount = useMemo(() => (open ? chatGallery(rows).length : 0), [open, rows]);
   useEffect(() => {
     if (!open) return;
@@ -94,15 +112,30 @@ export function SummaryButton({
               setGallery(true);
             }}
             changes={changes}
-            onOpenChanges={() => {
+            onOpenChanges={(path) => {
               // Diff review restores focus to its opener after closing. Keep the
               // persistent Sources button as that opener before unmounting this
               // popover, rather than handing it a detached Changes row.
               button.current?.focus();
               setOpen(false);
-              onOpenChanges?.();
+              onOpenChanges?.(path);
             }}
             onFollow={() => setOpen(false)}
+            lineage={
+              lineage &&
+              lineageAgents.length > 0 && (
+                <Lineage
+                  agents={lineageAgents}
+                  current={lineage.current}
+                  chat={lineage.chat}
+                  onOpen={(id) => {
+                    button.current?.focus();
+                    setOpen(false);
+                    lineage.onOpen(id);
+                  }}
+                />
+              )
+            }
             onOpenOutput={
               onOpenOutput &&
               ((path) => {

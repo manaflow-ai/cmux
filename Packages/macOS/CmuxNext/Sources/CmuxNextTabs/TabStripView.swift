@@ -38,11 +38,6 @@ public final class TabStripView: NSView {
     /// Metrics in effect. Re-read from the tokens on every settings change.
     public private(set) var metrics: TabStripMetrics = .standard
 
-    public var hoverCardPolicy: HoverCardPolicy {
-        get { hoverCard.policy }
-        set { hoverCard.policy = newValue }
-    }
-
     /// Empty strip space in the window's top row acts as a titlebar (`actsAsTitlebar`).
     public var dragsWindowFromEmptySpace = true
     var windowControlsInset: CGFloat = 0
@@ -118,6 +113,7 @@ public final class TabStripView: NSView {
     var drag: TabStripDrag?
     /// Order shown after a local reorder until the model's order changes.
     var orderOverride: [TabID]?
+    let reorderSettle = DemandTimer(owner: "TabStrip.reorderSettle")  // ends a reorder the model never shows
     /// Tab torn out of this strip and handed to the App's drag session. Its
     /// slot stays collapsed until the model drops it or the App restores it.
     var detachedID: TabID?

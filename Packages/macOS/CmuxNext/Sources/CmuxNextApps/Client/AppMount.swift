@@ -73,8 +73,6 @@ extension AppsClient {
         }
     }
 
-    var liveMounts: [AppMount] { Array(mounts.values) }
-
     /// Ends every mount on the supervisor and keeps it here (an
     /// administrator turned apps off on this Mac): the app hosts stop once
     /// nothing shows them, and the next connection mounts them again.

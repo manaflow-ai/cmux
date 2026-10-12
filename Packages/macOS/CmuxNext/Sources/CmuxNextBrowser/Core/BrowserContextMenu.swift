@@ -144,8 +144,12 @@ public final class BrowserContextMenuRequest {
         completion?(id)
     }
 
-    isolated deinit {
-        // A host that drops the request dismisses the menu.
-        completion?(nil)
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            // A host that drops the request dismisses the menu.
+            completion?(nil)
+        }
     }
 }

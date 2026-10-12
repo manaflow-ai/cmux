@@ -8,6 +8,10 @@
 
 use super::*;
 
+// The keybindings.json owner beside the settings file (cx-9ce.17).
+#[path = "keybindings_owner.rs"]
+mod keybindings_owner;
+
 const COMMENTED: &str = "// my cmux settings\n{\n  // the tab bar stays on top\n  \"tabs\": {\n    \"barPosition\": \"top\" /* inline */\n  },\n  \"unknownKey\": 1,\n}\n";
 
 struct SettingsDaemon {
@@ -249,4 +253,29 @@ fn settings_owner_reports_a_hand_edit_of_the_file_on_the_subscribe_stream() {
     let event = next_settings_event("the CLI write");
     assert_eq!(event["origin"], "cli", "{event}");
     assert!(event["revision"].as_u64().is_some(), "{event}");
+
+    // Two saves right after each other end in the second file: the reload
+    // after the burst reports both keys (one settings-changed when the saves
+    // fall into one burst, as they do unless the runner stalls between them).
+    let first = COMMENTED.replace("\"top\"", "\"bottom\"");
+    let second = first.replace("/* inline */", "/* inline */,\n    \"cmdWClosesPinnedTabs\": true");
+    for text in [&first, &second] {
+        fs::write(&temporary, text).unwrap();
+        fs::rename(&temporary, &daemon.config).unwrap();
+    }
+    let mut reported = std::collections::BTreeSet::new();
+    while !(reported.contains("tabs.barPosition") && reported.contains("tabs.cmdWClosesPinnedTabs"))
+    {
+        let event = next_settings_event("the burst of two saves");
+        assert_eq!(event["origin"], "file", "{event}");
+        reported.extend(
+            event["keys"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|key| key.as_str().map(String::from)),
+        );
+    }
+    assert_eq!(daemon.get("tabs.barPosition")["value"], "bottom");
+    assert_eq!(daemon.get("tabs.cmdWClosesPinnedTabs")["value"], true);
 }

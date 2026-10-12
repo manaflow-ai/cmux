@@ -24,12 +24,12 @@ stdio pipes in their own process group (`acpmux/src/agent.rs:136-152`).
 | Daemon restart (SIGTERM, `shutdown-daemon`, crash, SIGKILL) | survive: hosts outlive the daemon; the new daemon re-adopts them from `terminal-hosts-<token>/*.json` records (`mux.rs:3518-3780`); tested by `terminal_host_survives_sigkill_and_is_adopted_with_io_and_size`, `fenced_daemon_shutdown_acks_then_preserves_and_re_adopts_terminal_host`, `terminal_host_survives_daemon_process_group_hangup` | n/a (acpmux is a separate process) |
 | acpmux restart (SIGTERM, `_acpmux/shutdown`) | n/a | survive under agent hosts (default on): the daemon detaches every host and the next daemon adopts it; `_acpmux/shutdown {endAgents: true}` (the app's Quit Everything) ends them and records the turn in progress as `turn_result {status: cancelled, detail: quit}` (`hub/shutdown.rs`). With `ACPMUX_AGENT_HOSTS=0`: LOST, as before |
 | acpmux crash (SIGKILL) | n/a | survive under agent hosts: the host keeps every unacknowledged entry and the next daemon resumes after the last logged `hseq`. With `ACPMUX_AGENT_HOSTS=0`: LOST |
-| acpmux start after either | n/a | every non-closed session becomes `idle` (`hub/mod.rs` `load_from_store`); an open turn gets `turn_result failed outcome_unknown` "the daemon restarted before this turn settled" (`mark_unknown_outcomes`); queued prompts (memory only) are gone; the next prompt respawns the harness and resumes its own history (`session/load`, or `claude --resume`) |
+| acpmux start after either | n/a | every non-closed session becomes `idle` (`hub/mod.rs` `load_from_store`); an open turn gets `turn_result failed outcome_unknown` "the daemon restarted before this turn settled" (`mark_unknown_outcomes`); queued prompts come back from the log in order (each `queued` record carries the prompt; `hub/queue.rs` `restore_queues`) and run after any adopted turn; a resend of one waits for that run; the next prompt respawns the harness and resumes its own history (`session/load`, or `claude --resume`) |
 
 What survives an agent restart is the transcript (`$ACPMUX_HOME/sessions/<id>/session.json` +
 `events/NNNNNN.ndjson`) and the harness's own resume. What is lost: the turn in flight (tool calls
 mid-run, background shells under the harness process group, streamed output not yet produced),
-pending permission prompts, queued prompts, and the Claude stdio translator state (pending ACP
+pending permission prompts, and the Claude stdio translator state (pending ACP
 request map, control-request map: `claude_stdio/mod.rs:147-165`).
 
 Gaps on the PTY side (it is the model, but not complete):
@@ -135,8 +135,9 @@ replayed spool:
   the `permission_request` payload (`agentRequestId`, additive).
 - Other agent-to-client requests with no logged answer (fs reads and writes) are handled again as if
   they just arrived; a write asks permission again.
-- Queue: prompts that waited behind the turn in the old daemon were never sent to the agent; their
-  clients resend them (`_meta.acpmux.resend`, which already looks in the log). Not rebuilt (A3).
+- Queue: prompts that waited behind the turn in the old daemon were never sent to the agent. The
+  new daemon rebuilds the queue from the log and runs it after the recovered turn; a client resend
+  (`_meta.acpmux.resend`) waits for that run.
 - Status: `running` while the recovered turn runs, `waiting` while a recovered prompt is open, else
   `ready`; never forced to `idle` for an adopted agent.
 

@@ -89,6 +89,9 @@ async fn forward_inner(
             obj.insert("sessionId".into(), Value::String(id.clone()));
         }
         super::remote_guard::mark_forwarded(conn.origin, params, &mut p);
+        if m == method::MUX_PERMISSION_RESPOND {
+            count_hop(&mut p)?;
+        }
         if matches!(
             m,
             method::MUX_ATTACH
@@ -101,13 +104,14 @@ async fn forward_inner(
                 let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
                 let event_stream =
                     params.get("eventStream").and_then(Value::as_bool).unwrap_or(false);
-                conn.subscribe_with(&id, SubOpts { event_stream, filter });
+                conn.subscribe_with(&id, SubOpts { event_stream, filter, ..SubOpts::default() });
             } else {
                 super::requests::attach(hub, conn, &id);
             }
             if peer.mark_attached(&id) && m != method::MUX_ATTACH {
-                let _ =
-                    peer.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await;
+                // The link is not a person: only a client's own attach or view shows the chat.
+                let attach = json!({"sessionId": id, "limit": 0, "visible": false});
+                let _ = peer.request(method::MUX_ATTACH, attach).await;
             }
         }
         let mut result = peer.request(m, p).await.map_err(|e| {
@@ -132,4 +136,27 @@ async fn forward_inner(
         return Ok(Some(result));
     }
     Ok(None)
+}
+
+/// `_meta.acpmux` field of a forwarded `permission_respond`: how many
+/// daemons forwarded it so far.
+pub const PEER_HOPS_FIELD: &str = "peerHops";
+/// At most this many forwards: a chain of peers needs a few, and two
+/// daemons that each list the session as the other's cannot pass an
+/// answer back and forth without end.
+pub const MAX_PEER_HOPS: u64 = 4;
+
+/// Count one more forward of an answer, or refuse one past the limit.
+fn count_hop(forwarded: &mut Value) -> Result<(), RpcError> {
+    let hops = forwarded
+        .pointer(&format!("/_meta/acpmux/{PEER_HOPS_FIELD}"))
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    if hops >= MAX_PEER_HOPS {
+        return Err(RpcError::invalid_params(format!(
+            "this permission answer was forwarded between peers {hops} times (at most {MAX_PEER_HOPS} hops)"
+        )));
+    }
+    crate::hub::merge_mux_meta(forwarded, json!({PEER_HOPS_FIELD: hops + 1}));
+    Ok(())
 }

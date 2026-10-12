@@ -13,6 +13,7 @@ public final class Events {
 
     public static final EventMetadata ACTIVITY_CHANGED = new EventMetadata("activity-changed", 12, "vm-activity-v1", List.of("control"), true);
     public static final EventMetadata AGENT_CHANGED = new EventMetadata("agent-changed", 11, null, List.of("subscribe"), true);
+    public static final EventMetadata AGENT_PRESENCE_CHANGED = new EventMetadata("agent-presence-changed", 12, "agent-presence-v1", List.of("subscribe"), true);
     public static final EventMetadata BELL = new EventMetadata("bell", 5, null, List.of("subscribe"), true);
     public static final EventMetadata BOOKMARKS_CHANGED = new EventMetadata("bookmarks-changed", 12, "bookmarks-v1", List.of("subscribe"), true);
     public static final EventMetadata BROWSER_STATE = new EventMetadata("browser-state", 6, null, List.of("attach-browser"), true);
@@ -31,6 +32,7 @@ public final class Events {
     public static final EventMetadata COLORS_CHANGED = new EventMetadata("colors-changed", 6, null, List.of("attach-byte"), true);
     public static final EventMetadata CONFIG_RELOAD_REQUESTED = new EventMetadata("config-reload-requested", 6, null, List.of("subscribe"), true);
     public static final EventMetadata CONVERSATION_CHANGED = new EventMetadata("conversation-changed", 12, "local-conversations-v1", List.of("subscribe"), true);
+    public static final EventMetadata CONVERSATION_DRAFT = new EventMetadata("conversation-draft", 12, "conversation-draft-events-v1", List.of("subscribe"), true);
     public static final EventMetadata CONVERSATION_TYPING = new EventMetadata("conversation-typing", 12, "local-conversations-v1", List.of("subscribe"), true);
     public static final EventMetadata DAEMON_SHUTDOWN = new EventMetadata("daemon-shutdown", 12, null, List.of("control"), true);
     public static final EventMetadata DETACHED = new EventMetadata("detached", 5, null, List.of("attach-byte", "attach-render", "attach-browser"), true);
@@ -38,6 +40,8 @@ public final class Events {
     public static final EventMetadata FRAME = new EventMetadata("frame", 6, null, List.of("attach-browser"), true);
     public static final EventMetadata FRONTEND_PROJECTION_CHANGED = new EventMetadata("frontend-projection-changed", 7, null, List.of("subscribe"), true);
     public static final EventMetadata GRAPHICS_STATUS = new EventMetadata("graphics-status", 10, null, List.of("subscribe"), true);
+    public static final EventMetadata HISTORY_CHANGED = new EventMetadata("history-changed", 12, "history-v1", List.of("subscribe"), true);
+    public static final EventMetadata KEYBINDINGS_CHANGED = new EventMetadata("keybindings-changed", 12, "keybindings-v1", List.of("subscribe"), true);
     public static final EventMetadata LAYOUT_CHANGED = new EventMetadata("layout-changed", 6, null, List.of("subscribe"), true);
     public static final EventMetadata MACHINE_USAGE_CHANGED = new EventMetadata("machine-usage-changed", 12, "machine-usage-v1", List.of("subscribe"), true);
     public static final EventMetadata NOTIFICATION = new EventMetadata("notification", 6, null, List.of("subscribe", "attach-byte", "attach-browser"), true);
@@ -87,6 +91,7 @@ public final class Events {
         LinkedHashMap<String, EventMetadata> values = new LinkedHashMap<>();
         values.put("activity-changed", ACTIVITY_CHANGED);
         values.put("agent-changed", AGENT_CHANGED);
+        values.put("agent-presence-changed", AGENT_PRESENCE_CHANGED);
         values.put("bell", BELL);
         values.put("bookmarks-changed", BOOKMARKS_CHANGED);
         values.put("browser-state", BROWSER_STATE);
@@ -105,6 +110,7 @@ public final class Events {
         values.put("colors-changed", COLORS_CHANGED);
         values.put("config-reload-requested", CONFIG_RELOAD_REQUESTED);
         values.put("conversation-changed", CONVERSATION_CHANGED);
+        values.put("conversation-draft", CONVERSATION_DRAFT);
         values.put("conversation-typing", CONVERSATION_TYPING);
         values.put("daemon-shutdown", DAEMON_SHUTDOWN);
         values.put("detached", DETACHED);
@@ -112,6 +118,8 @@ public final class Events {
         values.put("frame", FRAME);
         values.put("frontend-projection-changed", FRONTEND_PROJECTION_CHANGED);
         values.put("graphics-status", GRAPHICS_STATUS);
+        values.put("history-changed", HISTORY_CHANGED);
+        values.put("keybindings-changed", KEYBINDINGS_CHANGED);
         values.put("layout-changed", LAYOUT_CHANGED);
         values.put("machine-usage-changed", MACHINE_USAGE_CHANGED);
         values.put("notification", NOTIFICATION);

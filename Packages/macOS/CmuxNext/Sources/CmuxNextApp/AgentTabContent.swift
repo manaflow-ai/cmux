@@ -52,7 +52,9 @@ struct AgentTabContent {
         if paneView.launchImageView == nil, let image = pane.services.agentTabs.launchImages.take(key) { paneView.showLaunchImage(image) }
         guard paneView.launchImageView != nil, let view else { return }
         view.showsLoadingState = false
-        paneView.onLaunchImageCleared = { [weak view] in view?.showsLoadingState = true }
+        paneView.onLaunchImageCleared = { [weak view] in
+            if let view, view.model.newTab == nil { view.showsLoadingState = true }
+        }
         view.model.whenPainted { [weak paneView] in paneView?.clearLaunchImage() }
     }
 }

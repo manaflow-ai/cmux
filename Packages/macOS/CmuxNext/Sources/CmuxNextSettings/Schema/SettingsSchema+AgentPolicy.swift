@@ -37,16 +37,16 @@ extension SettingsSchema {
         // The edited-files card (looks only).
         .union(AgentPaneEditedFilesSettingsSchema.agentSettableKeys)
 .union(["agentPane.zoom"]) // display-only agent surface zoom
-        .union(AgentPaneComposerSettingsSchema.agentSettableKeys) // the composer's context ring (looks only)
+        .union(AgentPaneComposerSettingsSchema.agentSettableKeys) // the composer's context ring and mic (looks only)
 
     private static let agentSettableTable: Set<String> = [
         "window.titlebar",
         "shortcuts.showModifierHoldHints",
         "window.titlebarButtons",
         "tabs.plusButton",
-        "tabs.barPosition", "tabs.barOrder",
+        "tabs.barPosition", "tabs.barOrder", "tabs.hiddenButtons",
         "navigation.historyScope", "navigation.history.scope",
-        "sidebar.minimalMode",
+        "sidebar.minimalMode", "sidebar.minimal", "sidebar.density",
         "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps",
         "sidebar.side",
         "sidebar.spacesPosition", "sidebar.spacesVisibility",
@@ -77,6 +77,8 @@ extension SettingsSchema {
         "layout.minimumPaneHeight",
         "appearance.theme",
         "appearance.appTheme",
+        "appearance.accent",
+        "appearance.themeEdits",
         "appearance.backdropArt",
         "appearance.backgroundOpacity",
         "appearance.backgroundBlur",
@@ -121,7 +123,7 @@ extension SettingsSchema {
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
         "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.showChats",
-        "sidebar.cards.tips", "sidebar.showProjects", "sidebar.groupBy",
+        "sidebar.cards.tips", "sidebar.showProjects", "sidebar.showSpaces", "sidebar.showProfileControl", "sidebar.groupBy",
         "browser.defaultEngine",
         "browser.newTabPage",
         "browser.showBookmarksBar",
@@ -148,6 +150,7 @@ extension SettingsSchema {
         "notifications.attention.persist",
         "notifications.attention.showOnTab",
         "notifications.attention.showOnSidebar",
+        "notifications.attention.moveToTop",
         // cmux-browser mutes a workspace through settings.set as `script` (cmux-browser #614).
         "notifications.mutedWorkspaces",
         "labs.previewFeatures",
@@ -166,13 +169,20 @@ extension SettingsSchema {
         "agents.chats.enabled": .privacy,
         "picker.pinned": .userOnly,
         "history.terminalCommands": .privacy,
+        "history.commandRetentionDays": .privacy,
         "feed.mirrorNotifications.agents": .privacy,
         "feed.mirrorNotifications.terminal": .privacy,
+        // An agent must not turn on sending its own prompts to the phone (cx-aocz).
+        "feed.agentPermissionPrompts": .privacy,
         "feed.github.enabled": .network,
         "feed.github.pollIntervalSeconds": .network,
         "browser.remoteLocalhost": .network,
         // On, any local process can drive every Chromium tab; only the person turns it on.
         "browser.allowIPhoneAccess": .userOnly,
+        // Links the person sends to their default browser (a bank, SSO) must not move into a browser agents drive.
+        "browser.openTerminalLinksInCmuxBrowser": .privacy,
+        "browser.hostsToOpenInEmbeddedBrowser": .privacy,
+        "browser.urlsToAlwaysOpenExternally": .privacy,
         // Whether attached photos and videos send their location.
         "home.attachments.keepLocation": .privacy,
         // A reply's file link outside the project, and a reply's web image (D4, D5).

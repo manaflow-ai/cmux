@@ -63,6 +63,9 @@ import AppKit
         content.isHovered = false
         content.isSelected = false // The lifted card is its own raised surface: no selection fill on it.
         (content as? WorkspaceRowView)?.isSecondarySelected = false
+        // The lifted header shows no hover-only buttons and no focus ring.
+        (content as? GroupHeaderRowView)?.isKeyboardFocused = false
+        (content as? GroupHeaderRowView)?.isEditing = false
         return content
     }
 }

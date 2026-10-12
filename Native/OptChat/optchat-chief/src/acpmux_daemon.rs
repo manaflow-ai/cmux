@@ -20,18 +20,61 @@ use std::time::{Duration, Instant};
 
 use crate::cli::env;
 
-/// `ACPMUX_SOCKET`, else `$ACPMUX_HOME/acpmux.sock`, else `~/.acpmux/acpmux.sock`.
+/// `ACPMUX_SOCKET`, else `$ACPMUX_HOME/acpmux.sock`, else `~/.acpmux/acpmux.sock`
+/// (a long path maps to a short alias: [`socket_path_for`]).
 pub fn socket_path() -> PathBuf {
-    if let Some(socket) = env("ACPMUX_SOCKET") {
-        return socket.into();
-    }
-    if let Some(home) = env("ACPMUX_HOME") {
-        return PathBuf::from(home).join("acpmux.sock");
-    }
     let user = std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| "/".into());
-    user.join(".acpmux").join("acpmux.sock")
+    // SAFETY: getuid has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    socket_path_for(
+        env("ACPMUX_SOCKET").as_deref(),
+        env("ACPMUX_HOME").as_deref(),
+        &user,
+        uid,
+    )
+}
+
+/// [`socket_path`] for a configured socket, acpmux home, user home and uid, by
+/// the rule acpmux and every host share (cmux-agent-pane-policy
+/// `environment::socket_path`, whose tests/cases/environment.json this crate's
+/// tests run): an absolute `ACPMUX_SOCKET` past the Unix socket limit (a long
+/// TMPDIR), and a long home, map to `/tmp/acpmux-<uid>/<fnv1a64>.sock`.
+pub fn socket_path_for(
+    configured: Option<&str>,
+    home: Option<&str>,
+    user_home: &Path,
+    uid: u32,
+) -> PathBuf {
+    let alias = |key: &str| PathBuf::from(format!("/tmp/acpmux-{uid}/{:016x}.sock", fnv1a64(key)));
+    if let Some(socket) = configured {
+        if socket.starts_with('/') && socket.len() > MAX_SOCKET_PATH_BYTES {
+            return alias(socket);
+        }
+        return socket.into();
+    }
+    let home = home
+        .map(PathBuf::from)
+        .unwrap_or_else(|| user_home.join(".acpmux"));
+    let preferred = home.join("acpmux.sock");
+    if preferred.as_os_str().len() < 96 {
+        return preferred;
+    }
+    alias(&home.to_string_lossy())
+}
+
+/// The longest Unix socket path every host binds (cmux-agent-pane-policy
+/// `MAX_SOCKET_PATH_BYTES`): macOS's `sun_path` less its NUL.
+const MAX_SOCKET_PATH_BYTES: usize = 103;
+
+fn fnv1a64(text: &str) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in text.bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0100_0000_01b3);
+    }
+    hash
 }
 
 /// Whether something accepts connections on the socket.
@@ -152,15 +195,22 @@ pub fn ensure_with(
             socket.display()
         )),
         Action::Spawn => {
-            let pid = spawn(socket, bin, log)?;
-            seen_up.store(true, Ordering::SeqCst);
+            // Recorded before the child exists (cx-33c6): a stop from here on
+            // waits for this start and stops what it started; after a stop no
+            // start begins.
+            if bin.is_some() && !begin_start() {
+                return Err("the host is stopping; it starts no acpmux".into());
+            }
+            let result = spawn(socket, bin, log);
             if let Some(bin) = bin {
-                let _ = STARTED.set(Started {
+                finish_start(result.is_ok().then(|| Started {
                     bin: bin.into(),
                     socket: socket.to_path_buf(),
                     home: daemon_home(socket),
-                });
+                }));
             }
+            let pid = result?;
+            seen_up.store(true, Ordering::SeqCst);
             Ok(Some(pid))
         }
     }
@@ -189,13 +239,41 @@ fn await_socket(socket: &Path, wait: Duration) -> Result<(), String> {
     }
 }
 
-/// `ACPMUX_HOME`, else the socket's directory.
 fn daemon_home(socket: &Path) -> PathBuf {
-    env("ACPMUX_HOME").map(PathBuf::from).unwrap_or_else(|| {
-        socket
-            .parent()
-            .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
-    })
+    let user = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| "/".into());
+    // SAFETY: getuid has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    daemon_home_for(
+        env("ACPMUX_HOME").as_deref(),
+        env("ACPMUX_SOCKET").as_deref(),
+        socket,
+        &user,
+        uid,
+    )
+}
+
+/// The home a started daemon gets: `ACPMUX_HOME`, else the configured
+/// socket's directory, else the socket's own, except the shared short alias
+/// folder a long path resolves to ([`socket_path_for`]): acpmux creates that
+/// one private, so a home there would be `~/.acpmux`.
+pub fn daemon_home_for(
+    home: Option<&str>,
+    configured: Option<&str>,
+    socket: &Path,
+    user_home: &Path,
+    uid: u32,
+) -> PathBuf {
+    if let Some(home) = home {
+        return home.into();
+    }
+    let named = configured.map_or(socket, Path::new);
+    match named.parent() {
+        Some(dir) if dir != Path::new(&format!("/tmp/acpmux-{uid}")) => dir.into(),
+        Some(_) => user_home.join(".acpmux"),
+        None => PathBuf::from("."),
+    }
 }
 
 /// The daemon this process started (local mode): only that one is this
@@ -207,7 +285,48 @@ struct Started {
     home: PathBuf,
 }
 
-static STARTED: std::sync::OnceLock<Started> = std::sync::OnceLock::new();
+/// The starts of this process: in flight, done, and whether it stops.
+struct Starts {
+    starting: u32,
+    started: Option<Started>,
+    stopped: bool,
+}
+
+static STARTS: std::sync::Mutex<Starts> = std::sync::Mutex::new(Starts {
+    starting: 0,
+    started: None,
+    stopped: false,
+});
+static START_DONE: std::sync::Condvar = std::sync::Condvar::new();
+
+fn starts() -> std::sync::MutexGuard<'static, Starts> {
+    STARTS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// A start begins, unless a stop came first.
+fn begin_start() -> bool {
+    let mut starts = starts();
+    if starts.stopped {
+        return false;
+    }
+    starts.starting += 1;
+    true
+}
+
+/// A start ended, with the daemon it started (None: it started none).
+fn finish_start(started: Option<Started>) {
+    let mut starts = starts();
+    starts.starting -= 1;
+    if starts.started.is_none() {
+        starts.started = started;
+    }
+    START_DONE.notify_all();
+}
+
+/// How long a stop waits for a start in flight: [`spawn`] ends within 30 s.
+const START_WAIT: Duration = Duration::from_secs(35);
 
 /// How long `acpmux daemon shutdown` may take (it ends every agent host,
 /// with its own SIGTERM-to-SIGKILL grace).
@@ -219,7 +338,16 @@ const SHUTDOWN_LIMIT: Duration = Duration::from_secs(20);
 /// found running belongs to the app or a supervisor and is left alone.
 /// Returns whether it stopped one.
 pub fn shutdown_started(log: &dyn Fn(&str)) -> bool {
-    let Some(started) = STARTED.get() else {
+    // A start in flight (the child exists, its socket not yet) finishes
+    // first, so its daemon is stopped too; no start begins after this.
+    let started = {
+        let (mut starts, _) = START_DONE
+            .wait_timeout_while(starts(), START_WAIT, |s| s.starting > 0)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        starts.stopped = true;
+        starts.started.take()
+    };
+    let Some(started) = started else {
         return false;
     };
     let mut command = Command::new(&started.bin);
@@ -322,6 +450,9 @@ fn spawn(socket: &Path, bin: Option<&str>, log: &dyn Fn(&str)) -> Result<u32, St
             ));
         }
         if Instant::now() >= deadline {
+            // Started and never ready: it is this host's, so it ends here.
+            let _ = child.kill();
+            let _ = child.wait();
             return Err(format!(
                 "acpmux socket {} not ready after 30 s",
                 socket.display()

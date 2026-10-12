@@ -532,6 +532,14 @@ jobs:
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_install_git_hooks.py
 
+      - name: Validate bead auto-close on merged pull requests
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_bead_autoclose.py
+
+      - name: Validate fresh-merge on feat-cmux-next pull requests
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_cmux_next_fresh_merge.py
+
       - name: Validate required-check drift reconciliation
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_required_checks_drift.py
@@ -1023,10 +1031,6 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: bash ./tests/test_nightly_universal_build.sh
 
-      - name: Validate the nightly-next feed staleness alarm
-        if: ${{ matrix.group == 'release-notary' }}
-        run: bash ./tests/test_nightly_next_feed_staleness.sh
-
       - name: Validate feat-cmux-next runs these release guards
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_next_guards_route.py
@@ -1071,9 +1075,17 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_source_archive.py
 
+      - name: Validate the cmux-next guards' notices pair check
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_next_guards_notices_pair.py
+
       - name: Validate nightly version numbers per track
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_version.py
+
+      - name: Validate nightly-next ships as cmux NEXT beside classic NIGHTLY
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_next_identity.py
 
       - name: Validate nightly push throttle
         if: ${{ matrix.group == 'release-notary' }}

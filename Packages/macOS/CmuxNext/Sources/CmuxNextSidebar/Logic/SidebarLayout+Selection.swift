@@ -1,8 +1,8 @@
 extension SidebarLayout {
-    /// The row that paints the selection fill for `selected`: its workspace or
-    /// group row, or the collapsed group header that stands for a workspace
-    /// inside it; nil for a top item or a row this layout does not show. The
-    /// fill changes in place on that row, never travels
+    /// The row that stands for `selected`: its workspace or group row, or the
+    /// collapsed group header that holds a workspace inside it (which paints
+    /// no fill, cx-fo2t); nil for a top item or a row this layout does not
+    /// show. The fill changes in place on that row, never travels
     /// (SIDEBAR-SELECTION-NO-TRAVEL-ANIMATION).
     func selectedRowKey(for selected: SidebarItem?, in sections: [SidebarSection]) -> SidebarRowKey? {
         switch selected {

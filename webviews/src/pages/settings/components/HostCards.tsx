@@ -1,21 +1,81 @@
-// The Swift window's remaining cards, drawn by the page (R82 commit 4): the wallpaper grid
-// (Experimental, behind appearance.experimentalControls), the
-// terminal facts (Terminal) and the settings file with its problems (Advanced). Data comes from
-// the host lists; writes run host ops or catalog actions, the palette's paths.
+// The Swift window's remaining cards, drawn by the page (R82 commit 4): the background picker
+// (Appearance, where Change Background… lands), the terminal facts (Terminal) and the settings
+// file with its problems (Advanced). Data comes from the host lists; writes run host ops or
+// catalog actions, the palette's paths.
+import { useEffect, useRef, useState } from "react";
 import { useSettingsState, useStore } from "../context";
 import { settingsFileName } from "../format";
+import { rowsByKey } from "../schema";
 import { t } from "../strings";
 import { ActionRow } from "./ActionRow";
+import { ArtBrowser } from "./ArtBrowser";
+import { SettingRow } from "./SettingRow";
 
-export function Backdrops() {
+export const BACKGROUND_KEY = "appearance.background";
+export const BACKGROUND_OPACITY_KEY = "appearance.backgroundOpacity";
+/** The rows the picker draws, left out of their group while it shows. */
+export const BACKDROP_ROWS: ReadonlySet<string> = new Set([BACKGROUND_KEY, BACKGROUND_OPACITY_KEY]);
+/** How long the pointer rests on a tile before the window shows it: sweeping across the grid
+ * previews nothing, so it fetches no full-size art. */
+const PREVIEW_DWELL_MS = 150;
+
+/** Change Background… (`?focus=appearance.background`) lands on the saved tile. Focusing it previews
+ * the saved background, so nothing changes. */
+function revealTile(tile: HTMLElement | null): void {
+  tile?.scrollIntoView?.({ block: "center" });
+  tile?.focus();
+}
+
+/** Whether the picker draws (the host lists the art); its rows show in their group otherwise. */
+export function useBackdropsShown(): boolean {
+  return (useSettingsState().host?.backdrops ?? []).length > 0;
+}
+
+/**
+ * Change Background… (cx-t2x.4): the art picker. Resting on a tile, or focusing it, shows that
+ * background in every window without writing it; a click keeps it; leaving restores the saved one.
+ * Below the art, the Opacity slider previews the glass over it the same way. Plain glass ("None")
+ * stays the default.
+ */
+export function Backdrops({ focus = null }: { focus?: string | null }) {
   const store = useStore();
-  const { host, rows } = useSettingsState();
-  const enabled = rows.get("appearance.experimentalControls")?.value === true;
+  const state = useSettingsState();
+  const { host, rows } = state;
+  const [browsing, setBrowsing] = useState(false);
+  const dwell = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previewing = useRef(false);
   const backdrops = host?.backdrops ?? [];
-  if (!enabled || backdrops.length === 0) return null;
-  // Unset is the schema default (a figure drawing), not "none".
-  const background = rows.get("appearance.background");
+  const cancelDwell = () => {
+    if (dwell.current !== null) clearTimeout(dwell.current);
+    dwell.current = null;
+  };
+  const preview = (id: string, delay: number) => {
+    cancelDwell();
+    dwell.current = setTimeout(() => {
+      dwell.current = null;
+      previewing.current = true;
+      store.preview(BACKGROUND_KEY, id);
+    }, delay);
+  };
+  const endPreview = () => {
+    cancelDwell();
+    if (!previewing.current) return;
+    previewing.current = false;
+    store.previewEnd(BACKGROUND_KEY);
+  };
+  // Closing Settings or leaving Appearance mid-preview restores the saved background.
+  const endOnLeave = useRef(endPreview);
+  endOnLeave.current = endPreview;
+  useEffect(() => () => endOnLeave.current(), []);
+  if (backdrops.length === 0) return null;
+  const background = rows.get(BACKGROUND_KEY);
   const current = ((background?.value ?? background?.default) as string | undefined) ?? "none";
+  const opacity = rowsByKey.get(BACKGROUND_OPACITY_KEY);
+  const choose = async (id: string) => {
+    cancelDwell();
+    await store.set(BACKGROUND_KEY, id);
+    endPreview();
+  };
   const tile = (id: string, title: string, attribution: string) => (
     <button
       type="button"
@@ -23,7 +83,12 @@ export function Backdrops() {
       className="backdrop-tile"
       aria-pressed={current === id}
       aria-label={title}
-      onClick={() => void store.set("appearance.background", id)}
+      ref={focus === BACKGROUND_KEY && current === id && state.readable ? revealTile : undefined}
+      onClick={() => void choose(id)}
+      onPointerEnter={() => preview(id, PREVIEW_DWELL_MS)}
+      onPointerLeave={endPreview}
+      onFocus={(event) => event.currentTarget.matches(":focus-visible") && preview(id, 0)}
+      onBlur={endPreview}
     >
       {id === "none" ? (
         <span className="backdrop-thumb backdrop-none" />
@@ -34,14 +99,55 @@ export function Backdrops() {
       <span className="row-help">{attribution}</span>
     </button>
   );
+  // Art arrives grouped by collection (Dark Art, Museum Icons, Calm, Doré), each under its
+  // title, then the person's own images ("Your images"); the desktop picture and system
+  // wallpapers follow in one untitled group.
+  const groups: Array<{ key: string; title: string | null; choices: typeof backdrops }> = [];
+  for (const choice of backdrops) {
+    const key = choice.collection ?? "";
+    const last = groups[groups.length - 1];
+    if (last && last.key === key) last.choices.push(choice);
+    else groups.push({ key, title: choice.collection_title ?? null, choices: [choice] });
+  }
   return (
     <section className="group" data-card="backdrop">
       <h3 className="group-title">{t("settingsWindow.backdropPicker.title")}</h3>
-      <div className="row-help">{t("settingsWindow.backdropPicker.hint")}</div>
+      {opacity && (
+        <div className="rows">
+          <SettingRow row={opacity} focused={focus === BACKGROUND_OPACITY_KEY} />
+        </div>
+      )}
       <div className="backdrop-grid">
         {tile("none", t("settingsWindow.backdropPicker.none"), t("settingsWindow.backdropPicker.none"))}
-        {backdrops.map((choice) => tile(choice.id, choice.title, choice.attribution))}
+        <button type="button" className="backdrop-tile" onClick={() => void store.chooseBackdropImage()}>
+          <span className="backdrop-thumb backdrop-none backdrop-choose" aria-hidden="true">
+            +
+          </span>
+          <span className="backdrop-title">{t("settingsWindow.backdropPicker.chooseImage")}</span>
+          <span className="row-help">{t("settingsWindow.backdropPicker.dropHint")}</span>
+        </button>
+        <button
+          type="button"
+          className="backdrop-tile"
+          aria-expanded={browsing}
+          onClick={() => setBrowsing((open) => !open)}
+        >
+          <span className="backdrop-thumb backdrop-none backdrop-choose" aria-hidden="true">
+            ⌕
+          </span>
+          <span className="backdrop-title">{t("settingsWindow.artBrowser.open")}</span>
+          <span className="row-help">{t("settingsWindow.artBrowser.help")}</span>
+        </button>
       </div>
+      {browsing && <ArtBrowser onClose={() => setBrowsing(false)} />}
+      {groups.map((group) => (
+        <div key={group.key || "other"} className="backdrop-group" data-collection={group.key || undefined}>
+          {group.title && <h4 className="row-help backdrop-group-title">{group.title}</h4>}
+          <div className="backdrop-grid">
+            {group.choices.map((choice) => tile(choice.id, choice.title, choice.attribution))}
+          </div>
+        </div>
+      ))}
     </section>
   );
 }
@@ -51,13 +157,14 @@ export function TerminalInfo() {
   if (!host?.terminal) return null;
   return (
     <section className="group" data-card="terminal">
-      <div className="row-help">{t("settingsWindow.terminalBody.options")}</div>
       <div className="rows">
         <ActionRow title={t("settingsWindow.ghosttyConfig")} help="">
-          <span className="row-help selectable">{host.terminal.ghostty_config}</span>
+          <span className="row-help selectable" title={host.terminal.ghostty_config}>
+            {host.terminal.ghostty_config}
+          </span>
         </ActionRow>
         <ActionRow title={t("settingsWindow.shellIntegration")} help="">
-          <span className="row-help selectable">
+          <span className="row-help selectable" title={host.terminal.shell_integration ?? undefined}>
             {host.terminal.shell_integration ?? t("settingsWindow.shellIntegrationUnknown")}
           </span>
         </ActionRow>

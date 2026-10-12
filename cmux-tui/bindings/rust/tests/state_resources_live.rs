@@ -1,6 +1,6 @@
 //! Batch-2 typed calls against a real cmux-tui daemon: tab groups
 //! (`tab_group.*`, `saved_tab_group.*`), closed history (`closed.list`,
-//! `closed.reopen`), `workspace.create {ephemeral}`, the typed `bookmarks-v1`
+//! `closed.reopen`, `closed.delete`), `workspace.create {ephemeral}`, the typed `bookmarks-v1`
 //! raw results, and `Error::error_code` on a raw refusal.
 //!
 //! Runs when `CMUX_SDK_LIVE_TUI_BIN` names a built `cmux-tui` binary (the
@@ -14,8 +14,8 @@ use cmux::raw::{
     ImportBookmarksRequest, ListBookmarksRequest, Optional,
 };
 use cmux::{
-    ClosedListOptions, ClosedReopenOptions, Config, CreateWorkspaceOptions, Direction,
-    SplitOptions, TabGroupCreateOptions, TabGroupUpdateOptions,
+    ClosedDeleteTarget, ClosedListOptions, ClosedReopenOptions, Config, CreateWorkspaceOptions,
+    Direction, SplitOptions, TabGroupCreateOptions, TabGroupUpdateOptions,
 };
 use serde_json::json;
 use std::os::unix::net::UnixStream;
@@ -133,6 +133,30 @@ fn tab_groups_and_closed_history_live_daemon() {
     assert_eq!(reopened.closed_id, closed[0].id);
     assert!(!reopened.tab_ids.is_empty(), "{reopened:?}");
     assert_eq!(session.closed_items(ClosedListOptions::default()).unwrap().len(), before);
+
+    // Delete Permanently: a tab of a new pane closes (a new group), then its
+    // group is deleted; it leaves the history and cannot be reopened.
+    let extra = pane.split(SplitOptions::new(Direction::Right)).unwrap();
+    let extra_pane = created
+        .resource
+        .screen(path.screen_id().unwrap().clone())
+        .pane(extra.value.pane_id().unwrap().clone());
+    extra_pane.tab(extra.value.tab_id().unwrap().clone()).close().unwrap();
+    let closed = session.closed_items(ClosedListOptions::default()).unwrap();
+    assert_eq!(closed.len(), before + 1, "{closed:?}");
+    let gone = closed[0].id.clone();
+    let result = session
+        .delete_closed(ClosedDeleteTarget::Group { closed: gone.clone(), members: None })
+        .unwrap()
+        .value;
+    assert_eq!(result.deleted, vec![gone.clone()], "{result:?}");
+    assert!(result.updated.is_empty(), "{result:?}");
+    let after = session.closed_items(ClosedListOptions::default()).unwrap();
+    assert!(after.iter().all(|c| c.id != gone), "{after:?}");
+    assert_eq!(after.len(), before);
+    let reopen_gone =
+        session.reopen_closed(ClosedReopenOptions { closed: Some(gone), ..Default::default() });
+    assert!(reopen_gone.is_err(), "a deleted group cannot be reopened: {reopen_gone:?}");
 
     let deleted = session.delete_saved_tab_group(&saved.id).unwrap().value;
     assert!(deleted.deleted);

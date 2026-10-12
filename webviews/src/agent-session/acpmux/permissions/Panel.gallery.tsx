@@ -83,12 +83,13 @@ const uncertainState: PermissionClientState = {
   uncertain: true,
 };
 
-function GalleryPermissionPanel({ state, onRespond, onRetry, onRevoke, onRefresh }: Props) {
+function GalleryPermissionPanel({ state, working, onRespond, onRetry, onRevoke, onRefresh }: Props) {
   const [action, setAction] = useState<string>();
   return (
     <div data-permission-gallery>
       <PermissionPanel
         state={state}
+        working={working}
         onRespond={(groupId, revision, decision) => {
           setAction(decision);
           onRespond(groupId, revision, decision);
@@ -143,7 +144,9 @@ const retryUncertain: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('[data-permission-action="retry"]'));
 };
 
-const callbacks: Pick<Props, "onRespond" | "onRetry" | "onRevoke" | "onRefresh"> = {
+// Each state is drawn during the turn that asked: an answered group's receipt leaves with its turn.
+const callbacks: Pick<Props, "working" | "onRespond" | "onRetry" | "onRevoke" | "onRefresh"> = {
+  working: true,
   onRespond: () => undefined,
   onRetry: () => undefined,
   onRevoke: () => undefined,

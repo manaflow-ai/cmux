@@ -25,6 +25,19 @@ use crate::conversation_store::{
 pub const LOCAL_CONVERSATIONS_CAPABILITY: &str = "local-conversations-v1";
 /// `conversation-search` on the local conversation owner.
 pub const CONVERSATION_SEARCH_CAPABILITY: &str = "conversation-search-v1";
+/// `conversation-draft`: the v1 command of `conversation.draft` for a bound
+/// agent connection (the Chief brain's link).
+pub const CONVERSATION_DRAFT_CAPABILITY: &str = "conversation-draft-v1";
+/// `conversation-draft` events on `subscribe` for a trusted local connection
+/// that echoes this capability in `set-client-info` (the app's Home).
+pub const CONVERSATION_DRAFT_EVENTS_CAPABILITY: &str = "conversation-draft-events-v1";
+/// `thread_root` on `message.send` and on messages, and a send that moves
+/// the sender's own read cursor (cx-59n8.2).
+pub const CONVERSATION_THREADS_CAPABILITY: &str = "conversation-threads-v1";
+/// `conversation-thread` (one thread, paged), `threads` root stats on
+/// `conversation-snapshot` and `conversation-history`, and with
+/// `cloud-conversations-v1` also `cloud-conversation-thread` (cx-59n8.6).
+pub const CONVERSATION_THREAD_READ_CAPABILITY: &str = "conversation-thread-v1";
 
 /// `conversation-create`: a retry with the same `idempotency_key` and request
 /// returns the conversation it created.
@@ -51,6 +64,21 @@ pub(super) struct HistoryParams {
     pub(super) before_seq: u64,
     pub(super) limit: u32,
 }
+
+/// `conversation-thread`: root `root` and up to `limit` (1-500, default 50)
+/// of its replies with seq above `after_seq` (default 0).
+#[derive(Deserialize)]
+pub(super) struct ThreadParams {
+    conversation: String,
+    root: String,
+    #[serde(default)]
+    after_seq: u64,
+    #[serde(default)]
+    limit: Option<u32>,
+}
+
+/// Default page of `conversation-thread`.
+const THREAD_PAGE: u32 = 50;
 
 /// `conversation-op`: one op under a client idempotency key.
 #[derive(Deserialize)]
@@ -80,6 +108,23 @@ pub(super) struct TypingParams {
     #[serde(default)]
     pub(super) actor: Option<String>,
     pub(super) on: bool,
+}
+
+/// `conversation-draft`: a draft of the bound agent's running reply.
+#[derive(Deserialize)]
+pub(super) struct DraftParams {
+    conversation: String,
+    turn: String,
+    segment: u64,
+    seq: u64,
+    kind: String,
+    text: String,
+    fresh: bool,
+    done: bool,
+    #[serde(default)]
+    truncated: Option<bool>,
+    #[serde(default)]
+    harness: Option<String>,
 }
 
 /// `conversation-bind`: become agent `participant` for the rest of the
@@ -228,9 +273,12 @@ pub(super) fn snapshot(mux: &Mux, client: u64, params: SnapshotParams) -> anyhow
     require_local(mux, client)?;
     let SnapshotParams { conversation, tail } = params;
     validate_page(tail, "tail")?;
-    let (summary, messages) =
-        mux.with_conversations(|store| store.snapshot(&conversation, tail))?;
-    Ok(json!({"conversation": summary, "messages": messages}))
+    let (summary, messages, threads) = mux.with_conversations(|store| {
+        let (summary, messages) = store.snapshot(&conversation, tail)?;
+        let threads = store.thread_summaries(&conversation, &messages)?;
+        Ok((summary, messages, threads))
+    })?;
+    Ok(json!({"conversation": summary, "messages": messages, "threads": threads}))
 }
 
 pub(super) fn history(mux: &Mux, client: u64, params: HistoryParams) -> anyhow::Result<Value> {
@@ -240,9 +288,22 @@ pub(super) fn history(mux: &Mux, client: u64, params: HistoryParams) -> anyhow::
     require_local(mux, client)?;
     let HistoryParams { conversation, before_seq, limit } = params;
     validate_page(limit, "limit")?;
-    let messages =
-        mux.with_conversations(|store| store.history(&conversation, before_seq, limit))?;
-    Ok(json!({"messages": messages}))
+    let (messages, threads) = mux.with_conversations(|store| {
+        let messages = store.history(&conversation, before_seq, limit)?;
+        let threads = store.thread_summaries(&conversation, &messages)?;
+        Ok((messages, threads))
+    })?;
+    Ok(json!({"messages": messages, "threads": threads}))
+}
+
+pub(super) fn thread(mux: &Mux, client: u64, params: ThreadParams) -> anyhow::Result<Value> {
+    require_local(mux, client)?;
+    let ThreadParams { conversation, root, after_seq, limit } = params;
+    let limit = limit.unwrap_or(THREAD_PAGE);
+    validate_page(limit, "limit")?;
+    let page =
+        mux.with_conversations(|store| store.thread(&conversation, &root, after_seq, limit))?;
+    Ok(serde_json::to_value(page)?)
 }
 
 pub(super) fn search(mux: &Mux, client: u64, params: SearchParams) -> anyhow::Result<Value> {
@@ -322,6 +383,38 @@ pub(super) fn typing(mux: &Mux, client: u64, params: TypingParams) -> anyhow::Re
     let actor = resolve_actor(mux, client, actor)?;
     publish_typing(mux, &conversation, &actor, on)?;
     Ok(json!({}))
+}
+
+/// The same admission and `conversation.events` item as the
+/// `conversation.draft` operation (conversation_resource.rs), for the
+/// connection's principal.
+pub(super) fn draft(mux: &Mux, client: u64, params: DraftParams) -> anyhow::Result<Value> {
+    require_local(mux, client)?;
+    let principal = mux.conversation_principal(client);
+    anyhow::ensure!(params.turn.len() <= 128 && !params.turn.is_empty(), "bad request: turn");
+    anyhow::ensure!(params.text.len() <= 65536, "bad request: text");
+    anyhow::ensure!(matches!(params.kind.as_str(), "talk" | "thought"), "bad request: kind");
+    anyhow::ensure!(
+        params.harness.as_ref().is_none_or(|harness| harness.len() <= 64),
+        "bad request: harness"
+    );
+    let mut fields = json!({
+        "turn": params.turn, "segment": params.segment, "seq": params.seq,
+        "kind": params.kind, "text": params.text, "fresh": params.fresh, "done": params.done,
+    });
+    if let Some(truncated) = params.truncated {
+        fields["truncated"] = json!(truncated);
+    }
+    if let Some(harness) = params.harness {
+        fields["harness"] = json!(harness);
+    }
+    let published =
+        super::conversation_resource::publish_draft(mux, &params.conversation, &principal, &fields)
+            .map_err(|refusal| match refusal {
+                super::conversation_resource::DraftRefused::Owner(error) => error,
+                other => anyhow::anyhow!("draft refused: {}", other.reason()),
+            })?;
+    Ok(json!({"published": published}))
 }
 
 /// Validate and publish a typing indicator of `actor`. Never stored.

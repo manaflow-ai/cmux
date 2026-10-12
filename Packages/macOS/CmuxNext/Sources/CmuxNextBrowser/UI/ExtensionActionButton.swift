@@ -16,7 +16,7 @@ final class ExtensionActionButton: NSButton {
     var onDragEnded: ((CGFloat) -> Void)?
 
     private let density = DensityBinding()
-    private var isHovering = false { didSet { updateFill() } }
+    private var isHovering = false { didSet { if isHovering != oldValue { updateFill(animated: true) } } }
     private var tracking: NSTrackingArea?
 
     init(actionID: String) {
@@ -57,7 +57,7 @@ final class ExtensionActionButton: NSButton {
             icon.accessibilityDescription = action.name
             image = icon
         }
-        toolTip = action.title.isEmpty ? action.name : action.title
+        themedToolTip = action.title.isEmpty ? action.name : action.title
         setAccessibilityLabel(action.name)
         // The badge is in the icon; VoiceOver reads it as the value.
         setAccessibilityValue(action.badge.isEmpty ? nil : action.badge)
@@ -116,10 +116,10 @@ final class ExtensionActionButton: NSButton {
         updateFill()
     }
 
-    private func updateFill() {
+    private func updateFill(animated: Bool = false) {
         performWithTheme {
             let color: NSColor = isHighlighted ? Palette.selectionFill : (isHovering ? Palette.hoverFill : .clear)
-            layer?.backgroundColor = color.cgColor
+            if let layer { ChromeHover.paint(layer, color, animated: animated && window != nil, pressed: isHighlighted) }
         }
     }
 }

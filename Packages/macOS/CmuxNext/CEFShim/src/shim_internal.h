@@ -86,6 +86,9 @@ struct ForkApi {
   int (*password_set_username)(const char*, const char*, const char*, void (*)(void*, int), void*) = nullptr;
   int (*password_reveal)(const char*, const char*, void (*)(void*, const char*, size_t), void*) = nullptr;
   int (*password_export)(const char*, const char*, void (*)(void*, int), void*) = nullptr;
+  // API version 22: the chrome.bookmarks bridge (shim_bookmarks.mm).
+  int (*bookmarks_observe)(const char*, void (*)(void*, const char*), void*) = nullptr;
+  int (*bookmarks_sync)(const char*, const char*) = nullptr;
 };
 
 struct Host {
@@ -129,6 +132,12 @@ void ForgetDevToolsProtocol(int browser_id);
 // Profile preference watches (shim_prefs.mm, UI thread).
 void ForgetPreferenceWatches(const std::string& key);
 void ReleasePreferenceWatches();
+
+// Bookmark watches (shim_bookmarks.mm, UI thread): one per initialized
+// persistent profile, forwarded as CMUX_SHIM_BOOKMARKS_EVENT.
+void WatchBookmarks(const std::string& key);
+void ForgetBookmarkWatch(const std::string& key);
+void ReleaseBookmarkWatches();
 
 // cmux-page:// (shim_page_scheme.mm). Registers every page added so far on
 // `context` (each profile keeps its own scheme handler factories).
@@ -225,6 +234,29 @@ bool IsWebStoreURL(const std::string& url);
 CefRefPtr<CefDownloadHandler> DownloadHandler();
 // Releases every waiting and running download callback (before CefShutdown).
 void ForgetDownloads();
+
+// Permission prompts (shim_permissions.mm, UI thread). The page clients'
+// permission handler: location requests wait for the host's answer
+// (PERMISSION_PROMPT, cmux_shim_permission_continue).
+CefRefPtr<CefPermissionHandler> PermissionHandler();
+// Releases every waiting prompt callback (before CefShutdown).
+void ForgetPermissionPrompts();
+
+// A Proceed the host asked for on a certificate warning
+// (cmux_shim_certificate_proceed, shim_site.mm, UI thread): taken by the
+// browser's next certificate error with that host and error code.
+enum class CertificateProceed { kNone, kContinue, kChromium };
+CertificateProceed TakeCertificateProceed(int browser_id, const std::string& host, int code);
+// The browser's certificate error `code` and its answer: cancelled (the host
+// shows its warning) or left to Chromium's interstitial.
+void NoteCertificateError(int browser_id, int code, bool chromium_interstitial);
+// The main-frame load error the host sees: Chromium may end a cancelled
+// certificate request as ERR_ABORTED, which reports the certificate error
+// instead; `chromium_interstitial` when Chromium shows its own page for it.
+// Every main-frame load start or error ends the browser's pending
+// certificate state (a Proceed covers only its own load).
+int CertificateLoadError(int browser_id, int code, std::string* text, bool* chromium_interstitial);
+void ForgetCertificateState(int browser_id);
 
 // Context menus the host is showing, by token (UI thread only).
 int StoreMenuCallback(CefRefPtr<CefRunContextMenuCallback> callback);

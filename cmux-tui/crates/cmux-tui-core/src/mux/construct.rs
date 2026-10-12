@@ -302,12 +302,13 @@ impl Mux {
             machine_usage: Mutex::new(None),
             agent_records: Mutex::new(agent_records),
             agent_hook_fences: Mutex::new(agent_hook_fences),
+            agent_presence: Mutex::new(HashMap::new()),
             agent_roster: Mutex::new(agent_roster),
             agent_roster_fold: Mutex::new(()),
             placement_notifications: Mutex::new(HashMap::new()),
             terminal_notifications: Mutex::new(terminal_notifications),
             terminal_command_history: AtomicBool::new(false),
-            shell_command_journal: Mutex::new(None),
+            command_history_worker: Mutex::new(None),
             notification_ledger: Mutex::new(notification_ledger),
             notification_reads: Mutex::new(notification_reads),
             notification_read_prunes: Mutex::new(Vec::new()),
@@ -360,6 +361,8 @@ impl Mux {
             terminal_respawns: terminal_respawn::TerminalRespawns::from_env(),
             daemon_shutdown_waker: Mutex::new(None),
             control_clients: crate::server::ClientRegistry::new(),
+            #[cfg(unix)]
+            agent_transfers: Default::default(),
             activity: Default::default(),
             idle_close: Mutex::new(idle_close::IdleCloseTracker::default()),
             idle_close_waker: Mutex::new(None),
@@ -370,11 +373,13 @@ impl Mux {
             terminal_reaper_events: Mutex::new(None),
             launch_snapshot_path: Mutex::new(None),
             settings: settings::SettingsSlot::default(),
+            keybindings: keybindings::KeybindingsSlot::default(),
             terminal_work: terminal_work::TerminalWorkPool::default(),
-            #[cfg(unix)]
+            #[cfg(any(unix, windows))]
             prelaunched_terminals: Mutex::new(HashMap::new()),
             #[cfg(unix)]
             image_pastes: crate::image_paste::ImagePasteStore::default(),
+            history: crate::history_ops::HistoryHost::default(),
             surface_operation_admission: Arc::new(
                 crate::server::ServerSurfaceOperationAdmission::default(),
             ),
@@ -384,6 +389,7 @@ impl Mux {
             session,
         });
         mux.exit_settles.bind(Arc::downgrade(&mux));
+        mux.start_command_history_for_persistent_registry();
         let weak_mux = Arc::downgrade(&mux);
         mux.journal_plugin.set_exit_handler(Some(Arc::new(move |plugin_id, generation| {
             let Some(mux) = weak_mux.upgrade() else { return };
@@ -394,7 +400,7 @@ impl Mux {
         crate::journal_ingress::start(&mux, journal_ingress_receiver)?;
         mux.materialize_interrupted_resource_workspaces()?;
         mux.materialize_restored_browsers(&contents)?;
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         mux.adopt_terminal_hosts()?;
         {
             let mut state = mux.state.lock().unwrap();
@@ -425,7 +431,7 @@ impl Mux {
         mux.close_ephemeral_workspaces()?;
         // cx-6so.49: host losses whose respawn an earlier owner never ran
         // (it shut down first, or a session shutdown ended the shell).
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         mux.respawn_lost_terminals_at_start();
         mux.retry_pending_agent_hooks()?;
         crate::journal_hooks::start(&mux)?;

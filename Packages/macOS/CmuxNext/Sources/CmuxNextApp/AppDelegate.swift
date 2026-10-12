@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextControl
@@ -61,9 +62,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Every window, shell or auxiliary, opens by one placement rule.
         WindowPlacement.noActivate = environment.noActivate
         WindowPlacement.testScreen = environment.testWindow?.screen
-        // An agent launch must never come back by itself: without this,
-        // loginwindow reopens it at the next login (without the agent's
-        // environment, so it activates and takes the tag's socket).
+        // An agent launch must never come back by itself: without this, loginwindow reopens it at the
+        // next login (without the agent's environment, so it activates and takes the tag's socket).
         if environment.noActivate { NSApp.disableRelaunchOnLogin() }
         // A `cmux` shim outside this app runs the CLI of the app opened last
         // (plans/cmux-next/version-skew.md); an isolated launch never claims it.
@@ -105,6 +105,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         TerminalHooks(services: services).install()
         DebugTimings.markLaunch("dfl.bind")
         startSettingsAndControl(services: services, launch: settingsRead)
+        services.newTabSpares.prewarm() // the first agent page loads while the windows build (cx-z9kz0)
         DebugTimings.markLaunch("dfl.settings")
         NSApp.mainMenu = MainMenu.make(registry: services.registry)
         DebugTimings.markLaunch("dfl.menu")
@@ -237,6 +238,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let feed = services.chatsFeed { AgentPageChats.wire(services.agentTabs, to: feed, opener: services.chatsOpener) }
         AgentPageChats.wirePager(services.agentTabs, environment: QuitAgents.environment(services), opener: services.chatsOpener)
         NewTabClosed.wire(services.agentTabs, services: services)
+        NewTabPlacesFeed.wire(services.agentTabs, services: services)
+        AgentPaneModel.harnessHealthProvider = { [weak services] id, refresh, rescan in
+            let rows = (try? await services?.agentHarnesses.health(refresh: refresh, rescan: rescan)) ?? []
+            return rows.first { $0["id"]?.stringValue == id }?.foundationObject as? [String: Any]
+        }
         // The GitHub connection is deliberately off by default. Changes in
         // Settings apply to the one feed owner and never create a second
         // inbox store.
@@ -274,11 +280,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.bookmarks.follow(settings)
         services.apps.start()
         Task {
-            await settings.waitForLoad(atLeast: 1)
+            await settings.waitForLoad(atLeast: 1); await launchSettle.settled(within: .seconds(4)) // control socket: after the first frames (cx-z9kz0)
             // `app.quitBehavior: "end"` (first release) is now "end-keep-layout".
             _ = try? await settings.migrateLegacyQuitBehavior()
             // `sidebar.showWorkspaceDirectory` / `showCounts` move to `sidebar.workspaceRow.*`.
             _ = try? await settings.migrateLegacyWorkspaceRowKeys()
+            // Classic cmux keys next reads under another name (`ClassicSettingRename`).
+            _ = try? await settings.migrateClassicSettings()
+            // Shortcuts and settings classic cmux's Settings kept in its preferences (`ClassicShortcutImport`, `ClassicPreferenceImport`).
+            _ = try? await settings.importClassicShortcuts(marker: .standard)
+            _ = try? await settings.importClassicPreferences(marker: .standard)
             do {
                 try control.start(registry: registry, settings: settings, launch: environment.launch, services: services)
                 control.registerCloudMethods(services)
@@ -291,6 +302,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 control.registerPageDebugMethods(services)
                 control.registerRemoteBrowserDebugMethods(services)
                 RemoteViewDebugMethods(services: services).register(on: control.service?.router)
+                DebugNowPlaying.register(on: control.service?.router, services: services)
+                DebugDownloads.register(on: control.service?.router, services: services)
+                DebugCEFDevToolsLayout.register(on: control.service?.router, services: services)
+                DebugBrowserExternal.register(on: control.service?.router, services: services)
+                DebugTerminalLinks.register(on: control.service?.router, services: services)
                 if let router = control.service?.router {
                     BrowserPageService(engine: AppBrowserPageEngine(services: services)).install(on: router)
                     services.apps.attach(router: router)

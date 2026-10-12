@@ -5,15 +5,23 @@ import { Icon } from "../icons";
 import type { SettingsState } from "../store";
 import { managedOf } from "../store";
 import { t, text } from "../strings";
+import { harnessesNeedAttention } from "../harnesses";
 
-function badge(state: SettingsState, category: string): "warning" | "lock" | null {
+function badge(state: SettingsState, category: string): "warning" | "lock" | "update" | null {
   const keys = categoryRows(category).map((row) => row.key);
   if (keys.some((key) => state.diagnostics.has(key))) return "warning";
   if (keys.some((key) => managedOf(state, key) !== null)) return "lock";
+  if (category === "agents" && harnessesNeedAttention(state.harnesses)) return "update";
   return null;
 }
 
-/** The category list: icon, name, and a badge for problems (warning) or managed keys (lock). */
+const BADGE_TEXT = {
+  lock: "settingsPage.managed",
+  update: "settingsWindow.harnesses.attention",
+} as const;
+
+/** The category list: icon, name, and a badge for problems (warning), managed keys (lock) or an
+ * agent CLI that is outdated or signed out (update). */
 export function SectionList({ current, onSelect }: { current: string | null; onSelect: (section: string) => void }) {
   const state = useSettingsState();
   return (
@@ -37,9 +45,7 @@ export function SectionList({ current, onSelect }: { current: string | null; onS
               <span className={`badge badge-${mark}`} data-badge={mark}>
                 <Icon name={mark} />
                 <span className="visually-hidden">
-                  {mark === "warning"
-                    ? t("settingsPage.problems", settingsFileName(state.host))
-                    : t("settingsPage.managed")}
+                  {mark === "warning" ? t("settingsPage.problems", settingsFileName(state.host)) : t(BADGE_TEXT[mark])}
                 </span>
               </span>
             )}

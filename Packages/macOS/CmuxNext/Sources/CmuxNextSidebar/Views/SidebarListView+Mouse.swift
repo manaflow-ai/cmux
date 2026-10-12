@@ -111,11 +111,6 @@ extension SidebarListView {
     override func otherMouseDown(with event: NSEvent) { if !middleClick.down(event, in: self) { super.otherMouseDown(with: event) } }
     override func otherMouseUp(with event: NSEvent) { if !middleClick.up(event, in: self) { super.otherMouseUp(with: event) } }
     // MARK: - Group header hit testing
-    /// Whether `point` (list coordinates) is on the group's chevron/folder.
-    func isOnDisclosure(_ point: NSPoint, group: GroupID) -> Bool {
-        guard let view = rowViews[.group(group)] as? GroupHeaderRowView else { return false }
-        return view.disclosureFrame.contains(convert(point, to: view))
-    }
     // MARK: - Keyboard
     override func keyDown(with event: NSEvent) {
         let flags = event.modifierFlags.intersection([.command, .option, .shift, .control])

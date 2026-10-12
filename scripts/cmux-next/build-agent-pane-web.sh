@@ -1,9 +1,10 @@
 #!/bin/sh
 # Builds the React agent pane (webviews/src/agent-session/acpmux) into the page
 # that CmuxNextAgentPane ships as a module resource: index.html (markup and
-# styles), pane.js (the app) and locales/ (strings and the loader that picks
-# them). The page runs no inline script (CSP script-src 'self'), so markup an
-# agent gets rendered cannot run script. The output is build output (gitignored;
+# styles), pane.js (the app), chunks/ (code it loads when used) and locales/
+# (strings and the loader that picks them). The page runs no inline script
+# (CSP script-src 'self'), so markup an agent gets rendered cannot run
+# script. The output is build output (gitignored;
 # scripts/cmux-next/build-web-bundles.sh runs this before every app build).
 #
 #   scripts/cmux-next/build-agent-pane-web.sh          # rebuild the resource
@@ -47,7 +48,10 @@ LOADER="$(bun scripts/pages/split-strings.mjs "$SRC/acpmux/generated/strings.jso
 # `shiki` resolves to a trimmed copy (acpmux/shiki): the JavaScript regex engine and
 # common languages, not every grammar and the WebAssembly engine. The React Compiler
 # runs on first-party sources, as in the Vite dev server; skipped components are listed.
-bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/app.js"
+# Dynamic imports (shiki's grammars, KaTeX) become chunks/ beside pane.js, loaded when used.
+# --css-inputs lists the stylesheets the pane imports; the bundle drops them, so each must be
+# one of the sheets the page's <style> is written from (checked below).
+bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/pane/pane.js" --split --css-inputs "$WORK/imported-sheets"
 # Code highlighting runs in a worker beside the page (conversation/highlightPool.ts): Pierre's
 # worker, bundled with the same trimmed shiki. It is the entry point itself because the package
 # marks the module side-effect free, so an import of it would be dropped. Both hosts serve it
@@ -65,10 +69,29 @@ grep -v '^@import ' "$SRC/shared/styles.css" >> "$WORK/styles.css"
 bun scripts/agent-pane/katex-css.mjs >> "$WORK/styles.css"
 # One surface for every menu and popover (the pane does not load ui.css, which imports it).
 cat "$ROOT/webviews/src/ui/popupSurface.css" >> "$WORK/styles.css"
-cat "$SRC/acpmux/styles.css" "$SRC/acpmux/conversation/conversation.css" "$SRC/acpmux/chips/chips.css" "$SRC/acpmux/previewCard/previewCard.css" "$SRC/acpmux/changes/changes.css" \
-  "$SRC/acpmux/handoff/styles.css" "$SRC/acpmux/checkpoints/styles.css" "$SRC/acpmux/composerControls.css" "$SRC/acpmux/composerStates.css" "$SRC/acpmux/composerLocation.css" "$SRC/acpmux/composerAttachments.css" "$SRC/acpmux/markdownField.css" \
+# The shared icon+label button (New Tab's tools, the composer footer), imported by main.tsx.
+cat "$ROOT/webviews/src/ui/ghost.css" >> "$WORK/styles.css"
+cat "$SRC/acpmux/styles.css" "$SRC/acpmux/conversation/conversation.css" "$SRC/acpmux/chips/chips.css" "$SRC/acpmux/previewCard/previewCard.css" >> "$WORK/styles.css"
+# changes.css @imports git.css; an @import never loads here (mid-sheet, and the CSP loads no
+# style file), so inline it where the import stood.
+cat "$SRC/acpmux/changes/git.css" >> "$WORK/styles.css"
+grep -v '^@import ' "$SRC/acpmux/changes/changes.css" >> "$WORK/styles.css"
+cat "$SRC/acpmux/handoff/styles.css" "$SRC/acpmux/checkpoints/styles.css" "$SRC/acpmux/composerControls.css" "$SRC/acpmux/composerStates.css" "$SRC/acpmux/composerLocation.css" "$SRC/acpmux/composerAttachments.css" "$SRC/acpmux/markdownField.css" \
   "$SRC/acpmux/modelPicker.css" "$SRC/acpmux/keys.css" "$SRC/acpmux/summary/summary.css" "$SRC/acpmux/subagents/subagents.css" "$SRC/acpmux/header/header.css" "$SRC/acpmux/newtab/screen.css" "$SRC/acpmux/newtab/history.css" "$SRC/acpmux/threadMinimap/threadMinimap.css" >> "$WORK/styles.css"
 cat "$SRC/acpmux/turnChanges/turnChanges.css" "$SRC/acpmux/Inspector.css" >> "$WORK/styles.css"
+cat "$SRC/acpmux/addProject.css" "$SRC/acpmux/harnesses/harnesses.css" "$SRC/acpmux/replay/replay.css" "$ROOT/webviews/src/markdown-task-checkbox.css" >> "$WORK/styles.css"
+# Every sheet the pane imports ships: a missing one renders its component unstyled in the app
+# only (the dev server loads imports), as New Tab's tools did.
+while IFS= read -r sheet; do
+  perl -0777 -e 'open my $all, "<", shift or die; open my $one, "<", shift or die; exit(index(<$all>, <$one>) < 0)' \
+    "$WORK/styles.css" "$ROOT/webviews/$sheet" && continue
+  echo "error: the agent pane imports webviews/$sheet but build-agent-pane-web.sh does not add it to the page's styles" >&2
+  exit 1
+done < "$WORK/imported-sheets"
+if grep -n '^@import ' "$WORK/styles.css" >&2; then
+  echo "error: an @import reached the agent pane's styles, where it never loads; inline the sheet in build-agent-pane-web.sh" >&2
+  exit 1
+fi
 # Tailwind utilities last (acpmux/tailwind.css): compiled over the classes the pane's sources use.
 bun scripts/agent-pane/tailwind-css.mjs "$SRC/acpmux/tailwind.css" >> "$WORK/styles.css"
 
@@ -90,7 +113,6 @@ CSP="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src d
   cat "$WORK/styles.css"
   printf '\n</style>\n</head>\n<body>\n<main id="root"></main>\n<script type="module" src="pane.js"></script>\n</body>\n</html>\n'
 } | perl -pe 's/[ \t]+$//' > "$WORK/index.html"
-cp "$WORK/app.js" "$WORK/pane.js"
 
 if [ "$MODE" = "--check" ]; then
   echo "agent pane web bundle builds"
@@ -99,8 +121,10 @@ fi
 
 mkdir -p "$OUT"
 cp "$WORK/index.html" "$OUT/index.html"
-cp "$WORK/pane.js" "$OUT/pane.js"
+cp "$WORK/pane/pane.js" "$OUT/pane.js"
+rm -rf "$OUT/chunks"
+cp -R "$WORK/pane/chunks" "$OUT/chunks"
 cp "$WORK/highlight-worker.js" "$OUT/highlight-worker.js"
 rm -rf "$OUT/locales"
 cp -R "$WORK/locales" "$OUT/locales"
-echo "wrote $OUT/index.html ($(wc -c < "$OUT/index.html" | tr -d ' ') bytes) and pane.js ($(wc -c < "$OUT/pane.js" | tr -d ' ') bytes)"
+echo "wrote $OUT/index.html ($(wc -c < "$OUT/index.html" | tr -d ' ') bytes) pane.js ($(wc -c < "$OUT/pane.js" | tr -d ' ') bytes) and $(ls "$OUT/chunks" | wc -l | tr -d ' ') chunks"

@@ -2,13 +2,20 @@
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
 import type { AccountsRow, AccountsState, HostLists } from "./ops";
 import { categories, homes } from "./categories";
+import { mockThemeColors } from "./mockThemes";
 import { schema } from "./schema";
-import DEGAS_HALEVY from "../../gallery/fixtures/art/nga-degas-halevy-standing-66489.jpg?inline";
-import DEGAS_DANCER from "../../gallery/fixtures/art/nga-degas-dancer-from-behind-32137.jpg?inline";
-import CARPACCIO from "../../gallery/fixtures/art/nga-carpaccio-groups-of-male-figures-73858.jpg?inline";
-import PERINO from "../../gallery/fixtures/art/nga-perino-del-vaga-figure-studies-57613.jpg?inline";
-import RUBENS from "../../gallery/fixtures/art/nga-rubens-battle-of-nude-men-63034.jpg?inline";
-import TENIERS from "../../gallery/fixtures/art/nga-teniers-market-figures-62615.jpg?inline";
+import GOYA_SATURN from "../../gallery/fixtures/art/goya-saturn.jpg?inline";
+import BOCKLIN_ISLE_OF_THE_DEAD from "../../gallery/fixtures/art/bocklin-isle-of-the-dead.jpg?inline";
+import FUSELI_NIGHTMARE from "../../gallery/fixtures/art/fuseli-nightmare.jpg?inline";
+import VAN_GOGH_STARRY_NIGHT from "../../gallery/fixtures/art/van-gogh-starry-night.jpg?inline";
+import HOKUSAI_GREAT_WAVE from "../../gallery/fixtures/art/hokusai-great-wave.jpg?inline";
+import FRIEDRICH_WANDERER from "../../gallery/fixtures/art/friedrich-wanderer.jpg?inline";
+import DAHL_DRESDEN_MOONLIGHT from "../../gallery/fixtures/art/dahl-dresden-moonlight.jpg?inline";
+import FRIEDRICH_MONK_BY_THE_SEA from "../../gallery/fixtures/art/friedrich-monk-by-the-sea.jpg?inline";
+import MONET_IMPRESSION_SUNRISE from "../../gallery/fixtures/art/monet-impression-sunrise.jpg?inline";
+import DORE_PARADISE_LOST_BOOK_VI from "../../gallery/fixtures/art/dore-paradise-lost-book-vi.jpg?inline";
+import DORE_RAVEN from "../../gallery/fixtures/art/dore-raven.jpg?inline";
+import DORE_EMPYREAN from "../../gallery/fixtures/art/dore-empyrean.jpg?inline";
 
 const button = (id: string, title: string, disabled = false) => ({
   id,
@@ -135,8 +142,13 @@ Object.assign(variants, {
     note: "Harnesses when the acpmux daemon did not answer.",
     harnesses: { loading: false, problem: "unreachable", harnesses: [] },
   }),
-  backdrops: variant("experimental", {
-    options: { values: { "appearance.experimentalControls": true, "appearance.background": "starryNight" } },
+  "agents-harnesses-checking": variant("agents", {
+    note: "Harnesses while the first look has found nothing yet: it says it is checking.",
+    harnesses: { loading: true, problem: null, harnesses: [] },
+  }),
+  // Change Background… (cx-t2x.4): the picker on Appearance, with its Opacity slider.
+  backdrops: variant("appearance", {
+    options: { values: { "appearance.background": "starryNight", "appearance.backgroundOpacity": 0.6 } },
     host: {
       ...host,
       backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
@@ -152,64 +164,181 @@ Object.assign(variants, {
       wait('[data-card="backdrop"]'),
       { selector: '[data-card="backdrop"] button[aria-pressed="true"]', action: "focus" },
     ],
-    note: "The real wallpaper picker with a public-safe sample thumbnail.",
+    note: "Change Background…: the art picker and its Opacity slider on Appearance, with a public-safe sample thumbnail.",
   }),
-  // The bundled figure drawings (cx-t2x.1): the real grayscale files as thumbnails, with the
-  // credit lines the app sends, and one drawing picked (the background is off until the user picks).
-  "figure-drawings": variant("appearance", {
+  // The curated backdrop art (cx-t2x.7): the real thumbnails of three works from each picker
+  // collection, labelled "Title — Artist" with the credit lines the app sends, one picked.
+  "curated-art": variant("appearance", {
     options: {
-      values: { "appearance.experimentalControls": true, "appearance.background": "nga-degas-halevy-standing-66489" },
+      values: { "appearance.background": "van-gogh-starry-night" },
     },
     host: {
       ...host,
       backdrops: [
         {
-          id: "nga-degas-halevy-standing-66489",
-          title: "Three Studies of Ludovic Halévy Standing",
+          id: "goya-saturn",
+          title: "Saturn Devouring His Son — Francisco Goya",
           attribution:
-            "Three Studies of Ludovic Halévy Standing · Edgar Degas · c. 1880 · National Gallery of Art · CC0",
+            "Saturn Devouring His Son · Francisco Goya · 1819–1823 · Museo del Prado, Madrid · Public domain",
+          collection: "darkArt",
+          collection_title: "Dark Art",
         },
         {
-          id: "nga-degas-dancer-from-behind-32137",
-          title: "Dancer Seen from Behind",
+          id: "bocklin-isle-of-the-dead",
+          title: "Isle of the Dead — Arnold Böcklin",
+          attribution: "Isle of the Dead · Arnold Böcklin · 1880 · Kunstmuseum Basel · Public domain",
+          collection: "darkArt",
+          collection_title: "Dark Art",
+        },
+        {
+          id: "fuseli-nightmare",
+          title: "The Nightmare — Henry Fuseli",
+          attribution: "The Nightmare · Henry Fuseli · 1781 · Detroit Institute of Arts · Public domain",
+          collection: "darkArt",
+          collection_title: "Dark Art",
+        },
+        {
+          id: "van-gogh-starry-night",
+          title: "The Starry Night — Vincent van Gogh",
+          attribution: "The Starry Night · Vincent van Gogh · 1889 · Museum of Modern Art, New York · Public domain",
+          collection: "museumIcons",
+          collection_title: "Museum Icons",
+        },
+        {
+          id: "hokusai-great-wave",
+          title: "The Great Wave off Kanagawa — Katsushika Hokusai",
           attribution:
-            "Dancer Seen from Behind and Three Studies of Feet · Edgar Degas · c. 1878 · National Gallery of Art · CC0",
+            "The Great Wave off Kanagawa · Katsushika Hokusai · c. 1830–32 · Metropolitan Museum of Art, New York (JP1847) · Public domain",
+          collection: "museumIcons",
+          collection_title: "Museum Icons",
         },
         {
-          id: "nga-carpaccio-groups-of-male-figures-73858",
-          title: "Groups of Male Figures",
-          attribution: "Groups of Male Figures · Vittore Carpaccio · c. 1514 · National Gallery of Art · CC0",
+          id: "friedrich-wanderer",
+          title: "Wanderer above the Sea of Fog — Caspar David Friedrich",
+          attribution:
+            "Wanderer above the Sea of Fog · Caspar David Friedrich · c. 1818 · Hamburger Kunsthalle · Public domain",
+          collection: "museumIcons",
+          collection_title: "Museum Icons",
         },
         {
-          id: "nga-perino-del-vaga-figure-studies-57613",
-          title: "Figure Studies",
-          attribution: "Figure Studies · Perino del Vaga · c. 1530/1540 · National Gallery of Art · CC0",
+          id: "dahl-dresden-moonlight",
+          title: "View of Dresden by Moonlight — Johan Christian Dahl",
+          attribution:
+            "View of Dresden by Moonlight · Johan Christian Dahl · 1839 · Galerie Neue Meister, Dresden · Public domain",
+          collection: "calm",
+          collection_title: "Calm",
         },
         {
-          id: "nga-rubens-battle-of-nude-men-63034",
-          title: "Battle of Nude Men",
-          attribution: "Battle of Nude Men · Sir Peter Paul Rubens · National Gallery of Art · CC0",
+          id: "friedrich-monk-by-the-sea",
+          title: "The Monk by the Sea — Caspar David Friedrich",
+          attribution:
+            "The Monk by the Sea · Caspar David Friedrich · 1808–1810 · Alte Nationalgalerie, Berlin · Public domain",
+          collection: "calm",
+          collection_title: "Calm",
         },
         {
-          id: "nga-teniers-market-figures-62615",
-          title: "Studies of Market Figures",
-          attribution: "Studies of Market Figures · David Teniers the Younger · National Gallery of Art · CC0",
+          id: "monet-impression-sunrise",
+          title: "Impression, Sunrise — Claude Monet",
+          attribution: "Impression, Sunrise · Claude Monet · 1872 · Musée Marmottan Monet, Paris · Public domain",
+          collection: "calm",
+          collection_title: "Calm",
+        },
+        {
+          id: "dore-paradise-lost-book-vi",
+          title: "Paradise Lost, Book VI — Gustave Doré",
+          attribution:
+            "Paradise Lost, Book VI · Gustave Doré · 1866 · Book illustration (wood engraving) · Public domain",
+          collection: "dore",
+          collection_title: "Doré",
+        },
+        {
+          id: "dore-raven",
+          title: "The Raven — Gustave Doré",
+          attribution: "The Raven · Gustave Doré · 1884 · Book illustration (engraving) · Public domain",
+          collection: "dore",
+          collection_title: "Doré",
+        },
+        {
+          id: "dore-empyrean",
+          title: "The Empyrean — Gustave Doré",
+          attribution: "The Empyrean · Gustave Doré · 1868 · Book illustration (wood engraving) · Public domain",
+          collection: "dore",
+          collection_title: "Doré",
         },
       ],
     },
     backdropImages: {
-      "nga-degas-halevy-standing-66489": DEGAS_HALEVY,
-      "nga-degas-dancer-from-behind-32137": DEGAS_DANCER,
-      "nga-carpaccio-groups-of-male-figures-73858": CARPACCIO,
-      "nga-perino-del-vaga-figure-studies-57613": PERINO,
-      "nga-rubens-battle-of-nude-men-63034": RUBENS,
-      "nga-teniers-market-figures-62615": TENIERS,
+      "goya-saturn": GOYA_SATURN,
+      "bocklin-isle-of-the-dead": BOCKLIN_ISLE_OF_THE_DEAD,
+      "fuseli-nightmare": FUSELI_NIGHTMARE,
+      "van-gogh-starry-night": VAN_GOGH_STARRY_NIGHT,
+      "hokusai-great-wave": HOKUSAI_GREAT_WAVE,
+      "friedrich-wanderer": FRIEDRICH_WANDERER,
+      "dahl-dresden-moonlight": DAHL_DRESDEN_MOONLIGHT,
+      "friedrich-monk-by-the-sea": FRIEDRICH_MONK_BY_THE_SEA,
+      "monet-impression-sunrise": MONET_IMPRESSION_SUNRISE,
+      "dore-paradise-lost-book-vi": DORE_PARADISE_LOST_BOOK_VI,
+      "dore-raven": DORE_RAVEN,
+      "dore-empyrean": DORE_EMPYREAN,
     },
     steps: [
       wait('[data-card="backdrop"]'),
       { selector: '[data-card="backdrop"] button[aria-pressed="true"]', action: "focus" },
     ],
-    note: "The background picker with the bundled CC0 figure drawings, credited, one picked.",
+    note: "The background picker grouped into Dark Art, Museum Icons, Calm and Doré, credited, one picked.",
+  }),
+  // Browse More Art (cx-t2x.8): a search across the open museum collections, sample answers.
+  "art-browser": variant("appearance", {
+    options: {
+      values: { "appearance.background": "starryNight" },
+      museumArt: [
+        {
+          key: "aic:1",
+          title: "Sample harbor at night",
+          artist: "Sample Painter",
+          date: "1880",
+          source: "Art Institute of Chicago",
+          page: "",
+        },
+        {
+          key: "cleveland:2",
+          title: "Sample moonlit coast",
+          artist: "Sample Etcher",
+          date: "c. 1645",
+          source: "Cleveland Museum of Art",
+          page: "",
+        },
+        {
+          key: "commons:3",
+          title: "Sample starry field",
+          artist: "",
+          date: "1889",
+          source: "Wikimedia Commons",
+          page: "",
+        },
+      ],
+    },
+    host: {
+      ...host,
+      backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
+    },
+    backdropImages: Object.fromEntries(
+      ["starryNight", "museum/aic:1", "museum/cleveland:2", "museum/commons:3"].map((id, index) => [
+        id,
+        "data:image/svg+xml," +
+          encodeURIComponent(
+            `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="${["#253445", "#1d2a36", "#2b2336", "#20302a"][index]}"/><circle cx="235" cy="45" r="20" fill="#dfcf91"/></svg>`,
+          ),
+      ]),
+    ),
+    steps: [
+      wait('[data-card="backdrop"]'),
+      click('[data-card="backdrop"] button[aria-expanded]'),
+      input('[data-card="art-browser"] input[type="search"]', "night"),
+      click('[data-card="art-browser"] button[type="submit"]'),
+      wait('[data-card="art-browser"] .backdrop-grid'),
+    ],
+    note: "Browse More Art: a search answered by three open collections, each work with its source.",
   }),
   "theme-level-selected": variant("appearance", { steps: [click('input[name="theme-level"][value="workspace"]')] }),
   "theme-custom-spec": variant("appearance", {
@@ -296,6 +425,43 @@ Object.assign(variants, {
       },
     },
     note: "An MDM lock inline on the setting.",
+  }),
+  "theme-file-save": variant("theme", {
+    allThemes: true,
+    options: { values: { "appearance.theme": "Dracula" } },
+    steps: [
+      wait('[data-theme-files-action="save"]:not([disabled])'),
+      click('[data-theme-files-action="save"]'),
+      wait('[data-theme-files-prompt="name"]'),
+    ],
+    note: "Save as Ghostty Theme asks for a name inline, starting from the previewed theme's.",
+  }),
+  "theme-file-replace": variant("theme", {
+    allThemes: true,
+    options: {
+      values: { "appearance.theme": "Dracula" },
+      importable: { ...mockThemeColors[0]!, name: "Dracula Night" },
+    },
+    steps: [
+      wait('[data-theme-files-action="import"]:not([disabled])'),
+      click('[data-theme-files-action="import"]'),
+      wait('[data-theme-files-action="import"]:not([disabled])'),
+      click('[data-theme-files-action="import"]'),
+      wait('[data-theme-files-prompt="replace"]'),
+    ],
+    note: "Importing a file whose theme name is already in the themes folder asks inline before replacing it.",
+  }),
+  "theme-file-refused": variant("theme", {
+    allThemes: true,
+    options: { values: { "appearance.theme": "Dracula" } },
+    steps: [
+      wait('[data-theme-files-action="save"]:not([disabled])'),
+      click('[data-theme-files-action="save"]'),
+      input('[data-theme-files-prompt="name"] input', "Dracula"),
+      click('[data-theme-files-prompt="name"] button[type="submit"]'),
+      wait("[data-theme-files-error]"),
+    ],
+    note: "A name a shipped theme uses is refused inline; the name prompt stays open.",
   }),
   "changed-only": variant("general", {
     options: { values: customValues },
@@ -519,6 +685,24 @@ for (const [kind, key] of Object.entries(RESET_SAMPLES))
       await ctx.waitFor(() => !ctx.document.querySelector(`${row(key)} [data-reset]`));
     },
   });
+// One scroller (cx-jh7kq): a select opened near the bottom edge, then the content scrolled under
+// it. The pop-up stays at its row (or waits hidden while the row is out of view); the document
+// never scrolls, so the column never slides up under the window.
+variants["play-select-scroll"] = variant("appearance", {
+  note: "A select opened near the bottom, then the content scrolled: one scroller, the pop-up stays at its row.",
+  play: async (ctx) => {
+    const content = ctx.find({ selector: ".content" });
+    const control = `${row("sidebar.sectionLook")} .ui-select-button`;
+    const bottom = ctx.find({ selector: control }).getBoundingClientRect().bottom;
+    await ctx.scroll(
+      { selector: ".content" },
+      content.scrollTop + bottom - (content.getBoundingClientRect().bottom - 40),
+    );
+    await ctx.click({ selector: control });
+    await ctx.waitFor(() => ctx.document.querySelector(".ui-select-popup"));
+    await ctx.scroll({ selector: ".content" }, content.scrollTop - 160);
+  },
+});
 variants["play-section-change"] = variant("accounts", {
   note: "Changing category: the column fades in; the sidebar never moves.",
   play: async (ctx) => {
@@ -548,6 +732,7 @@ export default settingsPageEntry({
     "pages/settings/components/HarnessesCard.tsx",
     "pages/settings/components/AgentHarnesses.tsx#AgentHarnesses",
     "pages/settings/components/ActionRow.tsx",
+    "pages/settings/components/ArtBrowser.tsx",
     "pages/settings/components/GhosttyDiagnostics.tsx",
     "pages/settings/components/GroupList.tsx",
     "pages/settings/components/Highlight.tsx",
@@ -566,6 +751,7 @@ export default settingsPageEntry({
     "pages/settings/components/SettingsApp.tsx",
     "pages/settings/components/SettingsPage.tsx",
     "pages/settings/components/ScopeOverrides.tsx",
+    "pages/settings/components/ThemeFiles.tsx",
     "pages/settings/components/ThemePicker.tsx",
     "pages/settings/components/ThemePreview.tsx",
     "pages/settings/components/ThemeStudio.tsx",

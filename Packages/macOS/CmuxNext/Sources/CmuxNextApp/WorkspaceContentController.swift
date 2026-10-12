@@ -72,7 +72,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         let fallbackCreate = emptyWorkspaceRepair.create
         emptyWorkspaceRepair.createFirst = { [weak services, weak daemon] key in
             guard let services, let daemon, let workspace = daemon.store.workspaces.first(where: { $0.key == key }) else { throw DaemonError.notConnected }
-            if services.agentTabs.canHost(on: daemon) {
+            // Another machine's empty workspace gets a terminal: its chats start only when asked (cx-k21v).
+            if services.agentTabs.opensFirstPage(on: daemon) {
                 return try await services.agentTabs.openFirstPage(in: workspace, on: daemon, services: services)
             }
             return try await fallbackCreate(key)
@@ -81,6 +82,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
             onNew: { [weak self] in self?.newFromEmptyState() }
         )
         themeScope.root(contentView)
+        contentView.backgroundMenu = { [weak services] in services?.registry.makeContextMenu(for: .windowBackground) }
         contentView.showsBar = screenBar.isVisible
         screenBar.onVisibilityChange = { [weak self] visible in self?.contentView.showsBar = visible }
         // Observation applies the first snapshot synchronously, including the empty-state view.
@@ -229,6 +231,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         guard let handle = handles.panes[pane], let model = daemon.store.pane(handle) else { return NSView() }
         let controller = PaneController(pane: model, daemon: daemon, layoutPaneID: pane, services: services, state: state)
         controller.workspace = self
+        controller.view.toolbar = PaneToolbar(pane: controller) // split right/down and the tab's actions (cx-kk7lm)
+        controller.view.swapDrag = PaneSwapDrag(pane: controller)
         panes[pane] = controller
         services.paneMounts.changed()
         if !isApplying { sendTopology() }

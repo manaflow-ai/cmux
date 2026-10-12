@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "a6433ffd0e0bbc273df24727340ad0763224c7f7c16431069159fe08f0e29109",
+  "catalog_sha256": "a9bc4ae262e7132f5f34b00ac7910e1af2cc0bda30fc90796aa9b3122aadb7fd",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -160,14 +160,77 @@
     "git.checkpoint.unpin": {
       "class": "mutation"
     },
+    "git.commit": {
+      "class": "mutation"
+    },
     "git.diff": {
+      "class": "read"
+    },
+    "git.files.list": {
       "class": "read"
     },
     "git.files.search": {
       "class": "read"
     },
+    "git.push": {
+      "class": "mutation"
+    },
     "git.status": {
       "class": "read"
+    },
+    "git.worktree.apply": {
+      "class": "mutation"
+    },
+    "git.worktree.create": {
+      "class": "mutation"
+    },
+    "git.worktree.remove": {
+      "class": "mutation"
+    },
+    "history.backups.purge": {
+      "class": "mutation"
+    },
+    "history.clear": {
+      "class": "mutation"
+    },
+    "history.entries.list": {
+      "class": "read"
+    },
+    "history.entries.remove": {
+      "class": "mutation"
+    },
+    "history.restore": {
+      "class": "mutation"
+    },
+    "history.site.remove": {
+      "class": "mutation"
+    },
+    "history.visit.import": {
+      "class": "mutation"
+    },
+    "history.visit.record": {
+      "class": "mutation"
+    },
+    "history.visit.remove": {
+      "class": "mutation"
+    },
+    "history.visit.summaries": {
+      "class": "read"
+    },
+    "history.visit.title": {
+      "class": "mutation"
+    },
+    "keybindings.get": {
+      "class": "read"
+    },
+    "keybindings.remove": {
+      "class": "mutation"
+    },
+    "keybindings.reset": {
+      "class": "mutation"
+    },
+    "keybindings.set": {
+      "class": "mutation"
     },
     "machine.get": {
       "class": "read"
@@ -618,6 +681,9 @@
     },
     "workspace.agent_folder.set": {
       "class": "mutation"
+    },
+    "workspace.agent_start.get": {
+      "class": "read"
     },
     "workspace.close": {
       "class": "mutation"

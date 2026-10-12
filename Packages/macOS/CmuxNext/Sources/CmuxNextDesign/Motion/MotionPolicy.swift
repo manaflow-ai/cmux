@@ -5,7 +5,8 @@ public import Foundation
 ///
 /// - `off`: nothing animates; every change applies in one frame.
 /// - Reduce Motion: movement (position, size, scale, scroll) is instant;
-///   opacity changes stay as a short crossfade; loops stop.
+///   opacity changes stay as a short crossfade (hover feedback is
+///   instant); loops stop.
 /// - `normal`: every time constant is 1.5x the `fast` token.
 public nonisolated struct MotionPolicy: Sendable, Equatable {
     public var speed: MotionSpeed
@@ -31,9 +32,9 @@ public nonisolated struct MotionPolicy: Sendable, Equatable {
     }
 
     /// Seconds for `token`; 0 means apply at once. Under Reduce Motion a fade
-    /// is at most one crossfade long.
+    /// is at most one crossfade long, and hover feedback is instant.
     public func duration(_ token: MotionFade) -> TimeInterval {
-        guard animatesFades else { return 0 }
+        guard animatesFades, !(reduceMotion && (token == .hover || token == .hoverOut)) else { return 0 }
         let scaled = token.baseDuration * speed.timeScale
         return reduceMotion ? min(scaled, MotionFade.crossfade.baseDuration) : scaled
     }

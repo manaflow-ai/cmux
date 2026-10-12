@@ -22,6 +22,12 @@ nonisolated public struct UpdateHarness: Sendable, Equatable {
     public let feedURL: String
     /// The timeline file (one JSON object per line, appended).
     public let marksPath: String
+    /// Start with Sparkle's scheduled background check instead of waiting
+    /// for a check the harness asks for.
+    public let backgroundCheck: Bool
+    /// The throwaway key that signs the harness's release notes (raw
+    /// Ed25519, base64), or nil: notes are then read as in any DEV build.
+    public let contentKey: String?
 
     public init?(info: [String: Any], bundleIdentifier: String?) {
         guard UpdateTrack.isDevelopmentBundle(bundleIdentifier),
@@ -30,6 +36,8 @@ nonisolated public struct UpdateHarness: Sendable, Equatable {
               let marks = entry["marks"] as? String, marks.hasPrefix("/") else { return nil }
         feedURL = feed
         marksPath = marks
+        backgroundCheck = entry["background"] as? Bool ?? false
+        contentKey = entry["contentKey"] as? String
     }
 
     /// The running app's harness, or nil (every build that is not a

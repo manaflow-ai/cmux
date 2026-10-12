@@ -57,10 +57,6 @@ nonisolated enum CatalogArgument {
                        kind: .string, isRequired: false)
     }
 
-    static var tabTab: ActionArgument {
-        ActionArgument(name: "tab", title: String(localized: "argument.tab", defaultValue: "Tab", bundle: .module), kind: .target(.tab))
-    }
-
     static var groupTabGroup: ActionArgument {
         ActionArgument(name: "group", title: String(localized: "argument.group", defaultValue: "Group", bundle: .module), kind: .target(.tabGroup))
     }
