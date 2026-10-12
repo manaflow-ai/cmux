@@ -14,6 +14,8 @@ import Testing
 struct BrowserCloseHistoryTests {
     final class Daemon {
         var stored: [FrontendBrowserHistory] = []
+        /// The tab record's url writes (`frontend_browser_tabs.url`).
+        var recordURLs: [String] = []
         var fetched = false
     }
 
@@ -30,7 +32,10 @@ struct BrowserCloseHistoryTests {
                                        browserRenderer: "frontend", browserEngine: "cef"))
         service.tabModel = { $0 == tab.id ? tab : nil }
         service.writeBackDelay = .seconds(3600)
-        service.update = { _, _, _ in true }
+        service.update = { _, _, update in
+            if let url = update.url { daemon.recordURLs.append(url) }
+            return true
+        }
         service.fetchHistory = { _, _ in daemon.fetched = true; return nil }
         service.storeHistory = { _, _, history in
             let ok = await store()
@@ -59,20 +64,21 @@ struct BrowserCloseHistoryTests {
         let shown = try #require(saved.entries.indices.contains(saved.index) ? saved.entries[saved.index] : nil)
         #expect(shown.url == Self.b.absoluteString, "the navigation in the debounce was lost")
         #expect(shown.scrollY == 640, "the scroll position was not measured at the close")
+        // Reopen Closed restores the history only at the record's page: the
+        // two must agree, or a relaunch reopens `a` with no history at all.
+        #expect(daemon.recordURLs.last == Self.b.absoluteString, "the record still names the page before")
     }
 
-    /// The close command's own step (`DaemonService.closeCommand`, shared by
-    /// the strip, the palette, the menu and the CLI) reaches the page by its
-    /// surface on its machine.
+    /// The close command's step (`DaemonService.prepareClose`, set to this)
+    /// reaches the page by its surface on its machine. Called on the service:
+    /// the hook is process-wide, and other suites' app services replace it.
     @Test func theCloseCommandSavesThePageOfItsSurface() async throws {
         let daemon = Daemon()
         let (service, page, tab) = try await Self.tracked(daemon)
-        // The hook holds the service weakly, as the app's cache owns it.
-        defer { withExtendedLifetime(service) {} }
         page.load(Self.b)
-        await DaemonService.prepareClose("other-machine", [tab.surface])
+        await service.flushHistory(machine: "other-machine", surfaces: [tab.surface])
         #expect(daemon.stored.isEmpty, "a close on another machine saved this page")
-        await DaemonService.prepareClose("local", [tab.surface])
+        await service.flushHistory(machine: "local", surfaces: [tab.surface])
         #expect(daemon.stored.last.map { $0.entries[$0.index].url } == Self.b.absoluteString)
     }
 
