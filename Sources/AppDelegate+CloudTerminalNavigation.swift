@@ -14,15 +14,25 @@ extension AppDelegate {
         )
     }
 
-    /// Selects a local workspace from a Cloud tree row.
+    /// Selects a local workspace from a Cloud tree row in the window that owns it.
+    ///
+    /// Every window's Cloud tree reads the app-wide surface catalog, so a row
+    /// can point at a workspace that another window owns. Selecting it on the
+    /// panel's own manager would do nothing, so route to the owner and bring
+    /// that window forward (#19967).
     /// - Parameters:
     ///   - workspaceID: The local workspace the row resolved to.
     ///   - panelManager: The manager of the window whose Cloud tree was used.
-    /// - Returns: Whether a manager selected the workspace.
+    /// - Returns: Whether a live owner selected the workspace.
     @discardableResult
     func selectCloudTreeLocalWorkspace(_ workspaceID: UUID, from panelManager: TabManager?) -> Bool {
-        guard let panelManager, panelManager.workspacesById[workspaceID] != nil else { return false }
-        panelManager.selectedTabId = workspaceID
+        let owner = tabManagerFor(tabId: workspaceID)
+            ?? panelManager.flatMap { $0.workspacesById[workspaceID] != nil ? $0 : nil }
+        guard let owner else { return false }
+        if owner !== panelManager, let windowId = owner.windowId {
+            _ = focusMainWindow(windowId: windowId)
+        }
+        owner.selectedTabId = workspaceID
         return true
     }
 }
