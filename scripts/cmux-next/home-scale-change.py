@@ -113,8 +113,12 @@ try:
         rpc("debug.home_native_fixture.open")
         time.sleep(1)  # test harness: one open request per second while the window starts, not app code
         return None
-    check("the Home fixture opens and shows its transcript", bool(poll(fixture_shown, timeout=120)),
-          rpc("debug.home.drive", {"action": "texts"}))
+    if not check("the Home fixture opens and shows its transcript", bool(poll(fixture_shown, timeout=120)),
+                 rpc("debug.home.drive", {"action": "texts"})):
+        # Which windows and pages show (for the failure's cause).
+        print("     windows: " + json.dumps(rpc("debug.window_list"))[:1500], flush=True)
+        print("     home: " + json.dumps(rpc("debug.home"))[:800], flush=True)
+        print("     open: " + json.dumps(rpc("debug.home_native_fixture.open"))[:300], flush=True)
     rpc("debug.home.drive", {"action": "focus"})
     rpc("debug.home.drive", {"action": "type", "text": "Scale change check"})
     sent = rpc("debug.home.drive", {"action": "send"}) or {}
