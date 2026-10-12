@@ -231,6 +231,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         let controller = PaneController(pane: model, daemon: daemon, layoutPaneID: pane, services: services, state: state)
         controller.workspace = self
         controller.view.toolbar = PaneToolbar(pane: controller) // split right/down and the tab's actions (cx-kk7lm)
+        controller.view.swapDrag = PaneSwapDrag(pane: controller)
         panes[pane] = controller
         services.paneMounts.changed()
         if !isApplying { sendTopology() }

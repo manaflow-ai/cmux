@@ -32,6 +32,8 @@ final class PaneContentView: NSView, PaneContentChrome {
     private var placementObservation: Task<Void, Never>?
     /// The pane's buttons at the strip's trailing end (`PaneContentView+Toolbar`).
     var toolbar: PaneToolbar? { didSet { installToolbar(replacing: oldValue) } }
+    /// Its tab bar's empty space drags the pane onto another to swap them (cx-8bv1j).
+    var swapDrag: PaneSwapDrag?
     /// The acting agent's name tag (`PaneContentView+AgentTag`).
     let agentTag = AgentPresenceTagView()
     private var agentTagObservation: Task<Void, Never>?
