@@ -82,6 +82,8 @@ extension HomeNativeTranscriptView {
     public func debugGeometry() -> [String: Double] { transcript.debugGeometry() }
     /// Clicks the first shown link whose URL starts with `prefix` (the click's path); its URL.
     public func debugClickLink(prefix: String) -> String? { transcript.debugClickLink(prefix: prefix) }
+    /// The typing bubble's body in window coordinates (bottom-left origin), nil when none shows.
+    public func debugTypingBubbleFrame() -> CGRect? { transcript.debugTypingBubbleFrame() }
     /// The text of the newest `limit` messages this view shows, oldest first.
     public func debugMessageTexts(limit: Int = 10) -> [String] { transcript.debugMessageTexts(limit: limit) }
     /// Clicks the newest thread's "N Replies" or preview (the click's path); the open thread's root.
