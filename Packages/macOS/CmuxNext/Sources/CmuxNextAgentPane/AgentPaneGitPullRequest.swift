@@ -80,8 +80,9 @@ public nonisolated struct AgentPaneGitPullRequest: Equatable, Sendable {
     }
 
     /// The remote name of the branch `branch` was made from (`branch.<b>.cmuxBase`, recorded by the
-    /// session host's `git.worktree.create`): a local branch by its upstream's name (else its own),
-    /// a remote-tracking branch without its remote. Nil for no record, or a base recorded as a commit.
+    /// session host's `git.worktree.create`): a local branch by its upstream's name, a
+    /// remote-tracking branch without its remote. Nil (gh's default, as before) for no record, a
+    /// commit, a local branch with no upstream, or the remote's HEAD.
     static func recordedBase(of branch: String,
                              git: (_ arguments: [String]) async -> AgentPaneGitProcess.Outcome) async -> String? {
         let recorded = await git(["config", "--get", "branch.\(branch).cmuxBase"])
@@ -90,13 +91,13 @@ public nonisolated struct AgentPaneGitPullRequest: Equatable, Sendable {
         if await git(["show-ref", "--verify", "--quiet", "refs/heads/\(base)"]).status == 0 {
             let merge = await git(["config", "--get", "branch.\(base).merge"])
             let upstream = merge.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard merge.status == 0, upstream.hasPrefix("refs/heads/") else { return base }
+            guard merge.status == 0, upstream.hasPrefix("refs/heads/") else { return nil }
             return String(upstream.dropFirst("refs/heads/".count))
         }
         guard await git(["show-ref", "--verify", "--quiet", "refs/remotes/\(base)"]).status == 0,
               let slash = base.firstIndex(of: "/") else { return nil }
         let name = String(base[base.index(after: slash)...])
-        return name.isEmpty ? nil : name
+        return name.isEmpty || name == "HEAD" ? nil : name
     }
 
     /// `gh pr view --json url,number,state`'s answer when that pull request is open.
