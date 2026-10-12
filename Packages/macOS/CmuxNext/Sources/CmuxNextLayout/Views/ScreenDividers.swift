@@ -84,6 +84,16 @@ struct DividerDragState {
     /// A row edge: the column's rows and their frames when the drag
     /// began (rows.md Z1).
     var rows: RowDragStart?
+    /// A split's snap ratios: halves, thirds and its chain's equal share
+    /// (cx-piioc), and the one the divider sits on now.
+    var snaps: [Double] = []
+    var snapped: Double?
+
+    /// How close, in points, a split divider comes to a snap before it lands there.
+    static let snapDistance: CGFloat = 8
+    static func snaps(equalShare: Double?) -> [Double] {
+        [1.0 / 3, 0.5, 2.0 / 3] + (equalShare.map { [$0] } ?? [])
+    }
 }
 
 struct RowDragStart {
