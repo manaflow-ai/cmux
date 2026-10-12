@@ -26,6 +26,7 @@ extension NotificationCenterService {
     /// Seeds the local daemon's notification texts from its ledger each time
     /// it connects, so rows show notifications posted before the app did.
     func followNotificationLedger(_ daemon: DaemonService) -> Task<Void, Never> {
+        // task-owner: the caller stores it with the service's other tasks and cancels them together.
         Task {
             let ready = ObservationStream { () -> Bool in
                 guard daemon.store.isLoaded, case .connected = daemon.store.connectionState else { return false }
