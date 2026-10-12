@@ -166,6 +166,21 @@ Object.assign(variants, {
     ],
     note: "Change Background…: the art picker and its Opacity slider on Appearance, with a public-safe sample thumbnail.",
   }),
+  // Change Background… on a workspace (cx-t2x.5): This Workspace, following All Workspaces.
+  "backdrops-workspace": variant("appearance", {
+    focus: "appearance.background",
+    workspace: "ws-1",
+    options: {
+      values: { "appearance.background": "starryNight" },
+      workspaceBackgrounds: [{ workspace: "ws-1", title: "Research", value: null }],
+    },
+    host: {
+      ...host,
+      backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
+    },
+    steps: [wait('[data-card="backdrop"] .backdrop-scope')],
+    note: "Change Background… on a workspace: This Workspace (Research) chosen, following All Workspaces until it has its own.",
+  }),
   // The curated backdrop art (cx-t2x.7): the real thumbnails of three works from each picker
   // collection, labelled "Title — Artist" with the credit lines the app sends, one picked.
   "curated-art": variant("appearance", {
@@ -733,6 +748,7 @@ export default settingsPageEntry({
     "pages/settings/components/AgentHarnesses.tsx#AgentHarnesses",
     "pages/settings/components/ActionRow.tsx",
     "pages/settings/components/ArtBrowser.tsx",
+    "pages/settings/components/BackdropScope.tsx",
     "pages/settings/components/GhosttyDiagnostics.tsx",
     "pages/settings/components/GroupList.tsx",
     "pages/settings/components/Highlight.tsx",

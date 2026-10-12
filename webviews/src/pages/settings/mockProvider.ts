@@ -29,6 +29,7 @@ import {
   type MutationResult,
   type SettingsClient,
   type SnapshotResult,
+  type WorkspaceBackground,
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
@@ -53,6 +54,8 @@ export type MockOptions = {
   importable?: GhosttyTheme;
   /** What `cmux.settings.art.search` finds (Browse More Art). */
   museumArt?: MuseumArtResult[];
+  /** Workspaces with a background of their own, or following the app's (`value` null). */
+  workspaceBackgrounds?: WorkspaceBackground[];
 };
 
 export const mockDomains: Domains = {
@@ -97,6 +100,7 @@ export class MockSettingsProvider {
   private readonly usedKeys = new Map<string, string>();
   private connected: boolean;
   private museumArt: MuseumArtResult[];
+  readonly workspaceBackgrounds = new Map<string, WorkspaceBackground>();
 
   constructor(options: MockOptions = {}) {
     this.chatFolders = options.chatFolders;
@@ -115,6 +119,8 @@ export class MockSettingsProvider {
     if (options.settingsFile !== undefined) this.host = { ...this.host, settings_file: options.settingsFile };
     this.importable = options.importable ?? null;
     this.museumArt = options.museumArt ?? [];
+    for (const background of options.workspaceBackgrounds ?? [])
+      this.workspaceBackgrounds.set(background.workspace, background);
   }
 
   /** Registers every op and stream on `session` (the provider side). */
@@ -170,6 +176,16 @@ export class MockSettingsProvider {
           advanced: [{ id: "reloadConfiguration", title: "Reload Configuration", enabled: true }],
         })[String((params as { section: string }).section)] ?? [],
       "cmux.settings.backdrop.choose_image": () => ({ id: null }),
+      "cmux.settings.backdrop.workspace": (params) => this.workspaceBackground(String(params.workspace)),
+      "cmux.settings.backdrop.workspace.set": (params) => {
+        const workspace = this.workspaceBackground(String(params.workspace));
+        this.workspaceBackgrounds.set(workspace.workspace, {
+          ...workspace,
+          value: (params.value as string | null) ?? null,
+        });
+        return {};
+      },
+      "cmux.settings.backdrop.workspace.preview": () => ({}),
       "cmux.settings.art.search": () => ({ results: this.museumArt }),
       "cmux.settings.art.use": () => ({ id: "" }),
       "cmux.settings.folders.add": (params) => {
@@ -240,6 +256,9 @@ export class MockSettingsProvider {
       "cmux.settings.file.reveal",
       "cmux.settings.folders.add",
       "cmux.settings.backdrop.choose_image",
+      "cmux.settings.backdrop.workspace",
+      "cmux.settings.backdrop.workspace.set",
+      "cmux.settings.backdrop.workspace.preview",
       "cmux.settings.art.search",
       "cmux.settings.art.use",
       "cmux.settings.section.actions",
@@ -512,6 +531,12 @@ export class MockSettingsProvider {
   private track(set: Set<EventSourceContext>, ctx: EventSourceContext): void {
     set.add(ctx);
     ctx.signal.addEventListener("abort", () => set.delete(ctx));
+  }
+
+  private workspaceBackground(workspace: string): WorkspaceBackground {
+    const background = this.workspaceBackgrounds.get(workspace);
+    if (!background) throw new ProtocolError(ProtocolErrorCode.invalidParams, `no workspace ${workspace}`);
+    return background;
   }
 
   private list(section: string | undefined): ListRow[] {

@@ -869,6 +869,11 @@ mark {
   max-width: 320px;
 }
 
+/* All Workspaces | This Workspace (cx-t2x.5). */
+.backdrop-scope {
+  margin-bottom: 8px;
+}
+
 /* Wallpaper grid (R82 commit 4). */
 .backdrop-grid {
   display: grid;
