@@ -471,6 +471,7 @@
 		D93410060000000000000001 /* BrowserDownloadsPopoverAppearanceWindowObservingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D93410060000000000000002 /* BrowserDownloadsPopoverAppearanceWindowObservingView.swift */; };
 		D93410000000000000000001 /* BrowserDownloadsPopoverContrastUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D93410000000000000000002 /* BrowserDownloadsPopoverContrastUITests.swift */; };
 		C67540120000000000000001 /* BrowserDownloadsToolbarButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = C67540120000000000000002 /* BrowserDownloadsToolbarButton.swift */; };
+		3A069F8BF9905D30822E580C /* BrowserElementPickerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD89677E21726EB2F1B51F30 /* BrowserElementPickerTests.swift */; };
 		B5A5E55B0000000000000001 /* BrowserEphemeralRestorationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5A5E55B0000000000000002 /* BrowserEphemeralRestorationTests.swift */; };
 		C2035A010000000000000001 /* BrowserErrorPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A010000000000000002 /* BrowserErrorPage.swift */; };
 		BEEA00010000000000000001 /* BrowserExternalNavigationHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEEA00010000000000000002 /* BrowserExternalNavigationHandler.swift */; };
@@ -5151,6 +5152,7 @@
 		D93410060000000000000002 /* BrowserDownloadsPopoverAppearanceWindowObservingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Debug/UITests/BrowserDownloadsPopoverAppearanceWindowObservingView.swift; sourceTree = "<group>"; };
 		D93410000000000000000002 /* BrowserDownloadsPopoverContrastUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserDownloadsPopoverContrastUITests.swift; sourceTree = "<group>"; };
 		C67540120000000000000002 /* BrowserDownloadsToolbarButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDownloadsToolbarButton.swift; sourceTree = "<group>"; };
+		FD89677E21726EB2F1B51F30 /* BrowserElementPickerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrowserElementPickerTests.swift"; sourceTree = "<group>"; };
 		B5A5E55B0000000000000002 /* BrowserEphemeralRestorationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserEphemeralRestorationTests.swift; sourceTree = "<group>"; };
 		C2035A010000000000000002 /* BrowserErrorPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserErrorPage.swift; sourceTree = "<group>"; };
 		BEEA00010000000000000002 /* BrowserExternalNavigationHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserExternalNavigationHandler.swift; sourceTree = "<group>"; };
@@ -13782,6 +13784,7 @@
 				9FF26F73EF3C4096BF73A840 /* AgentSessionPanelNotificationTests.swift */,
 				2C7DBD4A0D4E5A763491210A /* ChromeTabKeysTests.swift */,
 				60997B8A3538A87DDD79662F /* BrowserCLIDialogTests.swift */,
+				FD89677E21726EB2F1B51F30 /* BrowserElementPickerTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -17792,6 +17795,7 @@
 				B75040030000000000000001 /* BrowserDiscardRestoreHealPredicateTests.swift in Sources */,
 				C59240010000000000000003 /* BrowserDownloadFilenameResolverTests.swift in Sources */,
 				A12451000000000000000005 /* BrowserDownloadHistoryTests.swift in Sources */,
+				3A069F8BF9905D30822E580C /* BrowserElementPickerTests.swift in Sources */,
 				B5A5E55B0000000000000001 /* BrowserEphemeralRestorationTests.swift in Sources */,
 				129980000000000000000001 /* BrowserFailedNavigationReloadTests.swift in Sources */,
 				A5008381 /* BrowserFindJavaScriptTests.swift in Sources */,
