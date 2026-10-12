@@ -36,6 +36,8 @@ const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let dom: JSDOM;
 let root: Root | undefined;
 let host: HTMLElement;
+/// What the pages asked the app to remember (`newTab.remember`), oldest first.
+let remembered: Record<string, unknown>[] = [];
 
 beforeAll(() => {
   dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, url: "https://cmux.test/" });
@@ -71,6 +73,7 @@ afterEach(() => {
   root = undefined;
   host.replaceChildren();
   dom.window.localStorage.clear();
+  remembered = [];
 });
 
 afterAll(() => {
@@ -287,6 +290,9 @@ async function mountNewTab(start: { harness: string; folder?: string }) {
     },
     "chat.mode": async () => undefined,
     "chat.effort": async () => undefined,
+    "newTab.remember": async (params) => {
+      remembered.push(params);
+    },
   };
   const folder = start.folder ?? "/tmp/project";
   const raw: Snapshot = {
@@ -469,14 +475,25 @@ async function pickOnNewTab(from: string, provider: string, id: string, folder?:
 
 test("the last pick is the model of the next New Tab, after a restart too, and the chat starts on it", async () => {
   await pickOnNewTab("claude", "Codex", "gpt-6-astra");
+  // The app keeps the pick: an agent page's own storage ends with the launch.
+  expect(remembered.at(-1)).toEqual({ agent: "codex", model: "gpt-6-astra", folder: "/tmp/project" });
   // A new tab: the page and its switch are new; only what was remembered carries over.
   const next = await mountNewTab({ harness: "claude" });
   expect(chip()).toBe("GPT-6 Astra");
   act(() => root?.unmount());
   root = undefined;
-  // A restart: the modules load again, as a relaunched app's page does.
-  const restarted = await import(`../src/agent-session/acpmux/lastPick?restart=${Date.now()}`);
-  expect(restarted.lastPick()).toEqual({ harness: "codex", model: "gpt-6-astra" });
+  // A restart: the page's storage is gone (its web view's store is not persistent), and the
+  // New Tab context brings back what the app kept.
+  dom.window.localStorage.clear();
+  const { newTabHost } = await import(`../src/agent-session/acpmux/NewTabPage?restart=${Date.now()}`);
+  newTabHost({
+    newTab: {
+      lastPicks: {
+        global: { harness: "codex", model: "gpt-6-astra" },
+        folders: [{ folder: "/tmp/project", harness: "codex", model: "gpt-6-astra" }],
+      },
+    },
+  });
   const tab = await mountNewTab({ harness: "claude" });
   expect(chip()).toBe("GPT-6 Astra");
   await tab.ask();
