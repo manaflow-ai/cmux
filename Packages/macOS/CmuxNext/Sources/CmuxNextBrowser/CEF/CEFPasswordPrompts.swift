@@ -27,6 +27,11 @@ struct CEFPasswordPrompts {
             Self.open.removeValue(forKey: promptID)?.respond(.cancel)
             return
         }
+        // Offer to Save Passwords off: Chromium's question goes unasked.
+        guard CEFPasswordPolicy.offerToSave else {
+            _ = runtime.shim?.passwordPromptAnswer(promptID, Action.dismiss.rawValue, nil)
+            return
+        }
         let update = kind == "update"
         let origin = object["origin"] as? String ?? ""
         let username = object["username"] as? String ?? ""

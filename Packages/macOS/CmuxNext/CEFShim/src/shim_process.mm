@@ -235,6 +235,7 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(password_import_replace, "cmux_password_import_replace");
   CMUX_BIND(set_password_prompt_handler, "cmux_set_password_prompt_handler");
   CMUX_BIND(password_prompt_answer, "cmux_password_prompt_answer");
+  CMUX_BIND(set_password_generation_enabled, "cmux_set_password_generation_enabled");
   CMUX_BIND(bookmarks_observe, "cmux_bookmarks_observe");
   CMUX_BIND(bookmarks_sync, "cmux_bookmarks_sync");
 #undef CMUX_BIND

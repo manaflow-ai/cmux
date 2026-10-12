@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextIcons
 import CmuxNextPages
+import CmuxNextSettings
 import Foundation
 
 extension PageDescriptor {
@@ -62,6 +63,9 @@ final class PasswordsPageService: InternalPageProvider {
         if let native { routes.append(PageRoute(prefix: "cmux.app.", provider: native)) }
         guard let page = PageWebView(descriptor: .passwords, routes: routes) else { return NSView() }
         provider.anchor = { [weak page] in page }
+        provider.allowExport = { [weak services] in
+            services?.settings.map { BrowserPasswordsSetting.read($0.fileRoot).allowExport } ?? false
+        }
         native?.anchor = { [weak page] in page }
         return page
     }

@@ -31,6 +31,8 @@ final class PasswordsPageProvider: PageProvider {
     let secrets: any PasswordSecretSurface
     /// The page view: the sheets attach to its window.
     var anchor: () -> NSView? = { nil }
+    /// `browser.passwords.allowExport`: off (the default) refuses export before any sheet (decision P3).
+    var allowExport: () -> Bool = { false }
     private var replies: [(key: String, value: JSONValue)] = []
     private static let replayLimit = 64
     private var revision = 0
@@ -112,6 +114,7 @@ final class PasswordsPageProvider: PageProvider {
             "sections": [
                 "passwords": .bool(capabilities.passwords), "passkeys": .bool(capabilities.passkeys),
                 "exceptions": .bool(capabilities.exceptions), "export": .bool(capabilities.export),
+                "exportOff": .bool(!allowExport()),
             ],
         ]
     }
