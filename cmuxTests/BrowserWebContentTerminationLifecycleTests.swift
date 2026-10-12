@@ -14,6 +14,25 @@ import WebKit
 @MainActor
 @Suite(.serialized)
 struct BrowserWebContentTerminationLifecycleTests {
+    @Test("Content termination cancels native picker waiters before recovery")
+    func terminationInvalidatesPickerWaiters() async throws {
+        let panel = BrowserPanel(workspaceId: UUID(), websiteDataStore: .nonPersistent())
+        defer { panel.close() }
+        let delegate = try #require(panel.webView.navigationDelegate as? BrowserNavigationDelegate)
+        let generation = panel.pickerDocumentGeneration
+        await confirmation("Socket waiters wake when the producing process terminates") { invalidated in
+            let observer = NotificationCenter.default.addObserver(
+                forName: .browserElementPickerStateDidChange, object: panel, queue: .main
+            ) { _ in invalidated() }
+            defer { NotificationCenter.default.removeObserver(observer) }
+
+            delegate.webViewWebContentProcessDidTerminate(panel.webView)
+
+            #expect(panel.pickerDocumentGeneration != generation)
+            #expect(panel.pickedElement == nil)
+        }
+    }
+
     @Test("Content termination revokes readiness for the retained WebView")
     func terminationRevokesCommittedDocumentReadiness() throws {
         let panel = BrowserPanel(workspaceId: UUID(), websiteDataStore: .nonPersistent())

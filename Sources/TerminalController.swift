@@ -36,6 +36,7 @@ extension Notification.Name {
     static let terminalSurfaceHostedViewDidMoveToWindow = Notification.Name("cmux.terminalSurfaceHostedViewDidMoveToWindow")
     static let mainWindowContextsDidChange = Notification.Name("cmux.mainWindowContextsDidChange")
     static let browserDownloadEventDidArrive = Notification.Name("cmux.browserDownloadEventDidArrive")
+    static let browserElementPicked = Notification.Name("cmux.browserElementPicked")
     /// Posted on the main thread by a browser panel when its main frame commits a new document.
     static let browserMainFrameDidCommit = Notification.Name("cmux.browserMainFrameDidCommit")
     static let reactGrabDidCopySelection = Notification.Name("cmux.reactGrabDidCopySelection")
@@ -477,6 +478,7 @@ class TerminalController {
     )
     private var browserDownloadObserver: NSObjectProtocol?
     private var browserMainFrameCommitObserver: NSObjectProtocol?
+    private var browserElementPickedObserver: NSObjectProtocol?
 
     func cleanupSurfaceState(
         surfaceIds: [UUID],
@@ -735,7 +737,36 @@ class TerminalController {
                 self?.v2BrowserDocumentState.mainFrameDidCommit(surfaceID: surfaceId)
             }
         }
+
+        browserElementPickedObserver = NotificationCenter.default.addObserver(
+            forName: .browserElementPicked,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let source = note.object as? BrowserPanel,
+                  let workspaceId = note.userInfo?["workspaceId"] as? UUID,
+                  let element = note.userInfo?["element"] as? BrowserPickedElement,
+                  let generation = note.userInfo?["generation"] as? UInt64,
+                  let webView = note.userInfo?["webView"] as? WKWebView else { return }
+            Task { @MainActor [weak self, weak source, weak webView] in
+                guard let self, let source, let webView,
+                      source.workspaceId == workspaceId, source.webView === webView,
+                      source.pickerDocumentGeneration == generation,
+                      source.pickedElement == element else { return }
+                self.sendPickedElementToTerminal(workspaceId: workspaceId, summary: element.summary)
+            }
+        }
     }
+
+    /// Inserts an intentionally picked element into the originating workspace's visible terminal.
+    /// Control filtering preserves literal terminal input; it does not make shell syntax inert.
+    private func sendPickedElementToTerminal(workspaceId: UUID, summary: String) {
+        guard let workspace = AppDelegate.shared?.workspaceFor(tabId: workspaceId),
+              let terminalPanel = sendableWorkspaceTerminalPanel(in: workspace) else { return }
+        // The shared send path resumes deferred terminals and preserves queued input ordering.
+        _ = terminalPanel.sendTextResult(summary)
+    }
+
     nonisolated static func shouldSuppressSocketCommandActivation() -> Bool {
         !currentSocketCommandFocusAllowanceStack().isEmpty
     }
@@ -1778,6 +1809,7 @@ class TerminalController {
              "browser.cookies.get", "browser.cookies.set", "browser.cookies.clear",
              "browser.storage.get", "browser.storage.set", "browser.storage.clear",
              "browser.console.list", "browser.console.clear", "browser.errors.list",
+             "browser.picked", "browser.picked.clear", "browser.picked.wait",
              "browser.state.save", "browser.state.load",
              "browser.addinitscript", "browser.addscript", "browser.addstyle":
             // Keep ref payloads fresh like the main-actor dispatch path does.
@@ -10158,6 +10190,9 @@ class TerminalController {
         case "browser.console.list": return v2BrowserConsoleList(params: params)
         case "browser.console.clear": return v2BrowserConsoleClear(params: params)
         case "browser.errors.list": return v2BrowserErrorsList(params: params)
+        case "browser.picked": return v2BrowserPicked(params: params)
+        case "browser.picked.clear": return v2BrowserPickedClear(params: params)
+        case "browser.picked.wait": return v2BrowserPickedWait(params: params)
         case "browser.state.save": return v2BrowserStateSave(params: params)
         case "browser.state.load": return v2BrowserStateLoad(params: params)
         case "browser.addinitscript": return v2BrowserAddInitScript(params: params)
@@ -11281,6 +11316,104 @@ class TerminalController {
                     "errors": items.map(v2NormalizeJSValue),
                     "count": items.count
                 ]))
+            }
+        }
+    }
+
+    private nonisolated func v2BrowserPicked(params: [String: Any]) -> V2CallResult {
+        // Resolve and read in one main-actor hop so close/move cannot stale the context.
+        v2MainSync {
+            v2BrowserWithPanel(params: params) { workspaceId, surfaceId, panel in
+                let element = panel.pickedElement
+                return .ok([
+                    "workspace_id": workspaceId.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+                    "surface_id": surfaceId.uuidString,
+                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                    "picked": element != nil,
+                    "element": element.map { $0.jsonObject as Any } ?? NSNull()
+                ])
+            }
+        }
+    }
+
+    /// Each waiter observes a new selection without clearing or consuming another caller's result.
+    private nonisolated func v2BrowserPickedWait(params: [String: Any]) -> V2CallResult {
+        let timeoutMs = min(300_000, max(1, v2Int(params, "timeout_ms") ?? 30_000))
+        return v2BrowserWithPanelContext(params: params) { context in
+            let signal = DispatchSemaphore(value: 0)
+            let baseline = v2MainSync {
+                // Register before the snapshot so no selection or invalidation can be missed.
+                let observer = NotificationCenter.default.addObserver(
+                    forName: .browserElementPickerStateDidChange,
+                    object: context.browserPanel,
+                    queue: .main
+                ) { _ in signal.signal() }
+                return (sequence: context.browserPanel.pickedElementSequence,
+                        generation: context.browserPanel.pickerDocumentGeneration,
+                        observer: observer)
+            }
+            defer {
+                v2MainSync { NotificationCenter.default.removeObserver(baseline.observer) }
+            }
+            let deadline = DispatchTime.now() + .milliseconds(timeoutMs)
+            var targetParams = params
+            // Pin the resolved surface rather than following changing current focus.
+            targetParams["workspace_id"] = context.workspaceId.uuidString
+            targetParams["surface_id"] = context.surfaceId.uuidString
+            targetParams.removeValue(forKey: "pane_id")
+            targetParams.removeValue(forKey: "tab_id")
+            while true {
+                let result: V2CallResult? = v2MainSync {
+                    guard let tabManager = v2ResolveTabManager(params: targetParams),
+                          let current = v2ResolveBrowserPanelContext(
+                            params: targetParams, tabManager: tabManager
+                          ).context,
+                          current.browserPanel === context.browserPanel,
+                          current.webView === context.webView,
+                          current.browserPanel.workspaceId == context.workspaceId,
+                          current.browserPanel.pickerDocumentGeneration == baseline.generation else {
+                        return .err(
+                            code: "cancelled",
+                            message: String(localized: "cli.browser.picked.error.cancelled",
+                                            defaultValue: "Browser selection wait cancelled because the surface changed or closed"),
+                            data: nil
+                        )
+                    }
+                    guard current.browserPanel.pickedElementSequence > baseline.sequence,
+                          let element = current.browserPanel.pickedElement else { return nil }
+                    return .ok(v2BrowserPanelFields(current, adding: [
+                        "picked": true,
+                        "element": element.jsonObject
+                    ]))
+                }
+                if let result { return result }
+                // This semaphore only bridges event delivery to the legacy synchronous
+                // socket response. Mutable picker state remains main-actor isolated.
+                guard signal.wait(timeout: deadline) == .success else {
+                    return .err(
+                        code: "timeout",
+                        message: String(localized: "cli.browser.picked.error.timeout",
+                                        defaultValue: "No element picked before timeout"),
+                        data: ["timeout_ms": timeoutMs]
+                    )
+                }
+            }
+        }
+    }
+
+    private nonisolated func v2BrowserPickedClear(params: [String: Any]) -> V2CallResult {
+        // Resolution and UI-owned snapshot mutation are atomic and never change focus.
+        v2MainSync {
+            v2BrowserWithPanel(params: params) { workspaceId, surfaceId, panel in
+                panel.clearPickedElement()
+                return .ok([
+                    "workspace_id": workspaceId.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+                    "surface_id": surfaceId.uuidString,
+                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                    "cleared": true
+                ])
             }
         }
     }

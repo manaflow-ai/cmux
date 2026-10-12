@@ -335,6 +335,9 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.storage.get",
         "browser.storage.set",
         "browser.storage.clear",
+        // Picker reads/clear take a short UI snapshot; wait blocks only its
+        // socket worker while native selection notifications wake it.
+        "browser.picked", "browser.picked.clear", "browser.picked.wait",
         "browser.console.list",
         "browser.console.clear",
         "browser.errors.list",

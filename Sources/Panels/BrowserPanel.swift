@@ -2537,6 +2537,7 @@ final class BrowserPanel: Panel, ObservableObject {
         didSet {
             guard oldValue != isReactGrabActive else { return }
             reevaluateHiddenWebViewDiscardScheduling(reason: "react_grab_changed")
+            synchronizeElementPicker()
         }
     }
     /// Owns the toolbar-triggered Design Mode transition so a disappearing
@@ -2571,6 +2572,7 @@ final class BrowserPanel: Panel, ObservableObject {
     /// `designModeController` initializer: referencing the property inside
     /// its own initializer is a circular reference.
     private func handleDesignModeActivityChanged() {
+        synchronizeElementPicker()
         reevaluateHiddenWebViewDiscardScheduling(reason: "design_mode_changed")
         // Design Mode needs the omnibar on screen (pen toggle, URL context);
         // drop browser focus mode when it activates.
@@ -3233,6 +3235,10 @@ final class BrowserPanel: Panel, ObservableObject {
                 in: .page
             )
         )
+        configuration.userContentController.addUserScript(
+            WKUserScript(source: BrowserElementPicker.scriptSource, injectionTime: .atDocumentStart,
+                         forMainFrameOnly: true, in: BrowserElementPicker.contentWorld)
+        )
         // Track the last editable focused element continuously so omnibar exit can
         // restore page input focus even if capture runs after first-responder handoff.
         // Main frame only — same CAPTCHA interference concern as telemetry hooks.
@@ -3254,6 +3260,45 @@ final class BrowserPanel: Panel, ObservableObject {
         )
         Self.installMediaPlaybackUserScript(into: configuration)
     }
+
+    private var pickerMessageHandler: BrowserElementPicker?
+    private var storedPickedElement: BrowserPickedElement?
+    private(set) var pickedElementSequence: UInt64 = 0
+    private(set) var pickerDocumentGeneration: UInt64 = 0
+
+    var pickedElement: BrowserPickedElement? {
+        guard !isClosingWebViewLifecycle, !isMainFrameProvisionalNavigationActive,
+              pickerMessageHandler?.associatedWebView === webView else { return nil }
+        return storedPickedElement
+    }
+
+    private var isElementPickerEnabled: Bool {
+        !isClosingWebViewLifecycle && !isMainFrameProvisionalNavigationActive
+            && !isReactGrabActive && !designModeController.isActive
+    }
+
+    func clearPickedElement() {
+        invalidatePickedElement()
+        synchronizeElementPicker()
+    }
+
+    private func invalidatePickedElement() {
+        storedPickedElement = nil
+        pickerDocumentGeneration &+= 1
+        pickerMessageHandler?.invalidateAuthorization()
+        NotificationCenter.default.post(name: .browserElementPickerStateDidChange, object: self)
+    }
+
+    func tearDownElementPicker() {
+        invalidatePickedElement()
+        pickerMessageHandler?.detach()
+        pickerMessageHandler = nil
+    }
+
+    private func synchronizeElementPicker() {
+        pickerMessageHandler?.configure(enabled: isElementPickerEnabled, generation: pickerDocumentGeneration)
+    }
+
 
     func bindWebView(_ webView: CmuxWebView) {
         localFileEncodingPolicy = BrowserLocalFileEncodingPolicy(
@@ -3290,6 +3335,25 @@ final class BrowserPanel: Panel, ObservableObject {
             guard let self else { return }
             self.goForward(dialogOwner: self.browserDialogOwner)
         }
+        pickerMessageHandler?.detach()
+        invalidatePickedElement()
+        let picker = BrowserElementPicker(webView: webView) { [weak self, weak webView] element in
+            guard let self, let webView, self.webView === webView,
+                  self.isElementPickerEnabled else { return }
+            self.storedPickedElement = element
+            self.pickedElementSequence &+= 1
+            NotificationCenter.default.post(name: .browserElementPickerStateDidChange, object: self)
+            NotificationCenter.default.post(
+                name: .browserElementPicked,
+                object: self,
+                userInfo: ["workspaceId": self.workspaceId, "element": element,
+                           "generation": self.pickerDocumentGeneration,
+                           "surfaceId": self.id, "webView": webView]
+            )
+        }
+        pickerMessageHandler = picker
+        synchronizeElementPicker()
+
         webView.onContextMenuDownloadStateChanged = { [weak self] downloading in
             if downloading {
                 self?.beginDownloadActivity()
@@ -3381,6 +3445,8 @@ final class BrowserPanel: Panel, ObservableObject {
             )
             self.cloudAccess.didStart(url: self.navigationDelegate?.lastAttemptedURL, navigationID: navigation.map(ObjectIdentifier.init))
             self.isMainFrameProvisionalNavigationActive = true
+            self.invalidatePickedElement()
+            self.synchronizeElementPicker()
             self.refreshBackgroundAppearance()
             self.applyMuteState(to: webView, reason: "navigationStart")
         }
@@ -3391,6 +3457,7 @@ final class BrowserPanel: Panel, ObservableObject {
             (webView as? CmuxWebView)?.diffViewerNavigationDidCommit(navigation)
             WindowBrowserSlotView.hosting(webView)?.clearLinkHoverURLs()
             self.isMainFrameProvisionalNavigationActive = false
+            self.synchronizeElementPicker()
             self.automationDocumentReadiness.didCommit(instanceID: boundWebViewInstanceID)
             NotificationCenter.default.post(
                 name: .browserMainFrameDidCommit,
@@ -3434,6 +3501,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.cloudAccess.didFinish(url: webView.url)
             }
             self.isMainFrameProvisionalNavigationActive = false
+            self.synchronizeElementPicker()
             self.publishCommittedURL(from: webView)
             self.applyMuteState(to: webView, reason: "navigationFinish")
             if self.navigationDelegate?.activeErrorPageDisplayURL == nil {
@@ -3456,6 +3524,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 message: failureMessage
             )
             self.isMainFrameProvisionalNavigationActive = false
+            self.synchronizeElementPicker()
             if let url = URL(string: failedURL) {
                 self.currentURL = Self.remoteProxyDisplayURL(for: url) ?? url
             }
@@ -3510,6 +3579,7 @@ final class BrowserPanel: Panel, ObservableObject {
             )
             let isRestoreBookkeepingNavigation = self.isDiscardRestoreBookkeepingNavigation(cancelledNavigation)
             self.isMainFrameProvisionalNavigationActive = false
+            self.synchronizeElementPicker()
             if isRestoreBookkeepingNavigation {
                 self.navigationDelegate?.clearAttemptedRequest()
             }
@@ -3537,6 +3607,7 @@ final class BrowserPanel: Panel, ObservableObject {
             )
             guard isDownload else { return false }
             self.isMainFrameProvisionalNavigationActive = false
+            self.synchronizeElementPicker()
             self.refreshBackgroundAppearance()
             return true
         }
@@ -4469,6 +4540,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func updateWorkspaceId(_ newWorkspaceId: UUID) {
         workspaceId = newWorkspaceId
+        invalidatePickedElement()
+        synchronizeElementPicker()
     }
 
     var explicitEphemeralWebsiteDataStoreForSibling: WKWebsiteDataStore? {
@@ -4493,6 +4566,8 @@ final class BrowserPanel: Panel, ObservableObject {
         let appSessionDestinationURL = appSessionBootstrapTask != nil ? currentURL : nil
         cancelAppSessionBootstrap()
         workspaceId = newWorkspaceId
+        invalidatePickedElement()
+        synchronizeElementPicker()
         usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassesRemoteWorkspaceProxy
         let targetStore = cloudBrowserMachineID != nil ? websiteDataStore : preservesExplicitEphemeralWebsiteDataStore
             ? websiteDataStore
@@ -5225,6 +5300,7 @@ final class BrowserPanel: Panel, ObservableObject {
         cloudAccess.leave()
         cancelHiddenWebViewDiscard()
         isClosingWebViewLifecycle = true
+        tearDownElementPicker()
         cancelAppSessionBootstrap()
         trustedLocalFileURL = nil
         pendingTrustedLocalFileURL = nil
@@ -6344,6 +6420,8 @@ final class BrowserPanel: Panel, ObservableObject {
         if let detachedDeveloperToolsWindowCloseObserver {
             NotificationCenter.default.removeObserver(detachedDeveloperToolsWindowCloseObserver)
         }
+        let picker = pickerMessageHandler
+        Task { @MainActor in picker?.detach() }
         // `deinit` is nonisolated, so tear observers down inline.
         webViewObservers.removeAll()
         webViewCancellables.removeAll()

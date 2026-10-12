@@ -351,6 +351,24 @@ struct RemoteCLIRelayPolicyTests {
         }
     }
 
+    @Test("browser picks remain local even for a relay-owned surface", arguments: [
+        "browser.picked", "browser.picked.clear", "browser.picked.wait"
+    ])
+    func deniesBrowserPickerAccess(method: String) throws {
+        let alias = (remote: UUID(), local: UUID())
+        try withServer(surfaceAliases: [alias.remote: alias.local]) { port, unixServer in
+            let exchange = try runPolicyRelayExchange(
+                port: port,
+                relayID: relayID,
+                tokenHex: tokenHex,
+                commandLine: """
+                {"id":"picker","method":"\(method)","params":{"surface_id":"\(alias.remote.uuidString)"}}
+                """
+            )
+            expectDenial(exchange, unixServer, "picker access through remote relay")
+        }
+    }
+
     @Test("browser uploads cannot read local files through the remote relay")
     func deniesBrowserFileInputEvenOnOwnedSurface() throws {
         let alias = (remote: UUID(), local: UUID())
