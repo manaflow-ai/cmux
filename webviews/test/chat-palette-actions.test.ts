@@ -4,6 +4,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("chat-palette-actions.test.ts", async () => {
@@ -70,12 +71,12 @@ await requireBrowserLane("chat-palette-actions.test.ts", async () => {
 
   test("Copy Last Code Block hands the app the latest reply's last code block", async () => {
     const result = await play("copy-last-code-block");
-    expect(result.play, result.report).toBe("pass");
+    expect(playFailures(result.report)).toEqual([]);
   });
 
   test("Archive Chat archives through the chat menu's host call", async () => {
     const result = await play("archive-chat-key");
-    expect(result.play, result.report).toBe("pass");
+    expect(playFailures(result.report)).toEqual([]);
   });
 
   test("Mark as Unread asks the host to mark the chat unread", async () => {

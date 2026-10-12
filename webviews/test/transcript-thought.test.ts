@@ -4,6 +4,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("transcript-thought.test.ts", async () => {
@@ -75,7 +76,7 @@ await requireBrowserLane("transcript-thought.test.ts", async () => {
 
   test("a thought is a closed Thought row that opens to its full text", async () => {
     const result = await play("thought-row");
-    expect(result.play, result.report).toBe("pass");
+    expect(playFailures(result.report)).toEqual([]);
   });
 
   test("Find marks a word in a closed thought's text, not its Thought label", async () => {
