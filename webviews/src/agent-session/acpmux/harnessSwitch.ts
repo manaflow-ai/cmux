@@ -256,8 +256,7 @@ export class HarnessSwitch {
       return Promise.resolve(shownSession.sessionId);
     }
     const done = deferred<string | undefined>();
-    const model =
-      options.model ?? (previous?.harness === harness ? previous.config.model : undefined) ?? lastModel(harness, cwd);
+    const model = options.model ?? (previous?.harness === harness ? previous.config.model : undefined);
     const intent: Intent = {
       id: ++this.generation,
       harness,
@@ -268,8 +267,8 @@ export class HarnessSwitch {
       // A model or mode picked for one harness does not carry to another; to another folder it does.
       config: {
         ...(previous?.harness === harness ? previous.config : { options: {} }),
-        // A model row of this harness picked it, else the model last picked on it (lastPick.ts):
-        // the new chat starts on that model.
+        // A model row of this harness picked it, or the caller passed the one last picked on it
+        // (`lastOfferedModel`): the new chat starts on that model.
         ...(model ? { model } : {}),
       },
       tickets: previous?.harness === harness ? previous.tickets : new Map(),
@@ -659,11 +658,20 @@ export function defaultModel(
   profiles: HarnessProfiles = harnessProfiles,
   folder?: string,
 ): string | undefined {
-  const models = catalog.find((entry) => entry.id === harness)?.models ?? [];
-  const picked = lastModel(harness, folder);
-  if (picked && (models.length === 0 || models.some((model) => model.id === picked))) return picked;
   const profile = profiles.get(harness);
-  return profile?.startModel ?? profile?.model ?? models[0]?.id;
+  return (
+    lastOfferedModel(harness, catalog, folder) ??
+    profile?.startModel ??
+    profile?.model ??
+    catalog.find((entry) => entry.id === harness)?.models[0]?.id
+  );
+}
+
+/// The model last picked on `harness` in `folder` (lastPick.ts), while the harness still offers it.
+export function lastOfferedModel(harness: string, catalog: Catalog, folder?: string): string | undefined {
+  const picked = lastModel(harness, folder);
+  const models = catalog.find((entry) => entry.id === harness)?.models ?? [];
+  return picked && (models.length === 0 || models.some((model) => model.id === picked)) ? picked : undefined;
 }
 
 export function applySwitch(

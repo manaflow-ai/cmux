@@ -103,6 +103,8 @@ export type PickerHarness = {
   installed: boolean;
   pickable: boolean;
   unavailable?: string;
+  /** `unavailable` is only a failed model probe: the harness may still run. */
+  probeFailed?: boolean;
   defaultModel?: string;
   models: PickerModel[];
 };
@@ -330,6 +332,7 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
       harness.kind !== "unknown" &&
       (chosen === undefined || entryPickable(chosen)),
     ...(chosen?.unavailable ? { unavailable: chosen.unavailable } : {}),
+    ...(chosen?.probeFailed ? { probeFailed: true } : {}),
     ...(harness.defaultModel ? { defaultModel: harness.defaultModel } : {}),
     models: live ? offered.map((model) => withLiveOptions(model, live)) : offered,
   };
@@ -352,6 +355,7 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
     installed: true,
     pickable: entryPickable(entry),
     ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
+    ...(entry.probeFailed ? { probeFailed: true } : {}),
     models: live ? models.map((model) => withLiveOptions(model, live)) : models,
   };
 }

@@ -204,6 +204,8 @@ export type AcpmuxSnapshot = {
     /** The configured harness login command, when its profile declares one. */
     auth?: { login?: string };
     unavailable?: string;
+    /** `unavailable` is only a failed model probe (a timeout, a rate limit): the harness may run. */
+    probeFailed?: boolean;
     pickable?: boolean;
     /** acpmux's family for the harness (`_acpmux/harnesses` `family`): joins it to a catalog harness. */
     family?: string;

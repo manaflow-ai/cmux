@@ -29,8 +29,9 @@ export function mergeModelCatalog(names: unknown, probed: unknown): Catalog {
     );
   }
   const withReason = (harness: Catalog[number]): Catalog[number] => {
-    const reason = harness.unavailable ?? refused.get(harness.id);
-    return reason ? { ...harness, unavailable: reason } : harness;
+    if (harness.unavailable) return harness;
+    const reason = refused.get(harness.id);
+    return reason ? { ...harness, unavailable: reason, probeFailed: true } : harness;
   };
   const merged = catalog.map((harness) =>
     withReason(harness.models.length > 0 ? harness : { ...harness, models: byHarness.get(harness.id) ?? [] }),

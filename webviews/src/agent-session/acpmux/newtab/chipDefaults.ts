@@ -17,8 +17,13 @@ export function newTabStart(
   folder: string | undefined,
 ): { harness: string | undefined; snapshot: AcpmuxSnapshot } {
   if (snapshot.summary?.harness) return { harness: snapshot.summary.harness, snapshot };
+  // The last pick's harness while it is here and its launcher runs (a failed model probe alone
+  // does not count): a harness that could not start does not keep taking New Tabs.
   const picked = lastPick(folder)?.harness;
-  const harness = picked && agents.some((agent) => agent.id === picked) ? picked : defaultHarness(agents, lastAgent);
+  const entry = snapshot.catalog.find((candidate) => candidate.id === picked);
+  const runs = entry !== undefined && (!entry.unavailable || entry.probeFailed === true);
+  const harness =
+    picked && runs && agents.some((agent) => agent.id === picked) ? picked : defaultHarness(agents, lastAgent);
   if (!harness) return { harness, snapshot };
   return {
     harness,
