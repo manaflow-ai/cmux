@@ -245,10 +245,25 @@ final class LocalSurfaceProvider: SurfaceProvider {
         // in another window: selecting it does not deselect the Cloud tab in
         // the initiating window, and the old first-selected lookup could pick
         // that remote workspace before projection moved the pane.
-        guard let workspace = all.first(where: {
+        let workspace: Workspace
+        if let existing = all.first(where: {
             $0.owningTabManager?.selectedTabId == $0.id && !$0.usesRemoteDirectoryProvenance
-        }) ?? all.first(where: { !$0.usesRemoteDirectoryProvenance }) else {
-            throw SurfaceCatalogError.destinationNotFound("a workspace")
+        }) ?? all.first(where: { !$0.usesRemoteDirectoryProvenance }) {
+            workspace = existing
+        } else {
+            // A remote-only window is a supported state: the user can close
+            // the starter local workspace after opening a Cloud or SSH
+            // workspace. Preserve the old destination-nil behavior by making
+            // a local workspace before staging the requested terminal there.
+            let preferredManager = AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: nil)
+            guard AppDelegate.shared?.performNewLocalWorkspaceAction(
+                tabManager: preferredManager,
+                debugSource: "surface.localTerminalFallback"
+            ) == true,
+            let created = workspaces().first(where: { !$0.usesRemoteDirectoryProvenance }) else {
+                throw SurfaceCatalogError.destinationNotFound("a local workspace")
+            }
+            workspace = created
         }
         let initialCommand = command.map { $0.map(Self.shellQuote).joined(separator: " ") }
         let made = try SurfacePaneFactory.makeTerminalPane(
