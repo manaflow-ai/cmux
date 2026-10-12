@@ -560,7 +560,7 @@ async function noUsableOpenCodeAccount(
     // answer uses the OpenAI error shape. No retry-after: it surfaces once.
     return Response.json({
       error: {
-        message: noAccountConfiguredMessage("opencode", accountAccessForIdentity(identity)),
+        message: noAccountConfiguredMessage("opencode", identity),
         type: "invalid_request_error",
         code: "no_account_configured",
       },

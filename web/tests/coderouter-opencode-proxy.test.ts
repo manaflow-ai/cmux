@@ -497,7 +497,15 @@ describe("coderouter OpenCode with no account configured", () => {
     vmRequest.headers.set("x-cmux-vm-id", "vm-1");
     const response = await openCodeClientConfig(vmRequest, noAccountDependencies(false, "vm-1").dependencies);
     expect(response.status).toBe(403);
-    expect((await response.json()).error.message).toBe("No OpenCode account is shared with this Cloud machine's team. Accounts added on another device are private until shared: choose Share with team at coderouter.dev, or add one here with `cr add opencode` (accounts added on a Cloud machine are shared with its team).");
+    expect((await response.json()).error.message).toBe("No OpenCode account is shared with this Cloud machine's team. Accounts added on another device are private until the person who added them shares them: choose Share with team at coderouter.dev, or add one here with `cr add opencode` (accounts added on a Cloud machine are shared with its team).");
+  });
+
+  test("the provider proxy gives a Cloud machine the same sharing advice", async () => {
+    const vmRequest = proxyRequest();
+    vmRequest.headers.set("x-cmux-vm-id", "vm-1");
+    const response = await proxyOpenCodeRequest(vmRequest, "go", ["chat"], noAccountDependencies(false, "vm-1").dependencies);
+    expect(response.status).toBe(403);
+    expect((await response.json()).error.message).toBe("No OpenCode account is shared with this Cloud machine's team. Accounts added on another device are private until the person who added them shares them: choose Share with team at coderouter.dev, or add one here with `cr add opencode` (accounts added on a Cloud machine are shared with its team).");
   });
 
   test("a caller whose accounts are all unavailable keeps a retryable 503 on both surfaces", async () => {

@@ -179,7 +179,7 @@ describe("coderouter models proxy with no account configured", () => {
     vmRequest.headers.set("x-cmux-vm-id", "vm-1");
     const response = await noAccountModelsProxy(false, "vm-1").proxy(vmRequest);
     expect(response.status).toBe(403);
-    expect((await response.json()).error.message).toBe("No Codex account is shared with this Cloud machine's team. Accounts added on another device are private until shared: choose Share with team at coderouter.dev, or add one here with `cr add codex` (accounts added on a Cloud machine are shared with its team).");
+    expect((await response.json()).error.message).toBe("No Codex account is shared with this Cloud machine's team. Accounts added on another device are private until the person who added them shares them: choose Share with team at coderouter.dev, or add one here with `cr add codex` (accounts added on a Cloud machine are shared with its team).");
   });
 
   test("a caller whose accounts are all unavailable still gets a retryable 503", async () => {

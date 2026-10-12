@@ -267,7 +267,7 @@ describe("claude proxy auth", () => {
     upstream = null;
     const { response } = await routed(messagesRequest());
     expect(response.status).toBe(403);
-    expect((await response.json()).error.message).toBe("No Claude upstream account is shared with this Cloud machine's team. Accounts added on another device are private until shared: choose Share with team at coderouter.dev, or add one here with `cr add claude` (accounts added on a Cloud machine are shared with its team).");
+    expect((await response.json()).error.message).toBe("No Claude upstream account is shared with this Cloud machine's team. Accounts added on another device are private until the person who added them shares them: choose Share with team at coderouter.dev, or add one here with `cr add claude` (accounts added on a Cloud machine are shared with its team).");
   });
 });
 

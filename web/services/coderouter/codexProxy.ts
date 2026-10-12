@@ -1523,7 +1523,7 @@ function noCodexAccountConfigured(input: {
 function noCodexAccountResponse(identity: RouteTokenIdentity): Response {
   return Response.json({
     error: {
-      message: noAccountConfiguredMessage("codex", accountAccessForIdentity(identity)),
+      message: noAccountConfiguredMessage("codex", identity),
       type: "invalid_request_error",
       code: "no_account_configured",
     },

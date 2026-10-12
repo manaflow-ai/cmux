@@ -525,7 +525,7 @@ async function routeRounds(
         response: anthropicError(
           403,
           "permission_error",
-          noAccountConfiguredMessage("claude", accountAccessForIdentity(identity)),
+          noAccountConfiguredMessage("claude", identity),
         ),
       };
     }
