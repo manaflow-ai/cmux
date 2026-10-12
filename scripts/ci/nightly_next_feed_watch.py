@@ -7,9 +7,10 @@ stage can stall: a red Release compile or an unpublished cmux-tui tree stops
 promotion, a red nightly stops publication. Lawrence and Leo daily-drive the
 feed, so this checks it every 30 minutes from main (schedule runs only there).
 
-Waiting is measured from the oldest feat-cmux-next push since the feed's newest
-item (cmux-next guards runs on every such push), so a quiet spell never alarms
-however old the feed is. Past --max-lag-hours it keeps ONE open
+Waiting is measured from the oldest feat-cmux-next push after the published
+commit's own push (cmux-next guards runs on every such push), so a quiet spell
+never alarms however old the feed is, and a push that landed while the
+published build ran still counts. Past --max-lag-hours it keeps ONE open
 `nightly-next-feed-stale` issue, updated in place, naming the last published
 commit and the stage that is stuck; it comments only when that reason changes,
 and closes the issue once nothing has waited that long.
@@ -67,17 +68,19 @@ def failed_steps(jobs: list[dict]) -> str:
 
 def assess(now: dt.datetime, newest: dt.datetime, pushes: list[dict], nightly: list[dict],
            jobs_of, artifacts: list[dict], compiles: list[dict], max_lag_hours: float) -> Stage:
-    """pushes: feat-cmux-next push runs since `newest`; nightly: nightly-next push runs since
+    """pushes: the waiting feat-cmux-next push runs (only the oldest matters); nightly: nightly-next push runs since
     `newest` (newest first); artifacts / compiles: the latest feat-cmux-next cmux-tui artifacts
     and cmux-next push runs (newest first); jobs_of(run) lists a run's jobs."""
     if not pushes:
         return Stage(False, 0.0, None, "No feat-cmux-next push since the feed's newest item.")
     since = min(parse_time(run["created_at"]) for run in pushes)
     waited = (now - since).total_seconds() / 3600
-    # The newest nightly-next run that is building or failed: a newer build supersedes an older failure.
-    latest = next((run for run in nightly if run.get("status") != "completed" or run.get("conclusion") in ("failure", "timed_out")), None)
+    # The newest nightly-next run that is building or decided: a newer build supersedes an older failure.
+    latest = next((run for run in nightly if run.get("status") != "completed" or run.get("conclusion") in ("success", "failure", "timed_out")), None)
     if latest and latest.get("status") != "completed":
         reason = f"nightly-next run {latest['html_url']} on {latest['head_sha'][:12]} is still building."
+    elif latest and latest.get("conclusion") == "success":
+        reason = f"nightly-next run {latest['html_url']} on {latest['head_sha'][:12]} passed but did not publish (debounced or skipped publication)."
     elif latest:
         reason = f"nightly-next run {latest['html_url']} on {latest['head_sha'][:12]} failed: {failed_steps(jobs_of(latest))}."
     else:
@@ -85,11 +88,14 @@ def assess(now: dt.datetime, newest: dt.datetime, pushes: list[dict], nightly: l
         artifact = artifacts[0] if artifacts else None
         if artifact and artifact.get("conclusion") == "failure":
             reason += f" The latest feat-cmux-next cmux-tui artifacts run {artifact['html_url']} failed, so its tree is unpublished: {failed_steps(jobs_of(artifact))}."
-        compile_run = next((run for run in compiles if run.get("status") == "completed"), None)
-        if compile_run:
+        # Superseded pushes cancel or skip their compile; read the newest one that finished.
+        for compile_run in (run for run in compiles if run.get("status") == "completed"):
             compile_job = next((job for job in jobs_of(compile_run) if job["name"] == RELEASE_COMPILE_JOB), None)
-            if compile_job and compile_job.get("conclusion") not in ("success", None):
-                reason += f" The latest feat-cmux-next {RELEASE_COMPILE_JOB} is {compile_job['conclusion']}: {compile_run['html_url']}."
+            conclusion = compile_job.get("conclusion") if compile_job else None
+            if conclusion in ("failure", "timed_out"):
+                reason += f" The latest feat-cmux-next {RELEASE_COMPILE_JOB} is {conclusion}: {compile_run['html_url']}."
+            if conclusion in ("success", "failure", "timed_out"):
+                break
     return Stage(waited > max_lag_hours, waited, since, reason)
 
 
@@ -103,6 +109,10 @@ def issue_body(stage: Stage, newest: dt.datetime, now: dt.datetime, published_sh
         stage.reason,
         f"Checked by {run_url}. This issue is updated in place every 30 minutes, gets a comment when the stuck stage changes, and closes when the feed catches up.",
     ])
+
+
+def stamp(when: dt.datetime) -> str:
+    return when.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 class GitHub:
@@ -123,11 +133,14 @@ class GitHub:
             data = response.read()
         return json.loads(data) if data else None
 
-    def runs(self, workflow: str, branch: str, created_since: dt.datetime | None = None, event: str = "push", per_page: int = 100):
-        query = {"branch": branch, "event": event, "per_page": per_page}
-        if created_since:
-            query["created"] = ">=" + created_since.strftime("%Y-%m-%dT%H:%M:%SZ")
-        return self.call("GET", f"/actions/workflows/{workflow}/runs?{urllib.parse.urlencode(query)}")["workflow_runs"]
+    def runs_page(self, workflow: str, branch: str, created: str | None = None, per_page: int = 100, page: int = 1, **extra) -> dict:
+        query = {"branch": branch, "event": "push", "per_page": per_page, "page": page, **extra}
+        if created:
+            query["created"] = created
+        return self.call("GET", f"/actions/workflows/{workflow}/runs?{urllib.parse.urlencode(query)}")
+
+    def runs(self, workflow: str, branch: str, created_since: dt.datetime | None = None, per_page: int = 100):
+        return self.runs_page(workflow, branch, ">=" + stamp(created_since) if created_since else None, per_page)["workflow_runs"]
 
     def jobs(self, run: dict) -> list[dict]:
         return self.call("GET", f"/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")["jobs"]
@@ -140,6 +153,29 @@ def published_commit(gh: GitHub) -> str:
         return ""
     match = PUBLISHED_MARKER.search(body)  # scripts/ci/nightly-publication-marker.py
     return match.group(1).lower() if match else ""
+
+
+def oldest_waiting_push(gh: GitHub, published_sha: str, newest: dt.datetime) -> dict | None:
+    """The oldest feat-cmux-next push after the published commit's push (else since the
+    feed's newest item). Runs list newest first and a busy day has hundreds, so read
+    the count and then the last page; a filtered listing stops at 1000 results, which
+    is still far past the limit."""
+    created = ">=" + stamp(newest)
+    if published_sha:
+        own = gh.runs_page(PUSH_WORKFLOW, "feat-cmux-next", per_page=1, head_sha=published_sha)["workflow_runs"]
+        if own:
+            created = ">" + stamp(parse_time(own[0]["created_at"]))
+    total = gh.runs_page(PUSH_WORKFLOW, "feat-cmux-next", created, per_page=1)["total_count"]
+    if not total:
+        return None
+    return gh.runs_page(PUSH_WORKFLOW, "feat-cmux-next", created, per_page=1, page=min(total, 1000))["workflow_runs"][0]
+
+
+def read_feed(url: str) -> dt.datetime | None:
+    # The CDN answers Python's default user agent with 403.
+    request = urllib.request.Request(url, headers={"Cache-Control": "no-cache", "User-Agent": "cmux-nightly-next-feed-watch"})
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return newest_item(response.read().decode("utf-8", "replace"))
 
 
 def sync_issue(gh: GitHub, stage: Stage, body: str, max_lag_hours: float, run_url: str) -> str:
@@ -176,11 +212,8 @@ def main(argv: list[str]) -> int:
     if not token:
         print("GH_TOKEN is required", file=sys.stderr)
         return 2
-    # The CDN answers Python's default user agent with 403.
-    request = urllib.request.Request(args.feed_url, headers={"Cache-Control": "no-cache", "User-Agent": "cmux-nightly-next-feed-watch"})
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            newest = newest_item(response.read().decode("utf-8", "replace"))
+        newest = read_feed(args.feed_url)
     except OSError as error:
         print(f"::warning::could not read {args.feed_url}: {error}")
         return 0
@@ -189,19 +222,24 @@ def main(argv: list[str]) -> int:
         return 0
     gh = GitHub(args.repo, token, args.dry_run)
     now = dt.datetime.now(dt.timezone.utc)
-    stage = assess(
-        now, newest,
-        pushes=gh.runs(PUSH_WORKFLOW, "feat-cmux-next", newest),
-        nightly=gh.runs("nightly.yml", "nightly-next", newest),
-        jobs_of=gh.jobs,
-        artifacts=gh.runs("cmux-tui-artifacts.yml", "feat-cmux-next", per_page=1),
-        compiles=gh.runs("cmux-next.yml", "feat-cmux-next", per_page=5),
-        max_lag_hours=args.max_lag_hours,
-    )
-    print(f"feed newest {newest.isoformat()}, waited {stage.waited_hours:.1f}h: {stage.reason}")
-    if stage.stale:
-        print(f"::warning title=nightly-next feed stale::{stage.reason}")
-    print(sync_issue(gh, stage, issue_body(stage, newest, now, published_commit(gh), args.max_lag_hours, args.run_url), args.max_lag_hours, args.run_url))
+    try:
+        published_sha = published_commit(gh)
+        oldest = oldest_waiting_push(gh, published_sha, newest)
+        stage = assess(
+            now, newest,
+            pushes=[oldest] if oldest else [],
+            nightly=gh.runs("nightly.yml", "nightly-next", newest),
+            jobs_of=gh.jobs,
+            artifacts=gh.runs("cmux-tui-artifacts.yml", "feat-cmux-next", per_page=1),
+            compiles=gh.runs("cmux-next.yml", "feat-cmux-next", per_page=5),
+            max_lag_hours=args.max_lag_hours,
+        )
+        print(f"feed newest {newest.isoformat()}, waited {stage.waited_hours:.1f}h: {stage.reason}")
+        if stage.stale:
+            print(f"::warning title=nightly-next feed stale::{stage.reason}")
+        print(sync_issue(gh, stage, issue_body(stage, newest, now, published_sha, args.max_lag_hours, args.run_url), args.max_lag_hours, args.run_url))
+    except OSError as error:  # urllib.error.URLError and HTTPError; the next check runs in 30 minutes
+        print(f"::warning::GitHub API error, skipped this check: {error}")
     return 0
 
 
