@@ -20,6 +20,14 @@ const READ_BYTES: u64 = 8 * 1024 * 1024;
 const LIST_LIMIT: u64 = 1000;
 /// Most bytes [`Remote::read`] holds in memory (a manifest, an index, a ref).
 const READ_CAP: u64 = 1 << 30;
+/// Most bytes of one answer line: an `fs.read` part of [`READ_BYTES`] in
+/// base64, with room for the JSON around it.
+const MAX_ANSWER_BYTES: u64 = 16 * 1024 * 1024;
+/// Most answers for other requests one call skips before it gives up.
+const MAX_OTHER_ANSWERS: usize = 16;
+/// Most pages and entries of one folder's listing.
+const MAX_LIST_PAGES: usize = 1000;
+const MAX_LIST_ENTRIES: usize = 200_000;
 
 /// A listing named something other than one plain component.
 #[derive(Debug)]
@@ -83,12 +91,22 @@ impl Remote {
         let mut line = params.to_string();
         line.push('\n');
         self.reader.get_mut().write_all(line.as_bytes())?;
-        loop {
-            let mut answer = String::new();
-            if self.reader.read_line(&mut answer)? == 0 {
+        // The machine is not trusted: an answer line has a size limit, and
+        // only so many answers for other requests are skipped.
+        for _ in 0..=MAX_OTHER_ANSWERS {
+            let mut answer = Vec::new();
+            let read = Read::take(&mut self.reader, MAX_ANSWER_BYTES + 1)
+                .read_until(b'\n', &mut answer)?;
+            if read == 0 {
                 bail!("the machine daemon closed the connection");
             }
-            let answer: Value = serde_json::from_str(&answer).context("the answer is not JSON")?;
+            if answer.last() != Some(&b'\n') {
+                if u64::try_from(read).unwrap_or(u64::MAX) > MAX_ANSWER_BYTES {
+                    bail!("the machine daemon's answer is too long");
+                }
+                bail!("the machine daemon closed the connection");
+            }
+            let answer: Value = serde_json::from_slice(&answer).context("the answer is not JSON")?;
             if answer["id"] != json!(id) {
                 continue;
             }
@@ -101,6 +119,7 @@ impl Remote {
             }
             .into());
         }
+        bail!("the machine daemon kept answering other requests")
     }
 
     /// The entries of the folder at `path` by name; None when it is not there.
@@ -115,7 +134,7 @@ impl Remote {
             Err(error) if refusal_code(&error) == Some("fs.not_found") => return Ok(None),
             Err(error) => return Err(error),
         };
-        loop {
+        for _ in 0..MAX_LIST_PAGES {
             for entry in page["entries"].as_array().into_iter().flatten() {
                 let name = entry["name"].as_str().unwrap_or_default().to_string();
                 // The machine is not trusted: a listed name is one plain
@@ -129,14 +148,19 @@ impl Remote {
                     .map(|size| cmux_tui_core::fs_ops::revision(size, entry["mtime"].as_u64()));
                 entries.insert(name, RemoteEntry { kind, revision });
             }
-            let Some(cursor) = page["cursor"].as_str().map(str::to_string) else { break };
+            if entries.len() > MAX_LIST_ENTRIES {
+                bail!("the machine's listing of {path} never ends");
+            }
+            let Some(cursor) = page["cursor"].as_str().map(str::to_string) else {
+                return Ok(Some(entries));
+            };
             let listing = page["listing"].clone();
             page = self.call(
                 "fs.list",
                 json!({ "listing": listing, "cursor": cursor, "limit": LIST_LIMIT }),
             )?;
         }
-        Ok(Some(entries))
+        bail!("the machine's listing of {path} never ends")
     }
 
     /// Creates the folder `path` and any missing folder above it.

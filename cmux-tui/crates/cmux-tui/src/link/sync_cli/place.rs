@@ -10,9 +10,9 @@ use std::fs::File;
 use std::io;
 use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd};
 use std::path::Path;
-use std::rc::Rc;
 
 use anyhow::{Context as _, bail};
+use sha2::{Digest as _, Sha256};
 
 /// An open folder.
 pub(super) struct Dir(OwnedFd);
@@ -179,23 +179,6 @@ impl Dir {
     }
 }
 
-/// One change already made, and how to undo it.
-enum Undo {
-    /// A folder this pull made.
-    MadeDir { parent: Rc<Dir>, name: String },
-    /// A file this pull placed at `name`, and where what it replaced went.
-    Placed { dir: Rc<Dir>, name: String, aside: Option<Aside> },
-    /// A file this pull deleted, moved aside.
-    Removed { dir: Rc<Dir>, name: String, aside: Aside },
-}
-
-/// Where a file moved aside sits: the staging folder, or (on another file
-/// system) a hidden name next to it.
-struct Aside {
-    in_staging: bool,
-    name: String,
-}
-
 /// What a file here must still be for the pull to replace or delete it:
 /// its SHA-256 and synced permissions, as the plan saw them.
 pub(super) struct Expected {
@@ -216,10 +199,29 @@ impl std::fmt::Display for Changed {
 
 impl std::error::Error for Changed {}
 
+/// One change already made, and how to undo it. Folders are kept by path
+/// and opened again (one name at a time, never through a symlink) when
+/// needed: a pull holds no handle per file or folder it changes.
+enum Undo {
+    /// A folder this pull made.
+    MadeDir { folder: String },
+    /// A file this pull placed at `relative`, and where what it replaced went.
+    Placed { relative: String, aside: Option<Aside> },
+    /// A file this pull deleted, moved aside.
+    Removed { relative: String, aside: Aside },
+}
+
+/// Where a file moved aside sits: the staging folder, or (on another file
+/// system) a hidden name next to it.
+struct Aside {
+    in_staging: bool,
+    name: String,
+}
+
 /// The changes of one pull to the folder under `root`.
 pub(super) struct Transaction {
-    root: Rc<Dir>,
-    staging: Rc<Dir>,
+    root: Dir,
+    staging: Dir,
     undo: Vec<Undo>,
     deleted: Vec<String>,
     asides: u64,
@@ -228,8 +230,8 @@ pub(super) struct Transaction {
 impl Transaction {
     pub(super) fn new(root: &Path, staging: &Path) -> anyhow::Result<Self> {
         Ok(Self {
-            root: Rc::new(Dir::open(root)?),
-            staging: Rc::new(Dir::open(staging)?),
+            root: Dir::open(root)?,
+            staging: Dir::open(staging)?,
             undo: Vec::new(),
             deleted: Vec::new(),
             asides: 0,
@@ -237,82 +239,86 @@ impl Transaction {
     }
 
     /// Moves the staged file `staged` (a name in the staging folder, its
-    /// permissions already set) to `relative`, making missing folders. A
-    /// file there is moved aside; anything else there stops the pull.
+    /// permissions already set) to `relative`, making missing folders. The
+    /// file there must still be `expected` (None: no file); it is moved
+    /// aside and checked, and a file that changed after the plan stays
+    /// ([`Changed`]). The staged file never replaces one made meanwhile.
     pub(super) fn write(
         &mut self,
         relative: &str,
         staged: &str,
         expected: Option<&Expected>,
     ) -> anyhow::Result<()> {
-        let _ = expected;
         let (dir, name) = self.folder_for(relative)?;
         let aside = match dir.entry(&name)? {
+            Entry::Missing if expected.is_some() => return Err(Changed(relative.into()).into()),
             Entry::Missing => None,
-            Entry::File { .. } => Some(self.move_aside(&dir, &name)?),
+            Entry::File { .. } => Some(self.take(&dir, &name, relative, expected)?),
             Entry::Dir | Entry::Other => bail!("{relative} here is not a regular file"),
         };
-        let placed = match self.staging.rename(staged, &dir, &name) {
-            Ok(()) => Ok(()),
-            // Another file system (a mount inside the folder): copy next to it.
-            Err(error) if error.raw_os_error() == Some(libc::EXDEV) => {
-                self.copy_across(staged, &dir, &name)
+        if let Err(error) = self.place(staged, &dir, &name, relative) {
+            if let Some(aside) = aside
+                && self.put_back(&dir, &name, &aside).is_err()
+            {
+                self.undo.push(Undo::Removed { relative: relative.into(), aside });
             }
-            Err(error) => Err(anyhow::Error::from(error)),
-        };
-        if let Err(error) = placed {
-            if let Some(aside) = aside {
-                let _ = self.put_back(&dir, &name, &aside);
-            }
-            return Err(error.context(format!("cannot write {relative}")));
+            return Err(error);
         }
-        self.undo.push(Undo::Placed { dir, name, aside });
+        self.undo.push(Undo::Placed { relative: relative.into(), aside });
         Ok(())
     }
 
-    /// Deletes the file at `relative` (moved aside until the pull ends);
-    /// nothing when it is already gone.
+    /// Deletes the file at `relative` (moved aside until the pull ends),
+    /// once it is checked to be still `expected`; nothing when it is
+    /// already gone.
     pub(super) fn delete(&mut self, relative: &str, expected: &Expected) -> anyhow::Result<()> {
-        let _ = expected;
         let Some((dir, name)) = parent_of(&self.root, relative)? else { return Ok(()) };
         if !matches!(dir.entry(&name)?, Entry::File { .. }) {
             return Ok(());
         }
-        let dir = Rc::new(dir);
-        let aside =
-            self.move_aside(&dir, &name).with_context(|| format!("cannot delete {relative}"))?;
-        self.undo.push(Undo::Removed { dir, name, aside });
+        let aside = self.take(&dir, &name, relative, Some(expected))?;
+        self.undo.push(Undo::Removed { relative: relative.into(), aside });
         self.deleted.push(relative.to_string());
         Ok(())
     }
 
-    /// Puts back everything this pull changed, newest first.
-    pub(super) fn roll_back(mut self) {
+    /// Puts back everything this pull changed, newest first. The error
+    /// names what could not be put back (it stays in the staging folder or
+    /// next to its file).
+    pub(super) fn roll_back(mut self) -> Result<(), Vec<String>> {
+        let mut left = Vec::new();
         while let Some(undo) = self.undo.pop() {
-            match undo {
-                Undo::Placed { dir, name, aside } => {
-                    let _ = dir.unlink(&name, false);
-                    if let Some(aside) = aside {
-                        let _ = self.put_back(&dir, &name, &aside);
-                    }
+            let undone = match &undo {
+                Undo::Placed { relative, aside } => self.at(relative).and_then(|(dir, name)| {
+                    dir.unlink(&name, false)?;
+                    aside.as_ref().map_or(Ok(()), |aside| self.put_back(&dir, &name, aside))
+                }),
+                Undo::Removed { relative, aside } => {
+                    self.at(relative).and_then(|(dir, name)| self.put_back(&dir, &name, aside))
                 }
-                Undo::Removed { dir, name, aside } => {
-                    let _ = self.put_back(&dir, &name, &aside);
+                Undo::MadeDir { folder } => {
+                    self.at(folder).and_then(|(parent, name)| parent.unlink(&name, true))
                 }
-                Undo::MadeDir { parent, name } => {
-                    let _ = parent.unlink(&name, true);
-                }
+            };
+            if undone.is_err() {
+                left.push(match undo {
+                    Undo::Placed { relative, .. }
+                    | Undo::Removed { relative, .. }
+                    | Undo::MadeDir { folder: relative } => relative,
+                });
             }
         }
+        if left.is_empty() { Ok(()) } else { Err(left) }
     }
 
     /// Keeps the changes: files moved aside next to their folder go, and
     /// folders the deletes left empty go too (never the top folder).
     pub(super) fn finish(mut self) {
-        for undo in self.undo.drain(..) {
-            if let Undo::Placed { dir, aside: Some(aside), .. } | Undo::Removed { dir, aside, .. } =
-                undo
+        for undo in std::mem::take(&mut self.undo) {
+            if let Undo::Placed { relative, aside: Some(aside) }
+            | Undo::Removed { relative, aside } = undo
                 && !aside.in_staging
+                && let Ok((dir, _)) = self.at(&relative)
             {
                 let _ = dir.unlink(&aside.name, false);
             }
@@ -329,27 +335,80 @@ impl Transaction {
         }
     }
 
+    /// The folder holding `relative`, opened again, and its last name.
+    fn at(&self, relative: &str) -> io::Result<(Dir, String)> {
+        parent_of(&self.root, relative)?.ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))
+    }
+
     /// The folder for `relative`, opened, with folders made on the way.
-    fn folder_for(&mut self, relative: &str) -> anyhow::Result<(Rc<Dir>, String)> {
+    fn folder_for(&mut self, relative: &str) -> anyhow::Result<(Dir, String)> {
         let mut parts: Vec<&str> = relative.split('/').collect();
         let name = parts.pop().unwrap_or_default().to_string();
-        let mut at = Rc::clone(&self.root);
-        for part in parts {
-            let next = match at.child(part) {
+        let mut at: Option<Dir> = None;
+        for (index, part) in parts.iter().enumerate() {
+            let parent = at.as_ref().unwrap_or(&self.root);
+            let next = match parent.child(part) {
                 Ok(Some(next)) => next,
                 Ok(None) => {
-                    at.mkdir(part)
+                    parent
+                        .mkdir(part)
                         .with_context(|| format!("cannot make a folder for {relative}"))?;
-                    self.undo.push(Undo::MadeDir { parent: Rc::clone(&at), name: part.into() });
-                    at.child(part)?.with_context(|| format!("{part} went away"))?
+                    self.undo.push(Undo::MadeDir { folder: parts[..=index].join("/") });
+                    let parent = at.as_ref().unwrap_or(&self.root);
+                    parent.child(part)?.with_context(|| format!("{part} went away"))?
                 }
                 Err(error) => {
                     return Err(error).with_context(|| format!("{relative} is not under a folder"));
                 }
             };
-            at = Rc::new(next);
+            at = Some(next);
         }
-        Ok((at, name))
+        let dir = match at {
+            Some(dir) => dir,
+            None => self.root.dup()?,
+        };
+        Ok((dir, name))
+    }
+
+    /// Moves the file `name` in `dir` aside and checks it is `expected`
+    /// (None: there should be no file). One that is not goes back, and the
+    /// answer is [`Changed`].
+    fn take(
+        &mut self,
+        dir: &Dir,
+        name: &str,
+        relative: &str,
+        expected: Option<&Expected>,
+    ) -> anyhow::Result<Aside> {
+        let aside = self.move_aside(dir, name).with_context(|| format!("cannot move {relative}"))?;
+        let same = match expected {
+            Some(expected) => self.aside_is(dir, &aside, expected),
+            None => Ok(false),
+        };
+        if same.as_ref().is_ok_and(|same| *same) {
+            return Ok(aside);
+        }
+        if self.put_back(dir, name, &aside).is_err() {
+            // Something new took its place: what moved aside stays aside.
+            self.undo.push(Undo::Removed { relative: relative.into(), aside });
+        }
+        same?;
+        Err(Changed(relative.into()).into())
+    }
+
+    /// Whether the file moved aside is `expected`: its bytes and synced
+    /// permissions.
+    fn aside_is(&self, dir: &Dir, aside: &Aside, expected: &Expected) -> anyhow::Result<bool> {
+        let from = if aside.in_staging { &self.staging } else { dir };
+        let mut file = from.open_file(&aside.name)?;
+        let mode = std::os::unix::fs::PermissionsExt::mode(&file.metadata()?.permissions());
+        if super::local::permissions_of(mode) != expected.permissions {
+            return Ok(false);
+        }
+        let mut hasher = Sha256::new();
+        io::copy(&mut file, &mut hasher)?;
+        let sha256: String = hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect();
+        Ok(sha256 == expected.sha256)
     }
 
     fn move_aside(&mut self, dir: &Dir, name: &str) -> anyhow::Result<Aside> {
@@ -367,29 +426,73 @@ impl Transaction {
         }
     }
 
+    /// Puts a file moved aside back at `name`, never over a file there.
     fn put_back(&self, dir: &Dir, name: &str, aside: &Aside) -> io::Result<()> {
-        if aside.in_staging {
-            self.staging.rename(&aside.name, dir, name)
-        } else {
-            dir.rename(&aside.name, dir, name)
+        let from = if aside.in_staging { &self.staging } else { dir };
+        link_new(from, &aside.name, dir, name)
+    }
+
+    /// Moves the staged file to `name` in `dir`, never over a file there.
+    fn place(&self, staged: &str, dir: &Dir, name: &str, relative: &str) -> anyhow::Result<()> {
+        let placed = match link_new(&self.staging, staged, dir, name) {
+            // Another file system (a mount inside the folder): copy next to it.
+            Err(error) if error.raw_os_error() == Some(libc::EXDEV) => {
+                self.copy_across(staged, dir, name)
+            }
+            placed => placed,
+        };
+        match placed {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                Err(Changed(relative.into()).into())
+            }
+            Err(error) => Err(anyhow::Error::from(error).context(format!("cannot write {relative}"))),
         }
     }
 
-    fn copy_across(&self, staged: &str, dir: &Dir, name: &str) -> anyhow::Result<()> {
+    fn copy_across(&self, staged: &str, dir: &Dir, name: &str) -> io::Result<()> {
         let part = format!(".{name}.cmux-sync-part");
         let _ = dir.unlink(&part, false);
         let mut from = self.staging.open_file(staged)?;
         let mode = from.metadata()?.permissions();
         let mut out = dir.create_file(&part, 0o600)?;
         let copied = io::copy(&mut from, &mut out)
-            .map_err(anyhow::Error::from)
-            .and_then(|_| out.set_permissions(mode).map_err(anyhow::Error::from))
-            .and_then(|()| out.sync_all().map_err(anyhow::Error::from))
-            .and_then(|()| dir.rename(&part, dir, name).map_err(anyhow::Error::from));
+            .and_then(|_| out.set_permissions(mode))
+            .and_then(|()| out.sync_all())
+            .and_then(|()| link_new(dir, &part, dir, name));
         if copied.is_err() {
             let _ = dir.unlink(&part, false);
         }
         copied
+    }
+}
+
+/// Moves `from_name` in `from` to `to_name` in `to` only if nothing is
+/// there (a hard link, then the old name goes): `AlreadyExists` otherwise.
+/// A file system without hard links falls back to a checked rename.
+fn link_new(from: &Dir, from_name: &str, to: &Dir, to_name: &str) -> io::Result<()> {
+    let (source, dest) = (c_name(from_name)?, c_name(to_name)?);
+    // SAFETY: valid descriptors and C strings.
+    let linked = check(unsafe {
+        libc::linkat(from.0.as_raw_fd(), source.as_ptr(), to.0.as_raw_fd(), dest.as_ptr(), 0)
+    });
+    match linked {
+        Ok(_) => {
+            let _ = from.unlink(from_name, false);
+            Ok(())
+        }
+        Err(error)
+            if matches!(
+                error.raw_os_error(),
+                Some(libc::EPERM | libc::ENOTSUP | libc::EOPNOTSUPP | libc::EMLINK | libc::ENOSYS)
+            ) =>
+        {
+            if !matches!(to.entry(to_name)?, Entry::Missing) {
+                return Err(io::Error::from(io::ErrorKind::AlreadyExists));
+            }
+            from.rename(from_name, to, to_name)
+        }
+        Err(error) => Err(error),
     }
 }
 

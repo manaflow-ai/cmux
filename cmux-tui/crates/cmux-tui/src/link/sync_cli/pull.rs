@@ -110,13 +110,18 @@ pub(super) fn pull(socket: &Path, local: &Path, remote_root: &str) -> anyhow::Re
     let staging = Staging::make(git.as_ref().map_or(&local, |dirs| &dirs.own))?;
     let root = Dir::open(&local)?;
 
-    let (found, mut skipped) =
-        machine_files(&mut remote, remote_root, &local, git.is_some(), &manifest)?;
+    let hooks = if git.is_some() { hook_folders(&local)? } else { Vec::new() };
+    let MachineFiles { found, mut skipped, fenced } =
+        machine_files(&mut remote, remote_root, &local, git.is_some(), &manifest, &hooks)?;
     let mut conflicts = Vec::new();
     let mut planned = Vec::new();
     let mut unchanged = 0u64;
-    let mut paths: BTreeSet<&String> =
-        manifest.files.keys().filter(|path| is_tree_path(path)).collect();
+    let mut paths: BTreeSet<&String> = manifest
+        .files
+        .keys()
+        .filter(|path| is_tree_path(path))
+        .filter(|path| !fenced.iter().any(|folder| is_within(path, folder)))
+        .collect();
     paths.extend(found.keys());
     for relative in paths {
         let base = manifest.files.get(relative);
@@ -206,17 +211,11 @@ pub(super) fn pull(socket: &Path, local: &Path, remote_root: &str) -> anyhow::Re
     let applied = apply(&mut transaction, &staging, planned, &mut next);
     let (written, deleted, bytes) = match applied {
         Ok(counts) => counts,
-        Err(error) => {
-            transaction.roll_back();
-            return Err(error);
-        }
+        Err(error) => return undone(transaction, &staging, error),
     };
     let fast_forwarded = match git_plan.as_ref().map(|plan| plan.commit(&local)).transpose() {
         Ok(moved) => moved.unwrap_or(false),
-        Err(error) => {
-            transaction.roll_back();
-            return Err(error);
-        }
+        Err(error) => return undone(transaction, &staging, error),
     };
     transaction.finish();
     let head = git_plan.as_ref().and_then(|plan| plan.settled.head.clone());
@@ -242,6 +241,28 @@ pub(super) fn pull(socket: &Path, local: &Path, remote_root: &str) -> anyhow::Re
         "head": head,
         "manifest_saved": saved,
     })))
+}
+
+/// Puts back what `transaction` changed after `error`. A file that changed
+/// here during the pull is a conflict; what could not be put back stays in
+/// the staging folder, which the answer names.
+fn undone(
+    transaction: Transaction,
+    staging: &Staging,
+    error: anyhow::Error,
+) -> anyhow::Result<Pulled> {
+    if let Err(left) = transaction.roll_back() {
+        staging.keep();
+        return Err(error.context(format!(
+            "cmux could not put back {}; what it moved aside is in {}",
+            left.join(", "),
+            staging.0.display()
+        )));
+    }
+    if let Some(changed) = error.downcast_ref::<place::Changed>() {
+        return Ok(Pulled::Conflict(vec![changed.0.clone()], Vec::new()));
+    }
+    Err(error)
 }
 
 /// Applies the planned steps through `transaction`, recording each in
@@ -312,18 +333,29 @@ enum Found {
     Other,
 }
 
+/// What [`machine_files`] found: the files by path, how many entries were
+/// left out, and the paths fenced off (nothing at or below them comes back
+/// or is deleted here).
+struct MachineFiles {
+    found: BTreeMap<String, Found>,
+    skipped: u64,
+    fenced: BTreeSet<String>,
+}
+
 /// The machine's working-tree files, by path, from its folder's listings,
-/// level by level, and how many entries were left out. Folders this
-/// working copy ignores are not entered (unless the push had files there).
-/// No name that reads as `.git` comes back, and no folder below the top
-/// that holds one (a nested repository).
+/// level by level. Folders this working copy ignores are not entered
+/// (unless the push had files there). No name that reads as `.git` comes
+/// back. Fenced off: a folder below the top that is a repository on either
+/// side (a `.git`, a `HEAD` or a `commondir`), a top folder's repository
+/// names when it has a repository's shape, and `hook_folders`.
 fn machine_files(
     remote: &mut Remote,
     remote_root: &str,
     local: &Path,
     git: bool,
     manifest: &Manifest,
-) -> anyhow::Result<(BTreeMap<String, Found>, u64)> {
+    hook_folders: &[String],
+) -> anyhow::Result<MachineFiles> {
     let pushed_dirs: BTreeSet<String> = manifest
         .files
         .keys()
@@ -335,6 +367,7 @@ fn machine_files(
         .collect();
     let mut found = BTreeMap::new();
     let mut skipped = 0u64;
+    let mut fenced = BTreeSet::new();
     let mut level = vec![String::new()];
     while !level.is_empty() {
         let mut children: Vec<(String, bool, Found)> = Vec::new();
@@ -343,10 +376,22 @@ fn machine_files(
                 if dir.is_empty() { remote_root.into() } else { format!("{remote_root}/{dir}") };
             // Every listed name is one plain component (`Remote::list`).
             let Some(entries) = remote.list(&path)? else { continue };
-            if !dir.is_empty() && entries.keys().any(|name| names::is_dotgit(name)) {
+            let here = local_names(local, &dir);
+            // A repository below the top, on either side (a `.git`, or a
+            // bare repository's or linked worktree's shape): nothing in it
+            // comes back or is deleted here.
+            if !dir.is_empty()
+                && entries.keys().chain(&here).any(|name| {
+                    names::is_dotgit(name) || names::is_repository_marker(name)
+                })
+            {
                 skipped += 1;
+                fenced.insert(dir);
                 continue;
             }
+            // The top with a repository's shape: its repository names stay.
+            let top_shaped = dir.is_empty()
+                && entries.keys().chain(&here).any(|name| names::is_repository_marker(name));
             for (name, entry) in entries {
                 if names::is_dotgit(&name) {
                     // The top's own `.git` is the repository, never a file.
@@ -355,10 +400,17 @@ fn machine_files(
                     }
                     continue;
                 }
-                if name.starts_with(".cmux-sync") || name.ends_with(".cmux-sync-part") {
+                let lower = name.to_ascii_lowercase();
+                if lower.starts_with(".cmux-sync") || lower.ends_with(".cmux-sync-part") {
                     continue;
                 }
                 let relative = if dir.is_empty() { name.clone() } else { format!("{dir}/{name}") };
+                let hooks = hook_folders.iter().any(|folder| is_within(&relative, folder));
+                if (top_shaped && names::is_repository_part(&name)) || hooks {
+                    skipped += 1;
+                    fenced.insert(relative);
+                    continue;
+                }
                 if !names::safe_relative(&relative) || !local::holdable(&relative) {
                     skipped += 1;
                     continue;
@@ -382,7 +434,57 @@ fn machine_files(
             }
         }
     }
-    Ok((found, skipped))
+    Ok(MachineFiles { found, skipped, fenced })
+}
+
+/// Whether `relative` is `folder` or below it.
+fn is_within(relative: &str, folder: &str) -> bool {
+    relative.strip_prefix(folder).is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+}
+
+/// The names in this Mac's folder `dir` (relative to `local`); none when it
+/// can't be read.
+fn local_names(local: &Path, dir: &str) -> Vec<String> {
+    let path = if dir.is_empty() { local.to_path_buf() } else { local.join(dir) };
+    std::fs::read_dir(path)
+        .map(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The working-tree folders whose files this working copy's git runs as
+/// hooks: `core.hooksPath` when it is inside the folder, and the folder
+/// above it for husky's `.husky/_` (whose hooks call `.husky/<hook>`).
+fn hook_folders(local: &Path) -> anyhow::Result<Vec<String>> {
+    let Some(path) = git_back::hooks_path(local)? else { return Ok(Vec::new()) };
+    let path = Path::new(&path);
+    let inside = if path.is_absolute() {
+        let Ok(inside) = path.strip_prefix(local) else { return Ok(Vec::new()) };
+        inside.to_path_buf()
+    } else {
+        path.to_path_buf()
+    };
+    let mut parts: Vec<String> = Vec::new();
+    for part in inside.components() {
+        match part {
+            std::path::Component::Normal(name) => parts.push(name.to_string_lossy().into_owned()),
+            std::path::Component::CurDir => {}
+            // `..`, `~` and the like point outside the folder.
+            _ => return Ok(Vec::new()),
+        }
+    }
+    if parts.first().is_some_and(|first| first.starts_with('~')) || parts.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut folders = vec![parts.join("/")];
+    if parts.len() > 1 && parts.last().is_some_and(|last| last == "_") {
+        folders.push(parts[..parts.len() - 1].join("/"));
+    }
+    Ok(folders)
 }
 
 /// Which of `paths` this working copy's ignore rules match (tracked files
@@ -469,8 +571,9 @@ impl Staged {
     }
 }
 
-/// This pull's own folder, removed when the pull ends.
-struct Staging(PathBuf, std::cell::Cell<u64>);
+/// This pull's own folder, removed when the pull ends, unless it holds a
+/// file a failed pull could not put back (or the pull panicked).
+struct Staging(PathBuf, std::cell::Cell<u64>, std::cell::Cell<bool>);
 
 impl Staging {
     fn make(parent: &Path) -> anyhow::Result<Self> {
@@ -480,7 +583,12 @@ impl Staging {
             .mode(0o700)
             .create(&path)
             .with_context(|| format!("cannot make {}", path.display()))?;
-        Ok(Self(path, std::cell::Cell::new(0)))
+        Ok(Self(path, std::cell::Cell::new(0), std::cell::Cell::new(false)))
+    }
+
+    /// Keeps the folder when the pull ends.
+    fn keep(&self) {
+        self.2.set(true);
     }
 
     /// Copies the machine's file at `target` here, with its hash, synced
@@ -545,6 +653,9 @@ impl Write for Hashing {
 
 impl Drop for Staging {
     fn drop(&mut self) {
+        if self.2.get() || std::thread::panicking() {
+            return;
+        }
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }

@@ -25,8 +25,42 @@ pub(super) fn is_dotgit(name: &str) -> bool {
 }
 
 fn is_hfs_dotgit(name: &str) -> bool {
-    let kept: String = name.chars().filter(|c| !is_hfs_ignorable(*c)).collect();
-    kept.eq_ignore_ascii_case(".git")
+    hfs_folded(name) == ".git"
+}
+
+/// `name` as an HFS+ or APFS disk may resolve it: ignorable code points
+/// dropped, ASCII case folded.
+fn hfs_folded(name: &str) -> String {
+    name.chars().filter(|c| !is_hfs_ignorable(*c)).collect::<String>().to_ascii_lowercase()
+}
+
+/// Whether `name` makes the folder holding it a repository to git's
+/// discovery (`is_git_directory`: a `HEAD`, or a linked worktree's
+/// `commondir`), under any spelling a Mac's disk resolves to one.
+pub(super) fn is_repository_marker(name: &str) -> bool {
+    matches!(hfs_folded(name).as_str(), "head" | "commondir")
+}
+
+/// The names of a repository's own files and folders: what stays out of a
+/// top folder that has a [`is_repository_marker`] name.
+pub(super) fn is_repository_part(name: &str) -> bool {
+    matches!(
+        hfs_folded(name).as_str(),
+        "head"
+            | "commondir"
+            | "gitdir"
+            | "config"
+            | "config.worktree"
+            | "objects"
+            | "refs"
+            | "packed-refs"
+            | "hooks"
+            | "info"
+            | "logs"
+            | "index"
+            | "worktrees"
+            | "modules"
+    )
 }
 
 /// The code points HFS+ ignores in names (git's `next_hfs_char`).

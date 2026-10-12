@@ -18,8 +18,9 @@
 //! need from the quarantine, checking every object (`transfer.fsckObjects`),
 //! and the branch moves by compare-and-swap (`git update-ref NEW OLD`).
 
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use anyhow::{Context as _, bail};
 use serde::{Deserialize, Serialize};
@@ -54,6 +55,14 @@ pub(super) fn base_of(folder: &Path) -> anyhow::Result<GitBase> {
         .map(|text| text.trim().to_string());
     let staged = digest(&checked(local(folder).args(["ls-files", "--stage", "-z"]))?);
     Ok(GitBase { head_ref, head, staged })
+}
+
+/// This working copy's `core.hooksPath` as its own settings give it; None
+/// when unset.
+pub(super) fn hooks_path(folder: &Path) -> anyhow::Result<Option<String>> {
+    Ok(output(local(folder).args(["config", "--get", "core.hooksPath"]))?
+        .map(|text| text.trim_end_matches('\n').to_string())
+        .filter(|path| !path.is_empty()))
 }
 
 /// What the git leg changes here once no file conflicts.
@@ -156,7 +165,7 @@ pub(super) fn plan(
             let why = "both this Mac and the machine changed what is staged";
             conflicts.push((".git/index".into(), why.into()));
         } else {
-            match staged_commit(&quarantine, &vm_index)? {
+            match staged_commit(&quarantine, &vm_staged.stdout)? {
                 Some(commit) => {
                     settled.staged = vm.staged;
                     staged = Some(commit);
@@ -369,11 +378,32 @@ fn is_hex(text: &str) -> bool {
     text.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
-/// The tree the machine's index makes, as a commit of the quarantine; None
-/// when it can't make one (unmerged entries, a missing object).
-fn staged_commit(quarantine: &Path, index: &Path) -> anyhow::Result<Option<String>> {
+/// The tree the machine's staged entries make (`entries`: its index's
+/// `ls-files --stage -z`), as a commit of the quarantine; None when it
+/// can't make one (unmerged entries, a missing object). The tree is built
+/// from the entries in a new index, never from the machine's index's own
+/// cached trees, which could name any tree.
+fn staged_commit(quarantine: &Path, entries: &[u8]) -> anyhow::Result<Option<String>> {
+    let index = quarantine.join("rebuilt-index");
+    let _ = std::fs::remove_file(&index);
+    let mut child = quarantine_git(quarantine)
+        .env("GIT_INDEX_FILE", &index)
+        .args(["update-index", "-z", "--index-info"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .context("cannot run git")?;
+    let mut stdin = child.stdin.take().context("no stdin")?;
+    let input = entries.to_vec();
+    let writer = std::thread::spawn(move || stdin.write_all(&input));
+    let built = child.wait().context("cannot run git")?;
+    let _ = writer.join();
+    if !built.success() {
+        return Ok(None);
+    }
     let tree = quarantine_git(quarantine)
-        .env("GIT_INDEX_FILE", index)
+        .env("GIT_INDEX_FILE", &index)
         .arg("write-tree")
         .output()
         .context("cannot run git")?;
