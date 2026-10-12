@@ -634,7 +634,13 @@ struct MachinesPanelView: View {
                     if let tabManager, !tabManager.isFinalizedForWindowClose {
                         return tabManager
                     }
-                    return AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: nil)
+                    if let active = AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: nil),
+                       !active.isFinalizedForWindowClose {
+                        return active
+                    }
+                    return AppDelegate.shared?.tabManager.flatMap { manager in
+                        manager.isFinalizedForWindowClose ? nil : manager
+                    }
                 },
                 provider: provider,
                 initialTerminalCommand: command
