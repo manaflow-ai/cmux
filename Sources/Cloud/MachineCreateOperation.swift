@@ -53,6 +53,13 @@ struct MachineCreateOperation: Identifiable, Equatable {
         failureOutput?.contains("vm_active_limit_exceeded") == true
     }
 
+    /// The create found the team's shared vCPUs or memory already in use
+    /// (`vm_resource_pool_exceeded`). Pausing or deleting a running machine
+    /// frees it; a larger plan is only the secondary way through.
+    var hitResourcePool: Bool {
+        failureOutput?.contains("vm_resource_pool_exceeded") == true
+    }
+
     /// The one-line status beside the name: the sheet's progress wording
     /// while running, the failure headline once it failed.
     var statusLabel: String {

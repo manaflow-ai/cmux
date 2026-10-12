@@ -651512,6 +651512,242 @@
           }
         }
       }
+    },
+    "cloud.operation.failure.capacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your team's running machines are using all of the plan's Cloud capacity. Pause or delete a running machine, then try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تستخدم الأجهزة قيد التشغيل لدى فريقك كامل سعة Cloud في الخطة. أوقف جهازًا قيد التشغيل مؤقتًا أو احذفه، ثم حاول مرة أخرى."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die laufenden Maschinen deines Teams nutzen die gesamte Cloud-Kapazität des Plans. Pausiere oder lösche eine laufende Maschine und versuche es dann erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las máquinas en ejecución de tu equipo están usando toda la capacidad de Cloud del plan. Pausa o elimina una máquina en ejecución y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les machines en cours d'exécution de votre équipe utilisent toute la capacité Cloud du forfait. Mettez en pause ou supprimez une machine en cours d'exécution, puis réessayez."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームの実行中のマシンがプランの Cloud 容量をすべて使用しています。実行中のマシンを一時停止または削除してから、もう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "팀의 실행 중인 머신이 플랜의 Cloud 용량을 모두 사용하고 있습니다. 실행 중인 머신을 일시 정지하거나 삭제한 후 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您团队中正在运行的机器已用尽套餐的全部 Cloud 容量。请暂停或删除一台正在运行的机器，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您團隊中執行中的機器已用盡方案的全部 Cloud 容量。請暫停或刪除一台執行中的機器，然後再試一次。"
+          }
+        }
+      }
+    },
+    "cloud.operation.failure.activeLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every active machine your plan allows is in use. Pause or delete a running machine, then try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جميع الأجهزة النشطة التي تسمح بها خطتك قيد الاستخدام. أوقف جهازًا قيد التشغيل مؤقتًا أو احذفه، ثم حاول مرة أخرى."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle aktiven Maschinen, die dein Plan erlaubt, sind in Gebrauch. Pausiere oder lösche eine laufende Maschine und versuche es dann erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todas las máquinas activas que permite tu plan están en uso. Pausa o elimina una máquina en ejecución y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toutes les machines actives autorisées par votre forfait sont utilisées. Mettez en pause ou supprimez une machine en cours d'exécution, puis réessayez."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プランで利用できるアクティブなマシンはすべて使用中です。実行中のマシンを一時停止または削除してから、もう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "플랜에서 허용하는 활성 머신을 모두 사용 중입니다. 실행 중인 머신을 일시 정지하거나 삭제한 후 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您的套餐允许的所有活跃机器都已在使用。请暂停或删除一台正在运行的机器，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您的方案允許的所有使用中機器都已在使用。請暫停或刪除一台執行中的機器，然後再試一次。"
+          }
+        }
+      }
+    },
+    "cloud.operation.failure.createCredits": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your team has no machine create credits left. Ask a team admin to add credits or upgrade the plan."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يعد لدى فريقك أي أرصدة لإنشاء الأجهزة. اطلب من مسؤول الفريق إضافة أرصدة أو قم بترقية الخطة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Team hat keine Credits zum Erstellen von Maschinen mehr. Bitte einen Team-Admin, Credits hinzuzufügen, oder führe ein Upgrade des Plans durch."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu equipo no tiene créditos para crear máquinas. Pide a un administrador del equipo que añada créditos o mejora el plan."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre équipe n'a plus de crédits de création de machines. Demandez à un administrateur de l'équipe d'ajouter des crédits ou passez à un forfait supérieur."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームにマシン作成クレジットが残っていません。チーム管理者にクレジットの追加を依頼するか、プランをアップグレードしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "팀에 남은 머신 생성 크레딧이 없습니다. 팀 관리자에게 크레딧 추가를 요청하거나 플랜을 업그레이드하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您的团队已没有创建机器的额度。请让团队管理员添加额度，或升级套餐。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您的團隊已沒有建立機器的點數。請團隊管理員加入點數，或升級方案。"
+          }
+        }
+      }
+    },
+    "cloud.operation.failure.memoryRequiresPlan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This size is larger than your plan includes. Choose a smaller size, or upgrade the plan."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذا الحجم أكبر مما تتضمنه خطتك. اختر حجمًا أصغر، أو قم بترقية الخطة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Größe übersteigt, was dein Plan enthält. Wähle eine kleinere Größe oder führe ein Upgrade des Plans durch."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este tamaño supera lo que incluye tu plan. Elige un tamaño más pequeño o mejora el plan."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette taille dépasse ce que comprend votre forfait. Choisissez une taille plus petite ou passez à un forfait supérieur."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このサイズはプランに含まれる範囲を超えています。小さいサイズを選ぶか、プランをアップグレードしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 크기는 플랜에 포함된 범위보다 큽니다. 더 작은 크기를 선택하거나 플랜을 업그레이드하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此规格超出您的套餐所含范围。请选择较小的规格，或升级套餐。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此大小超出您的方案所包含的範圍。請選擇較小的大小，或升級方案。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

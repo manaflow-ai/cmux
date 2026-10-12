@@ -288,11 +288,27 @@ enum InProcessMachineCreateLauncher {
         } catch {
             return CloudVMActionLauncher.Completion(
                 terminationStatus: 1,
-                output: output + CloudDiagnosticFailure.classify(error).label + "\n",
+                output: output + failureText(for: error),
                 workspaceId: nil,
                 machineId: machineID
             )
         }
+    }
+
+    /// The failure lines for a person: what the server refused and what to do,
+    /// then the stable `(HTTP 402: code)` reference the CLI prints, which the
+    /// pending row reads to offer an upgrade. A server sentence the output
+    /// redaction would hide falls back to the class label.
+    static func failureText(for error: Error) -> String {
+        guard let refusal = CloudPlanRefusal(error) else {
+            return CloudDiagnosticFailure.classify(error).label + "\n"
+        }
+        var message = refusal.message
+        let safe = CloudVMActionLauncher.sanitizedCloudVMStartOutput(message)
+        if safe.isEmpty || safe == CloudVMActionLauncher.hiddenOutputPlaceholder {
+            message = refusal.diagnosticFailure.label
+        }
+        return "\(message)\n(HTTP 402: \(refusal.code))\n"
     }
 
     @discardableResult

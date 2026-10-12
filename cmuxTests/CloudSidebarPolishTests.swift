@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxCloudResizeCore
 import CmuxSettings
 import Foundation
 import Testing
@@ -28,6 +29,26 @@ struct CloudSidebarPolishTests {
         for plan in ["max", "Team", " founders "] {
             #expect(!MachinePlanSnapshot(activeCount: 5, planId: plan).hasHigherPlan, "\(plan)")
         }
+    }
+
+    @Test("A create refused by a full shared pool says what is in use, not that the plan is missing")
+    func resourcePoolFailureExplainsThePool() {
+        let body = """
+            {"error":"vm_resource_pool_exceeded","resource":"vcpus","pool":{"vcpus":20,"memoryMb":40960},
+             "used":{"vcpus":20,"memoryMb":40960},"requested":{"vcpus":4,"memoryMb":8192},"upgradePlanId":"max"}
+            """
+        let text = InProcessMachineCreateLauncher.failureText(for: VMClientError.httpStatus(402, body))
+        #expect(!text.contains(CloudDiagnosticFailure.plan.label))
+        #expect(text.hasPrefix(CloudVMResourcePool.shortfallText(.vcpus(requested: 4, free: 0, pool: 20), offersUpgrade: true)))
+        let shown = MachineCreateCoordinator.displayableFailureOutput(text)
+        #expect(shown == text.trimmingCharacters(in: .whitespacesAndNewlines))
+        var operation = MachineCreateOperation(
+            id: UUID(), request: MachineCreateCoordinatorTests.newMachineRequest(), startedAt: Date()
+        )
+        operation.phase = .failed(output: shown)
+        #expect(operation.hitResourcePool)
+        #expect(!operation.hitMachineLimit)
+        #expect(InProcessMachineCreateLauncher.failureText(for: VMClientError.httpStatus(402, "")) == CloudDiagnosticFailure.plan.label + "\n")
     }
 
     @Test("The mode bar's minimum fits the widest tab's name with every other tab as its icon")
