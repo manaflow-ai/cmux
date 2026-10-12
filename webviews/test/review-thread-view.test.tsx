@@ -63,3 +63,19 @@ test("a resolved thread's folded line names the author and opens with the commen
   expect(summary.textContent).toContain("Nit: rename retryCount");
   act(() => root.unmount());
 });
+
+test("a suggestion fence draws as plain lines, and the folded line names no link", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ReviewThread } = await import("../src/agent-session/acpmux/changes/ReviewThread");
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const body = "See [the docs](https://example.com/docs)\n\n```suggestion\nconst retries = 3;\n```";
+  await act(async () =>
+    root.render(<ReviewThread thread={{ ...thread(true), comments: [{ author: "octocat", body }] }} />),
+  );
+  const doc = dom.window.document;
+  expect(doc.querySelector(".acpmux-review-body .cv-codeblock--plain")?.textContent).toContain("const retries = 3;");
+  const summary = doc.querySelector<HTMLElement>(".acpmux-review-thread summary")!;
+  expect(summary.textContent).toContain("octocat: See the docs");
+  expect(summary.querySelector("a, button")).toBeNull();
+  act(() => root.unmount());
+});

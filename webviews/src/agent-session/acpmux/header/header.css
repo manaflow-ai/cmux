@@ -71,7 +71,7 @@
 .acpmux-pr-none{padding:4px 6px;border-top:.5px solid var(--acpmux-composer-edge);color:var(--agent-muted)}
 /* Merge on the PR chip's status (cx-ncc.77.4): asks once more in place, then says it merged or why not. */
 /* Sticky, so Merge stays in reach under a long check list. */
-.acpmux-pr-merge{position:sticky;bottom:0;display:flex;flex-direction:column;gap:6px;margin:6px 0 -6px;padding:8px 6px 8px;background:var(--acpmux-menu-bg);border-top:.5px solid var(--acpmux-composer-edge);font-size:var(--text-detail)}
+.acpmux-pr-merge{position:sticky;bottom:-6px;display:flex;flex-direction:column;gap:6px;margin:6px 0 -6px;padding:8px 6px 8px;background:var(--acpmux-menu-bg);border-top:.5px solid var(--acpmux-composer-edge);font-size:var(--text-detail)}
 .acpmux-pr-merge-buttons{display:flex;justify-content:flex-end;gap:6px}
 .acpmux-pr-merge button{height:24px;padding:0 10px;border:0;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
 .acpmux-pr-merge button:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)))}

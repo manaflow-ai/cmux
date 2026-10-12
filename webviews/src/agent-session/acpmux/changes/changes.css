@@ -151,10 +151,8 @@ button.acpmux-edited-file:focus-visible{outline:1.5px solid var(--agent-muted);o
 .acpmux-review-thread{margin:6px 12px;padding:8px 10px;border:1px solid var(--agent-border);border-radius:8px;background:var(--agent-surface-elevated);color:var(--agent-text);font-family:system-ui,-apple-system,sans-serif;font-size:var(--text-body)}
 .acpmux-review-unplaced .acpmux-review-thread{margin:0}
 .acpmux-review-thread[data-resolved]{color:var(--agent-muted)}
-.acpmux-review-thread summary{display:flex;gap:6px;min-width:0;cursor:default;font-size:var(--text-detail);white-space:nowrap}
-.acpmux-review-summary-state{flex:none}
-.acpmux-review-summary-text{min-width:0;overflow:hidden;text-overflow:ellipsis}
-.acpmux-review-summary-text::before{content:"\00B7";margin-right:6px}
+.acpmux-review-thread summary{overflow:hidden;cursor:default;font-size:var(--text-detail);white-space:nowrap;text-overflow:ellipsis}
+.acpmux-review-summary-text::before{content:"\00B7";margin:0 6px}
 .acpmux-review-outdated{margin-bottom:4px;color:var(--agent-muted);font-size:var(--text-detail)}
 .acpmux-review-comments{display:flex;flex-direction:column;gap:8px;margin:0;padding:0;list-style:none}
 .acpmux-review-thread details .acpmux-review-comments{margin-top:6px}
@@ -163,7 +161,8 @@ button.acpmux-edited-file:focus-visible{outline:1.5px solid var(--agent-muted);o
 .acpmux-review-author a:hover{text-decoration:underline}
 .acpmux-review-author a:focus-visible,.acpmux-review-thread summary:focus-visible{outline:2px solid var(--agent-accent);outline-offset:1px;border-radius:4px}
 /* Comment bodies are Markdown at the thread's size, with paragraph gaps to match. */
-.acpmux-review-body.cv-md{margin-top:2px;--cv-font-size:var(--text-body);--cv-line-height:18px;--cv-para-after:6px;overflow-wrap:anywhere;user-select:text}
+.acpmux-review-body .cv-h{font-size:inherit;line-height:inherit}
+.acpmux-review-body.cv-md{margin-top:2px;color:inherit;--cv-font-size:var(--text-body);--cv-line-height:18px;--cv-para-after:6px;overflow-wrap:anywhere;user-select:text}
 .acpmux-review-heading{margin:0;color:var(--agent-muted);font-weight:600;font-size:var(--text-detail)}
 .acpmux-review-actions{display:flex;align-items:center;gap:8px;margin-top:8px;color:var(--agent-muted);font-size:var(--text-detail)}
 .acpmux-review-address{height:24px;padding:0 10px;border:0;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}

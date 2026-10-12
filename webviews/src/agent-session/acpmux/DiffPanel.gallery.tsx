@@ -263,7 +263,8 @@ const showReviewThreads: Play = async (ctx) => {
   await chooseScope(ctx, "Branch");
   await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-review-thread").length === 5);
   const texts = (selector: string) =>
-    [...ctx.document.querySelectorAll(`${selector} .acpmux-review-body`)].map((body) => body.textContent);
+    // innerText: a body is Markdown, whose line break is a <br>.
+    [...ctx.document.querySelectorAll<HTMLElement>(`${selector} .acpmux-review-body`)].map((body) => body.innerText);
   const inDiff = texts(".acpmux-diff-pierre");
   const aboveFile = texts(".acpmux-diff-file > .acpmux-review-unplaced");
   const otherFiles = texts(".acpmux-diff-body > .acpmux-review-unplaced");
