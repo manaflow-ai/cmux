@@ -90,15 +90,18 @@ impl Mux {
     fn post_agent_chat_notice(&self, session: &str, notice: &Notice) {
         // One wait, one notice: a daemon restart mid-wait sees the wait again
         // under a newer sequence, and the tab still holds the first notice.
-        let waiting = notice.key.starts_with("input-");
-        let unread = if waiting {
+        // The question it asks tells it from a new wait.
+        let unread = if notice.restated {
             self.notification_rows(usize::MAX).unwrap_or_default()
         } else {
             Vec::new()
         };
         for (surface, content) in self.agent_chat_tabs(session) {
             if unread.iter().any(|(row, acknowledged)| {
-                !acknowledged && row.surface == Some(surface) && row.title == notice.title
+                !acknowledged
+                    && row.surface == Some(surface)
+                    && row.title == notice.title
+                    && row.body == notice.body
             }) {
                 continue;
             }
@@ -250,6 +253,8 @@ struct Notice {
     title: String,
     body: String,
     level: NotificationLevel,
+    /// Seen first since a daemon start: it may restate one posted before.
+    restated: bool,
 }
 
 impl Chat {
@@ -310,12 +315,14 @@ impl Chat {
                     title: format!("{name} finished"),
                     body: short(&self.last_message, MAX_BODY_CHARS),
                     level: NotificationLevel::Info,
+                    restated: false,
                 }),
                 "failed" => notices.push(Notice {
                     key: format!("failed-{turn}"),
                     title: format!("{name} failed"),
                     body: short(&self.last_message, MAX_BODY_CHARS),
                     level: NotificationLevel::Error,
+                    restated: false,
                 }),
                 _ => {}
             }
@@ -328,6 +335,7 @@ impl Chat {
                 title: format!("{name} needs input"),
                 body: short(&self.last_message, MAX_BODY_CHARS),
                 level: NotificationLevel::Warning,
+                restated: before.is_none(),
             });
         }
         if self.indicator == "lost" && was != "lost" {
@@ -336,6 +344,7 @@ impl Chat {
                 title: format!("{name} stopped responding"),
                 body: short(&self.last_message, MAX_BODY_CHARS),
                 level: NotificationLevel::Error,
+                restated: false,
             });
         }
         notices
