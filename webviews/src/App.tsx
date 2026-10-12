@@ -55,6 +55,7 @@ import {
 import { type DiffViewerLayout, initialAppState, itemCollapsedFileKey, reducer } from "./diff-viewer/state";
 import { FileHeader } from "./diff-viewer/FileHeader";
 import { diffGitSource, diffStageAction } from "./diff-viewer/git";
+import { diffFingerprintReader, useDiffFreshness } from "./diff-viewer/freshness";
 import { diffPageClient, type DiffPageConfig } from "./diff/page";
 import { GitToolbarButtons, GitWriteBar } from "./agent-session/acpmux/changes/GitActions";
 import { useGitWrite } from "./agent-session/acpmux/changes/useGitWrite";
@@ -565,6 +566,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   // stage changes the diff, so it reloads; a push changes only the branch.
   const gitSource = useMemo(() => diffGitSource(diffPageClient(), (config as DiffPageConfig).ops), [config]);
   const [commitOpen, setCommitOpen] = useState(false);
+  const commitOpenRef = useSyncedRef(commitOpen);
   const refreshRef = useSyncedRef(refresh);
   const git = useGitWrite(gitSource, (op) => {
     if (op === "commit") setCommitOpen(false);
@@ -574,6 +576,19 @@ export function App({ config, initialStatus }: ConfigProps) {
     staged: () => refreshRef.current(),
     failed: (message) => dispatch({ type: "set-copy-feedback", message }),
   });
+  // An agent's edit after load (cx-9ce.34): coming back refreshes, unless a comment draft or the
+  // commit form would be lost; then the bar says the files changed.
+  const shownSource = resolvedSessionSource ?? activeSessionSource;
+  const readFingerprint = useMemo(
+    () => diffFingerprintReader(diffPageClient(), (config as DiffPageConfig).ops, shownSource),
+    [config, shownSource],
+  );
+  const filesChanged = useDiffFreshness(
+    readFingerprint,
+    state.renderGeneration,
+    () => latestState.current.draft == null && !commitOpenRef.current,
+    () => refreshRef.current(),
+  );
 
   return (
     <div
@@ -661,6 +676,14 @@ export function App({ config, initialStatus }: ConfigProps) {
         visibleItems={visibleItems}
       />
       <div className="diff-git diff-git-bar">
+        {filesChanged && (
+          <output className="diff-files-changed">
+            <span>{label("filesChangedSinceLoad")}</span>
+            <button type="button" className="file-review-load" onClick={refresh}>
+              {label("refresh")}
+            </button>
+          </output>
+        )}
         <GitWriteBar
           git={git}
           formOpen={commitOpen}

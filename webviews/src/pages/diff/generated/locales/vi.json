@@ -53,6 +53,7 @@
   "diffViewer.expandUnchangedContext": "Mở rộng ngữ cảnh không thay đổi",
   "diffViewer.fileActions": "Thao tác khác cho {file}",
   "diffViewer.files": "Tệp",
+  "diffViewer.filesChangedSinceLoad": "Các tệp đã thay đổi kể từ khi tải diff này.",
   "diffViewer.filesViewedProgress": "Đã xem {viewed}/{total} tệp",
   "diffViewer.filterAddedFiles": "Đã thêm",
   "diffViewer.filterDeletedFiles": "Đã xóa",

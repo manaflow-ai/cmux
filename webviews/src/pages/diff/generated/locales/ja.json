@@ -53,6 +53,7 @@
   "diffViewer.expandUnchangedContext": "変更のない行を展開",
   "diffViewer.fileActions": "{file} のその他の操作",
   "diffViewer.files": "ファイル",
+  "diffViewer.filesChangedSinceLoad": "この diff を読み込んだ後にファイルが変更されました。",
   "diffViewer.filesViewedProgress": "{total} 件中 {viewed} 件を確認済み",
   "diffViewer.filterAddedFiles": "追加",
   "diffViewer.filterDeletedFiles": "削除",

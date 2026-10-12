@@ -53,6 +53,7 @@
   "diffViewer.expandUnchangedContext": "Değişmeyen bağlamı genişlet",
   "diffViewer.fileActions": "{file} için diğer işlemler",
   "diffViewer.files": "Devam: Files",
+  "diffViewer.filesChangedSinceLoad": "Bu diff yüklendiğinden beri dosyalar değişti.",
   "diffViewer.filesViewedProgress": "{total} dosyadan {viewed} tanesi görüldü",
   "diffViewer.filterAddedFiles": "Eklenen",
   "diffViewer.filterDeletedFiles": "Silinen",

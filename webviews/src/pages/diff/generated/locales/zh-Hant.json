@@ -53,6 +53,7 @@
   "diffViewer.expandUnchangedContext": "展開未變更的內容",
   "diffViewer.fileActions": "{file} 的更多操作",
   "diffViewer.files": "文件",
+  "diffViewer.filesChangedSinceLoad": "自載入此 diff 以來，檔案已變更。",
   "diffViewer.filesViewedProgress": "已檢視 {viewed}/{total} 個檔案",
   "diffViewer.filterAddedFiles": "新增",
   "diffViewer.filterDeletedFiles": "已刪除",

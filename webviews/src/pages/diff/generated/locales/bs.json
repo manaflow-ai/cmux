@@ -53,6 +53,7 @@
   "diffViewer.expandUnchangedContext": "Proširi nepromijenjeni kontekst",
   "diffViewer.fileActions": "Više radnji za {file}",
   "diffViewer.files": "Nastavak: Files",
+  "diffViewer.filesChangedSinceLoad": "Datoteke su se promijenile otkako je ovaj diff učitan.",
   "diffViewer.filesViewedProgress": "Pregledano {viewed} od {total} datoteka",
   "diffViewer.filterAddedFiles": "Dodano",
   "diffViewer.filterDeletedFiles": "Izbrisano",

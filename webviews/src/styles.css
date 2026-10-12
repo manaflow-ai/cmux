@@ -1544,6 +1544,15 @@ body[data-loading="true"] #status::before {
   flex-direction: column;
   min-width: 0;
 }
+.diff-files-changed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--cmux-diff-border);
+  color: var(--cmux-diff-fg);
+  font-size: var(--text-detail);
+}
 .file-review-viewed {
   display: inline-flex;
   align-items: center;

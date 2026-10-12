@@ -53,6 +53,7 @@
   "diffViewer.expandUnchangedContext": "ขยายบริบทที่ไม่เปลี่ยนแปลง",
   "diffViewer.fileActions": "การดำเนินการเพิ่มเติมสำหรับ {file}",
   "diffViewer.files": "ดำเนินการต่อ: Files",
+  "diffViewer.filesChangedSinceLoad": "ไฟล์มีการเปลี่ยนแปลงตั้งแต่โหลด diff นี้",
   "diffViewer.filesViewedProgress": "ดูแล้ว {viewed} จาก {total} ไฟล์",
   "diffViewer.filterAddedFiles": "เพิ่มแล้ว",
   "diffViewer.filterDeletedFiles": "ลบแล้ว",

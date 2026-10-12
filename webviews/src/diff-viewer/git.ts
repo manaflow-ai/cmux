@@ -45,8 +45,7 @@ export function diffStageAction(
   if (!unstage && shown.kind !== "unstaged" && !(shown.kind === "branch" && shown.baseRef === "HEAD")) return undefined;
   return {
     label: translate(unstage ? "changes.unstageFile" : "changes.stageFile"),
-    run: (path) =>
-      void stage([path], unstage).then(then.staged, () => then.failed(translate("changes.stageFailed"))),
+    run: (path) => void stage([path], unstage).then(then.staged, () => then.failed(translate("changes.stageFailed"))),
   };
 }
 

@@ -53,6 +53,7 @@
   "diffViewer.expandUnchangedContext": "Expand unchanged context",
   "diffViewer.fileActions": "More actions for {file}",
   "diffViewer.files": "Files",
+  "diffViewer.filesChangedSinceLoad": "The files changed since this diff loaded.",
   "diffViewer.filesViewedProgress": "{viewed} of {total} files viewed",
   "diffViewer.filterAddedFiles": "Added",
   "diffViewer.filterDeletedFiles": "Deleted",

@@ -53,6 +53,7 @@
   "diffViewer.expandUnchangedContext": "توسيع السياق غير المعدل",
   "diffViewer.fileActions": "إجراءات إضافية لـ {file}",
   "diffViewer.files": "ملفات",
+  "diffViewer.filesChangedSinceLoad": "تغيّرت الملفات منذ تحميل هذا الفرق.",
   "diffViewer.filesViewedProgress": "تمت مشاهدة {viewed} من {total} ملفات",
   "diffViewer.filterAddedFiles": "مضافة",
   "diffViewer.filterDeletedFiles": "محذوفة",

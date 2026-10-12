@@ -78,7 +78,8 @@ const calls: [string, unknown][] = [];
 const page = {
   call: async (op: string, params: unknown) => {
     calls.push([op, params]);
-    if (op === "cmux.diff.git.status") return { head: HEAD, branch: "main", upstream: "origin/main", detached: false, ahead: 0 };
+    if (op === "cmux.diff.git.status")
+      return { head: HEAD, branch: "main", upstream: "origin/main", detached: false, ahead: 0 };
     if (op === "cmux.diff.git.commit")
       return { result: { commit: HEAD, summary: "Retry the upload", filesChanged: 1 }, replayed: false };
     return { ok: true };
@@ -99,10 +100,14 @@ test("the viewer commits through the host and stages a file from its header, in 
   function Viewer() {
     const [open, setOpen] = useState(false);
     const git = useGitWrite(source, () => {});
-    const stage = diffStageAction(source, { kind: "unstaged", repoRoot: "/r" }, {
-      staged: () => staged.push("refreshed"),
-      failed: () => {},
-    });
+    const stage = diffStageAction(
+      source,
+      { kind: "unstaged", repoRoot: "/r" },
+      {
+        staged: () => staged.push("refreshed"),
+        failed: () => {},
+      },
+    );
     return (
       <div className="diff-git">
         <GitToolbarButtons git={git} formOpen={open} onToggleForm={() => setOpen((value) => !value)} />
@@ -129,7 +134,11 @@ test("the viewer commits through the host and stages a file from its header, in 
   expect(staged).toEqual(["refreshed"]);
 
   // Commit opens the changes view's form; its Commit sends the message.
-  await act(async () => buttons().find((element) => element.dataset.tool === "commit")!.click());
+  await act(async () =>
+    buttons()
+      .find((element) => element.dataset.tool === "commit")!
+      .click(),
+  );
   const message = dom.window.document.querySelector<HTMLTextAreaElement>(".acpmux-git-message")!;
   await act(async () => {
     const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value")!.set!;

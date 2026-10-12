@@ -53,6 +53,7 @@
   "diffViewer.expandUnchangedContext": "변경되지 않은 컨텍스트 펼치기",
   "diffViewer.fileActions": "{file} 추가 작업",
   "diffViewer.files": "파일",
+  "diffViewer.filesChangedSinceLoad": "이 diff를 불러온 뒤 파일이 변경되었습니다.",
   "diffViewer.filesViewedProgress": "{total}개 중 {viewed}개 파일 확인함",
   "diffViewer.filterAddedFiles": "추가됨",
   "diffViewer.filterDeletedFiles": "삭제됨",

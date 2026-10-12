@@ -53,6 +53,7 @@
   "diffViewer.expandUnchangedContext": "Fold uændret kontekst ud",
   "diffViewer.fileActions": "Flere handlinger for {file}",
   "diffViewer.files": "Fortsæt: Files",
+  "diffViewer.filesChangedSinceLoad": "Filerne er ændret, siden denne diff blev indlæst.",
   "diffViewer.filesViewedProgress": "{viewed} af {total} filer set",
   "diffViewer.filterAddedFiles": "Tilføjet",
   "diffViewer.filterDeletedFiles": "Slettet",

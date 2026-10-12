@@ -67,7 +67,15 @@ const page = {
 };
 const OPS = ["cmux.diff.git.fingerprint"];
 
-function Viewer({ read, canRefresh, refresh }: { read: () => Promise<string | undefined>; canRefresh: boolean; refresh: () => void }) {
+function Viewer({
+  read,
+  canRefresh,
+  refresh,
+}: {
+  read: () => Promise<string | undefined>;
+  canRefresh: boolean;
+  refresh: () => void;
+}) {
   const stale = useDiffFreshness(read, 0, () => canRefresh, refresh);
   return <output>{stale ? "stale" : "fresh"}</output>;
 }
@@ -76,7 +84,9 @@ const settle = () => act(async () => await new Promise((resolve) => setTimeout(r
 
 test("only the work tree's and the index's diffs are fingerprinted", async () => {
   expect(diffFingerprintReader(page as never, OPS, { kind: "patch", path: "/tmp/x.patch" })).toBeUndefined();
-  expect(diffFingerprintReader(page as never, OPS, { kind: "branch", repoRoot: "/r", baseRef: "main" })).toBeUndefined();
+  expect(
+    diffFingerprintReader(page as never, OPS, { kind: "branch", repoRoot: "/r", baseRef: "main" }),
+  ).toBeUndefined();
   expect(diffFingerprintReader(page as never, [], { kind: "unstaged", repoRoot: "/r" })).toBeUndefined();
   await diffFingerprintReader(page as never, OPS, { kind: "branch", repoRoot: "/r", baseRef: "HEAD" })!();
   expect(calls.at(-1)).toEqual(["cmux.diff.git.fingerprint", { scope: "uncommitted" }]);

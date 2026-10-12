@@ -53,6 +53,7 @@
   "diffViewer.expandUnchangedContext": "Espandi contesto invariato",
   "diffViewer.fileActions": "Altre azioni per {file}",
   "diffViewer.files": "Continua: Files",
+  "diffViewer.filesChangedSinceLoad": "I file sono cambiati da quando questo diff è stato caricato.",
   "diffViewer.filesViewedProgress": "{viewed} file visti su {total}",
   "diffViewer.filterAddedFiles": "Aggiunti",
   "diffViewer.filterDeletedFiles": "Eliminati",
