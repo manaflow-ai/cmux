@@ -2,6 +2,33 @@ import AppKit
 import CmuxSettings
 import SwiftUI
 
+/// Whether a Cloud creation action (New Cloud Workspace, New Cloud Machine)
+/// may run, or must first introduce Cloud with the welcome card, whose next
+/// step offers Enable or Upgrade, instead of giving no response.
+enum CloudCreationGate: Equatable {
+    case proceed
+    case introduceCloud
+
+    /// - Parameters:
+    ///   - isAvailable: Managed policy allows Cloud. A policy-disabled Mac
+    ///     keeps the action's existing handling; the welcome is not for it.
+    ///   - isEnabled: The local first-use activation is on.
+    ///   - canRunCloudOperations: The Cloud operation controller admits work
+    ///     (enabled and signed in), or nil before app composition.
+    ///   - isAuthInProgress: A session restore or sign-in is still settling,
+    ///     so signed out is not yet a real answer.
+    static func resolve(
+        isAvailable: Bool,
+        isEnabled: Bool,
+        canRunCloudOperations: Bool?,
+        isAuthInProgress: Bool
+    ) -> CloudCreationGate {
+        guard isAvailable else { return .proceed }
+        guard isEnabled else { return .introduceCloud }
+        return canRunCloudOperations == false && !isAuthInProgress ? .introduceCloud : .proceed
+    }
+}
+
 /// Shows the 0.65.1 Cloud welcome once, whether Cloud is on or off, unless
 /// MDM blocks Cloud. Debug builds can reopen it from Help.
 @MainActor
@@ -13,6 +40,8 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
     nonisolated static let seenVersionDefaultsKey = "cmux.cloud.welcome.seenVersion"
 
     private var window: NSWindow?
+    /// The Cloud action that opened this card, run again once Enable succeeds.
+    private var onEnabled: (@MainActor () -> Void)?
     /// Launch presentation is considered once, at the first main window. A
     /// window opened later (Cmd+N an hour in) must not pop the welcome up just
     /// because MDM policy changed since; an unseen welcome waits for next launch.
@@ -43,33 +72,99 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
     /// Presents at launch when it applies, and marks it seen on the way so a
     /// quit or crash while it is open does not show it again.
     func presentIfNeeded(over parent: NSWindow?, defaults: UserDefaults = .standard) {
-        guard !didConsiderLaunchPresentation else { return }
-        didConsiderLaunchPresentation = true
         let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
-        guard Self.shouldPresentAutomatically(
+        let environment = ProcessInfo.processInfo.environment
+        #if DEBUG
+        let isDebugBuild = true
+        #else
+        let isDebugBuild = false
+        #endif
+        guard claimLaunchPresentation(
             defaults: defaults,
             appVersion: appVersion,
-            policy: ManagedDevicePolicy()
+            policy: ManagedDevicePolicy(),
+            isDebugBuild: isDebugBuild,
+            isRunningUnderXCTest: MacSentryStartupPolicy.isRunningUnderXCTest(environment: environment),
+            isUITestMode: environment["CMUX_UI_TEST_MODE"] == "1"
         ) else { return }
-        Self.markCampaignSeen(in: defaults)
         present(over: parent)
     }
 
-    /// Help and launch share the same feature-list layout.
-    func present(over parent: NSWindow?, sliderShowsFeatureList: Bool = true, sliderListUsesDots: Bool = false) {
+    /// Claims the release announcement synchronously before creating its window.
+    /// Overlapping main-window callbacks and a later launch share the persisted
+    /// marker; an ineligible first window still consumes this launch's decision.
+    func claimLaunchPresentation(
+        defaults: UserDefaults,
+        appVersion: String,
+        policy: ManagedDevicePolicy,
+        isDebugBuild: Bool = false,
+        isRunningUnderXCTest: Bool = false,
+        isUITestMode: Bool = false
+    ) -> Bool {
+        guard !didConsiderLaunchPresentation else { return false }
+        didConsiderLaunchPresentation = true
+        guard Self.shouldPresentAutomatically(
+            defaults: defaults,
+            appVersion: appVersion,
+            policy: policy,
+            isDebugBuild: isDebugBuild,
+            isRunningUnderXCTest: isRunningUnderXCTest,
+            isUITestMode: isUITestMode
+        ) else { return false }
+        Self.markCampaignSeen(in: defaults)
+        return true
+    }
+
+    /// Help deliberately reopens the same headline card without consuming or
+    /// resetting the automatic release announcement's persistence marker.
+    func present(
+        over parent: NSWindow?,
+        sliderShowsFeatureList: Bool = true,
+        sliderListUsesDots: Bool = false,
+        posterHeadline: String? = CloudWelcomeView.headline,
+        posterShowsTitle: Bool = true,
+        posterShowsIcon: Bool = true,
+        showsNewBadge: Bool = false,
+        footerHasNotNow: Bool = false,
+        onEnabled: (@MainActor () -> Void)? = nil
+    ) {
         window?.close()
-        let window = makeWindow(sliderShowsFeatureList: sliderShowsFeatureList, sliderListUsesDots: sliderListUsesDots)
+        self.onEnabled = onEnabled
+        let window = makeWindow(
+            sliderShowsFeatureList: sliderShowsFeatureList,
+            sliderListUsesDots: sliderListUsesDots,
+            posterHeadline: posterHeadline,
+            posterShowsTitle: posterShowsTitle,
+            posterShowsIcon: posterShowsIcon,
+            showsNewBadge: showsNewBadge,
+            footerHasNotNow: footerHasNotNow
+        )
         self.window = window
         position(window, over: parent)
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
     }
 
-    private func makeWindow(sliderShowsFeatureList: Bool, sliderListUsesDots: Bool) -> NSWindow {
+    private func makeWindow(
+        sliderShowsFeatureList: Bool,
+        sliderListUsesDots: Bool,
+        posterHeadline: String?,
+        posterShowsTitle: Bool,
+        posterShowsIcon: Bool,
+        showsNewBadge: Bool,
+        footerHasNotNow: Bool
+    ) -> NSWindow {
+        let shortcut = KeyboardShortcutSettings.shortcut(for: .newCloudMachine)
         let rootView = CloudWelcomeAccountView(
             accountFlow: AppDelegate.shared?.auth?.accountFlow,
             sliderShowsFeatureList: sliderShowsFeatureList,
             sliderListUsesDots: sliderListUsesDots,
+            posterHeadline: posterHeadline,
+            newMachineShortcut: shortcut.isUnbound ? nil : shortcut.displayString,
+            posterShowsTitle: posterShowsTitle,
+            posterShowsIcon: posterShowsIcon,
+            showsNewBadge: showsNewBadge,
+            footerHasNotNow: footerHasNotNow,
             onNotNow: { [weak self] in self?.dismiss() },
             onNext: { [weak self] step in self?.perform(step) }
         )
@@ -87,7 +182,7 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
             defer: false
         )
         window.identifier = NSUserInterfaceItemIdentifier("cmux.cloud.welcome")
-        window.title = String(localized: "cloud.welcome.title", defaultValue: "Your work, wherever you go")
+        window.title = String(localized: "cloud.welcome.title.eyebrow", defaultValue: "cmux cloud")
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
@@ -97,9 +192,27 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
         window.backgroundColor = .clear
         window.standardWindowButton(.miniaturizeButton)?.isEnabled = false
         window.standardWindowButton(.zoomButton)?.isEnabled = false
+        if sliderShowsFeatureList {
+            // The launch card's own × (and Escape) is Not Now; Cmd+W still closes.
+            for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+                window.standardWindowButton(kind)?.isHidden = true
+            }
+        }
         window.contentView = hosting
+        if sliderShowsFeatureList {
+            // The launch card is opaque: the window takes the card's colour.
+            window.isOpaque = true
+            window.backgroundColor = CloudWelcomeView.launchCardColor
+            // Hosted in a plain container: as the window's own content view the
+            // hosting view reserves the hidden titlebar's height above the clip.
+            let container = NSView(frame: NSRect(origin: .zero, size: size))
+            hosting.frame = container.bounds
+            hosting.autoresizingMask = [.width, .height]
+            container.addSubview(hosting)
+            window.contentView = container
+        }
         #if compiler(>=6.2)
-        if #available(macOS 26.0, *) {
+        if !sliderShowsFeatureList, #available(macOS 26.0, *) {
             // The window is the glass: content goes inside it, edge to edge, and the
             // window's own frame rounds the corners.
             let glass = NSGlassEffectView()
@@ -129,6 +242,7 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
     }
 
     private func perform(_ step: CloudWelcomeNextStep) {
+        let onEnabled = self.onEnabled
         dismiss()
         let app = AppDelegate.shared
         switch step {
@@ -139,19 +253,39 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
             ProUpgradePresenter.present(source: .cloudWelcome)
         case .enable:
             _ = app?.focusRightSidebarInActiveMainWindow(mode: .machines)
-            app?.cloudActivationCoordinator.enable()
+            guard let activation = app?.cloudActivationCoordinator else { return }
+            activation.enable()
+            if let onEnabled {
+                Task { @MainActor in await Self.resume(onEnabled, after: activation) }
+            }
         case .openCloud:
             _ = app?.focusRightSidebarInActiveMainWindow(mode: .machines)
         }
     }
 
+    /// Continues the Cloud action that opened the card once activation has
+    /// finished preparing, and only if it ended enabled. A cancel and retry
+    /// while waiting replaces the task, so wait for whichever is current.
+    static func resume(
+        _ action: @MainActor () -> Void,
+        after activation: CloudActivationCoordinator
+    ) async {
+        while let task = activation.activationTask {
+            await task.value
+        }
+        guard activation.state == .enabled, !activation.isPreparing else { return }
+        action()
+    }
+
     func dismiss() {
         window?.close()
         window = nil
+        onEnabled = nil
     }
 
     func windowWillClose(_ notification: Notification) {
         window = nil
+        onEnabled = nil
     }
 }
 
@@ -161,6 +295,12 @@ private struct CloudWelcomeAccountView: View {
     let accountFlow: HostAccountFlow?
     let sliderShowsFeatureList: Bool
     let sliderListUsesDots: Bool
+    let posterHeadline: String?
+    let newMachineShortcut: String?
+    let posterShowsTitle: Bool
+    let posterShowsIcon: Bool
+    let showsNewBadge: Bool
+    let footerHasNotNow: Bool
     let onNotNow: () -> Void
     let onNext: (CloudWelcomeNextStep) -> Void
 
@@ -174,7 +314,13 @@ private struct CloudWelcomeAccountView: View {
             onNotNow: onNotNow,
             onNext: onNext,
             sliderShowsFeatureList: sliderShowsFeatureList,
-            sliderListUsesDots: sliderListUsesDots
+            sliderListUsesDots: sliderListUsesDots,
+            posterHeadline: posterHeadline,
+            newMachineShortcut: newMachineShortcut,
+            posterShowsTitle: posterShowsTitle,
+            posterShowsIcon: posterShowsIcon,
+            showsNewBadge: showsNewBadge,
+            footerHasNotNow: footerHasNotNow
         )
         .task {
             // The plan decides between Upgrade and Enable; ask once on show.

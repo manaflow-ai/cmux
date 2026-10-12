@@ -49,9 +49,11 @@ import {
 } from "../../../services/vms/entitlements";
 import { vcpusByMemoryMb } from "../../../services/vms/images/sizes";
 import {
+  findVmImageManifestEntry,
   inferVmProviderForImage,
   resolveVmImage,
 } from "../../../services/vms/images/resolver";
+import { createAttachBlock } from "../../../services/vms/attachContract";
 import {
   reportVmImageConfigError,
   isVmImageKind,
@@ -99,6 +101,14 @@ import { getGoVmUsage, GO_SAVED_VM_LIMIT } from "../../../services/vms/goUsage";
 // uses 1800).
 export const maxDuration = 600;
 const VM_CREATE_ADMISSION_BUDGET_MS = 200;
+
+function createResourceFields(resourceReservation: { readonly vcpus: number; readonly memoryMb: number } | null | undefined) {
+  if (!resourceReservation) return {};
+  return {
+    resources: resourceReservation,
+    resourceReservation,
+  };
+}
 
 export async function GET(request: Request): Promise<Response> {
   return withAuthedVmApiRoute(
@@ -407,6 +417,10 @@ export async function POST(request: Request): Promise<Response> {
       if (!run.ok) return run.response;
       const created = run.value;
       setSpanAttributes(span, { "cmux.vm.id": created.providerVmId });
+      const attach = createAttachBlock({
+        entry: created,
+        manifestEntry: findVmImageManifestEntry(created.provider, created.image, imageSelection.kind),
+      });
       return jsonResponse({
         id: created.providerVmId,
         provider: created.provider,
@@ -429,6 +443,11 @@ export async function POST(request: Request): Promise<Response> {
         address: { ipv4: created.addressIpv4, ipv6: created.addressIpv6 },
         cmuxTuiContract: created.cmuxTuiContract,
         agentUpdates: created.agentUpdates,
+        // Keep the create response self-contained for clients that append it
+        // directly to their fleet model. Pool accounting and the per-machine
+        // resize shape are separate contracts even when they currently match.
+        ...createResourceFields(created.resourceReservation),
+        ...(attach ? { attach } : {}),
       });
     },
   );

@@ -198,6 +198,7 @@
     "copyright": "© {year} Manaflow",
     "language": "Jezik",
     "assets": "Materijali",
+    "art": "Umjetnost",
     "openSource": "Otvoreni kod",
     "guides": "Vodiči",
     "compare": "Uporedi"
@@ -1132,7 +1133,7 @@
       "transferUnavailableError": "Prenosi su privremeno nedostupni ili se račun osvježava. Pokušajte ponovo za trenutak.",
       "shareWithTeam": "Podijeli s timom",
       "makePrivate": "Učini privatnim",
-      "privateImportHint": "Novi računi su privatni. Podijelite račun da bude dostupan Cloud VM mašinama ovog tima.",
+      "privateImportHint": "U organizaciji se novi računi dijele s timom i njegovim Cloud VM-ovima. U vašem ličnom timu ostaju privatni. Koristite Učini privatnim ili Podijeli s timom da promijenite račun.",
       "description": "Dijeljeni računi dostupni su Cloud VM-ovima ovog tima. Privatni računi ostaju dostupni samo osobi koja ih je dodala.",
       "cancelAction": "Otkaži",
       "apiKeysTitle": "API ključevi",
@@ -2220,6 +2221,13 @@
           "indentGuides": "Označite svaki nivo uvlačenja tankom vertikalnom linijom u ugrađenom uređivaču datoteka.",
           "currentLineHighlight": "Obojite red u kojem se nalazi kursor dok ništa nije označeno.",
           "tabWidth": "Koliko kolona obuhvata jedan tabulatorski korak. Vodilice uvlačenja koriste isti razmak."
+        },
+        "remoteTmux": {
+          "beta": {
+            "newWorkspaceOnHost": {
+              "enabled": "Kada je izabran udaljeni tmux radni prostor, „Novi radni prostor“ pokreće tmux sesiju na hostu tog radnog prostora."
+            }
+          }
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -3205,8 +3213,8 @@
       "cloudLink": "Kako su agenti podešeni na Cloud mašinama",
       "teamsTitle": "Timovi i dijeljenje",
       "teamsScope": "Računi pripadaju timu u koji ste prijavljeni. cr org list prikazuje vaše timove, a cr org switch mijenja tim koji cr koristi. cmux coderouter komande primaju --team '<id>'.",
-      "teamsPrivate": "Novi račun je privatan za osobu koja ga je dodala. Na kontrolnoj tabli, „Podijeli s timom“ ga čini dostupnim svakom članu i Cloud mašinama tima, a „Učini privatnim“ to poništava.",
-      "teamsPersonal": "U vašem ličnom timu vaši privatni računi služe i vašim Cloud mašinama. Cloud mašine organizacije koriste samo dijeljene račune, pa podijelite račun prije nego što očekujete da ga mašina koristi.",
+      "teamsPrivate": "Račun dodan u organizaciju dijeli se s timom, pa ga mogu koristiti svi članovi i Cloud mašine tima. Na kontrolnoj tabli Učini privatnim ograničava ga na osobu koja ga je dodala, a Podijeli s timom to poništava.",
+      "teamsPersonal": "U vašem ličnom timu novi računi su privatni, a vaši privatni računi služe i vašim vlastitim Cloud mašinama. Cloud mašine organizacije koriste samo dijeljene račune, pa privatni račun mora biti podijeljen prije nego što ga mašina može koristiti.",
       "teamsManage": "Svaki član tima može dodati, preimenovati, isključiti, prenijeti i ukloniti dijeljene račune tima. cr transfer premješta račun u drugi tim nakon što potvrdite.",
       "usageTitle": "Potrošnja i ograničenja",
       "usageLimits": "Svaki provajder mjeri račun koji je obradio zahtjev, prema planu i ograničenjima tog računa. CodeRouter raspoređuje rad na račune, ali ne povećava ograničenje nijednog pojedinačnog računa.",
@@ -3325,6 +3333,23 @@
   "wallOfLove": {
     "title": "Zid ljubavi",
     "description": "Šta ljudi kažu o cmux-u."
+  },
+  "art": {
+    "metaTitle": "Umjetnost za pozadine u cmuxu",
+    "metaDescription": "Pregledajte slike u javnom vlasništvu koje cmux nudi kao pozadine prozora: Van Gogh, Friedrich, Goya, Doré i drugi, s izvorima i licencama.",
+    "title": "Umjetnost",
+    "description": "Poznate slike i grafike u javnom vlasništvu koje možete postaviti iza svojih terminala. Autori svih djela umrli su prije više od 70 godina, a svako djelo objavljeno je prije 1931. godine.",
+    "howToUse": "Uskoro u cmux-u: postavite bilo koje od ovih djela kao pozadinu iza terminala.",
+    "loading": "Učitavanje kolekcije…",
+    "unavailable": "Kolekciju nije moguće učitati. Pokušajte ponovo za nekoliko minuta.",
+    "collectionsLabel": "Kolekcije",
+    "source": "Javno vlasništvo · Izvor",
+    "collections": {
+      "darkArt": "Mračna umjetnost",
+      "museumIcons": "Muzejska remek-djela",
+      "calm": "Smireno",
+      "dore": "Doré"
+    }
   },
   "testimonials": {
     "mitchellh": "Još jedan dan, još jedan projekat baziran na libghostty-ju, ovaj put macOS terminal sa vertikalnim tabovima, boljom organizacijom/notifikacijama, ugrađenim/skriptabilnim preglednikom specifično usmjeren na ljude koji koriste mnogo terminalskih agentskih tokova rada.",

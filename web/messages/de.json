@@ -198,6 +198,7 @@
     "copyright": "© {year} Manaflow",
     "language": "Sprache",
     "assets": "Assets",
+    "art": "Kunst",
     "openSource": "Open Source",
     "guides": "Anleitungen",
     "compare": "Vergleichen"
@@ -1132,7 +1133,7 @@
       "transferUnavailableError": "Übertragungen sind vorübergehend nicht verfügbar, oder das Konto wird gerade aktualisiert. Versuche es gleich noch einmal.",
       "shareWithTeam": "Mit Team teilen",
       "makePrivate": "Privat machen",
-      "privateImportHint": "Neue Konten sind privat. Teilen Sie ein Konto, um es den Cloud-VMs dieses Teams verfügbar zu machen.",
+      "privateImportHint": "In einer Organisation werden neue Konten mit dem Team und seinen Cloud-VMs geteilt. In deinem persönlichen Team bleiben sie privat. Mit „Privat machen“ oder „Mit Team teilen“ änderst du ein Konto.",
       "description": "Geteilte Konten stehen den Cloud-VMs dieses Teams zur Verfügung. Private Konten bleiben der Person vorbehalten, die sie hinzugefügt hat.",
       "cancelAction": "Abbrechen",
       "apiKeysTitle": "API-Schlüssel",
@@ -2220,6 +2221,13 @@
           "indentGuides": "Markiert jede Einrückungsebene im integrierten Dateieditor mit einer dünnen senkrechten Linie.",
           "currentLineHighlight": "Hebt die Zeile mit dem Textcursor farbig hervor, solange nichts ausgewählt ist.",
           "tabWidth": "Wie viele Spalten ein Tabstopp umfasst. Die Einrückungshilfslinien verwenden denselben Abstand."
+        },
+        "remoteTmux": {
+          "beta": {
+            "newWorkspaceOnHost": {
+              "enabled": "Wenn ein Remote-tmux-Arbeitsbereich ausgewählt ist, startet „Neuer Arbeitsbereich“ eine tmux-Sitzung auf dem Host dieses Arbeitsbereichs."
+            }
+          }
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -3205,8 +3213,8 @@
       "cloudLink": "Wie Agenten auf Cloud-Maschinen konfiguriert sind",
       "teamsTitle": "Teams und Teilen",
       "teamsScope": "Konten gehören zu dem Team, bei dem du angemeldet bist. cr org list zeigt deine Teams, und cr org switch ändert das Team, das cr verwendet. cmux coderouter-Befehle akzeptieren --team '<id>'.",
-      "teamsPrivate": "Ein neues Konto ist privat für die Person, die es hinzugefügt hat. Im Dashboard macht „Mit Team teilen“ es für jedes Mitglied und die Cloud-Maschinen des Teams verfügbar. „Privat machen“ macht das rückgängig.",
-      "teamsPersonal": "In deinem persönlichen Team bedienen deine privaten Konten auch deine eigenen Cloud-Maschinen. Die Cloud-Maschinen einer Organisation nutzen nur geteilte Konten. Teile ein Konto also, bevor eine Maschine es nutzen soll.",
+      "teamsPrivate": "Ein Konto, das einer Organisation hinzugefügt wird, ist mit dem Team geteilt, sodass alle Mitglieder und die Cloud-Maschinen des Teams es nutzen können. Im Dashboard beschränkt „Privat machen“ es auf die Person, die es hinzugefügt hat, und „Mit Team teilen“ macht das rückgängig.",
+      "teamsPersonal": "In deinem persönlichen Team sind neue Konten privat, und deine privaten Konten bedienen auch deine eigenen Cloud-Maschinen. Die Cloud-Maschinen einer Organisation nutzen nur geteilte Konten, daher muss ein privates Konto geteilt werden, bevor eine Maschine es nutzen kann.",
       "teamsManage": "Jedes Teammitglied kann die geteilten Konten des Teams hinzufügen, umbenennen, deaktivieren, übertragen und entfernen. cr transfer verschiebt ein Konto nach deiner Bestätigung in ein anderes Team.",
       "usageTitle": "Nutzung und Limits",
       "usageLimits": "Jeder Anbieter rechnet das Konto ab, das eine Anfrage bedient hat, nach dem Tarif und den Limits dieses Kontos. CodeRouter verteilt die Arbeit auf mehrere Konten, erhöht aber nicht das Limit eines einzelnen Kontos.",
@@ -3325,6 +3333,23 @@
   "wallOfLove": {
     "title": "Wall of Love",
     "description": "Was andere über cmux sagen."
+  },
+  "art": {
+    "metaTitle": "Kunst für cmux-Hintergründe",
+    "metaDescription": "Entdecke die gemeinfreien Gemälde, die cmux als Fensterhintergründe anbietet: Van Gogh, Friedrich, Goya, Doré und mehr, mit Quellen und Lizenzen.",
+    "title": "Kunst",
+    "description": "Berühmte gemeinfreie Gemälde und Drucke, die du hinter deine Terminals legen kannst. Alle Künstler sind seit über 70 Jahren tot, und jedes Werk wurde vor 1931 veröffentlicht.",
+    "howToUse": "Bald in cmux: Lege eines dieser Werke als Hintergrund hinter deine Terminals.",
+    "loading": "Sammlung wird geladen…",
+    "unavailable": "Die Sammlung konnte nicht geladen werden. Versuche es in ein paar Minuten erneut.",
+    "collectionsLabel": "Sammlungen",
+    "source": "Gemeinfrei · Quelle",
+    "collections": {
+      "darkArt": "Dunkle Kunst",
+      "museumIcons": "Museumsikonen",
+      "calm": "Ruhig",
+      "dore": "Doré"
+    }
   },
   "testimonials": {
     "mitchellh": "Und wieder ein libghostty-basiertes Projekt, diesmal ein macOS-Terminal mit vertikalen Tabs, besserer Organisation/Benachrichtigungen, eingebettetem/skriptfähigem Browser, speziell für Leute, die viele terminalbasierte Agenten-Workflows nutzen.",

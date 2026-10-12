@@ -1,5 +1,6 @@
 import XCTest
 import CMUXAgentLaunch
+import CmuxSidebar
 import Darwin
 
 #if canImport(cmux_DEV)
@@ -334,6 +335,121 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertEqual((payload["workspace_count"] as? NSNumber)?.intValue, 2)
         XCTAssertEqual(payload["is_key_window"] as? Bool, true)
         XCTAssertEqual(payload["is_main_window"] as? Bool, true)
+    }
+
+    func testProgramStatusChangePublishesAddressedAndCurrentRecords() throws {
+        let bus = CmuxEventBus(retainedEventLimit: 4)
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        var store = ProgramStatusRecordStore()
+        let report = ProgramStatusReport(
+            state: .blocked,
+            kind: .permission,
+            progress: 40,
+            id: "deploy/eu",
+            app: "terraform",
+            title: "Apply",
+            message: "Approve?"
+        )
+        store.apply(report)
+
+        bus.publishProgramStatusChanged(
+            workspaceId: workspaceID,
+            surfaceId: surfaceID,
+            report: report,
+            store: store
+        )
+
+        let event = try XCTUnwrap(bus.retainedSnapshot().first)
+        XCTAssertEqual(event["name"] as? String, "program_status.changed")
+        XCTAssertEqual(event["category"] as? String, "terminal")
+        XCTAssertEqual(event["workspace_id"] as? String, workspaceID.uuidString)
+        XCTAssertEqual(event["surface_id"] as? String, surfaceID.uuidString)
+        let payload = try XCTUnwrap(event["payload"] as? [String: Any])
+        XCTAssertEqual(payload["event"] as? String, "report")
+        XCTAssertEqual(payload["id"] as? String, "deploy/eu")
+        let record = try XCTUnwrap(payload["record"] as? [String: Any])
+        XCTAssertEqual(record["state"] as? String, "blocked")
+        XCTAssertEqual(record["kind"] as? String, "permission")
+        XCTAssertEqual((record["progress"] as? NSNumber)?.intValue, 40)
+        XCTAssertNil(record["app"])
+        XCTAssertNil(record["title"])
+        XCTAssertNil(record["msg"])
+        let records = try XCTUnwrap(payload["records"] as? [[String: Any]])
+        XCTAssertEqual(records.count, 1)
+        XCTAssertEqual(records.first?["id"] as? String, "deploy/eu")
+    }
+
+    func testProgramStatusClearPublishesCurrentRecordsWithoutAddressedRecord() throws {
+        let bus = CmuxEventBus(retainedEventLimit: 4)
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        var store = ProgramStatusRecordStore()
+        store.apply(ProgramStatusReport(state: .done, id: "lint"))
+        let clear = ProgramStatusReport(state: .clear, id: "build")
+        store.apply(clear)
+
+        bus.publishProgramStatusChanged(
+            workspaceId: workspaceID,
+            surfaceId: surfaceID,
+            report: clear,
+            store: store
+        )
+
+        let event = try XCTUnwrap(bus.retainedSnapshot().first)
+        let payload = try XCTUnwrap(event["payload"] as? [String: Any])
+        XCTAssertEqual(payload["event"] as? String, "clear")
+        XCTAssertEqual(payload["id"] as? String, "build")
+        XCTAssertTrue(payload["record"] is NSNull)
+        let records = try XCTUnwrap(payload["records"] as? [[String: Any]])
+        XCTAssertEqual(records.map { $0["id"] as? String }, ["lint"])
+    }
+
+    func testProgramStatusLargeSnapshotIsChunkedBeforeEventLineLimit() throws {
+        let bus = CmuxEventBus(retainedEventLimit: 32)
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        var store = ProgramStatusRecordStore()
+        for index in 0..<ProgramStatusRecordStore.recordLimit {
+            store.apply(
+                ProgramStatusReport(
+                    state: .done,
+                    id: String(format: "record-%03d", index)
+                )
+            )
+        }
+        let report = ProgramStatusReport(state: .working, progress: 50, id: "record-255")
+        store.apply(report)
+
+        bus.publishProgramStatusChanged(
+            workspaceId: workspaceID,
+            surfaceId: surfaceID,
+            report: report,
+            store: store
+        )
+
+        let events = bus.retainedSnapshot()
+        let expectedChunkCount = (ProgramStatusRecordStore.recordLimit + 31) / 32
+        XCTAssertEqual(events.count, expectedChunkCount)
+        let snapshotIDs = try Set(events.map { event in
+            try XCTUnwrap((event["payload"] as? [String: Any])?["snapshot_id"] as? String)
+        })
+        XCTAssertEqual(snapshotIDs.count, 1)
+
+        var recordIDs: [String] = []
+        for (index, event) in events.enumerated() {
+            XCTAssertNil(event["payload_truncated"])
+            let line = try XCTUnwrap(CmuxEventBus.encodeLine(event))
+            XCTAssertLessThanOrEqual(line.utf8.count, CmuxEventBus.defaultMaxEventLineBytes)
+            let payload = try XCTUnwrap(event["payload"] as? [String: Any])
+            XCTAssertEqual((payload["records_total"] as? NSNumber)?.intValue, ProgramStatusRecordStore.recordLimit)
+            XCTAssertEqual((payload["snapshot_index"] as? NSNumber)?.intValue, index)
+            XCTAssertEqual((payload["snapshot_count"] as? NSNumber)?.intValue, expectedChunkCount)
+            let records = try XCTUnwrap(payload["records"] as? [[String: Any]])
+            recordIDs.append(contentsOf: records.compactMap { $0["id"] as? String })
+        }
+        XCTAssertEqual(recordIDs.count, ProgramStatusRecordStore.recordLimit)
+        XCTAssertEqual(recordIDs, (0..<ProgramStatusRecordStore.recordLimit).map { String(format: "record-%03d", $0) })
     }
 
     func testWorkspaceReorderSocketMapperDoesNotDuplicateLifecycleEvent() throws {

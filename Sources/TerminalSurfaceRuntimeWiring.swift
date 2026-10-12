@@ -7,6 +7,18 @@ import GhosttyKit
 import CmuxSettings
 import struct CmuxSettings.AgentIntegrationSettingsStore
 
+private enum GhosttyLinkFilterAPI {
+    // Xcode 26.6's Clang importer omits this declaration even though the
+    // pinned GhosttyKit header and binary export it. Keep the ABI declaration
+    // local until the importer exposes the API directly.
+    @_silgen_name("ghostty_surface_set_link_filter")
+    static func set(
+        _ surface: ghostty_surface_t,
+        _ callback: (@convention(c) (UnsafeMutableRawPointer?, UnsafePointer<CChar>?, UInt) -> Bool)?,
+        _ userdata: UnsafeMutableRawPointer?
+    )
+}
+
 // The app-side conformances and bridges injected into the CmuxTerminal
 // package through `GhosttyApp.terminalSurfaceRuntimeDependencies`. Each type
 // here carries behavior verbatim from the legacy god-file reach-up it
@@ -177,7 +189,7 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
             teeContext.toOpaque()
         )
         let linkFilter = Unmanaged.passRetained(TerminalLinkHoverFilter(surfaceID: surfaceID))
-        ghostty_surface_set_link_filter(surface, cmuxTerminalLinkFilterCallback, linkFilter.toOpaque())
+        GhosttyLinkFilterAPI.set(surface, cmuxTerminalLinkFilterCallback, linkFilter.toOpaque())
         return Lease(
             context: teeContext,
             linkFilter: linkFilter,

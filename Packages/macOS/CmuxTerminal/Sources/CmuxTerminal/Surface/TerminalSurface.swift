@@ -271,14 +271,20 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// Returns whether a non-empty callback may write this surface's clipboard.
     ///
     /// Automatic writes remain governed by the surface trust policy. Manual
-    /// mirrors additionally require a pending user-selection transaction.
+    /// mirrors additionally require a user copy running on this call stack
+    /// (Cmd+C, Edit > Copy, keyboard copy mode) or a pending user-selection
+    /// transaction.
     ///
     /// - Parameter contentLength: Number of bytes in the callback payload.
     /// - Returns: Whether the callback is admitted.
     public func permitsClipboardWrite(contentLength: Int) -> Bool {
         guard contentLength > 0 else { return false }
-        return allowsAutomaticClipboardWrite
-            || (ioMode == .manualMirror && consumeClipboardWritePermit())
+        if allowsAutomaticClipboardWrite { return true }
+        guard ioMode == .manualMirror else { return false }
+        if surfaceCallbackContext?.takeUnretainedValue().hasUserInitiatedClipboardWriteIntent == true {
+            return true
+        }
+        return consumeClipboardWritePermit()
     }
 
     /// Cancels a pending pointer-selection clipboard permit.
@@ -479,6 +485,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     // Same off-isolation-reader carve-out as debugMetadataLock.
     let debugForceRefreshCountLock = NSLock()
     var debugForceRefreshCountValue = 0
+    var debugForceRefreshReasonsValue: [String] = []
     /// Test-only override for the native free used by teardown paths.
     // nonisolated(unsafe) so the nonisolated deinit teardown path can read it,
     // like the @MainActor teardownSurface/suspend paths already do; tests only

@@ -622,7 +622,7 @@
       "cancelAction": "Cancel",
       "shareWithTeam": "Share with team",
       "makePrivate": "Make private",
-      "privateImportHint": "New accounts are private. Share an account to make it available to this team’s Cloud VMs.",
+      "privateImportHint": "In an organization, new accounts are shared with the team and its Cloud VMs. In your personal team they stay private to you. Use Make private or Share with team to change an account.",
       "apiKeysTitle": "API keys",
       "apiKeysDescription": "Create long-lived keys for scripts and agents. The secret is shown once.",
       "apiKeysCount": "{count, plural, one {# key} other {# keys}}",
@@ -1599,6 +1599,7 @@
     "copyright": "© {year} Manaflow",
     "language": "Language",
     "assets": "Assets",
+    "art": "Art",
     "openSource": "Open source",
     "guides": "Guides",
     "compare": "Compare"
@@ -3466,6 +3467,13 @@
           "agentIdleReminder": "Notify when an agent has been idle waiting for your input (about 60s after a turn ends). Suppressed while background work from the last turn is still pending, so a running build or watcher does not trigger a false waiting alert.",
           "soundOverrides": "Sparse per-agent and per-alert-type notification sound overrides. Missing cells use notifications.sound.",
           "soundOverride": "A notification sound override. `default` uses notifications.sound, `none` disables playback, and the remaining values select a built-in or custom sound."
+        },
+        "remoteTmux": {
+          "beta": {
+            "newWorkspaceOnHost": {
+              "enabled": "With a remote tmux workspace selected, New Workspace starts a tmux session on that workspace’s host."
+            }
+          }
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -4734,8 +4742,8 @@
       "cloudLink": "How agents are configured on Cloud machines",
       "teamsTitle": "Teams and sharing",
       "teamsScope": "Accounts belong to the team you are signed in to. cr org list shows your teams, and cr org switch changes the team that cr uses. cmux coderouter commands take --team '<id>'.",
-      "teamsPrivate": "A new account is private to the person who added it. In the dashboard, Share with team makes it available to every member and to the team's Cloud machines, and Make private reverses that.",
-      "teamsPersonal": "In your personal team, your private accounts also serve your own Cloud machines. An organization's Cloud machines use only shared accounts, so share an account before you expect a machine to use it.",
+      "teamsPrivate": "An account added to an organization is shared with the team, so every member and the team's Cloud machines can use it. In the dashboard, Make private limits it to the person who added it, and Share with team reverses that.",
+      "teamsPersonal": "In your personal team, new accounts are private, and your private accounts also serve your own Cloud machines. An organization's Cloud machines use only shared accounts, so a private account must be shared before a machine can use it.",
       "teamsManage": "Any team member can add, rename, disable, transfer, and remove the team's shared accounts. cr transfer moves an account to another team after you confirm.",
       "usageTitle": "Usage and limits",
       "usageLimits": "Each provider meters the account that served a request, under that account's own plan and limits. CodeRouter spreads work across accounts but does not raise any single account's limit.",
@@ -4948,6 +4956,23 @@
     "description": "What people are saying about cmux.",
     "metaTitle": "Wall of Love — cmux",
     "metaDescription": "What people are saying about cmux, the terminal built for multitasking."
+  },
+  "art": {
+    "metaTitle": "Art for cmux backgrounds",
+    "metaDescription": "Browse the public-domain paintings cmux offers as window backgrounds: Van Gogh, Friedrich, Goya, Doré and more, with sources and licenses.",
+    "title": "Art",
+    "description": "Famous public-domain paintings and prints you can put behind your terminals. Every work's artist died over 70 years ago and it was published before 1931.",
+    "howToUse": "Coming soon to cmux: set any of these as the background behind your terminals.",
+    "loading": "Loading the collection…",
+    "unavailable": "The collection could not be loaded. Try again in a few minutes.",
+    "collectionsLabel": "Collections",
+    "source": "Public domain · Source",
+    "collections": {
+      "darkArt": "Dark Art",
+      "museumIcons": "Museum Icons",
+      "calm": "Calm",
+      "dore": "Doré"
+    }
   },
   "testimonials": {
     "mitchellh": "Another day another libghostty-based project, this time a macOS terminal with vertical tabs, better organization/notifications, embedded/scriptable browser specifically targeted towards people who use a ton of terminal-based agentic workflows.",

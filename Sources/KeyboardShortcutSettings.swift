@@ -95,6 +95,7 @@ enum KeyboardShortcutSettings {
         case focusSidebar
         case showWindowHints
         case newTab
+        case newLocalWorkspace
         case newBrowserWorkspace
         case newCloudWorkspace
         case newCloudMachine
@@ -255,6 +256,7 @@ enum KeyboardShortcutSettings {
             case .focusSidebar: return String(localized: "shortcut.focusSidebar.label", defaultValue: "Focus Sidebar")
             case .showWindowHints: return String(localized: "shortcut.showWindowHints.label", defaultValue: "Click by Hint")
             case .newTab: return String(localized: "shortcut.newWorkspace.label", defaultValue: "New Workspace")
+            case .newLocalWorkspace: return String(localized: "shortcut.newLocalWorkspace.label", defaultValue: "New Local Workspace")
             case .newBrowserWorkspace: return String(localized: "shortcut.newBrowserWorkspace.label", defaultValue: "New Browser Workspace")
             case .newCloudWorkspace: return String(localized: "shortcut.newCloudWorkspace.label", defaultValue: "New Cloud Workspace")
             case .newCloudMachine: return String(localized: "shortcut.newCloudMachine.label", defaultValue: "New Cloud Machine")
@@ -458,6 +460,13 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "j", command: true, shift: false, option: false, control: false)
             case .newTab:
                 return StoredShortcut(key: "n", command: true, shift: false, option: false, control: false)
+            case .newLocalWorkspace:
+                // Control+Option+Cmd+N: the local-workspace escape hatch, next to
+                // New Workspace (Cmd+N), New Window (Cmd+Shift+N), and New Browser
+                // Workspace (Option+Cmd+N). Control+Cmd+N belongs to New Pane (Auto
+                // Layout); this one is unused by cmux defaults and is not an
+                // AppKit-reserved keystroke.
+                return StoredShortcut(key: "n", command: true, shift: false, option: true, control: true)
             case .newBrowserWorkspace:
                 // Option+Cmd+N: sits next to New Workspace (Cmd+N) and New Window (Cmd+Shift+N)
                 // without colliding with any cmux default or an AppKit-reserved keystroke.

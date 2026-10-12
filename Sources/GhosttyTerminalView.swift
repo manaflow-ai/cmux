@@ -6203,7 +6203,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let copyAction = GhosttyApp.shared.configuredCopyToClipboardAction
         let formattedRepresentations = GhosttyApp.terminalPasteboard
             .captureNextStandardClipboardRepresentations {
-                performBindingActionImmediately(copyAction)
+                guard let terminalSurface else {
+                    return performBindingActionImmediately(copyAction)
+                }
+                return terminalSurface.withUserInitiatedClipboardWriteIntent {
+                    performBindingActionImmediately(copyAction)
+                }
             }
         if let formattedRepresentations {
             GhosttyApp.terminalPasteboard.writeRepresentations(
@@ -6239,10 +6244,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         var copied = false
         let formattedRepresentations = GhosttyApp.terminalPasteboard
             .captureNextStandardClipboardRepresentations {
-                copied = ghostty_surface_copy_selection_to_clipboard_bounded(
-                    surface,
-                    maximumBytes
-                )
+                if let terminalSurface {
+                    copied = terminalSurface.withUserInitiatedClipboardWriteIntent {
+                        ghostty_surface_copy_selection_to_clipboard_bounded(
+                            surface,
+                            maximumBytes
+                        )
+                    }
+                } else {
+                    copied = ghostty_surface_copy_selection_to_clipboard_bounded(
+                        surface,
+                        maximumBytes
+                    )
+                }
                 return copied
             }
         if let formattedRepresentations {
@@ -12947,13 +12961,29 @@ final class GhosttySurfaceScrollView: NSView {
         }
 
         if !window.isKeyWindow {
+            let applicationIsActive = NSApp.isActive
+#if DEBUG
+            cmuxDebugLog(
+                "focus.ensure.windowCandidate surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+                "appActive=\(applicationIsActive ? 1 : 0) windowVisible=\(window.isVisible ? 1 : 0) " +
+                "windowMini=\(window.isMiniaturized ? 1 : 0) windowKey=\(window.isKeyWindow ? 1 : 0)"
+            )
+#endif
             guard shouldAllowEnsureFocusWindowActivation(
                 activeTabManager: delegate.tabManager,
                 targetTabManager: tabManager,
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow,
-                targetWindow: window
+                targetWindow: window,
+                applicationIsActive: applicationIsActive
             ) else {
+#if DEBUG
+                let reason = applicationIsActive ? "windowOwnership" : "inactiveApplication"
+                cmuxDebugLog(
+                    "focus.ensure.skip surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+                    "reason=\(reason)"
+                )
+#endif
                 return
             }
             window.makeKeyAndOrderFront(nil)
