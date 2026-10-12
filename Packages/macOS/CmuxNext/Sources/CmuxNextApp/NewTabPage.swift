@@ -162,9 +162,10 @@ enum NewTabPage {
         let named = !title.isEmpty && title != blankPage
         switch tab.kind {
         case .browser:
-            let url = tab.url.flatMap { $0 == blankPage || $0.isEmpty ? nil : $0 }
-            guard let shown = named ? title : url.map(displayURL) else { return nil }
-            return (.browser, shown, url.map(displayURL).flatMap { $0 == shown ? nil : $0 })
+            // A browser on `about:blank` is no place, whatever its title says ("about:blank Home").
+            guard let url = tab.url.flatMap({ $0 == blankPage || $0.isEmpty ? nil : displayURL($0) }) else { return nil }
+            let shown = named ? title : url
+            return (.browser, shown, url == shown ? nil : url)
         case .pty, .remoteTerminal:
             let folder = tab.cwd.map { abbreviated($0, home: home) }
             // A shell titled with its folder alone is named by that folder.
