@@ -16530,16 +16530,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Legacy Ctrl+Tab has no configurable action of its own; it steps
-        // the sidebar like nextSurface/prevSurface.
+        // Legacy Ctrl+Tab has no configurable action of its own. It
+        // intentionally reuses nextSurface/prevSurface for Dock ownership so
+        // both strokes follow the same routing classification.
         if matchesLegacyNextSurfaceShortcut(event: event) {
-            (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?
-                .stepTabOrWorkspace(forward: true)
+            stepTabOrWorkspace(
+                forward: true,
+                tabManager: preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager,
+                event: event
+            )
             return true
         }
         if matchesLegacyPreviousSurfaceShortcut(event: event) {
-            (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?
-                .stepTabOrWorkspace(forward: false)
+            stepTabOrWorkspace(
+                forward: false,
+                tabManager: preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager,
+                event: event
+            )
             return true
         }
 
