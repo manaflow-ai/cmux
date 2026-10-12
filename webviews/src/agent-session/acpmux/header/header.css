@@ -49,6 +49,10 @@
 .acpmux-header-pr[data-checks]:not([data-checks=none])::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--agent-success,var(--acpmux-add,#3fb950))}
 .acpmux-header-pr[data-checks=pending]::after{background:var(--agent-warning,#d29922)}
 .acpmux-header-pr[data-checks=failing]::after{background:var(--agent-danger)}
+/* A worktree chat's branch (cx-lyqio.3b): a quiet label beside the PR chip, the full name in its tooltip. */
+.acpmux-header-worktree{display:inline-flex;align-items:center;gap:4px;min-width:0;max-width:180px;height:24px;padding:0 6px;color:var(--agent-muted);font-size:var(--text-detail);white-space:nowrap;cursor:default}
+.acpmux-header-worktree>svg{flex:none}
+.acpmux-header-worktree-name{min-width:0;overflow:hidden;text-overflow:ellipsis}
 /* The chip's status (cx-ncc.77.1): the title linking the pull request, its state and review, then each
    check with a dot by its outcome, failing first. Compact rows, the summary popover's surface. */
 .acpmux-pr-status{width:300px;max-height:min(480px,70vh);overflow:auto;padding:8px 6px 6px;box-sizing:border-box;border:0;border-radius:var(--ui-popup-radius);background:var(--acpmux-menu-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),var(--ui-popup-shadow);transform-origin:var(--transform-origin);color:var(--agent-text);font-size:var(--text-control);line-height:18px;outline:none}

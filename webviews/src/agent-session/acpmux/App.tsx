@@ -4213,6 +4213,8 @@ function AcpmuxPane() {
                     )}
                     <ChatHeaderTools
                       tabTools={!quick}
+                      folder={localCwd}
+                      readStatus={changesSource.status}
                       // A merge asks the header again, so the chip shows the pull request merged.
                       onMergePullRequest={
                         localCwd
