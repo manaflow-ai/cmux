@@ -30,3 +30,12 @@ extension ConversationVeilBlur {
             : ConversationVeilBlur(materialShare: 0.65, washWhite: 1, washAlpha: 0.49)
     }
 }
+
+extension ConversationVeilBlur {
+    /// The reply thread's backdrop.
+    public static func reply(dark: Bool) -> ConversationVeilBlur {
+        dark
+            ? ConversationVeilBlur(materialShare: 1.0 / 3.0, washWhite: 0, washAlpha: 0.4)
+            : ConversationVeilBlur(materialShare: 1.0 / 3.0, washWhite: 1, washAlpha: 0.6)
+    }
+}
