@@ -35,7 +35,10 @@ pub mod watch;
 pub use diagnostics::{Diagnostic, DiagnosticKind};
 pub use domains::Domains;
 pub use effective::EffectiveSettings;
-pub use location::{CONFIG_OVERRIDE, config_path, seed_path};
+pub use keybindings::owner::{
+    KeybindingsApplied, KeybindingsChange, KeybindingsOp, KeybindingsRefusal, KeybindingsStore,
+};
+pub use location::{CONFIG_OVERRIDE, config_path, keybindings_path, seed_path};
 pub use managed::{ManagedPreferences, ManagedReader, ManagedSource, Policy, TeamPolicyLayer};
 pub use owner::{ApplyResult, ConfigStore};
 pub use refusal::Refusal;

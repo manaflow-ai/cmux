@@ -31639,6 +31639,53 @@ Result<HistoryChangedEvent> Codec<HistoryChangedEvent>::decode(const Json& value
     return result;
 }
 
+Result<Json> Codec<KeybindingsChangedEvent>::encode(const KeybindingsChangedEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("keybindings-changed")));
+    auto encoded_origin = encode_value(value.origin);
+    if (!encoded_origin) return std::move(encoded_origin).error();
+    object.emplace("origin", std::move(encoded_origin).value());
+    auto encoded_revision = encode_value(value.revision);
+    if (!encoded_revision) return std::move(encoded_revision).error();
+    object.emplace("revision", std::move(encoded_revision).value());
+    return Json(std::move(object));
+}
+
+Result<KeybindingsChangedEvent> Codec<KeybindingsChangedEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    KeybindingsChangedEvent result{};
+    const Json* field_origin = value.find("origin");
+    if (!field_origin) {
+        return make_error(ErrorCode::decode, "missing required field 'origin'");
+    }
+    if (field_origin) {
+        auto decoded = decode_value<KeybindingsChangedEventOrigin>(*field_origin);
+        if (!decoded) return std::move(decoded).error();
+        result.origin = std::move(decoded).value();
+    }
+    const Json* field_revision = value.find("revision");
+    if (!field_revision) {
+        return make_error(ErrorCode::decode, "missing required field 'revision'");
+    }
+    if (field_revision) {
+        auto decoded = decode_value<std::uint64_t>(*field_revision);
+        if (!decoded) return std::move(decoded).error();
+        result.revision = std::move(decoded).value();
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("keybindings-changed"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<LayoutChangedEvent>::encode(const LayoutChangedEvent& value) {
     (void)value;
     Json::Object object;
@@ -36014,6 +36061,30 @@ Result<GraphicsStatusEventKind> Codec<GraphicsStatusEventKind>::decode(const Jso
     return make_error(ErrorCode::decode, "unknown GraphicsStatusEventKind value");
 }
 
+Result<Json> Codec<KeybindingsChangedEventOrigin>::encode(const KeybindingsChangedEventOrigin& value) {
+    switch (value) {
+        case KeybindingsChangedEventOrigin::user: return Json(std::string("user"));
+        case KeybindingsChangedEventOrigin::cli: return Json(std::string("cli"));
+        case KeybindingsChangedEventOrigin::mcp: return Json(std::string("mcp"));
+        case KeybindingsChangedEventOrigin::script: return Json(std::string("script"));
+        case KeybindingsChangedEventOrigin::remote: return Json(std::string("remote"));
+        case KeybindingsChangedEventOrigin::app: return Json(std::string("app"));
+        case KeybindingsChangedEventOrigin::file: return Json(std::string("file"));
+    }
+    return make_error(ErrorCode::invalid_argument, "invalid enum value");
+}
+
+Result<KeybindingsChangedEventOrigin> Codec<KeybindingsChangedEventOrigin>::decode(const Json& value) {
+    if (value == Json(std::string("user"))) return KeybindingsChangedEventOrigin::user;
+    if (value == Json(std::string("cli"))) return KeybindingsChangedEventOrigin::cli;
+    if (value == Json(std::string("mcp"))) return KeybindingsChangedEventOrigin::mcp;
+    if (value == Json(std::string("script"))) return KeybindingsChangedEventOrigin::script;
+    if (value == Json(std::string("remote"))) return KeybindingsChangedEventOrigin::remote;
+    if (value == Json(std::string("app"))) return KeybindingsChangedEventOrigin::app;
+    if (value == Json(std::string("file"))) return KeybindingsChangedEventOrigin::file;
+    return make_error(ErrorCode::decode, "unknown KeybindingsChangedEventOrigin value");
+}
+
 Result<Json> Codec<SettingsChangedEventOrigin>::encode(const SettingsChangedEventOrigin& value) {
     switch (value) {
         case SettingsChangedEventOrigin::user: return Json(std::string("user"));
@@ -36309,6 +36380,11 @@ Result<Event> Codec<Event>::decode(const Json& value) {
     }
     if (name.value() == "history-changed") {
         auto decoded = decode_value<HistoryChangedEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
+    if (name.value() == "keybindings-changed") {
+        auto decoded = decode_value<KeybindingsChangedEvent>(value);
         if (!decoded) return std::move(decoded).error();
         return Event{Event::Variant(std::move(decoded).value()), value};
     }
@@ -36971,7 +37047,7 @@ constexpr std::array<CommandMetadata, 253> kCommands{{
     {"wait-for", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"zoom-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
 }};
-constexpr std::array<EventMetadata, 73> kEvents{{
+constexpr std::array<EventMetadata, 74> kEvents{{
     {"activity-changed", 12U, "vm-activity-v1", "control", "emitted"},
     {"agent-changed", 11U, "", "subscribe", "emitted"},
     {"agent-presence-changed", 12U, "agent-presence-v1", "subscribe", "emitted"},
@@ -37002,6 +37078,7 @@ constexpr std::array<EventMetadata, 73> kEvents{{
     {"frontend-projection-changed", 7U, "", "subscribe", "emitted"},
     {"graphics-status", 10U, "", "subscribe", "emitted"},
     {"history-changed", 12U, "history-v1", "subscribe", "emitted"},
+    {"keybindings-changed", 12U, "keybindings-v1", "subscribe", "emitted"},
     {"layout-changed", 6U, "", "subscribe", "emitted"},
     {"machine-usage-changed", 12U, "machine-usage-v1", "subscribe", "emitted"},
     {"notification", 6U, "", "subscribe,attach-byte,attach-browser", "emitted"},

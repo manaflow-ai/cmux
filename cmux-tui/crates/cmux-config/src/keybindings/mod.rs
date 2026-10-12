@@ -8,6 +8,7 @@
 //! action catalog.
 
 pub mod edit;
+pub mod owner;
 pub mod stroke;
 
 use serde::Serialize;

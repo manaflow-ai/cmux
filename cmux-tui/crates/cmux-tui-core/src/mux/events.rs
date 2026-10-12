@@ -108,6 +108,8 @@ pub enum MuxEvent {
     /// The settings file or a managed layer changed (`settings-v1`;
     /// mux/settings.rs).
     SettingsChanged(cmux_config::Change),
+    /// keybindings.json changed (`keybindings-v1`; mux/keybindings.rs).
+    KeybindingsChanged(cmux_config::KeybindingsChange),
     Conversation(Arc<crate::conversation_store::ConversationEvent>),
     /// An event of the cloud conversations proxy (`cloud-conversations-v1`).
     CloudConversation(Arc<crate::cloud_conversations::CloudEvent>),

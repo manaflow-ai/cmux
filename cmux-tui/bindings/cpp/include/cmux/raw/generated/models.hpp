@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "7f287af0cf834f78d9747ad2018b58a3fbfc60523c0b452b9307b59df2a61b1f";
+inline constexpr std::string_view kProtocolIrSha256 = "9c09b644c97e8cbe8395ad29715221443769513db58c4eb3ce6791deb38f7745";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -529,6 +529,7 @@ struct FrameEvent;
 struct FrontendProjectionChangedEvent;
 struct GraphicsStatusEvent;
 struct HistoryChangedEvent;
+struct KeybindingsChangedEvent;
 struct LayoutChangedEvent;
 struct MachineUsageChangedEvent;
 struct NotificationEvent;
@@ -602,6 +603,7 @@ enum class ZoomPaneRequestMode;
 enum class BrowserStateEventStatus;
 enum class ClientAttachedEventTransport;
 enum class GraphicsStatusEventKind;
+enum class KeybindingsChangedEventOrigin;
 enum class SettingsChangedEventOrigin;
 struct ConversationAttachmentUploadResultStoredPoster;
 struct ConversationAttachmentUploadResultStoredPreview;
@@ -2724,6 +2726,22 @@ struct JournalFrontendEventRequest {
 
 struct JournalFrontendEventResult {
     friend bool operator==(const JournalFrontendEventResult&, const JournalFrontendEventResult&) = default;
+};
+
+enum class KeybindingsChangedEventOrigin {
+    user,
+    cli,
+    mcp,
+    script,
+    remote,
+    app,
+    file,
+};
+
+struct KeybindingsChangedEvent {
+    KeybindingsChangedEventOrigin origin{};
+    std::uint64_t revision{};
+    friend bool operator==(const KeybindingsChangedEvent&, const KeybindingsChangedEvent&) = default;
 };
 
 struct KittyGraphicsState {
@@ -8328,6 +8346,12 @@ struct Codec<HistoryChangedEvent> {
 };
 
 template <>
+struct Codec<KeybindingsChangedEvent> {
+    static Result<Json> encode(const KeybindingsChangedEvent& value);
+    static Result<KeybindingsChangedEvent> decode(const Json& value);
+};
+
+template <>
 struct Codec<LayoutChangedEvent> {
     static Result<Json> encode(const LayoutChangedEvent& value);
     static Result<LayoutChangedEvent> decode(const Json& value);
@@ -8763,6 +8787,12 @@ template <>
 struct Codec<GraphicsStatusEventKind> {
     static Result<Json> encode(const GraphicsStatusEventKind& value);
     static Result<GraphicsStatusEventKind> decode(const Json& value);
+};
+
+template <>
+struct Codec<KeybindingsChangedEventOrigin> {
+    static Result<Json> encode(const KeybindingsChangedEventOrigin& value);
+    static Result<KeybindingsChangedEventOrigin> decode(const Json& value);
 };
 
 template <>

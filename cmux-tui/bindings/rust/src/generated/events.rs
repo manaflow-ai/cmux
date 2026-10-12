@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 7f287af0cf834f78d9747ad2018b58a3fbfc60523c0b452b9307b59df2a61b1f.
+// cmux-tui mux protocol 12, IR 9c09b644c97e8cbe8395ad29715221443769513db58c4eb3ce6791deb38f7745.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -337,6 +337,32 @@ pub struct GraphicsStatusEvent {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HistoryChangedEvent {
     pub kinds: Vec<String>,
+    pub revision: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum KeybindingsChangedEventOrigin {
+    #[serde(rename = "user")]
+    User,
+    #[serde(rename = "cli")]
+    Cli,
+    #[serde(rename = "mcp")]
+    Mcp,
+    #[serde(rename = "script")]
+    Script,
+    #[serde(rename = "remote")]
+    Remote,
+    #[serde(rename = "app")]
+    App,
+    #[serde(rename = "file")]
+    File,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct KeybindingsChangedEvent {
+    pub origin: KeybindingsChangedEventOrigin,
     pub revision: u64,
 }
 
@@ -836,6 +862,7 @@ pub enum Event {
     FrontendProjectionChanged(FrontendProjectionChangedEvent),
     GraphicsStatus(GraphicsStatusEvent),
     HistoryChanged(HistoryChangedEvent),
+    KeybindingsChanged(KeybindingsChangedEvent),
     LayoutChanged(LayoutChangedEvent),
     MachineUsageChanged(MachineUsageChangedEvent),
     Notification(NotificationEvent),
@@ -916,6 +943,7 @@ impl Event {
             Self::FrontendProjectionChanged(_) => Some("frontend-projection-changed"),
             Self::GraphicsStatus(_) => Some("graphics-status"),
             Self::HistoryChanged(_) => Some("history-changed"),
+            Self::KeybindingsChanged(_) => Some("keybindings-changed"),
             Self::LayoutChanged(_) => Some("layout-changed"),
             Self::MachineUsageChanged(_) => Some("machine-usage-changed"),
             Self::Notification(_) => Some("notification"),
@@ -995,6 +1023,7 @@ impl Event {
             Self::FrontendProjectionChanged(_) => Some(&FRONTEND_PROJECTION_CHANGED_EVENT_METADATA),
             Self::GraphicsStatus(_) => Some(&GRAPHICS_STATUS_EVENT_METADATA),
             Self::HistoryChanged(_) => Some(&HISTORY_CHANGED_EVENT_METADATA),
+            Self::KeybindingsChanged(_) => Some(&KEYBINDINGS_CHANGED_EVENT_METADATA),
             Self::LayoutChanged(_) => Some(&LAYOUT_CHANGED_EVENT_METADATA),
             Self::MachineUsageChanged(_) => Some(&MACHINE_USAGE_CHANGED_EVENT_METADATA),
             Self::Notification(_) => Some(&NOTIFICATION_EVENT_METADATA),
@@ -1281,6 +1310,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("history-changed") => match serde_json::from_value::<HistoryChangedEvent>(raw.clone()) {
             Ok(event) => Event::HistoryChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("keybindings-changed") => match serde_json::from_value::<KeybindingsChangedEvent>(raw.clone()) {
+            Ok(event) => Event::KeybindingsChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,
