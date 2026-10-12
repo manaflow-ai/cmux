@@ -5803,6 +5803,9 @@
         "ensor-skeleton-painter",
         "cabanel-fallen-angel",
         "spilliaert-woman-shoreline",
+        "el-greco-view-of-toledo",
+        "gericault-raft-of-the-medusa",
+        "moreau-apparition",
         "rembrandt-prodigal-son",
         "velazquez-las-meninas",
         "matejko-stanczyk",
@@ -5855,6 +5858,7 @@
         "kramskoi-unknown-woman",
         "michelangelo-creation-of-adam",
         "hokusai-great-wave",
+        "holbein-ambassadors",
         "brueghel-wooden-vessel",
         "dahl-dresden-moonlight",
         "bosschaert-wan-li-vase",
@@ -5906,6 +5910,7 @@
         "van-gogh-almond-blossom",
         "van-gogh-fishing-boats",
         "hokusai-umezawa",
+        "whistler-falling-rocket",
         "dore-fall-of-satan",
         "dore-flood",
         "dore-wolves-sheep",
@@ -6334,6 +6339,27 @@
         {
           "title" : {
             "key" : null,
+            "text" : "View of Toledo — El Greco"
+          },
+          "value" : "el-greco-view-of-toledo"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Raft of the Medusa — Théodore Géricault"
+          },
+          "value" : "gericault-raft-of-the-medusa"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Apparition — Gustave Moreau"
+          },
+          "value" : "moreau-apparition"
+        },
+        {
+          "title" : {
+            "key" : null,
             "text" : "The Return of the Prodigal Son — Rembrandt van Rijn"
           },
           "value" : "rembrandt-prodigal-son"
@@ -6698,6 +6724,13 @@
         {
           "title" : {
             "key" : null,
+            "text" : "The Ambassadors — Hans Holbein the Younger"
+          },
+          "value" : "holbein-ambassadors"
+        },
+        {
+          "title" : {
+            "key" : null,
             "text" : "Flowers in a Wooden Vessel — Jan Brueghel the Elder"
           },
           "value" : "brueghel-wooden-vessel"
@@ -7055,6 +7088,13 @@
         {
           "title" : {
             "key" : null,
+            "text" : "Nocturne in Black and Gold — James McNeill Whistler"
+          },
+          "value" : "whistler-falling-rocket"
+        },
+        {
+          "title" : {
+            "key" : null,
             "text" : "The Fall of Satan — Gustave Doré"
           },
           "value" : "dore-fall-of-satan"
@@ -7216,6 +7256,9 @@
         "ensor-skeleton-painter",
         "cabanel-fallen-angel",
         "spilliaert-woman-shoreline",
+        "el-greco-view-of-toledo",
+        "gericault-raft-of-the-medusa",
+        "moreau-apparition",
         "rembrandt-prodigal-son",
         "velazquez-las-meninas",
         "matejko-stanczyk",
@@ -7268,6 +7311,7 @@
         "kramskoi-unknown-woman",
         "michelangelo-creation-of-adam",
         "hokusai-great-wave",
+        "holbein-ambassadors",
         "brueghel-wooden-vessel",
         "dahl-dresden-moonlight",
         "bosschaert-wan-li-vase",
@@ -7319,6 +7363,7 @@
         "van-gogh-almond-blossom",
         "van-gogh-fishing-boats",
         "hokusai-umezawa",
+        "whistler-falling-rocket",
         "dore-fall-of-satan",
         "dore-flood",
         "dore-wolves-sheep",
@@ -7749,6 +7794,27 @@
         {
           "title" : {
             "key" : null,
+            "text" : "View of Toledo — El Greco"
+          },
+          "value" : "el-greco-view-of-toledo"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Raft of the Medusa — Théodore Géricault"
+          },
+          "value" : "gericault-raft-of-the-medusa"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Apparition — Gustave Moreau"
+          },
+          "value" : "moreau-apparition"
+        },
+        {
+          "title" : {
+            "key" : null,
             "text" : "The Return of the Prodigal Son — Rembrandt van Rijn"
           },
           "value" : "rembrandt-prodigal-son"
@@ -8113,6 +8179,13 @@
         {
           "title" : {
             "key" : null,
+            "text" : "The Ambassadors — Hans Holbein the Younger"
+          },
+          "value" : "holbein-ambassadors"
+        },
+        {
+          "title" : {
+            "key" : null,
             "text" : "Flowers in a Wooden Vessel — Jan Brueghel the Elder"
           },
           "value" : "brueghel-wooden-vessel"
@@ -8466,6 +8539,13 @@
             "text" : "Umezawa Manor in Sagami — Katsushika Hokusai"
           },
           "value" : "hokusai-umezawa"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Nocturne in Black and Gold — James McNeill Whistler"
+          },
+          "value" : "whistler-falling-rocket"
         },
         {
           "title" : {
@@ -21978,7 +22058,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "b7c2119af976f37c69fa371a923c1869fb95c09b7b63ecfb773d752954cb80eb",
+  "schema_hash" : "57e8fc173fd93a8e3e0568fef6eac3592bffddfe2bba764cc24a0ed9fe8424b4",
   "sections" : [
     {
       "id" : "general",

@@ -64,6 +64,9 @@ public nonisolated enum BackdropArt: String, CaseIterable, Sendable {
     case ensorSkeletonPainter = "ensor-skeleton-painter"
     case cabanelFallenAngel = "cabanel-fallen-angel"
     case spilliaertWomanShoreline = "spilliaert-woman-shoreline"
+    case elGrecoViewOfToledo = "el-greco-view-of-toledo"
+    case gericaultRaftOfTheMedusa = "gericault-raft-of-the-medusa"
+    case moreauApparition = "moreau-apparition"
     case rembrandtProdigalSon = "rembrandt-prodigal-son"
     case velazquezLasMeninas = "velazquez-las-meninas"
     case matejkoStanczyk = "matejko-stanczyk"
@@ -116,6 +119,7 @@ public nonisolated enum BackdropArt: String, CaseIterable, Sendable {
     case kramskoiUnknownWoman = "kramskoi-unknown-woman"
     case michelangeloCreationOfAdam = "michelangelo-creation-of-adam"
     case hokusaiGreatWave = "hokusai-great-wave"
+    case holbeinAmbassadors = "holbein-ambassadors"
     case brueghelWoodenVessel = "brueghel-wooden-vessel"
     case dahlDresdenMoonlight = "dahl-dresden-moonlight"
     case bosschaertWanLiVase = "bosschaert-wan-li-vase"
@@ -167,6 +171,7 @@ public nonisolated enum BackdropArt: String, CaseIterable, Sendable {
     case vanGoghAlmondBlossom = "van-gogh-almond-blossom"
     case vanGoghFishingBoats = "van-gogh-fishing-boats"
     case hokusaiUmezawa = "hokusai-umezawa"
+    case whistlerFallingRocket = "whistler-falling-rocket"
     case doreFallOfSatan = "dore-fall-of-satan"
     case doreFlood = "dore-flood"
     case doreWolvesSheep = "dore-wolves-sheep"
@@ -237,6 +242,9 @@ public nonisolated enum BackdropArt: String, CaseIterable, Sendable {
         case .ensorSkeletonPainter: String(localized: "backdrop.ensor-skeleton-painter.title", defaultValue: "The Skeleton Painter", bundle: .module)
         case .cabanelFallenAngel: String(localized: "backdrop.cabanel-fallen-angel.title", defaultValue: "The Fallen Angel", bundle: .module)
         case .spilliaertWomanShoreline: String(localized: "backdrop.spilliaert-woman-shoreline.title", defaultValue: "Woman at the Shoreline", bundle: .module)
+        case .elGrecoViewOfToledo: String(localized: "backdrop.el-greco-view-of-toledo.title", defaultValue: "View of Toledo", bundle: .module)
+        case .gericaultRaftOfTheMedusa: String(localized: "backdrop.gericault-raft-of-the-medusa.title", defaultValue: "The Raft of the Medusa", bundle: .module)
+        case .moreauApparition: String(localized: "backdrop.moreau-apparition.title", defaultValue: "The Apparition", bundle: .module)
         case .rembrandtProdigalSon: String(localized: "backdrop.rembrandt-prodigal-son.title", defaultValue: "The Return of the Prodigal Son", bundle: .module)
         case .velazquezLasMeninas: String(localized: "backdrop.velazquez-las-meninas.title", defaultValue: "Las Meninas", bundle: .module)
         case .matejkoStanczyk: String(localized: "backdrop.matejko-stanczyk.title", defaultValue: "Stańczyk", bundle: .module)
@@ -289,6 +297,7 @@ public nonisolated enum BackdropArt: String, CaseIterable, Sendable {
         case .kramskoiUnknownWoman: String(localized: "backdrop.kramskoi-unknown-woman.title", defaultValue: "Unknown Woman", bundle: .module)
         case .michelangeloCreationOfAdam: String(localized: "backdrop.michelangelo-creation-of-adam.title", defaultValue: "The Creation of Adam", bundle: .module)
         case .hokusaiGreatWave: String(localized: "backdrop.hokusai-great-wave.title", defaultValue: "The Great Wave off Kanagawa", bundle: .module)
+        case .holbeinAmbassadors: String(localized: "backdrop.holbein-ambassadors.title", defaultValue: "The Ambassadors", bundle: .module)
         case .brueghelWoodenVessel: String(localized: "backdrop.brueghel-wooden-vessel.title", defaultValue: "Flowers in a Wooden Vessel", bundle: .module)
         case .dahlDresdenMoonlight: String(localized: "backdrop.dahl-dresden-moonlight.title", defaultValue: "View of Dresden by Moonlight", bundle: .module)
         case .bosschaertWanLiVase: String(localized: "backdrop.bosschaert-wan-li-vase.title", defaultValue: "Flowers in a Wan-Li Vase", bundle: .module)
@@ -340,6 +349,7 @@ public nonisolated enum BackdropArt: String, CaseIterable, Sendable {
         case .vanGoghAlmondBlossom: String(localized: "backdrop.van-gogh-almond-blossom.title", defaultValue: "Almond Blossom", bundle: .module)
         case .vanGoghFishingBoats: String(localized: "backdrop.van-gogh-fishing-boats.title", defaultValue: "Fishing Boats at Saintes-Maries", bundle: .module)
         case .hokusaiUmezawa: String(localized: "backdrop.hokusai-umezawa.title", defaultValue: "Umezawa Manor in Sagami", bundle: .module)
+        case .whistlerFallingRocket: String(localized: "backdrop.whistler-falling-rocket.title", defaultValue: "Nocturne in Black and Gold", bundle: .module)
         case .doreFallOfSatan: String(localized: "backdrop.dore-fall-of-satan.title", defaultValue: "The Fall of Satan", bundle: .module)
         case .doreFlood: String(localized: "backdrop.dore-flood.title", defaultValue: "The Deluge", bundle: .module)
         case .doreWolvesSheep: String(localized: "backdrop.dore-wolves-sheep.title", defaultValue: "The Wolves and the Sheep", bundle: .module)
