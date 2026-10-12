@@ -354,7 +354,7 @@ impl Transaction {
         let mut from = self.staging.open_file(staged)?;
         let mode = from.metadata()?.permissions();
         let mut out = dir.create_file(&part, 0o600)?;
-        let copied = std::io::copy(&mut from, &mut out)
+        let copied = io::copy(&mut from, &mut out)
             .map_err(anyhow::Error::from)
             .and_then(|_| out.set_permissions(mode).map_err(anyhow::Error::from))
             .and_then(|()| out.sync_all().map_err(anyhow::Error::from))

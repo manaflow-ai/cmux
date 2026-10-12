@@ -541,7 +541,7 @@ fn a_pull_refuses_listed_names_that_climb_out_of_the_folder() {
     let top = remote.to_string_lossy().into_owned();
     planted.lock().unwrap().extend([
         (top.clone(), "x/../.git/hooks/pre-commit".into(), b"#!/bin/sh\necho planted\n".to_vec()),
-        (top.clone(), "../escaped.txt".into(), b"outside\n".to_vec()),
+        (top, "../escaped.txt".into(), b"outside\n".to_vec()),
     ]);
     let (ok, answer) = pull(&socket, &repo, &remote);
     assert!(!ok, "a climbing name was taken: {answer}");
