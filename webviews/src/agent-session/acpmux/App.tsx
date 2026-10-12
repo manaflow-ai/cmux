@@ -295,6 +295,13 @@ const saveDocumentNatively: SaveDocument = async (text, suggestedName, kind) => 
   }
 };
 
+/// A start the host refused with a typed code: a chat on another machine (`agent_session.*`, the
+/// session daemon's agent-session-start). A trust refusal has its own question.
+function isStartRefusal(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === "string" && code.startsWith("agent_session.") && !isTrustRefusal(error);
+}
+
 /// The machine a refused handshake names (`details.machineName`), for the composer's chip.
 function refusedMachine(error: unknown): string | undefined {
   const details = (error as { details?: unknown } | null)?.details;
@@ -2917,6 +2924,9 @@ function AcpmuxPane() {
           const sessionId = await client.ensureSession().catch((error: unknown) => {
             // A folder harness that waits for Enable or Trust says so on its own card.
             setBlockedHarness(harnessBlock(error));
+            // A refused start (a chat on another machine, cx-k21v) says why in this page's own
+            // view: the host's typed refusal, already localized, under the localized "Not sent".
+            if (isStartRefusal(error)) client.notice(translate("prompt.notSent", { reason: errorMessage(error) }));
             return refused(error, Boolean(accepted));
           });
           await persistSession(sessionId);
