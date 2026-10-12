@@ -1,0 +1,19 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cmux-next-native",
+  "main": "src/index.ts",
+  // Lawrencechen2002@gmail.com's Account. Never deploy to the f6dc... account.
+  "account_id": "0c1675e0def6de1ab3a50a4e17dc5656",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  "observability": { "enabled": true },
+  "vars": {
+    "APPLE_AUDIENCES": "dev.cmux.next.native,dev.cmux.next.native.dev"
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "HOST_SIGNAL", "class_name": "HostSignal" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["HostSignal"] }]
+  // Secrets (wrangler secret put): DB_HOST, DB_USERNAME, DB_PASSWORD,
+  // TURN_KEY_ID, TURN_KEY_API_TOKEN, DEV_LOGIN_SECRET
+}

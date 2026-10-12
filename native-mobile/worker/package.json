@@ -1,0 +1,18 @@
+{
+  "name": "cmux-next-native-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "node test/e2e.mjs"
+  },
+  "dependencies": {
+    "@planetscale/database": "^1.20.2"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261012.1",
+    "typescript": "^5.6.0",
+    "wrangler": "^4.149.0"
+  }
+}

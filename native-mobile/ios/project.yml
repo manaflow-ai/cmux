@@ -1,0 +1,81 @@
+name: CmuxNative
+options:
+  bundleIdPrefix: dev.cmux.next
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    DEVELOPMENT_TEAM: 7WLXT3NR37
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CMUX_NATIVE_TAG: ""
+packages:
+  CmuxGhosttyKit:
+    path: ../../Packages/Shared/CmuxGhosttyKit
+  CmuxNativeShared:
+    path: ../Shared
+targets:
+  CmuxNative:
+    type: application
+    platform: iOS
+    sources:
+      - App
+      - Sources
+      - Resources
+    dependencies:
+      - package: CmuxGhosttyKit
+        product: CmuxGhosttyKit
+      - package: CmuxNativeShared
+        product: CmuxNativeWire
+      - package: CmuxNativeShared
+        product: CmuxNativeLink
+    entitlements:
+      path: App/CmuxNative.entitlements
+      properties:
+        com.apple.developer.applesignin: [Default]
+        aps-environment: development
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: $(CMUX_NATIVE_DISPLAY_NAME)
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+          UIImageName: LaunchMark
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UIUserInterfaceStyle: Automatic
+        NSPhotoLibraryUsageDescription: Attach photos and videos to a terminal session.
+        NSCameraUsageDescription: Take a photo to attach to a terminal session.
+        NSLocalNetworkUsageDescription: cmux connects directly to your Mac on the same network.
+        NSFaceIDUsageDescription: Unlock cmux.
+        CmuxNativeAPIBase: $(CMUX_NATIVE_API_BASE)
+        ITSAppUsesNonExemptEncryption: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.next.native$(CMUX_NATIVE_BUNDLE_SUFFIX)
+        CMUX_NATIVE_BUNDLE_SUFFIX: .dev
+        CMUX_NATIVE_DISPLAY_NAME: cmux next
+        CMUX_NATIVE_API_BASE: https://cmux-next-native.debussy.workers.dev
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        TARGETED_DEVICE_FAMILY: "1"
+        ENABLE_PREVIEWS: YES
+        OTHER_LDFLAGS: -lc++
+  CmuxNativeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Tests]
+    dependencies:
+      - target: CmuxNative
+schemes:
+  CmuxNative:
+    build:
+      targets:
+        CmuxNative: all
+    test:
+      targets: [CmuxNativeTests]

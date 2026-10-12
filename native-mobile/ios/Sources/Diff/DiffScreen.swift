@@ -1,0 +1,127 @@
+import SwiftUI
+
+/// Which changes a `DiffScreen` shows.
+enum DiffScope: Hashable, Sendable {
+    /// Unstaged working-tree changes (plus untracked files).
+    case workingTree
+    case staged
+    /// Working tree against a base branch or ref.
+    case base(String)
+
+    var title: String {
+        switch self {
+        case .workingTree: String(localized: "Working Tree")
+        case .staged: String(localized: "Staged")
+        case .base(let ref): String(localized: "Against \(ref)")
+        }
+    }
+}
+
+/// The diff for a session's working directory with a native scope menu
+/// (title menu: Working tree, Staged, Against base branch…). Push inside a
+/// NavigationStack.
+struct DiffScreen: View {
+    let cwd: String
+    let services: ServiceClient
+    /// Limit the diff to one path (relative to `cwd`).
+    var path: String?
+
+    @State private var scope: DiffScope = .workingTree
+    @State private var askingBase = false
+    @State private var baseText = ""
+    @State private var preview: DiffPreviewTarget?
+    @AppStorage("diff.lastBase") private var lastBase = "main"
+
+    init(cwd: String, services: ServiceClient, path: String? = nil, scope: DiffScope = .workingTree) {
+        self.cwd = cwd
+        self.services = services
+        self.path = path
+        _scope = State(initialValue: scope)
+    }
+
+    var body: some View {
+        let cwd = cwd
+        let services = services
+        let path = path
+        let scope = scope
+        DiffView(
+            loader: { try await services.gitDiffText(cwd: cwd, path: path, scope: scope) },
+            title: path.map { ($0 as NSString).lastPathComponent } ?? scope.title,
+            contextLoader: scope == .staged ? nil : { relative in
+                let root = await services.repoRoot(cwd: cwd)
+                let data = try await services.read(path: DiffPaths.join(root, relative)).data
+                return String(decoding: data, as: UTF8.self)
+            },
+            onOpenFile: { relative in
+                Task {
+                    let root = await services.repoRoot(cwd: cwd)
+                    preview = DiffPreviewTarget(path: DiffPaths.join(root, relative))
+                }
+            }
+        )
+        .id(scope)
+        .toolbarTitleMenu {
+            Picker(String(localized: "Compare"), selection: $scope) {
+                Label(DiffScope.workingTree.title, systemImage: "pencil.line").tag(DiffScope.workingTree)
+                Label(DiffScope.staged.title, systemImage: "tray.full").tag(DiffScope.staged)
+                if case .base(let ref) = scope {
+                    Label(DiffScope.base(ref).title, systemImage: "arrow.triangle.branch").tag(scope)
+                }
+            }
+            Button(String(localized: "Against Base Branch…"), systemImage: "arrow.triangle.branch") {
+                baseText = lastBase
+                askingBase = true
+            }
+        }
+        .alert(String(localized: "Compare Against Branch"), isPresented: $askingBase) {
+            TextField(String(localized: "Branch or ref"), text: $baseText)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            Button(String(localized: "Cancel"), role: .cancel) {}
+            Button(String(localized: "Compare")) {
+                let ref = baseText.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !ref.isEmpty else { return }
+                lastBase = ref
+                self.scope = .base(ref)
+            }
+        } message: {
+            Text(String(localized: "Shows the working tree compared with this branch, for example main or origin/main."))
+        }
+        .navigationDestination(item: $preview) { target in
+            FilePreviewScreen(path: target.path, services: services)
+        }
+    }
+}
+
+struct DiffPreviewTarget: Hashable, Identifiable {
+    var path: String
+    var id: String { path }
+}
+
+enum DiffPaths {
+    static func join(_ root: String, _ relative: String) -> String {
+        if relative.hasPrefix("/") { return relative }
+        return root.hasSuffix("/") ? root + relative : root + "/" + relative
+    }
+}
+
+extension ServiceClient {
+    /// `git.diff` with an optional path filter and scope.
+    func gitDiffText(cwd: String, path: String?, scope: DiffScope) async throws -> String {
+        var params: [String: JSONValue] = ["cwd": .string(cwd)]
+        switch scope {
+        case .workingTree: params["staged"] = .bool(false)
+        case .staged: params["staged"] = .bool(true)
+        case .base(let ref): params["base"] = .string(ref)
+        }
+        if let path { params["path"] = .string(path) }
+        let reply = try await call("git.diff", params)
+        return reply["diff"]?.string ?? reply["text"]?.string ?? reply.string ?? ""
+    }
+
+    /// The repository root for `cwd` (diff paths are root-relative); falls
+    /// back to `cwd` when it isn't a repository.
+    func repoRoot(cwd: String) async -> String {
+        (try? await gitStatus(cwd: cwd))?["root"]?.string ?? cwd
+    }
+}
