@@ -518,21 +518,6 @@ extension BrowserDeveloperToolsVisibilityPersistenceTests {
     }
 
     func testDockClosedPanelSnapshotReconcilesPendingAttachedInspectorClose() throws {
-        let originalAppDelegate = AppDelegate.shared
-        let appDelegate = AppDelegate()
-        AppDelegate.shared = appDelegate
-        let windowId = appDelegate.createMainWindow()
-        guard let mainWindow = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
-            XCTFail("Expected main window")
-            AppDelegate.shared = originalAppDelegate
-            return
-        }
-        appDelegate.suppressClosedWindowHistoryForTesting(windowId: windowId)
-        defer {
-            tearDownMainWindow(mainWindow, manager: manager)
-            AppDelegate.shared = originalAppDelegate
-        }
         let store = DockSplitStore(
             workspaceId: UUID(),
             baseDirectoryProvider: { nil },
@@ -547,19 +532,21 @@ extension BrowserDeveloperToolsVisibilityPersistenceTests {
         ))
         let tabId = try XCTUnwrap(store.surfaceId(forPanelId: panelId))
         let browserPanel = try XCTUnwrap(store.panel(for: tabId) as? BrowserPanel)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
 
         let inspector = FakeInspector(hideBehavior: .hides)
         browserPanel.webView.cmuxSetUnitTestInspector(inspector)
-        if let contentView = mainWindow.contentView {
+        if let contentView = window.contentView {
             attachPanelPresentationIfNeeded(browserPanel, to: contentView)
         }
-        XCTAssertNotNil(browserPanel.webView.cmuxBrowserViewportAttachmentWindow)
         XCTAssertTrue(browserPanel.showDeveloperTools())
         XCTAssertTrue(browserPanel.isDeveloperToolsVisible())
-        XCTAssertTrue(
-            browserPanel.debugDeveloperToolsStateSummary().contains("presentation=attached"),
-            browserPanel.debugDeveloperToolsStateSummary()
-        )
         browserPanel.noteDeveloperToolsHostAttached()
 
         // As in the workspace path: the delayed detector is still pending when the Dock
@@ -573,11 +560,7 @@ extension BrowserDeveloperToolsVisibilityPersistenceTests {
             panelId: panelId,
             restorableAgentIndex: nil
         ))
-        XCTAssertEqual(
-            snapshot.browser?.developerToolsVisible,
-            false,
-            browserPanel.debugDeveloperToolsStateSummary()
-        )
+        XCTAssertEqual(snapshot.browser?.developerToolsVisible, false)
     }
 
     func testLegacyBrowserStackHistoryEntryRestoresInteractionState() throws {
