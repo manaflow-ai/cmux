@@ -104,6 +104,7 @@
   "diffViewer.sourceStaged": "W indeksie",
   "diffViewer.sourceUncommitted": "Niezatwierdzone",
   "diffViewer.sourceUnstaged": "Niedodane do indeksu",
+  "diffViewer.splitDiffNeedsWiderPane": "Podzielony diff wymaga szerszego panelu",
   "diffViewer.switchToSplitDiff": "Przełącz na diff podzielony",
   "diffViewer.switchToUnifiedDiff": "Przełącz na diff ujednolicony",
   "diffViewer.untitled": "Bez tytułu",

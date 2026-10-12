@@ -104,6 +104,7 @@
   "diffViewer.sourceStaged": "مُجهَّزة",
   "diffViewer.sourceUncommitted": "غير مُودَعة",
   "diffViewer.sourceUnstaged": "غير مُجهَّزة",
+  "diffViewer.splitDiffNeedsWiderPane": "يحتاج عرض الفروقات المقسّم إلى جزء أعرض",
   "diffViewer.switchToSplitDiff": "التبديل إلى تقسيم الفروقات",
   "diffViewer.switchToUnifiedDiff": "التبديل إلى الفروقات الموحدة",
   "diffViewer.untitled": "بلا عنوان",

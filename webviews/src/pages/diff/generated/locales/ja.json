@@ -104,6 +104,7 @@
   "diffViewer.sourceStaged": "ステージ済み",
   "diffViewer.sourceUncommitted": "未コミット",
   "diffViewer.sourceUnstaged": "未ステージ",
+  "diffViewer.splitDiffNeedsWiderPane": "分割 diff にはより広いペインが必要です",
   "diffViewer.switchToSplitDiff": "分割表示に切り替え",
   "diffViewer.switchToUnifiedDiff": "統合表示に切り替え",
   "diffViewer.untitled": "無題",

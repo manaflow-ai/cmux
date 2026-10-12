@@ -104,6 +104,7 @@
   "diffViewer.sourceStaged": "Đã stage",
   "diffViewer.sourceUncommitted": "Chưa commit",
   "diffViewer.sourceUnstaged": "Chưa stage",
+  "diffViewer.splitDiffNeedsWiderPane": "Diff chia đôi cần khung rộng hơn",
   "diffViewer.switchToSplitDiff": "Chuyển sang split diff",
   "diffViewer.switchToUnifiedDiff": "Chuyển sang unified diff",
   "diffViewer.untitled": "Chưa đặt tên",
