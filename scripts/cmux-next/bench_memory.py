@@ -162,6 +162,9 @@ class App:
         for name, value in args.items():
             argv += [f"--{name}", str(value)]
         out = subprocess.run(argv, capture_output=True, text=True, timeout=120)
+        if out.returncode != 0:
+            # A refused action exits non-zero with its reason on stderr.
+            return {"error": (out.stderr or out.stdout).strip()[:300] or f"exit {out.returncode}"}
         try:
             return json.loads(out.stdout or "{}")
         except ValueError:
@@ -181,22 +184,23 @@ def open_workspace(app: App, recipe: str, url: str, index: int):
         print(f"   workspace.newAtBottom: {made.get('error') or made.get('message') or made}", file=sys.stderr)
         return None
     workspace = created[0]
+    # Browser and chat tabs open in the focused pane (they take a tab or pane
+    # target, not a workspace), so show the new workspace first, as a user
+    # who opened it would; that also loads its pages and renderers.
+    app.run("workspace.selectLast")
     for kind in recipe.split("+"):
         if kind == "terminal":
-            response = app.run("newSurface", target=workspace)
+            response = app.run("newSurface")
         elif kind == "browser":
-            response = app.run("openBrowser.chromium", target=workspace, url=url)
+            response = app.run("openBrowser.chromium", url=url)
         elif kind == "chat":
             # A prompt opens an agent chat tab. Fleet minis carry no agent
             # credentials, so the turn fails and the chat page stays.
-            response = app.run("newTab.submit", target=workspace, text=f"memory bench chat {index}")
+            response = app.run("newTab.submit", text=f"memory bench chat {index}")
         else:
             raise SystemExit(f"bench-memory: unknown kind {kind!r} in --mix")
         if response.get("error") or response.get("code"):
             print(f"   {kind} in {workspace}: {response.get('message') or response.get('error')}", file=sys.stderr)
-    # Tabs of a workspace that was never shown do not load; show it once, as
-    # a user who opened it would, so its pages and renderers count.
-    app.run("workspace.selectLast")
     return workspace
 
 
