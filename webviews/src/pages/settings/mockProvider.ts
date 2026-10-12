@@ -25,6 +25,7 @@ import {
   type Domains,
   type ListRow,
   type ManagedInfo,
+  type MuseumArtResult,
   type MutationResult,
   type SettingsClient,
   type SnapshotResult,
@@ -50,6 +51,8 @@ export type MockOptions = {
   settingsFile?: string;
   /** The theme file the mock picker returns for `cmux.settings.theme.import`. */
   importable?: GhosttyTheme;
+  /** What `cmux.settings.art.search` finds (Browse More Art). */
+  museumArt?: MuseumArtResult[];
 };
 
 export const mockDomains: Domains = {
@@ -93,6 +96,7 @@ export class MockSettingsProvider {
   private readonly commands = new Set<EventSourceContext>();
   private readonly usedKeys = new Map<string, string>();
   private connected: boolean;
+  private museumArt: MuseumArtResult[];
 
   constructor(options: MockOptions = {}) {
     this.chatFolders = options.chatFolders;
@@ -110,6 +114,7 @@ export class MockSettingsProvider {
     this.connected = options.connected ?? true;
     if (options.settingsFile !== undefined) this.host = { ...this.host, settings_file: options.settingsFile };
     this.importable = options.importable ?? null;
+    this.museumArt = options.museumArt ?? [];
   }
 
   /** Registers every op and stream on `session` (the provider side). */
@@ -165,7 +170,7 @@ export class MockSettingsProvider {
           advanced: [{ id: "reloadConfiguration", title: "Reload Configuration", enabled: true }],
         })[String((params as { section: string }).section)] ?? [],
       "cmux.settings.backdrop.choose_image": () => ({ id: null }),
-      "cmux.settings.art.search": () => ({ results: [] }),
+      "cmux.settings.art.search": () => ({ results: this.museumArt }),
       "cmux.settings.art.use": () => ({ id: "" }),
       "cmux.settings.folders.add": (params) => {
         const key = String((params as { key: string }).key);
