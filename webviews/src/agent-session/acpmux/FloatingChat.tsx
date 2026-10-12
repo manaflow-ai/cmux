@@ -75,33 +75,38 @@ function StatusMark({ status }: { status: FloatingStatus }) {
   );
 }
 
-/// The open floating chat's header: its title, include the focused tab, keep on top, fold to the
-/// compact bar, move to a tab.
-/// The floating chat's right-click menu: the header's and the bar's buttons, by name.
-function floatingMenu(floating: QuickFloating, t: Translate, collapsed: boolean): ContextMenuItem[] {
+/// The floating chat header's right-click menu: its buttons by name. Only the header has one: the
+/// compact bar's panel is 44 pt tall, too short to show a menu drawn in the page.
+function floatingMenu(floating: QuickFloating, t: Translate): ContextMenuItem[] {
   const onTop = floating.state.onTop;
+  // Every row keeps the check column, so the labels line up whether Keep on top is on or not.
+  const row = (label: string, on = false) => (
+    <>
+      <span className="acpmux-header-customize-check" aria-hidden="true">
+        {on ? "✓" : ""}
+      </span>
+      {label}
+    </>
+  );
   return [
-    collapsed
-      ? { id: "expand", label: t("render.expand"), onSelect: () => floating.setCollapsed(false) }
-      : { id: "include", label: t("floating.includeContext"), onSelect: () => floating.includeContext() },
+    { id: "include", label: row(t("floating.includeContext")), onSelect: () => floating.includeContext() },
     {
       id: "onTop",
-      // A check while on, as a native menu marks a toggle.
-      label: onTop ? `✓ ${t("floating.keepOnTop")}` : t("floating.keepOnTop"),
+      label: row(t("floating.keepOnTop"), onTop),
       ariaLabel: t("floating.keepOnTop"),
       onSelect: () => floating.setOnTop(!onTop),
     },
-    ...(collapsed
-      ? []
-      : [{ id: "collapse", label: t("render.collapse"), onSelect: () => floating.setCollapsed(true) }]),
-    { id: "moveToTab", label: t("floating.moveToTab"), onSelect: () => floating.moveToTab() },
+    { id: "collapse", label: row(t("render.collapse")), onSelect: () => floating.setCollapsed(true) },
+    { id: "moveToTab", label: row(t("floating.moveToTab")), onSelect: () => floating.moveToTab() },
   ];
 }
 
+/// The open floating chat's header: its title, include the focused tab, keep on top, fold to the
+/// compact bar, move to a tab.
 export function FloatingHeader({ floating }: { floating: QuickFloating }) {
   const t = useT();
   return (
-    <ContextMenu className="acpmux-floating-menu-host" items={floatingMenu(floating, t, false)}>
+    <ContextMenu className="acpmux-floating-menu-host" items={floatingMenu(floating, t)}>
       <header className="acpmux-floating-header">
         <StatusMark status={floating.status} />
         <span className="acpmux-floating-title" title={floating.title}>
@@ -154,31 +159,29 @@ export function FloatingHeader({ floating }: { floating: QuickFloating }) {
 export function FloatingCompactBar({ floating }: { floating: QuickFloating }) {
   const t = useT();
   return (
-    <ContextMenu className="acpmux-floating-menu-host" items={floatingMenu(floating, t, true)}>
-      <div className="acpmux-floating-bar" data-status={floating.status}>
-        <button
-          type="button"
-          className="acpmux-floating-bar-open"
-          aria-label={`${t("render.expand")}: ${floating.title}`}
-          // The bar cuts the title and last line short; the tooltip has both in full.
-          title={[floating.title, floating.line, `${t("render.expand")} ⌘J`].filter(Boolean).join("\n")}
-          onClick={() => floating.setCollapsed(false)}
-        >
-          <StatusMark status={floating.status} />
-          <span className="acpmux-floating-title">{floating.title}</span>
-          {floating.line && <span className="acpmux-floating-line">{floating.line}</span>}
-        </button>
-        <button
-          type="button"
-          className="acpmux-header-tool"
-          aria-label={t("floating.keepOnTop")}
-          aria-pressed={floating.state.onTop}
-          title={`${t("floating.keepOnTop")} ⌘⇧P`}
-          onClick={() => floating.setOnTop(!floating.state.onTop)}
-        >
-          <Icon name="action.pin" size={15} selected={floating.state.onTop} />
-        </button>
-      </div>
-    </ContextMenu>
+    <div className="acpmux-floating-bar" data-status={floating.status}>
+      <button
+        type="button"
+        className="acpmux-floating-bar-open"
+        aria-label={`${t("render.expand")}: ${floating.title}`}
+        // The bar cuts the title and last line short; the tooltip has both in full.
+        title={[floating.title, floating.line, `${t("render.expand")} ⌘J`].filter(Boolean).join("\n")}
+        onClick={() => floating.setCollapsed(false)}
+      >
+        <StatusMark status={floating.status} />
+        <span className="acpmux-floating-title">{floating.title}</span>
+        {floating.line && <span className="acpmux-floating-line">{floating.line}</span>}
+      </button>
+      <button
+        type="button"
+        className="acpmux-header-tool"
+        aria-label={t("floating.keepOnTop")}
+        aria-pressed={floating.state.onTop}
+        title={`${t("floating.keepOnTop")} ⌘⇧P`}
+        onClick={() => floating.setOnTop(!floating.state.onTop)}
+      >
+        <Icon name="action.pin" size={15} selected={floating.state.onTop} />
+      </button>
+    </div>
   );
 }

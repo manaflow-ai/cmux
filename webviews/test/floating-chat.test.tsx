@@ -148,7 +148,7 @@ test("Include focused tab attaches what the App read as one chip, or nothing", a
   expect(contextAttachment({ name: "Blank", text: "  " }, "Focused tab")).toBeUndefined();
 });
 
-test("a right-click on the floating header or the compact bar offers its actions", async () => {
+test("a right-click on the floating header offers its actions; the bar keeps none", async () => {
   const { createRoot } = await import("react-dom/client");
   const { FloatingHeader, FloatingCompactBar } = await import("../src/agent-session/acpmux/FloatingChat");
   const asked: string[] = [];
@@ -176,20 +176,19 @@ test("a right-click on the floating header or the compact bar offers its actions
   const items = menu(host.querySelector(".acpmux-floating-title")!);
   expect(items.map((item) => item.textContent)).toEqual([
     "Include focused tab",
-    "✓ Keep on top",
+    "✓Keep on top",
     "Collapse",
     "Move to tab",
   ]);
   act(() => items.at(-1)!.click());
   expect(asked).toEqual(["moveToTab"]);
 
+  // The compact bar's panel is too short for a page-drawn menu: no menu there.
+  act(() => document.querySelector<HTMLElement>(".ui-context-menu-backdrop")?.click());
   act(() =>
     root!.render(
       <FloatingCompactBar floating={{ ...floating, state: { ...floating.state, collapsed: true } } as never} />,
     ),
   );
-  const bar = menu(host.querySelector(".acpmux-floating-bar")!);
-  expect(bar.map((item) => item.textContent)).toEqual(["Expand", "✓ Keep on top", "Move to tab"]);
-  act(() => bar[1]!.click());
-  expect(asked).toEqual(["moveToTab", "onTop false"]);
+  expect(menu(host.querySelector(".acpmux-floating-bar")!)).toEqual([]);
 });
