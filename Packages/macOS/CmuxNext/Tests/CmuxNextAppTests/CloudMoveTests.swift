@@ -119,9 +119,10 @@ struct CloudMoveTests {
         let bridge = RegistryControlBridge(registry: services.registry)
         let router = ControlRouter(identity: ControlIdentity(version: "1.0", build: "1", bundleID: "com.cmuxterm.app.debug.test", tag: "test",
                                                              processID: getpid()),
-                                   executor: bridge, settings: nil, configuration: .loadTolerant)
+                                   executor: bridge, settings: nil,
+                                   configuration: ControlRouter.Configuration(requestDeadline: .seconds(60)))
         router.updateCatalog(RegistryControlBridge.catalog(from: services.registry))
-        let params: [String: JSONValue] = ["action": .string("cloud move"), "cli": .bool(true), "origin": .string("cli"), "wait": .bool(true),
+        let params: [String: CmuxNextSettings.JSONValue] = ["action": .string("cloud move"), "cli": .bool(true), "origin": .string("cli"), "wait": .bool(true),
                                            "target": .string("tab:" + tabID), "args": .object(["path": .string(project.path)])]
         if case .failure(let error) = await router.handle(ControlRequest(id: "1", method: "action.run", params: params)) {
             Issue.record("cmux cloud move: \(error.code) \(error.message)")
