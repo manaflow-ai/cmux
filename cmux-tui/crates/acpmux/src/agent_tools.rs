@@ -274,6 +274,16 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
             .collect(),
         });
     }
+    if let Some(acpmux) = &inputs.acpmux {
+        // request_secret and run_with_secret (`secret_mcp.rs`): `for_session`
+        // names the session and this daemon's socket in its env.
+        servers.push(McpServer {
+            name: crate::secret_mcp::SERVER_NAME.into(),
+            command: acpmux.clone(),
+            args: vec!["secret-mcp".into()],
+            env: vec![],
+        });
+    }
     if let Some(cmux) = executable("cmux")
         && inputs.cmux_json.as_deref().is_some_and(mcp_enabled)
     {
@@ -317,6 +327,15 @@ impl AgentTools {
             server.env.retain(|(k, _)| k != AGENT_SESSION_ENV);
             if server.name == "cmux" {
                 server.env.push((AGENT_SESSION_ENV.to_owned(), session_id.to_owned()));
+            }
+            if server.name == crate::secret_mcp::SERVER_NAME {
+                server.env = vec![
+                    (crate::secret_mcp::SESSION_ENV.to_owned(), session_id.to_owned()),
+                    (
+                        "ACPMUX_SOCKET".to_owned(),
+                        crate::config::socket_path().to_string_lossy().into_owned(),
+                    ),
+                ];
             }
         }
         self
