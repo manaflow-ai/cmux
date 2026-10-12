@@ -278,8 +278,13 @@ extension AgentHibernationController {
             terminalPanel?.beginAgentHibernationTerminationRecovery()
         }
         let handleRecoveryFailure: @MainActor () async -> Void = {
-            [weak self, weak terminalPanel = record.terminalPanel] in
+            [weak self, weak terminalPanel = record.terminalPanel,
+             processExitCompletion] in
             guard let self, let terminalPanel else { return }
+            // The recovery deadline is the lifecycle owner for a failed
+            // process observation. Release the surface teardown fence without
+            // injecting bytes when the exact agent generation was not reaped.
+            await processExitCompletion.finish(false)
             terminalPanel.failAgentHibernationTermination()
             terminalPanel.onRequestAgentHibernationTerminationRetry = {
                 [weak self, weak terminalPanel] in
@@ -365,10 +370,7 @@ extension AgentHibernationController {
                     agent: agent,
                     lastActivityAt: lastActivityAt,
                     processExitFence: {
-                        // Bound this lifecycle fence independently of the
-                        // teardown coordinator so a failed process observer
-                        // cannot hold a retired native surface forever.
-                        await processExitCompletion.wait(timeout: .seconds(15))
+                        await processExitCompletion.wait()
                     }
                 )
             }

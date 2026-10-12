@@ -26,23 +26,6 @@ actor AgentHibernationProcessExitCompletion {
         }
     }
 
-    func wait(timeout: Duration) async -> Bool {
-        await withTaskGroup(of: Bool.self) { group in
-            group.addTask { await self.wait() }
-            group.addTask {
-                do {
-                    try await ContinuousClock().sleep(for: timeout)
-                    return false
-                } catch {
-                    return false
-                }
-            }
-            let result = await group.next() ?? false
-            group.cancelAll()
-            return result
-        }
-    }
-
     func finish(_ result: Bool) {
         guard self.result == nil else { return }
         self.result = result
