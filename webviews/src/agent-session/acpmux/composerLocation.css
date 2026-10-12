@@ -100,6 +100,8 @@
    useLocationPopover), so the list fits the room the positioner reports there, less Choose folder…
    and the menu's padding, but never under two rows. */
 .acpmux-location-folders {
+  /* Its height by design: a window too small for it sends the menu past its edge (popupHost.ts). */
+  --popup-scroll-cap: 260px;
   max-height: max(88px, min(260px, 45vh, calc(var(--available-height, 100vh) - 60px)));
   overflow: auto;
 }

@@ -59,6 +59,25 @@ const NO_AUTOMATION = { error: "the page has no automation host" };
 
 const WARMUP_FRAMES = 30;
 
+/** The open menu's rows: how many, how many show whole in the page, and whether it went past the window. */
+function openMenuRows(): Record<string, unknown> | null {
+  const popup = [...document.querySelectorAll<HTMLElement>("[role=menu],[role=listbox]")].at(-1);
+  if (!popup) return null;
+  const rows = [...popup.querySelectorAll('[role^="menuitem"],[role=option]')];
+  const frame = popup.getBoundingClientRect();
+  const top = Math.max(0, frame.top);
+  const bottom = Math.min(innerHeight, frame.bottom);
+  const whole = rows.filter((row) => {
+    const box = row.getBoundingClientRect();
+    return box.height > 0 && box.top >= top - 0.5 && box.bottom <= bottom + 0.5;
+  });
+  return {
+    rows: rows.length,
+    shown_in_page: whole.length,
+    escaped: popup.parentElement?.hasAttribute("data-escaped") ?? false,
+  };
+}
+
 function nextFrame(): Promise<number> {
   return new Promise((resolve) => requestAnimationFrame(resolve));
 }
@@ -184,7 +203,10 @@ export function createAcpmuxDebug(
       const button = [...document.querySelectorAll<HTMLElement>("button[data-menu]")].find(
         (node) => node.dataset.menu === label,
       );
-      return { opened: label, open: button?.getAttribute("aria-expanded") === "true" };
+      // The menu may hand its rows to the window's host a frame after it shows (popupHost.ts).
+      await nextFrame();
+      await nextFrame();
+      return { opened: label, open: button?.getAttribute("aria-expanded") === "true", menu: openMenuRows() };
     },
 
     acpLog(options = {}) {
