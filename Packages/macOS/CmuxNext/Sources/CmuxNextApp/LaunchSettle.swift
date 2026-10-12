@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextTerminal
+import CmuxNextWakeups
 
 /// One-shot launch event: the first live terminal frame is drawn (the
 /// first terminal content reached a surface and the frame showing it
@@ -32,6 +33,17 @@ final class LaunchSettle {
     /// its last frame (at once when both hold).
     func whenSettled(_ work: @escaping @MainActor () -> Void) {
         if isSettled { LaunchImageHold.shared.whenClear(work) } else { waiters.append(work) }
+    }
+
+    /// Returns once `whenSettled` work would run, or after `limit` (a launch
+    /// with no window never settles).
+    func settled(within limit: Duration) async {
+        let (settled, done) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let backstop = DemandTimer(owner: "LaunchSettle.settled")
+        backstop.schedule(after: limit) { done.finish() }
+        whenSettled { done.finish() }
+        for await _ in settled {}
+        backstop.cancel()
     }
 
     /// Settles (first call only) and runs the waiters in order.

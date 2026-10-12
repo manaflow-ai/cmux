@@ -86,6 +86,15 @@ final class NewTabSparePool {
         usedThisSession || services.settings?.snapshot.newTabKind == .page
     }
 
+    /// At launch, before any window: makes the first spare, so its page loads while the windows
+    /// build; the launch's restored New Tab page adopts it, or ``start()`` parks it (bd cx-z9kz0).
+    func prewarm() {
+        guard isLikely, services.agentTabs.canHostChat, slot.shouldWarm,
+              let view = BenchSpans.measure("pool.makeSpare", { services.agentTabs.makeSpare(NewTabPage.sparePage(services)) })
+        else { return }
+        slot.parked(view)
+    }
+
     /// At launch: follow the key main window; park in the first visible one.
     func start() {
         services.agentTabs.recycle = { [weak self] view in self?.recycle(view) ?? false }

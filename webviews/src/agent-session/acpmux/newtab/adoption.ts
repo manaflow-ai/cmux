@@ -11,17 +11,27 @@ export const NEW_TAB_ADOPT_EVENT = "acpmux-newtab-adopt";
 /// The host's open tabs and workspaces changed while the page shows (AgentPaneView.refreshNewTabPlaces).
 export const NEW_TAB_PLACES_EVENT = "acpmux-newtab-places";
 
+/// The context the host gave as the document committed (AgentPaneNavigation), for the first
+/// render: the page draws New Tab with no round trip (cx-z9kz0). Undefined when it came too late
+/// or the page is not a New Tab page; `useEarlyNewTabContext` asks then.
+export function injectedNewTabContext(): NewTabHost | undefined {
+  const injected = (window as { __cmuxNewTabContext?: unknown }).__cmuxNewTabContext;
+  return injected === undefined ? undefined : newTabHost({ newTab: injected });
+}
+
 /// A cold New Tab page's context before the handshake (cx-0rpl.10): the host answers
 /// `newTab.context` at once, while `ready` waits for acpmux, so the page draws its frame (layout,
 /// field, empty list) at first render and the rows fill in after. Calls `onContext` once with the
 /// context; `applied` turns true so the handshake keeps what the page did since (a left page stays
-/// left).
+/// left). A page that rendered first with the injected context (`injectedNewTabContext`) does
+/// not ask.
 export function useEarlyNewTabContext(
   callNative: (method: string) => Promise<unknown>,
   onContext: (host: NewTabHost) => void,
 ): { readonly current: boolean } {
-  const [applied] = useState(() => ({ current: false }));
+  const [applied] = useState(() => ({ current: injectedNewTabContext() !== undefined }));
   useEffect(() => {
+    if (applied.current) return;
     let cancelled = false;
     void callNative("newTab.context").then(
       (reply) => {
