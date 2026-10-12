@@ -9,6 +9,10 @@ Loop log for the agent building this. Updated in place.
 - Chief conversation: messages round-trip, typing indicator, Claude-backed replies split into bubbles.
 - Agent chat: Claude Code via claude-agent-acp on the host; tool rows, markdown, turn summary.
 - Terminal: Ghostty (MANUAL IO) renders the remote zsh; key bar; typing works.
+- TURN: Worker secrets set from 1Password (`cmux-next-ios-wrtc` key). Forced relay-only run
+  (`-cnm-relay-only`) connected to the distant mini via Cloudflare TURN and ran a terminal command.
+- Auth decision (user, 2026-10-12): Apple sign-in only for now. Email codes stay behind
+  `-cnm-email-auth` for automated test accounts.
 
 ## Hosts
 - Build/simulator: mini-cmux8s-mac-mini (`scripts/remote.sh`, `scripts/sim-flow.sh`).
@@ -16,8 +20,6 @@ Loop log for the agent building this. Updated in place.
 - Test account: aziz-native@test.cmux.dev, code in ~/.secrets/cmux-next-mobile-native-test-login.
 
 ## Blocked on the user
-- TURN: needs `TURN_KEY_ID`/`TURN_KEY_API_TOKEN` Worker secrets (1Password item; `op` signed out). STUN-only now.
-- Email codes for real addresses: Cloudflare Email Sending domain (DNS change).
 - Real iPhone install: phone not connected; device signing needs a team + bundle id registration.
 
 ## Next

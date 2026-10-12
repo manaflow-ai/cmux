@@ -12,7 +12,7 @@ final class FlowTests: XCTestCase {
 
     func testLaunchShowsWelcome() {
         let app = XCUIApplication()
-        app.launchArguments = ["-cnm-reset"]
+        app.launchArguments = ["-cnm-reset", "-cnm-email-auth"]
         app.launch()
         XCTAssertTrue(app.buttons["auth.apple"].waitForExistence(timeout: 10))
         pause(3)
@@ -24,7 +24,7 @@ final class FlowTests: XCTestCase {
         let email = try XCTUnwrap(env["CNM_TEST_EMAIL"])
         let code = try XCTUnwrap(env["CNM_TEST_CODE"])
         let app = XCUIApplication()
-        app.launchArguments = ["-cnm-reset"]
+        app.launchArguments = ["-cnm-reset", "-cnm-email-auth"]
         app.launch()
 
         XCTAssertTrue(app.buttons["auth.signup"].waitForExistence(timeout: 10))
@@ -144,9 +144,34 @@ final class FlowTests: XCTestCase {
         snap(app, "32-terminal-output")
     }
 
+    /// Forces TURN relay and checks the Mac connects through it.
+    func testRelayConnection() throws {
+        let app = launchSignedIn(arguments: ["-cnm-relay-only"])
+        app.buttons["shell.menu"].tap()
+        pause(1)
+        app.buttons["sidebar.macs"].tap()
+        let relay = app.staticTexts["Connected · relay"]
+        XCTAssertTrue(relay.waitForExistence(timeout: 60), "Mac never connected through the relay")
+        pause(1)
+        snap(app, "40-macs-relay")
+        app.buttons["shell.menu"].tap()
+        pause(1)
+        app.buttons["sidebar.terminals"].tap()
+        let newTerminal = app.buttons["terminals.new"]
+        XCTAssertTrue(newTerminal.waitForExistence(timeout: 20))
+        newTerminal.tap()
+        pause(4)
+        app.buttons["terminal.keyboard"].tap()
+        pause(1)
+        app.typeText("echo relayed from $(hostname)\n")
+        pause(3)
+        snap(app, "41-terminal-relay")
+    }
+
     /// Signs in with the test account when the app starts signed out.
-    private func launchSignedIn() -> XCUIApplication {
+    private func launchSignedIn(arguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
+        app.launchArguments = arguments + ["-cnm-email-auth"]
         app.launch()
         let menu = app.buttons["shell.menu"]
         let login = app.buttons["auth.login"]

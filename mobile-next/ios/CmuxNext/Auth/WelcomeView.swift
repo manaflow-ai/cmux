@@ -24,6 +24,7 @@ struct WelcomeView: View {
                 }
                 authSheet
                     .offset(y: sheetShown ? 0 : 340)
+                    .animation(.spring(response: 0.55, dampingFraction: 0.86), value: sheetShown)
             }
             .navigationDestination(for: AuthStep.self) { step in
                 switch step {
@@ -43,16 +44,29 @@ struct WelcomeView: View {
         }
     }
 
+    /// Email codes need a sending domain; until one is set up they are only
+    /// for automated runs with test accounts (`-cnm-email-auth`).
+    static let emailAuthEnabled = ProcessInfo.processInfo.arguments.contains("-cnm-email-auth")
+
     private var authSheet: some View {
         VStack(spacing: 10) {
             AuthButton(title: "Continue with Apple", systemImage: "applelogo", style: .primary, busy: appleBusy) {
                 signInWithApple()
             }
             .accessibilityIdentifier("auth.apple")
-            AuthButton(title: "Sign up", style: .secondary) { path.append(.email(.signUp)) }
-                .accessibilityIdentifier("auth.signup")
-            AuthButton(title: "Log in", style: .outline) { path.append(.email(.logIn)) }
-                .accessibilityIdentifier("auth.login")
+            if Self.emailAuthEnabled {
+                AuthButton(title: "Sign up", style: .secondary) { path.append(.email(.signUp)) }
+                    .accessibilityIdentifier("auth.signup")
+                AuthButton(title: "Log in", style: .outline) { path.append(.email(.logIn)) }
+                    .accessibilityIdentifier("auth.login")
+            } else {
+                Text("Sign in with your Apple Account to pair your Mac.")
+                    .font(.footnote)
+                    .foregroundStyle(.white.opacity(0.55))
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 6)
+                    .padding(.bottom, 10)
+            }
         }
         .padding(.horizontal, 20)
         .padding(.top, 22)

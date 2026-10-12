@@ -81,6 +81,20 @@ public final class WebRTCLink: NSObject, PeerLink, @unchecked Sendable {
     private var closed = false
     private var openWaiters: [CheckedContinuation<Void, Error>] = []
     private var reportedConnected = false
+    private var closeHandlers: [@Sendable () -> Void] = []
+
+    /// Runs once when the link closes or fails (the state stream has one reader: the app).
+    func onClose(_ handler: @escaping @Sendable () -> Void) {
+        lock.withLock { closeHandlers.append(handler) }
+    }
+
+    private func runCloseHandlers() {
+        let handlers: [@Sendable () -> Void] = lock.withLock {
+            defer { closeHandlers.removeAll() }
+            return closeHandlers
+        }
+        for handler in handlers { handler() }
+    }
 
     init(remotePeerID: String, session: String, signaling: SignalingChannel) {
         self.remotePeerID = remotePeerID
@@ -139,6 +153,7 @@ public final class WebRTCLink: NSObject, PeerLink, @unchecked Sendable {
         stateContinuation.yield(.disconnected(reason: nil))
         stateContinuation.finish()
         messageContinuation.finish()
+        runCloseHandlers()
     }
 
     func fail(_ reason: String) {
@@ -152,6 +167,7 @@ public final class WebRTCLink: NSObject, PeerLink, @unchecked Sendable {
         connection?.close()
         stateContinuation.finish()
         messageContinuation.finish()
+        runCloseHandlers()
     }
 
     /// Waits until both channels are open.
@@ -238,7 +254,7 @@ public final class WebRTCLink: NSObject, PeerLink, @unchecked Sendable {
 
     /// Reads the selected candidate pair to say whether the link is direct or
     /// relayed through TURN.
-    private func reportRoute() {
+    private func reportRoute(attempt: Int = 0) {
         guard let connection = peerConnection else { return }
         connection.statistics { [weak self] report in
             guard let self else { return }
@@ -263,6 +279,10 @@ public final class WebRTCLink: NSObject, PeerLink, @unchecked Sendable {
                 default:
                     break
                 }
+            }
+            if selectedPair == nil, attempt < 8 {
+                DispatchQueue.global().asyncAfter(deadline: .now() + 0.25) { self.reportRoute(attempt: attempt + 1) }
+                return
             }
             let route: String
             if let selectedPair {
@@ -368,8 +388,7 @@ public final class WebRTCDialer: PeerDialer, @unchecked Sendable {
         }
         link.attach(connection)
         lock.withLock { links[session] = link }
-        Task { [weak self, states = link.states] in
-            for await _ in states {}
+        link.onClose { [weak self] in
             self?.lock.withLock { _ = self?.links.removeValue(forKey: session) }
         }
 
@@ -434,8 +453,7 @@ public final class WebRTCAcceptor: PeerAcceptor, @unchecked Sendable {
             return
         }
         link.attach(connection)
-        Task { [weak self, states = link.states] in
-            for await _ in states {}
+        link.onClose { [weak self] in
             self?.lock.withLock { _ = self?.links.removeValue(forKey: session) }
         }
         link.setRemote(RTCSessionDescription(type: .offer, sdp: sdp)) { [weak self, weak link] error in

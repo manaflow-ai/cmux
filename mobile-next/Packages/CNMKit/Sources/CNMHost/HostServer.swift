@@ -51,7 +51,9 @@ public final class HostServer: @unchecked Sendable {
             onBulk: { [weak self] frame in self?.handleBulk(frame) }
         )
         Task { [weak self] in
-            for await _ in link.states {}
+            for await state in link.states {
+                if case .connected(let route) = state { self?.log("link \(link.remotePeerID) connected via \(route)") }
+            }
             self?.drop(key)
             self?.log("phone disconnected: \(link.remotePeerID)")
         }

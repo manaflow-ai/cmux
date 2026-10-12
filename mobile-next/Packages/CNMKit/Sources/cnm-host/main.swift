@@ -126,11 +126,6 @@ func serve() async throws -> Never {
         }
     }
     for await link in acceptor.incoming {
-        Task {
-            for await state in link.states {
-                if case .connected(let route) = state { log("link \(link.remotePeerID) connected via \(route)") }
-            }
-        }
         server.serve(link)
     }
     exit(0)
