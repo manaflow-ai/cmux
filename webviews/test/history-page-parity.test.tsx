@@ -130,7 +130,7 @@ async function type(text: string) {
     setter.call(search, text);
     search.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
   });
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
+  await act(async () => {});
 }
 
 test("the page opens with search focused and asks for at most 1000 entries", async () => {
@@ -167,9 +167,7 @@ test("search sends the typed text, and a search with no match says No matches", 
 });
 
 test("an empty history says No history", async () => {
-  const provider = new RecordingProvider();
-  const { store } = await mount(["en"], provider);
-  await act(async () => store.clear("all"));
+  await mount(["en"], new RecordingProvider([]));
   expect(rows().length).toBe(0);
   expect(host.querySelector(".history-empty")?.textContent).toBe(table.en!["page.empty"]);
 });
@@ -243,6 +241,12 @@ test("Clear History offers each range and clears only the kind the chip shows", 
   await click(button("Clear History…"));
   await click(menuItem("Last Hour")!);
   expect(provider.last(HistoryOps.clear)).toMatchObject({ range: "hour", kinds: ["command"] });
+
+  // The daemon never clears locations or closed items, so Clear is off under those chips.
+  for (const chip of ["Locations", "Closed"]) {
+    await click(button(chip));
+    expect(button("Clear History…").disabled).toBe(true);
+  }
 });
 
 test("in Japanese every string of the page is the Japanese one", async () => {

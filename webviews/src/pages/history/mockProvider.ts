@@ -98,7 +98,9 @@ export class MockHistoryProvider implements PageClient {
       case HistoryOps.clear: {
         const { range, kinds } = params as { range: HistoryRange; kinds?: HistoryKind[] };
         const start = rangeStart(range, this.now());
-        const cleared: HistoryKind[] = kinds?.length ? kinds : ["page", "location", "closed", "command", "agent"];
+        // As the daemon: pages, agents and commands clear; locations and closed items never do.
+        const clearable: HistoryKind[] = ["page", "command", "agent"];
+        const cleared = kinds?.length ? clearable.filter((kind) => kinds.includes(kind)) : clearable;
         return this.mutate(
           (entry) => !cleared.includes(entry.kind) || (start !== undefined && entry.at_ms < start),
           cleared,
