@@ -105,6 +105,7 @@ USAGE
     [--no-verify] [--expected-head <commit>] [<path>...]
   cmux git push [TARGET] [--remote <name>] [--branch <name>]
     [--set-upstream | --no-set-upstream] [--expected-head <commit>]
+  cmux git worktree create [TARGET] [--name <name>] [--base <revision>]
 
 TARGET
   --path <path>          A file or folder in the repository
@@ -154,6 +155,12 @@ paths, every tracked change with --all (and untracked files with
 --include-untracked), or else the index as it is. push pushes the branch's
 commit to the branch of the same name, never forced, and sets its upstream
 when it has none. --expected-head refuses when HEAD moved since you read it.
+
+worktree create makes a worktree for a chat at ~/.cmux/worktrees/<project>/<name>
+on a new branch cmux/<name> from --base (the current branch by default), and
+records the base as branch.cmux/<name>.cmuxBase. A taken name gets the next free
+suffix (-2, -3, ...); without --name it is chat-<random>. Your checkout is left
+as it is.
 ";
 
 /// Levenshtein distance, for "did you mean" scope suggestions.

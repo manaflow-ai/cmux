@@ -1016,7 +1016,11 @@
     "turn.retryWith": "Retry with another model",
     "turn.signInAgain": "Sign in again",
     "turn.stopped": "You stopped after {time}",
-    "turn.worked": "Worked for {time}"
+    "turn.worked": "Worked for {time}",
+    "worktree.dismiss": "Dismiss",
+    "worktree.failed": "The host made no worktree.",
+    "worktree.failedBecause": "Couldn’t make a worktree: {reason}",
+    "worktree.new": "New Worktree"
   },
   "ar": {
     "adopt.live.fork": "تفريعها",
@@ -2035,7 +2039,11 @@
     "turn.retryWith": "إعادة المحاولة بنموذج آخر",
     "turn.signInAgain": "سجّل الدخول مرة أخرى",
     "turn.stopped": "أوقفت بعد {time}",
-    "turn.worked": "عمل لمدة {time}"
+    "turn.worked": "عمل لمدة {time}",
+    "worktree.dismiss": "إغلاق",
+    "worktree.failed": "لم ينشئ المضيف شجرة عمل.",
+    "worktree.failedBecause": "تعذّر إنشاء شجرة عمل: {reason}",
+    "worktree.new": "شجرة عمل جديدة"
   },
   "bs": {
     "adopt.live.fork": "Račvaj",
@@ -3054,7 +3062,11 @@
     "turn.retryWith": "Pokušaj ponovo s drugim modelom",
     "turn.signInAgain": "Ponovo se prijavi",
     "turn.stopped": "Zaustavili ste nakon {time}",
-    "turn.worked": "Radio {time}"
+    "turn.worked": "Radio {time}",
+    "worktree.dismiss": "Odbaci",
+    "worktree.failed": "Host nije napravio radno stablo.",
+    "worktree.failedBecause": "Radno stablo nije napravljeno: {reason}",
+    "worktree.new": "Novo radno stablo"
   },
   "da": {
     "adopt.live.fork": "Forgren den",
@@ -4073,7 +4085,11 @@
     "turn.retryWith": "Prøv igen med en anden model",
     "turn.signInAgain": "Log ind igen",
     "turn.stopped": "Du stoppede efter {time}",
-    "turn.worked": "Arbejdede i {time}"
+    "turn.worked": "Arbejdede i {time}",
+    "worktree.dismiss": "Luk",
+    "worktree.failed": "Værten oprettede intet arbejdstræ.",
+    "worktree.failedBecause": "Kunne ikke oprette et arbejdstræ: {reason}",
+    "worktree.new": "Nyt arbejdstræ"
   },
   "de": {
     "adopt.live.fork": "Abzweigen",
@@ -5092,7 +5108,11 @@
     "turn.retryWith": "Mit anderem Modell wiederholen",
     "turn.signInAgain": "Erneut anmelden",
     "turn.stopped": "Du hast nach {time} gestoppt",
-    "turn.worked": "Gearbeitet für {time}"
+    "turn.worked": "Gearbeitet für {time}",
+    "worktree.dismiss": "Schließen",
+    "worktree.failed": "Der Host hat keinen Worktree angelegt.",
+    "worktree.failedBecause": "Worktree konnte nicht angelegt werden: {reason}",
+    "worktree.new": "Neuer Worktree"
   },
   "es": {
     "adopt.live.fork": "Bifurcar",
@@ -6111,7 +6131,11 @@
     "turn.retryWith": "Reintentar con otro modelo",
     "turn.signInAgain": "Volver a iniciar sesión",
     "turn.stopped": "Detuviste tras {time}",
-    "turn.worked": "Trabajó durante {time}"
+    "turn.worked": "Trabajó durante {time}",
+    "worktree.dismiss": "Descartar",
+    "worktree.failed": "El host no creó ningún worktree.",
+    "worktree.failedBecause": "No se pudo crear un worktree: {reason}",
+    "worktree.new": "Nuevo worktree"
   },
   "fr": {
     "adopt.live.fork": "La dupliquer",
@@ -7130,7 +7154,11 @@
     "turn.retryWith": "Réessayer avec un autre modèle",
     "turn.signInAgain": "Se reconnecter",
     "turn.stopped": "Vous avez arrêté après {time}",
-    "turn.worked": "A travaillé pendant {time}"
+    "turn.worked": "A travaillé pendant {time}",
+    "worktree.dismiss": "Ignorer",
+    "worktree.failed": "L’hôte n’a créé aucun worktree.",
+    "worktree.failedBecause": "Impossible de créer un worktree : {reason}",
+    "worktree.new": "Nouveau worktree"
   },
   "it": {
     "adopt.live.fork": "Biforcala",
@@ -8149,7 +8177,11 @@
     "turn.retryWith": "Riprova con un altro modello",
     "turn.signInAgain": "Accedi di nuovo",
     "turn.stopped": "Hai interrotto dopo {time}",
-    "turn.worked": "Ha lavorato per {time}"
+    "turn.worked": "Ha lavorato per {time}",
+    "worktree.dismiss": "Ignora",
+    "worktree.failed": "L’host non ha creato alcun worktree.",
+    "worktree.failedBecause": "Impossibile creare un worktree: {reason}",
+    "worktree.new": "Nuovo worktree"
   },
   "ja": {
     "adopt.live.fork": "フォーク",
@@ -9168,7 +9200,11 @@
     "turn.retryWith": "別のモデルで再試行",
     "turn.signInAgain": "もう一度サインイン",
     "turn.stopped": "{time} 後に停止しました",
-    "turn.worked": "{time} 作業しました"
+    "turn.worked": "{time} 作業しました",
+    "worktree.dismiss": "閉じる",
+    "worktree.failed": "ホストはワークツリーを作成しませんでした。",
+    "worktree.failedBecause": "ワークツリーを作成できませんでした: {reason}",
+    "worktree.new": "新しいワークツリー"
   },
   "km": {
     "adopt.live.fork": "បំបែកវា",
@@ -10187,7 +10223,11 @@
     "turn.retryWith": "ព្យាយាមម្តងទៀតជាមួយម៉ូដែលផ្សេង",
     "turn.signInAgain": "ចូលគណនីម្ដងទៀត",
     "turn.stopped": "អ្នកបានបញ្ឈប់បន្ទាប់ពី {time}",
-    "turn.worked": "បានធ្វើការរយៈពេល {time}"
+    "turn.worked": "បានធ្វើការរយៈពេល {time}",
+    "worktree.dismiss": "បិទ",
+    "worktree.failed": "ម៉ាស៊ីនមិនបានបង្កើត worktree ទេ។",
+    "worktree.failedBecause": "មិនអាចបង្កើត worktree បានទេ៖ {reason}",
+    "worktree.new": "Worktree ថ្មី"
   },
   "ko": {
     "adopt.live.fork": "포크",
@@ -11206,7 +11246,11 @@
     "turn.retryWith": "다른 모델로 다시 시도",
     "turn.signInAgain": "다시 로그인",
     "turn.stopped": "{time} 후에 중지함",
-    "turn.worked": "{time} 동안 작업함"
+    "turn.worked": "{time} 동안 작업함",
+    "worktree.dismiss": "닫기",
+    "worktree.failed": "호스트가 워크트리를 만들지 않았습니다.",
+    "worktree.failedBecause": "워크트리를 만들 수 없습니다: {reason}",
+    "worktree.new": "새 워크트리"
   },
   "nb": {
     "adopt.live.fork": "Forgren den",
@@ -12225,7 +12269,11 @@
     "turn.retryWith": "Prøv igjen med en annen modell",
     "turn.signInAgain": "Logg inn på nytt",
     "turn.stopped": "Du stoppet etter {time}",
-    "turn.worked": "Jobbet i {time}"
+    "turn.worked": "Jobbet i {time}",
+    "worktree.dismiss": "Lukk",
+    "worktree.failed": "Verten laget ikke noe arbeidstre.",
+    "worktree.failedBecause": "Kunne ikke lage et arbeidstre: {reason}",
+    "worktree.new": "Nytt arbeidstre"
   },
   "pl": {
     "adopt.live.fork": "Rozgałęź",
@@ -13244,7 +13292,11 @@
     "turn.retryWith": "Ponów z innym modelem",
     "turn.signInAgain": "Zaloguj się ponownie",
     "turn.stopped": "Zatrzymano po {time}",
-    "turn.worked": "Pracował przez {time}"
+    "turn.worked": "Pracował przez {time}",
+    "worktree.dismiss": "Zamknij",
+    "worktree.failed": "Host nie utworzył drzewa roboczego.",
+    "worktree.failedBecause": "Nie udało się utworzyć drzewa roboczego: {reason}",
+    "worktree.new": "Nowe drzewo robocze"
   },
   "pt-BR": {
     "adopt.live.fork": "Bifurcar",
@@ -14263,7 +14315,11 @@
     "turn.retryWith": "Tentar novamente com outro modelo",
     "turn.signInAgain": "Entrar novamente",
     "turn.stopped": "Você interrompeu após {time}",
-    "turn.worked": "Trabalhou por {time}"
+    "turn.worked": "Trabalhou por {time}",
+    "worktree.dismiss": "Dispensar",
+    "worktree.failed": "O host não criou nenhuma worktree.",
+    "worktree.failedBecause": "Não foi possível criar uma worktree: {reason}",
+    "worktree.new": "Nova worktree"
   },
   "ru": {
     "adopt.live.fork": "Ответвить",
@@ -15282,7 +15338,11 @@
     "turn.retryWith": "Повторить с другой моделью",
     "turn.signInAgain": "Войти снова",
     "turn.stopped": "Вы остановили через {time}",
-    "turn.worked": "Работал {time}"
+    "turn.worked": "Работал {time}",
+    "worktree.dismiss": "Закрыть",
+    "worktree.failed": "Хост не создал рабочее дерево.",
+    "worktree.failedBecause": "Не удалось создать рабочее дерево: {reason}",
+    "worktree.new": "Новое рабочее дерево"
   },
   "th": {
     "adopt.live.fork": "แยกออกมา",
@@ -16301,7 +16361,11 @@
     "turn.retryWith": "ลองใหม่ด้วยโมเดลอื่น",
     "turn.signInAgain": "ลงชื่อเข้าใช้อีกครั้ง",
     "turn.stopped": "คุณหยุดหลังจาก {time}",
-    "turn.worked": "ทำงานเป็นเวลา {time}"
+    "turn.worked": "ทำงานเป็นเวลา {time}",
+    "worktree.dismiss": "ปิด",
+    "worktree.failed": "โฮสต์ไม่ได้สร้างเวิร์กทรี",
+    "worktree.failedBecause": "สร้างเวิร์กทรีไม่ได้: {reason}",
+    "worktree.new": "เวิร์กทรีใหม่"
   },
   "tr": {
     "adopt.live.fork": "Çatalla",
@@ -17320,7 +17384,11 @@
     "turn.retryWith": "Başka bir modelle yeniden dene",
     "turn.signInAgain": "Tekrar giriş yap",
     "turn.stopped": "{time} sonra durdurdunuz",
-    "turn.worked": "Şu kadar çalıştı: {time}"
+    "turn.worked": "Şu kadar çalıştı: {time}",
+    "worktree.dismiss": "Kapat",
+    "worktree.failed": "Ana makine çalışma ağacı oluşturmadı.",
+    "worktree.failedBecause": "Çalışma ağacı oluşturulamadı: {reason}",
+    "worktree.new": "Yeni çalışma ağacı"
   },
   "uk": {
     "adopt.live.fork": "Відгалузити",
@@ -18339,7 +18407,11 @@
     "turn.retryWith": "Повторити з іншою моделлю",
     "turn.signInAgain": "Увійти знову",
     "turn.stopped": "Ви зупинили через {time}",
-    "turn.worked": "Працював {time}"
+    "turn.worked": "Працював {time}",
+    "worktree.dismiss": "Закрити",
+    "worktree.failed": "Хост не створив робоче дерево.",
+    "worktree.failedBecause": "Не вдалося створити робоче дерево: {reason}",
+    "worktree.new": "Нове робоче дерево"
   },
   "vi": {
     "adopt.live.fork": "Tách nhánh",
@@ -19358,7 +19430,11 @@
     "turn.retryWith": "Thử lại với mô hình khác",
     "turn.signInAgain": "Đăng nhập lại",
     "turn.stopped": "Bạn đã dừng sau {time}",
-    "turn.worked": "Đã làm việc trong {time}"
+    "turn.worked": "Đã làm việc trong {time}",
+    "worktree.dismiss": "Đóng",
+    "worktree.failed": "Máy chủ không tạo worktree nào.",
+    "worktree.failedBecause": "Không thể tạo worktree: {reason}",
+    "worktree.new": "Worktree mới"
   },
   "zh-Hans": {
     "adopt.live.fork": "分叉",
@@ -20377,7 +20453,11 @@
     "turn.retryWith": "使用其他模型重试",
     "turn.signInAgain": "重新登录",
     "turn.stopped": "你在 {time} 后停止了",
-    "turn.worked": "已工作 {time}"
+    "turn.worked": "已工作 {time}",
+    "worktree.dismiss": "关闭",
+    "worktree.failed": "主机未创建工作树。",
+    "worktree.failedBecause": "无法创建工作树：{reason}",
+    "worktree.new": "新建工作树"
   },
   "zh-Hant": {
     "adopt.live.fork": "分叉",
@@ -21396,6 +21476,10 @@
     "turn.retryWith": "使用其他模型重試",
     "turn.signInAgain": "重新登入",
     "turn.stopped": "你在 {time} 後停止了",
-    "turn.worked": "已工作 {time}"
+    "turn.worked": "已工作 {time}",
+    "worktree.dismiss": "關閉",
+    "worktree.failed": "主機未建立工作樹。",
+    "worktree.failedBecause": "無法建立工作樹：{reason}",
+    "worktree.new": "新增工作樹"
   }
 }
