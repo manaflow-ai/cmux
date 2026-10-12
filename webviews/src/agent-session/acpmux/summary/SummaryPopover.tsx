@@ -14,7 +14,8 @@ const ROW_ICON = rowIconSize(12);
 /// always show, in the Codex app's order, with "None" while empty; pull requests, background
 /// tasks and wakeups follow when there are any.
 /// Pull requests and sources are links, so they open, copy and open in a new tab as links do;
-/// an output opens the changes view at that file. Following a link calls `onFollow`. A chat
+/// an output opens the changes view at that file. A file the last turn changed is listed under
+/// Changes only. Following a link calls `onFollow`. A chat
 /// with images or renders offers its gallery under Outputs (GalleryDialog.tsx). A chat whose
 /// subagents acpmux reports shows their Lineage (subagents/Lineage.tsx) in the Subagents place.
 const TASK_STATES: Record<SummaryBackgroundTask["state"], StringKey> = {
@@ -53,12 +54,15 @@ export function SummaryPopover({
   lineage?: ReactNode;
 }) {
   const t = useT();
+  // A file the last turn changed shows once, under Changes (as in Codex); Outputs keeps the rest.
+  const changed = new Set(changes?.files?.map((file) => file.path));
+  const outputs = changed.size > 0 ? summary.outputs.filter((file) => !changed.has(file.path)) : summary.outputs;
   return (
     <>
       <SummarySection
         title={t("summary.outputs")}
         fixed
-        items={summary.outputs}
+        items={outputs}
         row={(file) => (
           <li key={file.path}>
             <button
