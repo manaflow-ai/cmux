@@ -52,10 +52,10 @@ extension PaneContentView {
             stripView.topAnchor.constraint(equalTo: guide.topAnchor),
             stripView.heightAnchor.constraint(equalTo: guide.heightAnchor),
             stripView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            stripView.trailingAnchor.constraint(equalTo: trailingAnchor),
-        ]
+            stripView.trailingAnchor.constraint(equalTo: toolbar?.view.leadingAnchor ?? trailingAnchor),
+        ] + toolbarBandPins()
         NSLayoutConstraint.activate(bandPins)
-        setAccessibilityChildren(host.paneHeaderAccessibilityElements + [stripView] + host.paneContentAccessibilityElements)
+        setAccessibilityChildren(host.paneHeaderAccessibilityElements + [stripView] + (toolbar.map { [$0.view] } ?? []) + host.paneContentAccessibilityElements)
     }
 
     /// Ends the pins (idempotent): the strip goes back to frame layout and
@@ -66,6 +66,7 @@ extension PaneContentView {
         NSLayoutConstraint.deactivate(bandPins)
         bandPins = []
         stripView.translatesAutoresizingMaskIntoConstraints = true
+        toolbar?.view.translatesAutoresizingMaskIntoConstraints = true
         setAccessibilityChildren(nil)
         if let host = bandHost, let view = host as? NSView, view.superview === contentHost { host.setPaneHeaderBandHeight(0) }
         needsLayout = true
