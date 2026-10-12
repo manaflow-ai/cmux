@@ -13,6 +13,10 @@ nonisolated struct PaletteRankerBridgeRequest: Encodable {
     let keepsSectionOrder: Bool
     let ranksPrefixFirst: Bool
     let recentLimit: Int
+    /// The user's aliases and pins (`PaletteRankSettings`); nil when there are none.
+    let aliases: [String: [String]]?
+    let pins: [String]?
+    let pinnedSectionIndex: Int?
     let rowLimit: Int
     let highlightLimit: Int
 }
