@@ -431,11 +431,6 @@ export default agentPaneEntry({
     "thought-find": {
       note: "Play: Find in Chat for a word in a closed thought opens it and marks the word in its text, never the row's own Thought label (cx-ncc.73).",
       checks: {
-        longFrameFailMs: {
-          value: 120,
-          reason:
-            "Typing the query opens the turn's closed Worked for fold, which lays out the whole transcript (72-91 ms measured); its cost is tracked as a Find follow-up, not this row.",
-        },
         layoutShiftMax: {
           value: 0.01,
           reason: "Find opens the fold and the thought that hold the match, which moves the rows below on purpose.",
