@@ -372,7 +372,7 @@ class WorkflowTests(unittest.TestCase):
 
         for name in ("sign-release-notes", "publish-release-notes"):
             self.assertIn("recover-nightly-next-notarization", ancestors(name), name)
-            self.assertRegex(jobs[name]["if"], r"^(always|!cancelled)\(\) && ", name)
+            self.assertTrue(jobs[name]["if"].startswith("!cancelled() && "), jobs[name]["if"])
             self.assertIn("needs.publish-nightly.result == 'success'", jobs[name]["if"], name)
 
     def test_recovery_artifact_carries_what_publication_needs(self):
