@@ -122,7 +122,7 @@ def scenario(engine, tab, name, spec):
         authenticator = added.get("authenticatorId")
         # The socket gives async methods ~2 s; a DevTools call past that still runs (`not_run`
         # false), so a timed-out add can still have attached the authenticator.
-        if not authenticator and "not_run': False" not in str(added):
+        if not authenticator and "not_run': False" not in str(added) and "timedOut" not in str(added):
             return "FAIL", f"no virtual authenticator: {added}"
         note = "" if authenticator else "authenticator add timed out (sent); "
     started = js(tab, "(() => { window.__pk = null; runPasskeyScenario(" + json.dumps(name) + ")"
