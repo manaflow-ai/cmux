@@ -48,7 +48,7 @@ export type NewTabScreenActions = {
   onInputReady?(token: string): void;
   /// The first user input reached the page (the host recycles only an untouched page, R81).
   onTouched?(): void;
-  /// Opens the host's Integrate a harness flow (`palette.addHarness`).
+  /// No agent to ask: opens the Harnesses page (cx-uj5g8).
   onAddHarness?(): void;
 };
 
@@ -430,9 +430,7 @@ export function NewTabScreen(props: Props) {
         </div>
       )}
       {props.openTabs && <OpenTabsList tabs={props.openTabs} onMoveHere={(id) => props.onJump("here", id)} />}
-      {sections.tools && (tools.length > 0 || props.onAddHarness) && (
-        <ToolsRow tools={tools} onRunAction={props.onRunAction} onAddHarness={props.onAddHarness} />
-      )}
+      {sections.tools && tools.length > 0 && <ToolsRow tools={tools} onRunAction={props.onRunAction} />}
       {sections.closed && <ClosedList items={closed} onReopen={(id) => props.onJump("closed", id)} />}
       {sections.chats !== "none" && !allChats && (
         <ChatCards
@@ -482,15 +480,14 @@ function ownsKeys(element: Element): boolean {
 
 /// The host actions as one quiet row under the field (board principle 5: calm at rest): an icon and
 /// a name, the shortcut in its tooltip. A tool's extra commands (Terminal: split right, split
-/// down) are in its trailing disclosure menu. "Integrate a harness" ends the row.
+/// down) are in its trailing disclosure menu. Integrate a harness lives on the Harnesses page
+/// (the model picker's +, the palette), not here (cx-uj5g8).
 function ToolsRow({
   tools,
   onRunAction,
-  onAddHarness,
 }: {
   tools: NonNullable<NewTabHost["tools"]>;
   onRunAction?: (id: string) => void;
-  onAddHarness?: () => void;
 }) {
   const t = useT();
   return (
@@ -536,14 +533,6 @@ function ToolsRow({
           <React.Fragment key={tool.id}>{button}</React.Fragment>
         );
       })}
-      {onAddHarness && (
-        <button type="button" className="nt-tool nt-add-harness" onClick={() => onAddHarness()}>
-          <span className="nt-tool-icon" aria-hidden="true">
-            {toolIcon("plus")}
-          </span>
-          <span>{t("newtab.addHarness")}</span>
-        </button>
-      )}
     </nav>
   );
 }

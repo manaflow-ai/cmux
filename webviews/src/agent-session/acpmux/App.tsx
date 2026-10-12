@@ -39,6 +39,8 @@ import { HistoryScreen } from "./newtab/HistoryScreen";
 import type { AllChatsPage } from "./newtab/AllChatsList";
 import { newTabScreenActions } from "./newtab/screenActions";
 import { newTabChipSnapshot } from "./newtab/chipDefaults";
+import { HarnessesScreen } from "./harnesses/HarnessesScreen";
+import { openHarnessesPage, registerHarnessesPage } from "./harnesses/harnessesPage";
 import { useEarlyNewTabContext, useNewTabAdoption } from "./newtab/adoption";
 import { TemplateDots } from "./newtab/TemplateDots";
 import { pickNewTabTemplate, screenTemplate, shownTemplate } from "./newtab/templates";
@@ -1718,7 +1720,7 @@ function DefaultComposerChips({
       // Sent from the pick's own handler: the host's Enable confirmation needs the gesture.
       onHarnessEnable={(folder, id) => void callNative("chat.harness.enable", { folder, id }).catch(() => undefined)}
       // The rail's + (BRING-YOUR-OWN-HARNESS): Settings > Agents > Add, from this click's gesture.
-      onAddAgent={() => void callNative("action.run", { id: "agent.harness.add" }).catch(() => undefined)}
+      onAddAgent={openHarnessesPage}
       showPlan={false}
       onCompact={() => void callNative("chat.send", { text: "/compact", attachments: [] })}
       onShowContextUsage={(show) => void callNative("pane.showContextUsage", { show }).catch(() => undefined)}
@@ -2273,6 +2275,11 @@ function AcpmuxPane() {
     [snapshot.summary?.harness, snapshot.summary?.configOptions],
   );
   const pickerCatalog = usePickerCatalog(snapshot.catalog, pickerSession).catalog;
+  // Integrate a harness (cx-uj5g8): the Harnesses page, in place of what the pane shows.
+  const [harnessesOpen, setHarnessesOpen] = useState(false);
+  useEffect(() => registerHarnessesPage(() => setHarnessesOpen(true)), []);
+  // A chat it starts, and a login it runs, go to the chat's folder (a new chat's start folder).
+  const harnessFolder = snapshot.summary?.cwd ?? startFolder;
   const retryModelsKey = (
     pickerCatalog.harnesses.find(
       (entry) => entry.acpmuxHarness === snapshot.summary?.harness || entry.id === snapshot.summary?.harness,
@@ -2925,6 +2932,7 @@ function AcpmuxPane() {
           pastTurns?: unknown;
           machineName?: unknown;
           githubRepository?: unknown;
+          harnesses?: unknown;
         }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
         acpmuxPerf.markAgent("handshakeReady");
@@ -2974,6 +2982,8 @@ function AcpmuxPane() {
         // draft out once, so a retried `ready` after a failed connect has none and keeps this one.
         const seeded = composerDraft(host.draft);
         if (seeded) setDraft(seeded);
+        // Integrate a Harness… from the palette or the menu opened this tab (cx-uj5g8).
+        if (host.harnesses === true) setHarnessesOpen(true);
         pendingPrompt = composerDraft(host.prompt) ?? pendingPrompt;
         // A prompt a person's action seeded has a single-use host ticket bound to its promptId
         // (cx-k21v gap 4); a CLI, MCP or script seed has none and the host refuses its send.
@@ -4337,7 +4347,19 @@ function AcpmuxPane() {
               }
             />
           )}
-          {showNewTab && newTab.history ? (
+          {harnessesOpen ? (
+            <HarnessesScreen
+              catalog={pickerCatalog}
+              acpmux={snapshot.catalog}
+              {...(harnessFolder ? { cwd: harnessFolder } : {})}
+              callNative={callNative}
+              onClose={() => setHarnessesOpen(false)}
+              onStart={() => {
+                setHarnessesOpen(false);
+                setNewTab(undefined);
+              }}
+            />
+          ) : showNewTab && newTab.history ? (
             <HistoryScreen
               load={(params) => callNative<AllChatsPage | undefined>("chats.page", params)}
               onOpen={(key) => void callNative("chats.open", { key }).catch(() => undefined)}
@@ -4408,7 +4430,6 @@ function AcpmuxPane() {
                   .then((result) => result?.cwd)
                   .catch(() => undefined)
               }
-              onAddHarness={() => void callNative("action.run", { id: "palette.addHarness" }).catch(() => undefined)}
               onEditShortcut={(kind) => void callNative("shortcut.edit", { kind })}
               inputToken={newTab.inputToken}
               onInputReady={(token) => void callNative("newTab.inputReady", { token })}

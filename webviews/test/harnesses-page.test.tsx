@@ -62,7 +62,11 @@ async function renderPage(calls: Call[], closed: string[] = []) {
     calls.push({ method, params });
     if (method === "harness.health")
       return Promise.resolve({
-        health: { id: params.id, auth: params.id === "codex" ? "signedOut" : "signedIn", login: `${params.id} login` },
+        health: {
+          id: params.id,
+          auth: params.id === "codex" ? "signedOut" : "signedIn",
+          login: `${String(params.id)} login`,
+        },
       });
     return Promise.resolve({});
   };
