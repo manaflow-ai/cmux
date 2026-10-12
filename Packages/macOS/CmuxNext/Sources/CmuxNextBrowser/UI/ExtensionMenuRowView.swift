@@ -91,7 +91,7 @@ final class ExtensionMenuRowView: NSView {
     private func updatePin() {
         pinButton.image = NSImage.icon(isPinned ? .statePinned : .actionPin, size: 14)
         pinButton.setAccessibilityLabel(isPinned ? Strings.extensionMenuTitle(.unpin) : Strings.extensionMenuTitle(.pin))
-        pinButton.toolTip = pinButton.accessibilityLabel()
+        pinButton.themedToolTip = pinButton.accessibilityLabel()
         pinButton.contentTintColor = isPinned ? .labelColor : .secondaryLabelColor
     }
 
