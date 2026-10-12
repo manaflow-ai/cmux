@@ -13,6 +13,8 @@ import { SettingRow } from "./SettingRow";
 
 export const BACKGROUND_KEY = "appearance.background";
 export const BACKGROUND_OPACITY_KEY = "appearance.backgroundOpacity";
+/** Shuffle Daily (cx-t2x.5): one work of the art set a day. */
+const DAILY_ID = "daily";
 /** The rows the picker draws, left out of their group while it shows. */
 export const BACKDROP_ROWS: ReadonlySet<string> = new Set([BACKGROUND_KEY, BACKGROUND_OPACITY_KEY]);
 /** How long the pointer rests on a tile before the window shows it: sweeping across the grid
@@ -92,6 +94,10 @@ export function Backdrops({ focus = null }: { focus?: string | null }) {
     >
       {id === "none" ? (
         <span className="backdrop-thumb backdrop-none" />
+      ) : id === DAILY_ID ? (
+        <span className="backdrop-thumb backdrop-none backdrop-choose" aria-hidden="true">
+          ↻
+        </span>
       ) : (
         <img className="backdrop-thumb" alt="" src={`backdrop/${encodeURIComponent(id)}`} />
       )}
@@ -119,6 +125,11 @@ export function Backdrops({ focus = null }: { focus?: string | null }) {
       )}
       <div className="backdrop-grid">
         {tile("none", t("settingsWindow.backdropPicker.none"), t("settingsWindow.backdropPicker.none"))}
+        {tile(
+          DAILY_ID,
+          t("settingsWindow.backdropPicker.shuffleDaily"),
+          t("settingsWindow.backdropPicker.shuffleDailyHelp"),
+        )}
         <button type="button" className="backdrop-tile" onClick={() => void store.chooseBackdropImage()}>
           <span className="backdrop-thumb backdrop-none backdrop-choose" aria-hidden="true">
             +
