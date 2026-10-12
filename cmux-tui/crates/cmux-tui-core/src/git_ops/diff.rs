@@ -125,6 +125,16 @@ pub(in crate::git_ops) fn between(
     report(repository, &comparison, fields)
 }
 
+/// The most unchanged lines a patch carries around each change.
+const MAX_CONTEXT_LINES: usize = 1_000_000;
+
+/// How much of each file's patch a reply carries.
+#[derive(Clone, Copy)]
+struct PatchLimits {
+    max_patch_bytes: usize,
+    context_lines: usize,
+}
+
 /// The changed files a comparison finds, with counts and bounded patches.
 fn report(
     repository: &Repository,
@@ -134,6 +144,9 @@ fn report(
     let include_patch = fields.get("include_patch").and_then(Value::as_bool).unwrap_or(false);
     let max_patch_bytes = limit(fields, "max_patch_bytes", 262_144);
     let max_files = limit(fields, "max_files", 500);
+    // Unchanged lines around each change; enough for a whole file lets the
+    // changes view show more lines (cx-ncc.85).
+    let context_lines = limit(fields, "context_lines", 3).min(MAX_CONTEXT_LINES);
     let paths = pathspecs(fields)?;
 
     let mut files = tracked(repository, comparison, &paths)?;
@@ -164,7 +177,8 @@ fn report(
         } else {
             returned_paths(&files).chunks(PATCH_BATCH).map(<[String]>::to_vec).collect()
         };
-        attach_patches(repository, comparison, &batches, &mut files, max_patch_bytes)?;
+        let limits = PatchLimits { max_patch_bytes, context_lines };
+        attach_patches(repository, comparison, &batches, &mut files, limits)?;
     }
 
     let mut value = json!({
@@ -318,8 +332,10 @@ fn attach_patches(
     comparison: &Comparison,
     batches: &[Vec<String>],
     files: &mut [ChangedFile],
-    max_patch_bytes: usize,
+    limits: PatchLimits,
 ) -> Result<(), ResourceError> {
+    let PatchLimits { max_patch_bytes, context_lines } = limits;
+    let unified = format!("--unified={context_lines}");
     let mut patches = HashMap::new();
     // Files whose patch may be incomplete: the last one of a cut run.
     let mut cut = HashSet::new();
@@ -331,7 +347,7 @@ fn attach_patches(
             incomplete = true;
             break;
         }
-        let arguments = diff_args(comparison, &["--patch"], batch);
+        let arguments = diff_args(comparison, &["--patch", &unified], batch);
         let output = git(repository, comparison.operation, &arguments, MAX_PATCH_OUTPUT_BYTES)?;
         let sections = parse::patches(&output.stdout);
         if output.truncated {
