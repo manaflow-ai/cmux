@@ -592,7 +592,7 @@ impl Hub {
                     }
                     Err(e) => {
                         tracing::warn!(session = %session.id, "session/load failed: {e}");
-                        self.append(session, "mux", "resume_failed", json!({"error": e.message}));
+                        self.note_load_failed(session, &e);
                         false
                     }
                 }
