@@ -133,16 +133,20 @@ pub(super) fn read(
     let (from, mut tally) = FileState::resume_point(prev, &stamp, path);
     let offset = fold_lines(path, from, |line| {
         if wrapped {
-            if !contains(line, br#""type":"user_message""#) {
-                return;
-            }
-            tally.messages += 1;
-            if tally.first_prompt.is_none() {
-                let record: Option<Value> = serde_json::from_slice(line).ok();
-                tally.first_prompt = record
-                    .as_ref()
-                    .and_then(|record| record.pointer("/payload/message"))
-                    .and_then(request_text);
+            if contains(line, br#""type":"user_message""#) {
+                tally.messages += 1;
+                if tally.first_prompt.is_none() {
+                    let record: Option<Value> = serde_json::from_slice(line).ok();
+                    tally.first_prompt = record
+                        .as_ref()
+                        .and_then(|record| record.pointer("/payload/message"))
+                        .and_then(request_text);
+                }
+            } else if contains(line, br#""user.text""#)
+                && let Some(prompt) = typed_prompt(line)
+            {
+                tally.messages += 1;
+                tally.first_prompt.get_or_insert(prompt);
             }
         } else if contains(line, br#""role":"user""#) {
             let Ok(item) = serde_json::from_slice::<Value>(line) else { return };
@@ -167,6 +171,27 @@ pub(super) fn read(
     }
     let state = FileState::folded(path, stamp, offset, tally);
     Ok(FileRead { entry: (!entry.session_id.is_empty()).then_some(entry), state })
+}
+
+/// A prompt of current Codex, which writes no `user_message` events: a `user` message item
+/// whose content items are all the person's own text (`user.text`), not injected context.
+/// Older rollouts carry no item kinds and are counted from their events, so none counts twice.
+fn typed_prompt(line: &[u8]) -> Option<String> {
+    let record: Value = serde_json::from_slice(line).ok()?;
+    let payload =
+        record.get("payload").filter(|_| record_type(&record) == Some("response_item"))?;
+    if payload.get("type").and_then(Value::as_str) != Some("message")
+        || payload.get("role").and_then(Value::as_str) != Some("user")
+    {
+        return None;
+    }
+    let kinds = payload
+        .pointer("/internal_chat_message_metadata_passthrough/content_item_kinds")?
+        .as_array()?;
+    if kinds.is_empty() || !kinds.iter().all(|kind| kind.as_str() == Some("user.text")) {
+        return None;
+    }
+    request_text(payload.get("content")?)
 }
 
 /// `source: {"subagent": ...}` or `thread_source: "subagent"`: a review,
