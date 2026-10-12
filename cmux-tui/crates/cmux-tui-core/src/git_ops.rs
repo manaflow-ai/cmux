@@ -7,7 +7,8 @@
 //! user's environment (`user_run`), keyed in the mutation ledger
 //! (`mutation`), and so do `git.worktree.create`, a chat's own worktree
 //! (`worktree`), and `git.worktree.apply`, which brings its work back to the
-//! main checkout (`worktree_apply`).
+//! main checkout (`worktree_apply`), and `git.worktree.remove`, its cleanup
+//! (`worktree_remove`).
 
 mod checkpoint;
 mod commit;
@@ -24,6 +25,7 @@ mod target;
 mod user_run;
 mod worktree;
 mod worktree_apply;
+mod worktree_remove;
 mod write_run;
 
 use std::collections::BTreeSet;
@@ -62,6 +64,9 @@ pub(crate) const WORKTREE_CAPABILITY: &str = "git-worktree-v1";
 /// Advertised in identify: the session host owns `git.worktree.apply`.
 pub(crate) const WORKTREE_APPLY_CAPABILITY: &str = "git-worktree-apply-v1";
 
+/// Advertised in identify: the session host owns `git.worktree.remove`.
+pub(crate) const WORKTREE_REMOVE_CAPABILITY: &str = "git-worktree-remove-v1";
+
 pub(crate) fn handles(operation: ResourceOperation) -> bool {
     matches!(
         operation,
@@ -73,6 +78,7 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | ResourceOperation::GitPush
             | ResourceOperation::GitWorktreeCreate
             | ResourceOperation::GitWorktreeApply
+            | ResourceOperation::GitWorktreeRemove
     ) || checkpoint::handles(operation)
 }
 
@@ -89,6 +95,7 @@ pub(crate) fn dispatch(
         ResourceOperation::GitPush => return push::dispatch(mux, &request),
         ResourceOperation::GitWorktreeCreate => return worktree::dispatch(mux, &request),
         ResourceOperation::GitWorktreeApply => return worktree_apply::dispatch(mux, &request),
+        ResourceOperation::GitWorktreeRemove => return worktree_remove::dispatch(mux, &request),
         _ => {}
     }
     let operation = match request.envelope.operation {
