@@ -20,7 +20,7 @@ import Testing
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appending(path: "cmux.json")
-        try Data(#"{"appearance": {"theme": "Nord", "themeEdits": {"Nord/accent": "#BF616A", "Nord/4": "#88c0d0"}}}"#.utf8).write(to: url)
+        try Data(##"{"appearance": {"theme": "Nord", "themeEdits": {"Nord/accent": "#BF616A", "Nord/4": "#88c0d0"}}}"##.utf8).write(to: url)
         let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
