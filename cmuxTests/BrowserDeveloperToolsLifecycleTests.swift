@@ -554,7 +554,10 @@ extension BrowserDeveloperToolsVisibilityPersistenceTests {
             attachPanelPresentationIfNeeded(browserPanel, to: contentView)
         }
         XCTAssertNotNil(browserPanel.webView.cmuxBrowserViewportAttachmentWindow)
+        // A Dock browser starts with detached DevTools; the pending-close race is the attached one.
+        browserPanel.setPreferredDeveloperToolsPresentation(.attached)
         XCTAssertTrue(browserPanel.showDeveloperTools())
+        drainMainQueue()
         XCTAssertTrue(browserPanel.isDeveloperToolsVisible())
         XCTAssertTrue(
             browserPanel.debugDeveloperToolsStateSummary().contains("presentation=attached"),
