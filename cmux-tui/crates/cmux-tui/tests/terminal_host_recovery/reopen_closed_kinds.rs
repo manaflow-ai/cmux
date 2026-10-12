@@ -488,4 +488,33 @@ fn an_ungrouped_tab_group_reopens_whole() {
     assert_eq!(groups[0]["color"], "blue");
     assert_eq!(groups[0]["tab_ids"], serde_json::json!(tabs));
     assert_eq!(closed_list(&harness, "ungroup-closed-3").len(), before);
+
+    // A group formed since the ungroup keeps its tab: the reopen forms the
+    // old group around the rest.
+    resource_request(
+        &harness.socket,
+        "ungroup-2",
+        "tab_group.ungroup",
+        serde_json::json!({"machine":"current","session":"current","tab_group":group_id}),
+        Some("ungroup-2"),
+    );
+    resource_request(
+        &harness.socket,
+        "ungroup-create-2",
+        "tab_group.create",
+        serde_json::json!({"machine":"current","session":"current",
+                           "tabs":[tabs[1]],"name":"Since","color":"red"}),
+        Some("ungroup-create-2"),
+    );
+    let reply = reopen_from(&harness, "reopen-kinds/win-u", "ungroup-reopen-2");
+    assert_eq!(reply["ok"], true, "{reply}");
+    let groups = tab_groups(&harness, "ungroup-list-4");
+    let by_name = |name: &str| groups.iter().find(|group| group["name"] == name).cloned();
+    let old =
+        by_name("Build").unwrap_or_else(|| panic!("the group was not formed again: {groups:?}"));
+    assert_eq!(old["id"], group_id.as_str());
+    assert_eq!(old["tab_ids"], serde_json::json!([tabs[0]]));
+    let since =
+        by_name("Since").unwrap_or_else(|| panic!("the newer group lost its tab: {groups:?}"));
+    assert_eq!(since["tab_ids"], serde_json::json!([tabs[1]]));
 }
