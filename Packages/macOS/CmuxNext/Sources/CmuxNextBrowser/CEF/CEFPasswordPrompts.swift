@@ -28,13 +28,18 @@ struct CEFPasswordPrompts {
             return
         }
         let update = kind == "update"
+        // Chromium skips a tab with filling off; this holds even on a fork that does not.
+        guard !tab.isAgentDriven else {
+            _ = runtime.shim?.passwordPromptAnswer(promptID, Action.dismiss.rawValue, nil)
+            return
+        }
         let origin = object["origin"] as? String ?? ""
         let username = object["username"] as? String ?? ""
         tab.enqueuePrompt(.savePassword(username: username, update: update), origin: origin) { response in
             Self.open.removeValue(forKey: promptID)
             let action: Action = switch response {
             case .accept: update ? .update : .save
-            case .deny: .never
+            case .deny: update ? .dismiss : .never
             default: .dismiss
             }
             _ = runtime.shim?.passwordPromptAnswer(promptID, action.rawValue, nil)
