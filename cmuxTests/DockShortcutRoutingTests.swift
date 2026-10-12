@@ -597,31 +597,32 @@ struct DockShortcutRoutingTests {
         }
     }
 
-    @Test("Customized next- and previous-surface shortcuts move the sidebar from a focused Dock")
+    @Test("Customized next-surface shortcut targets the focused Dock")
     @MainActor
-    func customizedNextSurfaceMovesSidebarFromFocusedDock() async throws {
+    func customizedNextSurfaceTargetsFocusedDock() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             try await Self.withHarness { harness in
                 let firstPanel = try #require(
                     harness.dock.newSurface(kind: .terminal, inPane: harness.rootPane, focus: true)
                 )
-                _ = try #require(
+                let secondPanel = try #require(
                     harness.dock.newSurface(kind: .terminal, inPane: harness.rootPane, focus: true)
                 )
                 harness.dock.focusPanel(firstPanel)
-                let other = harness.tabManager.addWorkspace(title: "Other", select: false)
+                let mainPanelBefore = harness.mainWorkspace.focusedPanelId
 
-                let next = Self.customShortcut(key: "y")
-                KeyboardShortcutSettings.setShortcut(next, for: .nextSurface)
-                #expect(Self.dispatch(next, in: harness))
-                #expect(harness.tabManager.selectedTabId == other.id)
-                #expect(harness.dock.focusedPanelId == firstPanel, "the Dock keeps its selected tab")
+                let customShortcut = DockRoutingStoredShortcut(
+                    key: "y",
+                    command: true,
+                    shift: false,
+                    option: true,
+                    control: true
+                )
+                KeyboardShortcutSettings.setShortcut(customShortcut, for: .nextSurface)
 
-                let previous = Self.customShortcut(key: "u")
-                KeyboardShortcutSettings.setShortcut(previous, for: .prevSurface)
-                #expect(Self.dispatch(previous, in: harness))
-                #expect(harness.tabManager.selectedTabId == harness.mainWorkspace.id)
-                #expect(harness.dock.focusedPanelId == firstPanel)
+                #expect(Self.dispatch(customShortcut, in: harness))
+                #expect(harness.dock.focusedPanelId == secondPanel)
+                #expect(harness.mainWorkspace.focusedPanelId == mainPanelBefore)
             }
         }
     }
@@ -663,19 +664,19 @@ struct DockShortcutRoutingTests {
         }
     }
 
-    @Test("Legacy Ctrl-Tab moves the sidebar from a focused Dock")
+    @Test("Legacy tab shortcuts target the focused Dock")
     @MainActor
-    func legacyTabShortcutsMoveSidebarFromFocusedDock() async throws {
+    func legacyTabShortcutsTargetFocusedDock() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             try await Self.withHarness { harness in
                 let firstPanel = try #require(
                     harness.dock.newSurface(kind: .terminal, inPane: harness.rootPane, focus: true)
                 )
-                _ = try #require(
+                let secondPanel = try #require(
                     harness.dock.newSurface(kind: .terminal, inPane: harness.rootPane, focus: true)
                 )
                 harness.dock.focusPanel(firstPanel)
-                let other = harness.tabManager.addWorkspace(title: "Other", select: false)
+                let mainPanelBefore = harness.mainWorkspace.focusedPanelId
                 KeyboardShortcutSettings.setShortcut(.unbound, for: .nextSurface)
                 KeyboardShortcutSettings.setShortcut(.unbound, for: .prevSurface)
 
@@ -687,7 +688,7 @@ struct DockShortcutRoutingTests {
                     control: true
                 )
                 #expect(Self.dispatch(next, in: harness))
-                #expect(harness.tabManager.selectedTabId == other.id)
+                #expect(harness.dock.focusedPanelId == secondPanel)
 
                 let previous = DockRoutingStoredShortcut(
                     key: "\t",
@@ -697,8 +698,8 @@ struct DockShortcutRoutingTests {
                     control: true
                 )
                 #expect(Self.dispatch(previous, in: harness))
-                #expect(harness.tabManager.selectedTabId == harness.mainWorkspace.id)
-                #expect(harness.dock.focusedPanelId == firstPanel, "the Dock keeps its selected tab")
+                #expect(harness.dock.focusedPanelId == firstPanel)
+                #expect(harness.mainWorkspace.focusedPanelId == mainPanelBefore)
             }
         }
     }
@@ -793,12 +794,12 @@ struct DockShortcutRoutingTests {
         }
     }
 
-    @Test("Customized numbered-surface shortcut targets the focused Dock")
+    @Test("Customized previous and numbered-surface shortcuts target the focused Dock")
     @MainActor
-    func customizedNumberedSurfaceTargetsFocusedDock() async throws {
+    func customizedPreviousAndNumberedSurfaceTargetFocusedDock() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             try await Self.withHarness { harness in
-                _ = try #require(
+                let firstPanel = try #require(
                     harness.dock.newSurface(kind: .terminal, inPane: harness.rootPane, focus: true)
                 )
                 let secondPanel = try #require(
@@ -809,6 +810,11 @@ struct DockShortcutRoutingTests {
                 )
                 harness.dock.focusPanel(secondPanel)
                 let mainPanelBefore = harness.mainWorkspace.focusedPanelId
+
+                let previousShortcut = Self.customShortcut(key: "y")
+                KeyboardShortcutSettings.setShortcut(previousShortcut, for: .prevSurface)
+                #expect(Self.dispatch(previousShortcut, in: harness))
+                #expect(harness.dock.focusedPanelId == firstPanel)
 
                 let numberedShortcut = DockRoutingStoredShortcut(
                     key: "3",

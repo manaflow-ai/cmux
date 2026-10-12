@@ -105,6 +105,11 @@
       "vcpuMessage": "VM'leriniz zaten {pool} vCPU'nun {used} tanesini kullanıyor. Bu VM'nin {requested} vCPU'ya ihtiyacı var.",
       "upgradeAction": "Bir VM'yi duraklatın veya silin ya da Max'e yükseltin.",
       "action": "Bir VM'yi duraklatın veya silin."
+    },
+    "activeLimit": {
+      "counted": "Şu anda sayılanlar: {machines}. Duraklatılmış makineler sayılmaz.",
+      "provisioning": "{name} (hazırlanıyor)",
+      "separator": ", "
     }
   },
   "billingRecovery": {

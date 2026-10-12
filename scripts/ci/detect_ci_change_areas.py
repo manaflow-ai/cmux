@@ -1799,6 +1799,7 @@ RELEASE_BUILD_NEUTRAL_INPUTS = frozenset({
     "Resources/bin/cmux-hermes-sitecustomize.py",
     "Resources/bin/cmux-sudo",
     "Resources/bin/grok",
+    "Resources/bin/muse",
     "Resources/bin/open",
     "Resources/bin/start-cmux-profiling",
     "Resources/bin/submit-cmux-profile",

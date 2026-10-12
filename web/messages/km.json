@@ -105,6 +105,11 @@
       "vcpuMessage": "VM របស់អ្នកបានប្រើ vCPU {used} ក្នុងចំណោម {pool} រួចហើយ។ VM នេះត្រូវការ vCPU {requested}។",
       "upgradeAction": "ផ្អាក ឬលុប VM មួយ ឬដំឡើងទៅ Max។",
       "action": "ផ្អាក ឬលុប VM មួយ។"
+    },
+    "activeLimit": {
+      "counted": "កំពុងរាប់ឥឡូវ៖ {machines}។ ម៉ាស៊ីនដែលបានផ្អាកមិនត្រូវបានរាប់ទេ។",
+      "provisioning": "{name} (កំពុងរៀបចំ)",
+      "separator": ", "
     }
   },
   "billingRecovery": {

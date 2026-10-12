@@ -56,6 +56,70 @@ static bool cmux_test_process_output_released = false;
 static bool cmux_test_process_output_called_on_main = false;
 static void* cmux_test_process_output_target = NULL;
 
+typedef struct {
+    void* surface;
+    bool modes[8];
+} GhosttyRuntimeTestTerminalModes;
+
+static GhosttyRuntimeTestTerminalModes cmux_test_terminal_modes[32];
+static const int cmux_test_terminal_mode_numbers[8] = {
+    1000, 1002, 1003, 1004, 1005, 1006, 1015, 1016,
+};
+
+static GhosttyRuntimeTestTerminalModes* cmux_test_terminal_modes_for(void* surface) {
+    for (size_t index = 0; index < sizeof(cmux_test_terminal_modes) / sizeof(cmux_test_terminal_modes[0]); index++) {
+        if (cmux_test_terminal_modes[index].surface == surface) {
+            return &cmux_test_terminal_modes[index];
+        }
+    }
+    for (size_t index = 0; index < sizeof(cmux_test_terminal_modes) / sizeof(cmux_test_terminal_modes[0]); index++) {
+        if (cmux_test_terminal_modes[index].surface == NULL) {
+            cmux_test_terminal_modes[index].surface = surface;
+            memset(cmux_test_terminal_modes[index].modes, 0, sizeof(cmux_test_terminal_modes[index].modes));
+            return &cmux_test_terminal_modes[index];
+        }
+    }
+    return NULL;
+}
+
+static void cmux_test_terminal_modes_apply(void* surface, const char* data, uintptr_t len) {
+    GhosttyRuntimeTestTerminalModes* state = cmux_test_terminal_modes_for(surface);
+    if (state == NULL || data == NULL) return;
+    for (uintptr_t index = 0; index + 4 < len; index++) {
+        if ((unsigned char)data[index] != 0x1b
+            || data[index + 1] != '['
+            || data[index + 2] != '?') continue;
+        uintptr_t cursor = index + 3;
+        int mode = 0;
+        while (cursor < len && data[cursor] >= '0' && data[cursor] <= '9') {
+            mode = mode * 10 + (data[cursor] - '0');
+            cursor += 1;
+        }
+        if (cursor >= len || (data[cursor] != 'h' && data[cursor] != 'l')) continue;
+        for (size_t modeIndex = 0; modeIndex < sizeof(cmux_test_terminal_mode_numbers) / sizeof(cmux_test_terminal_mode_numbers[0]); modeIndex++) {
+            if (cmux_test_terminal_mode_numbers[modeIndex] == mode) {
+                state->modes[modeIndex] = data[cursor] == 'h';
+                break;
+            }
+        }
+        index = cursor;
+    }
+}
+
+void cmux_test_ghostty_surface_terminal_modes_reset(void *surface) {
+    GhosttyRuntimeTestTerminalModes* state = cmux_test_terminal_modes_for(surface);
+    if (state != NULL) memset(state->modes, 0, sizeof(state->modes));
+}
+
+bool cmux_test_ghostty_surface_terminal_mode_enabled(void *surface, int mode) {
+    GhosttyRuntimeTestTerminalModes* state = cmux_test_terminal_modes_for(surface);
+    if (state == NULL) return false;
+    for (size_t index = 0; index < sizeof(cmux_test_terminal_mode_numbers) / sizeof(cmux_test_terminal_mode_numbers[0]); index++) {
+        if (cmux_test_terminal_mode_numbers[index] == mode) return state->modes[index];
+    }
+    return false;
+}
+
 typedef void (*GhosttyRuntimeTestRenderPresentedCallback)(void*, uint64_t);
 typedef void (*GhosttyRuntimeTestRenderFailedCallback)(void*, uint64_t, int);
 typedef struct {
@@ -581,8 +645,7 @@ bool ghostty_surface_process_exited(void *surface) {
     return false;
 }
 void ghostty_surface_process_output(void *surface, const char *data, uintptr_t len) {
-    (void)data;
-    (void)len;
+    cmux_test_terminal_modes_apply(surface, data, len);
     pthread_mutex_lock(&cmux_test_process_output_mutex);
     if (cmux_test_process_output_should_block
         && surface == cmux_test_process_output_target) {
