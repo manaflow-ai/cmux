@@ -1,16 +1,20 @@
-// SCROLLBARS-FOLLOW-MACOS: every page follows the macOS "Show scroll bars" setting.
+// SCROLLBARS-THIN (was SCROLLBARS-FOLLOW-MACOS): every scrollbar in cmux is thin and shows only
+// while its element scrolls, whatever the macOS "Show scroll bars" setting (Leo 2026-10-12: "never a
+// permanent gray track").
 //
-// Native page scrolling (`overflow: auto`) already does: WebKit draws overlay scrollers that show
-// only while scrolling, or legacy ones for "Always". Pages never style the native scrollbar
-// (`scrollbar-width`, `scrollbar-color`, `::-webkit-scrollbar` make it a custom one that stays
-// visible) and never use `overflow: scroll`; scripts/cmux-next/check-scrollbars.sh enforces that.
+// Native page scrolling (`overflow: auto`) draws WebKit's overlay scrollers for "Automatically" and
+// "When scrolling", which already look that way. For "Always" WebKit draws a legacy bar with a gray
+// track; the host tells the page (the shared web theme, WebTheme.swift, sets
+// `data-scrollers="overlay" | "legacy"` on <html>) and `SCROLLER_ROOT_CSS` below draws a thin themed
+// thumb instead, on no track, shown while the element scrolls (`data-cmux-scrolling`, set by
+// `installScrollingMarks` or `markScrolling`) or while it is dragged. That rule is the only
+// scrollbar styling: pages never style the scrollbar themselves (`scrollbar-width`,
+// `scrollbar-color`, `::-webkit-scrollbar`) and never use `overflow: scroll`;
+// scripts/cmux-next/check-scrollbars.sh enforces that.
 //
 // Libraries that draw their own scrollers (Monaco; the @pierre/diffs code rows and the
-// @pierre/trees list show theirs on hover) follow the host's answer instead: the shared web theme
-// (WebTheme.swift) sets `data-scrollers="overlay" | "legacy"` on <html>. Overlay: the scroller is
-// hidden at rest and while the pointer only hovers, and shows while the element scrolls
-// (`data-cmux-scrolling`, set by `installScrollingMarks` or `markScrolling`). Legacy: it shows
-// whenever the content overflows.
+// @pierre/trees list show theirs on hover) follow the same rule: hidden at rest and while the
+// pointer only hovers, shown while the element scrolls.
 
 export type ScrollerStyle = "overlay" | "legacy";
 
@@ -113,26 +117,26 @@ export function installScrollingMarks(document: Document, timers: ScrollTimers =
  * editor; `MONACO_SCROLLER_CSS` hides it then for overlay. Its overview ruler border and cursor
  * mark read as a scrollbar track at rest, so both are off.
  */
-export function monacoScrollerOptions(style: ScrollerStyle): {
+export function monacoScrollerOptions(_style: ScrollerStyle): {
   scrollbar: { vertical: "auto" | "visible"; horizontal: "auto" | "visible"; useShadows: boolean };
   overviewRulerBorder: boolean;
   hideCursorInOverviewRuler: boolean;
 } {
-  const visibility = style === "legacy" ? "visible" : "auto";
+  // "Always" too: no bar at rest (SCROLLBARS-THIN).
   return {
-    scrollbar: { vertical: visibility, horizontal: visibility, useShadows: false },
+    scrollbar: { vertical: "auto", horizontal: "auto", useShadows: false },
     overviewRulerBorder: false,
     hideCursorInOverviewRuler: true,
   };
 }
 
 /**
- * Overlay: Monaco's slider shows only while the editor scrolls (the page marks the editor's node
+ * Monaco's slider shows only while the editor scrolls (the page marks the editor's node
  * with `markScrolling` on every scroll change), while it is dragged, or while the pointer is on
  * the scrollbar itself, where AppKit reveals an overlay scroller too.
  */
 export const MONACO_SCROLLER_CSS = `
-html:not([data-scrollers="legacy"]) .monaco-editor:not([${SCROLLING_ATTRIBUTE}]) .monaco-scrollable-element > .scrollbar:not(:hover) > .slider:not(.active) {
+.monaco-editor:not([${SCROLLING_ATTRIBUTE}]) .monaco-scrollable-element > .scrollbar:not(:hover) > .slider:not(.active) {
   opacity: 0;
   transition: opacity 0.4s;
 }
@@ -140,9 +144,8 @@ html:not([data-scrollers="legacy"]) .monaco-editor:not([${SCROLLING_ATTRIBUTE}])
 
 /**
  * Appended to every @pierre/diffs `unsafeCSS`. The library's code rows have a custom horizontal
- * scrollbar whose thumb shows on hover; here it shows while the row scrolls, and at rest only for
- * "Always" (`--cmux-scroller-rest`, from `SCROLLER_ROOT_CSS`; custom properties cross the shadow
- * root).
+ * scrollbar whose thumb shows on hover; here it shows only while the row scrolls
+ * (`--cmux-scroller-rest` is unset: nothing at rest).
  */
 export const PIERRE_DIFFS_SCROLLER_CSS = `
 [data-code]::-webkit-scrollbar-thumb,
@@ -165,10 +168,36 @@ export const PIERRE_TREES_SCROLLER_CSS = `
 }
 `;
 
-/** The document rules behind the library rules above. */
+/**
+ * The one scrollbar style, for "Always" (WebKit draws overlay scrollers otherwise): a thin thumb in
+ * the theme's text color (`--cmux-scroller-thumb`), on no track, hidden at rest and shown while the
+ * element scrolls, while its thumb is dragged or under the pointer (where AppKit reveals an overlay
+ * scroller too).
+ */
 export const SCROLLER_ROOT_CSS = `
-html[data-scrollers="legacy"] {
-  --cmux-scroller-rest: color-mix(in srgb, currentColor 30%, transparent);
+:root {
+  --cmux-scroller-size: 8px;
+  --cmux-scroller-thumb: color-mix(in srgb, currentColor 38%, transparent);
+}
+html[data-scrollers="legacy"] ::-webkit-scrollbar {
+  width: var(--cmux-scroller-size);
+  height: var(--cmux-scroller-size);
+  background: transparent;
+}
+html[data-scrollers="legacy"] ::-webkit-scrollbar-track,
+html[data-scrollers="legacy"] ::-webkit-scrollbar-corner {
+  background: transparent;
+}
+html[data-scrollers="legacy"] ::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: var(--cmux-scroller-size);
+  background: transparent padding-box;
+}
+html[data-scrollers="legacy"] [${SCROLLING_ATTRIBUTE}]::-webkit-scrollbar-thumb,
+html[data-scrollers="legacy"][${SCROLLING_ATTRIBUTE}]::-webkit-scrollbar-thumb,
+html[data-scrollers="legacy"] ::-webkit-scrollbar-thumb:hover,
+html[data-scrollers="legacy"] ::-webkit-scrollbar-thumb:active {
+  background-color: var(--cmux-scroller-thumb);
 }
 `;
 

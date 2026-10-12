@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-scrollbars.sh (SCROLLBARS-FOLLOW-MACOS): forced scroller styles, hidden
+# check-scrollbars.sh (SCROLLBARS-THIN): forced scroller styles, hidden
 # indicators and custom web scrollbars fail the gate; following the system and
 # CSS comments pass.
 set -euo pipefail

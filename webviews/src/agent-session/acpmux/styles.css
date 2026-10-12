@@ -512,7 +512,6 @@ fieldset.acpmux-question{display:flex;flex-direction:column;gap:10px;margin:0;mi
   border: 1px solid var(--ui-line, color-mix(in srgb, var(--agent-text) 12%, transparent));
   background-color: var(--surface-popup);
   box-shadow: var(--ui-popup-shadow);
-  scrollbar-width: thin;
 }
 
 .acpmux-menu,

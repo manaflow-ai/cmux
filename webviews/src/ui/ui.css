@@ -62,7 +62,6 @@
   outline: none;
   /* Base UI's positioner names the side the popup grows from. */
   transform-origin: var(--transform-origin);
-  scrollbar-width: thin;
 }
 
 /* A menu may own a submenu. Let the safe-triangle bridge extend beyond the parent surface;

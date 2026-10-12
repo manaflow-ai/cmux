@@ -18,7 +18,7 @@ public final class TerminalHostView: NSView {
     }
     /// Shown over the last screen while the link is down (click-through).
     private let banner = TerminalStatusBanner()
-    /// The scroller, per the macOS "Show scroll bars" setting (SCROLLBARS-FOLLOW-MACOS).
+    /// The scroller: thin, shown only while scrolling (SCROLLBARS-THIN).
     private let scroller = TerminalScroller()
     private var shownStatus: TerminalConnectionStatus = .connected
     private var hostLoss: TerminalHostLoss?

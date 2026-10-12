@@ -1,16 +1,12 @@
 import AppKit
 import CmuxNextDesign
 
-/// The terminal's scroller (SCROLLBARS-FOLLOW-MACOS), from Ghostty's scrollbar action
-/// (`TerminalScrollbar`: total, offset and visible rows). It follows the macOS "Show scroll bars"
-/// setting through ``SystemScrollers``:
-/// - overlay ("When scrolling", or "Automatically" with a trackpad): hidden at rest, shown while
-///   the viewport moves through the scrollback (wheel, keyboard, search), never for output that
-///   only follows the bottom. It takes no clicks, so the last column stays the terminal's.
-/// - legacy ("Always"): shown in its own strip whenever there is scrollback (no empty track when
-///   everything fits); the host always narrows the surface by ``reservedWidth`` so no cell sits
-///   under it and the grid does not resize when scrollback appears. Dragging it scrolls the
-///   terminal.
+/// The terminal's scroller (SCROLLBARS-THIN), from Ghostty's scrollbar action
+/// (`TerminalScrollbar`: total, offset and visible rows). Like every scroller in cmux it is an
+/// overlay one whatever the macOS "Show scroll bars" setting (``SystemScrollers/nativeStyle``):
+/// hidden at rest, shown while the viewport moves through the scrollback (wheel, keyboard,
+/// search), never for output that only follows the bottom. It takes no clicks, so the last column
+/// stays the terminal's. (The legacy branches below stay for a style a test sets.)
 ///
 /// It is an NSScrollView over an empty document whose height stands for the scrollback, so
 /// AppKit draws and animates a native scroller in either style.
@@ -38,9 +34,10 @@ final class TerminalScroller: NSScrollView {
         contentView.drawsBackground = false
         contentView.postsBoundsChangedNotifications = true
         documentView = document
-        apply(SystemScrollers.preferredStyle)
-        SystemScrollers.observe(self) { [weak self] style in
-            self?.apply(style)
+        apply(SystemScrollers.nativeStyle)
+        // AppKit resets a scroll view's style when the setting changes.
+        SystemScrollers.observe(self) { [weak self] _ in
+            self?.apply(SystemScrollers.nativeStyle)
             self?.onStyleChange?()
         }
         // queue: .main runs inline for the clip view's post on main (a drag scrolls in order).

@@ -64,7 +64,7 @@ final class StripScrollbarView: NSView {
 
     /// The mode applied now: `system` resolved against the macOS scroller style.
     private static func applied(_ mode: StripScrollbarMode) -> StripScrollbarMode {
-        mode.resolved(legacyScrollers: SystemScrollers.preferredStyle == .legacy)
+        mode.resolved(legacyScrollers: SystemScrollers.nativeStyle == .legacy)
     }
     /// The mode the last `update` applied (a style change compares against it).
     private var appliedMode: StripScrollbarMode?
