@@ -335,3 +335,45 @@ test("on a New Tab, GPT-6 Astra from Claude Code starts Codex on GPT-6 Astra", a
     deferred: true,
   });
 });
+
+test("each provider lists its curated models first; the rest fold under More models, and search reaches all", async () => {
+  await mount({ harness: "claude" });
+  await act(async () => {
+    host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
+  });
+  const names = () => rows().map((row) => row.querySelector(".acpmux-menu-label")!.textContent);
+  expect(names()).toEqual(["Fable 5.1", "Opus 5.5", "Sonnet 5.5", "Haiku 5.5"]);
+  const more = host.querySelector<HTMLButtonElement>(".acpmux-mp-older")!;
+  expect(more.textContent).toContain("More models");
+  await act(async () => more.click());
+  expect(names()).toContain("Opus 4.8");
+  await openOn("Codex");
+  await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-mp-older")!.click());
+  expect(names().slice(0, 3)).toEqual(["GPT-6.1 Sol", "GPT-6 Astra", "GPT-6 Luna"]);
+  const search = host.querySelector<HTMLInputElement>('.acpmux-mp input[role="combobox"]')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(search, "opus 4.6");
+    search.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  });
+  expect(names()).toContain("Opus 4.6");
+});
+
+test("hovering a provider in the rail keeps the list; a click switches it", async () => {
+  await mount({ harness: "claude" });
+  await act(async () => {
+    host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
+  });
+  const first = () => rows()[0]?.dataset.key;
+  expect(first()).toBe("model:claude-fable-5-1");
+  const codex = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")].find(
+    (button) => button.title.split(" · ")[0] === "Codex",
+  )!;
+  await act(async () => {
+    codex.dispatchEvent(new dom.window.PointerEvent("pointerover", { bubbles: true }));
+    codex.dispatchEvent(new dom.window.PointerEvent("pointerenter", { bubbles: false }));
+    codex.dispatchEvent(new dom.window.MouseEvent("mouseover", { bubbles: true }));
+  });
+  expect(first()).toBe("model:claude-fable-5-1");
+  await act(async () => codex.click());
+  expect(first()).toBe("model:gpt-6.1-sol");
+});
