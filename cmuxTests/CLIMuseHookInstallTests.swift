@@ -58,10 +58,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
             let commands = museHookCommands(in: hooks, event: event)
             XCTAssertEqual(commands.count, 1, "\(event): \(commands)")
             let command = try XCTUnwrap(commands.first?["command"] as? String)
-            XCTAssertTrue(command.contains("hooks enqueue muse \(subcommand)"), "\(event): \(command)")
-            XCTAssertTrue(command.contains("cmux-muse-hook-v1"), "\(event): \(command)")
-            XCTAssertTrue(command.contains("--socket '\(socketPath)'"), "\(event): \(command)")
-            XCTAssertFalse(command.contains("[ -n \"$CMUX_SURFACE_ID\" ]"), "Muse clears CMUX_* from hooks: \(command)")
+            // Muse runs hooks with the user's login shell, so the installed
+            // command is only a quoted script path that fish and nushell parse too.
+            XCTAssertTrue(command.hasPrefix("'/"), "\(event): \(command)")
+            XCTAssertTrue(command.hasSuffix("' cmux-muse-hook-v1 \(subcommand)"), "\(event): \(command)")
+            let scriptPath = String(command.dropFirst().prefix { $0 != "'" })
+            XCTAssertTrue(scriptPath.contains("/.cmux/hooks/muse/"), "\(event): \(scriptPath)")
+            XCTAssertTrue(FileManager.default.isExecutableFile(atPath: scriptPath), scriptPath)
+            let script = try String(contentsOfFile: scriptPath, encoding: .utf8)
+            XCTAssertTrue(script.hasPrefix("#!/bin/sh\n"), script)
+            XCTAssertTrue(script.contains("hooks enqueue muse \(subcommand)"), "\(event): \(script)")
+            XCTAssertTrue(script.contains("cmux-muse-hook-v1"), "\(event): \(script)")
+            XCTAssertTrue(script.contains("--socket '\(socketPath)'"), "\(event): \(script)")
+            XCTAssertFalse(script.contains("[ -n \"$CMUX_SURFACE_ID\" ]"), "Muse clears CMUX_* from hooks: \(script)")
             XCTAssertEqual(commands.first?["type"] as? String, "command")
             // Muse follows the Claude Code hook contract, which counts timeouts in seconds.
             XCTAssertEqual(commands.first?["timeout"] as? Int, 10, event)
