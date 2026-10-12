@@ -4,36 +4,28 @@
 
 use super::*;
 
-fn program_status(harness: &RecoveryHarness, terminal_id: &str, id: &str) -> serde_json::Value {
+/// `extra.program_status` of the harness's only terminal.
+fn program_status(harness: &RecoveryHarness) -> serde_json::Value {
     let terminals = resource_request(
         &harness.socket,
-        id,
+        "program-status-list",
         "terminal.list",
         serde_json::json!({"machine":"current","session":"current"}),
         None,
     );
-    terminals
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|terminal| terminal["id"] == terminal_id)
-        .unwrap_or_else(|| panic!("terminal {terminal_id} is not listed: {terminals}"))["extra"]
-        ["program_status"]
-        .clone()
+    let terminals = terminals.as_array().unwrap();
+    assert_eq!(terminals.len(), 1, "expected one terminal: {terminals:?}");
+    terminals[0]["extra"]["program_status"].clone()
 }
 
-fn wait_for_program_status(
-    harness: &RecoveryHarness,
-    terminal_id: &str,
-    records: usize,
-) -> serde_json::Value {
+fn wait_for_program_status(harness: &RecoveryHarness, records: usize) -> serde_json::Value {
     let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
     loop {
-        let status = program_status(harness, terminal_id, "program-status-list");
+        let status = program_status(harness);
         if status.as_array().is_some_and(|list| list.len() == records) {
             return status;
         }
-        assert!(Instant::now() < deadline, "program status never showed {records} records: {status}");
+        assert!(Instant::now() < deadline, "never {records} program status records: {status}");
         std::thread::sleep(Duration::from_millis(50));
     }
 }
@@ -66,7 +58,7 @@ fn program_status_records_survive_a_daemon_restart() {
     let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
     let incarnation = created["terminal_incarnation"].as_str().unwrap().to_string();
     assert!(wait_for_screen(&harness.socket, surface, "reported").contains("reported"));
-    let before = wait_for_program_status(&harness, &terminal_id, 2);
+    let before = wait_for_program_status(&harness, 2);
     assert_eq!(before[1]["state"], "blocked", "{before}");
     wait_for_host_records(&harness.host_root(), 1);
 
@@ -90,7 +82,7 @@ fn program_status_records_survive_a_daemon_restart() {
 
     // Every field comes back, `updated_seq` too: clients compare it with the
     // last one they saw, so a reset would show old alerts as new.
-    let after = wait_for_program_status(&harness, &terminal_id, 2);
+    let after = wait_for_program_status(&harness, 2);
     assert_eq!(after, before, "program status changed across the restart");
 
     request(
