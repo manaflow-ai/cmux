@@ -277,6 +277,7 @@ def changelog_shots(sock, out, phase, log, action, popover):
         rpc(sock, "debug.update_surfaces", {"action": "sidebar-width", "width": previous})
     shots["open"] = rpc(sock, "debug.update_surfaces", {"action": action}).get("result")
     time.sleep(3.0)  # capture timing only: the page loads the notes list and the newest notes
+    shots["windows"] = rpc(sock, "debug.window_list").get("result", {}).get("windows", [])
     shots.update(surface_shots(sock, out, f"{phase}-changelog", log, popover=False))
     return shots
 
