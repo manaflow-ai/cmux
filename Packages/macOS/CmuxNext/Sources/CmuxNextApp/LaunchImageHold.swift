@@ -31,6 +31,11 @@ final class LaunchImageHold {
         for work in waiting { work() }
     }
 
+    /// Returns once no agent page waits behind its last frame (at once when none does).
+    func clear() async {
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in whenClear { done.resume() } }
+    }
+
     /// Runs `work` once no launch image is shown (at once when none is).
     func whenClear(_ work: @escaping @MainActor () -> Void) {
         guard shown > 0 else { return work() }
