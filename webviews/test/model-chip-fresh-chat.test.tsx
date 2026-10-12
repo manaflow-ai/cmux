@@ -78,13 +78,16 @@ afterAll(() => {
   }
 });
 
-/// A chat on `harness` whose session has not reported a model yet: the summary names its agent only.
-async function mountFresh(harness: string) {
+/// A chat on `harness` whose session has not reported a model yet: the summary names its agent
+/// only (`summary` adds to it). Returns the name of the model a New Tab on `harness` asks the chat
+/// to start on (`newTabStart`, `useNewTabChipModel`), for the same storage and catalogs.
+async function mountChat(harness: string, summary: Record<string, unknown> = {}) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { ComposerPickers } = await import("../src/agent-session/acpmux/ComposerPickers");
   const { usePickerCatalog } = await import("../src/agent-session/acpmux/modelCatalogHost");
   const { BUNDLED_MODEL_CATALOG } = await import("../src/agent-session/acpmux/modelCatalogData");
+  const { newTabStart, useNewTabChipModel } = await import("../src/agent-session/acpmux/newtab/chipDefaults");
   type Snapshot = import("../src/agent-session/acpmux/model").AcpmuxSnapshot;
   const catalog = BUNDLED_MODEL_CATALOG.harnesses.map((entry) => ({
     id: entry.id,
@@ -92,7 +95,7 @@ async function mountFresh(harness: string) {
     family: entry.families[0],
     models: entry.models.map((model) => ({ id: model.id, name: model.name })),
   })) as Snapshot["catalog"];
-  const snapshot = {
+  const bare = {
     type: "snapshot",
     protocolVersion: 1,
     rows: [],
@@ -102,10 +105,13 @@ async function mountFresh(harness: string) {
     queue: [],
     canLoadOlder: false,
     catalog,
-    summary: { sessionId: "", harness, turnCount: 0 },
   } as Snapshot;
+  const snapshot = { ...bare, summary: { sessionId: "", harness, turnCount: 0, ...summary } } as Snapshot;
+  const newTab = newTabStart(bare, [{ id: harness, name: harness }], harness, undefined).snapshot;
+  let asked: string | undefined;
   function Host() {
     const picker = usePickerCatalog(snapshot.catalog, { harness });
+    asked = useNewTabChipModel(newTab);
     return (
       <ComposerPickers
         snapshot={snapshot}
@@ -127,15 +133,34 @@ async function mountFresh(harness: string) {
     );
   });
   const entry = BUNDLED_MODEL_CATALOG.harnesses.find((candidate) => candidate.id === harness)!;
-  return entry.models.find((model) => model.id === entry.defaultModel)!.name;
+  expect(asked).toBeDefined();
+  return entry.models.find((model) => model.id === asked)?.name ?? asked;
 }
 
 const chip = () => host.querySelector(".acpmux-model-name")?.textContent ?? "";
 
 // Dogfood run 5 (cx-21jvw): a chat started from a New Tab read "Model" on its chip until the
-// session reported Opus 5.5. Before that, the chip names the model the chat starts on, as the New
-// Tab chip does (cx-e2aa): the agent's default from the model catalog, never a bare "Model".
-test("a fresh chat's model chip names the model it starts on before the session reports", async () => {
-  const starts = await mountFresh("claude");
-  expect(chip()).toBe(starts);
+// session reported Opus 5.5. Before that, the chip names the model the New Tab started it on
+// (cx-e2aa's chip rule), never a bare "Model" or another model.
+test("a fresh chat's model chip names the model its New Tab started it on", async () => {
+  const asked = await mountChat("claude");
+  expect(chip()).toBe(asked!);
+});
+
+test("after a pick, a fresh chat's chip names the picked model, as the New Tab asked", async () => {
+  const { rememberPick } = await import("../src/agent-session/acpmux/lastPick");
+  rememberPick({ harness: "codex", model: "gpt-5.5" });
+  const asked = await mountChat("codex");
+  expect(chip()).toBe(asked!);
+  expect(chip()).not.toBe("Model");
+});
+
+// A chat that already ran turns, or runs on another machine, may run a model other than this
+// Mac's start rule names: its chip waits for the session rather than guess.
+test("a resumed or remote chat's chip does not guess a model", async () => {
+  await mountChat("claude", { sessionId: "s-old", turnCount: 3 });
+  expect(chip()).toBe("Model");
+  act(() => root?.unmount());
+  await mountChat("claude", { host: "devbox" });
+  expect(chip()).toBe("Model");
 });
