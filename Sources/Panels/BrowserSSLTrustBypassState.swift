@@ -13,10 +13,18 @@ import Security
 final class BrowserSSLTrustBypassState {
     private static let replayableWithoutBodyMethods: Set<String> = ["GET", "HEAD"]
 
+    private enum ObservedServerTrust {
+        case trust(SecTrust)
+        case fingerprint(BrowserServerTrustFingerprint)
+    }
+
     private var bypassedTrusts: Set<BrowserSSLTrustGrant> = []
     private var bypassedTrustOrder: [BrowserSSLTrustGrant] = []
-    private var observedFingerprints: [BrowserSSLTrustScope: BrowserServerTrustFingerprint] = [:]
-    private var observedFingerprintOrder: [BrowserSSLTrustScope] = []
+    /// Trusts are kept unhashed: fingerprinting evaluates the trust, a
+    /// synchronous trustd round trip on the main thread (#19726), so only the
+    /// error page's bypass offer pays for it.
+    private var observedTrusts: [BrowserSSLTrustScope: ObservedServerTrust] = [:]
+    private var observedTrustOrder: [BrowserSSLTrustScope] = []
     private var pendingBypasses: [String: BrowserPendingSSLTrustBypass] = [:]
     private var pendingTokenOrder: [String] = []
     private let tokenLifetime: TimeInterval
@@ -50,21 +58,35 @@ final class BrowserSSLTrustBypassState {
     }
 
     func recordObservedServerTrust(_ trust: SecTrust, for protectionSpace: URLProtectionSpace) {
-        guard let scope = BrowserSSLTrustScope(protectionSpace: protectionSpace),
-              let fingerprint = fingerprintServerTrust(trust) else {
-            return
-        }
-        recordObservedServerTrustFingerprint(fingerprint, for: scope)
+        guard let scope = BrowserSSLTrustScope(protectionSpace: protectionSpace) else { return }
+        recordObservedServerTrust(.trust(trust), for: scope)
     }
 
     func recordObservedServerTrustFingerprint(
         _ fingerprint: BrowserServerTrustFingerprint,
         for scope: BrowserSSLTrustScope
     ) {
-        observedFingerprints[scope] = fingerprint
-        observedFingerprintOrder.removeAll { $0 == scope }
-        observedFingerprintOrder.append(scope)
-        enforceObservedFingerprintLimit()
+        recordObservedServerTrust(.fingerprint(fingerprint), for: scope)
+    }
+
+    private func recordObservedServerTrust(_ observed: ObservedServerTrust, for scope: BrowserSSLTrustScope) {
+        observedTrusts[scope] = observed
+        observedTrustOrder.removeAll { $0 == scope }
+        observedTrustOrder.append(scope)
+        enforceObservedTrustLimit()
+    }
+
+    private func observedFingerprint(for scope: BrowserSSLTrustScope) -> BrowserServerTrustFingerprint? {
+        switch observedTrusts[scope] {
+        case .fingerprint(let fingerprint):
+            return fingerprint
+        case .trust(let trust):
+            guard let fingerprint = fingerprintServerTrust(trust) else { return nil }
+            observedTrusts[scope] = .fingerprint(fingerprint)
+            return fingerprint
+        case nil:
+            return nil
+        }
     }
 
     func isBypassed(protectionSpace: URLProtectionSpace, serverTrust: SecTrust) -> Bool {
@@ -87,7 +109,7 @@ final class BrowserSSLTrustBypassState {
         guard isBypassAllowed() else { return nil }
         guard let url = request.url,
               let scope = BrowserSSLTrustScope(url: url),
-              let fingerprint = observedFingerprints[scope],
+              let fingerprint = observedFingerprint(for: scope),
               canRetainRequestForReplay(request) else {
             return nil
         }
@@ -114,7 +136,7 @@ final class BrowserSSLTrustBypassState {
 
     func beginObservingServerTrustForNavigation() {
         clearPendingBypasses()
-        clearObservedServerTrustFingerprints()
+        clearObservedServerTrusts()
     }
 
     func hasPendingBypassToken(_ token: String) -> Bool {
@@ -160,14 +182,14 @@ final class BrowserSSLTrustBypassState {
 
     func clearAllTrustState() {
         clearPendingBypasses()
-        clearObservedServerTrustFingerprints()
+        clearObservedServerTrusts()
         bypassedTrusts.removeAll()
         bypassedTrustOrder.removeAll()
     }
 
-    private func clearObservedServerTrustFingerprints() {
-        observedFingerprints.removeAll()
-        observedFingerprintOrder.removeAll()
+    private func clearObservedServerTrusts() {
+        observedTrusts.removeAll()
+        observedTrustOrder.removeAll()
     }
 
     private func purgeExpiredPendingBypasses(now currentDate: Date) {
@@ -182,10 +204,10 @@ final class BrowserSSLTrustBypassState {
         }
     }
 
-    private func enforceObservedFingerprintLimit() {
-        while observedFingerprintOrder.count > maximumPendingBypassCount {
-            let scope = observedFingerprintOrder.removeFirst()
-            observedFingerprints.removeValue(forKey: scope)
+    private func enforceObservedTrustLimit() {
+        while observedTrustOrder.count > maximumPendingBypassCount {
+            let scope = observedTrustOrder.removeFirst()
+            observedTrusts.removeValue(forKey: scope)
         }
     }
 
