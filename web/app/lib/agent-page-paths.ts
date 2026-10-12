@@ -263,6 +263,7 @@ export const agentReadablePages = [
   { path: "/wall-of-love", title: "Wall of Love" },
   { path: "/nightly", title: "Nightly" },
   { path: "/assets", title: "Brand Assets" },
+  { path: "/art", title: "Art" },
   { path: "/guides", title: "Guides" },
   { path: "/compare", title: "Compare cmux" },
   ...agentReadableComparePages,

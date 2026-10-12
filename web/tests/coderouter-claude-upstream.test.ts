@@ -379,6 +379,25 @@ describe("claude upstream routes", () => {
     });
   const params = (accountId: string) => ({ params: Promise.resolve({ accountId }) });
 
+  test("an organization import with no visibility is shared; a personal one stays private", async () => {
+    const visibilityFor = async (teamId: string, body: Record<string, unknown>) => {
+      const { service: svc } = service();
+      const add = mock(svc.add);
+      const { collection } = { collection: makeClaudeUpstreamHandlers({
+        resolveUsageTeam: mock(async () => ({ ok: true as const, teamId, stackUserId: "user_1" })) as never,
+        resolveContext: mock(async () => ({ ...context, value: { ...context.value, team: { ...context.value.team, teamId } } })) as never,
+        list: svc.list,
+        add: add as never,
+        removeAll: svc.removeAll,
+      }) };
+      expect((await collection.POST(json("POST", { kind: "anthropic_api_key", apiKey: API_KEY, ...body }))).status).toBe(201);
+      return (add.mock.calls[0] as unknown[])[3];
+    };
+    expect(await visibilityFor("team_1", {})).toBe("team");
+    expect(await visibilityFor("user_1", {})).toBe("private");
+    expect(await visibilityFor("team_1", { visibility: "private" })).toBe("private");
+  });
+
   test("requires manage permission for writes", async () => {
     const { collection, single } = handlers({ manage: false });
     expect((await collection.POST(json("POST", { kind: "anthropic_api_key", apiKey: API_KEY }))).status).toBe(403);

@@ -37,14 +37,17 @@ extension AppDelegate {
         let selection = manager.rememberedCloudWorkspaceSelection
         let revision = manager.cloudWorkspaceSelection.revision
         let windowID = context.windowId
-        // Hold the window context weakly: it owns the TabManager strongly, and a
-        // create in flight must not keep a closed window's manager alive.
-        return operationController.start(key: "new-cloud-workspace.resolved.\(windowID.uuidString)") { [weak self, weak manager, weak context] in
-            let fallbackToNewMachine: @MainActor () -> Void = { [weak self, weak manager, weak context] in
+        // Hold the manager weakly so a create in flight does not keep a closed
+        // window's manager alive.
+        return operationController.start(key: "new-cloud-workspace.resolved.\(windowID.uuidString)") { [weak self, weak manager] in
+            let fallbackToNewMachine: @MainActor () -> Void = { [weak self, weak manager] in
                 guard let self, !Task.isCancelled else { return }
+                let fallbackWindow = self.mainWindowContexts.values
+                    .first(where: { $0.windowId == windowID })
+                    .flatMap { self.resolvedWindow(for: $0) }
                 _ = self.performNewCloudMachineAction(
                     tabManager: manager,
-                    preferredWindow: context.flatMap { self.resolvedWindow(for: $0) },
+                    preferredWindow: fallbackWindow,
                     debugSource: "\(debugSource).fallback"
                 )
             }
@@ -140,10 +143,16 @@ extension AppDelegate {
               tabManagerFor(windowId: windowID) === manager,
               cloudWorkspaceCreationFocusWindow(windowID: windowID) != nil,
               let workspace = manager.workspacesById[workspaceID] else { return nil }
-        // Cmd-Y selects its pre-admitted reservation itself, which advances the
-        // selection revision. A workspace that is still selected was not
-        // navigated away from, so it keeps its reveal.
-        if manager.selectedTabId == workspace.id { return workspace }
+
+        // Admission selects the loading workspace before provider lookup. That
+        // intentional selection advances the navigation fence once; accept it
+        // only when it is exactly that admission revision. A later away/back
+        // navigation leaves the same workspace selected but has a newer fence,
+        // so it still withdraws the reveal instead of stealing focus.
+        if manager.selectedTabId == workspaceID {
+            guard manager.cloudWorkspaceSelection.revision == revision &+ 1 else { return nil }
+            return workspace
+        }
         guard manager.cloudWorkspaceSelection.revision == revision else { return nil }
         manager.selectWorkspace(workspace)
         return manager.selectedTabId == workspace.id ? workspace : nil

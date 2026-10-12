@@ -9,7 +9,7 @@ extension Workspace {
     /// Called from every Bonsplit layout callback. Changes this workspace makes while
     /// applying the machine's own layout are programmatic and are not echoed back.
     func cloudLayoutDidChange() {
-        guard !isProgrammaticSplit, !isRemoteTmuxMirror,
+        guard !isProgrammaticSplit, !isRemoteTmuxMirror, pendingCloudBrowserPanelIDs.isEmpty,
               let binding = cloudVMBinding, let remoteWorkspaceID = binding.remoteWorkspaceID else { return }
         let machine = SurfaceMachineID(rawValue: binding.vmID)
         let catalog = SurfaceCatalog.shared

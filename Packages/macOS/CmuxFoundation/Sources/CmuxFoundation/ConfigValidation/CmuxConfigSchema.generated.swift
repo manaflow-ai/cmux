@@ -189,6 +189,22 @@ enum CmuxEmbeddedConfigSchema {
         }
       }
     },
+    "windowHints": {
+      "x-cmux-scopes": ["global"],
+      "title": "windowHints",
+      "description": "Click by Hint (hint mode) settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "beta": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": false, "description": "Preview: Cmd-J labels every clickable control in the window, and typing a label clicks it." }
+          }
+        }
+      }
+    },
     "cloud": {
       "x-cmux-scopes": ["global"],
       "title": "cloud",
@@ -223,6 +239,13 @@ enum CmuxEmbeddedConfigSchema {
           "additionalProperties": false,
           "properties": {
             "enabled": { "type": "boolean", "default": false, "description": "Enable remote tmux mirroring." },
+            "newWorkspaceOnHost": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean", "default": false, "descriptionKey": "schemaDescriptions.remoteTmux.beta.newWorkspaceOnHost.enabled", "description": "With a remote tmux workspace selected, New Workspace starts a tmux session on that workspace's host." }
+              }
+            },
             "originColors": {
               "type": "object",
               "additionalProperties": false,
@@ -2505,6 +2528,7 @@ enum CmuxEmbeddedConfigSchema {
               "quit",
               "toggleSidebar",
               "newTab",
+              "newLocalWorkspace",
               "newBrowserWorkspace",
               "newCloudWorkspace",
               "newCloudMachine",

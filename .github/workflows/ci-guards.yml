@@ -605,6 +605,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_merge_receipt.py
 
+      - name: Validate the feat-cmux-next PR merge-tree publisher
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_next_pr_merge_tree.py
+
       - name: Validate merge-main's green base and guard failure labels
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_merge_main.py

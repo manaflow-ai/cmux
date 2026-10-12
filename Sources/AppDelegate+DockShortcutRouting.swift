@@ -37,7 +37,6 @@ extension KeyboardShortcutSettings.Action {
         DockShortcutRoutingDisposition {
         switch self {
         case .triggerFlash,
-             .nextSurface, .prevSurface,
              .moveSurfaceLeft, .moveSurfaceRight,
              .moveSurfaceToPreviousPane, .moveSurfaceToNextPane,
              .moveSurfaceToPaneLeft, .moveSurfaceToPaneRight,
@@ -99,7 +98,7 @@ extension KeyboardShortcutSettings.Action {
         case .openSettings, .openTeamPicker, .reloadConfiguration,
              .showHideAllWindows, .globalSearch,
              .newWindow, .closeWindow, .toggleFullScreen, .quit,
-             .toggleSidebar, .focusSidebar, .showWindowHints, .newTab, .newBrowserWorkspace, .newCloudWorkspace, .newCloudMachine,
+             .toggleSidebar, .focusSidebar, .showWindowHints, .newTab, .newLocalWorkspace, .newBrowserWorkspace, .newCloudWorkspace, .newCloudMachine,
              .saveLayoutTemplate, .openFolder,
              .reopenPreviousSession, .goToWorkspace,
              .commandPalette, .agentInbox, .sendFeedback,
@@ -114,6 +113,7 @@ extension KeyboardShortcutSettings.Action {
              .switchRightSidebarToDock,
              .switchRightSidebarToMachines,
              .nextSidebarTab, .prevSidebarTab,
+             .nextSurface, .prevSurface,
              .nextSidebarTabInGroup, .prevSidebarTabInGroup,
              .moveWorkspaceUp, .moveWorkspaceDown,
              .selectWorkspaceByNumber,
