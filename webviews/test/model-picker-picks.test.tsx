@@ -78,7 +78,7 @@ afterAll(() => {
   }
 });
 
-type Sent = { method: "model" | "harness"; value: string };
+type Sent = { method: "model" | "harness" | "effort"; value: string };
 
 async function mount(start: { harness: string }) {
   const { createRoot } = await import("react-dom/client");
@@ -97,7 +97,12 @@ async function mount(start: { harness: string }) {
   const sent: Sent[] = [];
   let session = 0;
   function Host() {
-    const [state, setState] = useState({ sessionId: `s${session}`, harness: start.harness, model: "default" });
+    const [state, setState] = useState({
+      sessionId: `s${session}`,
+      harness: start.harness,
+      model: "default",
+      effort: "medium",
+    });
     const snapshot: Snapshot = {
       type: "snapshot",
       protocolVersion: 1,
@@ -108,7 +113,21 @@ async function mount(start: { harness: string }) {
       queue: [],
       canLoadOlder: false,
       catalog: acpmux,
-      summary: { sessionId: state.sessionId, harness: state.harness, model: state.model, turnCount: 1 },
+      summary: {
+        sessionId: state.sessionId,
+        harness: state.harness,
+        model: state.model,
+        turnCount: 1,
+        configOptions: [
+          {
+            id: "effort",
+            name: "Effort",
+            category: "thought_level",
+            currentValue: state.effort,
+            options: ["low", "medium", "high"].map((value) => ({ value, name: value })),
+          },
+        ],
+      },
     } as Snapshot;
     const picker = usePickerCatalog(snapshot.catalog, { harness: state.harness });
     return (
@@ -120,11 +139,14 @@ async function mount(start: { harness: string }) {
           setState((current) => ({ ...current, model }));
         }}
         onMode={() => undefined}
-        onEffort={() => undefined}
+        onEffort={(_id, value) => {
+          sent.push({ method: "effort", value });
+          setState((current) => ({ ...current, effort: value }));
+        }}
         onHarness={(harness, model) => {
           sent.push({ method: "harness", value: model ? `${harness}/${model}` : harness });
           session += 1;
-          setState({ sessionId: `s${session}`, harness, model: model ?? "default" });
+          setState({ sessionId: `s${session}`, harness, model: model ?? "default", effort: "medium" });
         }}
         showPlan={false}
       />
@@ -377,4 +399,24 @@ test("hovering a provider in the rail keeps the list; a click switches it", asyn
   expect(first()).toBe("model:claude-fable-5-1");
   await act(async () => codex.click());
   expect(first()).toBe("model:gpt-6.1-sol");
+});
+
+test("a typed combo for another provider starts it on that model, then sets its effort", async () => {
+  const { sent } = await mount({ harness: "claude" });
+  await act(async () => {
+    host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
+  });
+  const search = host.querySelector<HTMLInputElement>('.acpmux-mp input[role="combobox"]')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(search, "astra high");
+    search.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  });
+  await act(async () => {
+    search.dispatchEvent(new dom.window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }));
+  });
+  await settle();
+  expect(sent).toEqual([
+    { method: "harness", value: "codex/gpt-6-astra" },
+    { method: "effort", value: "high" },
+  ]);
 });
