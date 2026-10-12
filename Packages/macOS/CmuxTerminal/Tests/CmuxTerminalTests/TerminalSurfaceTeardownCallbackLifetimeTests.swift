@@ -175,7 +175,7 @@ import Testing
         cmux_test_ghostty_surface_terminal_modes_reset(runtimeSurface)
         surface.writeProcessOutputData(enabled, to: runtimeSurface)
         #expect(modes.allSatisfy {
-            cmux_test_ghostty_surface_terminal_mode_enabled(runtimeSurface, $0)
+            cmux_test_ghostty_surface_terminal_mode_enabled(runtimeSurface, Int32($0))
         })
 
         let fenceEntered = AsyncStream<Void>.makeStream()
@@ -184,7 +184,7 @@ import Testing
         TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { surface in
             freeObserved.continuation.yield(
                 modes.allSatisfy {
-                    !cmux_test_ghostty_surface_terminal_mode_enabled(surface, $0)
+                    !cmux_test_ghostty_surface_terminal_mode_enabled(surface, Int32($0))
                 }
             )
         }
@@ -204,7 +204,7 @@ import Testing
         var enteredIterator = fenceEntered.stream.makeAsyncIterator()
         #expect(await enteredIterator.next() != nil)
         #expect(modes.allSatisfy {
-            cmux_test_ghostty_surface_terminal_mode_enabled(runtimeSurface, $0)
+            cmux_test_ghostty_surface_terminal_mode_enabled(runtimeSurface, Int32($0))
         })
 
         releaseFence.continuation.yield()
