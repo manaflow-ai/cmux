@@ -216,9 +216,11 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             })
         }
         MuxEvent::Bell(id) => json!({"event": "bell", "surface": id}),
-        MuxEvent::ProgramStatusChanged(id) => {
-            json!({"event": "program-status-changed", "surface": id})
-        }
+        MuxEvent::ProgramStatusChanged { surface, status } => json!({
+            "event": "program-status-changed",
+            "surface": surface,
+            "program_status": status.map(|status| status.wire()),
+        }),
         MuxEvent::Notification(notification) => json!({
             "event": "notification",
             "notification": notification.notification,

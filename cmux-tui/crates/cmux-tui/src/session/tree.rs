@@ -16,8 +16,9 @@ use cmux_tui_core::{
 use serde_json::Value;
 
 mod tab_view;
+use tab_view::parse_notification;
+pub(crate) use tab_view::parse_program_status;
 pub use tab_view::{TabNotificationView, TabView};
-use tab_view::{parse_notification, parse_program_status};
 
 #[derive(Clone, Default)]
 pub struct TreeView {

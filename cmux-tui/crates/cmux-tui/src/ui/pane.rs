@@ -41,12 +41,12 @@ fn border_style(app: &App, focused: bool) -> Style {
 }
 
 /// The OSC 7501 mark after a tab's title: a working program's progress
-/// (`40%`, or `…` without one), `!` while it waits on the user, `✗` after it
+/// (`40%`, or `⋯` without one), `!` while it waits on the user, `✗` after it
 /// failed. A finished program shows nothing; its notification marks the tab.
 fn program_status_mark(status: ShownProgramStatus) -> Option<String> {
     match status.state {
         ProgramStatusState::Working => {
-            Some(status.progress.map_or_else(|| "…".to_owned(), |progress| format!("{progress}%")))
+            Some(status.progress.map_or_else(|| "⋯".to_owned(), |progress| format!("{progress}%")))
         }
         ProgramStatusState::Blocked => Some("!".to_owned()),
         ProgramStatusState::Error => Some("✗".to_owned()),

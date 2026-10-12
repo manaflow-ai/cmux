@@ -710,7 +710,7 @@ impl App {
             AppEvent::NormalizedInput(input) if input.is_routable() => {
                 self.session.refresh_remote_tree_if_stale();
             }
-            AppEvent::Mux(MuxEvent::TreeChanged | MuxEvent::ProgramStatusChanged(_)) => {
+            AppEvent::Mux(MuxEvent::TreeChanged) => {
                 if self.session.remote_tree_is_stale() {
                     self.session.refresh_remote_tree_if_stale();
                 } else {

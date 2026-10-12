@@ -454,11 +454,21 @@ impl RemoteSession {
                     self.emit(MuxEvent::Bell(id));
                 }
             }
-            // OSC 7501: the tab's shown status lives in the tree.
+            // OSC 7501: patch the tab's shown status in place, as titles are,
+            // so a program's progress never holds input behind a refresh.
             Some("program-status-changed") => {
                 if let Some(id) = surface_id() {
-                    self.tree_stale.store(true, Ordering::Release);
-                    self.emit(MuxEvent::ProgramStatusChanged(id));
+                    let status = crate::session::tree::parse_program_status(&value);
+                    let updated = {
+                        let mut cache =
+                            self.tree.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                        let location = cache.surface_tabs.get(&id).copied();
+                        location.and_then(|at| cache.view.update_program_status_at(id, at, status))
+                    };
+                    if updated.is_none() && self.invalidate_tree_once() {
+                        self.emit(MuxEvent::TreeChanged);
+                    }
+                    self.emit(MuxEvent::ProgramStatusChanged { surface: id, status });
                 }
             }
             Some("notification") => {

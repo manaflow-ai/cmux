@@ -12,7 +12,7 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `bookmarks-changed`, `settings-changed`, `keybindings-changed`, `history-changed`, `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `agent-presence-changed`, `bell`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
+| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `bookmarks-changed`, `settings-changed`, `keybindings-changed`, `history-changed`, `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `agent-presence-changed`, `bell`, `program-status-changed`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
 | Attach stream v6 PTY | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
@@ -67,6 +67,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `surface-exited` | subscribe | `surface` | protocol 5 |
 | `title-changed` | subscribe | `surface` | protocol 5 |
 | `bell` | subscribe | `surface` | protocol 5 |
+| `program-status-changed` | subscribe | `surface` | protocol 12 additive |
 | `notification` | subscribe, byte attach, browser attach | `notification` | protocol 6; optional related `surface` |
 | `config-reload-requested` | subscribe | session | protocol 6 |
 | `daemon-shutdown` | control | session | protocol 12; sent after the successful `shutdown-daemon` or `session.shutdown` response |
@@ -933,6 +934,33 @@ Example:
 
 ```json
 {"event":"bell","surface":1}
+```
+
+### program-status-changed
+
+| Field | Value |
+| --- | --- |
+| event | `program-status-changed` |
+| status | implemented |
+| since | protocol 12 additive |
+
+Payload:
+
+```text
+object{event:"program-status-changed",surface:Id,program_status:ShownProgramStatus|null}
+```
+
+Meaning: The status a PTY surface's tab shows for its programs' OSC 7501
+reports changed. `program_status` is the strongest non-idle record
+(`blocked`, then `error`, `working`, `done`; the newest wins a tie), with
+`progress` 0-100 or null, or null when nothing is shown. The same value is the
+tab's `program_status` field in `list-workspaces`. Coalesced per surface; the
+full records stay on the terminal resource's `extra.program_status`.
+
+Example:
+
+```json
+{"event":"program-status-changed","surface":1,"program_status":{"state":"working","progress":40}}
 ```
 
 ### notification

@@ -44,9 +44,12 @@ pub enum MuxEvent {
     /// terminals have already been reaped when this arrives.
     SurfaceExited(SurfaceId),
     /// The OSC 7501 status a surface's tab shows changed (state or
-    /// progress). Raw clients get `program-status-changed`; the tree's tab
-    /// `program_status` has the new value.
-    ProgramStatusChanged(SurfaceId),
+    /// progress); `None` when it shows none. Raw clients get
+    /// `program-status-changed` with the tab's new `program_status`.
+    ProgramStatusChanged {
+        surface: SurfaceId,
+        status: Option<crate::program_status::ShownProgramStatus>,
+    },
     TitleChanged {
         surface: SurfaceId,
         title: Arc<str>,

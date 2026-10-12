@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 67d7ecb759ef04d91548819e9fc645194fd9a678113174603e80467e08021629. */
+/* cmux-tui mux protocol 12, IR be8526aab0a8faacf3356fa1fce5fcdcdd8a2689620e9486b2dcefa27b166aff. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -690,6 +690,8 @@ export type ProcessInfoResult = {
   "pid": (number) | null;
 };
 
+export type ProgramStatusState = "working" | "blocked" | "error" | "done";
+
 export type ProviderWorkspaceMutationResult = {
   "key": string;
   "workspace": Id;
@@ -1020,6 +1022,11 @@ export type SetTerminalKeepResult = {
   "terminal_resource_id"?: (string) | null;
 };
 
+export type ShownProgramStatus = {
+  "progress": (number) | null;
+  "state": ProgramStatusState;
+};
+
 export type ShutdownDaemonResult = {
   "accepted": true;
   "ended_terminals"?: (bigint) | null;
@@ -1130,6 +1137,7 @@ export type Tab = {
   "kind": "pty" | "browser" | "conversation";
   "name": (string) | null;
   "notification"?: (NotificationMarker) | null;
+  "program_status"?: (ShownProgramStatus) | null;
   "short_id"?: string;
   "size": (Size) | null;
   "supports_clear_history_key_fallback"?: boolean;

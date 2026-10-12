@@ -102,6 +102,8 @@ pub(crate) struct ProgramStatusRecords {
     /// to the public graph.
     revision: u64,
     published: u64,
+    /// The `shown` value last handed to frontends.
+    shown_published: Option<ShownProgramStatus>,
 }
 
 impl ProgramStatusRecords {
@@ -268,6 +270,19 @@ impl ProgramStatusRecords {
             .filter(|record| running || !record.is_transient())
             .max_by_key(|record| (strength(record.state), record.updated_seq))
             .map(|record| ShownProgramStatus { state: record.state, progress: record.progress })
+    }
+
+    /// The new `shown` value when it differs from the one last handed to
+    /// frontends, marking it handed.
+    pub(crate) fn take_shown_change(
+        &mut self,
+        running: bool,
+    ) -> Option<Option<ShownProgramStatus>> {
+        let shown = self.shown(running);
+        (shown != self.shown_published).then(|| {
+            self.shown_published = shown;
+            shown
+        })
     }
 
     /// True once per visible change, marking it published.

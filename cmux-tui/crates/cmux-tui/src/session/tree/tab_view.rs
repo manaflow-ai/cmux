@@ -41,7 +41,30 @@ pub(super) fn parse_notification(value: &Value) -> Option<TabNotificationView> {
     })
 }
 
-/// OSC 7501: the status a tab in the tree shows (`program_status`).
-pub(super) fn parse_program_status(tab: &Value) -> Option<ShownProgramStatus> {
-    tab.get("program_status").and_then(ShownProgramStatus::from_wire)
+/// OSC 7501: the status a tab in the tree (or a `program-status-changed`
+/// event) shows (`program_status`).
+pub(crate) fn parse_program_status(value: &Value) -> Option<ShownProgramStatus> {
+    value.get("program_status").and_then(ShownProgramStatus::from_wire)
+}
+
+impl super::TreeView {
+    /// Set the shown status of tab `id` at `location` (workspace, screen,
+    /// pane, tab); `None` when the tab is no longer there.
+    pub(crate) fn update_program_status_at(
+        &mut self,
+        id: SurfaceId,
+        [workspace, screen, pane, tab]: [usize; 4],
+        status: Option<ShownProgramStatus>,
+    ) -> Option<()> {
+        let tab = self
+            .workspaces
+            .get_mut(workspace)?
+            .screens
+            .get_mut(screen)?
+            .panes
+            .get_mut(pane)?
+            .tabs
+            .get_mut(tab)?;
+        (tab.surface == id).then(|| tab.program_status = status)
+    }
 }
