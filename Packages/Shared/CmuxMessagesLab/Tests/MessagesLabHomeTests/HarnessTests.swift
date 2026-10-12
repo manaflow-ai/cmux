@@ -296,7 +296,8 @@ enum LayerDump {
             guard let key = cell.spec?.key, !cell.isHidden else { continue }
             let p = "row[\(key)]"
             out += [(p + "/cell", cell.layer), (p + "/content", cell.contentView.layer), (p + "/bitmap", cell.bitmap),
-                    (p + "/fill", cell.fillContainer), (p + "/connector", cell.connector), (p + "/connectorLine", cell.connectorLine),
+                    (p + "/fill", cell.fillContainer), (p + "/fillGradient", cell.fillGradient), (p + "/fillMask", cell.fillMask),
+                    (p + "/connector", cell.connector), (p + "/connectorLine", cell.connectorLine),
                     (p + "/typing", cell.typingContainer), (p + "/typingBody", cell.typingBody), (p + "/typingClip", cell.typingClip), (p + "/receiptOld", cell.receiptOld)]
             for (i, d) in cell.dots.enumerated() {
                 out.append((p + "/dot\(i)", d))

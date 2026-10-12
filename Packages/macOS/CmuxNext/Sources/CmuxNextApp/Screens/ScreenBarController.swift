@@ -56,7 +56,8 @@ final class ScreenBarController {
     private func snapshot() -> Snapshot { Self.snapshot(content) }
 
     private static func snapshot(_ content: WorkspaceContentController) -> Snapshot {
-        Snapshot(bar: ScreenBarMapping.shared.snapshot(content.workspace, untitled: ScreenStrings.untitled, emojiIcon: ScreenEmojiIcon.icon),
+        Snapshot(bar: ScreenBarMapping.shared.snapshot(content.workspace, untitled: ScreenStrings.untitled, emojiIcon: ScreenEmojiIcon.icon,
+                                                       assetIcon: IconAssetImages.shared.tabIcon(owner: content.daemon)),
                  active: content.layoutModel.activeScreenID?.rawValue)
     }
 

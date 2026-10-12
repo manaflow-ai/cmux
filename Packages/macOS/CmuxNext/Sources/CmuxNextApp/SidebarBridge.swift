@@ -120,7 +120,7 @@ final class SidebarBridge {
                     newTabPages: Self.newTabPages(agentTabs, in: machines.local.store), muted: notifications.preferences.mutedWorkspaces,
                     top: .make(layout, machines: machines, room: windowState.profileID.rawValue), pageFace: services.sidebarPageFace,
                     tabTitle: Self.tabTitle(services))
-                return (sections, launching, failed, Self.profiles(machines.local.store), SidebarProfileKey(windowState.profileID.rawValue),
+                return (sections, launching, failed, SidebarSpaceBar.profiles(machines.local), SidebarProfileKey(windowState.profileID.rawValue),
                         SidebarRows.visibleLayout(layout.document), PendingWorkspaceRows.shared.rows(in: windowState.id))
             }) {
                 guard let self else { return }
@@ -291,15 +291,6 @@ final class SidebarBridge {
 
     static func hidesHome(_ layout: SidebarLayoutDocument) -> Bool {
         layout.firstItem(with: SidebarLayoutDocument.homeRef) != nil
-    }
-
-    /// The profile bar of the local daemon's profiles (empty when it has
-    /// none; the bar hides below two).
-    static func profiles(_ store: DaemonStore) -> [SidebarProfile] {
-        store.profiles.sorted { $0.index < $1.index }.map { profile in
-            SidebarProfile(id: SidebarProfileKey(profile.id.rawValue), name: profile.name,
-                           color: profile.color.flatMap(GroupColor.init(rawValue:)), icon: profile.icon)
-        }
     }
 
     /// One section per machine: the local daemon, then each Cloud machine

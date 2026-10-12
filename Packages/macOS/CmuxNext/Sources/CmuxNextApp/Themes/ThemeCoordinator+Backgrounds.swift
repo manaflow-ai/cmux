@@ -9,6 +9,28 @@ extension ThemeCoordinator {
     /// Gives `content`'s scope its background; its window's room shows it while it is shown.
     func applyWorkspaceBackground(_ content: WorkspaceContentController) {
         content.themeScope.pinBackdrop(workspaceBackgroundPin(content.workspace.id))
+        content.themeScope.pinBackdropTint(workspaceOpacity(content.workspace.id))
+    }
+
+    /// A workspace's own tint over art: the slider's preview, else the saved one.
+    func workspaceOpacity(_ workspaceID: String) -> Double? {
+        if let opacityPreview, opacityPreview.workspace == workspaceID { return opacityPreview.value }
+        return workspaceBackgroundKey(workspaceID).flatMap(workspaceOpacities.background(for:))
+            .flatMap { Double($0) }.flatMap { $0.isFinite ? $0 : nil }
+    }
+
+    /// Saves a workspace's own tint over art (nil follows the work's) and ends its preview.
+    func setWorkspaceOpacity(_ opacity: Double?, for workspaceID: String) {
+        opacityPreview = nil
+        guard let key = workspaceBackgroundKey(workspaceID) else { return }
+        workspaceOpacities.set(opacity.map { String(min(max($0, 0), WindowBackdrop.maximumWorkspaceTint)) }, for: key)
+        apply()
+    }
+
+    /// Shows a tint for the workspace without saving it (the slider moving); nil ends the preview.
+    func previewWorkspaceOpacity(_ opacity: Double??, for workspaceID: String) {
+        opacityPreview = opacity.map { (workspaceID, $0) }
+        apply()
     }
 
     /// Re-applies on a new day (or a clock or time zone change), so a Shuffle Daily workspace

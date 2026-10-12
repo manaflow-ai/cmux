@@ -300,7 +300,19 @@ export class SettingsStore {
     return reply.ok;
   }
 
-  /** Shows `value` in the workspace `id` without saving it; `undefined` ends the preview. */
+  /** Saves the workspace `id`'s own glass tint over art; null follows the work's own tint. */
+  async setWorkspaceOpacity(id: string, opacity: number | null): Promise<boolean> {
+    const reply = await this.request("cmux.settings.backdrop.workspace.set", { workspace: id, opacity });
+    if (!reply.ok) this.setError("appearance.backgroundOpacity", rowError(reply.error));
+    return reply.ok;
+  }
+
+  /** Shows a tint over the workspace `id`'s art without saving it (the slider moving). */
+  previewWorkspaceOpacity(id: string, opacity: number): void {
+    if (this.ui.connected) void this.request("cmux.settings.backdrop.workspace.preview", { workspace: id, opacity });
+  }
+
+  /** Shows `value` in the workspace `id` without saving it; `undefined` ends every preview. */
   previewWorkspaceBackground(id: string, value: string | null | undefined): void {
     if (value === undefined)
       void this.request("cmux.settings.backdrop.workspace.preview", { workspace: id, end: true });

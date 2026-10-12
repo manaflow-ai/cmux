@@ -179,10 +179,11 @@ export class MockSettingsProvider {
       "cmux.settings.backdrop.workspace": (params) => this.workspaceBackground(String(params.workspace)),
       "cmux.settings.backdrop.workspace.set": (params) => {
         const workspace = this.workspaceBackground(String(params.workspace));
-        this.workspaceBackgrounds.set(workspace.workspace, {
-          ...workspace,
-          value: (params.value as string | null) ?? null,
-        });
+        const change =
+          "opacity" in params
+            ? { opacity: (params.opacity as number | null) ?? null }
+            : { value: (params.value as string | null) ?? null };
+        this.workspaceBackgrounds.set(workspace.workspace, { ...workspace, ...change });
         return {};
       },
       "cmux.settings.backdrop.workspace.preview": () => ({}),
