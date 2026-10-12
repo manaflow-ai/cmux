@@ -8,7 +8,8 @@ import type { Choice, Combo } from "./ComposerPickers";
 /// What the picker gets from ComposerPickers. Picks go through `onLand` (model, then its effort
 /// once the agent reports that model) and `onEffort`.
 export type ModelPickerProps = {
-  catalog: AcpmuxSnapshot["catalog"];
+  /// `top`: the harness's curated models, listed first (topModels/); the rest fold under More models.
+  catalog: (AcpmuxSnapshot["catalog"][number] & { top?: readonly string[] })[];
   harness?: string;
   model?: string;
   /// The chip's text: the current model's name, or its id when the catalog doesn't list it.
