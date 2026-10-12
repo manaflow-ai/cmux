@@ -310,6 +310,8 @@
               "sidebar.showChats",
               "sidebar.showProjects",
               "sidebar.groupBy",
+              "sidebar.showSpaces",
+              "sidebar.showProfileControl",
               "sidebar.minimal",
               "sidebar.density",
               "sidebar.minimalMode",
@@ -13469,6 +13471,100 @@
       "consumers" : [
         "cmux-next"
       ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.showSpaces",
+      "keywords" : [
+        "sidebar",
+        "spaces",
+        "dots",
+        "profiles",
+        "footer",
+        "hide",
+        "show"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "showSpaces"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.showSpaces",
+        "text" : "Show Spaces"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.showProfileControl",
+      "keywords" : [
+        "sidebar",
+        "profile",
+        "account",
+        "avatar",
+        "footer",
+        "hide",
+        "show"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "showProfileControl"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.showProfileControl",
+        "text" : "Show Profile Button"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : false,
       "default_label" : null,
       "group" : {
@@ -21962,7 +22058,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "9db0c861f4855423d09290ebf0cc268c20dc12e422a5a7b5bdee754978939bab",
+  "schema_hash" : "57e8fc173fd93a8e3e0568fef6eac3592bffddfe2bba764cc24a0ed9fe8424b4",
   "sections" : [
     {
       "id" : "general",
