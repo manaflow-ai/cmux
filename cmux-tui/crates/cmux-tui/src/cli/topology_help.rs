@@ -5,7 +5,7 @@ pub(super) const WORKSPACE_HELP: &str = "\
 USAGE
   cmux workspace list [--order session|personal]
   cmux workspace create [--name <value>] [--empty] [--ephemeral] [--correlation-key <value>]
-    [--expected-revision <revision>]
+    [--expected-revision <revision>] [--cwd <path>] [--shell <script> | -- <argv...>]
   cmux workspace <selector> show|focus|close
   cmux workspace <selector> rename <name>|--name <name>
   cmux workspace <selector> move --index <n>

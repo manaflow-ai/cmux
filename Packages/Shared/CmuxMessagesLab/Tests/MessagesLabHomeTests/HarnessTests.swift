@@ -259,6 +259,8 @@ enum LayerDump {
                     (p + "/fill", cell.fillContainer), (p + "/connector", cell.connector), (p + "/connectorLine", cell.connectorLine),
                     (p + "/typing", cell.typingContainer), (p + "/receiptOld", cell.receiptOld)]
             for (i, d) in cell.dots.enumerated() { out.append((p + "/dot\(i)", d)) }
+            // MessagesLab 5f885ea's harness names the typing bubble's tail discs too.
+            for (i, d) in cell.typingDiscs.enumerated() { out.append((p + "/disc\(i)", d)) }
         }
         for (key, m) in view.morphs.sorted(by: { $0.key < $1.key }) {
             let p = "morph[\(key)]"

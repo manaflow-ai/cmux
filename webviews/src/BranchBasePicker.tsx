@@ -512,7 +512,7 @@ function BranchBaseButtonLabel({ picker }: { picker: BranchPickerPayload }) {
   );
 }
 
-function BranchPickerRowView({
+export function BranchPickerRowView({
   current,
   domId,
   entry,
@@ -536,7 +536,9 @@ function BranchPickerRowView({
   // diff viewers don't show "fork point" / "created from" verbatim.
   // Reason tags the sidecar sends itself (`manual`, `default`) have their own labels.
   const reasonKey = row.reason ? REASON_LABEL_KEY[row.reason] : undefined;
-  const secondary = row.secondary ?? row.worktreeDir ?? (reasonKey ? label(reasonKey) : row.reason) ?? "";
+  // A worktree reads as its folder's name; the whole path shows on hover.
+  const worktreeName = row.worktreeDir?.replace(/\/+$/, "").split("/").pop() || row.worktreeDir;
+  const secondary = row.secondary ?? worktreeName ?? (reasonKey ? label(reasonKey) : row.reason) ?? "";
   return (
     <>
       {entry.firstInGroup ? (
@@ -555,6 +557,7 @@ function BranchPickerRowView({
         aria-selected={selected}
         aria-current={current || undefined}
         className={selected ? "base-picker-row base-picker-row-selected" : "base-picker-row"}
+        title={row.worktreeDir}
         onMouseMove={onHover}
         onMouseDown={(event) => {
           // Keep input focus; select on click without blurring the field.
@@ -563,7 +566,7 @@ function BranchPickerRowView({
         }}
       >
         <span className="base-picker-row-icon">
-          <Icon name="branch" />
+          <Icon name={row.worktreeDir ? "worktree" : "branch"} />
         </span>
         <span className="base-picker-row-primary">
           {entry.raw ? label("branchPickerUseRaw").replace("{ref}", row.ref) : renderMatched(row.label, entry.match)}

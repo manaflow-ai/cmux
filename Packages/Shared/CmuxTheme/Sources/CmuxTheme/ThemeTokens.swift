@@ -142,8 +142,8 @@ public struct ThemeTokens: Hashable, Sendable {
         let isDark = bg.relativeLuminance < input.foreground.relativeLuminance
         let fg = input.foreground
         let app = AppTheme.derive(from: input)
-        // The app accent when the setting names one; nil keeps the neutral fills.
-        let accent = input.accent == .neutral ? nil : app[.accent]
+        // The app accent when the setting or the theme names one; nil keeps the neutral fills.
+        let accent = input.accent == .neutral && input.accentColor == nil ? nil : app[.accent]
 
         let hover = fg.withAlpha(isDark ? 0.06 : 0.05)
         // An accent selection is the app theme's (`AppTheme` .selection: the accent over the background).
