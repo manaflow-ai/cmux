@@ -33,7 +33,8 @@
     "palette_usage",
     "git_checkpoint",
     "conversation",
-    "setting"
+    "setting",
+    "keybinding"
   ],
   "types": {
     "RequestOrigin": {
@@ -6652,6 +6653,189 @@
       },
       "extra": false
     },
+    "KeybindingEntry": {
+      "kind": "object",
+      "fields": {
+        "index": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "The entry's position in the keybindings.json array."
+        },
+        "keys": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The chord's strokes in keybindings.json syntax (ctrl+k, s); one to four."
+        },
+        "command": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The command id; a removal entry names it without its leading -."
+        },
+        "when": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The entry's when clause; null when it has none."
+        },
+        "args": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "map",
+              "values": {
+                "kind": "ref",
+                "name": "JsonValue"
+              }
+            }
+          },
+          "description": "The entry's args object, passed to the command; null when it has none."
+        },
+        "removal": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "A -command entry: it unbinds a default binding of command instead of adding one."
+        }
+      },
+      "extra": false
+    },
+    "KeybindingTarget": {
+      "kind": "object",
+      "fields": {
+        "key": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The binding's chord in keybindings.json syntax."
+        },
+        "when": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The binding's when clause; absent matches the binding without one."
+        },
+        "command": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The binding's command; absent is the new binding's command."
+        }
+      },
+      "extra": false
+    },
+    "KeybindingDiagnostic": {
+      "kind": "object",
+      "fields": {
+        "index": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "uint32"
+            }
+          },
+          "description": "The entry the problem is in; null for a problem with the whole file."
+        },
+        "problem": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "unreadable_file",
+              "not_an_object",
+              "missing_command",
+              "missing_key",
+              "invalid_key",
+              "too_many_keys",
+              "first_key_needs_command_or_control",
+              "invalid_when",
+              "invalid_args"
+            ]
+          }
+        },
+        "message": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      },
+      "extra": false
+    },
+    "KeybindingsSnapshot": {
+      "kind": "object",
+      "fields": {
+        "path": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The keybindings.json path the owner reads and writes."
+        },
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "Advances once per change the owner saw (its own writes and hand edits); keybindings-changed carries the same revision."
+        },
+        "entries": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "KeybindingEntry"
+            }
+          },
+          "description": "The entries the file holds, in file order; an entry with a problem is left out and reported in diagnostics."
+        },
+        "diagnostics": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "KeybindingDiagnostic"
+            }
+          }
+        }
+      },
+      "extra": false
+    },
     "WindowRecordSnapshot": {
       "kind": "object",
       "fields": {
@@ -10927,6 +11111,22 @@
             }
           }
         },
+        "extra": false
+      }
+    },
+    "keybindings.invalid": {
+      "retryable": false,
+      "details": {
+        "kind": "object",
+        "fields": {},
+        "extra": false
+      }
+    },
+    "keybindings.unreadable": {
+      "retryable": false,
+      "details": {
+        "kind": "object",
+        "fields": {},
         "extra": false
       }
     },
@@ -16619,6 +16819,301 @@
       "constraints": [
         "Only origin user (the verified cmux app connection, gate A2) may send it: the app that hosts the browser reports what the person visited, so no agent adds a visit. Any other origin is refused with origin.forbidden.",
         "Sets the title of the newest visit of the URL in the profile."
+      ]
+    },
+    "keybindings.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "keybinding",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false,
+        "constraints": [
+          "Answers {path, revision, entries, diagnostics} for keybindings.json beside the settings file (CMUX_NEXT_CONFIG_FILE moves it). A missing file has no entries; an unreadable one has one unreadable_file diagnostic with a null index."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "KeybindingsSnapshot"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "keybindings.remove": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "keybinding",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "command": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The command id (newTab, workbench.action.files.save, ...)."
+          },
+          "key": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The chord in keybindings.json syntax: strokes separated by spaces (ctrl+k s), at most four, the first with cmd or ctrl."
+          },
+          "when": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The when clause; absent binds everywhere."
+          },
+          "origin": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "user",
+                "cli",
+                "mcp",
+                "script",
+                "remote",
+                "app"
+              ]
+            },
+            "description": "Who asks; absent is cli. keybindings-changed reports it."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "The owner edits keybindings.json beside the settings file (CMUX_NEXT_CONFIG_FILE moves it) in place, keeping its comments, re-reads it under the advisory lock first and publishes it atomically. Origin page may not call keybindings.*. An edit that leaves the text unchanged writes nothing and publishes no keybindings-changed.",
+          "Unbinds one binding of command: a user entry is dropped, and a default binding gets a -command removal entry.",
+          "A key with bad syntax, more than four strokes or a first stroke without cmd or ctrl is keybindings.invalid; a file that is not a JSONC array is keybindings.unreadable and stays unchanged."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "EmptyResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "keybindings.invalid",
+        "keybindings.unreadable",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "keybindings.reset": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "keybinding",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "command": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The command id (newTab, workbench.action.files.save, ...)."
+          },
+          "origin": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "user",
+                "cli",
+                "mcp",
+                "script",
+                "remote",
+                "app"
+              ]
+            },
+            "description": "Who asks; absent is cli. keybindings-changed reports it."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "The owner edits keybindings.json beside the settings file (CMUX_NEXT_CONFIG_FILE moves it) in place, keeping its comments, re-reads it under the advisory lock first and publishes it atomically. Origin page may not call keybindings.*. An edit that leaves the text unchanged writes nothing and publishes no keybindings-changed.",
+          "Removes every entry and every removal entry of command, so its default bindings apply again.",
+          "A file that is not a JSONC array is keybindings.unreadable and stays unchanged."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "EmptyResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "keybindings.invalid",
+        "keybindings.unreadable",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "keybindings.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "keybinding",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "command": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The command id (newTab, workbench.action.files.save, ...)."
+          },
+          "key": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The chord in keybindings.json syntax: strokes separated by spaces (ctrl+k s), at most four, the first with cmd or ctrl."
+          },
+          "when": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The when clause; absent binds everywhere."
+          },
+          "args": {
+            "required": false,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "ref",
+                "name": "JsonValue"
+              }
+            },
+            "description": "The command's args object; absent or empty binds without args."
+          },
+          "replaces": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "KeybindingTarget"
+            },
+            "description": "The binding this one replaces; its command defaults to command."
+          },
+          "origin": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "user",
+                "cli",
+                "mcp",
+                "script",
+                "remote",
+                "app"
+              ]
+            },
+            "description": "Who asks; absent is cli. keybindings-changed reports it."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "The owner edits keybindings.json beside the settings file (CMUX_NEXT_CONFIG_FILE moves it) in place, keeping its comments, re-reads it under the advisory lock first and publishes it atomically. Origin page may not call keybindings.*. An edit that leaves the text unchanged writes nothing and publishes no keybindings-changed.",
+          "Binds key to command. With replaces, that binding goes: a user entry is edited or dropped, and a default binding gets a -command removal entry.",
+          "A key with bad syntax, more than four strokes or a first stroke without cmd or ctrl is keybindings.invalid; a file that is not a JSONC array is keybindings.unreadable and stays unchanged."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "EmptyResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "keybindings.invalid",
+        "keybindings.unreadable",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
       ]
     },
     "machine.get": {

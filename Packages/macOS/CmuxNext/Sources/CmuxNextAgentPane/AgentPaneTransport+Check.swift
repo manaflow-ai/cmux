@@ -159,8 +159,9 @@ extension AgentPaneTransport {
     }
 
     /// A refused frame: answered when it is a request, the socket closed when it was the first.
-    /// `detail`: acpmux's own reason, for the page to show.
-    nonisolated static func refuse(_ decision: AcpmuxPaneMethods.Decision, socket: AcpmuxPaneSocket, detail: String? = nil) -> Step {
+    /// `detail`: acpmux's own reason, for the page to show; `reason`: why, as a code the page words.
+    nonisolated static func refuse(_ decision: AcpmuxPaneMethods.Decision, socket: AcpmuxPaneSocket, detail: String? = nil,
+                                   reason: String? = nil) -> Step {
         guard case .refuse(let error, let method, let requestID) = decision else { return .stop(.invalidFrame) }
         if error == .requestIdInFlight { return refuseInFlight() }
         Self.logger.error("agent pane transport refused frame error=\(error.rawValue, privacy: .public) method=\(method ?? "-", privacy: .public)")
@@ -169,7 +170,7 @@ extension AgentPaneTransport {
             return .stop(error)
         }
         if let requestID {
-            socket.inject(AcpmuxPaneMethods.refusal(requestID: requestID, error: error, method: method, detail: detail))
+            socket.inject(AcpmuxPaneMethods.refusal(requestID: requestID, error: error, method: method, detail: detail, reason: reason))
         }
         return .refused(error)
     }

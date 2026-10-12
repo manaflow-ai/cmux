@@ -185,6 +185,13 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "settings.schema"
                         | "settings.set"
                         | "settings.snapshot"
+                        // The daemon's keybindings ops (cx-9ce.17) are the
+                        // Keyboard Shortcuts page's, with no CLI verb or MCP
+                        // tool yet, like the settings ops.
+                        | "keybindings.get"
+                        | "keybindings.remove"
+                        | "keybindings.reset"
+                        | "keybindings.set"
                         // History ops are reached through `cmux history`
                         // (cx-gzh.15), not the noun grammar; the page and
                         // omnibox ops are the browser host's and the app's.

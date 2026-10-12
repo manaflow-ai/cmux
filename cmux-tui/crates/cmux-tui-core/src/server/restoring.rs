@@ -108,6 +108,7 @@ impl RestoringServer {
         // The settings owner (settings-v1) reads the settings file and starts
         // its watcher before the session serves its first client.
         mux.start_default_settings_owner();
+        mux.start_default_keybindings_owner();
         self.slot.attach(ServedSession {
             mux: mux.clone(),
             render_service: Arc::new(RenderService::new()),

@@ -51,9 +51,13 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
 
     public static func make(
         sections: [SidebarSection],
-        metrics m: SidebarLayoutMetrics,
+        metrics base: SidebarLayoutMetrics,
         options o: SidebarLayoutOptions = SidebarLayoutOptions()
     ) -> SidebarLayout {
+        // Minimal mode is visibly compact: shorter rows, thin group headers (cx-7swgy).
+        let m = o.minimal ? base.minimal : base
+        // A new workspace's drop gap is a row: as short as minimal mode's rows.
+        let gapHeight = max(0, o.gapHeight - (base.rowHeight - m.rowHeight))
         if o.hidesWorkspaces { return .empty }
         var rows: [SidebarRow] = []
         var y = m.topPadding
@@ -90,7 +94,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         func openGapIfNeeded(section: SectionID, group: GroupID?, index: Int) {
             guard gapY == nil, let gap = o.gap, gap.section == section, gap.group == group, gap.index == index else { return }
             gapY = y
-            y += o.gapHeight + m.rowSpacing
+            y += gapHeight + m.rowSpacing
         }
 
         var firstSection = true
@@ -185,11 +189,13 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     }
                 case let .group(group):
                     let groupCollapsed = group.isCollapsed && !filtering
-                    rows.append(SidebarRow(
+                    var header = SidebarRow(
                         key: .group(group.id), y: y, height: m.groupHeaderHeight, section: section.id,
                         group: group.id, siblingIndex: index, parentIndex: nil, isLastInGroup: false,
                         isCollapsed: groupCollapsed, childCount: entry.children.count, groupColor: group.color
-                    ))
+                    )
+                    header.isThinHeader = o.minimal
+                    rows.append(header)
                     y += m.groupHeaderHeight + m.rowSpacing
                     if groupCollapsed {
                         // Keep the selected workspace as the one visible member
@@ -275,8 +281,8 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         y += m.bottomPadding
         return SidebarLayout(
             rows: rows, totalHeight: y, gapY: gapY,
-            gapHeight: gapY == nil ? 0 : o.gapHeight,
-            gapShift: gapY == nil ? 0 : o.gapHeight + m.rowSpacing
+            gapHeight: gapY == nil ? 0 : gapHeight,
+            gapShift: gapY == nil ? 0 : gapHeight + m.rowSpacing
         )
     }
 }

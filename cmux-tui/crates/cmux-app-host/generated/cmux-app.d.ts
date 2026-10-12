@@ -206,6 +206,10 @@ declare namespace Cmux {
   type JournalSubjectFilter = { kind?: string; id?: string }
   type JournalUnsupportedReplayRecord = { sequence: string; event_id: string; kind: string }
   type JsonValue = string
+  type KeybindingDiagnostic = { index: number | null; problem: "unreadable_file" | "not_an_object" | "missing_command" | "missing_key" | "invalid_key" | "too_many_keys" | "first_key_needs_command_or_control" | "invalid_when" | "invalid_args"; message: string }
+  type KeybindingEntry = { index: number; keys: Array<string>; command: string; when: string | null; args: Record<string, Cmux.JsonValue> | null; removal: boolean }
+  type KeybindingsSnapshot = { path: string; revision: string; entries: Array<Cmux.KeybindingEntry>; diagnostics: Array<Cmux.KeybindingDiagnostic> }
+  type KeybindingTarget = { key: string; when?: string; command?: string }
   type LaunchCredential = { credential: string; actor: string }
   type LaunchKeyRotation = { kid: string }
   type LayoutColumn = { column_id: string /* split_… */; width: number; root: Cmux.LayoutNode; dock?: Cmux.LayoutColumnDock | null }
@@ -882,6 +886,10 @@ interface CmuxGlobal {
     create: CmuxOp<{ conversation: Cmux.ConversationId; address: unknown; display_name: string; locale?: string; copy_variant?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
     /** `invite.revoke` (mutation, scope `invite:write`): Revoke a pending invite (the inviter or the conversation owner). */
     revoke: CmuxOp<{ conversation: Cmux.ConversationId; invite_id: Cmux.InviteId; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
+  }
+  keybindings: {
+    /** `keybindings.get` (read, scope `keybindings:read`) */
+    get: CmuxOp<{ machine?: string; session?: string }, Cmux.KeybindingsSnapshot>
   }
   linear: {
     issue: {

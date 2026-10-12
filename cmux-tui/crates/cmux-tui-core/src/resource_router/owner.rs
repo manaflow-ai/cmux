@@ -272,7 +272,11 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::SettingsSnapshot
         | ResourceOperation::SettingsSet
         | ResourceOperation::SettingsReset
-        | ResourceOperation::SettingsResetAll => OperationOwner::Config,
+        | ResourceOperation::SettingsResetAll
+        | ResourceOperation::KeybindingsGet
+        | ResourceOperation::KeybindingsSet
+        | ResourceOperation::KeybindingsRemove
+        | ResourceOperation::KeybindingsReset => OperationOwner::Config,
     }
 }
 
