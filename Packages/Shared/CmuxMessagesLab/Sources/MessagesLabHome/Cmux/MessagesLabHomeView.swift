@@ -298,12 +298,6 @@ public final class MessagesLabHomeView: NSView {
         return nil
     }
 
-    /// Automation (DEBUG socket): moves this view by `dx`, `dy` points in its superview, as a pane that
-    /// starts on a fraction of a point (no size change, no layout of the window view).
-    public func debugNudge(dx: CGFloat, dy: CGFloat) {
-        setFrameOrigin(NSPoint(x: frame.minX + dx, y: frame.minY + dy))
-    }
-
     /// The window view's origin in window points (bottom-left origin), for automation.
     public var debugHostOrigin: CGPoint { controller.host.convert(CGPoint.zero, to: nil) }
 
