@@ -4,7 +4,8 @@
 // primitive (ui/ghost.css). This measures the real gallery stages in Chromium: the ink before the
 // icon matches the inset after the label (a 14 px stroke icon's ink starts about 2 px inside its
 // box), the icon sits 6 px from its label, a row is tighter than a button's own inset, and labels
-// are medium weight.
+// are medium weight. New Tab's tools row is gone from the calm default (Leo 2026-10-11), so the
+// composer footer's folder button is what is measured here.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
@@ -91,20 +92,6 @@ await requireBrowserLane("ghost-button-balance.test.ts", async () => {
     await page.close();
     return buttons;
   }
-
-  test("New Tab's tools: even insets, a 6 px icon gap, a tight row, medium labels", async () => {
-    const tools = await measure("agent-pane.new-tab", "empty", ".nt-tool");
-    expect(tools.length).toBeGreaterThan(2);
-    for (const tool of tools) {
-      // The icon's ink starts 2 px inside its box: ink-before equals the inset after the label.
-      expect(Math.abs(tool.before! + 2 - tool.after!)).toBeLessThanOrEqual(0.6);
-      expect(Math.abs(tool.gap! - 6)).toBeLessThanOrEqual(0.6);
-      expect(tool.weight).toBe(500);
-    }
-    for (const tool of tools.filter((tool) => tool.rowGap !== undefined && tool.rowGap < 8))
-      expect(tool.rowGap!).toBeLessThan(tool.after!);
-    expect(tools.some((tool) => tool.rowGap !== undefined && tool.rowGap <= 2)).toBe(true);
-  });
 
   test("the composer footer's folder button: the folder's ink and the chevron's sit evenly", async () => {
     const [folder] = await measure("agent-pane.composer-context", "closed", ".acpmux-location-button");

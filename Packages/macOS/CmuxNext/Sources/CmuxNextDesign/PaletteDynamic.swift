@@ -37,6 +37,8 @@ enum PaletteDynamic {
     static let highlight = token(\.highlight)
     static let highlightText = token(\.highlightText)
     static let textOnPrimary = token(\.contentBackground, opaque: true)
+    static let accentFill = token(\.accent, opaque: true)
+    static let onAccent = token(\.onAccent, opaque: true)
     static let popupSurface = overlayFill()
 
     /// `Palette.popupSurface` outside a scope: the app theme's opaque overlay fill.

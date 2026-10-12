@@ -212,7 +212,7 @@ public final class GhosttyRuntime {
         _ = configGet(config, &configured, key: "background-opacity")
         var configuredBlur: Int16 = 0
         _ = configGet(config, &configuredBlur, key: "background-blur")
-        for line in backgroundOverrideLines(backgroundOverride, configuredOpacity: configured, configuredBlur: Int(configuredBlur)) {
+        for line in GhosttyConfigBackground.overrideLines(configuredOpacity: configured, configuredBlur: Int(configuredBlur), theme: theme) {
             line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux.json") }
         }
         // In a translucent window the root view's material and tint are the

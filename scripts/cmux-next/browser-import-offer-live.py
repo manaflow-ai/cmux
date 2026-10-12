@@ -170,7 +170,7 @@ def config(background=None):
     settle(2.0)
 
 
-write(CONFIG, (json.dumps({"appearance": {"background": "wheat-field-with-cypresses"}}) if opts.launch_backdrop else "{}") + "\n")
+write(CONFIG, (json.dumps({"appearance": {"background": "van-gogh-starry-night"}}) if opts.launch_backdrop else "{}") + "\n")
 EMPTY_GHOSTTY = os.path.join(SCRATCH, "ghostty-config")
 write(EMPTY_GHOSTTY, "")
 teardown = TagTeardown(APP)
@@ -234,7 +234,7 @@ try:
     rpc("debug.appearance", {"mode": "dark"})
     settle()
     capture("browser-card-dark")
-    config("wheat-field-with-cypresses")
+    config("van-gogh-starry-night")
     capture("browser-card-dark-backdrop")
     rpc("debug.updater", {"action": "tip"})
     settle()
@@ -244,7 +244,7 @@ try:
     rpc("debug.appearance", {"mode": "light"})
     settle()
     capture("tip-card-light")
-    config("wheat-field-with-cypresses")
+    config("van-gogh-starry-night")
     capture("tip-card-light-backdrop")
     config(None)
 

@@ -12,7 +12,7 @@ public struct BackdropArtSetting: Sendable {
     func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> BackdropArt? {
         guard let value = root.value(at: configPath) else { return nil }
         if value.stringValue == "none" { return nil }
-        if let name = value.stringValue, let art = BackdropArt(rawValue: name) { return art }
+        if let name = value.stringValue, let art = BackdropArt(id: name) { return art }
         diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "appearance.backdropArt",
                                               message: "expected none or a bundled public-domain painting"))
         return nil

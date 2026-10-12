@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextTabs
 
 // Tab strip intents -> daemon commands. Local-only state (selection,
@@ -275,14 +276,14 @@ extension PaneController {
         case .tab(let id, _):
             select(id)
             return Self.tabMenu(id.rawValue, tab: tab(id), workspaceKind: workspace?.workspace.kind,
-                                sameKind: NewTabKind.of(id.rawValue, tab: tab(id), services: services), registry: registry)
+                                sameKind: NewTabKind.of(id.rawValue, tab: tab(id), services: services), registry: registry).themeRows(in: view.themeScope.fullStrength)
         case .group(let group), .savedGroup(let group):
             let saved = daemon.store.savedTabGroups.contains { $0.openGroup?.rawValue == group.rawValue }
             return registry.makeContextMenu(for: .tabGroup, target: ActionTargetRef(kind: .tabGroup, id: group.rawValue),
                                             entries: TabGroupPinMenu.entries(saved: saved))
         case .emptyStrip:
             let entries = ContextMenuCatalog.shared.entries(for: .newTab) + [.separator] + ContextMenuCatalog.shared.entries(for: .pane)
-            return registry.makeContextMenu(for: .pane, target: ActionTargetRef(kind: .pane, id: paneKey), entries: entries)
+            return registry.makeContextMenu(for: .pane, target: ActionTargetRef(kind: .pane, id: paneKey), entries: entries).themeRows(in: view.themeScope.fullStrength)
         case .newTabButton:
             // The engine menu predicts a Chromium tab (ChromiumWarmup).
             services.chromiumWarmup.chromiumLikely(.newTabMenu)
