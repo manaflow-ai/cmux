@@ -121,11 +121,13 @@ SCOPES
   unstaged     The working tree against the index, with untracked files
   staged       The index against HEAD
   committed    HEAD against its first parent
-  branch       The working tree against the merge base with origin's default
-               branch (else main or master), with untracked files
+  branch       The working tree against the merge base with the base branch,
+               with untracked files
 
-status prints the branch, upstream, how far it is ahead and behind, and the
-base branch. diff prints each changed file's status and line counts; --patch
+status prints the branch, upstream, how far it is ahead and behind, the base
+branch (the one a worktree create recorded for the branch, else origin's
+default branch, else main or master), and in a linked worktree its main
+checkout. diff prints each changed file's status and line counts; --patch
 adds each file's patch from its first @@ line, cut at --max-patch-bytes
 (262144 by default). At most --max-files files (500) are listed; the rest are
 counted. Paths are relative to the repository root and taken literally.

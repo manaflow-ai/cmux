@@ -60,6 +60,21 @@ struct AgentPaneGitStageTests {
         #expect(try Self.staged(repo) == ["b.txt"])
     }
 
+    /// A chat reopened after a relaunch (dogfood run, hq #1893): its folder is no workspace folder
+    /// and no folder picked this launch, only the folder its session runs in. Commit and Push
+    /// already run there; Stage refused it as outside the chat's folders.
+    @Test func aRestoredChatStagesInItsSessionFolder() async throws {
+        let (_, repo) = try Self.rig()
+        let restored = AgentPaneModel(host: NoHost(), sessionId: "s")
+        restored.gitWritesHere = { true }
+        restored.transport.sessions.add("s")
+        restored.transport.sessions.observeFolder(["result": ["session": ["sessionId": "s", "cwd": repo]]], replyTo: "_acpmux/attach")
+        restored.transport.gestures.record()
+        let reply = await restored.respond(to: Self.request("git.stage", repo, ["a.txt"]))
+        #expect(reply["ok"] as? Bool == true, "\(reply)")
+        #expect(try Self.staged(repo) == ["a.txt"])
+    }
+
     /// No click or key in the pane: page script alone stages nothing.
     @Test func aStageWithoutAGestureIsRefused() async throws {
         let (model, repo) = try Self.rig()

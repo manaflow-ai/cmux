@@ -17,8 +17,10 @@ extension AgentPaneFileOpen {
 }
 
 extension AgentPaneModel {
-    /// The folders a page's `file.open` may name a file under: the pane's own roots and the
-    /// folders the user added to it (the add-folder sheet).
+    /// The folders a page's `file.open` may name a file under: the pane's own roots, the
+    /// folders the user added to it (the add-folder sheet) and the active session's folder.
+    /// Stage, Undo and Create PR take the same folders, so a chat reopened after a relaunch
+    /// works in the folder it runs in, as Commit and Push do (hq #1893).
     func fileOpenRoots() -> [String] {
         roots() + transport.addedRoots + sessionRoots()
     }
