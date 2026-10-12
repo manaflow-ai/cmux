@@ -1,21 +1,28 @@
 import React, { type ReactNode } from "react";
 import { Counts } from "../changes/Counts";
-import { useT } from "../i18n";
+import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
-import type { SessionSummary } from "./sessionSummary";
+import type { SessionSummary, SummaryBackgroundTask } from "./sessionSummary";
 import { SubagentStack } from "./SubagentStack";
 import { SummarySection } from "./SummarySection";
 
 const ROW_ICON = rowIconSize(12);
 
 /// The chat's summary, a section per kind of thing it produced. Outputs, Subagents and Sources
-/// always show, in the Codex app's order, with "None" while empty; pull requests and wakeups
-/// follow when there are any.
+/// always show, in the Codex app's order, with "None" while empty; pull requests, background
+/// tasks and wakeups follow when there are any.
 /// Pull requests and sources are links, so they open, copy and open in a new tab as links do;
 /// an output opens the changes view at that file. Following a link calls `onFollow`. A chat
 /// with images or renders offers its gallery under Outputs (GalleryDialog.tsx). A chat whose
 /// subagents acpmux reports shows their Lineage (subagents/Lineage.tsx) in the Subagents place.
+const TASK_STATES: Record<SummaryBackgroundTask["state"], StringKey> = {
+  running: "bgTask.state.running",
+  completed: "bgTask.state.completed",
+  failed: "bgTask.state.failed",
+  stopped: "bgTask.state.stopped",
+};
+
 export function SummaryPopover({
   summary,
   galleryCount = 0,
@@ -144,6 +151,19 @@ export function SummaryPopover({
               <span className="acpmux-summary-text">{pr.title ?? `${pr.repo}#${pr.number}`}</span>
               <span className="acpmux-summary-meta">#{pr.number}</span>
             </a>
+          </li>
+        )}
+      />
+      <SummarySection
+        title={t("summary.backgroundTasks")}
+        items={summary.backgroundTasks}
+        row={(task) => (
+          <li key={task.id} className="acpmux-summary-row" data-state={task.state}>
+            <Icon name="terminal" size={ROW_ICON} row />
+            <span className="acpmux-summary-text" title={task.command}>
+              {task.command}
+            </span>
+            <span className="acpmux-summary-meta">{t(TASK_STATES[task.state])}</span>
           </li>
         )}
       />

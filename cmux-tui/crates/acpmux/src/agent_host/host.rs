@@ -379,6 +379,9 @@ impl Started {
                 }
                 Event::Stdout(None) => {
                     permit_out = false;
+                    if state.exit_h.is_none() {
+                        state.end_background_shells().await;
+                    }
                     state.stdout_done = true;
                     state.maybe_push_exit();
                 }
@@ -405,6 +408,7 @@ impl Started {
                         tracing::warn!(
                             "harness output stays open after its exit; reporting the exit"
                         );
+                        state.end_background_shells().await;
                         state.stdout_done = true;
                         state.stderr_done = true;
                         state.maybe_push_exit();
@@ -546,6 +550,16 @@ impl State {
         while self.entries.front().is_some_and(|(eh, _, _)| *eh <= self.acked_h) {
             if let Some((_, _, w)) = self.entries.pop_front() {
                 self.weight -= w;
+            }
+        }
+    }
+
+    /// Claude's background shells ended with it (cx-ncc.84): each still
+    /// running is reported stopped, before the exit entry.
+    async fn end_background_shells(&mut self) {
+        if let Some(tr) = self.translator.clone() {
+            for m in tr.end_background_shells().await {
+                self.push(Entry::In { msg: m.to_value() });
             }
         }
     }

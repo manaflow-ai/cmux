@@ -12,12 +12,18 @@ export type SummaryPullRequest = { url: string; repo: string; number: number; ti
 export type SummarySubagent = { id: string; title: string; state: "running" | "done" | "failed" };
 export type SummaryWakeup = { id: string; text: string; cron?: string };
 export type SummarySource = { url?: string; label: string };
+export type SummaryBackgroundTask = {
+  id: string;
+  command: string;
+  state: "running" | "completed" | "failed" | "stopped";
+};
 export type SessionSummary = {
   scheduled: SummaryWakeup[];
   pullRequests: SummaryPullRequest[];
   outputs: TurnFile[];
   subagents: SummarySubagent[];
   sources: SummarySource[];
+  backgroundTasks: SummaryBackgroundTask[];
 };
 
 const PR_URL = /https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)/g;
@@ -131,6 +137,28 @@ function sources(all: readonly Tool[]): SummarySource[] {
 /// The chat's pull requests alone (the composer's PR bars, PullRequestDock.tsx).
 export const sessionPullRequests = (rows: readonly AcpmuxRow[]) => pullRequests(tools(rows));
 
+/// Shells the agent ran in the background (Claude's Bash `run_in_background`, cx-ncc.84): running
+/// until a background task row says how it ended.
+function backgroundTasks(rows: readonly AcpmuxRow[], all: readonly Tool[]): SummaryBackgroundTask[] {
+  const ends = rows.flatMap((row) => (row.backgroundTask ? [row.backgroundTask] : []));
+  const ended = new Map(ends.map((end) => [end.toolCallId, end.state] as const));
+  const launched = all
+    // Shell calls only: a subagent's Agent call can run in the background too.
+    .filter((tool) => tool.kind === "execute" && input(tool).run_in_background === true)
+    .map((tool): SummaryBackgroundTask => ({
+      id: tool.id,
+      command: field(input(tool).command) ?? tool.title,
+      state: ended.get(tool.id) ?? (tool.status === "failed" ? "failed" : "running"),
+    }));
+  // A shell whose Bash row is not loaded (an older page, or one Claude moved to the background
+  // itself) is known from its end.
+  const seen = new Set(launched.map((task) => task.id));
+  const endedOnly = ends
+    .filter((end) => !seen.has(end.toolCallId))
+    .map((end): SummaryBackgroundTask => ({ id: end.toolCallId, command: end.command, state: end.state }));
+  return [...launched, ...endedOnly];
+}
+
 export function sessionSummary(rows: readonly AcpmuxRow[]): SessionSummary {
   const all = tools(rows);
   return {
@@ -139,6 +167,7 @@ export function sessionSummary(rows: readonly AcpmuxRow[]): SessionSummary {
     outputs: turnFiles(rows as AcpmuxRow[]),
     subagents: subagents(rows, all),
     sources: sources(all),
+    backgroundTasks: backgroundTasks(rows, all),
   };
 }
 
