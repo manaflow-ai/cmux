@@ -55,8 +55,13 @@ fn a_chat_in_another_workspaces_agent_home_starts_there() {
         None,
         &[("HOME", home.to_str().unwrap()), ("XDG_DATA_HOME", data.to_str().unwrap())],
     );
-    let listed = json_socket_request(&server.socket, json!({"id": 1, "cmd": "list-workspaces"}));
-    let workspace = listed["workspaces"][0]["resource_id"].as_str().unwrap().to_owned();
+    let created = json_socket_request(&server.socket, json!({"id": 1, "cmd": "new-workspace"}));
+    assert_eq!(created["ok"], true, "{created}");
+    let listed = json_socket_request(&server.socket, json!({"id": 2, "cmd": "list-workspaces"}));
+    let workspace = listed["workspaces"][0]["resource_id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("no workspace: {listed}"))
+        .to_owned();
 
     let reply = v2(
         &server,
