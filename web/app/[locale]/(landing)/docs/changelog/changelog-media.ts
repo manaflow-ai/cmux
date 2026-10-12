@@ -78,11 +78,13 @@ export const changelogMedia: Record<string, VersionMedia> = {
         title: "Program Status in the Sidebar",
         description:
           "Programs can report idle, working, blocked, done, or error with OSC 7501, and the workspace sidebar shows it. Scripts can follow program_status.changed on the cmux-events stream.",
+        tryIt: "Run `printf '\\e]7501;state=working\\e\\\\'; sleep 5` and watch the workspace in the sidebar.",
       },
       {
         title: "Smaller Download",
         description:
           "Stable ships thin arm64 and x86_64 builds in a smaller DMG with a one-hop update path.",
+        tryIt: "Download cmux from cmux.com, or update from the cmux menu.",
       },
     ],
   },
