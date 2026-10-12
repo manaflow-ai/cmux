@@ -16,9 +16,9 @@
   --on-accent: var(--cmux-on-accent, var(--cmux-app-window, var(--cmux-surface-solid, Canvas)));
   --accent-text: var(--text);
   --column: 720px;
-  --row-pad-y: 7px;
+  --row-pad-y: 3px;
   --row-pad-x: 12px;
-  --row-min: 38px;
+  --row-min: 28px;
   --card-radius: 10px;
   --sidebar-width: 208px;
   /* Motion: the app's MotionTunables (hover 80 ms, focus 100 ms, fade in 120 ms, fade out 80 ms),
@@ -33,9 +33,9 @@
 }
 
 :root[data-settings-look="dense"] {
-  --row-pad-y: 4px;
+  --row-pad-y: 2px;
   --row-pad-x: 2px;
-  --row-min: 30px;
+  --row-min: 26px;
   --card-radius: 0;
   --sidebar-width: 188px;
   font-size: 12px;
@@ -235,7 +235,7 @@
   justify-content: flex-start;
   align-items: center;
   gap: 6px;
-  min-height: 30px;
+  min-height: 26px;
   font-size: 11.5px;
   color: var(--muted-text);
 }
