@@ -59,6 +59,9 @@ export interface EvalCase {
   absent?: string;
   /** The first expected row must be at exactly this 1-based position (empty-query order). */
   at?: number;
+  /** The user's settings for this case: cmux.json `palette.aliases` and `palette.pins`. */
+  aliases?: Record<string, string[]>;
+  pins?: string[];
 }
 
 export interface EvalCases {
@@ -169,7 +172,13 @@ function frecencyFor(profile: Record<string, number> | undefined): PaletteFrecen
 }
 
 /** Row ids in display order (sections in their order, rows in theirs). */
-export function rankedIDs(fixture: EvalFixture, query: string, frecency: PaletteFrecency, rank: Ranker = rankPalette) {
+export function rankedIDs(
+  fixture: EvalFixture,
+  query: string,
+  frecency: PaletteFrecency,
+  rank: Ranker = rankPalette,
+  settings: Pick<EvalCase, "aliases" | "pins"> = {},
+) {
   const entries = fixture.entries.map((row) => row.entry);
   return rank({
     entries,
@@ -178,6 +187,8 @@ export function rankedIDs(fixture: EvalFixture, query: string, frecency: Palette
     frecency,
     now: evalNow,
     showsRecent: fixture.showsRecent,
+    aliases: settings.aliases,
+    pins: settings.pins,
   }).flatMap((section) => section.rows.map((row) => fixture.entries[row.index].id));
 }
 
@@ -236,7 +247,7 @@ export function scoreCases(
 }
 
 export function evaluate(fixture: EvalFixture, cases: EvalCases, rank: Ranker = rankPalette): EvalReport {
-  return scoreCases(cases, (query, frecency) => rankedIDs(fixture, query, frecency, rank));
+  return scoreCases(cases, (query, frecency, evalCase) => rankedIDs(fixture, query, frecency, rank, evalCase));
 }
 
 const percent = (value: number) => `${(value * 100).toFixed(1)}%`;
