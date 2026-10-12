@@ -17,7 +17,6 @@ public enum AgentPaneWarmup {
         configuration.processPool = AgentPaneView.processPool
         // diag (to drop): load the real page here to see how early it can be live.
         let source = AgentPaneView.bundledPage.map { AgentPaneSource.bundled($0) }
-        source?.register(on: configuration)
         configuration.userContentController.addUserScript(WKUserScript(source: """
         window.__cmuxT = {docStart: performance.now()};
         document.addEventListener('DOMContentLoaded', () => { window.__cmuxT.dcl = performance.now();
@@ -27,7 +26,9 @@ public enum AgentPaneWarmup {
         let view = WKWebView(frame: NSRect(x: 0, y: 0, width: 900, height: 700), configuration: configuration)
         view.navigationDelegate = diagDelegate
         AgentPaneLaunchTimings.shared.mark("diag.warm.load")
-        if let source { source.load(into: view) } else { view.loadHTMLString("<!doctype html><title></title>", baseURL: nil) }
+        // probe1 (to drop): an inline page, no scheme handler: when does the web process run its JS?
+        _ = source
+        view.loadHTMLString("<!doctype html><title></title><script>window.__cmuxT.script = performance.now()</script>", baseURL: nil)
         self.view = view
     }
 
