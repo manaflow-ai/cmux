@@ -1,4 +1,12 @@
-import type { AcpmuxActivity, AcpmuxFileDiff, AcpmuxPermission, AcpmuxRow, AcpmuxSnapshot, QueueEdit } from "./model";
+import type {
+  AcpmuxActivity,
+  AcpmuxFileDiff,
+  AcpmuxPermission,
+  AcpmuxPlanEntry,
+  AcpmuxRow,
+  AcpmuxSnapshot,
+  QueueEdit,
+} from "./model";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
 import { promptBlocks, promptText, type ComposerAttachment } from "./attachments";
@@ -499,6 +507,8 @@ export class AcpmuxDirectClient {
   private streamingAssistant?: string;
   private streamingAssistantMessageId?: string;
   private streamingActivity?: string;
+  /// The open turn's plan row: its later `plan` updates redraw this one list (cx-ncc.80).
+  private planRow?: string;
   private supersededMessageIds = new Set<string>();
   /// The rows each message streamed into; tool calls split one message into several.
   private messageRows = new Map<string, string[]>();
@@ -742,6 +752,7 @@ export class AcpmuxDirectClient {
     this.streamingAssistant = undefined;
     this.streamingAssistantMessageId = undefined;
     this.streamingActivity = undefined;
+    this.planRow = undefined;
     this.optimisticPromptRows.clear();
     this.optimisticPromptTexts.clear();
     this.optimisticPromptAttachments.clear();
@@ -1006,11 +1017,13 @@ export class AcpmuxDirectClient {
     return this.git(unstage ? "git.unstageHunk" : "git.stageHunk", { paths, hunk });
   }
 
-  /// Opens the pull request of the selected session's pushed branch (`{url, number}`). Only the
-  /// native host on this Mac runs it, as for Stage.
-  gitPullRequest(): Promise<unknown> {
+  /// Opens the pull request of the selected session's pushed branch (`{url, number}`), or with
+  /// `{action: "threads"}` reads its review threads (`{url, number, threads}`), or with
+  /// `{action: "merge", number, url}` merges it (cx-ncc.77.4). Only the native host on this Mac runs
+  /// it, as for Stage.
+  gitPullRequest(params: { action?: "threads" | "merge"; number?: number; url?: string } = {}): Promise<unknown> {
     if (this.gitRoute === "daemon") return Promise.reject(new Error(translate("error.noFolderChanges")));
-    return this.git("git.pullRequest", {});
+    return this.git("git.pullRequest", params);
   }
 
   /// acpmux serves no git methods: the native host runs them on the session host in the selected
@@ -1332,6 +1345,8 @@ export class AcpmuxDirectClient {
       if (event.kind === "forked") {
         this.forkedAtSeq = event.seq;
       } else if (event.kind === "user_message") {
+        // A prompt, or a steer (which starts no turn but splits it), starts a new checklist.
+        this.planRow = undefined;
         const promptId = typeof msg.promptId === "string" ? msg.promptId : undefined;
         const text = typeof msg.text === "string" ? msg.text : undefined;
         const fallbackPromptId =
@@ -1487,14 +1502,25 @@ export class AcpmuxDirectClient {
       });
       this.toolRows.set(callId, id);
       if (!knownRow) this.streamingActivity = id;
-    } else if (event.kind === "plan")
-      this.rows.set(`plan-${event.seq}`, {
-        id: `plan-${event.seq}`,
-        version: 1,
-        at: event.at,
+    } else if (event.kind === "plan") {
+      const plan = planEntries(update.entries);
+      const existing = this.planRow ? this.rows.get(this.planRow) : undefined;
+      // A cleared list (TodoWrite with no todos, Codex's empty plan) takes the checklist away.
+      if (Array.isArray(update.entries) && plan.length === 0) {
+        if (existing) this.rows.delete(existing.id);
+        this.planRow = undefined;
+        return;
+      }
+      const id = existing ? existing.id : `plan-${event.seq}`;
+      this.planRow = id;
+      this.rows.set(id, {
+        id,
+        version: (existing?.version ?? 0) + 1,
+        at: existing?.at ?? event.at,
         kind: "plan",
-        text: text || JSON.stringify(update.entries ?? update.content ?? ""),
+        ...(plan.length > 0 ? { plan } : { text: text || JSON.stringify(update.entries ?? update.content ?? "") }),
       });
+    }
   }
 
   /// The tool calls and time since the turn's user message. A prompt still sending (queued
@@ -2262,6 +2288,17 @@ export function harnessBlock(error: unknown): HarnessBlock | undefined {
   return { reason, harness: data.harness, folder: data.folder };
 }
 
+/// An ACP `plan` update's entries as a todo list; an entry without text is left out.
+function planEntries(entries: unknown): AcpmuxPlanEntry[] {
+  if (!Array.isArray(entries)) return [];
+  return entries.flatMap((entry) => {
+    const content = typeof entry?.content === "string" ? entry.content.trim() : "";
+    if (!content) return [];
+    const status = entry.status === "completed" || entry.status === "in_progress" ? entry.status : "pending";
+    return [{ content, status }];
+  });
+}
+
 /// One `_acpmux/models` entry: id and name, plus the metadata a declared profile model carries.
 export function catalogModel(model: any): AcpmuxSnapshot["catalog"][number]["models"][number] {
   const entry: AcpmuxSnapshot["catalog"][number]["models"][number] = {
@@ -2278,11 +2315,20 @@ export function catalogModel(model: any): AcpmuxSnapshot["catalog"][number]["mod
   return entry;
 }
 
+/// A harness map's entries in acpmux's order: its default (`defaultHarness`) first, then by id. The
+/// native relay re-encodes the reply, so the map's own key order means nothing (a first launch
+/// asked the model router instead of Claude Code).
+function harnessEntries(harnesses: Record<string, unknown>, preferred: unknown): any[] {
+  const ids = Object.keys(harnesses).sort((a, b) =>
+    a === preferred ? -1 : b === preferred ? 1 : a < b ? -1 : a > b ? 1 : 0,
+  );
+  return ids.map((id) => ({ id, ...(harnesses[id] as any) }));
+}
+
 export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
   const harnesses = value?.harnesses ?? value?.items ?? value ?? [];
-  return (
-    Array.isArray(harnesses) ? harnesses : Object.entries(harnesses).map(([id, data]) => ({ id, ...(data as any) }))
-  ).map((harness: any) => ({
+  const entries: any[] = Array.isArray(harnesses) ? harnesses : harnessEntries(harnesses, value?.defaultHarness);
+  return entries.map((harness: any) => ({
     id: String(harness.id ?? harness.name),
     name: agentName(
       String(harness.id ?? harness.name),

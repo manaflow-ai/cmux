@@ -23,8 +23,14 @@ area graph 'Packages/|scripts/cmux-next/ci-target-graph\.py'
 area strings 'Packages/|webviews/src/|webviews/scripts/pages/|schemas/settings/'
 # The SDK generator reads the SDK schema and its own emitters.
 area sdk 'cmux-tui/spec/|cmux-tui/bindings/codegen/'
+# The action exports (regenerated on a Mac: regenerate-action-exports.sh) read
+# CmuxNextActions, which depends on no other target, the tests that write them,
+# and for links.json the URL schemes of CmuxNextCloud's CloudConfiguration.
+area actions 'Packages/macOS/CmuxNext/Sources/CmuxNextActions/|Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/|Packages/macOS/CmuxNext/Tests/CmuxNextActionsTests/|Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/LinkExportTests\.swift|plans/cmux-next/(action-surfaces\.json|actions\.md|links\.json)|scripts/cmux-next/regenerate-action-exports\.sh'
 # The docs shortcuts read the catalog export and the action string catalogs.
 area shortcuts 'plans/cmux-next/action-surfaces\.json|Packages/macOS/CmuxNext/Sources/CmuxNextActions/|web/scripts/export-docs-shortcuts\.ts'
+# The app-host generated files read the operation catalogs, the action export and the apps' fragments.
+area apphost 'cmux-tui/spec/resource-operations-v2\.json|backend/catalog/cloud-operations\.json|plans/cmux-next/action-surfaces\.json|first-party-apps/|cmux-tui/crates/cmux-app-host/(tools|generated)/'
 # The namespace lint reads the package and iOS app sources.
 area ratchets 'Packages/|ios/cmux/|scripts/lint-ios-package-conventions\.sh|scripts/lint_swift_namespaces\.py|scripts/lint-namespace-types-ratchet\.txt'
 area cloud 'backend/catalog/cloud-operations\.json|backend/packages/protocol/(scripts/export-(rust-)?client\.ts|src/automation-caps\.ts)|clients/ts/cloud/|cmux-tui/crates/cmux-cloud-wire/src/generated/'

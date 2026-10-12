@@ -888,11 +888,11 @@ final class RowCell: UICollectionViewCell {
     private static let badgeBox = CGSize(width: 40, height: 44)
 
     private func configureBadge(_ spec: RowSpec) {
-        guard case let .part(p) = spec.kind, let i = p.reactions.firstIndex(where: { $0.senderId == PartRenderer.me }) else {
+        guard case let .part(p) = spec.kind, let i = p.myReaction else {
             if let badge, !badge.isHidden { badge.isHidden = true; badgeState = "" }
             return
         }
-        guard let kind = p.reactions[checked: i]?.kind else { return } // checked (i from firstIndex)
+        guard let kind = p.reactions[checked: i]?.kind else { return } // checked (i from PartRow.myReaction)
         let side: CGFloat = p.outgoing ? -1 : 1
         let c = PartRenderer.badgeCenter(body: RowDraw.bodyRect(spec), outgoing: p.outgoing, index: i)
         let pop = RowCell.badgePop.flatMap { $0.0 == p.ref ? $0.1 : nil }

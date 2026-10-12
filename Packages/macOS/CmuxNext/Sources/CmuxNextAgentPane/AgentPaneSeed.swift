@@ -21,7 +21,8 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
     /// A chat that opened without its folder: the page explains it and offers Choose Folder.
     public var folderNeeded: AgentPaneFolderNeeded?
     /// The device-wide chat (its index key, `harness:id`) whose past turns a new chat shows
-    /// read-only until it has a session (cx-khns1). Kept across page reloads.
+    /// read-only until it has a session (cx-khns1); an adopted chat shows them while its folder's
+    /// trust question holds the replay. Kept across page reloads.
     public var pastChat: String?
 
     public init(cwd: String? = nil, draft: String? = nil, prompt: String? = nil, adopt: AgentPaneAdopt? = nil,

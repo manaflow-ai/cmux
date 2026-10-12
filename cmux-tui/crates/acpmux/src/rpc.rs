@@ -204,6 +204,7 @@ pub mod method {
     pub const MUX_PRESETS: &str = "_acpmux/presets";
     pub const MUX_ATTACH: &str = "_acpmux/attach";
     pub const MUX_VIEW: &str = "_acpmux/view";
+    pub const MUX_MARK_UNREAD: &str = "_acpmux/markUnread";
     pub const MUX_DETACH: &str = "_acpmux/detach";
     pub const MUX_WATCH: &str = "_acpmux/watch";
     pub const MUX_RENAME: &str = "_acpmux/rename";

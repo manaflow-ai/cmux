@@ -67,3 +67,21 @@ async fn one_client_showing_a_chat_is_enough() {
     c.request(method::SESSION_PROMPT, prompt(&id, "again", None)).await.unwrap();
     assert_eq!(unread(&hub, &id).await, true);
 }
+
+/// Mark Unread (cx-ncc.78, the Codex app's Mark unread): the person marks a chat they have seen;
+/// it stays unread while a client still shows it, and showing it again after hiding it is seeing it.
+#[tokio::test]
+async fn a_chat_marked_unread_stays_unread_until_shown_again() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "read").await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "hello", None)).await.unwrap();
+    assert_eq!(unread(&hub, &id).await, false);
+    c.request("_acpmux/markUnread", json!({"sessionId": id})).await.unwrap();
+    assert_eq!(unread(&hub, &id).await, true);
+    c.request("_acpmux/view", json!({"sessionId": id, "visible": true})).await.unwrap();
+    assert_eq!(unread(&hub, &id).await, true);
+    c.request("_acpmux/view", json!({"sessionId": id, "visible": false})).await.unwrap();
+    c.request("_acpmux/view", json!({"sessionId": id, "visible": true})).await.unwrap();
+    assert_eq!(unread(&hub, &id).await, false);
+    assert!(c.request("_acpmux/markUnread", json!({"sessionId": "no-such-chat"})).await.is_err());
+}

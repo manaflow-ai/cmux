@@ -220,7 +220,7 @@ enum PartRenderer {
             let f = HomeFonts.system(ofSize: 12, weight: .bold) // HomeFonts (cx-qpqs)
             TextDraw.line("!", font: f, color: .white, x: c.x - TextDraw.width("!", font: f) / 2, baseline: c.y + 4.5, in: ctx)
         }
-        drawReactions(ctx, p.reactions, body: body, outgoing: p.outgoing, windowY: windowY)
+        drawReactions(ctx, p.reactions, mine: p.myReaction, body: body, outgoing: p.outgoing, windowY: windowY)
     }
 
     static func drawText(_ ctx: CGContext, _ tl: TextLayout, in body: CGRect, outgoing: Bool) {
@@ -605,8 +605,6 @@ enum PartRenderer {
         TextDraw.line(subtitle, font: HomeFonts.system(ofSize: 10), color: UIColor(white: 0.68, alpha: 1), x: body.minX + 10, baseline: map.maxY + 32, in: ctx) // HomeFonts (cx-qpqs)
     }
 
-    /// The person whose tapbacks draw blue (the conversation's own participant).
-    static var me: ID = "me"
     /// Tapback badges on the part's top corner (outer side), stacked.
     /// Geometry (measured on macOS 26 Messages, 2x screenshot, unchanged on macOS 27): a 27.5 pt
     /// disc whose center is 2 pt inside the bubble's top outer corner and 8.25 pt above its top
@@ -616,11 +614,12 @@ enum PartRenderer {
     /// window-position gradient of my bubbles ((81, 151, 248) at window y 277 pt, the gradient's
     /// value there). Mine is drawn here only when `windowY` is known; in a cell's bitmap
     /// (`windowY` NaN) the cell's badge layer draws it (RowCell, a window-anchored gradient like
-    /// the outgoing fill, and the badge's pop).
-    static func drawReactions(_ ctx: CGContext, _ rs: [Reaction], body: CGRect, outgoing: Bool, windowY: CGFloat = .nan) {
+    /// the outgoing fill, and the badge's pop). `mine`: the index of my reaction in `rs`
+    /// (PartRow.myReaction).
+    static func drawReactions(_ ctx: CGContext, _ rs: [Reaction], mine myIndex: Int?, body: CGRect, outgoing: Bool, windowY: CGFloat = .nan) {
         let side: CGFloat = outgoing ? -1 : 1
         for (i, r) in rs.enumerated().reversed() {
-            let mine = r.senderId == me
+            let mine = i == myIndex
             if mine && windowY.isNaN { continue }
             let c = badgeCenter(body: body, outgoing: outgoing, index: i)
             let shape = badgePath(center: c, side: side, tails: i == 0)

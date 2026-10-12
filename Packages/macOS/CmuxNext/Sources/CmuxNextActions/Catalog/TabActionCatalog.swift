@@ -282,10 +282,12 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 keywords: ["tab", "detach"], category: .tab, symbol: "rectangle.portrait.and.arrow.right",
                 surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab move-to-new-workspace"
             ),
+            // Opt-Cmd-P, the Codex app's Toggle pin (cx-ncc.72); an agent chat's header menu shows it.
             ActionDescriptor(
                 id: "palette.toggleTabPin",
                 title: String(localized: "action.palette.toggleTabPin", defaultValue: "Pin/Unpin Tab", bundle: .module),
-                keywords: ["tab", "pin"], category: .tab, symbol: "pin.fill", surfaces: [.palette, .contextMenu],
+                keywords: ["tab", "pin", "chat"], defaultShortcut: Shortcut("p", modifiers: [.option, .command]),
+                category: .tab, symbol: "pin.fill", surfaces: [.palette, .contextMenu, .keyboard],
                 targets: [.tab], cliName: "tab pin-unpin"
             ),
             ActionDescriptor(

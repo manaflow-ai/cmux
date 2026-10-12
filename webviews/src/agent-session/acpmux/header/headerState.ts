@@ -10,9 +10,22 @@ import { useSyncExternalStore } from "react";
 export interface HeaderPullRequest {
   readonly url: string;
   readonly number: number;
+  readonly title: string;
   /// `open`, `draft`, `merged` or `closed`.
   readonly state: string;
+  /// `approved`, `changes_requested`, `review_required`, or empty.
+  readonly review: string;
+  /// `mergeable`, `conflicting`, or empty while GitHub works it out.
+  readonly mergeable: string;
   readonly checks: { readonly state: string; readonly passed: number; readonly total: number };
+  /// Each check, failed first (cx-ncc.77.1): `passed`, `failed` or `pending`, with its run's https page.
+  readonly checkList: readonly HeaderCheck[];
+}
+
+export interface HeaderCheck {
+  readonly name: string;
+  readonly state: string;
+  readonly url?: string;
 }
 
 export interface HeaderState {
@@ -62,10 +75,20 @@ function pullRequestOf(value: unknown): HeaderPullRequest | undefined {
   const checks = (raw.checks ?? {}) as Partial<Record<keyof HeaderPullRequest["checks"], unknown>>;
   if (typeof raw.url !== "string" || !raw.url.startsWith("https://") || typeof raw.number !== "number")
     return undefined;
+  const text = (value: unknown) => (typeof value === "string" ? value : "");
   return {
     url: raw.url,
     number: raw.number,
+    title: text(raw.title),
     state: typeof raw.state === "string" ? raw.state : "open",
+    review: text(raw.review),
+    mergeable: text(raw.mergeable),
+    checkList: (Array.isArray(raw.checkList) ? raw.checkList : []).flatMap((check: unknown): HeaderCheck[] => {
+      const row = (check ?? {}) as Record<string, unknown>;
+      if (typeof row.name !== "string") return [];
+      const url = typeof row.url === "string" && row.url.startsWith("https://") ? row.url : undefined;
+      return [{ name: row.name, state: text(row.state), ...(url ? { url } : {}) }];
+    }),
     checks: {
       state: typeof checks.state === "string" ? checks.state : "none",
       passed: typeof checks.passed === "number" ? checks.passed : 0,

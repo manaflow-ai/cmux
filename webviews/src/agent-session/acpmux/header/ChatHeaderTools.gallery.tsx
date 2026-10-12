@@ -19,6 +19,7 @@ type HeaderToolsProps = {
   summary: ReactNode;
   menu: () => ChatMenuItem[];
   onMenuOpen?: () => Promise<unknown>;
+  onMergePullRequest?: (pullRequest: { number: number; url: string }) => Promise<{ queued: boolean }>;
   expand?: string;
   onExpanded?: () => void;
 };
@@ -99,6 +100,60 @@ const pullRequestChip: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-header-pr"));
 };
 
+// A click on the chip opens its status: title, state and review, then each check, failing first
+// (cx-ncc.77.1).
+const pullRequestStatus: Play = async (ctx) => {
+  const { setHeaderState } = await import("./headerState");
+  setHeaderState({
+    pullRequest: {
+      url: "https://github.com/manaflow-ai/cmux/pull/19560",
+      number: 19560,
+      title: "cx-ncc.74: stage and unstage single hunks in the Changes view",
+      state: "open",
+      review: "changes_requested",
+      mergeable: "mergeable",
+      checks: { state: "failing", passed: 3, total: 5 },
+      checkList: [
+        { name: "web / react-apps-check", state: "failed", url: "https://github.com/manaflow-ai/cmux/actions/runs/1" },
+        {
+          name: "macOS / Release compile",
+          state: "pending",
+          url: "https://github.com/manaflow-ai/cmux/actions/runs/2",
+        },
+        { name: "web / typecheck", state: "passed", url: "https://github.com/manaflow-ai/cmux/actions/runs/3" },
+        { name: "cmux-tui / focused", state: "passed", url: "https://github.com/manaflow-ai/cmux/actions/runs/4" },
+        { name: "CLA", state: "passed" },
+      ],
+    },
+  });
+  await ctx.click({ selector: ".acpmux-header-pr" });
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-pr-check").length === 5);
+};
+
+// A green pull request's status offers Merge; Merge asks in place before it merges (cx-ncc.77.4).
+const pullRequestMerge: Play = async (ctx) => {
+  const { setHeaderState } = await import("./headerState");
+  setHeaderState({
+    pullRequest: {
+      url: "https://github.com/manaflow-ai/cmux/pull/19605",
+      number: 19605,
+      title: "cx-ncc.77.3: Address sends a review comment to the chat",
+      state: "open",
+      review: "approved",
+      mergeable: "mergeable",
+      checks: { state: "passing", passed: 3, total: 3 },
+      checkList: [
+        { name: "web / react-apps-check", state: "passed" },
+        { name: "macOS / Release compile", state: "passed" },
+        { name: "CLA", state: "passed" },
+      ],
+    },
+  });
+  await ctx.click({ selector: ".acpmux-header-pr" });
+  await ctx.click({ role: "button", name: "Merge" });
+  await ctx.waitFor(() => ctx.find({ role: "button", name: "Confirm merge" }));
+};
+
 // Right-click Browser: the menu to move it, pick toggle or open, and show or hide each button (#19156).
 const customizeMenu: Play = async (ctx) => {
   const button = ctx.find({ selector: '[data-quick-action="browser"]' });
@@ -161,7 +216,11 @@ export default componentEntry<HeaderToolsProps>({
   height: 420,
   widths: { narrow: 390, normal: 560, wide: 860 },
   anchors: [{ selector: ".acpmux-header-tools" }],
-  covers: ["agent-session/acpmux/header/ChatHeaderTools.tsx#ChatHeaderTools"],
+  covers: [
+    "agent-session/acpmux/header/ChatHeaderTools.tsx#ChatHeaderTools",
+    "agent-session/acpmux/header/PullRequestChip.tsx#PullRequestChip",
+    "agent-session/acpmux/header/PullRequestMerge.tsx#PullRequestMerge",
+  ],
   load: () => import("./ChatHeaderTools").then((module) => module.ChatHeaderTools),
   // The pane's own stylesheets, as the app ships them (build-agent-pane-web.sh): its theme variables,
   // the shared popup surface, then the header's rules. With header.css alone every popup was
@@ -202,6 +261,21 @@ export default componentEntry<HeaderToolsProps>({
       note: "The chat branch's pull request leads the tools: its number, its state and how its checks stand (cx-tcwj).",
       props: { ...base, hasChanges: true, onChanges: () => undefined },
       play: pullRequestChip,
+    },
+    "pull-request-status": {
+      note: "A click on the PR chip lists its title, state, review and each check, failing first (cx-ncc.77.1).",
+      props: { ...base, hasChanges: true, onChanges: () => undefined },
+      play: pullRequestStatus,
+    },
+    "pull-request-merge": {
+      note: "A green pull request's status offers Merge, which asks once more in place before merging (cx-ncc.77.4).",
+      props: {
+        ...base,
+        hasChanges: true,
+        onChanges: () => undefined,
+        onMergePullRequest: async () => ({ queued: false }),
+      },
+      play: pullRequestMerge,
     },
     "customize-menu": {
       note: "Right-clicking a quick action moves it, picks toggle or open, and shows or hides each button (cx-00n1).",

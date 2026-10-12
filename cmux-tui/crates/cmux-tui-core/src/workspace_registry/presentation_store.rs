@@ -293,10 +293,15 @@ pub struct PresentationSnapshot {
 pub const TAB_GROUP_COLORS: [&str; 9] =
     ["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"];
 
+/// A tab or screen group color: one of the nine tokens, or a custom `#RRGGBB` a person picked,
+/// stored as given (cx-wqn5).
 pub fn validate_tab_group_color(value: &str) -> anyhow::Result<()> {
+    let hex = value.len() == 7
+        && value.starts_with('#')
+        && value[1..].bytes().all(|byte| byte.is_ascii_hexdigit());
     anyhow::ensure!(
-        TAB_GROUP_COLORS.contains(&value),
-        "bad request: tab group color must be one of {}",
+        hex || TAB_GROUP_COLORS.contains(&value),
+        "bad request: tab group color must be one of {} or #RRGGBB",
         TAB_GROUP_COLORS.join(", ")
     );
     Ok(())

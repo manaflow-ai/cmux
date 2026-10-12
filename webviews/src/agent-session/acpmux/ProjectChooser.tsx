@@ -248,7 +248,9 @@ export function ProjectChooser({
                   <span className="acpmux-menu-label">{t("project.usePath", { path: typedPath })}</span>
                 </button>
               ) : (
-                (query.trim() || !onNoProject) && <div className="acpmux-project-empty">{t("project.none")}</div>
+                (query.trim() || !onNoProject) && (
+                  <div className="acpmux-project-empty">{t(query.trim() ? "project.none" : "project.noneYet")}</div>
+                )
               ))}
           </div>
           {onBrowse && (

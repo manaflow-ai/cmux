@@ -4398,6 +4398,41 @@
           "aliases": []
         },
         {
+          "id": "palette.toggleTabPin",
+          "title": {
+            "en": "Pin/Unpin Tab",
+            "ar": "تثبيت/إلغاء تثبيت علامة التبويب",
+            "bs": "Zakači/otkači tab",
+            "da": "Fastgør/frigør fane",
+            "de": "Tab anheften/lösen",
+            "es": "Fijar/desfijar pestaña",
+            "fr": "Épingler/désépingler l’onglet",
+            "it": "Fissa/sblocca scheda",
+            "ja": "タブをピン留め/解除",
+            "km": "ខ្ទាស់/ឈប់ខ្ទាស់ថេប",
+            "ko": "탭 고정/고정 해제",
+            "no": "Fest/løsne fane",
+            "pl": "Przypnij/odepnij kartę",
+            "pt-BR": "Fixar/Desafixar Aba",
+            "ru": "Закрепить/открепить вкладку",
+            "th": "ปักหมุด/เลิกปักหมุดแท็บ",
+            "tr": "Sekmeyi Sabitle/Sabitlemeyi Kaldır",
+            "uk": "Закріпити/відкріпити вкладку",
+            "vi": "Ghim/Bỏ ghim tab",
+            "zh-CN": "固定/取消固定标签页",
+            "zh-TW": "釘選／取消釘選標籤頁"
+          },
+          "shortcut": {
+            "key": "p",
+            "modifiers": [
+              "opt",
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
           "id": "reopenClosedBrowserPanel",
           "title": {
             "en": "Reopen Last Closed Tab",
@@ -6998,6 +7033,41 @@
             "key": "u",
             "modifiers": [
               "shift",
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
+          "id": "jumpToLastPrompt",
+          "title": {
+            "en": "Jump to Last Prompt",
+            "ar": "الانتقال إلى آخر موجّه",
+            "bs": "Idi na posljednji upit",
+            "da": "Gå til seneste prompt",
+            "de": "Zum letzten Prompt springen",
+            "es": "Ir al último prompt",
+            "fr": "Aller au dernier prompt",
+            "it": "Vai all’ultimo prompt",
+            "ja": "最後のプロンプトへ移動",
+            "km": "ទៅកាន់សំណើចុងក្រោយ",
+            "ko": "마지막 프롬프트로 이동",
+            "no": "Gå til siste ledetekst",
+            "pl": "Przejdź do ostatniego polecenia",
+            "pt-BR": "Ir para o último prompt",
+            "ru": "Перейти к последнему запросу",
+            "th": "ไปยังพรอมต์ล่าสุด",
+            "tr": "Son isteme git",
+            "uk": "Перейти до останнього запиту",
+            "vi": "Chuyển đến lời nhắc gần nhất",
+            "zh-CN": "跳转到最后的提示",
+            "zh-TW": "跳至最後的提示"
+          },
+          "shortcut": {
+            "key": "b",
+            "modifiers": [
+              "ctrl",
               "cmd"
             ]
           },

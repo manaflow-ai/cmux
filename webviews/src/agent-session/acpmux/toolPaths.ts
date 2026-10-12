@@ -41,8 +41,13 @@ export function editedPaths(tool: Tool): string[] {
 
 /// A short row label that describes a call without ever falling back to its raw JSON input.
 /// Paths come from the same harness-aware reader as edited-file cards, so a Write whose content
-/// precedes `file_path` still reads as `Write gen.py`.
-export function toolLabel(tool: Tool, fallback: string, commandLabel: (command: string) => string): string {
+/// precedes `file_path` still reads as `Write gen.py`. A file inside `cwd` reads by its path from there.
+export function toolLabel(
+  tool: Tool,
+  fallback: string,
+  commandLabel: (command: string) => string,
+  cwd?: string,
+): string {
   const title = readableName(tool.title);
   const fallbackName = readableName(fallback, tool.kind) || "Tool";
   const paths = editedPaths(tool);
@@ -50,9 +55,16 @@ export function toolLabel(tool: Tool, fallback: string, commandLabel: (command: 
   if (tool.kind === "execute" && command) return commandLabel(command);
   if (paths.length) {
     const action = firstWord(title || fallbackName);
-    return title.includes(paths[0]!) ? title : `${action} ${paths[0]}`;
+    return title.includes(paths[0]!) ? title : `${action} ${fromFolder(paths[0]!, cwd)}`;
   }
   return title || fallbackName;
+}
+
+function fromFolder(path: string, cwd: string | undefined): string {
+  const folder = cwd?.replace(/\/+$/, "");
+  return folder && path.startsWith(`${folder}/`) && path.length > folder.length + 1
+    ? path.slice(folder.length + 1)
+    : path;
 }
 
 function firstWord(value: string): string {

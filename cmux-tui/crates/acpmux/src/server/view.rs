@@ -42,6 +42,13 @@ pub(super) fn view(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcE
     Ok(json!({}))
 }
 
+/// `_acpmux/markUnread {sessionId}` (cx-ncc.78): the person marks a chat unread; it stays so until
+/// a client shows it again after hiding it (`hub/seen.rs`).
+pub(super) fn mark_unread(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
+    hub.mark_unread(&*hub.resolve(session_key(params)?)?);
+    Ok(json!({}))
+}
+
 /// The connection closed: every attachment it held ends with it.
 pub(super) fn release_all(hub: &Hub, conn: &Conn) {
     let subs: Vec<(String, SubOpts)> =

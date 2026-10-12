@@ -102,8 +102,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The header's right-click menu saved the quick actions (`pane.setQuickActions
     /// {quickActions}`): the App writes them into `agent-pane/layout.json`.
     case setQuickActions([AgentPaneQuickAction])
-    /// The chat tab's state the header's menu labels read: `{pinned}`.
-    case tabState
+    /// The chat tab's state the header's menu labels read: `{pinned}`; `refresh` (a turn ended)
+    /// asks for the chat folder's pull request again.
+    case tabState(refresh: Bool)
     /// The "..." menu's Archive (`true`) or Unarchive (`false`) of the pane's chat.
     case archive(Bool)
     /// New side chat: open the fork `sessionId` the page just made beside this chat.
@@ -170,6 +171,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `project.addFiles`: the chat menu's Add Files to Project (AgentPaneProjectFiles.swift), with the
     /// same `{cwd, name}`; nil when its params break the contract.
     case projectAddFiles(AgentPaneProjectInstructions?)
+    /// `composer.capture` with `{mode}`: the composer's Attach Screenshot… or Attach Window…
+    /// (AgentPaneCapture.swift).
+    case composerCapture(mode: String?)
     /// `transport.open`: open the host's acpmux socket named by the last handshake
     /// (``AgentPaneTransport``); answers `{connection}` once it is open.
     case transportOpen

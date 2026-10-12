@@ -486,6 +486,8 @@ export function ModelPicker(props: ModelPickerProps) {
     setActive((index) => (visible.length ? (index + step + visible.length) % visible.length : 0));
   };
   const keyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    // Candidate acceptance belongs to the IME. WebKit can report only keyCode 229 on commit.
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     const shortcut = event.ctrlKey && ["n", "p", "j", "k"].includes(event.key.toLowerCase());
     if (shortcut) {
       event.preventDefault();
@@ -508,6 +510,7 @@ export function ModelPicker(props: ModelPickerProps) {
       /^[1-9]$/.test(event.key) &&
       !event.ctrlKey &&
       !event.altKey &&
+      !query &&
       (!event.metaKey || Number(event.key) <= 4)
     ) {
       const model = visible[Number(event.key) - 1];

@@ -53,3 +53,22 @@
 .acpmux-chat-gallery-image img{display:block;width:100%;height:100%;object-fit:contain}
 .acpmux-chat-gallery-image:focus-visible{outline:2px solid var(--agent-accent-soft);outline-offset:2px}
 .acpmux-chat-gallery-title{display:block;padding:8px;border:.5px solid var(--agent-border);border-radius:8px;color:var(--agent-muted);font-size:var(--text-detail)}
+/* The chat's pull requests above the composer (summary/PullRequestDock.tsx): 28px bars on the composer's column, number and repository muted, the title truncating, the state coloured as the header chip colours it. */
+.acpmux-pr-dock{display:flex;flex-direction:column;gap:2px;padding:0 max(16px,calc((100% - 760px)/2)) 6px;font-size:var(--text-control);line-height:18px}
+.acpmux-quick .acpmux-pr-dock{padding:6px 8px 0}
+.acpmux-pr-dock__row{display:flex;align-items:center;gap:2px;height:28px;padding-right:2px;border-radius:8px;background:var(--acpmux-composer-tray)}
+.acpmux-pr-dock__bar{flex:1;min-width:0;display:flex;align-items:center;gap:6px;height:100%;padding:0 10px;box-sizing:border-box;border-radius:8px;color:var(--agent-text);text-decoration:none;cursor:default}
+.acpmux-pr-dock__bar>svg{flex:none;color:var(--agent-muted)}
+.acpmux-pr-dock__bar:hover{background:var(--acpmux-composer-hover)}
+.acpmux-pr-dock__bar:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
+.acpmux-pr-dock__number,.acpmux-pr-dock__repo{flex:none;color:var(--agent-muted)}
+.acpmux-pr-dock__repo{flex:0 1 auto;min-width:0;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acpmux-pr-dock__title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acpmux-pr-dock__state{flex:none;margin-left:auto;font-size:var(--text-detail);font-weight:500;color:var(--agent-muted)}
+.acpmux-pr-dock__bar[data-state="open"] .acpmux-pr-dock__state,.acpmux-pr-dock__bar[data-state="open"]>svg{color:var(--agent-success,var(--acpmux-add,#3fb950))}
+.acpmux-pr-dock__bar[data-state="merged"] .acpmux-pr-dock__state,.acpmux-pr-dock__bar[data-state="merged"]>svg{color:var(--agent-ansi-5,#a371f7)}
+.acpmux-pr-dock__bar[data-state="closed"] .acpmux-pr-dock__state,.acpmux-pr-dock__bar[data-state="closed"]>svg{color:var(--agent-danger)}
+.acpmux-pr-dock__dismiss{flex:none}
+.acpmux-pr-dock__more{align-self:flex-start;height:24px;padding:0 8px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);cursor:default}
+.acpmux-pr-dock__more:hover{background:var(--acpmux-composer-hover);color:var(--agent-text)}
+.acpmux-pr-dock__more:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
