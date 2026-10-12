@@ -14,11 +14,13 @@ struct BrowserProfileLinkMenuTests {
             BrowserProfileRecord(id: "work", name: "Work", icon: "🦊"),
             BrowserProfileRecord(id: "personal", name: "Personal"),
             BrowserProfileRecord(id: "travel", name: "Travel", icon: "airplane"),
+            // An icon the menu can't draw at this size (an uploaded image) keeps the empty image.
+            BrowserProfileRecord(id: "school", name: "School", icon: "image:school"),
         ]) { ran.append($0.id) }
-        #expect(items.map(\.title) == ["Work", "Personal", "Travel"])
+        #expect(items.map(\.title) == ["Work", "Personal", "Travel", "School"])
         let sizes = items.map { $0.image?.size }
         #expect(sizes.allSatisfy { $0 != nil && $0 == sizes.first! })
-        #expect(items.map { Self.inked($0.image) } == [true, false, true])
+        #expect(items.map { Self.inked($0.image) } == [true, false, true, false])
         (items[1].target as? ActionMenuClosure)?.run()
         #expect(ran == ["personal"])
     }
