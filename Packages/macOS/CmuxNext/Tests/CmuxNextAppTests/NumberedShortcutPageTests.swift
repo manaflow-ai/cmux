@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDaemon
+import CmuxNextPages
 @testable import CmuxNextSettings
 import Foundation
 import Testing
@@ -15,10 +16,10 @@ import Testing
 struct NumberedShortcutPageTests {
     typealias Launch = KeybindingsFileRelaunchTests.Launch
 
-    static func root(_ name: String) throws -> URL {
+    static func root(_ name: String, settings: String = "{}") throws -> URL {
         let root = FileManager.default.temporaryDirectory.appending(path: "cn-\(name)-\(UUID().uuidString.prefix(8))")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        try Data("{}".utf8).write(to: root.appending(path: "cmux.json"))
+        try Data(settings.utf8).write(to: root.appending(path: "cmux.json"))
         return root
     }
 
@@ -112,5 +113,82 @@ struct NumberedShortcutPageTests {
         await second.quit()
         #expect(relaunched["2"] == ["cmd+opt+ctrl+k"], "the rebind was gone after the relaunch: \(relaunched)")
         #expect(relaunched["3"] == ["opt+ctrl+3"])
+    }
+
+    /// Onboarding's Spaces scheme keeps both families in cmux.json: one digit
+    /// of Select Tab still rebinds alone, and the other eight keep their keys.
+    @Test func aDigitOfAFamilyCmuxJSONHoldsRebindsAloneAndSurvivesARelaunch() async throws {
+        let binary = try #require(SameTreeDaemonBinary.url)
+        let root = try Self.root("keyjs", settings: #"{"shortcuts": {"bindings": {"space.selectByNumber": "ctrl+1", "selectSurfaceByNumber": "ctrl+opt+1"}}}"#)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let session = "cn-keyjs-\(UUID().uuidString.prefix(8).lowercased())"
+        let command = ActionID(rawValue: "selectSurfaceByNumber")
+        let ctrlOpt3 = try Self.key("ctrl+opt+3")
+        var expected = Dictionary(uniqueKeysWithValues: (1...9).map { ("\($0)", ["opt+ctrl+\($0)"]) })
+        expected["3"] = ["cmd+opt+ctrl+k"]
+
+        let first = try await Launch(root: root, session: session, binary: binary)
+        await first.wait { first.connected }
+        let row = try #require(first.entries(command, keys: [ctrlOpt3]).first, "no Select Tab 3 row on ctrl+opt+3")
+        var failure: String?
+        do {
+            _ = try await first.call("cmux.keybindings.set", Self.edit(row, to: "cmd+ctrl+opt+k"))
+        } catch {
+            failure = String(describing: error)
+        }
+        let rebound = Self.family(first, command)
+        await first.quit()
+        #expect(failure == nil, "the page refused the rebind: \(failure ?? "")")
+        #expect(rebound == expected, "\(rebound)")
+
+        let second = try await Launch(root: root, session: session, binary: binary)
+        await second.wait { second.connected && Self.family(second, command) == expected }
+        let relaunched = Self.family(second, command)
+        await second.quit()
+        #expect(relaunched == expected, "after the relaunch: \(relaunched)")
+    }
+
+    /// A digit rebound onto another digit's key would take that key from it:
+    /// the page refuses, and the family is unchanged.
+    @Test func aDigitOnAnotherDigitsKeyIsRefused() async throws {
+        let binary = try #require(SameTreeDaemonBinary.url)
+        let root = try Self.root("keysib")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let command = ActionID(rawValue: "selectSurfaceByNumber")
+        let launch = try await Launch(root: root, session: "cn-keysib-\(UUID().uuidString.prefix(8).lowercased())", binary: binary)
+        await launch.wait { launch.connected }
+        let row = try #require(launch.entries(command, keys: [try Self.key("ctrl+2")]).first)
+        var code: String?
+        do {
+            _ = try await launch.call("cmux.keybindings.set", Self.edit(row, to: "ctrl+3"))
+        } catch let error as PageError {
+            code = error.code
+        }
+        let family = Self.family(launch, command)
+        await launch.quit()
+        #expect(code == "cmux.keybindings.conflict")
+        #expect(family == Dictionary(uniqueKeysWithValues: (1...9).map { ("\($0)", ["ctrl+\($0)"]) }), "\(family)")
+    }
+
+    /// Recording a family's own keys again writes nothing to cmux.json.
+    @Test func reRecordingAFamilysOwnKeyWritesNothing() async throws {
+        let binary = try #require(SameTreeDaemonBinary.url)
+        let root = try Self.root("keysame")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let command = ActionID(rawValue: "selectWorkspaceByNumber")
+        let launch = try await Launch(root: root, session: "cn-keysame-\(UUID().uuidString.prefix(8).lowercased())", binary: binary)
+        await launch.wait { launch.connected }
+        let row = try #require(launch.entries(command, keys: [try Self.key("cmd+3")]).last)
+        var failure: String?
+        do {
+            _ = try await launch.call("cmux.keybindings.set", Self.edit(row, to: "cmd+3"))
+        } catch {
+            failure = String(describing: error)
+        }
+        let overridden = launch.services.registry.shortcutOverrides.keys.contains(command)
+        await launch.quit()
+        let settings = (try? String(contentsOf: root.appending(path: "cmux.json"), encoding: .utf8)) ?? ""
+        #expect(failure == nil, "\(failure ?? "")")
+        #expect(!overridden && !settings.contains("selectWorkspaceByNumber"), "cmux.json: \(settings)")
     }
 }
