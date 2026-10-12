@@ -144,7 +144,14 @@ function GalleryPathPicker({
 }
 
 const ready: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelector('.ve-picker[data-phase="ready"]'));
+  await ctx.waitFor(() => {
+    const picker = ctx.document.querySelector('.ve-picker[data-phase="ready"]');
+    const field = picker?.querySelector<HTMLInputElement>(".ve-picker-field");
+    // The picker chunk loads its CSS alongside the stage. Do not begin an interaction while the
+    // field is still at the browser's intrinsic input height: the first click would then measure
+    // the stylesheet landing as a false 13 px navigation shift.
+    return field && field.getBoundingClientRect().height >= 30;
+  });
 };
 
 const locations: Play = async (ctx) => {
