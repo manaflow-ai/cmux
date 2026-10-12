@@ -12,6 +12,7 @@ import {
   loadPageDiffConfig,
   normalizePageDiffConfig,
   startPageDiffLanguages,
+  startPageDiffPrefs,
   type DiffPageConfig,
 } from "./page";
 import { type DiffNavigationPerform, startPageDiffCommands } from "./pageCommands";
@@ -55,6 +56,8 @@ export async function bootPageDiff(
   await render(config, pack ?? config.payload?.languages);
   api = languageAPI();
   for (const next of early.splice(0)) api?.apply(next as never);
+  // A Diff Colors change in Settings recolors the open tab.
+  await startPageDiffPrefs(page);
   // The key dispatcher's diffViewer* commands run the viewer's own navigation actions.
   try {
     await startPageDiffCommands(page, perform);

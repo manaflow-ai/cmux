@@ -93,6 +93,10 @@ final class DiffPageProvider: PageProvider {
             guard let languages else { throw PageError.unknownOp(stream) }
             let stop = languages.listen(onEvent)
             return PageSubscription { stop() }
+        case Self.prefsStream:
+            guard let stores else { throw PageError.unknownOp(stream) }
+            let stop = stores.prefs.listen { prefs in onEvent(["prefs": .object(prefs)]) }
+            return PageSubscription { stop() }
         default:
             throw PageError.unknownOp(stream)
         }
