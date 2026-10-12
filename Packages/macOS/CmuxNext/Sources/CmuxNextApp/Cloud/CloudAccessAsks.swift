@@ -2,12 +2,13 @@ import CmuxNextAgentPane
 import CmuxNextDaemon
 import Foundation
 
-/// A moved chat's file requests for this Mac (cmuxterm-hq#1874 slice 6): while chats a move put on
+/// A moved chat's file and secret requests for this Mac (cmuxterm-hq#1874 slice 6): while chats a move put on
 /// a connected Cloud machine (``CloudMovedChats``) exist, the app runs `cmux link access triage`
 /// for each machine's chats every ``CloudMoveSetup/accessPoll`` (one run at a time), which answers
-/// what needs no person, and shows each file ask left as a card in that chat's tab on the machine
+/// what needs no person, and shows each ask left as a card in that chat's tab on the machine
 /// (``AgentToolCards``, never a sheet; ``CloudAccessCard``): Allow once, Always for its folder,
-/// Deny. Only the person's click (a real gesture in the pane, ``AgentPaneToolCard``) answers, with
+/// Deny; for a secret, a password field, Share once and Deny. A typed secret goes only to that
+/// request's `answer`, on stdin, and is never logged or kept. Only the person's click (a real gesture in the pane, ``AgentPaneToolCard``) answers, with
 /// exactly what the card showed, and only while the chat is still on the machine; nothing is
 /// answered from the ask's own `exists` or `shareable`. Each chat's granted folders are copied
 /// again every ``CloudMoveSetup/accessSync``, and Bring Back Local ends its grants
@@ -44,8 +45,10 @@ final class CloudAccessAsks {
     func start(services: AppServices) {
         guard loop == nil else { return }
         loop = Task { @MainActor [weak self, weak services] in
+            // wakeup-allow: polls triage only while a moved chat or a revoke waits (the loop then ends); the machine pushes no access request
             while !Task.isCancelled {
                 guard let pause = await self?.poll(services) else { return }
+                // wakeup-allow: the poll's pause (accessPoll, or a machine's backoff), only while the loop above runs
                 try? await Task.sleep(for: pause)
             }
         }
@@ -58,6 +61,7 @@ final class CloudAccessAsks {
         start(services: services)
         guard let binary = services.cloud.move.cli else { return }
         let revokes = revokes
+        // task-owner: one revoke round; CloudAccessRevokes keeps what is left for the poll loop
         Task { @MainActor [weak services] in
             guard let services else { return }
             await revokes.run(CloudAccessCLI(binary: binary), services: services)
@@ -115,17 +119,18 @@ final class CloudAccessAsks {
             }
             backoff[machineID] = nil
             if answer.failures > 0 { services.cloud.logger.error("cloud access triage: \(answer.failures) requests failed") }
-            for ask in answer.asks {
-                guard let chat = machineChats.first(where: { $0.session == ask.session }), let tab = Self.tab(of: chat, on: machine, services: services),
+            let listed = answer.asks.map { ($0.session, CloudAccessAsk.Asked.file($0)) } + answer.secrets.map { ($0.session, CloudAccessAsk.Asked.secret($0)) }
+            for (session, asked) in listed {
+                guard let chat = machineChats.first(where: { $0.session == session }), let tab = Self.tab(of: chat, on: machine, services: services),
                       let root = Self.remoteRoot(chat.remoteFolder, roots: setup.workRoots) else { continue }
-                next[tab, default: []].append(CloudAccessAsk(ask: ask, host: chat.host, session: chat.session, machineID: machineID,
+                next[tab, default: []].append(CloudAccessAsk(asked: asked, host: chat.host, session: chat.session, machineID: machineID,
                                                              machineName: machine.machine.title, socket: socket, remoteRoot: root))
             }
         }
         // Checked after every await: a triage that began before an answer ended may list it still;
         // one that began after shows it again.
-        next = next.mapValues { list in list.filter { !answering.contains($0.ask.requestID) && answered[$0.ask.requestID].map { triage > $0 } ?? true } }
-        for list in next.values { for ask in list { answered[ask.ask.requestID] = nil } }
+        next = next.mapValues { list in list.filter { !answering.contains($0.requestID) && answered[$0.requestID].map { triage > $0 } ?? true } }
+        for list in next.values { for ask in list { answered[ask.requestID] = nil } }
         answered = answered.filter { $0.value >= triage }
         asks = next.filter { !$0.value.isEmpty }
         // A failed answer's card goes with its chat's tab.
@@ -163,33 +168,36 @@ final class CloudAccessAsks {
             failures[tab] = failures[tab]?.filter { Self.isLive($0, services: services) }
             if failures[tab]?.isEmpty == true { failures[tab] = nil }
             // Live asks first: a failed answer's card never pushes one past the cap.
-            let list = (asks[tab] ?? []).filter { Self.isLive($0, services: services) && !answering.contains($0.ask.requestID) } + (failures[tab] ?? []).prefix(1)
+            let list = (asks[tab] ?? []).filter { Self.isLive($0, services: services) && !answering.contains($0.requestID) } + (failures[tab] ?? []).prefix(1)
             let cards = list.prefix(AgentPaneToolCard.maximumShown).map(CloudAccessCard.card)
             guard cards != shown[tab] ?? [] else { continue }
-            let ok = services.cloud.toolCards.set(cards, owner: Self.owner, tab: tab) { [weak self, weak services] card, action in
+            let ok = services.cloud.toolCards.set(cards, owner: Self.owner, tab: tab) { [weak self, weak services] card, action, value in
                 guard let self, let services, let action = CloudAccessCard.Action(rawValue: action) else { return }
-                self.answer(card, action, tab: tab, services: services)
+                self.answer(card, action, value: value, tab: tab, services: services)
             }
             // A chat with no page to show them is tried again next round.
             shown[tab] = cards.isEmpty || !ok ? nil : cards
         }
     }
 
-    /// The person's click on `action` of card `card`: the card goes, and the answer names exactly what it showed.
-    private func answer(_ card: String, _ action: CloudAccessCard.Action, tab: String, services: AppServices) {
+    /// The person's click on `action` of card `card`, with what they typed in its field (`value`, a
+    /// secret): the card goes, and the answer names exactly what it showed. The value lives only in
+    /// this answer's task and goes only to the CLI's stdin.
+    private func answer(_ card: String, _ action: CloudAccessCard.Action, value: AgentPaneToolCard.Entered?, tab: String, services: AppServices) {
         if action == .dismiss {
             failures[tab]?.removeAll { $0.card == card }
             if failures[tab]?.isEmpty == true { failures[tab] = nil }
             return render(services: services)
         }
         guard let ask = asks[tab]?.first(where: { $0.card == card }), Self.isLive(ask, services: services),
-              let how = CloudAccessCard.how(action, ask.ask), let binary = services.cloud.move.cli else { return }
-        let id = ask.ask.requestID, chat = CloudAccessRevokes.Chat(machineID: ask.machineID, session: ask.session)
+              let how = CloudAccessCard.how(action, ask, value: value), let binary = services.cloud.move.cli else { return }
+        let id = ask.requestID, chat = CloudAccessRevokes.Chat(machineID: ask.machineID, session: ask.session)
         answering.insert(id)
         revokes.answerStarted(chat)
         asks[tab]?.removeAll { $0.card == card }
         render(services: services)
         let logger = services.cloud.logger
+        // task-owner: one person's answer, bounded by the CLI's timeout; `answering` tracks it
         Task { @MainActor [weak self, weak services] in
             let answer: CloudAccessCLI.Answer
             do {
@@ -209,7 +217,7 @@ final class CloudAccessAsks {
             guard !answer.ok, answer.errorCode != "request_changed", answer.errorCode != "request_gone" else { return }
             logger.error("cloud access answer: \(answer.errorCode ?? "", privacy: .public) \(answer.error ?? "", privacy: .public)")
             var failed = ask
-            failed.failure = CloudAccessCard.failure(answer.errorCode, ask.ask)
+            failed.failure = CloudAccessCard.failure(answer.errorCode, ask)
             failures[tab, default: []].append(failed)
             if let services { render(services: services) }
         }
