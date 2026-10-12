@@ -2590,6 +2590,27 @@ export const hexclavePendingRevocations = pgTable("hexclave_pending_revocations"
   index("hexclave_pending_revocations_user_idx").on(table.userId),
 ]);
 
+/**
+ * A Stack session that must be revoked because the Cloud access grant it
+ * enrolled was revoked. Written before the Stack call, so a throttled or
+ * failed revocation is retried by the vm-reconcile cron until Stack accepts
+ * it (`revoked_at` set). The grant itself is cut on our side at once.
+ */
+export const stackSessionRevocations = pgTable("stack_session_revocations", {
+  stackSessionId: text("stack_session_id").primaryKey(),
+  userId: text("user_id").notNull(),
+  accessGrantId: uuid("access_grant_id"),
+  attempts: integer("attempts").notNull().default(0),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+}, (table) => [
+  index("stack_session_revocations_due_idx")
+    .on(table.nextAttemptAt)
+    .where(sql`${table.revokedAt} is null`),
+]);
+
 export type HexclaveWebhookOutcome = "processed" | "ignored" | "invalid" | "failed";
 
 /**
