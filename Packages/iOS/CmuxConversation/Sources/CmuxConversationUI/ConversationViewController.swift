@@ -1229,7 +1229,6 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
             isScrollingToTop = false
         }
         maybeLoadOlder()
-        for case let cell as MessageCell in collectionView.visibleCells { cell.updateScreenGradients() }
         prefetchAroundVisibleRows()
         // Reading follows viewing (see +CatchUp), not scroll position:
         // Messages reads the whole conversation on open.
@@ -1459,6 +1458,12 @@ final class TranscriptCollectionView: UICollectionView {
     override func layoutSubviews() {
         super.layoutSubviews()
         updateTopFadeMask()
+        // Outgoing bubbles' gradient is fixed to the screen. Placed here,
+        // after the cells for this offset are placed, not on scroll: a cell
+        // reused at the other edge would otherwise show the gradient of the
+        // place it left for a frame (its bubble keeps its size, so it does
+        // not lay out again).
+        for case let cell as MessageCell in visibleCells { cell.updateScreenGradients() }
     }
 
     /// The mask lives in the scroll view's bounds space, so it follows the
