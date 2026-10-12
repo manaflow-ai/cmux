@@ -6,7 +6,8 @@ import Foundation
 /// provider that exits with a failure posts an error. They go through
 /// `AgentNotificationDelivery`, so the panel gets the banner, Dock badge,
 /// focused-pane suppression, click-to-jump and workspace mute that terminal
-/// agents get. The panel's own surface is the target.
+/// agents get. The panel's own surface is the target. Stopping the agent or
+/// closing its panel is not a failure and posts nothing.
 @MainActor
 final class AgentSessionTurnNotifier {
     /// One notification for the panel's surface.
@@ -82,7 +83,8 @@ final class AgentSessionTurnNotifier {
             let status = (event["status"] as? NSNumber)?.int32Value ?? 0
             turnOpen = false
             turnText = ""
-            guard status != 0, let provider else { return }
+            // An agent the person stopped, or whose panel closed, exits on a signal: no error.
+            guard status != 0, event["stopRequested"] as? Bool != true, let provider else { return }
             let body = String(
                 format: String(localized: "agentSession.web.log.providerExitedFormat", defaultValue: "Provider exited %d"),
                 Int(status)

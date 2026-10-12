@@ -148,11 +148,13 @@ final class AgentSessionProcessStore {
         guard let session = sessions[sessionId] else {
             throw AgentSessionBridgeError.sessionNotFound(sessionId)
         }
+        session.stopRequested = true
         requestTermination(for: session)
     }
 
     func closeAll() {
         for session in sessions.values {
+            session.stopRequested = true
             requestTermination(for: session)
         }
     }
@@ -216,7 +218,8 @@ final class AgentSessionProcessStore {
         emitExit(
             sessionId: session.sessionId,
             providerID: session.providerID,
-            status: status
+            status: status,
+            stopRequested: session.stopRequested
         )
     }
 
@@ -230,7 +233,8 @@ final class AgentSessionProcessStore {
         emitExit(
             sessionId: session.sessionId,
             providerID: session.providerID,
-            status: status
+            status: status,
+            stopRequested: session.stopRequested
         )
     }
 
@@ -407,7 +411,8 @@ final class AgentSessionProcessStore {
                 self.emitExit(
                     sessionId: session.sessionId,
                     providerID: session.providerID,
-                    status: 1
+                    status: 1,
+                    stopRequested: false
                 )
             }
         }
@@ -677,13 +682,15 @@ final class AgentSessionProcessStore {
     private func emitExit(
         sessionId: String,
         providerID: AgentSessionProviderID,
-        status: Int32
+        status: Int32,
+        stopRequested: Bool
     ) {
         eventSink?([
             "type": "provider.exit",
             "sessionId": sessionId,
             "providerId": providerID.rawValue,
-            "status": status
+            "status": status,
+            "stopRequested": stopRequested
         ])
     }
 
