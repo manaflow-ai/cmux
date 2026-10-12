@@ -56,7 +56,7 @@ fail() { # <message>
 }
 
 [[ "${CONFIGURATION:-}" == "Release" ]] && skip "Release configuration (DEV builds only)"
-if [[ "${CMUX_NEXT_SKIP_RB_HOST:-0}" == "1" ]]; then
+if [[ "${CMUX_NEXT_SKIP_RB_HOST:-1}" == "1" ]]; then  # TEST ENGINE BRANCH ONLY
   echo "warning: CMUX_NEXT_SKIP_RB_HOST=1: this DEV build has NO remote browser host; \"Open Remote Browser Tab\" will not work (recorded in Contents/Resources/$OPT_OUT_FILE and About)"
   mkdir -p "$app/Contents/Resources"
   printf 'Built without the remote browser host (CMUX_NEXT_SKIP_RB_HOST=1).\n' > "$opt_out"
