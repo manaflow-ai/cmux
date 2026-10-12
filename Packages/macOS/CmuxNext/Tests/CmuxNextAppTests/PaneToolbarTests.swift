@@ -9,7 +9,7 @@ import Testing
 @MainActor
 struct PaneToolbarTests {
     final class Bar {
-        let registry = ActionRegistry()
+        let registry = ActionRegistry.standard()
         private(set) var runs: [(id: String, invocation: ActionInvocation)] = []
         private(set) var written: [Set<String>] = []
         lazy var toolbar = PaneToolbar(registry: { [registry] in registry }, writeHidden: { [unowned self] in written.append($0) })
