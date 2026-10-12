@@ -2,6 +2,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextDaemon
 import CmuxNextSettings
+import CmuxNextSidebar
 import Foundation
 
 /// What a new workspace's first terminal starts with. The keyboard, menu,
