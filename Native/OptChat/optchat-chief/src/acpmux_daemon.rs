@@ -239,9 +239,30 @@ fn await_socket(socket: &Path, wait: Duration) -> Result<(), String> {
     }
 }
 
-/// `ACPMUX_HOME`, else the socket's directory.
 fn daemon_home(socket: &Path) -> PathBuf {
-    env("ACPMUX_HOME").map(PathBuf::from).unwrap_or_else(|| {
+    let user = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| "/".into());
+    // SAFETY: getuid has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    daemon_home_for(
+        env("ACPMUX_HOME").as_deref(),
+        env("ACPMUX_SOCKET").as_deref(),
+        socket,
+        &user,
+        uid,
+    )
+}
+
+/// The home a started daemon gets: `ACPMUX_HOME`, else the socket's directory.
+pub fn daemon_home_for(
+    home: Option<&str>,
+    _configured: Option<&str>,
+    socket: &Path,
+    _user_home: &Path,
+    _uid: u32,
+) -> PathBuf {
+    home.map(PathBuf::from).unwrap_or_else(|| {
         socket
             .parent()
             .map_or_else(|| PathBuf::from("."), Path::to_path_buf)

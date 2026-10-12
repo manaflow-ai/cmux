@@ -4,7 +4,7 @@
 //! configured `ACPMUX_SOCKET` past the Unix socket limit and a long home reach
 //! the short alias the daemon binds.
 
-use optchat_chief::acpmux_daemon::socket_path_for;
+use optchat_chief::acpmux_daemon::{daemon_home_for, socket_path_for};
 use serde_json::Value;
 use std::path::Path;
 
@@ -54,4 +54,29 @@ fn a_configured_socket_matches_the_shared_cases() {
             "configured {configured}"
         );
     }
+}
+
+#[test]
+fn a_started_daemons_home_is_never_the_short_alias_folder() {
+    let user = Path::new(
+        "/Users/a-user-whose-home-folder-name-is-long-enough-to-push-the-default-socket-path",
+    );
+    let socket = socket_path_for(None, None, user, 501);
+    assert!(socket.starts_with("/tmp/acpmux-501"), "{}", socket.display());
+    assert_eq!(
+        daemon_home_for(None, None, &socket, user, 501),
+        user.join(".acpmux")
+    );
+    let configured = format!("/{}/s.sock", "e".repeat(98));
+    let socket = socket_path_for(Some(&configured), None, user, 501);
+    assert!(socket.starts_with("/tmp/acpmux-501"), "{}", socket.display());
+    assert_eq!(
+        daemon_home_for(None, Some(&configured), &socket, user, 501),
+        Path::new(&configured).parent().unwrap()
+    );
+    let socket = Path::new("/tmp/run/acpmux.sock");
+    assert_eq!(
+        daemon_home_for(None, None, socket, user, 501),
+        Path::new("/tmp/run")
+    );
 }

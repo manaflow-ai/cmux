@@ -52,6 +52,15 @@ export function waitForReady(pipe: Readable, options: { timeoutMs: number; exite
   });
 }
 
+/** The home a started daemon gets: ACPMUX_HOME, else the socket's folder. */
+export function acpmuxDaemonHome(
+  env: Record<string, string | undefined>,
+  socket: string,
+  _uid: number = process.getuid?.() ?? 0,
+): string {
+  return env.ACPMUX_HOME ?? dirname(env.ACPMUX_SOCKET || socket);
+}
+
 /**
  * Starts `$ACPMUX_BIN daemon run` unless the socket answers. Returns the
  * started pid, or undefined when a daemon was already running.
@@ -60,8 +69,7 @@ export async function ensureAcpmuxDaemon(env: Record<string, string | undefined>
   if (await socketReachable(socket)) return undefined;
   const bin = env.ACPMUX_BIN;
   if (!bin) throw new Error(`acpmux is not reachable at ${socket} and ACPMUX_BIN is not set`);
-  // The configured socket's folder, not the short alias a long one resolves to (acpmuxSocketPath).
-  const home = env.ACPMUX_HOME ?? dirname(env.ACPMUX_SOCKET || socket);
+  const home = acpmuxDaemonHome(env, socket);
   mkdirSync(home, { recursive: true });
   const out = openSync(join(home, "daemon.log"), "a");
   // The daemon writes one line to fd 3 once its socket listens (acpmux --ready-fd): a
