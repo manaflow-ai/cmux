@@ -3,7 +3,7 @@
 //! its records, so the next daemon adopts them from that host: a tab that
 //! showed "blocked" before both still shows it, with the same `updated_seq`.
 
-use super::host_replacement::wait_for_replacement;
+use super::host_replacement::{wait_for_daemon_custody, wait_for_replacement};
 use super::pty_custody::{signal_pid, wait_for_dead_host};
 use super::*;
 use crate::program_status_restart::wait_for_program_status;
@@ -40,7 +40,7 @@ fn program_status_records_survive_a_host_replacement_then_a_daemon_restart() {
     let before = wait_for_program_status(&harness, 2);
     assert_eq!(before[1]["state"], "blocked", "{before}");
     let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
-    super::host_replacement::wait_for_daemon_custody(&harness, true);
+    wait_for_daemon_custody(&harness, true);
 
     // The host dies under the running daemon, which replaces it on the
     // same shell; the program reports nothing more.
