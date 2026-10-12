@@ -39,3 +39,14 @@ test("a thought's title drops Markdown marks and keeps its full text as a toolti
   expect(title.title).toBe("Planning the retry fix");
   act(() => root.unmount());
 });
+
+test("a thought's title keeps identifiers that carry underscores or asterisks", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ThoughtRow } = await import("../src/agent-session/acpmux/conversation/ThoughtRow");
+  const item = { id: "t2", kind: "thought", text: "Checking `run_swift_tests.sh` in src/foo_bar and a*b*c" };
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  await act(async () => root.render(<ThoughtRow item={item as never} />));
+  const title = dom.window.document.querySelector<HTMLElement>(".cv-thought__title")!;
+  expect(title.textContent).toBe("Checking run_swift_tests.sh in src/foo_bar and a*b*c");
+  act(() => root.unmount());
+});
