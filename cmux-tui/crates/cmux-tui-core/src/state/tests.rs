@@ -364,6 +364,35 @@ fn tab_update_sets_and_clears_a_user_icon() {
     }
 }
 
+/// cx-qno.2.2: a tab icon may name a stored image or SVG asset
+/// (`icon-assets-v1`), as workspace and screen icons do. An asset this
+/// daemon never stored is refused, and the blob sweep keeps one a tab names.
+#[test]
+fn tab_update_takes_a_stored_asset_icon_and_keeps_it_from_the_sweep() {
+    use crate::workspace_registry::personal_store::blobs::{prepare_blob, sweep_blobs};
+    let mux = Mux::new_for_test("state-tab-asset-icon", SurfaceOptions::default());
+    let tabs = terminal_tabs(&mux, 1);
+    let tab = tab_id(&mux, tabs[0]);
+    let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M0 0h16v16H0z"/></svg>"#;
+    let stored = mux
+        .with_icon_registry(|registry| registry.put_blob(prepare_blob("image/svg+xml", svg)?))
+        .unwrap();
+    let icon = stored.icon();
+
+    let set = mutate(&mux, "tab.update", json!({"tab": tab, "icon": icon}), "asset-1");
+    assert_eq!(set["extra"]["icon"], json!(icon));
+    let missing = format!("svg:sha256-{}", "0".repeat(64));
+    assert_eq!(
+        error_code(send(&mux, "tab.update", json!({"tab": tab, "icon": missing}), Some("asset-2"))),
+        "validation.invalid"
+    );
+
+    // Long after the put, only a reference keeps the blob.
+    let later = u64::MAX / 2;
+    mux.with_icon_registry(|registry| sweep_blobs(&registry.connection.get(), later)).unwrap();
+    mux.with_icon_registry(|registry| registry.get_blob(&icon)).unwrap();
+}
+
 #[test]
 fn tab_groups_create_edit_move_ungroup_and_close_through_public_ids() {
     let mux = Mux::new_for_test("state-tab-groups", SurfaceOptions::default());

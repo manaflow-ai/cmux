@@ -52,6 +52,7 @@ pub const MAX_BASE64_BYTES: usize = MAX_RASTER_BYTES.div_ceil(3) * 4;
 pub(crate) const ICON_REFERENCE_FIELDS: &[(&str, &str)] = &[
     ("workspace_presentation", "icon"),
     ("screen_presentation", "icon"),
+    ("tab_state", "icon"),
     ("saved_screen_groups", "members_json"),
     ("profiles", "icon"),
     ("browser_profiles", "icon"),
