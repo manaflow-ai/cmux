@@ -96,7 +96,7 @@ struct PaletteAccessibilityTests {
 
     /// Whether the table's selection, as VoiceOver asks for it, is one row that reads `title`.
     private static func reads(_ table: PaletteTableView, only title: String) -> Bool {
-        let rows = (table.accessibilitySelectedRows() ?? []).map { node($0).spoken }
+        let rows = (attribute(table, .selectedRows) as? [Any] ?? []).map { node($0).spoken }
         return rows.count == 1 && rows[0].contains(title)
     }
 }
