@@ -41,7 +41,7 @@ import { newTabScreenActions } from "./newtab/screenActions";
 import { newTabChipSnapshot } from "./newtab/chipDefaults";
 import { HarnessesScreen } from "./harnesses/HarnessesScreen";
 import { registerHarnessesPage, useHarnessesPage } from "./harnesses/harnessesPage";
-import { useEarlyNewTabContext, useNewTabAdoption, useNewTabPlaces } from "./newtab/adoption";
+import { injectedNewTabContext, useEarlyNewTabContext, useNewTabAdoption, useNewTabPlaces } from "./newtab/adoption";
 import { TemplateDots } from "./newtab/TemplateDots";
 import { pickNewTabTemplate, screenTemplate, shownTemplate } from "./newtab/templates";
 import { playTemplateSwitch, templatePlaces } from "./newtab/templateMotion";
@@ -2518,7 +2518,7 @@ function AcpmuxPane() {
     if (lastEditTurn) openDiff(lastEditTurn.rowId);
   };
   const [registry, setRegistry] = useState<NativeRegistry>(defaultRegistry);
-  const [newTab, setNewTab] = useState<NewTabHost | undefined>();
+  const [newTab, setNewTab] = useState<NewTabHost | undefined>(injectedNewTabContext);
   // A prewarmed spare page gets its real context when Cmd-T adopts it; the generation remounts the screen.
   const newTabGeneration = useNewTabAdoption(setNewTab);
   useNewTabPlaces(setNewTab);
@@ -4575,6 +4575,7 @@ function AcpmuxPane() {
                           : undefined
                       }
                       onTerminal={(mode) => runSplitAction(HEADER_ACTIONS.terminal, localCwd, mode)}
+                      onSplitDown={(mode) => runSplitAction(HEADER_ACTIONS.splitDown, localCwd, mode)}
                       onBrowser={(mode) => runSplitAction(HEADER_ACTIONS.browser, undefined, mode)}
                       // Changes owns the diff of the chat's folder; a remote chat's folder is not on this Mac.
                       hasChanges={lastEditTurn !== undefined && localCwd !== undefined}

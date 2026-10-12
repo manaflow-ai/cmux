@@ -120,6 +120,7 @@ pub(crate) mod test_fixture {
             SurfaceOptions::default(),
             Arc::downgrade(mux),
             HostedSurfaceLaunch {
+                adopted: false,
                 attachment,
                 kitty_reservation: None,
                 terminate_on_error: false,
