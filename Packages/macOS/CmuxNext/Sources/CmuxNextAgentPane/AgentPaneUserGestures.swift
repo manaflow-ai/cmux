@@ -120,7 +120,9 @@ import CmuxNextCompat
     public func issueSeedTicket() -> (promptId: String, ticket: String) {
         let issued = SeedTicket(ticket: UUID().uuidString, promptId: UUID().uuidString.lowercased(), at: now())
         seedTicket = issued
+        #if DEBUG
         lastSeed = (issued.promptId, issued.ticket)
+        #endif
         return (issued.promptId, issued.ticket)
     }
 
@@ -142,6 +144,7 @@ import CmuxNextCompat
             && pick?.method == "session/prompt" && pick?.params == ["promptId": .string(seed.promptId)]
     }
 
+    #if DEBUG
     /// The last seed ticket issued, for the DEBUG replay check (`gesture_state replay_seed`).
     private var lastSeed: (promptId: String, ticket: String)?
 
@@ -152,6 +155,7 @@ import CmuxNextCompat
         return redeem(lastSeed.ticket, connection: connection,
                       pick: AgentPaneGesturePick(method: "session/prompt", params: ["_meta": ["acpmux": ["promptId": lastSeed.promptId]]]))
     }
+    #endif
 
     /// Ends the seed ticket (a prompt went out without it).
     public func dropSeedTicket() { seedTicket = nil }

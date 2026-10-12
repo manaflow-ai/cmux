@@ -3203,7 +3203,7 @@ function AcpmuxPane() {
         if (harness && prompt) {
           void harnessSwitch.switchTo(harness, host.cwd);
           void send(prompt, [], undefined, false, ticket?.promptId).catch(() => undefined);
-        } else if (prompt) void send(prompt).catch(() => setDraft(prompt));
+        } else if (prompt) void send(prompt, [], undefined, false, ticket?.promptId).catch(() => setDraft(prompt));
       } catch (error) {
         if (!cancelled) {
           acpWire.lifecycle("handshake failed", { message: String(error) });
