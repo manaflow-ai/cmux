@@ -140,4 +140,23 @@ import Testing
         618.027,18.785 618.388,16.901
         """)
     }
+
+    /// A bubble's tail must lie inside the bounds its fill is drawn in: a
+    /// material bubble over a conversation background was masked to the body
+    /// alone and lost its tail (user's iPhone). Bodies at Large, XL, AX1 and
+    /// rounded-down heights (radius above half the height).
+    @Test func drawingBoundsCoverTheTail() {
+        let cases: [(h: CGFloat, r: CGFloat)] = [(40.3333, Self.r), (100.3333, Self.r), (42.6667, 21.337), (57.3333, 28.707), (45.0, 22.53)]
+        for c in cases {
+            for side in [ConversationBubbleGeometry.Side.leading, .trailing] {
+                let body = CGRect(x: 10, y: 20, width: 200, height: c.h)
+                let r = min(c.r, c.h / 2)
+                let path = ConversationBubbleGeometry.path(in: body, side: side, tail: true, radius: r, tailWidth: 0, tailDrop: ConversationBubbleGeometry.iOSTailDrop(radius: r))
+                let drawn = path.boundingBoxOfPath
+                let bounds = ConversationBubbleGeometry.drawingBounds(body: body, radius: c.r)
+                #expect(drawn.maxY <= bounds.maxY + 0.001, "h \(c.h)")
+                #expect(drawn.minY >= bounds.minY - 0.001 && drawn.minX >= bounds.minX - 0.001 && drawn.maxX <= bounds.maxX + 0.001)
+            }
+        }
+    }
 }

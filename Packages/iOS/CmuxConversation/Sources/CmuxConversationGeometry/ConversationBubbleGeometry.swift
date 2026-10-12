@@ -40,6 +40,15 @@ public enum ConversationBubbleGeometry {
     /// Corner radius ChatKit's tail coordinates were measured at (17 pt body text).
     static let iOSReferenceRadius: CGFloat = 20.1435546875
 
+    /// Everything a tailed bubble with body `body` paints: the body plus the
+    /// tail's drop below it. Views that draw the outline (a fill, a material,
+    /// a gradient) must cover this, or the tail is cut off flat.
+    public static func drawingBounds(body: CGRect, radius: CGFloat) -> CGRect {
+        var rect = body
+        rect.size.height += iOSTailDrop(radius: radius)
+        return rect
+    }
+
     /// How far an iOS tail drops below the body for a bubble with corner `radius`.
     public static func iOSTailDrop(radius: CGFloat) -> CGFloat {
         6.8337 * radius / iOSReferenceRadius
