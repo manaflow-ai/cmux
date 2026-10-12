@@ -41,4 +41,33 @@ struct AgentPaneHarnessEnableRelayTests {
         #expect(server.peers.first?.frames.contains { $0.contains("harness_enable") } != true,
                 "nothing reached acpmux")
     }
+
+    /// cx-nt39g: acpmux down or too slow to give the prompt answers the page with a reason it can
+    /// show (`harness.prompt_unavailable`), not the bare code a Cancel gives.
+    @Test func anEnableWithoutAPromptFromAcpmuxSaysSo() async throws {
+        let server = AcpmuxStandInServer()
+        try await server.start()
+        defer { server.stop() }
+        let folder = FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
+            .appendingPathComponent("nt39g-\(UUID().uuidString)").path
+        try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: folder) }
+        let inbox = AgentPaneRelayedAllowTests.PageInbox()
+        let transport = AgentPaneTransport()
+        transport.deliver = { event, done in inbox.deliver(event.frames); done() }
+        transport.roots = { [folder] }
+        transport.harnessEnablePrompt = { _, _ in throw AcpmuxStatusClient.Failure.unreachable("no daemon") }
+        transport.requestHarnessEnable = { _, answer in answer(true) }
+        let id = try await transport.open(AcpmuxConnection(url: server.url, dashboardToken: "t", localAppToken: nil))
+        #expect(await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#]) == nil)
+
+        transport.gestures.record()
+        let enable = #"{"jsonrpc":"2.0","id":8,"method":"_acpmux/harness_enable","params":{"folder":"\#(folder)","id":"mine"}}"#
+        #expect(await transport.send(connection: id, frames: [enable]) == .harnessNotConfirmed)
+        let reply = await inbox.frame(containing: #""id":8"#)
+        let object = try JSONSerialization.jsonObject(with: Data(reply.utf8)) as? [String: Any]
+        let data = try #require((object?["error"] as? [String: Any])?["data"] as? [String: Any])
+        #expect(data["code"] as? String == "transport.harness_not_confirmed")
+        #expect(data["reason"] as? String == "harness.prompt_unavailable")
+    }
 }

@@ -29,6 +29,24 @@ struct RowMotion {
             lines.leaving.forEach { $0.removeFromSuperview() }
             return
         }
+        guard Motion.animatesMovement else {
+            // Reduce Motion: rows take their places at once and the change crossfades (motion.md
+            // rule 7). Inside the movement spring, which Reduce Motion skips, the fades never ran:
+            // a closed row vanished and a new one popped in.
+            if !appearing.isEmpty || !leaving.isEmpty { Motion.crossfadeInPlace(list.layer) }
+            Motion.withoutAnimation {
+                moves()
+                lines.changes()
+                for (view, target) in appearing {
+                    view.frame = target
+                    view.alphaValue = 1
+                    view.clipsToBounds = false
+                }
+            }
+            leaving.forEach { list.recycle($0.0) }
+            lines.leaving.forEach { $0.removeFromSuperview() }
+            return
+        }
         passOver(in: list, from: old, to: layout)
         let opens = appearing.map(\.0.opens)
         Motion.animate(.move, in: list, {

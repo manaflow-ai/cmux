@@ -406,7 +406,7 @@
         ],
         "id" : "appearance",
         "lead" : [
-
+          "backdrops"
         ],
         "symbol" : "paintbrush",
         "title" : {
@@ -896,7 +896,7 @@
           "text" : "Experimental"
         },
         "trail" : [
-          "backdrops"
+
         ]
       }
     ],

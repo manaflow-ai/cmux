@@ -17,6 +17,8 @@ public extension WindowOverlayHost {
             scrim = view
         }
         content.removeFromSuperview()
+        // Presented again while its close was fading out.
+        content.alphaValue = 1
         if case .pane(let clip) = options.effectiveLayer, !isAppHost {
             let clipView = OverlayClipView(frame: clip)
             clipView.addSubview(content)
@@ -135,19 +137,47 @@ extension WindowOverlayHost {
         if let observer = handle.frameObserver { NotificationCenter.default.removeObserver(observer) }
         handle.frameObserver = nil
         handle.content.postsFrameChangedNotifications = handle.contentPostedFrameChanges
-        handle.content.removeFromSuperview()
-        handle.clipView?.removeFromSuperview()
+        let scrims = [panel.paneContainer, panel.windowContainer, panel.modalContainer].flatMap { container in
+            container.subviews.filter { $0.identifier?.rawValue == "overlay-scrim-\(handle.id)" }
+        }
+        let shown = (handle.clipView.map { [$0] } ?? [handle.content]) + scrims
         handle.clipView = nil
-        for container in [panel.paneContainer, panel.windowContainer, panel.modalContainer] {
-            container.subviews
-                .filter { $0.identifier?.rawValue == "overlay-scrim-\(handle.id)" }
-                .forEach { $0.removeFromSuperview() }
+        if handle.options.kind == .dialog, !isTearingDown {
+            // The fading dialog keeps no keyboard focus: a Return in the fade would press it again.
+            if let responder = panel.firstResponder as? NSView, responder.isDescendant(of: handle.content) {
+                panel.makeFirstResponder(nil)
+            }
+            fadeOut(shown, content: handle.content)
+        } else {
+            handle.content.removeFromSuperview()
+            shown.forEach { $0.removeFromSuperview() }
         }
         if handle.options.isModal { endModal() }
         updateMouseRouting()
         updateEscapeMonitor()
         syncPanel()
         onBlockingChange?()
+    }
+
+    /// A dialog and its scrim fade out (POLISH: no flash) where they were. The dialog is already
+    /// gone: it takes no input, and the window under it is usable at once. A view leaves only if it
+    /// is still where the fade found it: a dialog presented again meanwhile, here or in another
+    /// window (its tab moved there), stays where it went.
+    private func fadeOut(_ views: [NSView], content: NSView) {
+        fadingOut += 1
+        let parents = (views + [content]).map { ($0, $0.superview) }
+        Motion.animate(.fadeOut, in: views.first, {
+            views.forEach { $0.animator().alphaValue = 0 }
+        }, completion: { [weak self] in
+            guard let self else { return }
+            fadingOut -= 1
+            let presented = handles.contains { $0.content === content }
+            for (view, parent) in parents where parent != nil && view.superview === parent && !(presented && view === content) {
+                view.removeFromSuperview()
+                view.alphaValue = 1
+            }
+            syncPanel()
+        })
     }
 
     /// Places `handle` in panel coordinates, which are the window's own.
