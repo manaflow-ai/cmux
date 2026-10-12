@@ -156,6 +156,12 @@ extension TerminalNotificationDirectInteractionTests {
             file: file,
             line: line
         )
+        // A presentation probe the renderer rejects while the reveal drains
+        // runs its own recovery redraw (#19685 CI). Queue that redraw so the
+        // race happens on every run instead of only on a loaded runner.
+        DispatchQueue.main.async {
+            surface.forceRefresh(reason: "renderer.recover.probeRejected.ensure.presented")
+        }
         drainMainQueue(file: file, line: line)
         XCTAssertFalse(hostedView.hasVisibilityRevealRefreshScheduled, file: file, line: line)
 
