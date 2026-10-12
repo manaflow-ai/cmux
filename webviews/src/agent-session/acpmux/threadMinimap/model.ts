@@ -72,9 +72,10 @@ export function minimapTurns(rows: readonly AcpmuxRow[], sessionId = "", previou
   const reuse = previous?.sessionId === sessionId ? previous : undefined;
   let from = 0;
   if (reuse) while (from < rows.length && from < reuse.rows.length && rows[from] === reuse.rows[from]) from += 1;
-  // A kept turn's rows all come before `from`: the next turn's prompt is at or before it.
+  // A kept turn's rows all come before `from`: the next turn's prompt is before it (a row
+  // inserted at that prompt's index joins the turn before).
   let keep = 0;
-  if (reuse) while (keep + 1 < reuse.turns.length && reuse.turns[keep + 1]!.index <= from) keep += 1;
+  if (reuse) while (keep + 1 < reuse.turns.length && reuse.turns[keep + 1]!.index < from) keep += 1;
   const turns: MinimapTurn[] = reuse ? reuse.turns.slice(0, keep) : [];
   let user: AcpmuxRow | undefined;
   let userIndex = 0;

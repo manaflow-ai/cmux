@@ -1016,6 +1016,8 @@ export function VirtualTranscript({
         layout: ConversationLayout;
         width: number;
         sessionId?: string;
+        /// A new registry estimates every row again, so nothing is kept.
+        registry: NativeRegistry;
         first: number;
         last: number;
       }
@@ -1153,7 +1155,13 @@ export function VirtualTranscript({
     // Rows before the first that changed (by object, or by drawn height) keep their places. A
     // drawn height comes from a mounted row, so its index is looked for around the mounted range.
     let kept = 0;
-    if (last && last.width === rowWidth && last.sessionId === sessionId && drawn.size > 0) {
+    if (
+      last &&
+      last.width === rowWidth &&
+      last.sessionId === sessionId &&
+      last.registry === registry &&
+      drawn.size > 0
+    ) {
       const limit = Math.min(rows.length, last.rows.length);
       while (kept < limit && rows[kept] === last.rows[kept]) kept += 1;
       if (changed.size > 0) {
@@ -1190,11 +1198,12 @@ export function VirtualTranscript({
       layout,
       width: rowWidth,
       sessionId,
+      registry,
       first: last?.first ?? 0,
       last: last?.last ?? 0,
     };
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
-  }, [estimated, drawn, rows, sessionId, width]);
+  }, [estimated, drawn, registry, rows, sessionId, width]);
   const layout = measured.layout;
   const reportedLayout = useRef<typeof measured | null>(null);
   const reportedEstimate = useRef<typeof estimated | null>(null);
