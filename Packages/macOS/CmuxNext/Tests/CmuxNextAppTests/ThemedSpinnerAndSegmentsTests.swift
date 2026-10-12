@@ -133,18 +133,19 @@ import Testing
     }
 
     /// How close the closest opaque pixel in `segment`'s share of the control comes to `color`
-    /// (0 for an exact match), read from the control's own drawing.
+    /// (0 for an exact match), read from the control's own drawing; infinity when nothing there is
+    /// opaque (AppKit draws a disabled control translucent); nil when the control can't draw.
     private static func nearest(_ color: NSColor, in control: NSSegmentedControl, segment: Int) -> Double? {
         let bounds = control.bounds
         guard let rep = control.bitmapImageRepForCachingDisplay(in: bounds) else { return nil }
         control.cacheDisplay(in: bounds, to: rep)
         let width = CGFloat(rep.pixelsWide) / CGFloat(control.segmentCount)
         let x0 = Int(width * CGFloat(segment)), x1 = Int(width * CGFloat(segment + 1))
-        var best: Double?
+        var best = Double.infinity
         for y in 0..<rep.pixelsHigh {
             for x in x0..<x1 {
                 guard let pixel = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), pixel.alphaComponent > 0.99 else { continue }
-                best = min(best ?? .infinity, distance(pixel, color))
+                best = min(best, distance(pixel, color))
             }
         }
         return best
