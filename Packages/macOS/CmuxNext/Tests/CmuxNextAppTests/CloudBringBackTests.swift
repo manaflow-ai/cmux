@@ -449,7 +449,7 @@ struct CloudBringBackTests {
                     echo '{"ok":true,"answered":[],"ask":[],"errors":[]}'
                 fi ;;
             "link access answer")
-                case " $* " in *" --share-secret "*) shasum -a 256 | cut -d ' ' -f 1 > '\(secretDigest)' ;; esac
+                case " $* " in *" --share-secret "*) /usr/bin/openssl dgst -sha256 -r 2> '\(secretDigest).err' | cut -d ' ' -f 1 > '\(secretDigest)' ;; esac
                 touch '\(answered)'; echo '{"ok":true}' ;;
             "link access sync") echo '{"ok":true,"synced":[]}' ;;
             "link access revoke")
