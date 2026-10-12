@@ -52801,6 +52801,1062 @@
         }
       }
     },
+    "header.worktreeApply": {
+      "comment": "Chat header: the worktree pill's Apply, which brings the chat's worktree changes to the main checkout; {main} is that checkout's folder, {base} the branch the worktree started from, {files} paths",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تطبيق على النسخة الرئيسية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Primijeni na glavnu kopiju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anvend på hovedkopien"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf Haupt-Checkout anwenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apply to main checkout"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aplicar a la copia principal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appliquer à la copie principale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Applica alla copia principale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メインのチェックアウトに適用"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុវត្តទៅលើ checkout មេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메인 체크아웃에 적용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk på hovedkopien"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zastosuj w głównej kopii"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aplicar à cópia principal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Применить к основной копии"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "นำไปใช้กับเช็กเอาต์หลัก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ana çalışma kopyasına uygula"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Застосувати до основної копії"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Áp dụng vào bản checkout chính"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "应用到主检出"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "套用到主檢出"
+          }
+        }
+      }
+    },
+    "header.worktreeApplying": {
+      "comment": "Chat header: the worktree pill's Apply, which brings the chat's worktree changes to the main checkout; {main} is that checkout's folder, {base} the branch the worktree started from, {files} paths",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ التطبيق…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Primjenjuje se…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anvender…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird angewendet …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Applying…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aplicando…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Application…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Applicazione…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "適用中…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងអនុវត្ត…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "적용 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruker…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stosowanie…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aplicando…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Применение…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังนำไปใช้…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uygulanıyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Застосування…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đang áp dụng…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在应用…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在套用…"
+          }
+        }
+      }
+    },
+    "header.worktreeApplied.one": {
+      "comment": "Chat header: the worktree pill's Apply, which brings the chat's worktree changes to the main checkout; {main} is that checkout's folder, {base} the branch the worktree started from, {files} paths",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تطبيق ملف واحد على {main}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Primijenjena 1 datoteka na {main}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anvendte 1 fil på {main}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 Datei auf {main} angewendet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Applied 1 file to {main}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se aplicó 1 archivo a {main}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 fichier appliqué à {main}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 file applicato a {main}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{main} に 1 個のファイルを適用しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានអនុវត្តឯកសារ 1 ទៅ {main}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{main}에 파일 1개를 적용했습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brukte 1 fil på {main}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zastosowano 1 plik w {main}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 arquivo aplicado a {main}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Применён 1 файл к {main}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "นำ 1 ไฟล์ไปใช้กับ {main} แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{main} konumuna 1 dosya uygulandı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Застосовано 1 файл до {main}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã áp dụng 1 tệp vào {main}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已将 1 个文件应用到 {main}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已將 1 個檔案套用到 {main}"
+          }
+        }
+      }
+    },
+    "header.worktreeApplied.other": {
+      "comment": "Chat header: the worktree pill's Apply, which brings the chat's worktree changes to the main checkout; {main} is that checkout's folder, {base} the branch the worktree started from, {files} paths",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تطبيق {count} من الملفات على {main}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Primijenjeno datoteka na {main}: {count}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anvendte {count} filer på {main}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count} Dateien auf {main} angewendet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Applied {count} files to {main}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se aplicaron {count} archivos a {main}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count} fichiers appliqués à {main}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count} file applicati a {main}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{main} に {count} 個のファイルを適用しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានអនុវត្តឯកសារ {count} ទៅ {main}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{main}에 파일 {count}개를 적용했습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brukte {count} filer på {main}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zastosowano pliki w {main}: {count}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count} arquivos aplicados a {main}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Применено файлов к {main}: {count}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "นำ {count} ไฟล์ไปใช้กับ {main} แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{main} konumuna {count} dosya uygulandı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Застосовано файлів до {main}: {count}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã áp dụng {count} tệp vào {main}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已将 {count} 个文件应用到 {main}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已將 {count} 個檔案套用到 {main}"
+          }
+        }
+      }
+    },
+    "header.worktreeApplyChanged": {
+      "comment": "Chat header: the worktree pill's Apply, which brings the chat's worktree changes to the main checkout; {main} is that checkout's folder, {base} the branch the worktree started from, {files} paths",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لدى {main} تغييرات خاصة به في {files}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{main} ima vlastite izmjene u {files}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{main} har egne ændringer i {files}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{main} hat eigene Änderungen an {files}"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{main} has its own changes to {files}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{main} tiene cambios propios en {files}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{main} a ses propres modifications dans {files}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{main} ha modifiche proprie a {files}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{main} には {files} に独自の変更があります"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{main} មានការផ្លាស់ប្ដូរផ្ទាល់ខ្លួនចំពោះ {files}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{main}에 {files}에 대한 자체 변경 사항이 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{main} har egne endringer i {files}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{main} ma własne zmiany w {files}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{main} tem alterações próprias em {files}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В {main} есть собственные изменения в {files}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{main} มีการเปลี่ยนแปลงของตัวเองใน {files}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{main} içinde {files} için kendi değişiklikleri var"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У {main} є власні зміни в {files}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{main} có thay đổi riêng ở {files}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{main} 中的 {files} 有自己的更改"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{main} 中的 {files} 有自己的變更"
+          }
+        }
+      }
+    },
+    "header.worktreeApplyConflicts": {
+      "comment": "Chat header: the worktree pill's Apply, which brings the chat's worktree changes to the main checkout; {main} is that checkout's folder, {base} the branch the worktree started from, {files} paths",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تنطبق هذه التغييرات بشكل نظيف على {main}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ove izmjene se ne primjenjuju čisto na {main}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disse ændringer kan ikke anvendes rent på {main}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Änderungen lassen sich nicht sauber auf {main} anwenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "These changes don't apply cleanly to {main}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estos cambios no se aplican limpiamente a {main}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ces modifications ne s'appliquent pas proprement à {main}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Queste modifiche non si applicano in modo pulito a {main}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これらの変更は {main} にきれいに適用できません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការផ្លាស់ប្ដូរទាំងនេះមិនអនុវត្តបានស្អាតទៅលើ {main} ទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 변경 사항은 {main}에 깔끔하게 적용되지 않습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disse endringene kan ikke brukes rent på {main}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tych zmian nie da się czysto zastosować w {main}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estas alterações não se aplicam de forma limpa a {main}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эти изменения не применяются к {main} без конфликтов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเปลี่ยนแปลงเหล่านี้นำไปใช้กับ {main} ได้ไม่เรียบร้อย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu değişiklikler {main} konumuna temiz şekilde uygulanamıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ці зміни не застосовуються до {main} без конфліктів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các thay đổi này không áp dụng gọn vào {main}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这些更改无法干净地应用到 {main}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這些變更無法乾淨地套用到 {main}"
+          }
+        }
+      }
+    },
+    "header.worktreeApplyNothing": {
+      "comment": "Chat header: the worktree pill's Apply, which brings the chat's worktree changes to the main checkout; {main} is that checkout's folder, {base} the branch the worktree started from, {files} paths",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا شيء للتطبيق: لا تغييرات منذ {base}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nema ništa za primjenu: nema izmjena od {base}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Intet at anvende: ingen ændringer siden {base}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nichts anzuwenden: keine Änderungen seit {base}"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing to apply: no changes since {base}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nada que aplicar: no hay cambios desde {base}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rien à appliquer : aucune modification depuis {base}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niente da applicare: nessuna modifica da {base}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "適用するものはありません: {base} 以降の変更はありません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានអ្វីត្រូវអនុវត្តទេ៖ គ្មានការផ្លាស់ប្ដូរតាំងពី {base}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "적용할 내용 없음: {base} 이후 변경 사항이 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingenting å bruke: ingen endringer siden {base}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie ma czego zastosować: brak zmian od {base}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nada para aplicar: nenhuma alteração desde {base}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нечего применять: нет изменений с {base}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีอะไรให้นำไปใช้: ไม่มีการเปลี่ยนแปลงตั้งแต่ {base}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uygulanacak bir şey yok: {base} sonrasında değişiklik yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нічого застосовувати: немає змін від {base}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có gì để áp dụng: không có thay đổi kể từ {base}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有可应用的内容：自 {base} 以来没有更改"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有可套用的內容：自 {base} 以來沒有變更"
+          }
+        }
+      }
+    },
+    "header.worktreeApplyFailed": {
+      "comment": "Chat header: the worktree pill's Apply, which brings the chat's worktree changes to the main checkout; {main} is that checkout's folder, {base} the branch the worktree started from, {files} paths",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تطبيق التغييرات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Izmjene nije moguće primijeniti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ændringerne kunne ikke anvendes"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Änderungen konnten nicht angewendet werden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't apply the changes"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron aplicar los cambios"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d'appliquer les modifications"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile applicare le modifiche"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更を適用できませんでした"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចអនុវត្តការផ្លាស់ប្ដូរបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "변경 사항을 적용할 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke bruke endringene"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się zastosować zmian"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível aplicar as alterações"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось применить изменения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถนำการเปลี่ยนแปลงไปใช้ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Değişiklikler uygulanamadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося застосувати зміни"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể áp dụng các thay đổi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法应用更改"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法套用變更"
+          }
+        }
+      }
+    },
     "header.worktreeFrom": {
       "comment": "Chat header: tooltip of a worktree chat's branch pill; {main} is the main checkout's folder, {base} the branch it started from",
       "extractionState": "manual",

@@ -4220,6 +4220,16 @@ function AcpmuxPane() {
                       folder={localCwd ?? (remoteChat ? undefined : startFolder)}
                       readStatus={readFolderStatus}
                       statusKey={snapshot.isWorking}
+                      // Apply brings a worktree chat's work to its main checkout (cx-lyqio.4); a new chat has none yet.
+                      onApplyWorktree={
+                        snapshot.sessionId && localCwd
+                          ? () =>
+                              callNative("git.worktree.apply", {
+                                session_id: snapshot.sessionId,
+                                idempotency_key: crypto.randomUUID(),
+                              })
+                          : undefined
+                      }
                       // A merge asks the header again, so the chip shows the pull request merged.
                       onMergePullRequest={
                         localCwd

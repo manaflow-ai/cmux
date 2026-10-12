@@ -98,9 +98,7 @@ test("Apply brings the chat's work to the main checkout and says how much landed
     await act(async () => button("Apply to main checkout")!.click());
     await settle();
     expect(applied).toBe(1);
-    expect(doc().querySelector(".acpmux-worktree-status output")?.textContent).toBe(
-      "Applied 2 files to /Users/me/app",
-    );
+    expect(doc().querySelector(".acpmux-worktree-status output")?.textContent).toBe("Applied 2 files to /Users/me/app");
   } finally {
     await act(async () => root.unmount());
   }
