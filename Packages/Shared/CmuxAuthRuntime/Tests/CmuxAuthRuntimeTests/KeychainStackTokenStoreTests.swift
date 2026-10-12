@@ -31,9 +31,23 @@ struct KeychainStackTokenStoreTests {
         return status
     }
 
-    /// Whether `add` (a probe write and its cleanup) succeeds.
-    static func writable(add: @escaping @Sendable () -> OSStatus) -> Bool {
-        add() == errSecSuccess
+    /// Whether `add` (a probe write and its cleanup) succeeds within `limit`. It runs on its
+    /// own thread: a write that never returns (a locked keychain waiting in securityd) is left
+    /// there, and the keychain counts as not writable.
+    static func writable(within limit: DispatchTimeInterval = .seconds(5),
+                         add: @escaping @Sendable () -> OSStatus) -> Bool {
+        final class Outcome: @unchecked Sendable {
+            let done = DispatchSemaphore(value: 0)
+            var status: OSStatus = errSecNotAvailable
+        }
+        let outcome = Outcome()
+        Thread.detachNewThread {
+            outcome.status = add()
+            outcome.done.signal()
+        }
+        // The semaphore orders the write of `status` before this read.
+        guard outcome.done.wait(timeout: .now() + limit) == .success else { return false }
+        return outcome.status == errSecSuccess
     }
 
     /// cx-4av5t: on some fleet hosts the probe's SecItemAdd never returned (a locked login
