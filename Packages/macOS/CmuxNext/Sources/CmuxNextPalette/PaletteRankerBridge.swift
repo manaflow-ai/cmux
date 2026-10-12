@@ -78,7 +78,8 @@ public final class PaletteRankerBridge {
         ranksPrefixFirst: Bool = false,
         recentLimit: Int = 5,
         rowLimit: Int = 400,
-        highlightLimit: Int = 60
+        highlightLimit: Int = 60,
+        settings: PaletteRankSettings = PaletteRankSettings()
     ) throws -> [PaletteRankedSection] {
         if let version, version != installedVersion { try install(index.entries, version: version) }
         return try invoke(PaletteRankerBridgeRequest(
@@ -93,6 +94,9 @@ public final class PaletteRankerBridge {
             keepsSectionOrder: keepsSectionOrder,
             ranksPrefixFirst: ranksPrefixFirst,
             recentLimit: recentLimit,
+            aliases: settings.aliases.isEmpty ? nil : settings.aliases,
+            pins: nil,
+            pinnedSectionIndex: nil,
             rowLimit: rowLimit,
             highlightLimit: highlightLimit
         ))
@@ -110,7 +114,9 @@ public final class PaletteRankerBridge {
         frecency: FrecencyStore,
         now: Date,
         showsRecent: Bool,
-        recentLimit: Int = 5
+        recentLimit: Int = 5,
+        settings: PaletteRankSettings = PaletteRankSettings(),
+        pinnedSectionIndex: Int? = nil
     ) throws -> [PaletteRankedSection] {
         if let version, version != installedVersion { try install(entries, version: version) }
         return try invoke(PaletteRankerBridgeRequest(
@@ -125,6 +131,9 @@ public final class PaletteRankerBridge {
             keepsSectionOrder: false,
             ranksPrefixFirst: false,
             recentLimit: recentLimit,
+            aliases: nil,
+            pins: settings.pins.isEmpty ? nil : settings.pins,
+            pinnedSectionIndex: pinnedSectionIndex,
             rowLimit: 400,
             highlightLimit: 60
         ))
