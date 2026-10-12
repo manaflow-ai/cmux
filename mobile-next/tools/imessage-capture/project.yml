@@ -1,0 +1,30 @@
+name: IMsgCapture
+options:
+  bundleIdPrefix: dev.cnm.imsgcapture
+  deploymentTarget:
+    iOS: "26.0"
+settings:
+  base:
+    CODE_SIGNING_ALLOWED: "NO"
+    CODE_SIGN_IDENTITY: ""
+    SWIFT_VERSION: "6.0"
+    GENERATE_INFOPLIST_FILE: "YES"
+targets:
+  Host:
+    type: application
+    platform: iOS
+    sources: [Host]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.cnm.imsgcapture.host
+        INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
+  IMsgUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    dependencies:
+      - target: Host
+    settings:
+      base:
+        TEST_TARGET_NAME: Host
+        PRODUCT_BUNDLE_IDENTIFIER: dev.cnm.imsgcapture.uitests

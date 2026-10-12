@@ -1,0 +1,538 @@
+import CNMProtocol
+import SwiftUI
+
+/// An agent session, styled after ChatGPT/Claude/T3 on iOS: grey user
+/// bubbles, full-width assistant markdown, collapsible thinking, tool rows
+/// with inline diffs, plans, and approval cards — the Mac agent pane's
+/// features in a phone layout.
+struct AgentChatView: View {
+    let host: HostConnection
+    let sessionID: String
+
+    @Environment(ShellState.self) private var shell
+    @State private var draft = ""
+    @State private var sending = false
+    @State private var showTerminal = false
+    @State private var error: String?
+    @FocusState private var focused: Bool
+
+    private var info: AgentSessionInfo? { host.agents.first { $0.id == sessionID } }
+    private var transcript: TranscriptBuilder { TranscriptBuilder(events: host.agentEvents[sessionID] ?? []) }
+    private var working: Bool { info?.state == .working || info?.state == .starting }
+
+    var body: some View {
+        let transcript = transcript
+        NavigationStack {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 14) {
+                        ForEach(transcript.items) { item in
+                            row(item)
+                                .id(item.id)
+                                .transition(.opacity.combined(with: .offset(y: 8)))
+                        }
+                        if working, !(transcript.items.last.map(isStreamingRow) ?? false) {
+                            WorkingIndicator(label: workingLabel(transcript))
+                                .id("working")
+                        }
+                        Color.clear.frame(height: 4).id("bottom")
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.top, 8)
+                    .animation(.smooth(duration: 0.25), value: transcript.items.count)
+                }
+                .defaultScrollAnchor(.bottom)
+                .scrollDismissesKeyboard(.interactively)
+                .onChange(of: transcript.items.count) { _, _ in
+                    withAnimation(.smooth) { proxy.scrollTo("bottom", anchor: .bottom) }
+                }
+                .overlay {
+                    if transcript.items.isEmpty, !working {
+                        AgentEmptyState(info: info, hostName: host.name)
+                    }
+                }
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    VStack(spacing: 6) {
+                        if let error {
+                            Text(error).font(.footnote).foregroundStyle(CmuxTheme.danger)
+                                .padding(.horizontal, 16)
+                        }
+                        AgentComposer(
+                            text: $draft,
+                            focused: $focused,
+                            placeholder: "Ask \(HarnessStyle.of(info?.harness ?? "").name)",
+                            working: working,
+                            canSend: info?.state != .exited && info?.state != .failed,
+                            modes: info?.modes ?? [],
+                            currentMode: info?.currentMode,
+                            models: info?.models ?? [],
+                            currentModel: info?.currentModel,
+                            commands: transcript.commands,
+                            onMode: { host.setMode(sessionID, $0) },
+                            onModel: { host.setModel(sessionID, $0) },
+                            send: send,
+                            stop: { host.cancel(sessionID) }
+                        )
+                    }
+                }
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) { DrawerButton() }
+                ToolbarItem(placement: .principal) {
+                    VStack(spacing: 1) {
+                        Text(info?.title ?? "Agent")
+                            .font(.system(size: 16, weight: .semibold))
+                            .lineLimit(1)
+                        HStack(spacing: 4) {
+                            Image(systemName: HarnessStyle.of(info?.harness ?? "").symbol)
+                            Text("\(((info?.cwd ?? "") as NSString).lastPathComponent) · \(host.name)")
+                        }
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    }
+                    .frame(maxWidth: 230)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button {
+                            showTerminal = true
+                        } label: {
+                            Label("Terminal in this folder", systemImage: "apple.terminal")
+                        }
+                        Button {
+                            shell.go(.newAgent)
+                        } label: {
+                            Label("New agent chat", systemImage: "square.and.pencil")
+                        }
+                        Divider()
+                        Button(role: .destructive) {
+                            host.archiveAgent(sessionID)
+                            shell.go(.home)
+                        } label: {
+                            Label("Archive", systemImage: "archivebox")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                    }
+                    .accessibilityIdentifier("agent.menu")
+                }
+            }
+            .fullScreenCover(isPresented: $showTerminal) {
+                TerminalLauncher(host: host, cwd: info?.cwd)
+            }
+        }
+        .task { await host.attachAgent(sessionID) }
+    }
+
+    private func isStreamingRow(_ item: TranscriptItem) -> Bool {
+        switch item {
+        case .assistant, .thought: true
+        case .tool(let call): call.status == .inProgress || call.status == .pending
+        case .permission(let request): request.resolved == nil
+        default: false
+        }
+    }
+
+    private func workingLabel(_ transcript: TranscriptBuilder) -> String {
+        if info?.state == .starting { return String(localized: "Starting \(HarnessStyle.of(info?.harness ?? "").name)…") }
+        return String(localized: "Working…")
+    }
+
+    @ViewBuilder
+    private func row(_ item: TranscriptItem) -> some View {
+        switch item {
+        case .user(_, let text, _):
+            UserBubble(text: text)
+        case .assistant(_, let text):
+            MarkdownView(text: text)
+                .textSelection(.enabled)
+                .contextMenu {
+                    Button { UIPasteboard.general.string = text } label: { Label("Copy", systemImage: "doc.on.doc") }
+                }
+        case .thought(_, let text, let streaming):
+            ThoughtRow(text: text, streaming: streaming && working)
+        case .tool(let call):
+            ToolCallRow(call: call)
+        case .plan(_, let entries):
+            PlanCard(entries: entries)
+        case .permission(let request):
+            PermissionCard(request: request) { option in
+                host.answerPermission(sessionID, request: request.id, option: option)
+            }
+        case .notice(_, let text, let isError):
+            Label(text, systemImage: isError ? "exclamationmark.triangle" : "info.circle")
+                .font(.footnote)
+                .foregroundStyle(isError ? CmuxTheme.danger : .secondary)
+        case .turnEnd(_, let duration, let reason):
+            TurnEndRow(duration: duration, reason: reason, lastText: lastAssistantText(before: item.id))
+        }
+    }
+
+    private func lastAssistantText(before id: String) -> String? {
+        let items = transcript.items
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return nil }
+        for item in items[..<index].reversed() {
+            if case .assistant(_, let text) = item { return text }
+            if case .user = item { return nil }
+        }
+        return nil
+    }
+
+    private func send() {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        draft = ""
+        error = nil
+        Task {
+            do {
+                try await host.prompt(sessionID, blocks: [["type": "text", "text": .string(text)]])
+            } catch {
+                self.error = error.localizedDescription
+                draft = text
+            }
+        }
+    }
+}
+
+struct UserBubble: View {
+    let text: String
+
+    var body: some View {
+        HStack {
+            Spacer(minLength: 48)
+            Text(text)
+                .font(.system(size: 17))
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(Color(.secondarySystemFill), in: .rect(cornerRadius: 20, style: .continuous))
+                .textSelection(.enabled)
+        }
+        .padding(.top, 6)
+    }
+}
+
+/// "Thinking" collapsed to one shimmering line; tap to read it.
+struct ThoughtRow: View {
+    let text: String
+    let streaming: Bool
+    @State private var expanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button {
+                withAnimation(.snappy) { expanded.toggle() }
+            } label: {
+                HStack(spacing: 6) {
+                    Text(streaming ? "Thinking" : "Thought")
+                        .font(.system(size: 15, weight: .medium))
+                        .modifier(Shimmer(active: streaming))
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
+                }
+                .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            if expanded {
+                Text(text)
+                    .font(.system(size: 15))
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 12)
+                    .overlay(alignment: .leading) { Rectangle().fill(Color(.separator)).frame(width: 2) }
+                    .transition(.opacity)
+            }
+        }
+    }
+}
+
+struct Shimmer: ViewModifier {
+    let active: Bool
+    @State private var phase: CGFloat = -1
+
+    func body(content: Content) -> some View {
+        content
+            .overlay {
+                if active {
+                    GeometryReader { geometry in
+                        LinearGradient(colors: [.clear, Color(.systemBackground).opacity(0.85), .clear], startPoint: .leading, endPoint: .trailing)
+                            .frame(width: geometry.size.width * 0.6)
+                            .offset(x: phase * geometry.size.width * 1.6)
+                    }
+                    .mask(content)
+                    .allowsHitTesting(false)
+                }
+            }
+            .onAppear {
+                guard active else { return }
+                withAnimation(.linear(duration: 1.4).repeatForever(autoreverses: false)) { phase = 1 }
+            }
+    }
+}
+
+struct ToolCallRow: View {
+    let call: ToolCall
+    @State private var expanded = false
+
+    private var hasDetail: Bool { !call.diffs.isEmpty || !call.text.isEmpty || call.command != nil }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                guard hasDetail else { return }
+                withAnimation(.snappy) { expanded.toggle() }
+            } label: {
+                HStack(spacing: 8) {
+                    statusIcon
+                    Text(call.title)
+                        .font(.system(size: 15))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(expanded ? nil : 1)
+                        .multilineTextAlignment(.leading)
+                    if let diff = call.diffs.first, call.diffs.count == 1 {
+                        Text("+\(diff.added)").foregroundStyle(CmuxTheme.success).font(.system(size: 13, weight: .medium, design: .monospaced))
+                        Text("−\(diff.removed)").foregroundStyle(CmuxTheme.danger).font(.system(size: 13, weight: .medium, design: .monospaced))
+                    }
+                    Spacer(minLength: 0)
+                    if hasDetail {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                            .rotationEffect(.degrees(expanded ? 90 : 0))
+                    }
+                }
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+
+            if expanded {
+                VStack(alignment: .leading, spacing: 8) {
+                    if let command = call.command {
+                        Text("$ " + command)
+                            .font(.system(size: 13, design: .monospaced))
+                            .padding(10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(CmuxTheme.terminalBackground, in: .rect(cornerRadius: 10, style: .continuous))
+                    }
+                    ForEach(call.diffs, id: \.self) { diff in DiffView(diff: diff) }
+                    if !call.text.isEmpty, call.diffs.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            Text(String(call.text.prefix(4000)))
+                                .font(.system(size: 12.5, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .padding(10)
+                        }
+                        .frame(maxHeight: 260)
+                        .background(CmuxTheme.chrome, in: .rect(cornerRadius: 10, style: .continuous))
+                    }
+                }
+                .transition(.opacity)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var statusIcon: some View {
+        switch call.status {
+        case .pending, .inProgress:
+            ProgressView().controlSize(.mini).frame(width: 18)
+        case .failed:
+            Image(systemName: "xmark.circle.fill").foregroundStyle(CmuxTheme.danger).frame(width: 18)
+        case .completed:
+            Image(systemName: call.symbol).font(.system(size: 13)).foregroundStyle(.secondary).frame(width: 18)
+        }
+    }
+}
+
+struct DiffView: View {
+    let diff: FileDiff
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 6) {
+                Image(systemName: "doc").font(.system(size: 11))
+                Text((diff.path as NSString).lastPathComponent).font(.system(size: 12, weight: .semibold))
+                Text((diff.path as NSString).deletingLastPathComponent).font(.system(size: 11)).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.head)
+                Spacer()
+                Text("+\(diff.added)").foregroundStyle(CmuxTheme.success)
+                Text("−\(diff.removed)").foregroundStyle(CmuxTheme.danger)
+            }
+            .font(.system(size: 12, weight: .medium, design: .monospaced))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            Divider()
+            ScrollView(.horizontal, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(diff.lines.prefix(400).enumerated()), id: \.offset) { _, line in
+                        Text("\(String(line.1)) \(line.0)")
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(line.1 == " " ? Color.secondary : Color.primary)
+                            .padding(.horizontal, 10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(line.1 == "+" ? CmuxTheme.success.opacity(0.14) : line.1 == "-" ? CmuxTheme.danger.opacity(0.14) : .clear)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .frame(maxHeight: 320)
+        }
+        .background(CmuxTheme.chrome, in: .rect(cornerRadius: 10, style: .continuous))
+        .clipShape(.rect(cornerRadius: 10, style: .continuous))
+    }
+}
+
+struct PlanCard: View {
+    let entries: [PlanEntry]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Plan").font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
+            ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Image(systemName: entry.status == "completed" ? "checkmark.circle.fill" : entry.status == "in_progress" ? "circle.dotted.circle" : "circle")
+                        .foregroundStyle(entry.status == "completed" ? CmuxTheme.success : entry.status == "in_progress" ? CmuxTheme.highlight : .secondary)
+                        .font(.system(size: 14))
+                    Text(entry.content)
+                        .font(.system(size: 15))
+                        .strikethrough(entry.status == "completed", color: .secondary)
+                        .foregroundStyle(entry.status == "completed" ? .secondary : .primary)
+                }
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(CmuxTheme.chrome, in: .rect(cornerRadius: 14, style: .continuous))
+    }
+}
+
+struct PermissionCard: View {
+    let request: PermissionRequest
+    let answer: (String?) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "hand.raised.fill").foregroundStyle(.orange)
+                Text(request.title).font(.system(size: 15, weight: .semibold)).lineLimit(3)
+            }
+            if let detail = request.detail {
+                Text(detail)
+                    .font(.system(size: 13, design: .monospaced))
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(CmuxTheme.terminalBackground, in: .rect(cornerRadius: 10, style: .continuous))
+            }
+            if let resolved = request.resolved {
+                let name = request.options.first { $0.id == resolved }?.name ?? String(localized: "Cancelled")
+                Label(name, systemImage: resolved == nil ? "xmark" : "checkmark")
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(.secondary)
+            } else {
+                HStack(spacing: 8) {
+                    ForEach(request.options.sorted { order($0) < order($1) }) { option in
+                        Button {
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                            answer(option.id)
+                        } label: {
+                            Text(option.name)
+                                .font(.system(size: 15, weight: .semibold))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 40)
+                                .foregroundStyle(option.kind.hasPrefix("allow") ? Color(.systemBackground) : .primary)
+                                .background(option.kind.hasPrefix("allow") ? Color.primary : Color(.secondarySystemFill), in: .rect(cornerRadius: 12, style: .continuous))
+                        }
+                        .buttonStyle(PressableButtonStyle())
+                        .accessibilityIdentifier("permission.\(option.kind)")
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .background(Color.orange.opacity(0.08), in: .rect(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.orange.opacity(request.resolved == nil ? 0.45 : 0.15), lineWidth: 1))
+    }
+
+    private func order(_ option: PermissionRequest.Option) -> Int {
+        switch option.kind {
+        case "reject_once": 0
+        case "allow_once": 1
+        case "allow_always": 2
+        default: 3
+        }
+    }
+}
+
+struct TurnEndRow: View {
+    let duration: TimeInterval?
+    let reason: String
+    let lastText: String?
+    @State private var copied = false
+
+    var body: some View {
+        HStack(spacing: 14) {
+            if let lastText {
+                Button {
+                    UIPasteboard.general.string = lastText
+                    withAnimation(.snappy) { copied = true }
+                } label: {
+                    Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                        .contentTransition(.symbolEffect(.replace))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Copy reply")
+            }
+            if reason == "cancelled" {
+                Text("Stopped").font(.footnote)
+            } else if let duration, duration > 4 {
+                Text("Worked for \(Self.format(duration))").font(.footnote)
+            }
+            Spacer()
+        }
+        .font(.system(size: 14))
+        .foregroundStyle(.secondary)
+    }
+
+    static func format(_ seconds: TimeInterval) -> String {
+        let total = Int(seconds.rounded())
+        if total < 60 { return "\(total)s" }
+        return "\(total / 60)m \(total % 60)s"
+    }
+}
+
+struct WorkingIndicator: View {
+    let label: String
+    @State private var pulse = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(Color.primary)
+                .frame(width: 9, height: 9)
+                .scaleEffect(pulse ? 1 : 0.6)
+                .opacity(pulse ? 1 : 0.4)
+            Text(label).font(.system(size: 15)).foregroundStyle(.secondary).modifier(Shimmer(active: true))
+        }
+        .onAppear { withAnimation(.easeInOut(duration: 0.7).repeatForever()) { pulse = true } }
+    }
+}
+
+struct AgentEmptyState: View {
+    let info: AgentSessionInfo?
+    let hostName: String
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: HarnessStyle.of(info?.harness ?? "").symbol)
+                .font(.system(size: 30))
+                .foregroundStyle(HarnessStyle.of(info?.harness ?? "").tint)
+            Text(HarnessStyle.of(info?.harness ?? "").name).font(.title3.weight(.semibold))
+            Text("\(((info?.cwd ?? "") as NSString).abbreviatingWithTildeInPath) on \(hostName)")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.bottom, 80)
+    }
+}

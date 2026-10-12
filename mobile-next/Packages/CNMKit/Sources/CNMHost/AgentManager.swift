@@ -12,9 +12,9 @@ struct HarnessSpec: Sendable {
     static let builtIn: [HarnessSpec] = [
         HarnessSpec(id: "claude", name: "Claude Code", candidates: [
             ["claude-agent-acp"], ["claude-code-acp"],
-            ["npx", "-y", "@zed-industries/claude-code-acp@latest"],
+            ["npx", "-y", "@agentclientprotocol/claude-agent-acp@latest"],
         ]),
-        HarnessSpec(id: "codex", name: "Codex", candidates: [["codex-acp"], ["npx", "-y", "@zed-industries/codex-acp@latest"]]),
+        HarnessSpec(id: "codex", name: "Codex", candidates: [["codex-acp"], ["npx", "-y", "@agentclientprotocol/codex-acp@latest"]]),
         HarnessSpec(id: "gemini", name: "Gemini CLI", candidates: [["gemini", "--experimental-acp"]]),
         HarnessSpec(id: "opencode", name: "OpenCode", candidates: [["opencode", "acp"]]),
     ]

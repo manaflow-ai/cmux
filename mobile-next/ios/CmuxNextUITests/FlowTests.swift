@@ -1,0 +1,160 @@
+import XCTest
+
+/// Drives the real app against the live backend and a real Mac for recorded
+/// verification runs. Inputs come from the environment:
+/// `CNM_TEST_EMAIL`, `CNM_TEST_CODE` (test sign-in), `CNM_PAIR_CODE`.
+final class FlowTests: XCTestCase {
+    private var env: [String: String] { ProcessInfo.processInfo.environment }
+
+    override func setUp() {
+        continueAfterFailure = false
+    }
+
+    func testLaunchShowsWelcome() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-cnm-reset"]
+        app.launch()
+        XCTAssertTrue(app.buttons["auth.apple"].waitForExistence(timeout: 10))
+        pause(3)
+        snap(app, "welcome")
+    }
+
+    /// Sign up with email, verify the code, pair the Mac.
+    func testSignUpAndPair() throws {
+        let email = try XCTUnwrap(env["CNM_TEST_EMAIL"])
+        let code = try XCTUnwrap(env["CNM_TEST_CODE"])
+        let app = XCUIApplication()
+        app.launchArguments = ["-cnm-reset"]
+        app.launch()
+
+        XCTAssertTrue(app.buttons["auth.signup"].waitForExistence(timeout: 10))
+        pause(2.5)
+        snap(app, "01-welcome")
+        app.buttons["auth.signup"].tap()
+        let field = app.textFields["auth.email"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        pause(0.8)
+        field.typeText(email)
+        snap(app, "02-email")
+        app.buttons["auth.continue"].tap()
+
+        let codeField = app.textFields["auth.code"]
+        XCTAssertTrue(codeField.waitForExistence(timeout: 15))
+        pause(0.8)
+        snap(app, "03-code")
+        codeField.typeText(code)
+
+        XCTAssertTrue(app.buttons["shell.menu"].waitForExistence(timeout: 20))
+        pause(1)
+        snap(app, "04-home-empty")
+
+        if let pairCode = env["CNM_PAIR_CODE"], !pairCode.isEmpty {
+            let add = app.buttons["home.addMac"]
+            XCTAssertTrue(add.waitForExistence(timeout: 10))
+            add.tap()
+            let codeBox = app.textFields["addmac.code"]
+            XCTAssertTrue(codeBox.waitForExistence(timeout: 5))
+            codeBox.typeText(pairCode)
+            pause(0.5)
+            snap(app, "05-pair-code")
+            app.buttons["addmac.pair"].tap()
+            pause(3)
+            snap(app, "06-paired")
+            app.buttons["addmac.pair"].tap()
+        }
+        // Wait for the Mac to connect and Chief's conversation to appear.
+        let chief = app.descendants(matching: .any)["home.pin.cv_chief"]
+        XCTAssertTrue(chief.waitForExistence(timeout: 60), "Chief conversation never appeared")
+        pause(1.5)
+        snap(app, "07-home-connected")
+    }
+
+    /// Assumes a signed-in, paired app (run after testSignUpAndPair).
+    func testChiefConversation() throws {
+        let app = XCUIApplication()
+        app.launch()
+        let chief = app.descendants(matching: .any)["home.pin.cv_chief"]
+        XCTAssertTrue(chief.waitForExistence(timeout: 60))
+        pause(1)
+        chief.tap()
+        let field = app.textFields["conversation.field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        pause(1)
+        snap(app, "10-chief-open")
+        field.tap()
+        pause(0.8)
+        field.typeText("Hey Chief, what can you do from here?")
+        pause(0.6)
+        snap(app, "11-chief-typed")
+        app.buttons["conversation.send"].tap()
+        pause(1.5)
+        snap(app, "12-chief-sent")
+        // Wait for a reply bubble.
+        pause(25)
+        snap(app, "13-chief-reply")
+        app.swipeDown()
+        pause(1)
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        pause(1.5)
+        snap(app, "14-home-after")
+    }
+
+    func testDrawerAndAgent() throws {
+        let app = XCUIApplication()
+        app.launch()
+        XCTAssertTrue(app.buttons["shell.menu"].waitForExistence(timeout: 30))
+        pause(4)
+        app.buttons["shell.menu"].tap()
+        pause(1.2)
+        snap(app, "20-drawer")
+        app.buttons["sidebar.new"].tap()
+        let field = app.textFields["agent.field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 20))
+        pause(2)
+        snap(app, "21-new-agent")
+        field.tap()
+        field.typeText("List the files in this folder and tell me what this project is, in two sentences.")
+        pause(0.5)
+        app.buttons["agent.send"].tap()
+        pause(6)
+        snap(app, "22-agent-working")
+        pause(40)
+        snap(app, "23-agent-done")
+        app.swipeDown()
+        pause(1)
+        snap(app, "24-agent-final")
+    }
+
+    func testTerminal() throws {
+        let app = XCUIApplication()
+        app.launch()
+        XCTAssertTrue(app.buttons["shell.menu"].waitForExistence(timeout: 30))
+        pause(4)
+        app.buttons["shell.menu"].tap()
+        pause(1)
+        app.buttons["sidebar.terminals"].tap()
+        let newTerminal = app.buttons["terminals.new"]
+        XCTAssertTrue(newTerminal.waitForExistence(timeout: 20))
+        pause(1)
+        snap(app, "30-terminals")
+        newTerminal.tap()
+        pause(4)
+        snap(app, "31-terminal")
+        app.buttons["terminal.keyboard"].tap()
+        pause(1.5)
+        app.typeText("echo hello from $(hostname) && ls -la | head -12\n")
+        pause(3)
+        snap(app, "32-terminal-output")
+    }
+
+    private func pause(_ seconds: TimeInterval) {
+        Thread.sleep(forTimeInterval: seconds)
+    }
+
+    private func snap(_ app: XCUIApplication, _ name: String) {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+}

@@ -22,7 +22,7 @@ public struct BackendUser: Sendable, Hashable, Codable {
 
 public struct BackendSession: Sendable, Hashable, Codable {
     public var accessToken: String
-    public var accessExpiresAt: Double
+    public var accessExpiresAt: String
     public var refreshToken: String
     public var user: BackendUser
     public var isNewUser: Bool?
@@ -35,7 +35,7 @@ public struct BackendSession: Sendable, Hashable, Codable {
         case isNewUser = "is_new_user"
     }
 
-    public init(accessToken: String, accessExpiresAt: Double, refreshToken: String, user: BackendUser, isNewUser: Bool? = nil) {
+    public init(accessToken: String, accessExpiresAt: String, refreshToken: String, user: BackendUser, isNewUser: Bool? = nil) {
         self.accessToken = accessToken
         self.accessExpiresAt = accessExpiresAt
         self.refreshToken = refreshToken
@@ -43,10 +43,13 @@ public struct BackendSession: Sendable, Hashable, Codable {
         self.isNewUser = isNewUser
     }
 
-    /// `access_expires_at` may be seconds or milliseconds since 1970.
+    /// `access_expires_at` is ISO 8601.
     public var accessExpiry: Date {
-        let seconds = accessExpiresAt > 10_000_000_000 ? accessExpiresAt / 1000 : accessExpiresAt
-        return Date(timeIntervalSince1970: seconds)
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: accessExpiresAt) { return date }
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: accessExpiresAt) ?? .distantPast
     }
 }
 
@@ -101,7 +104,7 @@ public struct PairingStart: Sendable, Hashable, Codable {
     public var pairingID: String
     public var code: String
     public var pollSecret: String
-    public var expiresAt: Double?
+    public var expiresAt: String?
 
     enum CodingKeys: String, CodingKey {
         case code
