@@ -351,12 +351,14 @@ if ! awk '
   job == "delta" && /needs: \[decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly\]/ { saw_publish_need=1 }
   job == "delta" && /fail-fast: false/ { saw_matrix=1 }
   job == "republish" && /needs: \[decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly, generate-nightly-deltas\]/ { saw_delta_need=1 }
-  job == "republish" && /gh api .*commits\/\$CHANNEL_RELEASE_TAG/ { saw_guard=1 }
+  # The tag itself: commits/<name> resolves a same-named branch (cx-urd.67).
+  job == "republish" && /gh api .*git\/ref\/tags\/\$CHANNEL_RELEASE_TAG/ { saw_guard=1 }
+  job == "republish" && /gh api .*commits\/\$CHANNEL_RELEASE_TAG/ { saw_branch_read=1 }
   # The publication moves the tag to the resolved build commit, not the tip.
   job == "republish" && index($0, "\"$current_sha\" != \"${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}\"") { saw_build_sha=1 }
   job == "republish" && /publish-release-assets\.py/ { saw_republish=1 }
   job == "republish" && /Upload revised appcasts to R2/ { saw_r2=1 }
-  END { exit !(saw_publish_need && saw_matrix && saw_delta_need && saw_guard && saw_build_sha && saw_republish && saw_r2) }
+  END { exit !(saw_publish_need && saw_matrix && saw_delta_need && saw_guard && !saw_branch_read && saw_build_sha && saw_republish && saw_r2) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: post-publication delta generation must be matrixed, stale-guarded, and republished to GitHub and R2"
   exit 1
