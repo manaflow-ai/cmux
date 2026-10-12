@@ -4203,9 +4203,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
-    private func completeSessionRestoreOperation(
-        isManualReopen: Bool
-    ) {
+    private func completeSessionRestoreOperation(isManualReopen: Bool) {
         // Every restored workspace has enqueued its identity aliases by now;
         // the journal consumer is FIFO, so the replay fold sees all of them.
         AgentJournalLifecycleCenter.shared.noteStartupReplayReady()
