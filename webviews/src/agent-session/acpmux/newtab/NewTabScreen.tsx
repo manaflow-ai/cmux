@@ -284,15 +284,23 @@ export function NewTabScreen(props: Props) {
     if (!harness) return setNoAgent(true);
     props.onAsk(harness, prompt, project, chipModel);
   };
+  // One create per page: a double click, or a click while the terminal spawns, opens one tab.
+  const created = useRef(false);
   const create = (kind: "terminal" | "browser") => {
     touch();
+    if (created.current) return;
+    created.current = true;
     props.onCreate?.(kind);
   };
-  // New chat: Return's chat with nothing to send.
+  // New chat: Return's chat, with the prompt the field holds (an address or a shell command stays
+  // behind: the chat starts empty).
   const startChat = () => {
     touch();
     if (!harness) return setNoAgent(true);
-    props.onAsk(harness, "", project, chipModel);
+    if (created.current) return;
+    created.current = true;
+    const prompt = shell ? "" : text.trim();
+    props.onAsk(harness, prompt && !isAddress(prompt, home) ? prompt : "", project, chipModel);
   };
   const send = () => {
     touch();

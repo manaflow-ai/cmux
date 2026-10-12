@@ -92,26 +92,28 @@ test("New Tab's create actions open a terminal, a browser tab and a chat", async
     showAllChats: noop,
     runShell: noop,
   });
-  const root: Root = createRoot(host);
-  const click = async (kind: string) => {
-    const button = host.querySelector<HTMLButtonElement>(`.nt-create [data-create="${kind}"]`);
-    expect(button, `no ${kind} create action`).toBeTruthy();
-    await act(async () => button!.click());
-  };
-  try {
-    await act(async () =>
-      root.render(
-        <QueryClientProvider client={new QueryClient()}>
-          <NewTabScreen snapshot={noChat()} lastAgent="claude" cwd="/Users/you/src/app" {...actions} />
-        </QueryClientProvider>,
-      ),
-    );
-    const labels = [...host.querySelectorAll(".nt-create [data-create]")].map((button) => button.textContent?.trim());
+  // Each action on its own page: a page opens one thing, then the tab is gone.
+  let labels: (string | undefined)[] = [];
+  for (const kind of ["terminal", "browser", "chat"]) {
+    const root: Root = createRoot(host);
+    try {
+      await act(async () =>
+        root.render(
+          <QueryClientProvider client={new QueryClient()}>
+            <NewTabScreen snapshot={noChat()} lastAgent="claude" cwd="/Users/you/src/app" {...actions} />
+          </QueryClientProvider>,
+        ),
+      );
+      labels = [...host.querySelectorAll(".nt-create [data-create]")].map((button) => button.textContent?.trim());
+      const button = host.querySelector<HTMLButtonElement>(`.nt-create [data-create="${kind}"]`);
+      expect(button, `no ${kind} create action`).toBeTruthy();
+      await act(async () => button!.click());
+    } finally {
+      act(() => root.unmount());
+    }
+  }
+  {
     expect(labels).toEqual(["New terminal", "New browser tab", "New chat"]);
-
-    await click("terminal");
-    await click("browser");
-    await click("chat");
     const opened = calls.filter((call) => call.method === "tab.open" || call.method === "chat.new");
     expect(opened).toEqual([
       // A terminal in the tab's folder, with nothing typed.
@@ -123,8 +125,6 @@ test("New Tab's create actions open a terminal, a browser tab and a chat", async
     ]);
     expect(calls.some((call) => call.method === "chat.send")).toBe(false);
     expect(left).toBe(1);
-  } finally {
-    act(() => root.unmount());
   }
 });
 
