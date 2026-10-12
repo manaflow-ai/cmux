@@ -89,6 +89,7 @@ import { turnCounts, turnDisplay } from "./changes/turnCheckpoint";
 import { TurnCountsContext, type TurnCountsFor } from "./changes/TurnCountsContext";
 import { useTurnCheckpoints } from "./changes/useTurnCheckpoints";
 import { readTurnFromRows, type CheckpointDiff } from "./changes/turnCheckpointSource";
+import { registerComposerHost } from "./composerSettings";
 import { WHOLE_FILE_CONTEXT } from "./changes/wholeFile";
 import { restoredDecisions, type HunkDecision, type HunkReview } from "./changes/hunkReview";
 import { configureDictation, deliverDictation, useDictation, type DictationField } from "./dictation";
@@ -405,6 +406,9 @@ const changesSource: ChangesSource = {
   pullRequest: () => callNative("git.pullRequest", {}),
   reviewThreads: () => callNative("git.pullRequest", { action: "threads" }),
 };
+// The composer's Hide and Show (composerChrome.tsx) persist through the host, which pushes the
+// setting back to every page and on the next launch.
+registerComposerHost((method, show) => void callNative(method, { show }).catch(() => undefined));
 /// A folder's `git.status` from the native host, named by the folder: a new chat has no session to
 /// name it by (the header's worktree pill, cx-lyqio.3b).
 const readFolderStatus = (cwd: string) => postNative("git.status", { cwd });
@@ -1736,7 +1740,6 @@ function DefaultComposerChips({
       {...(addAgent ? { onAddAgent: addAgent } : {})}
       showPlan={false}
       onCompact={() => void callNative("chat.send", { text: "/compact", attachments: [] })}
-      onShowContextUsage={(show) => void callNative("pane.showContextUsage", { show }).catch(() => undefined)}
       pickerCatalog={picker.catalog}
       catalogRefresh={{ status: refreshStatus, date: picker.date, refresh: refreshCatalog }}
       // A prewarm hint for the direct client only: the native host has no daemon to warm.
@@ -2628,10 +2631,6 @@ function AcpmuxPane() {
     },
   }).current;
   const dictation = useDictation(dictationTarget, callNative);
-  const showDictation = useCallback(
-    (show: boolean) => void callNative("pane.showDictation", { show }).catch(() => undefined),
-    [],
-  );
   /// Why the host could not hand this pane acpmux (not installed, a daemon that will not start),
   /// in the host's words; cleared once a handshake succeeds.
   const [hostError, setHostError] = useState<string | undefined>();
@@ -2732,15 +2731,22 @@ function AcpmuxPane() {
   const startInWorktree = useCallback((cwd: string) => {
     // A newer folder pick wins over this worktree, as between two picks.
     const pick = ++folderPick.current;
+    const sessionId = shownSession.current;
     setFolderAsk(undefined);
     setWorktreeError(undefined);
     setWorktreeCreating(true);
-    void newWorktree(callNative, cwd, (folder) => {
-      if (pick !== folderPick.current) return;
+    const use = (folder: string) => {
       // A chat that started meanwhile keeps its folder: the worktree gets a new chat of its own.
       if (freshRef.current) setProjectDraft(folder);
       else void callNative("chat.new", { cwd: folder }).catch(() => undefined);
+    };
+    void newWorktree(callNative, cwd, (folder) => {
+      if (pick === folderPick.current) use(folder);
     })
+      .then(({ ask }) => {
+        // The host asks about the worktree's folder first: the question shows as a picked folder's.
+        if (ask && pick === folderPick.current) setFolderAsk({ ask, use, sessionId });
+      })
       .catch((error: unknown) => {
         if (pick === folderPick.current) setWorktreeError(errorMessage(error) || String(error));
       })
@@ -4279,7 +4285,7 @@ function AcpmuxPane() {
           handle={composerRef}
           // No prompt goes while a picked folder waits for the user's answer.
           blocked={pendingFolder ? {} : trustAsk.blocked}
-          accessory={<DictationMic dictation={dictation} onShowDictation={showDictation} />}
+          accessory={<DictationMic dictation={dictation} />}
           onImportFile={importFile}
           onEdit={(command) => ignoreFailure(callNative("pane.edit", { command }))}
         />
@@ -4408,7 +4414,7 @@ function AcpmuxPane() {
           ) : showNewTab && shownTemplate(newTab) !== "classic" ? (
             <NewTabScreen
               key={newTabGeneration}
-              accessory={<DictationMic dictation={dictation} onShowDictation={showDictation} />}
+              accessory={<DictationMic dictation={dictation} />}
               dictationField={newTabDictationField}
               notice={<DictationNotice dictation={dictation} />}
               template={screenTemplate(shownTemplate(newTab))}
@@ -4417,7 +4423,6 @@ function AcpmuxPane() {
               location={newTab.location}
               lastAgent={newTab.lastAgent}
               home={newTab.home}
-              tools={newTab.tools}
               {...(newTab.openTabs ? { openTabs: newTab.openTabs } : {})}
               // The field takes keys from its first render (the host's buffer hands them over at
               // once); only a submit waits for acpmux (`whenHandshaken`).
