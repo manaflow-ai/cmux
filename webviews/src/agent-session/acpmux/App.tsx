@@ -1714,7 +1714,7 @@ function DefaultComposerChips({
         start();
         void callNative("chat.effort", { configId, value });
       }}
-      onHarness={(harness) => void callNative("chat.new", { harness, ...inFolder })}
+      onHarness={(harness, model) => void callNative("chat.new", { harness, ...(model ? { model } : {}), ...inFolder })}
       // Sent from the pick's own handler: the host's Enable confirmation needs the gesture.
       onHarnessEnable={(folder, id) => void callNative("chat.harness.enable", { folder, id }).catch(() => undefined)}
       // The rail's + (BRING-YOUR-OWN-HARNESS): Settings > Agents > Add, from this click's gesture.
@@ -3175,10 +3175,13 @@ function AcpmuxPane() {
           // A pick of another harness is a switch: drawn now, started behind it.
           // A new chat without a folder starts in the chat's start folder (startFolder.tsx);
           // a chat with no project (`noProject`) or for a peer gets no start folder.
-          "chat.new": async ({ harness, cwd, peer, deferred, noProject }) => {
+          "chat.new": async ({ harness, cwd, peer, deferred, noProject, model }) => {
             const folder = cwd ? String(cwd) : peer || noProject === true ? undefined : startFolderRef.current;
             if (harness && !peer && noProject !== true)
-              return harnessSwitch.switchTo(String(harness), folder, { deferred: deferred === true });
+              return harnessSwitch.switchTo(String(harness), folder, {
+                deferred: deferred === true,
+                ...(model ? { model: String(model) } : {}),
+              });
             harnessSwitch.cancel();
             return persistSession(
               await client.create(

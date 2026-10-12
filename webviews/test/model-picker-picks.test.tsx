@@ -121,10 +121,10 @@ async function mount(start: { harness: string }) {
         }}
         onMode={() => undefined}
         onEffort={() => undefined}
-        onHarness={(harness) => {
-          sent.push({ method: "harness", value: harness });
+        onHarness={(harness, model) => {
+          sent.push({ method: "harness", value: model ? `${harness}/${model}` : harness });
           session += 1;
-          setState({ sessionId: `s${session}`, harness, model: "default" });
+          setState({ sessionId: `s${session}`, harness, model: model ?? "default" });
         }}
         showPlan={false}
       />
@@ -191,10 +191,8 @@ test("a row of another provider starts that provider on that row's model", async
   await openOn("Codex");
   const astra = rows().find((row) => row.dataset.key === "model:gpt-6-astra")!;
   await act(async () => astra.click());
-  expect(sent).toEqual([
-    { method: "harness", value: "codex" },
-    { method: "model", value: "gpt-6-astra" },
-  ]);
+  // One switch carries the model: the new chat starts on it, with no second model request.
+  expect(sent).toEqual([{ method: "harness", value: "codex/gpt-6-astra" }]);
   expect(chip()).toBe("GPT-6 Astra");
 });
 

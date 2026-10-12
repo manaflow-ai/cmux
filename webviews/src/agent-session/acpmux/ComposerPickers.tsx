@@ -102,8 +102,10 @@ type Props = {
   settleMs?: number;
   /// Schedules the settle check and returns its cancel; tests run it by hand.
   settleTimer?: SettleTimer;
-  /// Starts a new chat in another harness (the model picker offers it).
-  onHarness?(harness: string): void;
+  /// Starts a new chat in another harness (the model picker offers it), on `model` when a model
+  /// row of that harness was picked: the switch carries it, so the new chat starts on that model
+  /// and draws it at once, also before it opens (a New Tab's deferred switch).
+  onHarness?(harness: string, model?: string): void;
   /// The pointer or keyboard rests on a harness row (undefined: it left them), for a prewarm hint.
   onHarnessHint?(harness: string | undefined): void;
   /// Enables the chat folder's profile `id` (see ModelPickerProps.onHarnessEnable).
@@ -289,7 +291,7 @@ export function ComposerPickers({
     if (picked.harness !== harness) {
       if (!onHarness) return;
       crossing.current = { ...picked, from: summary?.sessionId };
-      onHarness(picked.harness);
+      onHarness(picked.harness, picked.model);
       return;
     }
     land(picked.model, picked.effort);
@@ -309,7 +311,10 @@ export function ComposerPickers({
     }
     if (switching || !summary?.sessionId || summary.sessionId === wanted.from || harness !== wanted.harness) return;
     crossing.current = undefined;
-    land(wanted.model, wanted.effort);
+    // The switch already sent the model: only its effort waits for the agent to report it.
+    pending.current = wanted.effort
+      ? { sessionId: summary.sessionId, from: current, model: wanted.model, effort: wanted.effort }
+      : undefined;
     if (wanted.fast) fastWanted.current = { sessionId: summary.sessionId, model: wanted.model };
   });
   const fastValue = fastMode?.currentValue;
