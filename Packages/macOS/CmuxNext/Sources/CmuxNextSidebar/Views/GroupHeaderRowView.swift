@@ -145,7 +145,12 @@ final class GroupHeaderRowView: SidebarRowView {
 
     override var titleFrame: NSRect { name.frame }
     /// The group chip (`GroupLabelBandTests`): a click here opens the editor.
-    var labelFrame: NSRect { pill.frame }
+    var labelFrame: NSRect {
+        guard thin else { return pill.frame }
+        // A thin header has no chip: the editor and menu open under the header, from its name.
+        let start = nameHitFrame.minX
+        return NSRect(x: start, y: 0, width: max(0, chevronFrame.minX - start), height: bounds.height)
+    }
     /// The width the name needs to draw whole (`GroupLabelBandTests`).
     var titleIntrinsicWidth: CGFloat {
         let font = name.font ?? SidebarStyle.headerFont
@@ -242,7 +247,7 @@ final class GroupHeaderRowView: SidebarRowView {
         name.isHidden = renaming
         name.font = thin ? SidebarStyle.subtitleFont : SidebarStyle.groupHeaderFont(barHeight: barHeight)
         // The chevron sits where a workspace row's disclosure does, at its size (cx-fo2t).
-        let chevronSide = SidebarStyle.controlSize
+        let chevronSide = thin ? min(b.height, SidebarStyle.controlSize) : SidebarStyle.controlSize
         chevronFrame = CGRect(x: b.width - Metrics.space3 - chevronSide, y: (b.height - chevronSide) / 2, width: chevronSide, height: chevronSide)
         chevron.frame = chevronFrame
         let control = thin ? min(b.height, SidebarStyle.controlSize) : barHeight - Metrics.space1
@@ -291,7 +296,8 @@ final class GroupHeaderRowView: SidebarRowView {
         pill.isHidden = renaming
         if thin {
             // Minimal mode: a hairline from the name to the trailing controls.
-            let start = (pinned ? pin.frame.maxX : name.frame.maxX) + Metrics.space2
+            let text = ceil((name.stringValue as NSString).size(withAttributes: [.font: name.font ?? SidebarStyle.subtitleFont]).width)
+            let start = (pinned ? pin.frame.maxX : min(name.frame.maxX, name.frame.minX + text)) + Metrics.space2
             pill.frame = NSRect(x: start, y: (b.height / 2).rounded(), width: max(0, trailing - start), height: Metrics.dividerThickness)
             pill.cornerRadius = 0
         } else {
