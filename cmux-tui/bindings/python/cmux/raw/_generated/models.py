@@ -114,6 +114,12 @@ class PaneKind(str, Enum):
     PTY = 'pty'
     BROWSER = 'browser'
 
+class ProgramStatusState(str, Enum):
+    WORKING = 'working'
+    BLOCKED = 'blocked'
+    ERROR = 'error'
+    DONE = 'done'
+
 class RenderGraphicFormat(str, Enum):
     RGB = 'rgb'
     RGBA = 'rgba'
@@ -1474,6 +1480,13 @@ class SetTerminalKeepResult:
 
 
 @dataclass(frozen=True)
+class ShownProgramStatus:
+    __cmux_schema_path__: ClassVar[str] = 'types/ShownProgramStatus'
+    progress: Union[int, None]
+    state: ProgramStatusState
+
+
+@dataclass(frozen=True)
 class ShutdownDaemonResult:
     __cmux_schema_path__: ClassVar[str] = 'types/ShutdownDaemonResult'
     accepted: Literal[True]
@@ -1605,6 +1618,7 @@ class Tab:
     browser_frames_stalled: Union[bool, None, MissingType] = field(default=MISSING)
     browser_status: Union[Literal['starting', 'live', 'failed'], None, MissingType] = field(default=MISSING)
     notification: Union[NotificationMarker, None, MissingType] = field(default=MISSING)
+    program_status: Union[ShownProgramStatus, None, MissingType] = field(default=MISSING)
     short_id: Union[str, MissingType] = field(default=MISSING)
     supports_clear_history_key_fallback: Union[bool, MissingType] = field(default=MISSING)
     terminal_host_fallback: Union[str, None, MissingType] = field(default=MISSING)
@@ -4826,6 +4840,15 @@ class PersonalChangedEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class ProgramStatusChangedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/program-status-changed/payload'
+    surface: Id
+    event: Literal['program-status-changed']
+    program_status: Union[ShownProgramStatus, None]
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class RenderDeltaEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/render-delta/payload'
     surface: Id
@@ -5223,7 +5246,7 @@ PaneRef = Any
 TabRef = Any
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationResyncedEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, PersonalChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SettingsChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationResyncedEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, PersonalChangedEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SettingsChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -5247,6 +5270,7 @@ __all__ = [
     'NotificationSource',
     'PaneDirection',
     'PaneKind',
+    'ProgramStatusState',
     'RenderGraphicFormat',
     'RenderUnderline',
     'ServerStatsWriterPhase',
@@ -5379,6 +5403,7 @@ __all__ = [
     'SetSizePolicyResult',
     'SetTerminalIdlePolicyResult',
     'SetTerminalKeepResult',
+    'ShownProgramStatus',
     'ShutdownDaemonResult',
     'SidebarPluginResult',
     'Size',
@@ -5758,6 +5783,7 @@ __all__ = [
     'PaneAddedEvent',
     'PaneClosedEvent',
     'PersonalChangedEvent',
+    'ProgramStatusChangedEvent',
     'RenderDeltaEvent',
     'RenderStateEvent',
     'ResizedEvent',

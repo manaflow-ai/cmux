@@ -34,6 +34,8 @@ enum DebugFrameStrip {
         let duration = params["duration_ms"]?.doubleValue ?? 700
         let tolerance = params["tolerance"]?.doubleValue ?? 0.002
         let dir = params["dir"]?.stringValue ?? (NSTemporaryDirectory() as NSString).appendingPathComponent("frame-strip-\(UUID().uuidString)")
+        // The app's bench marks around the key come back with the frames (`spans`, ms from the key).
+        BenchSpans.begin()
         let start = ContinuousClock.now
         let recording = Task.detached { await record(number, scale: scale, from: start, until: 120 + duration) }
         // The key goes in once the recorder has frames from before it.
@@ -45,6 +47,7 @@ enum DebugFrameStrip {
                                   "window": .string(controller.state.id)], services: services)
         let sentAt = BenchSpans.ms(.now - start)
         let frames = await recording.value
+        let spans = BenchSpans.end()
         guard let first = frames.first, let last = frames.last, let before = frames.last(where: { $0.milliseconds < sentAt }) else {
             return .object(["error": .string("no frames"), "key": sent])
         }
@@ -72,6 +75,7 @@ enum DebugFrameStrip {
         return .object([
             "key": sent, "dir": .string(dir), "frames": .array(rows), "intermediate": .number(Double(intermediate)),
             "blank": .number(Double(blank)), "frame_count": .number(Double(rows.count)),
+            "spans": .array(spans.map { .object(["name": .string($0.name), "ms": .number(($0.start - sentAt).rounded()), "duration_ms": .number($0.milliseconds)]) }),
             "mean_interval_ms": .number(frames.count > 1 ? (last.milliseconds - first.milliseconds) / Double(frames.count - 1) : 0),
         ])
     }

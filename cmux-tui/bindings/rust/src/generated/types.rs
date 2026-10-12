@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 67d7ecb759ef04d91548819e9fc645194fd9a678113174603e80467e08021629.
+// cmux-tui mux protocol 12, IR be8526aab0a8faacf3356fa1fce5fcdcdd8a2689620e9486b2dcefa27b166aff.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1126,6 +1126,19 @@ pub struct ProcessInfoResult {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ProgramStatusState {
+    #[serde(rename = "working")]
+    Working,
+    #[serde(rename = "blocked")]
+    Blocked,
+    #[serde(rename = "error")]
+    Error,
+    #[serde(rename = "done")]
+    Done,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProviderWorkspaceMutationResult {
     pub key: String,
@@ -1598,6 +1611,13 @@ pub struct SetTerminalKeepResult {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ShownProgramStatus {
+    pub progress: Nullable<u16>,
+    pub state: ProgramStatusState,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShutdownDaemonResult {
     pub accepted: bool,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -1861,6 +1881,8 @@ pub struct Tab {
     pub name: Nullable<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub notification: Optional<NotificationMarker>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub program_status: Optional<ShownProgramStatus>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub short_id: Option<String>,
     pub size: Nullable<Size>,

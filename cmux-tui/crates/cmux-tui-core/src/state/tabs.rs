@@ -65,7 +65,13 @@ impl Mux {
                         edit.groups.members.remove(&tab);
                     }
                     tab_groups::place_block(state, pane, &[surface], other_pinned);
-                    edit.pins.push((tab.clone(), pinned));
+                    // A browser tab keeps the page it is pinned on (Back to Pinned Page).
+                    let url = pinned
+                        .then(|| {
+                            state.surfaces.get(&surface).and_then(|surface| surface.browser_url())
+                        })
+                        .flatten();
+                    edit.pins.push((tab.clone(), pinned, url));
                 }
                 edit.result = StripResult::Tab(tab);
                 Ok(())
@@ -81,6 +87,10 @@ impl Mux {
         update: TabStateUpdate,
     ) -> anyhow::Result<ResourcePatchCommit> {
         update.validate()?;
+        // An asset icon names a blob this daemon stores (as a new screen's icon does).
+        if let Some(Some(icon)) = &update.icon {
+            self.with_icon_registry(|registry| registry.require_icon_asset(icon))?;
+        }
         let (_, commit) =
             self.commit_tab_strip_change(request, None, move |mux, state, edit| {
                 let resolved =

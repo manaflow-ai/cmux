@@ -107,9 +107,10 @@ extension SettingsWindowService {
         return .object(object)
     }
 
-    private static func listRow(_ row: SettingsListRow) -> JSONValue {
+    /// One list row; `icon` is its wire icon (the page draws an emoji, or an asset from `icon/<ref>`).
+    static func listRow(_ row: SettingsListRow) -> JSONValue {
         ["id": .string(row.id), "title": .string(row.title), "subtitle": row.subtitle.map(JSONValue.string) ?? .null,
-         "active": .bool(row.isActive)]
+         "icon": .string(row.icon.wire), "active": .bool(row.isActive)]
     }
 
     static func hex(_ color: NSColor) -> String {

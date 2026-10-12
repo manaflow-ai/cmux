@@ -87,6 +87,14 @@ extension HomeNativeTranscriptView {
         debugTranscriptOffset = CGPoint(x: debugTranscriptOffset.x + dx, y: debugTranscriptOffset.y + dy)
         layoutSubtreeIfNeeded()
     }
+    /// Narrows the transcript to `trim` points under this view's width and lays it out now, in this
+    /// main-thread turn (no display frame passes between two calls in one socket request).
+    public func debugTrimWidth(_ trim: CGFloat) {
+        debugTranscriptWidthTrim = trim
+        layoutSubtreeIfNeeded()
+    }
+    /// MessagesLab's width pass counters (all panes): passes run, passes deferred to the next frame.
+    public var debugWidthPasses: (passes: Int, deferred: Int) { transcript.debugWidthPasses }
     /// The transcript host's origin in window points (bottom-left origin).
     public var debugHostOrigin: CGPoint { transcript.debugHostOrigin }
     /// The typing bubble's body in window coordinates (bottom-left origin), nil when none shows.

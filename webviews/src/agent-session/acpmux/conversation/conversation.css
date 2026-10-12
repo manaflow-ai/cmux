@@ -1246,8 +1246,8 @@ pre.cv-math-source {
 
 /* R104: a block that appears while the reply streams, and a row that arrives live (a reply, a
  * tool call, a status line), fade in and rise 4px on the shared fade-in token. `translate` and
- * `opacity` never move layout, so nothing below shifts. Off under Reduce Motion and when
- * ui.animationSpeed is off (the token is 0). */
+ * `opacity` never move layout, so nothing below shifts. Reduce Motion keeps the fade without the
+ * rise (cv-enter-fade, below); ui.animationSpeed off turns both off (the token is 0). */
 @keyframes cv-enter {
   from {
     opacity: 0;
@@ -1262,6 +1262,12 @@ pre.cv-math-source {
   .cv-enter,
   .acpmux-row--enter {
     animation: cv-enter var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cv-enter,
+  .acpmux-row--enter {
+    animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
   }
 }
 
@@ -1302,18 +1308,15 @@ pre.cv-math-source {
     opacity: 1;
   }
 }
-@media (prefers-reduced-motion: no-preference) {
-  .cv-code-handoff.is-fading .cv-code-handoff__real {
-    animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
-  }
+/* Opacity only, so it runs under Reduce Motion too (desktop.css exempts it). */
+.cv-code-handoff.is-fading .cv-code-handoff__real {
+  animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
 }
 
 /* R104: the newest revealed characters fade in (RevealedMarkdown); opacity only, on the
  * compositor. The text holds its final layout while transparent, so no line ever reflows. */
-@media (prefers-reduced-motion: no-preference) {
-  .cv-fresh {
-    animation: cv-enter-fade 160ms cubic-bezier(0.2, 0, 0, 1) both;
-  }
+.cv-fresh {
+  animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
 }
 
 /* R104: the live edge, a soft bar after the newest character while a reply streams. It takes no
@@ -1899,7 +1902,7 @@ pre.cv-math-source {
   cursor: default;
   opacity: 0;
   pointer-events: none;
-  transform: translate3d(-50%, 6px, 0) scale(0.92);
+  transform: translate3d(-50%, 6px, 0);
 }
 .acpmux-jump-latest[data-shown] {
   opacity: 1;

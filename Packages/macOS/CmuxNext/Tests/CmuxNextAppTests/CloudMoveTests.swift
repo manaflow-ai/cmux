@@ -235,10 +235,11 @@ struct CloudMoveTests {
             return nil
         }
 
-        /// The stand-in CLI's calls so far, each as its arguments.
+        /// The stand-in CLI's calls so far, each as its arguments; not `link access` (a moved chat's
+        /// file requests, polled on their own: ``CloudBringBackTests``).
         func calls() -> [[String]] {
             let lines = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
-            return lines.split(separator: "\n").map { $0.split(separator: "\u{1f}").map(String.init) }
+            return lines.split(separator: "\n").map { $0.split(separator: "\u{1f}").map(String.init) }.filter { $0.prefix(2) != ["link", "access"] }
         }
 
         /// Both trees once the machine shows a chat and this Mac's tab is gone (or a minute passed).

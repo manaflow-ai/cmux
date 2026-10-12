@@ -169,6 +169,7 @@ nonisolated extension ActionSurfaceCatalog {
         "moveSurfaceToPaneDown": [p(.tab, .move, 403, folder: .move)],
         "palette.moveTabToNewWorkspace": [p(.tab, .move, 406, folder: .move)],
         "palette.toggleTabPin": [p(.tab, .identity, 202)],
+        "browser.resetPinnedTab": [p(.tab, .identity, 203)],
         "tab.setIcon": [p(.tab, .identity, 207, folder: .options, label: IconMenuLabels.setIcon)],
         "tab.clearIcon": [p(.tab, .identity, 208, folder: .options, label: IconMenuLabels.removeIcon)],
         "palette.toggleTabUnread": [p(.tab, .identity, 203, folder: .options)],

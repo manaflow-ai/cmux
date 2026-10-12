@@ -11,6 +11,7 @@ public final class AgentPageRedraw {
     /// The size the page last laid out at in a window.
     private var drawnSize: CGSize?
     private var waiters: [() -> Void] = []
+    private var frameWaiters: [() -> Void] = []
     private var probing = false
     private var generation: UInt64 = 0
 
@@ -53,6 +54,39 @@ public final class AgentPageRedraw {
             self.probing = false
             self.finish()
         }
+    }
+
+    /// Runs `body` once the page's next frame is on screen: one animation frame and a task in the
+    /// page, then WebKit's next presentation update (the layer tree the window shows), so a page
+    /// moved into another view has drawn there (cx-21zkz: the page's task ran a few frames before).
+    /// Now when it has no web view.
+    public func afterNextFrame(_ body: @escaping () -> Void) {
+        guard let webView else { return body() }
+        frameWaiters.append(body)
+        guard frameWaiters.count == 1 else { return }
+        webView.callAsyncJavaScript(
+            "await new Promise((done) => requestAnimationFrame(() => setTimeout(done, 0)));",
+            arguments: [:], in: nil, in: .defaultClient
+        ) { [weak self] _ in
+            guard let self else { return }
+            afterPresentationUpdate { [weak self] in self?.finishFrame() }
+        }
+    }
+
+    private func afterPresentationUpdate(_ body: @escaping () -> Void) {
+        // crash-allow: WebKit private selector, used only after responds(to:) confirms it exists (no unknown-selector exception).
+        let selector = NSSelectorFromString("_doAfterNextPresentationUpdate:")
+        guard let webView, webView.responds(to: selector) else { return body() }
+        typealias Action = @convention(block) () -> Void
+        // WebKit keeps the block until the update: it must be an escaping one.
+        let action: Action = { body() }
+        webView.perform(selector, with: action)
+    }
+
+    private func finishFrame() {
+        let waiting = frameWaiters
+        frameWaiters = []
+        waiting.forEach { $0() }
     }
 
     private func finish() {

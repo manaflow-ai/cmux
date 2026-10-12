@@ -222,7 +222,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.palette.sources.settings = SettingsPaletteSource(settings: settings, themes: services.themes.catalog) { [weak services] in
             services?.windows.active.map { SettingsPaletteSource.themeColors($0.themeScope.tokens) } ?? []
         }
-        services.history.commands.start(settings: settings)
+        services.history.startDaemonSync(settings: settings)
         services.locationTrail.watchScope(settings: settings)
         let shortcutEditor = PaletteShortcutEditor(services: services, settings: settings)
         services.paletteShortcutEditor = shortcutEditor

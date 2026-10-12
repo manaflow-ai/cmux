@@ -80,6 +80,13 @@ pub(super) fn pane_json(
             let pinned = state.resource_indexes.tab_ids.get(sid).is_some_and(|tab| {
                 notifications.presentation.pinned_tabs.contains(tab.as_str())
             });
+            // The page a pinned browser tab was pinned on (Back to Pinned Page).
+            let pinned_url = state
+                .resource_indexes
+                .tab_ids
+                .get(sid)
+                .filter(|_| pinned)
+                .and_then(|tab| notifications.presentation.pinned_urls.get(tab.as_str()));
             // `end-terminals-keep-layout-v1`: a kept tab whose terminal has
             // ended, to restart a shell in. After a restart it has no surface,
             // so its name and last title come from the record; a live
@@ -142,6 +149,7 @@ pub(super) fn pane_json(
                 "host_record_version": host_record_version,
                 "group": group_of(sid),
                 "pinned": pinned,
+                "pinned_url": pinned_url,
                 "relaunch": relaunch,
                 "cwd": directory.and_then(|directory| directory.cwd.as_deref()),
                 "git_branch": directory.and_then(|directory| directory.git_branch.as_deref()),
@@ -176,6 +184,10 @@ pub(super) fn pane_json(
                     json!({"cols": c, "rows": r})
                 }),
                 "dead": dead,
+                // OSC 7501: the status the tab shows (TUI tab indicator).
+                "program_status": surface
+                    .and_then(|surface| surface.shown_program_status())
+                    .map(|status| status.wire()),
                 // Why a dead terminal ended (R41, terminal-state-v1).
                 "end": end,
             });

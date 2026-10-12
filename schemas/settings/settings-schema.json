@@ -72,7 +72,9 @@
             "rows" : [
               "navigation.historyScope",
               "navigation.history.scope",
-              "history.commandRetentionDays"
+              "history.commandRetentionDays",
+              "history.closed.maxGroups",
+              "history.closed.maxAgeDays"
             ],
             "title" : {
               "key" : "settings.group.history",
@@ -1151,6 +1153,123 @@
       "title" : {
         "key" : "settings.history.commandRetentionDays",
         "text" : "Keep Terminal Commands For"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        10000,
+        5000
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.history",
+        "text" : "History"
+      },
+      "help" : {
+        "key" : "settings.history.closed.maxGroups.help",
+        "text" : "Each machine deletes its oldest closed tabs, screens, workspaces and windows past this many. 0 keeps them all."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "history.closed.maxGroups",
+      "keywords" : [
+        "history",
+        "recently closed",
+        "reopen",
+        "retention",
+        "delete",
+        "privacy"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "history",
+        "closed",
+        "maxGroups"
+      ],
+      "range" : {
+        "max" : 10000,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -10000,
+        20000,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.history.closed.maxGroups",
+        "text" : "Recently Closed Items to Keep"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        3650,
+        1825
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.history",
+        "text" : "History"
+      },
+      "help" : {
+        "key" : "settings.history.closed.maxAgeDays.help",
+        "text" : "Each machine deletes closed items that are older. 0 keeps them however old they are."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "history.closed.maxAgeDays",
+      "keywords" : [
+        "history",
+        "recently closed",
+        "reopen",
+        "retention",
+        "delete",
+        "privacy",
+        "days"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "history",
+        "closed",
+        "maxAgeDays"
+      ],
+      "range" : {
+        "max" : 3650,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 1,
+        "unit" : "days"
+      },
+      "refuses" : [
+        -3650,
+        7300,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.history.closed.maxAgeDays",
+        "text" : "Keep Recently Closed Items For"
       },
       "validation" : "portable"
     },
@@ -5749,6 +5868,7 @@
       "accepts" : [
         "neutral",
         "theme",
+        "art",
         "red",
         "green",
         "yellow",
@@ -5772,6 +5892,13 @@
             "text" : "Theme Color"
           },
           "value" : "theme"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.accent.art",
+            "text" : "Art Color"
+          },
+          "value" : "art"
         },
         {
           "title" : {
@@ -22523,7 +22650,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "a1a5912bdd5f2e7da5ca0877dce5aeffbb1b4383f096b65f72eac2c63f13bb32",
+  "schema_hash" : "b825644b0e9ae0121497ede633d9c60b4027cc245e0519e730673a8d14998426",
   "sections" : [
     {
       "id" : "general",

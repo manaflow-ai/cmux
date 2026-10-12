@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 67d7ecb759ef04d91548819e9fc645194fd9a678113174603e80467e08021629. */
+/* cmux-tui mux protocol 12, IR be8526aab0a8faacf3356fa1fce5fcdcdd8a2689620e9486b2dcefa27b166aff. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "67d7ecb759ef04d91548819e9fc645194fd9a678113174603e80467e08021629" as const;
+export const SDK_IR_SHA256 = "be8526aab0a8faacf3356fa1fce5fcdcdd8a2689620e9486b2dcefa27b166aff" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2777,6 +2777,7 @@ export const COMMAND_METADATA = {
         "pairing-resolved",
         "pane-added",
         "pane-closed",
+        "program-status-changed",
         "screen-added",
         "screen-closed",
         "screen-renamed",
@@ -3495,6 +3496,14 @@ export const EVENT_METADATA = {
   "personal-changed": {
     "since": 12,
     "capability": "profiles-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "program-status-changed": {
+    "since": 12,
+    "capability": null,
     "streams": [
       "subscribe"
     ],
@@ -7597,6 +7606,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ProgramStatusState": {
+    "kind": "enum",
+    "values": [
+      "working",
+      "blocked",
+      "error",
+      "done"
+    ]
+  },
   "ProviderWorkspaceMutationResult": {
     "additional_properties": false,
     "fields": {
@@ -9617,6 +9635,28 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ShownProgramStatus": {
+    "additional_properties": false,
+    "fields": {
+      "progress": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      },
+      "state": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ProgramStatusState"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "ShutdownDaemonResult": {
     "additional_properties": false,
     "fields": {
@@ -10348,6 +10388,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "NotificationMarker"
+        }
+      },
+      "program_status": {
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "ShownProgramStatus"
         }
       },
       "short_id": {
@@ -26165,6 +26214,36 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "program-status-changed": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "program-status-changed"
+        }
+      },
+      "program_status": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ShownProgramStatus"
+        }
+      },
+      "surface": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
         }
       }
     },

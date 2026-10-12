@@ -548,6 +548,12 @@
       ]
     },
     {
+      "name": "program-status-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
       "name": "bookmarks-changed",
       "streams": [
         "subscribe"

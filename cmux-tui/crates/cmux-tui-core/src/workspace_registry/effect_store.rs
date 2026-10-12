@@ -11,6 +11,7 @@ use serde_json::json;
 mod creation_record;
 mod effect_intent;
 mod input_receipts;
+mod receipt_presence;
 use creation_record::read_creation_record;
 pub(crate) use effect_intent::{EffectCommitFinish, EffectCommitIntent, EffectCommitReceipt};
 use input_receipts::{prune_resource_input_receipts, record_resource_input_receipt_completion};

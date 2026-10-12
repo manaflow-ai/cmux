@@ -15,14 +15,15 @@ enum TabIconHandlers {
         registry.bind("tab.setIcon", invoke: { invocation in
             guard let target = target(invocation, ctx) else { return }
             if let icon = invocation["icon"]?.stringValue?.trimmingCharacters(in: .whitespaces), !icon.isEmpty {
-                guard WorkspaceIconValue.isValid(icon) else { return ctx.refuse(WorkspaceVerbStrings.invalidIcon) }
+                guard WorkspaceIconValue.isValid(icon, assets: true) else { return ctx.refuse(WorkspaceVerbStrings.invalidIcon) }
                 return change(target, to: icon, origin: invocation.origin, ctx)
             }
             guard let anchor = anchor(target, ctx) ?? ctx.refuse(ScreenStrings.iconArgumentRequired) else { return }
             // A pick in the picker is the person's own gesture, also when automation opened it.
-            ctx.services.iconPicker.pick(current: target.tab.userIcon, target: "tab:\(target.resource.rawValue)", at: anchor) { result in
+            ctx.services.iconPicker.pick(current: target.tab.userIcon, target: "tab:\(target.resource.rawValue)", at: anchor,
+                                         assets: IconAssetStore.owner(target.daemon)) { result in
                 switch result {
-                case .set(let icon) where WorkspaceIconValue.isValid(icon): change(target, to: icon, origin: .user, ctx)
+                case .set(let icon) where WorkspaceIconValue.isValid(icon, assets: true): change(target, to: icon, origin: .user, ctx)
                 case .clear: change(target, to: nil, origin: .user, ctx)
                 case .set, .cancel: break
                 }

@@ -298,6 +298,7 @@ struct RemoteTreeCache {
     surface_tabs: HashMap<SurfaceId, [usize; 4]>,
     title_generation: u64,
     title_updates: HashMap<SurfaceId, TitleUpdate>,
+    program_status_updates: HashMap<SurfaceId, tab_updates::ProgramStatusUpdate>,
     agent_generation: u64,
     agent_updates: HashMap<SurfaceId, AgentUpdate>,
 }
@@ -336,20 +337,7 @@ impl RemoteTreeCache {
             }
         }
         self.view = view;
-
-        // A response snapshot can predate title events received while its
-        // request was in flight. Reapply only those later authoritative
-        // events; older events are already represented by the response.
-        let updates = std::mem::take(&mut self.title_updates);
-        for (surface_id, update) in updates {
-            if self.surface_tabs.contains_key(&surface_id) {
-                if update.generation > refresh_generation {
-                    self.update_view_title(surface_id, update.title);
-                }
-            } else if update.generation > refresh_generation {
-                self.title_updates.insert(surface_id, update);
-            }
-        }
+        self.reapply_tab_updates(refresh_generation);
     }
 
     fn update_title(&mut self, surface_id: SurfaceId, title: String) -> bool {
@@ -1588,6 +1576,7 @@ mod requests;
 #[path = "remote_shutdown_tests.rs"]
 mod shutdown_tests;
 mod surfaces;
+mod tab_updates;
 
 #[derive(Default)]
 enum DisconnectState {

@@ -117,6 +117,47 @@ test("Change Background… on a workspace chooses that workspace's own backgroun
   page.unmount();
 });
 
+test("This Workspace's Opacity previews while the slider moves, saves on release, and clears", async () => {
+  const page = await renderPage({
+    path: "/settings/appearance?workspace=ws-1",
+    mock: { workspaceBackgrounds: [{ workspace: "ws-1", title: "Research", value: "starryNight", opacity: null }] },
+  });
+  await settle();
+  const picker = page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
+  // All Workspaces shows the app's Opacity row; This Workspace its own tint over art instead.
+  expect(picker.querySelector('[data-row-key="appearance.backgroundOpacity"]')).not.toBeNull();
+  await act(async () => picker.querySelector<HTMLInputElement>('[aria-label="This Workspace (Research)"]')!.click());
+  await settle();
+  expect(picker.querySelector('[data-row-key="appearance.backgroundOpacity"]')).toBeNull();
+  const row = picker.querySelector<HTMLElement>("[data-workspace-opacity]")!;
+  expect(row.textContent).toContain("Follows the work's own tint");
+  const slider = row.querySelector<HTMLInputElement>('input[type="range"]')!;
+  await act(async () => {
+    slider.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true }));
+    const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+    set.call(slider, "0.8");
+    slider.dispatchEvent(new window.Event("input", { bubbles: true }));
+  });
+  await settle();
+  expect(runs(page, "cmux.settings.backdrop.workspace.preview").at(-1)).toMatchObject({
+    workspace: "ws-1",
+    opacity: 0.8,
+  });
+  expect(runs(page, "cmux.settings.backdrop.workspace.set").length).toBe(0);
+  await act(async () => slider.dispatchEvent(new window.MouseEvent("pointerup", { bubbles: true })));
+  await settle();
+  expect(runs(page, "cmux.settings.backdrop.workspace.set").at(-1)).toMatchObject({ workspace: "ws-1", opacity: 0.8 });
+  expect(runs(page, "cmux.settings.backdrop.workspace.preview").at(-1)).toMatchObject({ workspace: "ws-1", end: true });
+  expect(runs(page, "cmux.settings.set").length).toBe(0);
+
+  const reset = [...row.querySelectorAll("button")].find((button) => button.textContent === "Use the Work's Own")!;
+  await act(async () => reset.click());
+  await settle();
+  expect(runs(page, "cmux.settings.backdrop.workspace.set").at(-1)).toMatchObject({ workspace: "ws-1", opacity: null });
+  expect(row.textContent).toContain("Follows the work's own tint");
+  page.unmount();
+});
+
 test("sweeping the pointer across the picker previews nothing", async () => {
   const page = await renderPage({ path: "/settings/appearance" });
   const tile = page.container.querySelector<HTMLButtonElement>('[aria-label="The Starry Night"]')!;

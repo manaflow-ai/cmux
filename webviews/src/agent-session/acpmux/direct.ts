@@ -1884,8 +1884,15 @@ export class AcpmuxDirectClient {
         this.optimisticPromptRows.delete(promptId);
         this.optimisticPromptTexts.delete(promptId);
         this.optimisticPromptAttachments.delete(promptId);
-        // The prompt is still in the composer, so Enter sends it again (no Retry button).
-        if (held && !isTrustRefusal(error)) this.notice(translate("prompt.notSent", { reason: errorMessage(error) }));
+        // The prompt is still in the composer, so Enter sends it again (no Retry button). A refusal
+        // for want of a real key or click (dictation's autoSend after a session ended by itself)
+        // says just that, not the generic refusal's pick wording (cx-w2p8r).
+        if (held && !isTrustRefusal(error))
+          this.notice(
+            code === "transport.gesture_required"
+              ? translate("prompt.notSentAgain")
+              : translate("prompt.notSent", { reason: errorMessage(error) }),
+          );
         else this.emit();
         throw error;
       }

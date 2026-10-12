@@ -16,8 +16,8 @@ public nonisolated enum WorkspaceIcon: Hashable, Sendable {
 
     /// The workspace record's `icon` string (workspace-metadata-v1) through
     /// the one icon rule (``IconValue``); nil when it is not an emoji or a
-    /// symbol name. Image and SVG assets draw as a placeholder symbol until
-    /// the sidebar draws assets.
+    /// symbol name. Image and SVG assets draw as a placeholder symbol while
+    /// their image loads (the mapping's `iconAsset` draws them after).
     public static func parse(_ value: String, color: GroupColor? = nil) -> WorkspaceIcon? {
         switch IconValue(wire: value) {
         case .emoji(let text)?: .emoji(text, chip: color)

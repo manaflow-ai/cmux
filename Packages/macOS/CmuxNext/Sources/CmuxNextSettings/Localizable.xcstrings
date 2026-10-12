@@ -74616,6 +74616,137 @@
         }
       }
     },
+    "settings.choice.accent.art": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Art Color"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لون اللوحة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boja slike"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunstfarve"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildfarbe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color de la obra"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleur de l'œuvre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colore dell'opera"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アートカラー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពណ៌រូបភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작품 색상"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunstfarge"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kolor obrazu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cor da Obra"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цвет картины"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สีจากภาพ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eser Rengi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Колір картини"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Màu tranh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作品色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作品色"
+          }
+        }
+      }
+    },
     "settings.choice.accent.theme": {
       "extractionState": "manual",
       "localizations": {
@@ -76577,6 +76708,530 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "每台機器會刪除更早的已記錄指令。"
+          }
+        }
+      }
+    },
+    "settings.history.closed.maxGroups": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recently Closed Items to Keep"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عدد العناصر المغلقة مؤخرًا المحتفظ بها"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Broj nedavno zatvorenih stavki za čuvanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nyligt lukkede elementer, der beholdes"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zuletzt geschlossene Elemente behalten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Elementos cerrados recientemente que se conservan"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Éléments récemment fermés à conserver"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Elementi chiusi di recente da conservare"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "保持する最近閉じた項目の数"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចំនួនធាតុដែលបានបិទថ្មីៗដែលត្រូវរក្សាទុក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "보관할 최근 닫은 항목 수"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nylig lukkede elementer som beholdes"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Liczba zachowywanych ostatnio zamkniętych elementów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Itens fechados recentemente a manter"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сколько недавно закрытых элементов хранить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "จำนวนรายการที่ปิดล่าสุดที่จะเก็บไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tutulacak son kapatılan öğe sayısı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скільки нещодавно закритих елементів зберігати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Số mục đã đóng gần đây cần giữ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "保留的最近关闭项目数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "保留的最近關閉項目數"
+          }
+        }
+      }
+    },
+    "settings.history.closed.maxGroups.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Each machine deletes its oldest closed tabs, screens, workspaces and windows past this many. 0 keeps them all."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يحذف كل جهاز أقدم علامات التبويب والشاشات ومساحات العمل والنوافذ المغلقة بعد تجاوز هذا العدد. القيمة 0 تحتفظ بها كلها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Svaka mašina briše najstarije zatvorene kartice, ekrane, radne prostore i prozore preko ovog broja. 0 čuva sve."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hver maskine sletter de ældste lukkede faner, skærme, arbejdsområder og vinduer ud over dette antal. 0 beholder dem alle."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jeder Rechner löscht die ältesten geschlossenen Tabs, Bildschirme, Arbeitsbereiche und Fenster über diese Anzahl hinaus. 0 behält alle."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cada máquina elimina las pestañas, pantallas, espacios de trabajo y ventanas cerrados más antiguos que superen esta cantidad. 0 los conserva todos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chaque machine supprime les onglets, écrans, espaces de travail et fenêtres fermés les plus anciens au-delà de ce nombre. 0 les conserve tous."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ogni macchina elimina le schede, gli schermi, gli spazi di lavoro e le finestre chiusi più vecchi oltre questo numero. 0 li conserva tutti."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "各マシンは、この数を超えた最も古い閉じたタブ、画面、ワークスペース、ウインドウを削除します。0 ですべて保持します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីននីមួយៗលុបផ្ទាំង អេក្រង់ កន្លែងធ្វើការ និងបង្អួចដែលបានបិទចាស់ជាងគេ ដែលលើសពីចំនួននេះ។ 0 រក្សាទុកទាំងអស់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "각 기기는 이 개수를 넘는 가장 오래된 닫은 탭, 화면, 작업 공간, 윈도우를 삭제합니다. 0이면 모두 보관합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hver maskin sletter de eldste lukkede fanene, skjermene, arbeidsområdene og vinduene utover dette antallet. 0 beholder alle."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Każda maszyna usuwa najstarsze zamknięte karty, ekrany, obszary robocze i okna ponad tę liczbę. 0 zachowuje wszystkie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cada máquina apaga as abas, telas, espaços de trabalho e janelas fechados mais antigos além desse número. 0 mantém todos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Каждая машина удаляет самые старые закрытые вкладки, экраны, рабочие пространства и окна сверх этого числа. 0 — хранить всё."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แต่ละเครื่องจะลบแท็บ หน้าจอ พื้นที่ทำงาน และหน้าต่างที่ปิดแล้วที่เก่าที่สุดเมื่อเกินจำนวนนี้ 0 คือเก็บไว้ทั้งหมด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Her makine bu sayıyı aşan en eski kapatılmış sekmeleri, ekranları, çalışma alanlarını ve pencereleri siler. 0 hepsini tutar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кожна машина видаляє найстаріші закриті вкладки, екрани, робочі простори й вікна понад цю кількість. 0 — зберігати все."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mỗi máy xóa các tab, màn hình, không gian làm việc và cửa sổ đã đóng cũ nhất vượt quá số này. 0 giữ lại tất cả."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "每台机器会删除超出此数量的最早关闭的标签页、屏幕、工作区和窗口。0 表示全部保留。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "每台機器會刪除超出此數量的最早關閉的分頁、畫面、工作區和視窗。0 表示全部保留。"
+          }
+        }
+      }
+    },
+    "settings.history.closed.maxAgeDays": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep Recently Closed Items For"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الاحتفاظ بالعناصر المغلقة مؤخرًا لمدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Čuvaj nedavno zatvorene stavke"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Behold nyligt lukkede elementer i"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zuletzt geschlossene Elemente aufbewahren für"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conservar elementos cerrados recientemente durante"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conserver les éléments récemment fermés pendant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conserva gli elementi chiusi di recente per"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "最近閉じた項目の保持期間"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រក្សាទុកធាតុដែលបានបិទថ្មីៗរយៈពេល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "최근 닫은 항목 보관 기간"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Behold nylig lukkede elementer i"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zachowuj ostatnio zamknięte elementy przez"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Manter itens fechados recentemente por"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Хранить недавно закрытые элементы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เก็บรายการที่ปิดล่าสุดไว้เป็นเวลา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Son kapatılan öğeleri şu süre tut"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Зберігати нещодавно закриті елементи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Giữ các mục đã đóng gần đây trong"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "最近关闭项目保留时长"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "最近關閉項目保留時長"
+          }
+        }
+      }
+    },
+    "settings.history.closed.maxAgeDays.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Each machine deletes closed items that are older. 0 keeps them however old they are."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يحذف كل جهاز العناصر المغلقة الأقدم من ذلك. القيمة 0 تحتفظ بها مهما كان عمرها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Svaka mašina briše zatvorene stavke koje su starije. 0 ih čuva bez obzira na starost."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hver maskine sletter lukkede elementer, der er ældre. 0 beholder dem, uanset hvor gamle de er."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jeder Rechner löscht geschlossene Elemente, die älter sind. 0 behält sie unabhängig vom Alter."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cada máquina elimina los elementos cerrados más antiguos. 0 los conserva sin importar su antigüedad."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chaque machine supprime les éléments fermés plus anciens. 0 les conserve quel que soit leur âge."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ogni macchina elimina gli elementi chiusi più vecchi. 0 li conserva a prescindere dall'età."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "各マシンはこれより古い閉じた項目を削除します。0 では古さに関係なく保持します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីននីមួយៗលុបធាតុដែលបានបិទដែលចាស់ជាងនេះ។ 0 រក្សាទុកវាមិនថាចាស់ប៉ុណ្ណាទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "각 기기는 이보다 오래된 닫은 항목을 삭제합니다. 0이면 기간과 관계없이 보관합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hver maskin sletter lukkede elementer som er eldre. 0 beholder dem uansett alder."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Każda maszyna usuwa starsze zamknięte elementy. 0 zachowuje je niezależnie od wieku."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cada máquina apaga os itens fechados mais antigos. 0 os mantém independentemente da idade."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Каждая машина удаляет закрытые элементы старше этого срока. 0 — хранить независимо от возраста."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แต่ละเครื่องจะลบรายการที่ปิดแล้วที่เก่ากว่านี้ 0 คือเก็บไว้ไม่ว่าจะเก่าเพียงใด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Her makine daha eski kapatılmış öğeleri siler. 0 yaşlarından bağımsız olarak tutar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кожна машина видаляє закриті елементи, старші за цей строк. 0 — зберігати незалежно від віку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mỗi máy xóa các mục đã đóng cũ hơn. 0 giữ lại bất kể chúng cũ đến đâu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "每台机器会删除更早的已关闭项目。0 表示无论多久都保留。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "每台機器會刪除更早的已關閉項目。0 表示無論多久都保留。"
           }
         }
       }

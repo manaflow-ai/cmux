@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSidebar
 
@@ -48,6 +49,8 @@ final class IconPickerService {
     private lazy var maxEmojiVersion = IconPickerSymbols.maxEmojiVersion()
     private(set) var open: OpenPicker?
     private var warm: Warm?
+    /// Opens and closes the panel like every native popup (POLISH: calm motion).
+    private let fade = PopupFade()
 
     init(services: AppServices?) {
         self.services = services
@@ -72,14 +75,18 @@ final class IconPickerService {
 
     /// Opens the picker at `anchor` for `target` (an object whose icon is `current`);
     /// `completion` runs once with the outcome (a cancel when the panel closes without a pick).
-    func pick(current: String?, target: String, at anchor: Anchor, completion: @escaping (IconPickerResult) -> Void) {
-        pick(current: current, target: target, at: anchor, started: .now, completion: completion)
+    /// `assets` is where the object's owner stores an Image or SVG pick; without it those tabs stay off.
+    func pick(current: String?, target: String, at anchor: Anchor, assets: IconAssetStore? = nil,
+              completion: @escaping (IconPickerResult) -> Void) {
+        pick(current: current, target: target, at: anchor, assets: assets, started: .now, completion: completion)
     }
 
-    private func pick(current: String?, target: String, at anchor: Anchor, started: ContinuousClock.Instant,
+    private func pick(current: String?, target: String, at anchor: Anchor, assets: IconAssetStore?, started: ContinuousClock.Instant,
                       completion: @escaping (IconPickerResult) -> Void) {
         guard let catalog else {
-            loadCatalog { [weak self] in self?.pick(current: current, target: target, at: anchor, started: started, completion: completion) }
+            loadCatalog { [weak self] in
+                self?.pick(current: current, target: target, at: anchor, assets: assets, started: started, completion: completion)
+            }
             return
         }
         let catalogReady = ContinuousClock.now
@@ -94,7 +101,7 @@ final class IconPickerService {
         var session = IconPickerSession(id: UUID().uuidString, current: current)
         let dark = anchor.view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         session.symbolStyle = IconPickerSymbols.style(dark: dark)
-        warm.provider.begin(session) { [weak self] result in
+        warm.provider.begin(session, assets: assets) { [weak self] result in
             self?.close()
             completion(result)
         }
@@ -107,8 +114,8 @@ final class IconPickerService {
         // Shown over its window (a child moves with it); never on screen for a window that is not
         // (tests, windows not ordered in).
         if let parent, parent.isVisible {
-            parent.addChildWindow(panel, ordered: .above)
-            panel.makeKeyAndOrderFront(nil)
+            fade.open(panel, over: parent, toward: screenAnchor)
+            panel.makeKey()
             warm.page.focusPage()
         }
         onOpened?(IconPickerOpenTiming(catalog: started.duration(to: catalogReady), page: catalogReady.duration(to: pageReady),
@@ -173,13 +180,12 @@ final class IconPickerService {
         return Anchor(view: content, rect: NSRect(x: bounds.midX - 1, y: bounds.maxY - 80, width: 2, height: 2))
     }
 
-    /// Hides the panel; the page stays loaded for the next open.
+    /// Fades the panel out; the page stays loaded for the next open.
     private func close() {
         guard let open else { return }
         self.open = nil
         open.panel.onDismiss = nil
-        open.parent?.removeChildWindow(open.panel)
-        open.panel.orderOut(nil)
+        fade.close(open.panel, toward: open.anchor)
     }
 }
 
