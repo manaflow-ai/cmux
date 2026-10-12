@@ -57,7 +57,8 @@ def artifacts(*names_expired: tuple[str, bool]) -> dict:
     return {"artifacts": [{"name": n, "expired": e} for n, e in names_expired]}
 
 
-def find(runs: list[dict], run_artifacts: dict[int, dict], feeds: list[str], current: int = 500, limit: int = 3):
+def find(runs: list[dict], run_artifacts: dict[int, dict], feeds: list[str], current: int = 500, limit: int = 3,
+         optional: list[str] = ()):
     with tempfile.TemporaryDirectory() as temp:
         temp_path = Path(temp)
         responses = {f"repos/{REPO}/actions/workflows/nightly.yml/runs": {"workflow_runs": runs}}
@@ -81,6 +82,8 @@ def find(runs: list[dict], run_artifacts: dict[int, dict], feeds: list[str], cur
         args = [sys.executable, str(FINDER), "--repo", REPO, "--current-run-id", str(current), "--limit", str(limit)]
         for source in feeds:
             args += ["--feed", source]
+        for source in optional:
+            args += ["--feed-if-present", source]
         env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}")
         return subprocess.run(args, env=env, capture_output=True, text=True)
 
@@ -142,6 +145,15 @@ class FinderTests(unittest.TestCase):
         result = find([run(499)], {499: artifacts((RECOVERY + "a", False))}, [str(self.dir / "missing.xml")])
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("cannot read feed", result.stderr)
+
+    def test_a_new_feed_that_does_not_exist_yet_is_skipped(self):
+        # cmux NEXT's feed before its first publication (cx-x7hwx).
+        feeds = [feed(self.dir / "legacy.xml", 1)]
+        result = find([run(499)], {499: artifacts((RECOVERY + "a", False))}, feeds, optional=[str(self.dir / "next" / "missing.xml")])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)[0]["build"], "49901")
+        result = find([run(499)], {499: artifacts((RECOVERY + "a", False))}, feeds, optional=[feed(self.dir / "next.xml", 49901)])
+        self.assertEqual(json.loads(result.stdout), [])
 
     def test_nothing_pending_is_an_empty_list(self):
         result = find([run(499)], {499: artifacts()}, [feed(self.dir / "next.xml", 1)])
