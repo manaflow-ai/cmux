@@ -488,8 +488,9 @@ struct TapbackOverlay: View {
 
     var body: some View {
         ZStack {
+            // Messages blurs and darkens the backdrop ~19% (measured lum 245.6 → 198.5).
             Rectangle().fill(.ultraThinMaterial).ignoresSafeArea()
-                .overlay(Color.black.opacity(0.06).ignoresSafeArea())
+                .overlay(Color.black.opacity(0.22).ignoresSafeArea())
                 .onTapGesture { done(nil) }
             VStack(alignment: isMine ? .trailing : .leading, spacing: 10) {
                 HStack(spacing: 5) {
