@@ -1887,8 +1887,6 @@ enum Command {
         key: Option<String>,
         #[serde(default)]
         end_terminals: bool,
-        /// `close-reason-v1`, with `end_terminals`: `session_end` (the app closing a workspace
-        /// whose first tab did not start) keeps the close out of closed history.
         #[serde(default)]
         reason: Option<crate::mux::CloseReason>,
         #[serde(flatten)]
