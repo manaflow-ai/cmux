@@ -485,6 +485,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     // Same off-isolation-reader carve-out as debugMetadataLock.
     let debugForceRefreshCountLock = NSLock()
     var debugForceRefreshCountValue = 0
+    var debugForceRefreshReasonsValue: [String] = []
     /// Test-only override for the native free used by teardown paths.
     // nonisolated(unsafe) so the nonisolated deinit teardown path can read it,
     // like the @MainActor teardownSurface/suspend paths already do; tests only
