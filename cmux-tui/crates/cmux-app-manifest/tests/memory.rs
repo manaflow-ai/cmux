@@ -38,6 +38,8 @@ static ALLOC: Counting = Counting;
 mod apps {
     use super::*;
 
+    // The only test in this binary: another test validating first would
+    // build the validator before `before` is read and hide its cost.
     #[test]
     fn validating_a_manifest_retains_under_32_mib() {
         let sample =

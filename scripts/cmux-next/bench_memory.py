@@ -221,11 +221,34 @@ def close_workspace(app: App, workspace: str):
     return response
 
 
-def bound_since(path: str, started: float) -> bool:
-    try:
-        return os.stat(path).st_mtime >= started - 1
-    except OSError:
-        return False
+def bundle_pids(bundle: str) -> set[int]:
+    return {pid for pid, _, cmd in process_table() if in_bundle(cmd, bundle) is not None}
+
+
+def is_binary(cmd: str, binary: str) -> bool:
+    return cmd == binary or cmd.startswith(binary + " ")
+
+
+def end_processes(pids: set[int]):
+    """SIGTERM, then SIGKILL what is still there after a grace period."""
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        alive = set()
+        for pid in pids:
+            try:
+                os.kill(pid, sig)
+                alive.add(pid)
+            except ProcessLookupError:
+                pass
+        pids = {pid for pid in alive if not wait_gone(pid, 10)}
+        if not pids:
+            return
+
+
+def listening_sockets(pid: int) -> list[str]:
+    """Unix socket paths process `pid` has open (its control socket among them)."""
+    out = subprocess.run(["lsof", "-a", "-p", str(pid), "-U", "-Fn"], capture_output=True, text=True).stdout
+    paths = [line[1:] for line in out.splitlines() if line.startswith("n/")]
+    return [path for path in paths if path.endswith(".sock") and os.path.basename(path).startswith("cmux")]
 
 
 def wait_gone(pid: int, seconds: float) -> bool:
@@ -247,8 +270,12 @@ def launch(bundle: str):
     would leave them attributed to the shell that ran it."""
     binary_dir = os.path.join(bundle, "Contents/MacOS")
     binary = os.path.join(binary_dir, sorted(os.listdir(binary_dir))[0])
-    if any(cmd.startswith(binary) for _, _, cmd in process_table()):
-        raise SystemExit(f"bench-memory: {bundle} is already running; quit it first")
+    # Every process from this bundle at the end is this run's (cleanup ends
+    # them all), so none may exist before: an earlier app's detached daemons
+    # and terminal hosts would otherwise be ended too.
+    running = bundle_pids(bundle)
+    if running:
+        raise SystemExit(f"bench-memory: processes from {bundle} are running ({sorted(running)}); end them first")
     scratch = tempfile.mkdtemp(prefix="bench-memory-")
     home = os.path.join(scratch, "home")
     os.makedirs(os.path.join(home, "Library"), exist_ok=True)
@@ -260,30 +287,24 @@ def launch(bundle: str):
     # test mid-run (and its installer counts as the bundle's process).
     with open(env["CMUX_NEXT_CONFIG_FILE"], "w") as handle:
         json.dump({"updates": {"checkAutomatically": False, "downloadAutomatically": False}}, handle)
-    dirs = ["/tmp", env["TMPDIR"]]
-    started = time.time()
     argv = ["open", "-n", "-g"] + [arg for name, value in env.items() for arg in ("--env", f"{name}={value}")]
     subprocess.run(argv + ["-a", bundle], check=True, timeout=60)
-    pid = None
-    deadline = time.monotonic() + 90
-    while time.monotonic() < deadline:
-        pid = pid or next((p for p, _, cmd in process_table() if cmd.startswith(binary)), None)
-        # A socket bound since the launch (an earlier run's app may have left
-        # one at the same path).
-        fresh = [os.path.join(d, n) for d in dirs for n in os.listdir(d)
-                 if n.endswith(".sock") and n.startswith("cmux") and bound_since(os.path.join(d, n), started)]
-        for path in fresh:
-            app = App(bundle, path)
-            if pid and app.ping():
-                return pid, app.socket, scratch
-        time.sleep(1)  # test script: waiting for the launched app's socket
-    if pid:
-        os.kill(pid, signal.SIGKILL)  # it can ignore SIGTERM
-        wait_gone(pid, 10)
-    for other, _, cmd in process_table():
-        if in_bundle(cmd, bundle) is not None:
-            os.kill(other, signal.SIGTERM)  # its daemons, from this bundle
-    raise SystemExit("bench-memory: the launched app opened no socket within 90 s")
+    try:
+        deadline = time.monotonic() + 90
+        while time.monotonic() < deadline:
+            pid = next((p for p, _, cmd in process_table() if is_binary(cmd, binary)), None)
+            # Only a socket the launched app itself holds: another cmux on
+            # this Mac may bind one meanwhile.
+            for path in listening_sockets(pid) if pid else []:
+                app = App(bundle, path)
+                if app.ping():
+                    return pid, app.socket, scratch
+            time.sleep(1)  # test script: waiting for the launched app's socket
+        raise SystemExit("bench-memory: the launched app opened no socket within 90 s")
+    except BaseException:
+        end_processes(bundle_pids(bundle))
+        shutil.rmtree(scratch, ignore_errors=True)
+        raise
 
 
 def main():
@@ -367,22 +388,14 @@ def main():
             close_workspace(app, workspace)
         if launched is not None:
             app.run("quit")
-            # A quit the app holds (a confirmation) and SIGTERM can both
-            # leave it running, and a live app respawns its daemons.
-            for sig in (signal.SIGTERM, signal.SIGKILL):
-                if wait_gone(launched, 20):
-                    break
-                os.kill(launched, sig)
-            wait_gone(launched, 10)
-            # The app's daemons (cmux-tui, acpmux) detach and outlive it. In
-            # launch mode they run from this bundle with this run's scratch
-            # HOME, so end exactly those pids.
-            for pid, (kind, cmd) in owned(app_pid, bundle).items():
-                if in_bundle(cmd, bundle) is not None:
-                    try:
-                        os.kill(pid, signal.SIGTERM)
-                    except ProcessLookupError:
-                        pass
+            # A quit the app holds (a confirmation) and SIGTERM can both leave
+            # it running, and a live app respawns its daemons: end it first.
+            if not wait_gone(launched, 20):
+                end_processes({launched})
+            # Its daemons (cmux-tui, acpmux, terminal hosts) detach and outlive
+            # it. No process of this bundle ran before the launch (`launch`),
+            # so every one now is this run's.
+            end_processes(bundle_pids(bundle))
         if args.out:
             with open(args.out, "w") as handle:
                 json.dump(report, handle, indent=2)
