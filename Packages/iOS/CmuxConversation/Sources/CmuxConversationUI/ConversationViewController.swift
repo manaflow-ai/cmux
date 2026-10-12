@@ -170,6 +170,7 @@ public final class ConversationViewController: UIViewController {
 
     public override func viewDidLoad() {
         super.viewDidLoad()
+        ConversationFirstUseWarmUp.start()
         if traitCollection.displayScale > 0 { ConversationTheme.displayScale = traitCollection.displayScale }
         view.backgroundColor = ConversationTheme.background
 

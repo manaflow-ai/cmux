@@ -123,7 +123,7 @@ enum TapbackGlyph {
         }
     }
 
-    private static let chatKit: Bundle? = {
+    nonisolated private static let chatKit: Bundle? = {
         var path = "/System/Library/PrivateFrameworks/ChatKit.framework"
         #if targetEnvironment(simulator)
         if let root = ProcessInfo.processInfo.environment["IPHONE_SIMULATOR_ROOT"] { path = root + path }
@@ -132,7 +132,7 @@ enum TapbackGlyph {
     }()
 
     /// ChatKit's HA HA comes per script; Japanese gets its own, others English.
-    private static var hahaVariant: String {
+    nonisolated private static var hahaVariant: String {
         let language = Locale.preferredLanguages.first.map { Locale(identifier: $0).language.languageCode?.identifier ?? "" } ?? ""
         switch language {
         case "ja": return "JPN"
@@ -149,7 +149,7 @@ enum TapbackGlyph {
         }
     }
 
-    static func chatKitImageName(for reaction: ConversationReaction) -> String? {
+    nonisolated static func chatKitImageName(for reaction: ConversationReaction) -> String? {
         switch reaction {
         case .heart: return "heart_108"
         case .thumbsup: return "thumbsup_073"
@@ -161,7 +161,7 @@ enum TapbackGlyph {
         }
     }
 
-    static func chatKitImage(for reaction: ConversationReaction) -> UIImage? {
+    nonisolated static func chatKitImage(for reaction: ConversationReaction) -> UIImage? {
         guard let chatKit, let name = chatKitImageName(for: reaction) else { return nil }
         return UIImage(named: name, in: chatKit, compatibleWith: nil)
     }
@@ -182,7 +182,7 @@ enum TapbackGlyph {
 
     /// CAFilter `colorMatrix` rows (r, g, b, a, bias) on a selected tapback,
     /// iOS 27.0 Messages.
-    static func selectedMatrix(for reaction: ConversationReaction) -> [CGFloat]? {
+    nonisolated static func selectedMatrix(for reaction: ConversationReaction) -> [CGFloat]? {
         switch reaction {
         case .heart: return [0.988, 0, 0, 0, 0.089, 0, 0.988, 0, 0, 0.089, 0, 0, 0.988, 0, 0.089, 0, 0, 0, 1, 0]
         case .thumbsup: return [0.482, 1.621, 0.164, 0, -0.881, 0.244, 0.822, 0.083, 0, 0.046, 0.120, 0.405, 0.041, 0, 0.530, 0, 0, 0, 1, 0]
@@ -194,11 +194,38 @@ enum TapbackGlyph {
         }
     }
 
-    private static var selectedCache: [String: UIImage] = [:]
+    /// Recolored art by image name. Filled on first use or ahead of it by
+    /// `warmSelectedImages` (Core Image's first render in a process costs
+    /// ~20 ms, which a row with my tapback paid in the frame it scrolled in).
+    private final class SelectedCache: @unchecked Sendable {
+        private let lock = NSLock()
+        private var images: [String: UIImage] = [:]
+        private var context: CIContext?
 
-    private static func selectedImage(for reaction: ConversationReaction, base: UIImage) -> UIImage? {
+        func image(_ name: String) -> UIImage? {
+            lock.withLock { images[name] }
+        }
+
+        func store(_ image: UIImage, name: String) {
+            lock.withLock { images[name] = image }
+        }
+
+        /// One Core Image context for every recoloring.
+        func renderContext() -> CIContext {
+            lock.withLock {
+                if let context { return context }
+                let created = CIContext(options: [.workingColorSpace: CGColorSpace(name: CGColorSpace.sRGB) as Any])
+                context = created
+                return created
+            }
+        }
+    }
+
+    nonisolated private static let selectedCache = SelectedCache()
+
+    nonisolated private static func selectedImage(for reaction: ConversationReaction, base: UIImage) -> UIImage? {
         guard let name = chatKitImageName(for: reaction), let m = selectedMatrix(for: reaction) else { return nil }
-        if let cached = selectedCache[name] { return cached }
+        if let cached = selectedCache.image(name) { return cached }
         guard let cg = base.cgImage else { return nil }
         let filter = CIFilter(name: "CIColorMatrix")
         filter?.setValue(CIImage(cgImage: cg), forKey: kCIInputImageKey)
@@ -208,11 +235,19 @@ enum TapbackGlyph {
         filter?.setValue(CIVector(x: m[15], y: m[16], z: m[17], w: m[18]), forKey: "inputAVector")
         filter?.setValue(CIVector(x: m[4], y: m[9], z: m[14], w: m[19]), forKey: "inputBiasVector")
         guard let output = filter?.outputImage,
-              let rendered = CIContext(options: [.workingColorSpace: CGColorSpace(name: CGColorSpace.sRGB) as Any])
-                .createCGImage(output, from: CIImage(cgImage: cg).extent) else { return nil }
+              let rendered = selectedCache.renderContext().createCGImage(output, from: CIImage(cgImage: cg).extent) else { return nil }
         let image = UIImage(cgImage: rendered, scale: base.scale, orientation: base.imageOrientation)
-        selectedCache[name] = image
+        selectedCache.store(image, name: name)
         return image
+    }
+
+    /// Recolors every tapback's art for my own badge away from the main
+    /// thread, so the first of each to scroll in only shows it.
+    nonisolated static func warmSelectedImages() {
+        for reaction in [ConversationReaction.heart, .thumbsup, .thumbsdown, .haha, .exclamation, .question] {
+            guard let image = chatKitImage(for: reaction) else { continue }
+            _ = selectedImage(for: reaction, base: image)
+        }
     }
 
     /// Drawn glyph (color emoji, tinted lettering).
