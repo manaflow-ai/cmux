@@ -154,6 +154,9 @@ final class HistoryService {
         }
     }
 
+    /// Whether reopening `item` gives something back.
+    static func isWorthReopening(_ item: CmuxNextDaemon.ClosedItem) -> Bool { true }
+
     /// A daemon closed item's title and detail line. A page tab (a diff,
     /// Settings) is named by its page and has no address to show: its
     /// `url` is the `about:blank` placeholder (cx-h7y9).

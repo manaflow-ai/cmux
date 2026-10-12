@@ -54,7 +54,7 @@ extension NewTabPage {
             let kind: AgentPaneTabKind = agent ? .agent : tab.kind == .browser ? .browser : .terminal
             return AgentPaneOmnibar.Tab(
                 id: tab.id, kind: kind, title: tab.displayTitle,
-                detail: kind == .browser ? tab.url.map(Self.displayURL) : tab.cwd.map(Self.abbreviated),
+                detail: kind == .browser ? tab.url.map(Self.displayURL) : tab.cwd.map { Self.abbreviated($0) },
                 icon: kind == .browser ? AppServices.dataURL(services.tabFavicon(tab)) : nil
             )
         }
