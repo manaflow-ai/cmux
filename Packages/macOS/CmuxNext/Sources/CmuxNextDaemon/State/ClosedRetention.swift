@@ -1,0 +1,46 @@
+/// `history.closed.maxGroups` and `history.closed.maxAgeDays` applied to one
+/// daemon's closed history (reopen-closed.md S1b). The daemon stores no
+/// limit: the app compares its mirror with the limits and, when the history
+/// is over one, sends `closed.delete {all, keep_newest, before_ms}`.
+public struct ClosedRetention: Sendable, Equatable {
+    /// Groups to keep; 0 keeps every group.
+    public var maxGroups: Int
+    /// Days to keep a group; 0 keeps groups of any age.
+    public var maxAgeDays: Int
+
+    public init(maxGroups: Int, maxAgeDays: Int) {
+        self.maxGroups = maxGroups
+        self.maxAgeDays = maxAgeDays
+    }
+
+    /// What one `closed.delete` deletes: groups closed before `beforeMs`,
+    /// and every group but the newest `keepNewest`.
+    public struct Prune: Sendable, Equatable {
+        public var beforeMs: UInt64?
+        public var keepNewest: Int?
+    }
+
+    /// The prune that brings `items` (one per closed group) within the
+    /// limits at `nowMs`, nil when they already are.
+    public func prune(_ items: [ClosedItem], nowMs: UInt64) -> Prune? {
+        var prune = Prune()
+        if maxGroups > 0, items.count > maxGroups { prune.keepNewest = maxGroups }
+        if maxAgeDays > 0 {
+            let cutoff = nowMs.subtractingReportingOverflow(UInt64(maxAgeDays) * 86_400_000)
+            if !cutoff.overflow, items.contains(where: { $0.closedAtMs < cutoff.partialValue }) {
+                prune.beforeMs = cutoff.partialValue
+            }
+        }
+        return prune == Prune() ? nil : prune
+    }
+}
+
+extension StateResourceClient {
+    /// Applies a retention prune (`closed.delete {all, before_ms, keep_newest}`).
+    public func pruneClosed(_ prune: ClosedRetention.Prune) async throws {
+        var params: [String: JSONValue] = ["all": .bool(true)]
+        if let beforeMs = prune.beforeMs { params["before_ms"] = .string(String(beforeMs)) }
+        if let keepNewest = prune.keepNewest { params["keep_newest"] = .number(Double(keepNewest)) }
+        try await stateMutation("closed.delete", params)
+    }
+}
