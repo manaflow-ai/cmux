@@ -113,7 +113,7 @@ extension AgentPaneTransport {
         let gate = confirmationGate
         guard gate.open() else { return false }
         defer { gate.close() }
-        guard let prompt = await harnessEnablePrompt(folder, id), prompt.id == id else { return false }
+        guard let prompt = try? await harnessEnablePrompt(folder, id), prompt.id == id else { return false }
         let confirmed = await withCheckedContinuation { continuation in
             requestHarnessEnable(prompt) { continuation.resume(returning: $0) }
         }
