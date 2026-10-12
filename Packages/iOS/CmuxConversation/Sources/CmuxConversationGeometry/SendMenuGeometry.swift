@@ -26,9 +26,9 @@ public enum SendMenuGeometry {
     public static let labelFontSize: CGFloat = 24
 
     /// `sendMenuListItemFont` at the reader's text size, given 24 pt scaled
-    /// like the title 2 style (`UIFontMetrics`).
+    /// like the title 2 style (`UIFontMetrics`), rounded to whole points.
     public static func labelPointSize(title2Scaled: CGFloat) -> CGFloat {
-        labelFontSize
+        title2Scaled.rounded()
     }
     /// Corner radius of the open popover, fitted to the recorded outline.
     public static let cornerRadius: CGFloat = 32
