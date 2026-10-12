@@ -110,6 +110,7 @@ pub(crate) fn create_presentation_schema(transaction: &Transaction<'_>) -> anyho
     migrate_frontend_browser_add_owner(transaction)?;
     migrate_workspace_presentation_add_pinned(transaction)?;
     migrate_workspace_presentation_add_marked_unread(transaction)?;
+    crate::state::tab_state_store::add_tab_pinned_url_column(transaction)?;
     super::feed_local_store::create_feed_local_schema(transaction)?;
     frontend_browser_history::create_frontend_browser_history_schema(transaction)
 }
@@ -263,6 +264,8 @@ pub struct PresentationSnapshot {
     pub workspaces: HashMap<String, WorkspacePresentationRecord>,
     /// Public ids (`tab_...`) of pinned live tabs.
     pub pinned_tabs: HashSet<String>,
+    /// The page each pinned browser tab was pinned on, by public tab id.
+    pub pinned_urls: HashMap<String, String>,
     /// Frontend-rendered browser contents keyed by public browser id
     /// (`browser_...`). Rows exist before their browser commits, so a
     /// pending creation is already known when its surface spawns.
