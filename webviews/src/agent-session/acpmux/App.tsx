@@ -2526,10 +2526,12 @@ function AcpmuxPane() {
     let end = at + 1;
     while (end < rows.length && rows[end]!.kind !== "user") end += 1;
     const activity = rows.slice(start, end).filter((row) => row.kind === "activity");
-    const key = `${edit.id}\u0000${activity.map((row) => `${row.id}:${row.version}`).join("|")}`;
+    // Keyed by the chat too: another chat's rows never read as this one's.
+    const key = `${snapshot.sessionId}\u0000${edit.id}\u0000${activity.map((row) => `${row.id}:${row.version}`).join("|")}`;
     if (lastEdit.current?.key !== key) lastEdit.current = { key, rowId: edit.id, files: turnFiles(activity) };
     return lastEdit.current;
-  }, [snapshot.rows]);
+  }, [snapshot.rows, snapshot.sessionId]);
+  // Its files are the diff's own (the checkpoint's once loaded), so each opens at its file there.
   const lastChanges = useMemo(
     () => (lastEditTurn ? turnCountsFor(lastEditTurn.rowId, lastEditTurn.files) : undefined),
     [lastEditTurn, turnCountsFor],
@@ -2557,7 +2559,9 @@ function AcpmuxPane() {
     previewTurns.current = seen;
     return found;
   }, [snapshot.rows]);
-  const toggleLastChanges = () => {
+  // The summary's Changes: the turn's diff, toggled; a file of it opens the diff at that file.
+  const toggleLastChanges = (path?: string) => {
+    if (path) return lastEditTurn && openDiff(lastEditTurn.rowId, path);
     if (diffView && diffOpen) return closeDiff();
     if (lastEditTurn) openDiff(lastEditTurn.rowId);
   };

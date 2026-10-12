@@ -252,6 +252,8 @@ export function DiffPanel({
   // Focus moves into the view, so keys reach it and a screen reader announces it.
   useEffect(() => {
     back.current?.focus();
+    // Another file opened in the open view: later paints keep it in view, not the first one.
+    revealing.current = initialPath;
     if (initialPath) reveal(initialPath);
   }, [initialPath]);
   // Escape closes the view while focus is in it (or nowhere), not while typing in the composer
