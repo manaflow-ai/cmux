@@ -101,6 +101,18 @@ test("an opened call shows its output without terminal colour codes", async () =
   expect(shown).toBe("ok 3 passed");
 });
 
+test("an output of exactly 400 lines and a final newline shows whole", async () => {
+  const lines = Array.from({ length: 400 }, (_, index) => `line ${index}`);
+  await openRow("execute", `${lines.join("\n")}\n`, "seq 400");
+  expect(host.querySelector(".cv-shell__output")?.textContent).toBe(lines.join("\n"));
+  expect([...host.querySelectorAll("button")].some((node) => node.textContent === "Show all output")).toBe(false);
+});
+
+test("terminal charset, keypad and cursor-style codes do not show either", async () => {
+  await openRow("execute", "\x1b(B\x1b[mdone\x1b[0 q\x1b=\x1b>\x1b7\x1b8\x1b[>4;2m\x1b[2~", "make");
+  expect(host.querySelector(".cv-shell__output")?.textContent).toBe("done");
+});
+
 test("a long output shows its last lines until Show all output", async () => {
   const lines = Array.from({ length: 5000 }, (_, index) => `line ${index}`);
   await openRow("execute", lines.join("\n"), "seq 5000");
