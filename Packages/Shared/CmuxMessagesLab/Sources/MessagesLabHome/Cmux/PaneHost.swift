@@ -62,6 +62,11 @@ final class HostView: NSView {
     let paneHeader = PaneHeaderView(frame: .zero)
     private(set) var demo: MessagesWindowView?
     weak var controller: ChatController? { didSet { scrollView.document.controller = controller } }
+    /// MessagesLab b6760b6: the window's update observer and the window place the rows last read
+    /// (PaneHost+WindowPlace.swift).
+    var windowPlaceObserver: NSObjectProtocol?
+    var lastWindowPlace: (origin: CGPoint, axis: CGPoint)?
+    deinit { windowPlaceObserver.map(NotificationCenter.default.removeObserver) }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -141,7 +146,7 @@ final class HostView: NSView {
         demo?.layoutIfNeeded()
         // MessagesLab b6760b6: the typing indicator snaps to the window's device pixels; the pane's place
         // in the window can change with no size change of the window view (RowCell.windowPlace).
-        demo?.refreshWindowPlace()
+        refreshWindowPlace()
         CATransaction.commit()
         placeNativeViews()
     }
@@ -179,7 +184,7 @@ final class HostView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         controller?.windowChanged()
-        demo?.refreshWindowPlace()  // MessagesLab b6760b6: another window, another place
+        observeWindowPlace()  // MessagesLab b6760b6: another window, another place (PaneHost+WindowPlace.swift)
     }
 
     override func viewDidChangeBackingProperties() {

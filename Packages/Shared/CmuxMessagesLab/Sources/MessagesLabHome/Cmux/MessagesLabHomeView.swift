@@ -53,7 +53,7 @@ public final class MessagesLabHomeView: NSView {
     /// lays the host out, which refreshes it too (HostView.layout).
     public override func setFrameOrigin(_ newOrigin: NSPoint) {
         super.setFrameOrigin(newOrigin)
-        controller.demo?.refreshWindowPlace()
+        controller.host.refreshWindowPlaceIfMoved()
     }
 
     public override func layout() {
