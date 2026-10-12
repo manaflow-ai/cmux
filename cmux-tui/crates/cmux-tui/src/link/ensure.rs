@@ -7,18 +7,19 @@
 //! app's link never share a socket, a registration or a state directory.
 //!
 //! - `ensure --state-dir D [--install ID] [--port P] [--session-socket S]
-//!   [--server-config F] [--handoff]`: runs `init` first when D has no
-//!   config (then `--install` is required; `--port 0` binds any free UDP
-//!   port), returns the live link when one runs, else starts `cmux link
-//!   serve` in its own session (it survives the caller) and waits for its
-//!   ready line. With `--handoff`, a live link of another build is stopped
-//!   and replaced; without it, it is kept (a CLI of another build never
-//!   flips the app's link). One JSON line on stdout: `{"status":"running"|
-//!   "started"|"restarted", "pid", "socket", "build", ...}`.
+//!   [--server-config F]`: runs `init` first when D has no config (then
+//!   `--install` is required; `--port 0` binds any free UDP port), returns
+//!   the live link of D when one runs, else starts `cmux link serve` in its
+//!   own session (it survives the caller) and waits for its ready line. A
+//!   different install, port, session socket or server config is refused;
+//!   `--handoff` (the owning app only; see spec/cli.md) restarts or re-inits
+//!   instead, and also replaces a link of another build. One JSON line on
+//!   stdout: `{"status":"running"|"started"|"restarted", "pid", "socket",
+//!   "build", ...}`.
 //! - `stop --state-dir D`: signals the registered pid (only after a fresh
-//!   connection proved that pid serves the registered socket) and waits for
-//!   that connection to end, which the link does after it removed its
-//!   registration. Never by name or pattern. `{"ok":true,"stopped":bool}`.
+//!   connection proved that pid serves D's own socket), waits for that
+//!   connection to end and then for the process to exit. Never by name or
+//!   pattern. `{"ok":true,"stopped":bool}`, or `stop_timeout`.
 //! - `status --state-dir D`: `{"running":false}`, or `{"running":true}` with
 //!   the link's own `link.status` answer.
 
@@ -74,6 +75,51 @@ impl ReadyPipe {
     }
 }
 
+/// What a link serves besides its state: the session socket its paired
+/// peers reach and the `server.json` its owner session came from (path and
+/// the SHA-256 of its bytes, null when absent).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Served {
+    pub session_socket: Option<std::path::PathBuf>,
+    pub server_config: Option<std::path::PathBuf>,
+    pub server_config_sha256: Option<String>,
+}
+
+impl Served {
+    /// What `flags` ask for: `--session-socket`, and `--server-config` or
+    /// the user-mode default (`super::server_config_path`), hashed now.
+    pub(super) fn wanted(flags: &Flags) -> Self {
+        let server_config = super::server_config_path(flags);
+        let server_config_sha256 = server_config.as_deref().and_then(file_sha256);
+        Self {
+            session_socket: flags.get("--session-socket").map(std::path::PathBuf::from),
+            server_config,
+            server_config_sha256,
+        }
+    }
+
+    fn json(&self) -> Value {
+        json!({
+            "session_socket": self.session_socket,
+            "server_config": { "path": self.server_config, "sha256": self.server_config_sha256 },
+        })
+    }
+
+    /// The same fields in a `link.status` answer.
+    fn matches(&self, status: &Value) -> bool {
+        status["session_socket"] == json!(self.session_socket)
+            && status["server_config"]["path"] == json!(self.server_config)
+            && status["server_config"]["sha256"] == json!(self.server_config_sha256)
+    }
+}
+
+/// The SHA-256 (hex) of the file at `path`, None when it cannot be read.
+fn file_sha256(path: &Path) -> Option<String> {
+    use sha2::{Digest as _, Sha256};
+    let bytes = std::fs::read(path).ok()?;
+    Some(Sha256::digest(&bytes).iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
 /// The answer to `link.status`.
 pub(super) fn status_line(
     state: &LinkState,
@@ -81,8 +127,9 @@ pub(super) fn status_line(
     socket: &Path,
     pid: u32,
     udp: &str,
+    served: &Served,
 ) -> Value {
-    json!({
+    let mut line = json!({
         "ok": true,
         "pid": pid,
         "socket": socket,
@@ -91,7 +138,34 @@ pub(super) fn status_line(
         "port": config.port,
         "udp": udp,
         "build": build(),
-    })
+    });
+    if let (Some(line), Value::Object(extra)) = (line.as_object_mut(), served.json()) {
+        line.extend(extra);
+    }
+    line
+}
+
+/// The live link of `state`: its registration only when the registered
+/// socket is this state directory's own socket, so a link of another state
+/// folder that shares the registration folder is never reported or stopped.
+pub(super) fn live(state: &LinkState) -> Option<registration::Registration> {
+    registration::read_live(&state.registration_dir())
+        .filter(|live| live.socket == state.socket_path())
+}
+
+/// `<state>/link.ensure.lock`, held by `ensure` and `stop` while they run,
+/// so two of them never init, start or stop the same link at once. (`serve`
+/// holds `link.lock` for its lifetime; one file would deadlock `ensure`,
+/// which waits for the `serve` it started while it holds its lock.)
+fn ensure_lock(state: &LinkState) -> anyhow::Result<std::fs::File> {
+    let file = super::state::open_lock(&state.dir().join("link.ensure.lock"))?;
+    // SAFETY: flock on a descriptor this process owns; it blocks until the
+    // other ensure or stop of this state directory ends (their own budgets
+    // bound them).
+    if unsafe { libc::flock(std::os::fd::AsRawFd::as_raw_fd(&file), libc::LOCK_EX) } != 0 {
+        return Err(std::io::Error::last_os_error()).context("lock the link state directory");
+    }
+    Ok(file)
 }
 
 /// `link.status` of the link at `socket`, or None when it did not answer.
@@ -109,8 +183,11 @@ fn query_status(socket: &Path) -> Option<Value> {
 /// Runs `init` when the state directory has none; otherwise checks
 /// `--install` and `--port` against the config. With `handoff` (the app,
 /// which owns this link), another install or port replaces the config: the
-/// running link stops, the WireGuard key is made new (a new install never
-/// keeps the old install's key); true when a running link was stopped.
+/// running link stops; the old install's WireGuard key and paired peers are
+/// archived under its name (`private.key.<install>`, `peers.<install>.json`),
+/// and the new install gets its own archived pair back, or a new key and no
+/// peers (it may be another signed-in person); true when a running link was
+/// stopped.
 fn init_or_check(state: &LinkState, flags: &Flags, handoff: bool) -> anyhow::Result<bool> {
     let port = match flags.get("--port") {
         Some(text) => Some(text.parse::<u16>().map_err(|_| anyhow!("--port needs a UDP port"))?),
@@ -137,11 +214,13 @@ fn init_or_check(state: &LinkState, flags: &Flags, handoff: bool) -> anyhow::Res
     }
     let stopped = stop_live(state)?;
     let fresh = LinkConfig {
-        install: install.cloned().unwrap_or(config.install),
+        install: install.cloned().unwrap_or_else(|| config.install.clone()),
         port: other_port.unwrap_or(config.port),
     };
     if install.is_some() {
-        state.forget_key()?;
+        // Nothing is deleted: the old install's key and peers are kept
+        // under its name, and an install that comes back gets its own.
+        state.switch_install(&config.install, &fresh.install)?;
     }
     state.init(&fresh)?;
     Ok(stopped)
@@ -149,11 +228,20 @@ fn init_or_check(state: &LinkState, flags: &Flags, handoff: bool) -> anyhow::Res
 
 pub(super) fn run_ensure(flags: &Flags, handoff: bool) -> anyhow::Result<()> {
     let state = super::state(flags)?;
+    let _lock = ensure_lock(&state)?;
     let mut restarted = init_or_check(&state, flags, handoff)?;
-    if let Some(live) = registration::read_live(&state.registration_dir()) {
+    let wanted = Served::wanted(flags);
+    if let Some(live) = live(&state) {
         let status = query_status(&live.socket);
         let same_build = status.as_ref().is_some_and(|s| s["build"] == json!(build()));
-        if same_build || !handoff {
+        let same_served = status.as_ref().is_some_and(|s| wanted.matches(s));
+        if status.is_some() && !same_served && !handoff {
+            bail!(
+                "config_mismatch: the running link serves another session socket or server \
+                 config; stop it first"
+            );
+        }
+        if (same_build && same_served) || !handoff {
             let mut out = json!({"status": "running", "pid": live.pid, "socket": live.socket});
             if let Some(status) = status {
                 out["build"] = status["build"].clone();
@@ -178,7 +266,7 @@ pub(super) fn run_ensure(flags: &Flags, handoff: bool) -> anyhow::Result<()> {
         }
         // The link exited before it was ready: another `ensure` may have
         // won the socket, so the registration decides.
-        None => match registration::read_live(&state.registration_dir()) {
+        None => match live(&state) {
             Some(live) => {
                 print_json(&json!({"status": "running", "pid": live.pid, "socket": live.socket}));
                 Ok(())
@@ -258,11 +346,16 @@ fn start(state: &LinkState, flags: &Flags) -> anyhow::Result<Option<Value>> {
     Ok(line.and_then(|line| serde_json::from_str(line.trim()).ok()))
 }
 
-/// Stops the live link of `state`: true when one ran.
+/// Stops the live link of `state` and waits until its process is gone:
+/// true when one ran. A link that does not end within [`STOP_BUDGET`] is an
+/// error (`stop_timeout`), never a stopped or a running link.
 fn stop_live(state: &LinkState) -> anyhow::Result<bool> {
-    let Some((live, mut stream)) = registration::connect_live(&state.registration_dir()) else {
+    let Some((live, mut stream)) = registration::connect_live(&state.registration_dir())
+        .filter(|(live, _)| live.socket == state.socket_path())
+    else {
         return Ok(false);
     };
+    let deadline = std::time::Instant::now() + STOP_BUDGET;
     let pid = libc::pid_t::try_from(live.pid).map_err(|_| anyhow!("bad registered pid"))?;
     // SAFETY: kill with a pid this connection's peer credentials named.
     if unsafe { libc::kill(pid, libc::SIGTERM) } != 0 {
@@ -274,7 +367,7 @@ fn stop_live(state: &LinkState) -> anyhow::Result<bool> {
     let mut sink = [0u8; 256];
     loop {
         match stream.read(&mut sink) {
-            Ok(0) => return Ok(true),
+            Ok(0) => break,
             Ok(_) => {}
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
             Err(e)
@@ -285,13 +378,21 @@ fn stop_live(state: &LinkState) -> anyhow::Result<bool> {
             {
                 bail!("stop_timeout: link {} did not stop within {STOP_BUDGET:?}", live.pid)
             }
-            Err(_) => return Ok(true),
+            Err(_) => break,
         }
     }
+    // The connection ended; the process must be gone too before anything
+    // else runs (an exit event, not a guess).
+    let left = deadline.saturating_duration_since(std::time::Instant::now());
+    if !super::process_exit::wait_exit(pid, left)? {
+        bail!("stop_timeout: link {} did not exit within {STOP_BUDGET:?}", live.pid);
+    }
+    Ok(true)
 }
 
 pub(super) fn run_stop(flags: &Flags) -> anyhow::Result<()> {
     let state = super::state(flags)?;
+    let _lock = ensure_lock(&state)?;
     let stopped = stop_live(&state)?;
     print_json(&json!({"ok": true, "stopped": stopped}));
     Ok(())
@@ -299,7 +400,7 @@ pub(super) fn run_stop(flags: &Flags) -> anyhow::Result<()> {
 
 pub(super) fn run_status(flags: &Flags) -> anyhow::Result<()> {
     let state = super::state(flags)?;
-    let Some(live) = registration::read_live(&state.registration_dir()) else {
+    let Some(live) = live(&state) else {
         print_json(&json!({"running": false}));
         return Ok(());
     };

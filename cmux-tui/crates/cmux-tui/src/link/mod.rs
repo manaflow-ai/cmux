@@ -20,6 +20,7 @@ mod launchd;
 mod lines;
 mod mesh;
 mod mesh_cloud;
+mod process_exit;
 mod state;
 
 #[cfg(test)]
@@ -232,7 +233,7 @@ fn run_show_state(state: &LinkState) -> anyhow::Result<()> {
 fn show_json(state: &LinkState) -> anyhow::Result<serde_json::Value> {
     let config = state.config()?;
     let public_key = state::public_key(&*state.private_key()?);
-    let live = registration::read_live(&state.registration_dir());
+    let live = ensure::live(state);
     Ok(json!({
         "install": config.install,
         "public_key": STANDARD.encode(public_key),
@@ -294,7 +295,7 @@ fn change_peers(
     let mut pairings = Pairings::load(&state.peers_path())?;
     let changed = change(&mut pairings)?;
     pairings.save(&state.peers_path())?;
-    let reloaded = match registration::read_live(&state.registration_dir()) {
+    let reloaded = match ensure::live(&state) {
         Some(live) => tokio_runtime()?.block_on(reload(&live.socket)),
         None => false,
     };
@@ -320,23 +321,48 @@ fn run_serve(flags: &Flags) -> anyhow::Result<()> {
         Some(fd) => Some(ensure::ReadyPipe::take(fd)?),
         None => None,
     };
-    tokio_runtime()?.block_on(serve(state, session_socket, owner, ready))
+    // One link per state directory, for its whole life, taken before the
+    // UDP bind: a second `serve` of the same state directory stops here.
+    let _lock = serve_lock(&state)?;
+    let served = ensure::Served::wanted(flags);
+    tokio_runtime()?.block_on(serve(state, session_socket, owner, ready, served))
+}
+
+/// `<state>/link.lock`, held by a running `serve` (never blocks).
+fn serve_lock(state: &LinkState) -> anyhow::Result<std::fs::File> {
+    let path = state.dir().join("link.lock");
+    let file = state::open_lock(&path)?;
+    // SAFETY: flock on a descriptor this process owns.
+    if unsafe { libc::flock(std::os::fd::AsRawFd::as_raw_fd(&file), libc::LOCK_EX | libc::LOCK_NB) }
+        != 0
+    {
+        let error = std::io::Error::last_os_error();
+        if error.raw_os_error() == Some(libc::EWOULDBLOCK) {
+            return Err(anyhow!("a cmux link already runs for {}", state.dir().display()));
+        }
+        return Err(error).context("lock the link state directory");
+    }
+    Ok(file)
+}
+
+/// The `server.json` a link reads its owner session from: `--server-config
+/// PATH`, else the user-mode `~/.config/cmux/server.json`; none without HOME.
+pub(super) fn server_config_path(flags: &Flags) -> Option<PathBuf> {
+    match flags.get("--server-config") {
+        Some(path) => Some(PathBuf::from(path)),
+        // Shortcut: duplicates the user-mode layout of cmux-server-core; use
+        // its layout code when the next Cargo WINDOW allows the dependency
+        // (bead cx-uu3).
+        None => std::env::var_os("HOME")
+            .map(|home| PathBuf::from(home).join(".config/cmux/server.json")),
+    }
 }
 
 /// The owner session block of `server.json` (`--server-config PATH`, else
 /// the user-mode `~/.config/cmux/server.json`); none when absent. An
 /// invalid block stops the link instead of serving with a guess.
 fn owner_session(flags: &Flags) -> anyhow::Result<Option<Arc<OwnerSession>>> {
-    let path = match flags.get("--server-config") {
-        Some(path) => PathBuf::from(path),
-        // Shortcut: duplicates the user-mode layout of cmux-server-core; use
-        // its layout code when the next Cargo WINDOW allows the dependency
-        // (bead cx-uu3).
-        None => match std::env::var_os("HOME") {
-            Some(home) => PathBuf::from(home).join(".config/cmux/server.json"),
-            None => return Ok(None),
-        },
-    };
+    let Some(path) = server_config_path(flags) else { return Ok(None) };
     let owner = OwnerSession::load(&path)
         .with_context(|| format!("read owner_session in {}", path.display()))?;
     Ok(owner.map(Arc::new))
@@ -347,6 +373,7 @@ async fn serve(
     session_socket: Option<PathBuf>,
     owner: Option<Arc<OwnerSession>>,
     ready: Option<ensure::ReadyPipe>,
+    served: ensure::Served,
 ) -> anyhow::Result<()> {
     let config = state.config().context("run `cmux link init --install ID` first")?;
     let socket =
@@ -375,7 +402,7 @@ async fn serve(
     let pid = std::process::id();
     let udp = overlay.local_addr()?.to_string();
     let status: Arc<str> =
-        ensure::status_line(&state, &config, &socket_path, pid, &udp).to_string().into();
+        ensure::status_line(&state, &config, &socket_path, pid, &udp, &served).to_string().into();
     registration::write(&state.registration_dir(), &Registration::new(socket_path.clone(), pid))?;
     let ready_line = json!({
         "event": "link-ready",
@@ -405,6 +432,8 @@ fn bind_local(path: &Path) -> anyhow::Result<tokio::net::UnixListener> {
     use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
     if let Some(parent) = path.parent() {
         std::fs::DirBuilder::new().recursive(true).mode(0o700).create(parent)?;
+        // Never bind in a folder another user or a symlink put there.
+        state::check_socket_dir(parent)?;
     }
     if path.exists() {
         if std::os::unix::net::UnixStream::connect(path).is_ok() {

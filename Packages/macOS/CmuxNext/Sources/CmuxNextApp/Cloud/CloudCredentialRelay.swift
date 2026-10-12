@@ -42,6 +42,10 @@ nonisolated struct CloudCredentialRelay: Sendable {
             && !op.hasPrefix(refusedPrefix)
     }
 
+    /// The allow list is `cmux/cloud`'s only because only `cmux/cloud` may
+    /// call this relay (``answer(_:)`` refuses every other app); a second
+    /// app that may call it needs its own allow list here.
+    ///
     /// The ops the bundled `cmux/cloud` manifest serves (`serves.ops`), the
     /// ones its server sends as wire calls. Empty when the bundle has no such
     /// manifest, so the relay then refuses every op. Read from disk once,

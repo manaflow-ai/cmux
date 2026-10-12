@@ -109,13 +109,34 @@ impl LinkState {
         write_private(&self.config_path(), &text)
     }
 
-    /// Removes the WireGuard key, so the next `init` makes a new one (a
-    /// new install never keeps another install's key).
-    pub(super) fn forget_key(&self) -> io::Result<()> {
-        match std::fs::remove_file(self.key_path()) {
-            Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
-            _ => Ok(()),
+    /// Moves this install's WireGuard key and paired peers aside under
+    /// `old`'s name (`private.key.<old>`, `peers.<old>.json`) and puts back
+    /// `new`'s archived pair when it has one. Nothing is deleted; a new
+    /// install without an archive gets a new key (`init`) and no peers.
+    pub(super) fn switch_install(&self, old: &str, new: &str) -> io::Result<()> {
+        let pairs = [
+            (
+                self.key_path(),
+                self.dir.join(format!("private.key.{old}")),
+                self.dir.join(format!("private.key.{new}")),
+            ),
+            (
+                self.peers_path(),
+                self.dir.join(format!("peers.{old}.json")),
+                self.dir.join(format!("peers.{new}.json")),
+            ),
+        ];
+        for (current, archive_old, archive_new) in pairs {
+            match std::fs::rename(&current, &archive_old) {
+                Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
+                _ => {}
+            }
+            match std::fs::rename(&archive_new, &current) {
+                Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
+                _ => {}
+            }
         }
+        Ok(())
     }
 
     pub(super) fn private_key(&self) -> io::Result<Zeroizing<[u8; 32]>> {
@@ -162,6 +183,45 @@ pub(super) fn socket_path_for(dir: &Path) -> PathBuf {
         return preferred;
     }
     cmux_tui_core::platform::fallback_runtime_dir().join(leaf)
+}
+
+/// Opens (or makes, 0600) a lock file of the state directory.
+pub(super) fn open_lock(path: &Path) -> io::Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)
+}
+
+/// The link socket's folder is this user's private folder: a real folder
+/// (not a symlink), owned by this user, that no group or other user may
+/// open. Also for the `/tmp/cmux-tui-<uid>` fallback, where another user
+/// could have made the folder first.
+pub(super) fn check_socket_dir(dir: &Path) -> io::Result<()> {
+    use std::os::unix::fs::MetadataExt;
+    let meta = std::fs::symlink_metadata(dir)?;
+    // SAFETY: geteuid has no preconditions.
+    let uid = unsafe { libc::geteuid() };
+    let refuse = |why: String| Err(io::Error::new(io::ErrorKind::PermissionDenied, why));
+    if meta.file_type().is_symlink() || !meta.is_dir() {
+        return refuse(format!("the link socket folder {} is not a folder", dir.display()));
+    }
+    if meta.uid() != uid {
+        return refuse(format!("the link socket folder {} belongs to another user", dir.display()));
+    }
+    if meta.mode() & 0o077 != 0 {
+        return refuse(format!(
+            "the link socket folder {} is open to other users (mode {:o})",
+            dir.display(),
+            meta.mode() & 0o777
+        ));
+    }
+    Ok(())
 }
 
 fn create_private_dir(dir: &Path) -> io::Result<()> {

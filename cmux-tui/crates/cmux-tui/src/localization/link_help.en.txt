@@ -13,11 +13,11 @@ port for every paired machine. Same network only: no relay yet.
         [--server-config PATH]      server.json with an owner_session block (default
                                     ~/.config/cmux/server.json): the server's owner, and
                                     only the owner, also reaches the Chief brain's daemon
-  ensure [--install ID] [--port PORT] [--session-socket PATH] [--server-config PATH] [--handoff]
+  ensure [--install ID] [--port PORT] [--session-socket PATH] [--server-config PATH]
                                     start `serve` in its own session unless one runs for this
                                     state directory (init first when there is none; --port 0
-                                    binds any free port); --handoff replaces a link of another
-                                    build; one JSON line with status running|started|restarted
+                                    binds any free port); one JSON line with status
+                                    running|started|restarted
   stop                              stop the link of this state directory (its registered pid)
   status                            print whether the link runs, and its pid, socket and build
   dial --host ID [--service daemon|ssh|owner_session] [--socket ABSOLUTE_PATH]

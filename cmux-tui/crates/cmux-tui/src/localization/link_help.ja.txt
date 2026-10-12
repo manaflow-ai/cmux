@@ -13,12 +13,11 @@ WireGuard 鍵 1 つと UDP ポート 1 つを使います。同じネットワ�
         [--server-config パス]        owner_session を含む server.json（既定
                                       ~/.config/cmux/server.json）。サーバーの所有者だけが
                                       Chief ブレインのデーモンにも届きます
-  ensure [--install ID] [--port ポート] [--session-socket パス] [--server-config パス] [--handoff]
+  ensure [--install ID] [--port ポート] [--session-socket パス] [--server-config パス]
                                       この状態ディレクトリの link が動いていなければ、`serve` を
                                       独自のセッションで起動します（設定がなければ先に init。
-                                      --port 0 は空いているポートを使います）。--handoff は別の
-                                      ビルドの link を置き換えます。状態 running|started|restarted
-                                      の JSON を 1 行出力します
+                                      --port 0 は空いているポートを使います）。状態
+                                      running|started|restarted の JSON を 1 行出力します
   stop                                この状態ディレクトリの link を停止します（登録された pid）
   status                              link が動いているか、その pid、ソケット、ビルドを表示します
   dial --host ID [--service daemon|ssh|owner_session] [--socket 絶対パス]
