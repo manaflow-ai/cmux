@@ -340,6 +340,70 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
             self.assertEqual(len(invocations), 1, invocations)
             self.assertTrue(same_path(invocations[0][len("ensure "):], ROOT), invocations)
 
+    def test_an_unpublished_tree_falls_back_to_the_newest_published_one(self) -> None:
+        """A fleet suite step for a head whose own cmux-tui tree is not published yet ran the
+        live-daemon suites against nothing: 131 of 198 CmuxNext suite steps on 2026-10-12 skipped
+        them. When the head changes no cmux-tui path (pin-cmux-tui.sh fallback-key prints a key, as
+        PR CI's CMUX_TUI_TREE_BASE_FALLBACK), the suites get that published tree; otherwise they
+        still skip."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = pathlib.Path(temp_dir)
+            calls = temp / "calls.txt"
+            fake_swift = temp / "swift"
+            fake_swift.write_text(
+                "#!/usr/bin/env bash\n"
+                "if [[ \"$*\" == *\"test list\"* ]]; then echo 'ExampleTests.Suite/testOne()'; exit 0; fi\n"
+                "printf 'key=%s path=%s\\n' \"${CMUX_TUI_TREE_KEY:-}\" \"${CMUX_NEXT_TUI_TREE_PATH:-}\" >> \"$CMUX_SWIFT_TEST_CALLS\"\n"
+                "echo 'Test run with 1 test passed after 0.001 seconds.'\n",
+                encoding="utf-8",
+            )
+            fake_swift.chmod(0o755)
+            ensure = temp / "ensure"
+            ensure.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+            ensure.chmod(0o755)
+            # The head's own tree is never published; tree "older" is. fallback-key prints it
+            # unless FAKE_HEAD_CHANGES_TUI is set (a head that changes cmux-tui gets no fallback).
+            pin = temp / "pin"
+            pin.write_text(
+                "#!/usr/bin/env bash\n"
+                "dir=\"$FAKE_TREES/${CMUX_TUI_TREE_KEY:-own}\"\n"
+                "case \"$1\" in\n"
+                "  path) echo \"$dir/cmux-tui\" ;;\n"
+                "  fetch) [ \"${CMUX_TUI_TREE_KEY:-}\" = older ] || exit 1\n"
+                "         mkdir -p \"$dir\" && printf '#!/bin/sh\\n' > \"$dir/cmux-tui\" && chmod +x \"$dir/cmux-tui\" ;;\n"
+                "  fallback-key) [ -z \"${FAKE_HEAD_CHANGES_TUI:-}\" ] || exit 1; echo older ;;\n"
+                "  *) exit 2 ;;\n"
+                "esac\n",
+                encoding="utf-8",
+            )
+            pin.chmod(0o755)
+            next_package = temp / "Packages" / "macOS" / "CmuxNext"
+            next_package.mkdir(parents=True)
+            env = os.environ.copy()
+            env.pop("CMUX_NEXT_TUI_TREE_PATH", None)
+            env.pop("CMUX_TUI_TREE_KEY", None)
+            env["PATH"] = f"{temp}:{env['PATH']}"
+            env["CMUX_SWIFT_TEST_CALLS"] = str(calls)
+            env["CMUX_ENSURE_WEB_BUNDLES"] = str(ensure)
+            env["CMUX_PIN_CMUX_TUI"] = str(pin)
+            env["FAKE_TREES"] = str(temp / "trees")
+
+            completed = run_runner(next_package, env)
+            self.assertEqual(completed.returncode, 0, completed.stdout)
+            self.assertEqual(
+                calls.read_text(encoding="utf-8").splitlines(),
+                [f"key=older path={temp / 'trees' / 'older' / 'cmux-tui'}"],
+                completed.stdout,
+            )
+
+            calls.write_text("", encoding="utf-8")
+            env["FAKE_HEAD_CHANGES_TUI"] = "1"
+            completed = run_runner(next_package, env)
+            self.assertEqual(completed.returncode, 0, completed.stdout)
+            invocations = calls.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(invocations), 1, invocations)
+            self.assertTrue(invocations[0].startswith("key= "), invocations)
+
     def test_string_catalogs_compile_after_the_build_and_before_the_suites(self) -> None:
         """cx-v2k: swift build copies String Catalogs uncompiled, so QuitAlertContent,
         RefusalLocalization, TerminalHostLossBanner, TerminalStatusBannerTranslation and

@@ -16,8 +16,9 @@ import { APP_THEME_KEY, THEME_EDITS_KEY, THEME_KEY, ThemeStudio } from "./ThemeS
 
 const machinesTitle = () => text(sections.find((section) => section.id === "machines")?.title);
 
-/** Each card; `focus` is the route's focused key (a card may open a panel it names). */
-const CARDS: Record<CategoryCard, (focus: string | null) => ReactNode> = {
+/** Each card; `focus` is the route's focused key (a card may open a panel it names), `workspace`
+ * the workspace the page was opened for. */
+const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | null) => ReactNode> = {
   themeStudio: () => <ThemeStudio />,
   terminalInfo: () => <TerminalInfo />,
   ghosttyDiagnostics: () => <GhosttyDiagnostics />,
@@ -30,11 +31,19 @@ const CARDS: Record<CategoryCard, (focus: string | null) => ReactNode> = {
   agentHarnesses: (focus) => <AgentHarnesses focus={focus} />,
   advancedInfo: () => <AdvancedInfo />,
   advancedActions: () => <PlaceholderSection section="advanced" />,
-  backdrops: (focus) => <Backdrops focus={focus} />,
+  backdrops: (focus, workspace) => <Backdrops focus={focus} workspace={workspace} />,
 };
 
 /** One category: its title, the cards before its groups, the groups, the cards after, actions. */
-export function SectionView({ section, focus }: { section: string; focus: string | null }) {
+export function SectionView({
+  section,
+  focus,
+  workspace = null,
+}: {
+  section: string;
+  focus: string | null;
+  workspace?: string | null;
+}) {
   const category = categoryById(section);
   // The theme studio draws appearance.theme and appearance.appTheme itself.
   const studio = category.lead.includes("themeStudio");
@@ -52,11 +61,11 @@ export function SectionView({ section, focus }: { section: string; focus: string
     <div className="section" data-section={category.id}>
       <h1 className="section-title">{text(category.title)}</h1>
       {category.lead.map((card) => (
-        <CardSlot key={card} card={card} focus={focus} />
+        <CardSlot key={card} card={card} focus={focus} workspace={workspace} />
       ))}
       {groups.length > 0 && <GroupList groups={groups} focus={focus} />}
       {category.trail.map((card) => (
-        <CardSlot key={card} card={card} focus={focus} />
+        <CardSlot key={card} card={card} focus={focus} workspace={workspace} />
       ))}
       {category.actions.map((id) => (
         <SectionActions key={id} section={id} />
@@ -65,6 +74,6 @@ export function SectionView({ section, focus }: { section: string; focus: string
   );
 }
 
-function CardSlot({ card, focus }: { card: CategoryCard; focus: string | null }) {
-  return CARDS[card](focus);
+function CardSlot({ card, focus, workspace }: { card: CategoryCard; focus: string | null; workspace: string | null }) {
+  return CARDS[card](focus, workspace);
 }

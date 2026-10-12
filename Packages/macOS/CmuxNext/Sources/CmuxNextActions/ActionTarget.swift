@@ -136,7 +136,9 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
         case .profile: .profile
         case .browserProfile: .browserProfile
         case .bookmark: .bookmark
-        case .bookmarksBar, .screenBar, .notification, .windowBackground: nil
+        case .bookmarksBar, .screenBar, .notification: nil
+        // The workspace whose background it is.
+        case .windowBackground: .workspace
         case .sidebarItem: .sidebarItem
         case .sidebarSection: .sidebarSection
         // The chat's tab (the App passes it).

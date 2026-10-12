@@ -36,13 +36,15 @@ pub(super) const NOTIFY_HELP: &str = "\
 USAGE
   cmux notify [--title <text>] [--subtitle <text>] [--body <text>]
     [--surface <term_id>|current] [--workspace <ws_id>|current]
+    [--reply] [--desktop true|false]
   cmux notify --clear [--surface <term_id>|current] [--workspace current]
 
 The flags of the macOS `cmux notify`. The notification belongs to the caller's
 terminal unless --surface names another terminal or --workspace asks for a
-session-level row. --title defaults to \"Notification\". --reply is refused:
-a reply would type into a terminal. --window and --id-format are accepted and
-ignored.
+session-level row. --title defaults to \"Notification\". --reply asks for a
+banner with a Reply field when the notification belongs to a terminal: its
+text is typed into that terminal, then Return. --desktop false posts no
+banner. --window and --id-format are accepted and ignored.
 ";
 
 pub(super) const ROOM_HELP: &str = "\
@@ -72,7 +74,7 @@ USAGE
   cmux closed reopen [--window <install/window>]
   cmux closed <closed> reopen [--window <install/window>] [--members <i,j,...>]
   cmux closed <closed> delete [--members <i,j,...>]
-  cmux closed clear [--since-ms <unix-ms>]
+  cmux closed clear [--since-ms <unix-ms>] [--before-ms <unix-ms>] [--keep-newest <n>]
 
 The session keeps every close as one group: a bulk close (a tab group, the
 tabs to the right) is one group. Reopen restores the whole group, each tab in
@@ -82,7 +84,8 @@ the newest group of a closed window, never a group of another open window.
 --members reopens only those members; the rest stay in the group.
 delete and clear remove groups permanently (and their terminal archives; the
 journals keep what they recorded); clear --since-ms removes only the groups
-closed at or after that time.
+closed at or after that time, --before-ms only those closed before it, and
+--keep-newest every group but the newest n (retention by age and by count).
 ";
 
 pub(super) const GIT_HELP: &str = "\

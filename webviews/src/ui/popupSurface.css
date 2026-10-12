@@ -48,6 +48,18 @@
   opacity: 0;
 }
 
+/* A dialog and its backdrop fade in and out (POLISH: no flash; the page darkened in one frame). */
+:where(.ui-dialog, .ui-backdrop) {
+  transition: opacity var(--ui-popup-open) ease-out;
+}
+:where(.ui-dialog, .ui-backdrop)[data-starting-style],
+:where(.ui-dialog, .ui-backdrop)[data-ending-style] {
+  opacity: 0;
+}
+:where(.ui-dialog, .ui-backdrop)[data-ending-style] {
+  transition-duration: var(--ui-popup-close);
+}
+
 /* Every popup is the solid popup surface (--surface-popup, pages/shared/desktop.css) on the
    dropdown layer by default (webviews/src/ui/README.md, "Layers and transparency"): opaque and
    unblurred, so the page under it never shows through. Zero-specificity defaults: a feature's

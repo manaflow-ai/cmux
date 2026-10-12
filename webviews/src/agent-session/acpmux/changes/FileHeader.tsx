@@ -2,7 +2,8 @@
 // outside Pierre's diff so collapsing or marking a file keeps the focused button.
 import React from "react";
 import type { DiffEdit, DiffHunk, TurnFile } from "../diff";
-import { ChevronDown, Code, Eye, FileTypeIcon, OpenTab } from "../changeIcons";
+import { ChevronDown, Code, Eye, OpenTab } from "../changeIcons";
+import { FileTypeIcon } from "./FileTypeIcon";
 import { useT } from "../i18n";
 import { Counts } from "./Counts";
 import { FileMenu } from "./FileMenu";

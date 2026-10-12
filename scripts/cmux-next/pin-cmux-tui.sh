@@ -108,6 +108,9 @@
 #          default 24; never waits; CMUX_TUI_TREE_SAME_PATHS, space-separated
 #          paths, skips a commit whose copy of any of them differs from the tip's)
 #        | wait (wait for the tree; superseded=true output for a superseded commit)
+#        | fallback-key (fleet suites: when HEAD has the tree of its base,
+#          CMUX_TUI_TREE_FALLBACK_BASE (default origin/feat-cmux-next), print the newest
+#          published tree's key, as CI's CMUX_TUI_TREE_BASE_FALLBACK; else exit 1)
 #        With CMUX_TUI_TREE_DISPATCH=1 (and GH_TOKEN or an authenticated gh), a tree that
 #        no active run publishes gets one cmux-tui-artifacts run on cmux-tui-pin-<sha12>.
 #        | probe (the cmux-next same-tree check: look once, never wait; writes tree_state=
@@ -1342,6 +1345,24 @@ PY
     ;;
   resolve-exact)
     resolve_exact_tree
+    ;;
+  fallback-key)
+    # A head that changes no tree input (its key equals its base's) tests the
+    # same cmux-tui as that base, so an older published tree stands in for an
+    # unpublished one. A commit on the base compares with its first parent.
+    fallback_base="${CMUX_TUI_TREE_FALLBACK_BASE:-origin/feat-cmux-next}"
+    if ! git -C "$repo_root" rev-parse -q --verify "$fallback_base^{commit}" >/dev/null \
+        && [[ "$fallback_base" == origin/* ]]; then
+      timeout 60 git -C "$repo_root" fetch -q --no-tags origin \
+        "+refs/heads/${fallback_base#origin/}:refs/remotes/$fallback_base" 2>/dev/null || true
+    fi
+    fallback_rev="$(git -C "$repo_root" merge-base HEAD "$fallback_base" 2>/dev/null)" || exit 1
+    if [[ "$fallback_rev" == "$(git -C "$repo_root" rev-parse HEAD)" ]]; then
+      fallback_rev="$(git -C "$repo_root" rev-parse -q --verify HEAD^1)" || exit 1
+    fi
+    [[ "$(tree_key HEAD)" == "$(tree_key "$fallback_rev")" ]] || exit 1
+    resolved="$(CMUX_TUI_TREE_DISPATCH='' GITHUB_STEP_SUMMARY='' resolve_newest_published_tree)" || exit 1
+    awk -F= '$1 == "key" { print $2 }' <<<"$resolved" | grep .
     ;;
   wait)
     wait_for_checkout_tree

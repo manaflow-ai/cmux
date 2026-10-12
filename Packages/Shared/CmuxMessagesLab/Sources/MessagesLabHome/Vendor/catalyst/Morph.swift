@@ -68,7 +68,7 @@ final class MorphBubble {
     /// lines or attachments), so the send uses the `.fieldShrink` curves (Springs.Bubble). The caller
     /// decides with its own field metrics: the iOS field is 36 pt for 1 line, the macOS one 30-31 pt.
     init(key: String, in parent: CALayer, windowBounds: CGRect, from field: CGRect, to target: CGRect,
-         textLayout tl: TextLayout, size: CGSize, begin: CFTimeInterval, fieldShrinks: Bool) {
+         textLayout tl: TextLayout, size: CGSize, textOrigin: CGPoint = .zero, begin: CFTimeInterval, fieldShrinks: Bool) {
         self.key = key
         textLayout = tl
         textSize = size
@@ -110,14 +110,14 @@ final class MorphBubble {
             bubble.position = CGPoint(x: target.maxX, y: target.midY)
             holder.addSublayer(bubble)
             body.backgroundColor = color.cgColor
-            body.cornerRadius = Fixture.bubbleRadius
+            body.cornerRadius = min(Fixture.bubbleRadius, h1 / 2) // BubblePath.make: a 1-line balloon is 29.917 pt
             body.masksToBounds = true
             body.bounds = CGRect(x: 0, y: 0, width: w1, height: h1)
             body.position = CGPoint(x: -w1 / 2, y: h1 / 2)
             // While translucent, the bubble shows a dark grey under it (MorphBubble.underlayGrey).
             // Fitted on the lossless send takes (catalyst/TRANSITIONS.md, "Field glass underlay").
             underlay.backgroundColor = UIColor(white: MorphBubble.underlayGrey / 255, alpha: 1).cgColor
-            underlay.cornerRadius = Fixture.bubbleRadius
+            underlay.cornerRadius = body.cornerRadius
             underlay.bounds = body.bounds
             underlay.position = body.position
             bubble.addSublayer(underlay)
@@ -135,7 +135,9 @@ final class MorphBubble {
             // layer only ever scales them down (resolution brief: no upscaled
             // snapshot during an animation).
             text.contents = images.0
-            text.frame = CGRect(origin: .zero, size: size)
+            // `textOrigin`: the text frame's place in the landed balloon (the balloon is drawn a little
+            // inside the frame the text is laid out in: RowDraw.balloon).
+            text.frame = CGRect(origin: textOrigin, size: size)
             body.addSublayer(text)
             if let blurred {
                 // The blurred copy has room for its glow (no hard edge where the

@@ -17,7 +17,8 @@ extension ChatController {
         // The pressed bubble is highlighted while the menu is open (real Messages, macOS 27:
         // incoming 59 -> 98, outgoing (72,147,247) -> (45,89,192), in about 0.2 s from
         // the press; back when the menu closes).
-        let hl = MenuHighlight(host: host, body: hit.body, outgoing: hit.row.outgoing, tail: hit.row.tail)
+        // The drawn balloon with its frame's corners (MessagesLab 2281879 RowDraw.balloon).
+        let hl = MenuHighlight(host: host, body: hit.outline, cornersOf: hit.body.size, outgoing: hit.row.outgoing, tail: hit.row.tail)
         menu.delegate = hl
         menuHighlight = hl
         hl.start()
@@ -125,11 +126,15 @@ extension ChatController {
     func pickerLift(for hit: MessagesWindowView.Hit) -> NSView? {
         guard let demo, let window,
               let cell = demo.collection.visibleCells.compactMap({ $0 as? RowCell }).first(where: { $0.spec?.key == hit.key }) else { return nil }
-        let f = cell.convert(cell.bounds, to: demo)
+        // The row's content rests on the window's device pixels (RowCell.snapRow, MessagesLab c1457e5): the bitmap
+        // starts at the content's place, so the lifted bubble keeps whole pixels and is not resampled.
+        let d = cell.rowSnap
+        let f = cell.convert(cell.bounds, to: demo).offsetBy(dx: d.x, dy: d.y)
         let scale = window.backingScaleFactor
         guard let ctx = CGContext(data: nil, width: CrashGuard.int(f.width * scale, in: 1...16_384), height: CrashGuard.int(f.height * scale, in: 1...16_384), /* crash program: no trap on NaN */ bitsPerComponent: 8, bytesPerRow: 0,
                                   space: DisplayScale.colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue) else { return nil }
         ctx.scaleBy(x: scale, y: scale)
+        ctx.translateBy(x: -d.x, y: -d.y)
         cell.layer.render(in: ctx)
         let lift = NSView(frame: f)
         lift.wantsLayer = true
@@ -182,10 +187,10 @@ final class EmojiBubbleButton: NSView {
 final class MenuHighlight: NSObject, NSMenuDelegate {
     private let layer = CAShapeLayer()
     private weak var host: NSView?
-    init(host: NSView, body: CGRect, outgoing: Bool, tail: Bool) {
+    init(host: NSView, body: CGRect, cornersOf frame: CGSize? = nil, outgoing: Bool, tail: Bool) {
         self.host = host
         super.init()
-        layer.path = BubblePath.make(body: body, outgoing: outgoing, tail: tail).cgPath
+        layer.path = BubblePath.make(body: body, outgoing: outgoing, tail: tail, cornersOf: frame).cgPath
         if outgoing {
             layer.fillColor = NSColor(srgbRed: 159 / 255, green: 154 / 255, blue: 198 / 255, alpha: 1).cgColor
             layer.compositingFilter = "multiplyBlendMode"
