@@ -38,6 +38,22 @@ impl Mux {
         self.browser_providers.snapshot()
     }
 
+    /// The refusal a daemon-rendered browser gets while no cmux-browser
+    /// provider is attached (cx-r9ix). Only a provider publishes the CDP
+    /// target such a tab attaches to, and the daemon launches no browser
+    /// (cx-2u5k), so without one the tab would stay `starting` for good, as in
+    /// a headless Cloud session. `None` while a provider is attached.
+    pub(crate) fn browser_engine_unavailable(&self, operation: &str) -> Option<ResourceError> {
+        if self.browser_provider_snapshot().is_some() {
+            return None;
+        }
+        Some(ResourceError::operation_failed(
+            operation,
+            "no browser engine: no cmux-browser provider is attached, so a browser tab cannot start",
+            serde_json::json!({"code":"engine_unavailable"}),
+        ))
+    }
+
     /// A stand-in cmux-browser provider for `client` that publishes no
     /// target: daemon-rendered tabs wait for theirs, as with a live provider.
     #[cfg(test)]
