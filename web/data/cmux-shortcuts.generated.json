@@ -7510,6 +7510,47 @@
           "aliases": []
         },
         {
+          "id": "agentPane.searchChats",
+          "title": {
+            "en": "Search Agent Chats",
+            "ar": "البحث في محادثات الوكيل",
+            "bs": "Pretraži razgovore agenta",
+            "da": "Søg i agentchats",
+            "de": "Agent-Chats durchsuchen",
+            "es": "Buscar chats del agente",
+            "fr": "Rechercher dans les discussions de l'agent",
+            "it": "Cerca chat dell'agente",
+            "ja": "エージェントのチャットを検索",
+            "km": "ស្វែងរកការជជែករបស់ភ្នាក់ងារ",
+            "ko": "에이전트 채팅 검색",
+            "no": "Søk i agentchatter",
+            "pl": "Szukaj czatów agenta",
+            "pt-BR": "Pesquisar conversas do agente",
+            "ru": "Поиск по чатам агента",
+            "th": "ค้นหาแชทของเอเจนต์",
+            "tr": "Ajan sohbetlerinde ara",
+            "uk": "Пошук у чатах агента",
+            "vi": "Tìm kiếm cuộc trò chuyện của tác tử",
+            "zh-CN": "搜索代理聊天",
+            "zh-TW": "搜尋代理聊天"
+          },
+          "shortcut": null,
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "k",
+                  "modifiers": [
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "surfaceKind != terminal && !codeEditorFocused"
+            }
+          ]
+        },
+        {
           "id": "agentPane.previousTurn",
           "title": {
             "en": "Previous Turn",
