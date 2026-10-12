@@ -16,6 +16,9 @@ import CmuxNextSettings
 /// three or four keys, one of several keys of an action, an app's entry)
 /// and every keybindings.json entry is written to keybindings.json by the
 /// home daemon (`file`, cx-9ce.17); without it such a change is unsupported.
+/// A numbered family's row (`⌃1…9`, cx-w7uu): its digit on other modifiers
+/// moves all nine keys (cmux.json holds the family by its `1`); any other
+/// key rebinds that digit alone, in keybindings.json with its index.
 @MainActor
 struct KeybindingPageWrites {
     let registry: ActionRegistry
@@ -31,9 +34,16 @@ struct KeybindingPageWrites {
         guard let keys = KeybindingReports.keys(from: text) else {
             throw PageError(code: "cmux.keybindings.invalid", message: KeybindingStrings.invalidKeys(text))
         }
+        let args = params["args"]?.objectValue ?? [:]
+        if registry.descriptor(for: id)?.shortcutFamily == .digits, let target, let digit = target.argument {
+            if keys.count == 1, keys[0].key == digit, target.source != .app, !isFromFile(target),
+               params["when"]?.stringValue == target.when?.text {
+                return try await moveFamily(id, to: keys[0].modifiers)
+            }
+            return try await setInFile(id, keys: keys, when: params["when"]?.stringValue, args: args, replaces: target)
+        }
         // cmux.json keeps the action's own `when` and no arguments: only a key change fits.
         let scope = target?.when?.text ?? WhenClause.requiring(registry.descriptor(for: id)?.requires ?? [])?.text
-        let args = params["args"]?.objectValue ?? [:]
         guard params["when"]?.stringValue == scope, args.isEmpty || target != nil, target?.source != .app,
               !isFromFile(target), keys.count <= 2 else {
             return try await setInFile(id, keys: keys, when: params["when"]?.stringValue, args: args, replaces: target)
@@ -156,11 +166,29 @@ struct KeybindingPageWrites {
         return RegistryKeyBindings(registry).table.entries.last { $0.command == id && $0.keys == keys && $0.when?.text == when }
     }
 
-    /// The palette recorder's rules (`ActionRegistry.assessShortcut`).
-    private func assess(_ shortcut: Shortcut, for id: ActionID) throws {
-        let text = ShortcutAssessmentText(registry)
+    /// Moves the numbered family `id` to `modifiers` (all nine keys) in cmux.json.
+    private func moveFamily(_ id: ActionID, to modifiers: NSEvent.ModifierFlags) async throws {
+        let first = Shortcut("1", modifiers: modifiers)
         let environment = ShortcutEditEnvironment(chromeChords: BrowserChordTable.chromeReserved)
-        switch registry.assessShortcut(shortcut, for: id, environment: environment) {
+        try verdict(registry.assessFamilyModifiers(modifiers, for: id, environment: environment), shortcut: first, for: id)
+        registry.setShortcutOverride(first, for: id)
+        try await write { try await settings.setShortcut(first, for: id) }
+    }
+
+    /// The palette recorder's rules (`ActionRegistry.assessShortcut`; one
+    /// key of a numbered family, `assessKey`).
+    private func assess(_ shortcut: Shortcut, for id: ActionID) throws {
+        let environment = ShortcutEditEnvironment(chromeChords: BrowserChordTable.chromeReserved)
+        let assessment = registry.descriptor(for: id)?.shortcutFamily == nil
+            ? registry.assessShortcut(shortcut, for: id, environment: environment)
+            : registry.assessKey(shortcut, for: id, environment: environment)
+        try verdict(assessment, shortcut: shortcut, for: id)
+    }
+
+    /// A refusal, or a conflict in the same place, is the page's error.
+    private func verdict(_ assessment: ShortcutAssessment, shortcut: Shortcut, for id: ActionID) throws {
+        let text = ShortcutAssessmentText(registry)
+        switch assessment {
         case .available:
             return
         case .refused(let refusal):
