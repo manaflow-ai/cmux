@@ -380,3 +380,58 @@ async fn copilot_auggie_goose_and_crush_chats_give_their_prompts_and_answers() {
         assert_eq!(turns(&answer), expected, "{key}: {answer}");
     }
 }
+
+/// A Codex chat as current Codex writes it: no `event_msg` user and agent messages, only
+/// `response_item` messages, beside injected instructions and the model's progress notes.
+fn codex_current(h: &Path, project: &Path, id: &str) {
+    let message = |role: &str, kinds: &[&str], text: &str, phase: Option<&str>| {
+        let kind = if role == "assistant" { "output_text" } else { "input_text" };
+        let mut payload = json!({"type": "message", "role": role,
+            "content": [{"type": kind, "text": text}],
+            "internal_chat_message_metadata_passthrough": {"content_item_kinds": kinds}});
+        if let Some(phase) = phase {
+            payload["phase"] = json!(phase);
+        }
+        json!({"type": "response_item", "timestamp": "2026-10-02T09:00:01Z", "payload": payload})
+    };
+    let lines = [
+        json!({"type": "session_meta", "payload": {"id": id, "cwd": project, "timestamp": "2026-10-02T09:00:00Z"}}),
+        message("developer", &["host_skills.instructions"], "<skills_instructions>", None),
+        message(
+            "user",
+            &["agents_md.instructions", "environments.environment_context"],
+            "# AGENTS.md instructions for /work/api",
+            None,
+        ),
+        message("user", &["user.text"], "Bump the version", None),
+        message("assistant", &["unknown"], "Reading Cargo.toml.", Some("commentary")),
+        json!({"type": "event_msg", "timestamp": "2026-10-02T09:00:02Z",
+               "payload": {"type": "item_completed", "turn_id": "t1", "item": {"type": "reasoning"}}}),
+        message("assistant", &["unknown"], "Bumped to 1.2.", Some("final_answer")),
+        message("user", &["user.text"], "Thanks", None),
+        message("assistant", &["unknown"], "You're welcome.", Some("final_answer")),
+    ];
+    let text: String = lines.iter().map(|line| format!("{line}\n")).collect();
+    let name = format!("sessions/2026/10/02/rollout-2026-10-02T09-00-00-{id}.jsonl");
+    write(&h.join(".codex").join(name), &text);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_current_codex_chat_gives_its_prompts_and_final_answers() {
+    const ID: &str = "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a6e";
+    let h = home();
+    let project = h.0.join("work/api");
+    std::fs::create_dir_all(&project).expect("project");
+    codex_current(&h.0, &project, ID);
+    let hub = hub_on(&h.0).await;
+    let (tx, mut rx) = connect(&hub, Origin::Local).await;
+
+    // What adopting replays too (`Hub::replay_adopted` reads the same turns).
+    let key = format!("codex:{ID}");
+    let answer = call(&tx, &mut rx, 2, "_acpmux/chat_transcript", json!({"key": key})).await;
+    assert_eq!(
+        turns(&answer),
+        [pair("Bump the version", "Bumped to 1.2."), pair("Thanks", "You're welcome.")],
+        "{answer}"
+    );
+}

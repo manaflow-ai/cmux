@@ -38,41 +38,32 @@ pub fn read(family: &str, file: &Path) -> Vec<PastTurn> {
         return Vec::new();
     }
     let mut turns: Vec<PastTurn> = Vec::new();
+    // Codex's message items, kept apart: a rollout that also has its event messages (older
+    // Codex wrote both) is read from those, so no turn shows twice.
+    let mut items: Vec<PastTurn> = Vec::new();
     for (index, line) in BufReader::new(f).lines().map_while(Result::ok).enumerate() {
         if skip_first && index == 0 {
             continue;
         }
         let Ok(record) = serde_json::from_str::<Value>(&line) else { continue };
         let at = record.get("timestamp").and_then(Value::as_str).and_then(parse_ms);
-        let step = match family {
-            "codex" => codex_step(&record),
-            _ => claude_step(&record),
-        };
-        match step {
-            Some(Step::Prompt(text)) => turns.push(PastTurn {
-                prompt: text,
-                answer: String::new(),
-                prompt_at: at,
-                answer_at: at,
-            }),
-            Some(Step::Answer(text)) => {
-                if let Some(turn) = turns.last_mut() {
-                    turn.answer_at = at.or(turn.answer_at);
-                    if !turn.answer.is_empty() {
-                        turn.answer.push_str("\n\n");
-                    }
-                    turn.answer.push_str(&text);
-                    if turn.answer.len() > MAX_ANSWER {
-                        let mut cut = MAX_ANSWER;
-                        while !turn.answer.is_char_boundary(cut) {
-                            cut -= 1;
-                        }
-                        turn.answer.truncate(cut);
-                    }
+        match family {
+            "codex" => {
+                if let Some(step) = codex_step(&record) {
+                    add(&mut turns, step, at);
+                } else if let Some(step) = codex_item_step(&record) {
+                    add(&mut items, step, at);
                 }
             }
-            None => {}
+            _ => {
+                if let Some(step) = claude_step(&record) {
+                    add(&mut turns, step, at);
+                }
+            }
         }
+    }
+    if turns.is_empty() {
+        turns = items;
     }
     let skip = turns.len().saturating_sub(MAX_TURNS);
     turns.drain(..skip);
@@ -82,6 +73,33 @@ pub fn read(family: &str, file: &Path) -> Vec<PastTurn> {
 enum Step {
     Prompt(String),
     Answer(String),
+}
+
+/// A prompt starts a turn; an answer adds to the last one, capped at MAX_ANSWER.
+fn add(turns: &mut Vec<PastTurn>, step: Step, at: Option<u64>) {
+    match step {
+        Step::Prompt(text) => turns.push(PastTurn {
+            prompt: text,
+            answer: String::new(),
+            prompt_at: at,
+            answer_at: at,
+        }),
+        Step::Answer(text) => {
+            let Some(turn) = turns.last_mut() else { return };
+            turn.answer_at = at.or(turn.answer_at);
+            if !turn.answer.is_empty() {
+                turn.answer.push_str("\n\n");
+            }
+            turn.answer.push_str(&text);
+            if turn.answer.len() > MAX_ANSWER {
+                let mut cut = MAX_ANSWER;
+                while !turn.answer.is_char_boundary(cut) {
+                    cut -= 1;
+                }
+                turn.answer.truncate(cut);
+            }
+        }
+    }
 }
 
 /// Claude Code: `{"type":"user","message":{"content":...}}` (a typed prompt: a string or text
@@ -129,6 +147,56 @@ fn codex_step(record: &Value) -> Option<Step> {
         _ => None,
     }
 }
+
+/// Current Codex rollouts carry no event messages, only `response_item` messages: a person's
+/// prompt is a `user` message whose items are all `user.text` (AGENTS.md and environment context
+/// arrive as `user` messages of other kinds), and the answer is the `assistant` message of phase
+/// `final_answer` (`commentary` is progress narration). A rollout without these annotations
+/// keeps every `user` text that is not a context block, and every `assistant` text.
+fn codex_item_step(record: &Value) -> Option<Step> {
+    if record.get("type").and_then(Value::as_str) != Some("response_item") {
+        return None;
+    }
+    let payload = record.get("payload")?;
+    if payload.get("type").and_then(Value::as_str) != Some("message") {
+        return None;
+    }
+    let text: String = payload
+        .get("content")?
+        .as_array()?
+        .iter()
+        .filter_map(|item| item.get("text").and_then(Value::as_str))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let text = text.trim().to_owned();
+    if text.is_empty() {
+        return None;
+    }
+    match payload.get("role").and_then(Value::as_str)? {
+        "user" => {
+            let kinds =
+                payload.pointer("/internal_chat_message_metadata_passthrough/content_item_kinds");
+            let typed = match kinds.and_then(Value::as_array) {
+                Some(kinds) => kinds.iter().all(|kind| kind.as_str() == Some("user.text")),
+                None => !CODEX_CONTEXT.iter().any(|prefix| text.starts_with(prefix)),
+            };
+            typed.then_some(Step::Prompt(text))
+        }
+        "assistant" => match payload.get("phase").and_then(Value::as_str) {
+            None | Some("final_answer") => Some(Step::Answer(text)),
+            Some(_) => None,
+        },
+        _ => None,
+    }
+}
+
+/// How Codex's injected `user` context begins, for rollouts without item kinds.
+const CODEX_CONTEXT: [&str; 4] = [
+    "<environment_context>",
+    "<user_instructions>",
+    "# AGENTS.md instructions",
+    "<user_shell_command>",
+];
 
 /// The text of a message's content: a string, or the `text` of its text blocks.
 fn text_of(content: &Value) -> Option<String> {
