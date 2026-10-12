@@ -10,6 +10,7 @@ struct NewAgentView: View {
     @State private var project: ProjectInfo?
     @State private var harness = "claude"
     @State private var draft = ""
+    @State private var attachments: [ComposerImage] = []
     @State private var starting = false
     @State private var error: String?
     @FocusState private var focused: Bool
@@ -70,7 +71,7 @@ struct NewAgentView: View {
                 if let host {
                     pickers(host)
                     AgentComposer(
-                        text: $draft, focused: $focused, placeholder: "Ask \(HarnessStyle.of(harness).name)",
+                        text: $draft, attachments: $attachments, focused: $focused, placeholder: "Ask \(HarnessStyle.of(harness).name)",
                         working: starting, canSend: !starting, modes: [], currentMode: nil, models: [], currentModel: nil,
                         commands: [], onMode: { _ in }, onModel: { _ in }, send: { start(host) }, stop: {}
                     )
@@ -158,15 +159,17 @@ struct NewAgentView: View {
 
     private func start(_ host: HostConnection) {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !starting else { return }
+        guard !text.isEmpty || !attachments.isEmpty, !starting else { return }
+        let blocks = AgentChatView.blocks(text: text, images: attachments)
         starting = true
         error = nil
         let cwd = project?.path ?? host.hello?.homeDirectory ?? "~"
         Task {
             defer { starting = false }
             do {
-                let info = try await host.createAgent(harness: harness, cwd: cwd, prompt: [["type": "text", "text": .string(text)]])
+                let info = try await host.createAgent(harness: harness, cwd: cwd, prompt: blocks)
                 draft = ""
+                attachments = []
                 shell.go(.agent(host: host.id, session: info.id))
             } catch {
                 self.error = error.localizedDescription

@@ -15,6 +15,7 @@ struct AgentChatView: View {
     @State private var showTerminal = false
     @State private var error: String?
     @State private var pendingPrompt: String?
+    @State private var attachments: [ComposerImage] = []
     @State private var viewportHeight: CGFloat = 600
     @FocusState private var focused: Bool
 
@@ -28,7 +29,15 @@ struct AgentChatView: View {
     static func turns(_ items: [TranscriptItem], pending: String?) -> [Turn] {
         var turns: [Turn] = []
         for item in items {
-            if case .user = item {
+            let startsTurn: Bool
+            switch item {
+            case .userImages: startsTurn = true
+            case .user:
+                // A prompt with photos already started its turn at the photos.
+                if case .userImages = turns.last?.items.last, turns.last?.items.count == 1 { startsTurn = false } else { startsTurn = true }
+            default: startsTurn = false
+            }
+            if startsTurn {
                 turns.append(Turn(id: "turn-" + item.id, items: [item]))
             } else if turns.isEmpty {
                 turns.append(Turn(id: "turn-start", items: [item]))
@@ -36,11 +45,17 @@ struct AgentChatView: View {
                 turns[turns.count - 1].items.append(item)
             }
         }
-        let echoed = turns.last?.items.first.map { if case .user(_, let text, _) = $0 { text == pending } else { false } } ?? false
+        let echoed = turns.last?.items.contains { if case .user(_, let text, _) = $0 { text == pending || (text.isEmpty && pending == String(localized: "Photo")) } else { false } } ?? false
         if let pending, !echoed {
             turns.append(Turn(id: "turn-pending", items: [.user(id: "pending", text: pending, at: .now)]))
         }
         return turns
+    }
+
+    static func blocks(text: String, images: [ComposerImage]) -> [JSONValue] {
+        var blocks: [JSONValue] = images.map { image in .object(image.block.mapValues(JSONValue.string)) }
+        if !text.isEmpty { blocks.append(["type": "text", "text": .string(text)]) }
+        return blocks
     }
 
     static func lastUserID(_ items: [TranscriptItem], pending: String?) -> String? {
@@ -108,6 +123,7 @@ struct AgentChatView: View {
                         }
                         AgentComposer(
                             text: $draft,
+                            attachments: $attachments,
                             focused: $focused,
                             placeholder: "Ask \(HarnessStyle.of(info?.harness ?? "").name)",
                             working: working,
@@ -180,7 +196,9 @@ struct AgentChatView: View {
     private func row(_ item: TranscriptItem, lastID: String?, transcript: TranscriptBuilder) -> some View {
         switch item {
         case .user(_, let text, _):
-            UserBubble(text: text)
+            if !text.isEmpty { UserBubble(text: text) }
+        case .userImages(_, let images):
+            UserImagesRow(images: images)
         case .assistant(let id, let text):
             MarkdownView(text: text, streaming: working && id == lastID)
                 .textSelection(.enabled)
@@ -217,13 +235,15 @@ struct AgentChatView: View {
 
     private func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        guard !text.isEmpty || !attachments.isEmpty else { return }
+        let blocks = Self.blocks(text: text, images: attachments)
         draft = ""
+        attachments = []
         error = nil
-        pendingPrompt = text
+        pendingPrompt = text.isEmpty ? String(localized: "Photo") : text
         Task {
             do {
-                try await host.prompt(sessionID, blocks: [["type": "text", "text": .string(text)]])
+                try await host.prompt(sessionID, blocks: blocks)
             } catch {
                 self.error = error.localizedDescription
                 pendingPrompt = nil

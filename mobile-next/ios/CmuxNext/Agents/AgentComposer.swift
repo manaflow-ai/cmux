@@ -6,6 +6,7 @@ import SwiftUI
 /// into stop while the agent works. Typing "/" lists the agent's commands.
 struct AgentComposer: View {
     @Binding var text: String
+    @Binding var attachments: [ComposerImage]
     var focused: FocusState<Bool>.Binding
     let placeholder: String
     let working: Bool
@@ -20,7 +21,7 @@ struct AgentComposer: View {
     let send: () -> Void
     let stop: () -> Void
 
-    private var hasText: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var hasText: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty }
 
     private var matchingCommands: [SlashCommand] {
         guard text.hasPrefix("/"), !text.contains(" ") else { return [] }
@@ -53,6 +54,7 @@ struct AgentComposer: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
+                if !attachments.isEmpty { AttachmentStrip(attachments: $attachments) }
                 TextField(placeholder, text: $text, axis: .vertical)
                     .font(.system(size: 17))
                     .lineLimit(1...8)
@@ -61,6 +63,7 @@ struct AgentComposer: View {
                     .padding(.top, 4)
                     .accessibilityIdentifier("agent.field")
                 HStack(spacing: 8) {
+                    AttachButton(attachments: $attachments)
                     if !modes.isEmpty {
                         chipMenu(
                             title: modes.first { $0.id == currentMode }?.name ?? String(localized: "Mode"),

@@ -282,6 +282,33 @@ final class FlowTests: XCTestCase {
         snap(app, "72-terminal-other-mac")
     }
 
+    /// Attach a library photo to an agent prompt and ask about it.
+    func testAgentImage() throws {
+        let app = launchSignedIn()
+        pause(4)
+        app.buttons["shell.menu"].tap()
+        pause(1)
+        app.buttons["sidebar.new"].tap()
+        let field = app.textFields["agent.field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 20))
+        pause(1.5)
+        app.buttons["agent.attach"].tap()
+        pause(3)
+        snap(app, "80-picker")
+        // The picker is out of process; tap the first photo in its grid, then Add.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.165, dy: 0.47)).tap()
+        pause(1)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.905, dy: 0.165)).tap()
+        pause(2)
+        snap(app, "81-attached")
+        field.tap()
+        field.typeText("What is in this photo? Answer in one sentence.")
+        app.buttons["agent.send"].tap()
+        pause(35)
+        app.swipeDown()
+        snap(app, "82-answer")
+    }
+
     /// Forces TURN relay and checks the Mac connects through it.
     func testRelayConnection() throws {
         let app = launchSignedIn(arguments: ["-cnm-relay-only"])

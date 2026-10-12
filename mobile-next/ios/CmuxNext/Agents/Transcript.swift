@@ -5,6 +5,7 @@ import Foundation
 /// (the same `session/update` kinds the Mac agent pane renders).
 enum TranscriptItem: Identifiable, Equatable {
     case user(id: String, text: String, at: Date)
+    case userImages(id: String, images: [Data])
     case assistant(id: String, text: String)
     case thought(id: String, text: String, streaming: Bool)
     case tool(ToolCall)
@@ -15,7 +16,7 @@ enum TranscriptItem: Identifiable, Equatable {
 
     var id: String {
         switch self {
-        case .user(let id, _, _), .assistant(let id, _), .thought(let id, _, _), .plan(let id, _),
+        case .user(let id, _, _), .userImages(let id, _), .assistant(let id, _), .thought(let id, _, _), .plan(let id, _),
              .notice(let id, _, _), .turnEnd(let id, _, _):
             id
         case .tool(let call): call.id
@@ -137,6 +138,12 @@ struct TranscriptBuilder {
         case .userPrompt:
             let blocks = event.payload["prompt"]?.arrayValue ?? []
             let text = blocks.compactMap { $0["text"]?.stringValue }.joined(separator: "\n")
+            let images = blocks.compactMap { block -> Data? in
+                guard block["type"]?.stringValue == "image", let data = block["data"]?.stringValue else { return nil }
+                return Data(base64Encoded: data)
+            }
+            // Photos sit above the message, as in ChatGPT and Claude.
+            if !images.isEmpty { items.append(.userImages(id: key + "-images", images: images)) }
             items.append(.user(id: key, text: text, at: event.at))
             turnStart = event.at
         case .update:
