@@ -1,7 +1,9 @@
 // The Recently Closed section of the New Tab page (cx-d0d.60): the newest closed tabs, screens
 // and workspaces, each one a button that reopens it through History's path (`tab.jump` with
 // target `closed`). An item whose machine is not connected is drawn dimmed and disabled.
+import { useRef } from "react";
 import { ContextMenu } from "../../../ui/ContextMenu";
+import { useListMotion } from "./listMotion";
 import type { ClosedItem } from "./recentlyClosed";
 import { RowGlyph } from "./RowGlyph";
 import { useNt } from "./strings";
@@ -11,11 +13,18 @@ const SHOWN = 5;
 
 export function ClosedList({ items, onReopen }: { items: ClosedItem[]; onReopen(id: string): void }) {
   const nt = useNt();
+  const list = useRef<HTMLElement>(null);
+  const shown = items.slice(0, SHOWN);
+  useListMotion(
+    list,
+    ".nt-row-host > .nt-row",
+    shown.map((item) => item.id),
+  );
   if (items.length === 0) return null;
   return (
-    <nav className="nt-open-tabs nt-closed" aria-label={nt("recentlyClosed")}>
+    <nav ref={list} className="nt-open-tabs nt-closed" aria-label={nt("recentlyClosed")}>
       <div className="nt-open-tabs-head">{nt("recentlyClosed")}</div>
-      {items.slice(0, SHOWN).map((item) => (
+      {shown.map((item) => (
         // Its right-click menu: Reopen, as its click (cx-2lm4).
         <ContextMenu
           key={item.id}
