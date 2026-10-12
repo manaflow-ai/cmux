@@ -330,31 +330,48 @@ final class NewCloudWorkspaceShortcutTests {
         #expect(presenter.presentCount == 1)
     }
 
-    @Test func testSharedActionRoutesToActivationBeforePresentingSheet() {
+    private static func isCloudWelcomeVisible() -> Bool {
+        NSApp.windows.contains { $0.identifier?.rawValue == "cmux.cloud.welcome" && $0.isVisible }
+    }
+
+    @Test func testSharedActionsIntroduceCloudBeforePresentingSheet() {
         defer { restoreState() }
         setCloudMachinesEnabled(false)
         let presenter = RecordingSheetPresenter()
         let appDelegate = AppDelegate()
         installDependencies(on: appDelegate, presenter: presenter)
         defer {
+            appDelegate.cloudWelcomeWindowController.dismiss()
             NSApp.windows.first {
                 $0.identifier?.rawValue == SettingsWindowPresenter.windowIdentifier
             }?.close()
         }
+        // Cmd-Shift-Y.
         #expect(appDelegate.performNewCloudMachineAction(debugSource: "test.activationOff"))
-        #expect(NSApp.windows.contains {
-            $0.identifier?.rawValue == SettingsWindowPresenter.windowIdentifier
+        #expect(Self.isCloudWelcomeVisible())
+        appDelegate.cloudWelcomeWindowController.dismiss()
+        #expect(!Self.isCloudWelcomeVisible())
+        // Cmd-Y, which otherwise falls back to New Cloud Machine.
+        #expect(appDelegate.performNewCloudWorkspaceOnResolvedMachineAction(debugSource: "test.cmdY.activationOff"))
+        #expect(Self.isCloudWelcomeVisible())
+        #expect(!NSApp.windows.contains {
+            $0.identifier?.rawValue == SettingsWindowPresenter.windowIdentifier && $0.isVisible
         })
         #expect(presenter.presentCount == 0)
     }
 
-    @Test func testSharedActionDoesNotPresentSheetWhenSignedOut() {
+    @Test func testSharedActionsIntroduceCloudWhenSignedOut() {
         defer { restoreState() }
         setCloudMachinesEnabled(true)
         let presenter = RecordingSheetPresenter()
         let appDelegate = AppDelegate()
         installDependencies(on: appDelegate, presenter: presenter, signedIn: false)
-        #expect(!appDelegate.performNewCloudMachineAction(debugSource: "test.signedOut"))
+        defer { appDelegate.cloudWelcomeWindowController.dismiss() }
+        #expect(appDelegate.performNewCloudMachineAction(debugSource: "test.signedOut"))
+        #expect(Self.isCloudWelcomeVisible())
+        appDelegate.cloudWelcomeWindowController.dismiss()
+        #expect(appDelegate.performNewCloudWorkspaceOnResolvedMachineAction(debugSource: "test.cmdY.signedOut"))
+        #expect(Self.isCloudWelcomeVisible())
         #expect(presenter.presentCount == 0)
     }
 
