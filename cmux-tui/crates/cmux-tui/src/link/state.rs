@@ -161,6 +161,14 @@ impl LinkState {
                 let from = archive(stem, ext, new);
                 if std::fs::symlink_metadata(&from).is_ok() {
                     check_private_file(&from)?;
+                    // A restore never overwrites a current file that was not
+                    // archived first (no `old` moves it away here).
+                    if old.is_none() && std::fs::symlink_metadata(current).is_ok() {
+                        return Err(invalid(&format!(
+                            "unarchived_key: {} exists and is not archived",
+                            current.display()
+                        )));
+                    }
                     moves.push((from, current.clone()));
                 }
             }
