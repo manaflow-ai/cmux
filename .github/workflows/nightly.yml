@@ -72,7 +72,7 @@ on:
         default: false
         type: boolean
       notary_test_without_browser_data_import:
-        description: nightly-next only. Like notary_test_without_password_import, and also compiles out every read of another browser's files or Keychain items (CMUX_NO_BROWSER_DATA_IMPORT) and ships an empty browser-sources.json. One notary submission, nothing published.
+        description: nightly-next only. Like notary_test_without_password_import, and also compiles out every read of another browser's files or Keychain items (CMUX_NO_BROWSER_DATA_IMPORT) and ships an empty browser-sources.json. One app notary submission (plus the Computer Use helper's), nothing published.
         required: false
         default: false
         type: boolean
@@ -88,7 +88,7 @@ on:
           - history
           - registry
       notary_probe_production_identity:
-        description: nightly-next only. One notary submission of this build as the production identity (com.cmuxterm.app, cmux.release.entitlements, release profile) with the browser-data import compiled out. There is no Sparkle key or feed, no DMG or app artifact, and no recovery artifact. Only text receipts are uploaded and nothing is published.
+        description: nightly-next only. One app notary submission (plus the Computer Use helper's) of this build as the production identity (com.cmuxterm.app, cmux.release.entitlements, release profile) with the browser-data import compiled out. There is no Sparkle key or feed, no DMG or app artifact, and no recovery artifact. Only text receipts are uploaded and nothing is published.
         required: false
         default: false
         type: boolean
@@ -687,7 +687,7 @@ jobs:
             core.setOutput('notary_test_browser_data', browserDataOut ? 'true' : 'false');
             core.setOutput('no_publish', notaryPaused || notaryTest ? 'true' : 'false');
             if (notaryTest) {
-              core.notice(`cx-f58x notary test (${notaryProbe ? 'production-identity probe, ' : ''}import ${importVariant}): one notary submission, nothing published.`);
+              core.notice(`cx-f58x notary test (${notaryProbe ? 'production-identity probe, ' : ''}import ${importVariant}): one app notary submission plus the Computer Use helper's, nothing published.`);
             } else if (browserDataOut) {
               core.notice('nightly-next ships with the browser-data import compiled out (NIGHTLY_NEXT_BROWSER_DATA_IMPORT=compiled-out).');
             }
@@ -1832,6 +1832,25 @@ jobs:
             --require-acpmux
           ./scripts/cmux-next/check-daemon-capabilities.sh --binary "$app/Contents/Resources/bin/cmux-tui"
 
+      # The Computer Use helper that onboarding grants (cx-urd.6, D19). Only a
+      # com.cmuxterm.cua app at Contents/Library with the team's Developer ID
+      # signature is used, so it is assembled here for Codesign apps to sign and
+      # notarize-nightly-dmg.sh to notarize. It builds with the reviewed rustc
+      # that cmux-tui pins: the notices check (rust-std) needs a reviewed rustc.
+      - name: Assemble the Computer Use helper
+        run: |
+          set -euo pipefail
+          app="build-universal/Build/Products/Release/cmux.app"
+          toolchain="$(sed -n 's/^channel = "\(.*\)"$/\1/p' cmux-tui/rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal
+          # Only the slices a variant ships: nightly-next and fast builds are arm64.
+          archs="${{ contains(needs.decide.outputs.variants, 'x86_64') && 'arm64 x86_64' || 'arm64' }}"
+          RUSTUP_TOOLCHAIN="$toolchain" ./scripts/build-cmux-cua.sh \
+            --output "$app/Contents/Resources/bin/cmux-cua" --helper-app --archs "$archs"
+          # The helper app is what ships; build-cmux-cua.sh's bin copy is scratch.
+          rm -f "$app/Contents/Resources/bin/cmux-cua" "$app/Contents/Resources/bin/cmux-cua-LICENSE.md"
+          ./scripts/ci/verify-computer-use-helper.sh layout "$app"
+
       - name: Build immutable SSH daemon assets once for every app variant
         if: needs.decide.outputs.build_only != 'true'
         id: remote_daemon
@@ -2058,13 +2077,14 @@ jobs:
       contents: read
       actions: read
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
-    # Start the standalone helper submission early so
-    # Apple's first wait overlaps useful work; finish it before the final DMG.
+    # Start the standalone Computer Use helper submission before Codesign apps
+    # so Apple's first wait overlaps useful work; finish it before the final
+    # DMG. The job budget covers both waits (see the notarize step).
     # Sparkle delta generation runs after the full publication in a separate
     # best-effort lane, so it cannot delay the first update users can install.
     # A cx-f58x notary test waits up to 160 minutes for Apple (52c6c12d took
     # over 90) because it has no recovery hand-off.
-    timeout-minutes: ${{ needs.decide.outputs.notary_test == 'true' && 200 || 80 }}
+    timeout-minutes: ${{ needs.decide.outputs.notary_test == 'true' && 235 || 115 }}
     # One universal Xcode build feeds every variant: the thin variants are cut
     # from it with lipo, so each user downloads only their architecture.
     strategy:
@@ -2368,7 +2388,8 @@ jobs:
             "$APP/Contents/MacOS/cmux" \
             "$APP/Contents/Resources/bin/cmux" \
             "$APP/Contents/Resources/bin/ghostty" \
-            "$APP/Contents/Resources/bin/cmux-diff-sidecar"
+            "$APP/Contents/Resources/bin/cmux-diff-sidecar" \
+            "$APP/Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua"
           do
             archs="$(lipo -archs "$binary")"
             echo "$binary: $archs"
@@ -2625,6 +2646,24 @@ jobs:
 
           cp "$TMP_PROFILE" "$PROFILE_PATH"
 
+      # The Computer Use helper has its own notarization ticket (a copy outside
+      # the app stays Gatekeeper-valid). Its submission starts here, signed
+      # with its final Developer ID signature, so Apple's wait overlaps the
+      # smoke steps; the notarize step below finishes it before the DMG.
+      - name: Start the Computer Use helper notarization
+        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true'
+        env:
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          ./scripts/ci/notarize-computer-use-helper.sh --start \
+            "$RUNNER_TEMP/cmux-computer-use-notarization.state" \
+            "$CHANNEL_APP_PATH" \
+            "$CHANNEL_ENTITLEMENTS" \
+            "$APPLE_SIGNING_IDENTITY"
+
       - name: Codesign apps
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -2633,10 +2672,21 @@ jobs:
             echo "Missing APPLE_SIGNING_IDENTITY secret" >&2
             exit 1
           fi
-          ./scripts/sign-cmux-bundle.sh \
+          # A submitted helper keeps the exact signature Apple is notarizing;
+          # otherwise (fast or paused builds) sign it in the inside-out pass.
+          sign_mode=all
+          if [ -f "$RUNNER_TEMP/cmux-computer-use-notarization.state" ]; then
+            sign_mode=all-except-computer-use
+          fi
+          CMUX_SIGN_MODE="$sign_mode" ./scripts/sign-cmux-bundle.sh \
             "$CHANNEL_APP_PATH" \
             "$CHANNEL_ENTITLEMENTS" \
             "$APPLE_SIGNING_IDENTITY"
+
+      # Onboarding grants Accessibility and Screen Recording only to a helper
+      # that passes the Developer ID requirement (cx-urd.6).
+      - name: Verify the Computer Use helper signature
+        run: ./scripts/ci/verify-computer-use-helper.sh signed "$CHANNEL_APP_PATH"
 
       - name: Verify bundled Mach-O load commands
         run: ./scripts/verify-bundle-load-commands.sh "$CHANNEL_APP_PATH"
@@ -2714,9 +2764,15 @@ jobs:
         # an Accepted build is stapled and published by this run, and one still
         # in Apple's queue is handed to a later nightly-next run through the
         # recovery artifact below.
-        timeout-minutes: ${{ needs.decide.outputs.notary_test == 'true' && 170 || 50 }}
+        # The helper submitted before Codesign apps finishes first: at most
+        # 15m more in Apple's queue plus 20m of Gatekeeper propagation polling
+        # (notarize-computer-use-helper.sh), so the step budget covers both
+        # waits and the DMG's pending state is always written before a timeout.
+        timeout-minutes: ${{ needs.decide.outputs.notary_test == 'true' && 205 || 85 }}
         env:
           CMUX_NOTARY_WAIT_TIMEOUT: ${{ needs.decide.outputs.notary_test == 'true' && '160m' || '40m' }}
+          CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE: ${{ runner.temp }}/cmux-computer-use-notarization.state
+          CMUX_COMPUTER_USE_NOTARY_WAIT_TIMEOUT: 15m
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
