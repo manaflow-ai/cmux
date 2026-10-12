@@ -5,7 +5,8 @@ Launches the tagged app with no activation, opens the DEBUG Home fixture (the re
 over a HomeStore over the mock owner: after a send its Chief waits 1.5 s, types for 1.5 s, then
 answers, MockHomeSource.scheduleReplies), sends a message through the field's send path
 (debug.home.drive type + send) and takes window snapshots at 2.0 s and 2.6 s, while the Chief types: the typing bubble (RowCell.typingBody, Fixture.typingFill) in the app's own theme.
-Passes when the send goes and the snapshots exist. Socket only, no system input. Runs on
+Passes when the send goes and the bubble is in the image: its box (debug.home.drive typing) is
+read from the app and the mean colour inside it must differ from the background beside it. Socket only, no system input. Runs on
 cmux-lawrence-2; ends with the DEBUG quit fixture and the tag's `acpmux daemon shutdown`.
 
 Usage: home-typing-still.py --tag <tag> [--out DIR]
@@ -62,6 +63,51 @@ def poll(predicate, timeout=20):
 
 
 
+
+def read_png(path):
+    """8-bit RGB or RGBA, non-interlaced PNG (window snapshots): (width, height, rows of bytes, 3 or 4 per pixel)."""
+    import struct, zlib
+    data = open(path, "rb").read()
+    pos, idat, w = 8, b"", 0
+    while pos < len(data):
+        n, kind = struct.unpack(">I4s", data[pos:pos + 8])
+        body = data[pos + 8:pos + 8 + n]
+        if kind == b"IHDR":
+            w, h, depth, ctype, _, _, interlace = struct.unpack(">IIBBBBB", body)
+            if depth != 8 or ctype not in (2, 6) or interlace:
+                raise ValueError(f"unsupported PNG depth {depth} colour type {ctype} interlace {interlace}")
+            bpp = 4 if ctype == 6 else 3
+        elif kind == b"IDAT":
+            idat += body
+        pos += 12 + n
+    raw, stride, rows, prev = zlib.decompress(idat), w * bpp, [], bytearray(w * bpp)
+    for y in range(h):
+        f, line = raw[y * (stride + 1)], bytearray(raw[y * (stride + 1) + 1:(y + 1) * (stride + 1)])
+        for i in range(stride):
+            a = line[i - bpp] if i >= bpp else 0
+            b = prev[i]
+            c = prev[i - bpp] if i >= bpp else 0
+            if f == 1: line[i] = (line[i] + a) & 255
+            elif f == 2: line[i] = (line[i] + b) & 255
+            elif f == 3: line[i] = (line[i] + (a + b) // 2) & 255
+            elif f == 4:
+                p = a + b - c; pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+                line[i] = (line[i] + (a if pa <= pb and pa <= pc else b if pb <= pc else c)) & 255
+        rows.append(line); prev = line
+    return w, h, (rows, bpp)
+
+
+def mean_rgb(px, w, h, x0, y0, x1, y1):
+    rows, bpp = px
+    xs = range(max(0, int(x0)), min(w, int(x1))); ys = range(max(0, int(y0)), min(h, int(y1)))
+    n = max(1, len(xs) * len(ys)); sums = [0, 0, 0]
+    for y in ys:
+        r = rows[y]
+        for x in xs:
+            for k in range(3): sums[k] += r[x * bpp + k]
+    return [round(v / n, 1) for v in sums]
+
+
 if os.path.exists(sock):
     os.unlink(sock)
 env = {"HOME": home, "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"), "SHELL": "/bin/zsh",
@@ -84,13 +130,29 @@ try:
     rpc("debug.home.drive", {"action": "type", "text": "Typing still check"})
     sent = rpc("debug.home.drive", {"action": "send"}) or {}
     check("the send goes", bool(sent.get("ok")), sent)
-    shots = []
+    shots, box = [], {}
     for delay in (2.0, 0.6):
         time.sleep(delay)  # test harness: the mock Chief types from 1.5 s to 3.0 s after the send
         path = os.path.join(opts.out, "typing-%d.png" % len(shots))
+        if not shots:
+            box = rpc("debug.home.drive", {"action": "typing"}) or {}  # the box of the first shot
         rpc("debug.window_snapshot", {"path": path})
         shots.append(path)
     check("snapshots of the typing indicator", all(os.path.exists(p) for p in shots), shots)
+    # The bubble must be in the image: its box from the app (debug.home.drive typing, window points,
+    # bottom-left origin), then the mean colour inside it against the background just right of it.
+    check("the app reports a typing bubble", bool(box.get("ok")), box)
+    if box.get("ok") and os.path.exists(shots[0]):
+        w, h, px = read_png(shots[0])
+        scale = w / box["windowWidth"]
+        x0, x1 = box["x"] * scale, (box["x"] + box["width"]) * scale
+        y1 = (box["windowHeight"] - box["y"]) * scale; y0 = y1 - box["height"] * scale
+        inner = mean_rgb(px, w, h, x0 + (x1 - x0) * 0.35, y0 + (y1 - y0) * 0.15, x1 - (x1 - x0) * 0.05, y1 - (y1 - y0) * 0.15)
+        bg = mean_rgb(px, w, h, x1 + 20 * scale, y0, x1 + 60 * scale, y1)
+        diff = sum(abs(a - b) for a, b in zip(inner, bg)) / 3
+        print(f"     typing box px ({x0:.0f},{y0:.0f})-({x1:.0f},{y1:.0f}) inside {inner} background {bg} mean diff {diff:.1f}", flush=True)
+        check("the typing bubble is in the image (inside differs from the background by more than 6 levels)", diff > 6,
+              {"inside": inner, "background": bg})
 finally:
     reply = rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
     if not (isinstance(reply, dict) and reply.get("quitting") == "end-sessions"):

@@ -53,9 +53,12 @@ import Testing
             titles(rightClick(at: NSPoint(x: sidebar.bounds.maxX - 8, y: sidebar.bounds.maxY - 6)))
         }
 
-        func until(_ condition: () -> Bool) async {
-            for _ in 0..<400 where !condition() {
-                await Task.yield()
+        /// Waits for `condition` up to a deadline: the settings write and reload run on other
+        /// tasks, which a fixed count of yields outran on a busy runner.
+        func until(_ condition: () -> Bool, within timeout: Duration = .seconds(10)) async {
+            let deadline = ContinuousClock.now + timeout
+            while !condition(), ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(5))
                 sidebar.needsLayout = true
                 sidebar.layoutSubtreeIfNeeded()
             }
@@ -88,7 +91,8 @@ import Testing
         window.contentView = sidebar
         sidebar.frame = NSRect(x: 0, y: 0, width: 240, height: 600)
         let harness = Harness(services: services, model: model, sidebar: sidebar, window: window, url: url)
-        await harness.until { false }
+        // Let the first layout and the settings load settle.
+        await harness.until({ false }, within: .milliseconds(200))
         return harness
     }
 
