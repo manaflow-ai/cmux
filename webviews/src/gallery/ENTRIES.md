@@ -137,7 +137,9 @@ Each action is one step, and the stage measures it:
 - layout shift: the step's CLS sum and each shift with its source node (0 allowed).
 - action-to-settled latency: wall time from dispatching the gesture until the page settles; the
   matrix reports p50 / p95 / max, and an entry may gate each step with `settleMaxMs` when the
-  interaction has a user-facing responsiveness budget.
+  interaction has a user-facing responsiveness budget. Settling waits on frames, so like the
+  long frames below the budget fails only from Chromium's Long Animation Frames timing; a
+  WebKit step over it warns with the number.
 - long frames: Long Animation Frames (Chromium), else rAF intervals. A frame over 16.7 ms is
   reported (warn). A frame over 33 ms fails only from Chromium's Long Animation Frames data:
   headless WebKit on a CPU-only VM renders in software, and its rAF timing measures the VM. So
