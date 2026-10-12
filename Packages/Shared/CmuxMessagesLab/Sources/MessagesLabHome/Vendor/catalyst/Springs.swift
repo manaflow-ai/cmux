@@ -253,6 +253,36 @@ enum Springs {
     static func typingDiscScale(_ i: Int) -> SpringElement { element(i == 0 ? "typing.discL.scale" : "typing.discS.scale") }
     /// The dots' pulse phase (Cell.startTypingDots) starts this long after the insert's begin.
     static let typingDotsPhase = 0.05
+    /// One breathing wave of the typing indicator (RowCell.breathe): an additive scale
+    /// `amplitude` x (1 - cos(2 pi (t - start) / period)) / 2 from `start` (s after the insert's begin) on,
+    /// repeating while the indicator shows: from its rest size (0) to 1 + amplitude and back.
+    struct Breath { var amplitude: Double; var period: Double; var start: Double }
+    /// Messages' typing indicator breathes while it shows, from the end of its appearance until the reply
+    /// (lossless send-typed-media-take1 +4.94 s, 2.2 s at rest; typing-unfocused-take1, link-ask-instinct-take1
+    /// and the 13 typing-dots stills agree; tools/evidence/ANIMATIONS.md section 6 "cx-3cb typing-breath"):
+    /// three waves of their own, each from its rest size up and back, all at rest when the appearance ends.
+    /// Large disc +10.6 % every 0.901 s, small disc +15.1 % every 0.700 s (each about its centre), the bubble
+    /// with its dots +2.9 % every 1.906 s about `typingBreathAnchor`. When the reply comes, all three are
+    /// at rest again on the arrival's first frame (RowCell.stopTypingBreath).
+    static let typingBreathBody = Breath(amplitude: 0.0290, period: 1.906, start: 0.296)
+    static let typingBreathDiscs = [Breath(amplitude: 0.1057, period: 0.901, start: 0.242),
+                                    Breath(amplitude: 0.1510, period: 0.700, start: 0.178)]
+    /// The point the bubble breathes about (row coordinates): 15.35 pt left of and 4.7 pt above its centre
+    /// (the fixed point of its edges and dots over the media take's 2.2 s).
+    static var typingBreathAnchor: CGPoint {
+        CGPoint(x: RowDraw.typingBubble.midX - 15.35, y: RowDraw.typingBubble.midY - 4.70)
+    }
+    /// `--typing-phase S` (still scenes only): the typing dots hold S s into their cycle and the breathing
+    /// at rest (animation speed 0), so a still capture of the indicator is the same in every run.
+    static let typingStillPhase: Double? = {
+        let a = ProcessInfo.processInfo.arguments
+        guard let i = a.firstIndex(of: "--typing-phase") else { return nil }
+        guard let v = a.dropFirst(i + 1).first.flatMap({ Double($0) }), v.isFinite else {
+            FileHandle.standardError.write(Data("--typing-phase needs a finite number of seconds; the indicator animates\n".utf8))
+            return nil
+        }
+        return v
+    }()
     /// The iOS app's typing pop and receipt cross-fade (ios/Sources/ChatColumn.swift; the macOS
     /// transcript uses the fits above and below).
     static let typingPop = simple("typing.pop", delay: 0.05, duration: 0.209)

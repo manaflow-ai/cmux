@@ -29,6 +29,8 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
     /// read-only until it has a session (cx-khns1); an adopted chat shows them while its folder's
     /// trust question holds the replay. Kept across page reloads.
     public var pastChat: String?
+    /// The page opens on its Harnesses page (Integrate a Harness…, cx-uj5g8). Handed out once.
+    public var showsHarnesses: Bool
 
     /// Who seeded a prompt that goes out by itself.
     public nonisolated enum PromptBy: Sendable, Equatable {
@@ -45,8 +47,9 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
 
     public init(cwd: String? = nil, draft: String? = nil, prompt: String? = nil, promptBy: PromptBy = .automation,
                 adopt: AgentPaneAdopt? = nil, surface: AgentPaneSurface? = nil, harness: String? = nil,
-                folderNeeded: AgentPaneFolderNeeded? = nil, pastChat: String? = nil) {
+                folderNeeded: AgentPaneFolderNeeded? = nil, pastChat: String? = nil, showsHarnesses: Bool = false) {
         self.promptBy = promptBy
+        self.showsHarnesses = showsHarnesses
         self.folderNeeded = folderNeeded
         self.pastChat = pastChat
         self.cwd = cwd
@@ -83,7 +86,7 @@ public final class AgentPaneSeedSource {
         guard read == nil else { return false }
         guard let value else { return true }
         return value.draft == nil && value.prompt == nil && value.adopt == nil && value.surface == nil
-            && value.harness == nil && value.folderNeeded == nil && value.pastChat == nil
+            && value.harness == nil && value.folderNeeded == nil && value.pastChat == nil && !value.showsHarnesses
     }
 
     /// The seed names a chat of this Mac: an outside chat it resumes (`adopt`) or a past chat of
@@ -122,6 +125,7 @@ public final class AgentPaneSeedSource {
         let seed = value
         value?.draft = nil
         value?.prompt = nil
+        value?.showsHarnesses = false
         // A missing folder is taken once; Choose Folder changes or clears it (cx-nn3e.1).
         if let needed = value?.folderNeeded {
             folderNeeded = needed

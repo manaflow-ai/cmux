@@ -292,6 +292,9 @@ impl HostedReader {
         {
             return None;
         }
+        if first_loss {
+            publish_host_link_state(pty);
+        }
 
         if self.connected_at.is_none_or(|at| at.elapsed() >= TERMINAL_HOST_HEALTHY_CONNECTION) {
             self.flap_backoff = TerminalHostReconnectBackoff::default();
@@ -317,6 +320,16 @@ impl Drop for WakeInputOnReaderEnd {
     fn drop(&mut self) {
         if let Some(pty) = self.0.as_pty() {
             pty.stream_progress.notify();
+            // A reader that gave up on its host leaves the terminal `failed`:
+            // push the tab here, with no lock held, so clients show it.
+            if matches!(
+                TerminalHostConnectionState::from_u8(
+                    pty.host_connection_state.load(Ordering::Acquire)
+                ),
+                TerminalHostConnectionState::Failed
+            ) {
+                publish_host_link_state(pty);
+            }
         }
     }
 }

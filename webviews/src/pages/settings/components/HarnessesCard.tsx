@@ -47,12 +47,15 @@ function Row({ row }: { row: HarnessRow }) {
             </div>
           )}
           {row.outdated && row.update?.elevated && (
-            <div className="row-help">
-              {t("settingsWindow.harnesses.updateElevated")}{" "}
-              <code className="font-mono" data-harness-command="">
-                {row.update.command}
-              </code>
-            </div>
+            <>
+              <div className="row-help">{t("settingsWindow.harnesses.updateElevated")}</div>
+              {/* The command is a value to copy, on its own line, not part of the description. */}
+              <div className="row-help selectable" title={row.update.command}>
+                <code className="font-mono" data-harness-command="">
+                  {row.update.command}
+                </code>
+              </div>
+            </>
           )}
           {row.update && !row.update.elevated && (
             <label className="row-help harness-auto">
@@ -138,7 +141,6 @@ export function HarnessesCard() {
   return (
     <section className="group" data-card="harnesses" ref={mounted}>
       <h3 className="group-title">{t("settingsWindow.harnesses.title")}</h3>
-      <div className="row-help">{t("settingsWindow.harnesses.help")}</div>
       <div className="accounts-header">
         <button
           type="button"

@@ -37,7 +37,6 @@ export function Backdrops() {
   return (
     <section className="group" data-card="backdrop">
       <h3 className="group-title">{t("settingsWindow.backdropPicker.title")}</h3>
-      <div className="row-help">{t("settingsWindow.backdropPicker.hint")}</div>
       <div className="backdrop-grid">
         {tile("none", t("settingsWindow.backdropPicker.none"), t("settingsWindow.backdropPicker.none"))}
         {backdrops.map((choice) => tile(choice.id, choice.title, choice.attribution))}
@@ -51,7 +50,6 @@ export function TerminalInfo() {
   if (!host?.terminal) return null;
   return (
     <section className="group" data-card="terminal">
-      <div className="row-help">{t("settingsWindow.terminalBody.options")}</div>
       <div className="rows">
         <ActionRow title={t("settingsWindow.ghosttyConfig")} help="">
           <span className="row-help selectable" title={host.terminal.ghostty_config}>

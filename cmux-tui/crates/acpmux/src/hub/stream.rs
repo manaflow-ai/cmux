@@ -16,6 +16,8 @@ const NEUTRAL_UPDATES: &[&str] = &[
     "config_option_update",
     "session_info_update",
     "agent_thought_chunk",
+    // A background shell's end is a note beside the message (cx-ncc.84).
+    "background_task_update",
     // A subagent's spawn and end belong to the subagent (`crate::subagents`).
     "subagent_spawned",
     "subagent_state_update",

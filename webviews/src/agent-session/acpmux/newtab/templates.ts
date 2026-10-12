@@ -12,7 +12,7 @@ export type ScreenTemplate = Exclude<NewTabTemplate, "classic" | "terminal">;
 export type ScreenSections = {
   /// Recent chats as cards, as a list, or not at all.
   chats: "cards" | "list" | "none";
-  /// The Tools section and the Integrate a harness link.
+  /// The Tools section.
   tools: boolean;
   /// A `>` glyph before the field, in monospace.
   prompt: boolean;

@@ -26,6 +26,7 @@ public nonisolated enum SidebarSectionsSetting {
                           title: SettingsText.keyed("settings.sidebar.cards.tips", "Show Tips"),
                           help: SettingsText.keyed("settings.sidebar.cards.tips.help",
                                                    "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet."),
+                          summary: SettingsText.keyed("settings.sidebar.cards.tips.summary", "A daily tip about a feature you haven't used"),
                           kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showsTips),
                           keywords: ["sidebar", "tips", "did you know", "cards", "learn", "features"])
     }
@@ -35,6 +36,7 @@ public nonisolated enum SidebarSectionsSetting {
                           title: SettingsText.keyed("settings.sidebar.minimal", "Minimal Mode"),
                           help: SettingsText.keyed("settings.sidebar.minimal.help",
                                                    "Workspace rows show only their icon, name and unread mark, and section titles become thin lines."),
+                          summary: SettingsText.keyed("settings.sidebar.minimal.summary", "Rows show only icon, name and unread mark"),
                           kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.minimal),
                           keywords: ["sidebar", "minimal", "compact", "dense", "rows", "simple", "clean"])
     }

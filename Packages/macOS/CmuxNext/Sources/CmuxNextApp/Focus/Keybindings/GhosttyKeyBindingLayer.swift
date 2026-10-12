@@ -115,7 +115,8 @@ final class GhosttyKeybindSync {
     }
 
     /// Loads the routed keybinds at once (keeping the last claims), then the
-    /// claims once the config files are read off the main actor; a newer
+    /// claims once the config files are read off the main actor (at launch,
+    /// once the first agent page painted); a newer
     /// load cancels an older one's claims.
     private func load() {
         guard let router else { return }
@@ -127,6 +128,9 @@ final class GhosttyKeybindSync {
         claimsTask?.cancel()
         claimsTask = Task { [weak self] in
             let texts = await GhosttyRuntime.configTexts(files)
+            // At launch the probes wait for the first agent page to paint: about 20 ms of main
+            // thread that held up its navigation (cx-z9kz0).
+            await LaunchImageHold.shared.clear()
             guard !Task.isCancelled, let router = self?.router else { return }
             // The keys cmux has defaults on, asked of the user's Ghostty config.
             let probes = GhosttyKeyBindingLayer.defaultKeys(RegistryKeyBindings(router.registry).table).compactMap { key in
