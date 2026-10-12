@@ -71,6 +71,7 @@ test("a search that matches nothing says so once", async () => {
   const said = host.textContent!.split("No matching chats").length - 1;
   expect(said).toBe(1);
   expect(host.textContent).not.toContain("sessions");
+  expect(host.querySelector('input[type="search"]')!.getAttribute("aria-label")).toBe("Search chats");
 });
 
 test("an empty sidebar says there are no chats yet", async () => {
