@@ -66,10 +66,10 @@ public struct AgentPaneHeaderHooks {
 }
 
 extension AgentPaneModel {
-    /// The app actions the chat header runs on its tab (`pane.action`): the Terminal and Browser
-    /// splits, Changes' diff, Files' tree (not an app action) and the "..." menu's tab verbs. Preview has its own request.
+    /// The app actions the chat header runs on its tab (`pane.action`): the Terminal, Split Down and
+    /// Browser splits, Changes' diff, Files' tree (not an app action) and the "..." menu's tab verbs. Preview has its own request.
     public static let headerActions: Set<String> = [
-        "splitRight", "splitBrowserRight", "openDiffViewer", "files", "renameTab", "palette.toggleTabPin",
+        "splitRight", "splitDown", "splitBrowserRight", "openDiffViewer", "files", "renameTab", "palette.toggleTabPin",
         "moveSurfaceToPaneRight", "palette.moveTabToNewWorkspace", "tab.moveToNewWindow", "closeTab",
     ]
 
