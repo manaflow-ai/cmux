@@ -464,6 +464,7 @@
               "agentPane.editedFiles.maxRows",
               "agentPane.editedFiles.scope",
               "agentPane.showContextUsage",
+              "agentPane.showDictation",
               "agentPane.zoom",
               "app.warnBeforeClosingAgentSession"
             ],
@@ -18002,6 +18003,56 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.showDictation.help",
+        "text" : "The microphone beside Send in every composer, including the New Tab page."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.showDictation",
+      "keywords" : [
+        "dictation",
+        "microphone",
+        "mic",
+        "voice",
+        "speech",
+        "composer",
+        "agent",
+        "new tab"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "showDictation"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.agentPane.showDictation",
+        "text" : "Show Dictation Button"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         0.5,
         2,
         1.25
@@ -18831,7 +18882,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "d83887e6756194766933760c25812a220a463f415f156213776a2533b139ceb4",
+  "schema_hash" : "dd0e1cb5aa97ef3d19517122f689a3a418b56c7c47d762fcbb5ff2b3916c19b9",
   "sections" : [
     {
       "id" : "general",
