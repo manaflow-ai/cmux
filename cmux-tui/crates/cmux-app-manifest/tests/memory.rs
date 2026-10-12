@@ -40,7 +40,8 @@ mod apps {
 
     #[test]
     fn validating_a_manifest_retains_under_32_mib() {
-        let sample = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../samples/apps/agent-status");
+        let sample =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../samples/apps/agent-status");
         let before = LIVE.load(Ordering::Relaxed);
         let report = validate_package_file(&sample, "cmux-app.v2.json");
         assert!(report.is_valid(), "{:?}", report.issues);
