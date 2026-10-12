@@ -2217,6 +2217,7 @@
 		D0B10012A1B2C3D4E5F60001 /* GhosttyApp+SurfaceConfigurationReload.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10013A1B2C3D4E5F60001 /* GhosttyApp+SurfaceConfigurationReload.swift */; };
 		EC010D01 /* GhosttyApp+TerminalCustomUpload.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC010D02 /* GhosttyApp+TerminalCustomUpload.swift */; };
 		F11307000000000000000001 /* GhosttyAppearanceAuthorityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11307000000000000000002 /* GhosttyAppearanceAuthorityTests.swift */; };
+		10CD34A3B59786524FDF6F37 /* GhosttyColorSchemeQueryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68BDD1EE66BC432AD0DA9CEF /* GhosttyColorSchemeQueryTests.swift */; };
 		1718C0DE1718C0DE17180002 /* GhosttyCommandShiftForwardingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1718C0DE1718C0DE17180001 /* GhosttyCommandShiftForwardingTests.swift */; };
 		A7206D010000000000000001 /* GhosttyConfig+AppearanceSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7206D020000000000000001 /* GhosttyConfig+AppearanceSync.swift */; };
 		A5001004 /* GhosttyConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001014 /* GhosttyConfig.swift */; };
@@ -6752,6 +6753,7 @@
 		D0B10013A1B2C3D4E5F60001 /* GhosttyApp+SurfaceConfigurationReload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyApp+SurfaceConfigurationReload.swift"; sourceTree = "<group>"; };
 		EC010D02 /* GhosttyApp+TerminalCustomUpload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyApp+TerminalCustomUpload.swift"; sourceTree = "<group>"; };
 		F11307000000000000000002 /* GhosttyAppearanceAuthorityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyAppearanceAuthorityTests.swift; sourceTree = "<group>"; };
+		68BDD1EE66BC432AD0DA9CEF /* GhosttyColorSchemeQueryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyColorSchemeQueryTests.swift"; sourceTree = "<group>"; };
 		1718C0DE1718C0DE17180001 /* GhosttyCommandShiftForwardingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyCommandShiftForwardingTests.swift; sourceTree = "<group>"; };
 		A7206D020000000000000001 /* GhosttyConfig+AppearanceSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyConfig+AppearanceSync.swift"; sourceTree = "<group>"; };
 		A5001014 /* GhosttyConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyConfig.swift; sourceTree = "<group>"; };
@@ -13800,6 +13802,7 @@
 				60997B8A3538A87DDD79662F /* BrowserCLIDialogTests.swift */,
 				4D7B132532B469F533014740 /* TerminalFocusTestFixture.swift */,
 				0EE248B0768496360DBB65A0 /* CloudTreeCrossWindowSelectionTests.swift */,
+				68BDD1EE66BC432AD0DA9CEF /* GhosttyColorSchemeQueryTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -18348,6 +18351,7 @@
 				F17F00000000000000000003 /* FullWidthTabCommandTests.swift in Sources */,
 				F17F00000000000000000001 /* FullWidthTabPersistenceTests.swift in Sources */,
 				F11307000000000000000001 /* GhosttyAppearanceAuthorityTests.swift in Sources */,
+				10CD34A3B59786524FDF6F37 /* GhosttyColorSchemeQueryTests.swift in Sources */,
 				1718C0DE1718C0DE17180002 /* GhosttyCommandShiftForwardingTests.swift in Sources */,
 				68EF9E8A72FAA189CE9678E4 /* GhosttyConfigDiagnosticsNoticePlacementTests.swift in Sources */,
 				A11EB0000000000000000000 /* GhosttyConfigPathResolverTests.swift in Sources */,
