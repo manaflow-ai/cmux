@@ -756,6 +756,12 @@ fn capture_workspace(
         .iter()
         .map(|screen| screen_record(transaction, screen))
         .collect::<anyhow::Result<Vec<_>>>()?;
+    // A workspace that holds no tab (its creator closed it again when its first terminal did
+    // not start) has nothing to reopen: Recently Closed does not list it (cx-avtwr).
+    let holds_tab = |screen: &Value| screen["tabs"].as_array().is_some_and(|t| !t.is_empty());
+    if !screens.iter().any(holds_tab) {
+        return Ok(());
+    }
     capture.note_window(transaction, workspace_id)?;
     // `workspace_key`: reopen moves the closed workspace's personal row
     // (group, place, theme) to the new workspace.
