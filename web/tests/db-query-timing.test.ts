@@ -78,26 +78,35 @@ describe("postgres.js query timing", () => {
 // as its acquire wait, and a query whose signal aborts is still cancelled.
 const runDbTests = process.env.CMUX_DB_TEST === "1";
 (runDbTests ? describe : describe.skip)("postgres.js query timing through cloudDb()", () => {
-  test("a queued query's acquire wait is the time it waited for the pooled connection", async () => {
+  // postgres.js pipelines plain queries onto open connections, so a query
+  // waits for a connection only while every connection is reserved: by a
+  // transaction, as a continuation's would be. That wait is what is measured.
+  test("a query waiting behind a transaction that holds the only connection reports that wait", async () => {
     process.env.CMUX_DB_POOL_MAX = "1";
     const { cloudDb, closeCloudDbForTests } = await import("../db/client");
     const { sql } = await import("drizzle-orm");
     const timings: CloudDbQueryTiming[] = [];
     setCloudDbQueryObserver(() => (timing) => timings.push(timing));
+    let transactionMs = 0;
     try {
-      // The pool's one connection is opened first, so neither query waits on a connect.
       await cloudDb().execute(sql`select 1 as warm`);
       timings.length = 0;
-      await Promise.all([cloudDb().execute(sql`select pg_sleep(0.3)`), cloudDb().execute(sql`select 1 as one`)]);
+      const transaction = cloudDb().transaction(async (tx) => {
+        const started = performance.now();
+        await tx.execute(sql`select pg_sleep(0.3)`);
+        transactionMs = performance.now() - started;
+      });
+      // Queued only once the transaction holds the connection (its BEGIN was timed).
+      for (let attempt = 0; attempt < 1_000 && timings.length === 0; attempt += 1) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+      await Promise.all([transaction, cloudDb().execute(sql`select 1 as queued_behind_transaction`)]);
     } finally {
       await closeCloudDbForTests();
     }
-    expect(timings).toHaveLength(2);
+    const longestWait = Math.max(...timings.map((timing) => timing.acquireWaitMs));
     expect(timings.every((timing) => !timing.failed)).toBe(true);
-    // Whichever query got the connection second was sent only after the
-    // first released it: its acquire wait covers the first one's run.
-    const [first, second] = [...timings].sort((a, b) => a.acquireWaitMs - b.acquireWaitMs);
-    expect(second!.acquireWaitMs).toBeGreaterThanOrEqual(first!.durationMs - 50);
+    expect(longestWait).toBeGreaterThanOrEqual(transactionMs - 50);
   });
 
   test("the timing hook leaves query cancellation working", async () => {

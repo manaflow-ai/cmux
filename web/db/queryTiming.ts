@@ -3,7 +3,11 @@
  * for a pooled connection can be told apart from one that waited on a slow
  * query or on a provider. `acquireWaitMs` is the time from the query's
  * creation to the moment postgres.js assigns it a statement on a connection
- * (it is sent); `durationMs` runs to its settlement.
+ * (it is sent); `durationMs` runs to its settlement. postgres.js pipelines
+ * plain queries onto open connections, so the acquire wait grows only while
+ * every connection is reserved (a transaction holds it) or still connecting:
+ * exactly the pool starvation it is meant to expose. Time queued behind
+ * another query on a pipelined connection shows in `durationMs` instead.
  */
 export type CloudDbQueryTiming = {
   readonly acquireWaitMs: number;
