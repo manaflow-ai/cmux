@@ -30,6 +30,27 @@ import Testing
         #expect(window.backdropSelection == Self.work)
     }
 
+    /// The window draws its room's background: the shown workspace's own, and the app's again on a
+    /// top page (Home, Settings) or a workspace without one.
+    @Test func theWindowShowsItsShownWorkspacesBackgroundAndATopPageTheApps() {
+        let app = ThemeScope(level: .room)
+        let room = ThemeScope(level: .room, parent: app)
+        let pinned = ThemeScope(level: .workspace, parent: room)
+        let plain = ThemeScope(level: .workspace, parent: room)
+        app.setBackdropSelection(Self.work)
+        pinned.pinBackdrop(.none)
+
+        room.show(pinned)
+        #expect(room.backdropSelection == nil)
+        room.show(nil)
+        #expect(room.backdropSelection == Self.work)
+        room.show(plain)
+        #expect(room.backdropSelection == Self.work)
+        room.show(pinned)
+        pinned.pinBackdrop(.selection(.art(.goyaSaturn)))
+        #expect(room.backdropSelection == .art(.goyaSaturn))
+    }
+
     @Test func aWorkspaceBackgroundSurvivesARelaunch() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-workspace-backgrounds-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -93,8 +114,13 @@ import Testing
         _ = try await call("cmux.settings.backdrop.workspace.preview", ["workspace": "ws", "value": .string(Self.work.id)])
         #expect(window.backdropSelection == Self.work)
         #expect(store.background(for: "ws") == nil)
-        _ = try await call("cmux.settings.backdrop.workspace.preview", ["workspace": "ws", "end": true])
+        // Resting on a tile is a pointer move, and closing Settings ends the preview long after
+        // the last click: neither needs a gesture.
+        _ = try await call("cmux.settings.backdrop.workspace.preview", ["workspace": "ws", "end": true], gesture: false)
         #expect(window.backdropSelection == nil)
+        _ = try await call("cmux.settings.backdrop.workspace.preview", ["workspace": "ws", "value": .string(Self.work.id)], gesture: false)
+        #expect(window.backdropSelection == Self.work)
+        _ = try await call("cmux.settings.backdrop.workspace.preview", ["workspace": "ws", "end": true], gesture: false)
 
         _ = try await call("cmux.settings.backdrop.workspace.set", ["workspace": "ws", "value": "none"])
         #expect(store.background(for: "ws") == "none")
