@@ -381,9 +381,10 @@ fn machine_files(
             // bare repository's or linked worktree's shape): nothing in it
             // comes back or is deleted here.
             if !dir.is_empty()
-                && entries.keys().chain(&here).any(|name| {
-                    names::is_dotgit(name) || names::is_repository_marker(name)
-                })
+                && entries
+                    .keys()
+                    .chain(&here)
+                    .any(|name| names::is_dotgit(name) || names::is_repository_marker(name))
             {
                 skipped += 1;
                 fenced.insert(dir);

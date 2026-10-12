@@ -315,8 +315,8 @@ impl Transaction {
     /// folders the deletes left empty go too (never the top folder).
     pub(super) fn finish(mut self) {
         for undo in std::mem::take(&mut self.undo) {
-            if let Undo::Placed { relative, aside: Some(aside) }
-            | Undo::Removed { relative, aside } = undo
+            if let Undo::Placed { relative, aside: Some(aside) } | Undo::Removed { relative, aside } =
+                undo
                 && !aside.in_staging
                 && let Ok((dir, _)) = self.at(&relative)
             {
@@ -380,7 +380,8 @@ impl Transaction {
         relative: &str,
         expected: Option<&Expected>,
     ) -> anyhow::Result<Aside> {
-        let aside = self.move_aside(dir, name).with_context(|| format!("cannot move {relative}"))?;
+        let aside =
+            self.move_aside(dir, name).with_context(|| format!("cannot move {relative}"))?;
         let same = match expected {
             Some(expected) => self.aside_is(dir, &aside, expected),
             None => Ok(false),
@@ -446,7 +447,9 @@ impl Transaction {
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
                 Err(Changed(relative.into()).into())
             }
-            Err(error) => Err(anyhow::Error::from(error).context(format!("cannot write {relative}"))),
+            Err(error) => {
+                Err(anyhow::Error::from(error).context(format!("cannot write {relative}")))
+            }
         }
     }
 

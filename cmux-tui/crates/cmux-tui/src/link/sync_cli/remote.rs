@@ -106,7 +106,8 @@ impl Remote {
                 }
                 bail!("the machine daemon closed the connection");
             }
-            let answer: Value = serde_json::from_slice(&answer).context("the answer is not JSON")?;
+            let answer: Value =
+                serde_json::from_slice(&answer).context("the answer is not JSON")?;
             if answer["id"] != json!(id) {
                 continue;
             }
