@@ -21,9 +21,9 @@ import Testing
 struct GhosttyMinimumContrastLayerBackgroundTests {
     @Test func darkTextOnLightThemeStaysDark() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
-            // Flexoki Light's colors, as in the reports.
-            let base = try #require(GhosttyApp.shared.config)
-            let config = try #require(ghostty_config_clone(base))
+            // Flexoki Light's colors, as in the reports. A fresh config keeps
+            // the runner's own Ghostty config (a background image, say) out.
+            let config = try #require(ghostty_config_new())
             let contents = """
             background = #fffcf0
             foreground = #100f0f
@@ -73,6 +73,11 @@ struct GhosttyMinimumContrastLayerBackgroundTests {
                 "Ghostty presented no IOSurface frame: \(Self.renderDiagnostics(terminal))"
             )
             #expect(result.count > 50, "Expected rendered text pixels, found \(result.count)")
+            // Ghostty skipped its own background fill, so the host layer owns it.
+            #expect(
+                result.transparentFraction > 0.5,
+                "Only \(result.transparentFraction) of the frame was transparent; host-layer background was not active"
+            )
             #expect(
                 result.meanLuminance < 0.5,
                 "Dark text rendered with mean luminance \(result.meanLuminance) on a light background"
@@ -96,6 +101,7 @@ struct GhosttyMinimumContrastLayerBackgroundTests {
     struct TextPixelSample {
         var count: Int
         var meanLuminance: Double
+        var transparentFraction: Double
     }
 
     /// Mean luminance of the mostly opaque pixels in the presented frame. The
@@ -108,11 +114,13 @@ struct GhosttyMinimumContrastLayerBackgroundTests {
         let bytes = surface.baseAddress.assumingMemoryBound(to: UInt8.self)
         let rowBytes = surface.bytesPerRow
         var count = 0
+        var transparent = 0
         var luminance = 0.0
         for y in 0..<surface.height {
             for x in 0..<surface.width {
                 // 32BGRA, premultiplied alpha.
                 let pixel = bytes + y * rowBytes + x * 4
+                if pixel[3] == 0 { transparent += 1 }
                 let alpha = Double(pixel[3])
                 guard alpha >= 160 else { continue }
                 let blue = Double(pixel[0]) / alpha
@@ -122,8 +130,15 @@ struct GhosttyMinimumContrastLayerBackgroundTests {
                 count += 1
             }
         }
-        guard count > 0 else { return TextPixelSample(count: 0, meanLuminance: 1) }
-        return TextPixelSample(count: count, meanLuminance: luminance / Double(count))
+        let transparentFraction = Double(transparent) / Double(max(1, surface.width * surface.height))
+        guard count > 0 else {
+            return TextPixelSample(count: 0, meanLuminance: 1, transparentFraction: transparentFraction)
+        }
+        return TextPixelSample(
+            count: count,
+            meanLuminance: luminance / Double(count),
+            transparentFraction: transparentFraction
+        )
     }
 
     static func presentedSurface(in layer: CALayer?) -> IOSurface? {
