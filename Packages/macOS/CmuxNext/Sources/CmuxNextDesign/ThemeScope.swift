@@ -107,7 +107,17 @@ public final class ThemeScope {
         repaintBackdropArt()
     }
 
+    /// The theme's own accent (`ThemeInput.accentColor`) this scope inherits, apart from Art Color.
+    private var themeAccentColor: ThemeRGB? {
+        if level == .config { return ThemeStore.shared.input.accentColor }
+        if let overrideInput { return overrideInput.accentColor }
+        guard let parent else { return ThemeStore.shared.input.accentColor }
+        return parent.themeAccentColor
+    }
+
     private func repaintBackdropArt() {
+        // Art Color: another work is another accent.
+        if ThemeStore.shared.accentFollowsArt { update(animated: false, repaint: false) }
         repaint(animated: false)
         for responder in responders.allObjects {
             (responder as? any ThemeResponsive)?.themeDidChange()
@@ -274,6 +284,10 @@ public final class ThemeScope {
     private func update(animated: Bool, repaint: Bool) {
         var next = level == .config ? ThemeStore.shared.input : overrideInput ?? parent?.input ?? ThemeStore.shared.input
         next.accent = ThemeStore.shared.accent
+        // Art Color: the hue of the art this scope shows, else the theme's own accent.
+        if ThemeStore.shared.accentFollowsArt, level != .config {
+            next.accentColor = backdropArt?.accentColor ?? themeAccentColor
+        }
         // The parent's light/dark may have flipped even when these colors
         // did not (an overridden workspace in a room that changed).
         defer { for view in roots.allObjects { applyAppearance(to: view) } }

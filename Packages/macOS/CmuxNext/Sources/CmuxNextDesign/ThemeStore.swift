@@ -33,6 +33,9 @@ public final class ThemeStore {
     public private(set) var appTheme: AppTheme?
     /// `appearance.accent`: every scope derives its tokens with it (`ThemeInput.accent`).
     public private(set) var accent: ThemeAccent = .neutral
+    /// Art Color (`appearance.accent: "art"`): each scope's accent takes the hue of the art it
+    /// shows (`BackdropArt.accentColor`), over the theme's own.
+    public private(set) var accentFollowsArt = false
 
     @ObservationIgnored private let publishesGlobally: Bool
     @ObservationIgnored private let responders = NSHashTable<AnyObject>.weakObjects()
@@ -106,6 +109,20 @@ public final class ThemeStore {
         // Two accents can give the config's theme the same tokens (`theme` and `magenta` under
         // Rose Pine) while an overridden scope's theme still differs, so scopes re-derive anyway.
         if !apply(input), publishesGlobally {
+            ThemeScope.app.storeDidChange()
+            repaintAll()
+        }
+        return true
+    }
+
+    /// Turns Art Color on or off and re-derives every scope's tokens. Returns false when it did
+    /// not change.
+    @discardableResult
+    public func setAccentFollowsArt(_ follows: Bool) -> Bool {
+        guard follows != accentFollowsArt else { return false }
+        accentFollowsArt = follows
+        generation += 1
+        if publishesGlobally {
             ThemeScope.app.storeDidChange()
             repaintAll()
         }

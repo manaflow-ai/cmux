@@ -69,6 +69,7 @@ final class ThemeCoordinator {
     private var chromeTheme: String?
     private var chromeObservation: Task<Void, Never>?
     private var accentObservation: Task<Void, Never>?
+    private var artAccentObservation: Task<Void, Never>?
 
     /// Follows `appearance.appTheme`: the app theme pages get (`--cmux-app-*`, `WebTheme`),
     /// resolved like the other theme levels (the variant for the system appearance, the user's
@@ -77,7 +78,13 @@ final class ThemeCoordinator {
         // `applied`: a live preview (a theme picker's highlighted row) shows too.
         chromeTheme = settings.applied.chromeTheme
         ThemeStore.shared.setAccent(settings.applied.accent)
+        ThemeStore.shared.setAccentFollowsArt(AccentSetting.followsArt(settings.applied.root))
         applyChromeTheme()
+        artAccentObservation = Task {
+            for await follows in ObservationStream({ AccentSetting.followsArt(settings.applied.root) }) {
+                ThemeStore.shared.setAccentFollowsArt(follows)
+            }
+        }
         // `appearance.accent` re-derives the terminal-theme tokens (the store) and the app theme.
         accentObservation = Task { [weak self] in
             for await accent in ObservationStream({ settings.applied.accent }) {
