@@ -295,7 +295,7 @@ final class LocalSurfaceProvider: SurfaceProvider {
     }
 
     private static func canHostLocalTerminal(_ workspace: Workspace) -> Bool {
-        !workspace.isRemoteWorkspace && !workspace.isRemoteTmuxMirror && workspace.cloudVMBinding == nil
+        workspace.canHostLocalTerminal
     }
 
     static func shellQuote(_ value: String) -> String {

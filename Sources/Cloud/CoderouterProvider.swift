@@ -244,7 +244,7 @@ struct CoderouterSetupWorkspaceCoordinator {
     /// valid local destination for a new local pane; only fully remote or
     /// cloud-bound workspaces are excluded.
     private static func isLocal(_ workspace: Workspace) -> Bool {
-        !workspace.isRemoteWorkspace && !workspace.isRemoteTmuxMirror && workspace.cloudVMBinding == nil
+        workspace.canHostLocalTerminal
     }
 }
 
