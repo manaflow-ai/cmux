@@ -57,7 +57,7 @@ extension SidebarView {
         let width = bounds.width
         var hidden = Set(model.resolvedItemInfo.filter(\.value.isHidden).keys)
         // `sidebar.showProfileControl` off (cx-wab7m): the profile button draws in no band.
-        if !DesignSettings.shared.sidebarSections.showProfileControl {
+        if !design.sidebarSections.showProfileControl {
             for section in model.layout.sections { hidden.formUnion(section.items.filter { $0.ref == .builtIn(.account) }.map(\.id)) }
         }
         let (above, below) = model.layout.bands(room: model.activeProfileID?.rawValue)

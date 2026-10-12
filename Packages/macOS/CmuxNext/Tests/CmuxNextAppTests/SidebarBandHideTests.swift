@@ -18,7 +18,6 @@ import Testing
         let sidebar: SidebarView
         let window: NSWindow
         let url: URL
-        let saved: SidebarSectionsPreferences
 
         /// `sidebar.<key>` as cmux.json holds it now.
         func saved(_ key: String) -> Bool? {
@@ -30,7 +29,6 @@ import Testing
 
         func tearDown() {
             window.close()
-            DesignSettings.shared.sidebarSections = saved
             try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
         }
 
@@ -70,25 +68,26 @@ import Testing
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appending(path: "cmux.json")
         try Data(json.utf8).write(to: url)
-        let saved = DesignSettings.shared.sidebarSections
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
-        // The sidebar draws from the shared design settings, as in the app.
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings.shared, fileURL: url,
+        // The sidebar draws from the settings controller's design settings, as in the app (its own
+        // instance here: suites run in parallel, and another sidebar reads the shared one).
+        let design = DesignSettings()
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: design, fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         services.settings = settings
         await settings.reload()
 
         let model = SidebarModel()
         model.profiles = (0..<2).map { SidebarProfile(id: ProfileKey("space\($0)"), name: "Space \($0)") }
-        let sidebar = SidebarView(model: model)
+        let sidebar = SidebarView(model: model, design: design)
         sidebar.contextMenuProvider = { target in
             SidebarContextMenus.menu(for: target, model: model, services: services, scope: ThemeScope(level: .room))
         }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 600), styleMask: [.borderless], backing: .buffered, defer: true)
         window.contentView = sidebar
         sidebar.frame = NSRect(x: 0, y: 0, width: 240, height: 600)
-        let harness = Harness(services: services, model: model, sidebar: sidebar, window: window, url: url, saved: saved)
+        let harness = Harness(services: services, model: model, sidebar: sidebar, window: window, url: url)
         await harness.until { false }
         return harness
     }
