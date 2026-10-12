@@ -372,19 +372,21 @@ class Soak:
         """{pid: kind} for every process of this app copy and its agents."""
         app_pid = self.setup["identity"].get("pid")
         found = {}
-        # The app may name its helpers by the copy's path or with symlinks resolved (/var -> /private/var).
-        apps = {self.app, os.path.realpath(self.app)}
-        tuis = tuple(os.path.join(app, "Contents/Resources/bin/cmux-tui") for app in apps)
-        acpmuxes = tuple(os.path.join(app, "Contents/Resources/bin/acpmux") for app in apps)
+        tui = os.path.join(self.app, "Contents/Resources/bin/cmux-tui")
+        acpmux = os.path.join(self.app, "Contents/Resources/bin/acpmux")
         for pid, ppid, cmd in process_table():
+            # self.app is resolved (/private/var/...); the app names some helpers by /var/... (TagTeardown too).
+            cmd = "/private" + cmd if cmd.startswith(("/var/", "/tmp/")) else cmd
             if pid == app_pid:
                 found[pid] = "app"
             elif ppid == app_pid and " Helper" in cmd:
                 found[pid] = "chromium-helper"
-            elif cmd.startswith(tuis):
+            elif cmd.startswith(tui):
                 found[pid] = "terminal-host" if "__terminal-host" in cmd else "daemon"
-            elif cmd.startswith(acpmuxes):
+            elif cmd.startswith(acpmux + " daemon run"):
                 found[pid] = "acpmux"
+            elif cmd.startswith(acpmux):
+                found[pid] = "acpmux-helper"  # its router and per-agent hosts come and go with turns
             elif self.work in cmd and "fake_agent.py" in cmd:
                 found[pid] = "agent"
             elif "com.apple.WebKit." in cmd and pid not in self.webkit_before:
