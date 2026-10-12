@@ -52,4 +52,43 @@ import Testing
         #expect(scrim.superview == nil)
         #expect(dialog.alphaValue == 1, "a dialog shown again starts whole")
     }
+
+    /// Review of #19938: a tab's dialog follows its tab to another window (the old window's host
+    /// lets it go, the new one shows it). The old host's fade must not take it out of the new window.
+    @Test func aDialogMovedToAnotherWindowMidFadeStaysThere() async throws {
+        let first = NSWindow(contentRect: NSRect(x: 200, y: 400, width: 400, height: 300), styleMask: [.titled],
+                             backing: .buffered, defer: false)
+        let second = NSWindow(contentRect: NSRect(x: 650, y: 400, width: 400, height: 300), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        for window in [first, second] { window.orderFrontRegardless() }
+        defer { for window in [first, second] { window.orderOut(nil) } }
+        let options = OverlayOptions(kind: .dialog, isModal: true, dimsContent: true, passesThroughClicks: false)
+        let dialog = NSView(frame: NSRect(x: 0, y: 0, width: 160, height: 90))
+        WindowOverlayHost.host(for: first).present(dialog, options: options).dismiss()
+        let moved = WindowOverlayHost.host(for: second).present(dialog, options: options)
+        defer { moved.dismiss() }
+
+        try await Task.sleep(for: .milliseconds(600))
+        #expect(dialog.window === WindowOverlayHost.host(for: second).panel, "the old window's fade took the dialog")
+        #expect(dialog.alphaValue == 1)
+    }
+
+    /// Review of #19938: a closing dialog keeps no keyboard focus while it fades, so a Return in
+    /// the fade cannot press its button again.
+    @Test func aClosingDialogGivesUpTheKeyboard() throws {
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 400, width: 400, height: 300), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.orderFrontRegardless()
+        defer { window.orderOut(nil) }
+        let host = WindowOverlayHost.host(for: window)
+        let dialog = NSView(frame: NSRect(x: 0, y: 0, width: 160, height: 90))
+        let field = NSTextField(frame: NSRect(x: 10, y: 10, width: 120, height: 24))
+        dialog.addSubview(field)
+        let handle = host.present(dialog, options: OverlayOptions(kind: .dialog, isModal: true, dimsContent: true,
+                                                                  passesThroughClicks: false))
+        host.panel.makeFirstResponder(field)
+        handle.dismiss()
+        let responder = host.panel.firstResponder as? NSView
+        #expect(responder.map { !$0.isDescendant(of: dialog) } ?? true, "the fading dialog kept the keyboard")
+    }
 }
