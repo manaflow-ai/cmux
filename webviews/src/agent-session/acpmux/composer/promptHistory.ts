@@ -15,16 +15,19 @@ export function usePromptHistory(rows: readonly AcpmuxRow[]) {
     return sent;
   }, [rows]);
   const recalled = useRef<{ index: number; text: string } | undefined>(undefined);
-  /// `current` is the prompt as the agent would get it (the field escapes `[`, `*`, URLs).
-  const showing = (current: string) => recalled.current?.text === current.trim();
-  /// What ↑ (-1) or ↓ (+1) writes over `current`, or undefined when the key is not history's.
-  const step = (direction: -1 | 1, current: string): string | undefined => {
-    const browsing = showing(current) ? recalled.current : undefined;
+  /// Whether the prompt still shows what the arrows brought back. `current` gives the prompt as
+  /// the agent would get it (the field escapes `[`, `*`, URLs); it runs only while one is shown.
+  const showing = (current: () => string) =>
+    recalled.current !== undefined && recalled.current.text === current().trim();
+  /// What ↑ (-1) or ↓ (+1) writes over `current`: undefined when the key is not history's, null
+  /// when it is but nothing changes (↑ on the oldest).
+  const step = (direction: -1 | 1, current: string): string | null | undefined => {
+    const browsing = showing(() => current) ? recalled.current : undefined;
     recalled.current = browsing;
     if (!browsing && current.trim()) return undefined;
     const index = (browsing?.index ?? prompts.length) + direction;
     // ↑ on the oldest keeps it; ↓ with nothing recalled is the caret's.
-    if (index < 0) return browsing ? current : undefined;
+    if (index < 0) return browsing ? null : undefined;
     if (index >= prompts.length) {
       recalled.current = undefined;
       return browsing ? "" : undefined;
