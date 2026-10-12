@@ -8,7 +8,9 @@ calls tabs, so by default, with no preset and no rebinding:
   - Cmd-1 to Cmd-8 select the nth item and Cmd-9 the last.
 They win over the focused surface: a terminal (and its Ghostty keybinds), the New Tab page's
 field and an agent chat's composer, in a pane with one tab and in a pane with two (where the
-old Previous / Next switched the pane's tabs).
+old Previous / Next switched the pane's tabs). `--surfaces` adds terminal copy mode (which
+takes every other key), a web page, the Settings page and Home (cx-9ce.18); their focus is
+read from `context.keys`.
 
 For each surface the script shows a start workspace of that kind, focuses it, presses each key,
 and compares the selection with what the matching sidebar action (`nextSidebarTab`,
@@ -28,12 +30,16 @@ quits the app.
 Usage: chrome-tab-keys-e2e.py --socket /tmp/cmux-debug-<tag>.sock [--real] [--out DIR]
 Exit status 0 when every check passes.
 """
-import argparse, json, os, socket, subprocess, sys, time
+import argparse, http.server, json, os, socket, subprocess, sys, threading, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True, help="the tagged app's debug socket")
 parser.add_argument("--real", action="store_true", help="press real keys with cua-driver (APP_PID)")
-parser.add_argument("--surfaces", default="terminal,terminal2,newtab,newtab2,composer")
+parser.add_argument("--surfaces", default="terminal,terminal2,newtab,newtab2,composer",
+                    help="also copymode, page, settings, home")
+parser.add_argument("--tidy", action="store_true",
+                    help="first close every other workspace (a tag's workspaces persist between launches)")
+parser.add_argument("--keys", help="only these key labels, comma separated (e.g. Ctrl-Tab,Cmd-Shift-])")
 parser.add_argument("--out", default="/tmp")
 opts = parser.parse_args()
 ROWS = []
@@ -123,6 +129,10 @@ def selected():
     selection = window.get("selection") or []
     if selection:
         return selection[0]
+    # A top item (Home and the other pinned pages) is no row: the active layout item names it.
+    active = [i for i in window.get("items") or [] if i.get("active") and i.get("region") == "top"]
+    if active:
+        return "item:" + str(active[0].get("ref"))
     # Older builds: no `selection`; the selected row says so itself.
     return next((r.get("title") for r in window.get("rows") or [] if r.get("selected")), None)
 
@@ -186,7 +196,7 @@ def press(key, modifiers):
 
 def show(title):
     """Shows workspace `title` by stepping the sidebar (no select-by-id action exists)."""
-    for _ in range(40):
+    for _ in range(len(sidebar().get("rows") or []) + len(sidebar().get("items") or []) + 2):
         if selected() == title:
             return True
         before = selected()
@@ -195,8 +205,32 @@ def show(title):
     return selected() == title
 
 
+def context_keys():
+    """The key window's context keys (`context.keys`): surfaceKind, terminal.copyMode, ..."""
+    return (rpc("context.keys") or {}).get("keys") or {}
+
+
+# The web page: a local server this script starts, with a text field to type in.
+class Page(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html")
+        self.end_headers()
+        # A title of its own per run: the page's title names its workspace.
+        self.wfile.write(f"<!doctype html><title>keys {os.getpid()}</title><input autofocus>".encode())
+
+    def log_message(self, *args):
+        pass
+
+
 def focus(surface):
     """Puts the keyboard in the shown workspace's surface; true once it is there."""
+    if surface == "copymode":
+        if not context_keys().get("terminal.copyMode"):
+            run("toggleTerminalCopyMode")
+        return wait(lambda: context_keys().get("terminal.copyMode") or None, 8)
+    if surface in ("page", "settings", "home"):
+        return wait(lambda: context_keys().get("surfaceKind") == surface or None, 8)
     if surface == "newtab":
         return wait(lambda: (rpc("debug.new_tab", {"action": "field"}) or {}).get("focused") is True, 8)
     if surface == "newtab2":
@@ -209,8 +243,12 @@ def focus(surface):
 
 def create(surface):
     """A workspace whose focus is `surface`; returns its sidebar title."""
+    if surface == "home":
+        run("sidebar.home.add")  # Home is a sidebar item by default; put it back if a run removed it
+        run("home.show")
+        return wait(lambda: context_keys().get("surfaceKind") == "home" and selected(), 10)
     before = set(workspace_titles())
-    if surface in ("terminal", "terminal2"):
+    if surface in ("terminal", "terminal2", "copymode"):
         run("newTab", {"command": "/bin/cat"})  # a socket's new workspace is a terminal
     else:
         press("n", ["cmd"])  # a person's Cmd-N opens the New Tab page
@@ -220,6 +258,18 @@ def create(surface):
         wait(lambda: (rpc("debug.new_tab", {"action": "field"}) or {}).get("focused") is True, 10)
         print("new_chat", rpc("debug.agent_pane", {"action": "new_chat"}), flush=True)
         time.sleep(2)  # test harness: the page swaps to the chat
+    if made and surface == "page":
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Page)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        print("openBrowser", run("openBrowser", {"url": f"http://127.0.0.1:{server.server_address[1]}/"}), flush=True)
+        wait(lambda: context_keys().get("surfaceKind") == "page" or None, 15)
+        time.sleep(1)  # test harness: the page's title renames the workspace
+        made = [selected()]
+    if made and surface == "settings":
+        print("openSettings", run("openSettings"), flush=True)
+        wait(lambda: context_keys().get("surfaceKind") == "settings" or None, 10)
+        time.sleep(1)  # test harness: the tab's title may rename the workspace
+        made = [selected()]
     if made and surface.endswith("2"):
         # A second tab in the pane: a key that switches the pane's tabs instead of the
         # sidebar item no longer looks right.
@@ -234,6 +284,12 @@ def create(surface):
 def main():
     if not wait(lambda: (rpc("debug.windows") or {}).get("windows"), 60):
         sys.exit("the app does not answer on " + opts.socket)
+    if opts.tidy:
+        print("tidy", rpc("action.run", {"action": "palette.closeOtherWorkspaces", "args": {}, "focus": True,
+                                         "confirm": True}), flush=True)
+        wait(lambda: len(workspace_titles()) <= 1 or None, 30)
+        print(f"tidy: {len(workspace_titles())} workspace(s) left", flush=True)
+    create("newtab")  # a filler below the starts, so no start is the last item
     starts = {}
     for surface in opts.surfaces.split(","):
         starts[surface] = create(surface)
@@ -250,6 +306,8 @@ def main():
             continue
         cases = [(label, key, modifiers, action, index, None) for label, key, modifiers, action, index in KEYS]
         cases += [(label, key, modifiers, action, None, steps) for label, steps, key, modifiers, action in SEQUENCES]
+        if opts.keys:
+            cases = [case for case in cases if case[0] in opts.keys.split(",")]
         for label, key, modifiers, action, index, steps in cases:
             if not show(start):
                 row(f"{surface} {label}", "start shown", selected(), False)
