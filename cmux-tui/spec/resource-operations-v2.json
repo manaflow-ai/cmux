@@ -8538,7 +8538,7 @@
             "kind": "primitive",
             "name": "boolean"
           },
-          "description": "The branch was deleted with it: git.worktree.create made it."
+          "description": "The branch was deleted with it: git.worktree.create made it, and it got no new commits git could not find elsewhere (or discard)."
         }
       },
       "extra": false
@@ -15852,10 +15852,10 @@
         "validation.invalid"
       ],
       "constraints": [
-        "Run it in a linked worktree; the main checkout is never removed. git worktree remove runs from the main checkout in the user's environment, never prompts and is stopped after 120 s. The branch goes too when git.worktree.create made it (cmux/<name> with a recorded base), with its settings; any other branch stays.",
-        "Without discard it is refused, changing nothing, while the worktree has uncommitted changes (tracked or untracked files; ignored files do not count) or commits on no other branch and no remote. With discard those are lost.",
-        "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict. A retry after a lost reply or a timeout finishes what the first attempt started; once the folder is gone a new request for it names no repository.",
-        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, not_a_worktree, uncommitted_changes (extra.files lists up to 20 paths, extra.count all of them), unpushed_commits (extra.branch, extra.count), timed_out, repository_changed, store_failed or git_failed; extra.message explains it and extra.output carries what git printed (at most 16 KiB)."
+        "Run it in a linked worktree; the main checkout and other worktrees are never touched. git worktree remove runs from the main checkout in the user's environment, never prompts and is stopped after 120 s. The folder goes with its ignored files. The branch goes too when git.worktree.create made it (cmux/<name> with a recorded base), with its settings; any other branch stays.",
+        "Without discard it is refused, changing nothing, while the worktree has uncommitted changes (tracked or untracked files) or commits on no other branch and no remote, on a detached HEAD or on the branch that goes. It is checked again right before the folder and the branch go; a branch that got new commits meanwhile stays (branch_deleted false). With discard that work is lost.",
+        "A replayed key returns the first result with replayed true while the request still names the same repository; once the folder is gone, a request naming it finds no repository. The same key with other arguments is idempotency.conflict. A retry after a timeout finishes what the first attempt started.",
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, not_a_worktree, uncommitted_changes (extra.files lists up to 20 paths, extra.count all of them), unpushed_commits (extra.branch, absent for a detached HEAD, and extra.count), timed_out, repository_changed, store_failed or git_failed; extra.message explains it and extra.output carries what git printed (at most 16 KiB)."
       ]
     },
     "history.backups.purge": {

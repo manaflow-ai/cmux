@@ -700,15 +700,19 @@ as `interrupted`, as the main checkout may hold part of it.
 
 `git worktree remove` (`git.worktree.remove`, capability `git-worktree-remove-v1`),
 run in a linked worktree, removes it with `git worktree remove` from the main
-checkout, in the user's environment and only on this machine. Its branch goes
-too, with its settings, when `git worktree create` made it (`cmux/<name>` with a
-recorded base); any other branch stays. Without `--discard` it refuses, changing
-nothing, with `uncommitted_changes` (tracked or untracked files; `extra.files`
-lists up to 20, `extra.count` all) or `unpushed_commits` (commits on no other
-branch and no remote; `extra.count`); with `--discard` those are lost. The main
-checkout is refused as `not_a_worktree`. The result is the removed `root`,
-`main_root`, the `branch` and whether it was deleted (`branch_deleted`). A retry
-after a lost reply or a timeout finishes what the first attempt started.
+checkout, in the user's environment and only on this machine; the folder goes
+with its ignored files. Its branch goes too, with its settings, when `git
+worktree create` made it (`cmux/<name>` with a recorded base); any other branch
+stays. Without `--discard` it refuses, changing nothing, with
+`uncommitted_changes` (tracked or untracked files; `extra.files` lists up to 20,
+`extra.count` all) or `unpushed_commits` (commits on no other branch and no
+remote, on a detached HEAD or on the branch that goes; `extra.count`), checked
+again right before the folder and the branch go: a branch that got new commits
+meanwhile stays. With `--discard` that work is lost. The main checkout is
+refused as `not_a_worktree`, and other worktrees are never touched. The result
+is the removed `root`, `main_root`, the `branch` and whether it was deleted
+(`branch_deleted`). A retry after a timeout finishes what the first attempt
+started; once the folder is gone, a request naming it finds no repository.
 
 ## Local sidebar plugins
 

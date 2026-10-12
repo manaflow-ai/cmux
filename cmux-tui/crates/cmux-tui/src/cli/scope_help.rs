@@ -172,10 +172,10 @@ as uncommitted changes. HEAD and the index stay; it is refused when the main
 checkout has changes of its own (or untracked files) at those paths, or when the
 work does not apply cleanly there.
 
-worktree remove, run in such a worktree, removes it and the cmux/<name> branch
-worktree create made. It is refused while the worktree has uncommitted changes
-or commits on no other branch or remote, unless --discard. The main checkout is
-never removed.
+worktree remove, run in such a worktree, removes it (with its ignored files) and
+the cmux/<name> branch worktree create made. It is refused while the worktree has
+uncommitted changes or commits on no other branch or remote, unless --discard.
+The main checkout is never removed.
 ";
 
 /// Levenshtein distance, for "did you mean" scope suggestions.
