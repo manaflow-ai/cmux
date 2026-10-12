@@ -42,6 +42,11 @@ enum SidebarContextMenus {
             return registry.makeContextMenu(for: .cloudMachine, target: ActionTargetRef(kind: .machine, id: machine.rawValue))
         case .section, .background:
             return registry.makeContextMenu(for: .sidebarBackground)
+        case .footer:
+            // Show for each piece hidden from the band (cx-wab7m); with none hidden, the sidebar's menu.
+            let band: NSMenu? = registry.makeContextMenu(for: .sidebarFooter)
+            if let band, band.items.contains(where: { !$0.isSeparatorItem }) { return band }
+            return registry.makeContextMenu(for: .sidebarBackground)
         case .profile(let id):
             return registry.makeContextMenu(for: .profile, target: ActionTargetRef(kind: .profile, id: id.rawValue))
         case .layoutItem, .layoutSection:

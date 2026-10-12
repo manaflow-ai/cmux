@@ -13,6 +13,7 @@ const NAMES: Record<GlyphKind, string> = {
   history: "history",
   open: "link.open.newtab",
   search: "search",
+  ask: "agent.chat",
   // A tab's or closed item's kind.
   terminal: "terminal",
   browser: "browser",
