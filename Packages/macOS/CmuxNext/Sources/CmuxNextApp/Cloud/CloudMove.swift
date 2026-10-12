@@ -27,7 +27,8 @@ import Foundation
 /// that may not have finished runs again on the same machine (a second sync
 /// writes only changes, and a rerun of the move resolves an unresolved one
 /// first). A move that committed only opens its tab on the machine, never
-/// syncs or moves again. Bring Back is the reverse (slice 4).
+/// syncs or moves again. Bring Back Local is the reverse (``CloudBringBack``);
+/// a committed move is recorded for it (``CloudMovedChats``).
 @MainActor
 struct CloudMove {
     static let action: ActionID = "cloudMove"
@@ -40,13 +41,15 @@ struct CloudMove {
         var retry: CloudMoveRetries.Retry?
     }
 
-    /// The tab and chat menus' rows to hide: Move to Cloud unless the tab is a
-    /// chat that does not already run on another machine.
+    /// The tab and chat menus' Cloud rows to hide: Move to Cloud unless the tab is a chat that
+    /// does not already run on another machine, and Bring Back Local unless a move from this Mac
+    /// put it there (``CloudBringBack/hiddenMenuItems(_:movedChats:)``).
     static func hiddenMenuItems(_ tab: TabModel?) -> Set<ActionID> { hiddenMenuItems(tab?.agentSession) }
 
     static func hiddenMenuItems(_ record: AgentSessionRef?) -> Set<ActionID> {
-        guard let record, !record.host.hasPrefix(MachineRegistry.registryHostPrefix) else { return [action] }
-        return []
+        let back = CloudBringBack.hiddenMenuItems(record, movedChats: CloudMovedChats.app)
+        guard let record, !record.host.hasPrefix(MachineRegistry.registryHostPrefix) else { return back.union([action]) }
+        return back
     }
 
     /// Starts the move of the invocation's chat tab. Throws, before anything
@@ -95,7 +98,9 @@ struct CloudMove {
 
     /// A stop: records what Retry does for tab `tabID` and offers it on the toast.
     private func stopped(_ error: any Error, tab tabID: String, toast toastID: String, invocation: ActionInvocation) -> ActionWorkFailure {
-        let failure = (error as? Failure) ?? Failure(message: (error as? ActionFailure)?.message ?? CloudMoveStrings.moveFailed(String(describing: error)))
+        // Any other error keeps the Retry a stop saved before (a move pinned to its machine).
+        let failure = (error as? Failure) ?? Failure(message: (error as? ActionFailure)?.message ?? CloudMoveStrings.moveFailed(String(describing: error)),
+                                                     retry: services.cloud.moveRetries[tabID])
         services.cloud.logger.error("cloud move failed: \(failure.message, privacy: .public)")
         services.cloud.moveRetries[tabID] = failure.retry
         var retry: (@MainActor () -> Void)?
@@ -133,6 +138,13 @@ struct CloudMove {
             throw Failure(message: CloudMoveStrings.unresolved, retry: again)
         }
         guard moved.ok, let movedSession = moved.sessionID else { throw Self.failure(moving: moved, machine: name, retry: again) }
+        // Bring Back Local merges into this folder, and offers itself only for chats recorded here.
+        if let host = AgentTabStore.registryHost(of: machine.daemon) {
+            let local = folder.subpath.isEmpty ? folder.root : folder.root + "/" + folder.subpath
+            services.cloud.movedChats.record(CloudMovedChats.Entry(machineID: machine.machineID, host: host, session: movedSession, harness: record.harness,
+                                                                   localRoot: folder.root, localChat: local, remoteFolder: remote.folder,
+                                                                   remoteChat: remote.chat, name: workspace?.name))
+        }
         // The move committed: from here Retry only opens the chat's tab on the machine.
         let shown = CloudMoveRetries.Shown(session: movedSession, harness: record.harness, machineID: machine.machineID, folder: remote.chat,
                                            name: workspace?.name, key: moved.transferID ?? movedSession)
@@ -177,7 +189,12 @@ struct CloudMove {
         var last = CloudMoveCLI.Answer(ok: false)
         for root in services.cloud.move.workRoots {
             let remote = folder.remote(under: root)
-            last = try await cli.syncPush(socket: socket, local: folder.root, remote: remote.folder)
+            do {
+                last = try await cli.syncPush(socket: socket, local: folder.root, remote: remote.folder)
+            } catch {
+                // Timed out or didn't launch: nothing moved yet, so Retry runs the move again on this machine.
+                throw Failure(message: CloudMoveStrings.syncFailed(machine, String(describing: error)), retry: retry)
+            }
             if last.ok { return remote }
             // Not this machine's home (an image without the work user): the next root.
             guard last.errorCode == "fs.permission_denied" else { break }
@@ -266,6 +283,11 @@ struct CloudMove {
     }
 
     private func toast(_ id: String, _ message: String, duration: Duration, retry: (@MainActor () -> Void)? = nil) {
+        Self.toast(services, id, message, duration: duration, retry: retry)
+    }
+
+    /// A toast on the active window, with Retry when `retry` is set (Bring Back Local's too).
+    static func toast(_ services: AppServices, _ id: String, _ message: String, duration: Duration, retry: (@MainActor () -> Void)? = nil) {
         guard let window = services.windows.active?.window ?? NSApp.mainWindow else { return }
         let action = retry == nil ? nil : CmuxToast.Action(title: CloudMoveStrings.retry)
         let handle = CmuxToastCenter.shared.show(CmuxToast(id: id, message: message, action: action, duration: duration), in: window)
