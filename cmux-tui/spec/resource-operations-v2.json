@@ -25368,6 +25368,35 @@
             },
             "description": "An ephemeral workspace is closed by the daemon at its next start."
           },
+          "cwd": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "description": "The first terminal's folder. Needs initial_content terminal."
+          },
+          "argv": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string"
+              },
+              "min_items": 1
+            },
+            "description": "The first terminal's exact executable and arguments, instead of the login shell. Needs initial_content terminal; not with shell."
+          },
+          "shell": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "Script the first terminal runs with the server platform default shell and -lc. Needs initial_content terminal; not with argv."
+          },
           "correlation_key": {
             "required": false,
             "type": {
@@ -25389,7 +25418,10 @@
         },
         "extra": false,
         "constraints": [
-          "initial_content is explicit. terminal returns CreatedTerminalPath; empty returns CreatedWorkspaceOnly."
+          "initial_content is explicit. terminal returns CreatedTerminalPath; empty returns CreatedWorkspaceOnly.",
+          "cwd, argv and shell launch the first terminal, so they need initial_content terminal.",
+          "At most one of argv or shell is present; argv[0] is non-empty.",
+          "A command in argv or shell needs the workspace:execute app scope, as workspace.run does."
         ]
       },
       "result": {

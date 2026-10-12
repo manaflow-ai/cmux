@@ -96,7 +96,7 @@ import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { PlanList } from "./conversation/PlanList";
 import { BackgroundTaskNote } from "./conversation/BackgroundTaskNote";
-import { SessionCwdContext, SessionRowsContext } from "./turnChanges/sessionRows";
+import { SessionCwdContext, SessionRowsContext, isEditRow } from "./turnChanges/sessionRows";
 import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
 import { UserBubble } from "./conversation/UserBubble";
 import { editableKey, editableSeqs, editableTurns } from "./conversation/editPrompt";
@@ -110,7 +110,7 @@ import {
   type ChatFind,
 } from "./conversation/chatFind";
 import { ChatFindBar } from "./conversation/ChatFindBar";
-import { DATE, PREVIEW, RENDER, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
+import { DATE, PREVIEW, RENDER, THINKING, WORKED, WORKING, turnView } from "./conversation/turns";
 import { ArrowDown, Copy } from "./conversation/icons";
 import { PreviewCard } from "./conversation/PreviewCard";
 import { turnPreviewUrl } from "./conversation/previewUrl";
@@ -776,12 +776,7 @@ function RowFrame({
 /// Who spoke, for assistive technology: each article is one message in the transcript feed.
 const speaker = (kind: string, t: Translate) =>
   kind === "user" ? t("transcript.you") : kind === "assistant" ? t("transcript.agent") : undefined;
-const rowKind = (row: AcpmuxRow) =>
-  row.kind === "activity" &&
-  !isFoldedCopy(row) &&
-  row.items?.some((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange")
-    ? "editedFiles"
-    : row.kind;
+const rowKind = (row: AcpmuxRow) => (isEditRow(row) ? "editedFiles" : row.kind);
 const rowDomId = (id: string) => `acpmux-row-${encodeURIComponent(id)}`;
 const disclosureControls = (rows: readonly AcpmuxRow[], after: number): string | undefined => {
   const ids: string[] = [];
@@ -4287,6 +4282,17 @@ function AcpmuxPane() {
                         snapshot.sessionId && localCwd
                           ? (key: string) =>
                               callNative("git.worktree.apply", { session_id: snapshot.sessionId, idempotency_key: key })
+                          : undefined
+                      }
+                      // Remove cleans the worktree up (cx-lyqio.5); discard only on "Remove anyway".
+                      onRemoveWorktree={
+                        snapshot.sessionId && localCwd
+                          ? (key: string, discard: boolean) =>
+                              callNative("git.worktree.remove", {
+                                session_id: snapshot.sessionId,
+                                idempotency_key: key,
+                                ...(discard ? { discard: true } : {}),
+                              })
                           : undefined
                       }
                       // A merge asks the header again, so the chip shows the pull request merged.

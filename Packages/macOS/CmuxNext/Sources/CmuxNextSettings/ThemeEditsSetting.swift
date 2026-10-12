@@ -32,7 +32,7 @@ public nonisolated struct ThemeEditsSetting: Sendable {
             let token = String(key[key.index(after: slash)...])
             guard ThemeEdits.tokens.contains(token) else {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "\(path).\(key)",
-                                                      message: "unknown token; expected background, foreground, cursor, selection or 0 to 15"))
+                                                      message: "unknown token; expected background, foreground, cursor, selection, 0 to 15 or accent"))
                 continue
             }
             guard let color = entry.stringValue, ThemeEdits.isColor(color) else {

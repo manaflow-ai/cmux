@@ -87,7 +87,8 @@ public struct AppTheme: Hashable, Sendable {
 
     /// The tokens of a terminal theme's colors.
     public static func derive(from input: ThemeInput) -> AppTheme {
-        derive(background: input.background, foreground: input.foreground, palette: input.palette, accent: input.accent)
+        derive(background: input.background, foreground: input.foreground, palette: input.palette.map { Optional($0) },
+               accent: input.accent, accentColor: input.accentColor)
     }
 
     /// The tokens of a terminal palette. Every pair in ``contract`` meets its minimum.
@@ -97,14 +98,16 @@ public struct AppTheme: Hashable, Sendable {
     ///   - foreground: The terminal foreground (alpha ignored).
     ///   - palette: ANSI 0...15; a missing slot takes Ghostty's default.
     ///   - accent: Where the accent comes from; neutral by default.
+    ///   - accentColor: The theme's own accent (a per-theme edit or the file's `# cmux-accent`);
+    ///     when set it is the accent's starting color, whatever `accent` says.
     public static func derive(background: ThemeRGB, foreground: ThemeRGB, palette: [ThemeRGB?],
-                              accent: ThemeAccent = .neutral) -> AppTheme {
+                              accent: ThemeAccent = .neutral, accentColor: ThemeRGB? = nil) -> AppTheme {
         let full = ghosttyDefaultPalette.enumerated().map { index, fallback in
             (index < palette.count ? palette[index] : nil).map(\.opaque) ?? ThemeRGB(hex: fallback)
         }
-        var theme = derive(background.opaque, foreground.opaque, full, accent: accent, tint: 1)
+        var theme = derive(background.opaque, foreground.opaque, full, accent: accentColor.map { .color($0.opaque) } ?? .named(accent), tint: 1)
         for scale in tintScales.dropFirst() where !theme.failures.isEmpty {
-            theme = derive(background.opaque, foreground.opaque, full, accent: accent, tint: scale)
+            theme = derive(background.opaque, foreground.opaque, full, accent: accentColor.map { .color($0.opaque) } ?? .named(accent), tint: scale)
         }
         return theme
     }
@@ -118,8 +121,16 @@ public struct AppTheme: Hashable, Sendable {
     /// A slot reads as a hue (not a gray) at this OKLCH chroma or more.
     private static let huedChroma = 0.05
 
+    /// Where the accent starts: `appearance.accent`, or the theme's own color.
+    private enum AccentSource { case named(ThemeAccent), color(ThemeRGB) }
+
     /// The accent's starting color: see ``ThemeAccent``.
-    private static func accentSeed(_ accent: ThemeAccent, _ fg: ThemeRGB, _ palette: [ThemeRGB]) -> ThemeRGB {
+    private static func accentSeed(_ source: AccentSource, _ fg: ThemeRGB, _ palette: [ThemeRGB]) -> ThemeRGB {
+        let accent: ThemeAccent
+        switch source {
+        case .color(let color): return color
+        case .named(let named): accent = named
+        }
         let neutral = AppColor.fromOKLCH(AppColor.OKLCH(l: AppColor.oklch(fg).l, c: 0, h: 0))
         if let slot = accent.slot { return colorful(palette, slot, slot + 8) }
         guard accent == .theme else { return neutral }
@@ -130,7 +141,7 @@ public struct AppTheme: Hashable, Sendable {
         return neutral
     }
 
-    private static func derive(_ bg: ThemeRGB, _ fg: ThemeRGB, _ palette: [ThemeRGB], accent accentSource: ThemeAccent,
+    private static func derive(_ bg: ThemeRGB, _ fg: ThemeRGB, _ palette: [ThemeRGB], accent accentSource: AccentSource,
                                tint: Double) -> AppTheme {
         let isDark = AppColor.luminance(bg) < AppColor.luminance(fg)
         var t: [Token: ThemeRGB] = [:]
