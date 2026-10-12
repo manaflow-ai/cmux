@@ -1,4 +1,5 @@
 import CmuxNextActions
+import Foundation
 import CmuxNextControl
 import CmuxNextSettings
 
@@ -27,7 +28,11 @@ extension AppControl {
             // the ensure and the apps-link-changed answer (cx-rtipa S3).
             .async("cloud.link.ensure") { [weak services] _ in
                 guard let cloud = await MainActor.run(body: { services?.cloud }) else { return .null }
-                return await cloud.ensureLinkReport()
+                // The daemon wire value, as this socket's JSON value.
+                let report = await cloud.ensureLinkReport()
+                guard let data = try? JSONEncoder().encode(report),
+                      let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else { return .null }
+                return CmuxNextSettings.JSONValue(foundation: object) ?? .null
             },
             .mainActor("cloud.machines") { _ in
                 if let refusal = Self.policyRefusal("cloud.machines", disabled: services.registry.disabledFeatures) { throw refusal }
