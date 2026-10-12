@@ -209,7 +209,7 @@ public final class AddressBarView: NSView {
     }
 
     /// The badge shown now, for diagnostics (`debug.browser`).
-    public var profileBadgeName: String? { profileBadgeView.isHidden ? nil : profileBadgeView.toolTip }
+    public var profileBadgeName: String? { profileBadgeView.isHidden ? nil : profileBadgeView.themedToolTip }
 
     func updateBadgeSpace() {
         let visible = !machineBadgeView.isHidden || !profileBadgeView.isHidden || !starButton.isHidden

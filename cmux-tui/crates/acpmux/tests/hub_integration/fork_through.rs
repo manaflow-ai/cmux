@@ -14,6 +14,9 @@ mod context_window;
 // Claude's todo list as an ACP plan, which shares these helpers too.
 #[path = "todo_plan.rs"]
 mod todo_plan;
+// Claude's background shells ending, which share these helpers too.
+#[path = "background_task.rs"]
+mod background_task;
 
 const FORK_OP: &str = "acp.session.fork";
 

@@ -228,15 +228,14 @@ final class ProfileBarView: NSView {
     }
 
     private func rebuildToolTips() {
-        removeAllToolTips()
         let rects = slotRects()
-        for (offset, profile) in model.profiles.enumerated() {
+        var regions: [(rect: NSRect, text: String)] = model.profiles.enumerated().map { offset, profile in
             // The emoji is shown here, not on the dot.
-            let tip = profile.iconIsEmoji ? [profile.icon, profile.name].compactMap(\.self).joined(separator: " ") : profile.name
-            addToolTip(rects[offset], owner: tip as NSString, userData: nil)
+            (rects[offset], profile.iconIsEmoji ? [profile.icon, profile.name].compactMap(\.self).joined(separator: " ") : profile.name)
         }
-        addToolTip(rects[model.profiles.count], owner: Strings.history as NSString, userData: nil)
-        if isPointerInside { addToolTip(rects[model.profiles.count + 1], owner: Strings.newProfile as NSString, userData: nil) }
+        regions.append((rects[model.profiles.count], Strings.history))
+        if isPointerInside { regions.append((rects[model.profiles.count + 1], Strings.newProfile)) }
+        setThemedToolTipRegions(regions)
     }
 
     // MARK: Mouse

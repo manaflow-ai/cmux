@@ -39,7 +39,7 @@ FAKE_AGENT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../cmu
 FAKE_HARNESS = "update-e2e-agent"
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--feed", default="https://files-next.cmux.com/nightly-next/appcast-arm64.xml")
+parser.add_argument("--feed", default="https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml")
 parser.add_argument("--from", dest="from_build", help="installed build (default: the feed's second item)")
 parser.add_argument("--to", dest="to_build", help="expected build after the update (default: the feed's newest)")
 parser.add_argument("--click", action="store_true", help="also prove the one-click install with an older build")
