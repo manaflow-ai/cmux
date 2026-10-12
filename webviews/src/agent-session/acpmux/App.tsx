@@ -39,6 +39,8 @@ import { HistoryScreen } from "./newtab/HistoryScreen";
 import type { AllChatsPage } from "./newtab/AllChatsList";
 import { newTabScreenActions } from "./newtab/screenActions";
 import { newTabChipSnapshot } from "./newtab/chipDefaults";
+import { HarnessesScreen } from "./harnesses/HarnessesScreen";
+import { openHarnessesPage, registerHarnessesPage } from "./harnesses/harnessesPage";
 import { useEarlyNewTabContext, useNewTabAdoption } from "./newtab/adoption";
 import { TemplateDots } from "./newtab/TemplateDots";
 import { pickNewTabTemplate, screenTemplate, shownTemplate } from "./newtab/templates";
@@ -99,6 +101,7 @@ import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { PlanList } from "./conversation/PlanList";
+import { BackgroundTaskNote } from "./conversation/BackgroundTaskNote";
 import {
   SessionCwdContext,
   SessionEditsContext,
@@ -549,6 +552,12 @@ const PlanRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
+const BackgroundTaskRow = memo(
+  function BackgroundTaskRow({ row }: RowProps) {
+    return row.backgroundTask ? <BackgroundTaskNote task={row.backgroundTask} /> : null;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
 const NoticeRow = memo(
   function NoticeRow({ row }: RowProps) {
     return <div className="acpmux-muted">{row.text}</div>;
@@ -615,6 +624,7 @@ const defaultRegistry: NativeRegistry = {
   turnSummary: SummaryRow,
   notice: NoticeRow,
   plan: PlanRow,
+  backgroundTask: BackgroundTaskRow,
   typing: NoticeRow,
   permission: PermissionRow,
   [SHELL_ROW]: ShellRow,
@@ -1657,7 +1667,7 @@ function PermissionAsk({ permission }: { permission: AcpmuxPermission }) {
 /// switch to the shown agent in the page's project (`chat.new {deferred}`): acpmux starts the session
 /// behind the page, which stays, and the pick lands on it (harnessSwitch keeps picks made while a
 /// switch runs). Enter asks the same agent in the same folder, the same switch, which then shows.
-function NewTabComposerChips({ snapshot, cwd }: { snapshot: AcpmuxSnapshot; cwd?: string }) {
+export function NewTabComposerChips({ snapshot, cwd }: { snapshot: AcpmuxSnapshot; cwd?: string }) {
   return <DefaultComposerChips snapshot={snapshot} cwd={cwd} startsChat />;
 }
 
@@ -1714,11 +1724,11 @@ function DefaultComposerChips({
         start();
         void callNative("chat.effort", { configId, value });
       }}
-      onHarness={(harness) => void callNative("chat.new", { harness, ...inFolder })}
+      onHarness={(harness, model) => void callNative("chat.new", { harness, ...(model ? { model } : {}), ...inFolder })}
       // Sent from the pick's own handler: the host's Enable confirmation needs the gesture.
       onHarnessEnable={(folder, id) => void callNative("chat.harness.enable", { folder, id }).catch(() => undefined)}
       // The rail's + (BRING-YOUR-OWN-HARNESS): Settings > Agents > Add, from this click's gesture.
-      onAddAgent={() => void callNative("action.run", { id: "agent.harness.add" }).catch(() => undefined)}
+      onAddAgent={openHarnessesPage}
       showPlan={false}
       onCompact={() => void callNative("chat.send", { text: "/compact", attachments: [] })}
       onShowContextUsage={(show) => void callNative("pane.showContextUsage", { show }).catch(() => undefined)}
@@ -2273,6 +2283,13 @@ function AcpmuxPane() {
     [snapshot.summary?.harness, snapshot.summary?.configOptions],
   );
   const pickerCatalog = usePickerCatalog(snapshot.catalog, pickerSession).catalog;
+  // Integrate a harness (cx-uj5g8): the Harnesses page, in place of what the pane shows.
+  const [harnessesOpen, setHarnessesOpen] = useState(false);
+  useEffect(() => registerHarnessesPage(() => setHarnessesOpen(true)), []);
+  // Another chat in this pane (the sidebar, a link) shows that chat, not the page.
+  useEffect(() => setHarnessesOpen(false), [snapshot.sessionId]);
+  // A chat it starts, and a login it runs, go to the chat's folder (a new chat's start folder).
+  const harnessFolder = snapshot.summary?.cwd ?? startFolder;
   const retryModelsKey = (
     pickerCatalog.harnesses.find(
       (entry) => entry.acpmuxHarness === snapshot.summary?.harness || entry.id === snapshot.summary?.harness,
@@ -2925,6 +2942,7 @@ function AcpmuxPane() {
           pastTurns?: unknown;
           machineName?: unknown;
           githubRepository?: unknown;
+          harnesses?: unknown;
         }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
         acpmuxPerf.markAgent("handshakeReady");
@@ -2974,6 +2992,8 @@ function AcpmuxPane() {
         // draft out once, so a retried `ready` after a failed connect has none and keeps this one.
         const seeded = composerDraft(host.draft);
         if (seeded) setDraft(seeded);
+        // Integrate a Harness… from the palette or the menu opened this tab (cx-uj5g8).
+        if (host.harnesses === true) setHarnessesOpen(true);
         pendingPrompt = composerDraft(host.prompt) ?? pendingPrompt;
         // A prompt a person's action seeded has a single-use host ticket bound to its promptId
         // (cx-k21v gap 4); a CLI, MCP or script seed has none and the host refuses its send.
@@ -3175,10 +3195,13 @@ function AcpmuxPane() {
           // A pick of another harness is a switch: drawn now, started behind it.
           // A new chat without a folder starts in the chat's start folder (startFolder.tsx);
           // a chat with no project (`noProject`) or for a peer gets no start folder.
-          "chat.new": async ({ harness, cwd, peer, deferred, noProject }) => {
+          "chat.new": async ({ harness, cwd, peer, deferred, noProject, model }) => {
             const folder = cwd ? String(cwd) : peer || noProject === true ? undefined : startFolderRef.current;
             if (harness && !peer && noProject !== true)
-              return harnessSwitch.switchTo(String(harness), folder, { deferred: deferred === true });
+              return harnessSwitch.switchTo(String(harness), folder, {
+                deferred: deferred === true,
+                ...(model ? { model: String(model) } : {}),
+              });
             harnessSwitch.cancel();
             return persistSession(
               await client.create(
@@ -4337,7 +4360,19 @@ function AcpmuxPane() {
               }
             />
           )}
-          {showNewTab && newTab.history ? (
+          {harnessesOpen ? (
+            <HarnessesScreen
+              catalog={pickerCatalog}
+              acpmux={snapshot.catalog}
+              {...(harnessFolder ? { cwd: harnessFolder } : {})}
+              callNative={callNative}
+              onClose={() => setHarnessesOpen(false)}
+              onStart={() => {
+                setHarnessesOpen(false);
+                setNewTab(undefined);
+              }}
+            />
+          ) : showNewTab && newTab.history ? (
             <HistoryScreen
               load={(params) => callNative<AllChatsPage | undefined>("chats.page", params)}
               onOpen={(key) => void callNative("chats.open", { key }).catch(() => undefined)}
@@ -4408,7 +4443,6 @@ function AcpmuxPane() {
                   .then((result) => result?.cwd)
                   .catch(() => undefined)
               }
-              onAddHarness={() => void callNative("action.run", { id: "palette.addHarness" }).catch(() => undefined)}
               onEditShortcut={(kind) => void callNative("shortcut.edit", { kind })}
               inputToken={newTab.inputToken}
               onInputReady={(token) => void callNative("newTab.inputReady", { token })}

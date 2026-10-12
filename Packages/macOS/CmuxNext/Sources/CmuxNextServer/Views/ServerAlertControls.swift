@@ -1,5 +1,6 @@
 import CmuxNextIcons
 import SwiftUI
+import CmuxNextDesign
 
 /// A small gray capsule button. `prominent` fills it with the text color.
 struct PillButton: View {
@@ -26,7 +27,7 @@ struct PillButton: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .help(help ?? "")
+        .themedHelp(help ?? "")
     }
 }
 
