@@ -36,23 +36,32 @@ public final class ThemedSegmentedControl: NSSegmentedControl {
     }
 }
 
-/// Draws the selected segment's label in the control's `selectedLabelInk`; every other segment and
-/// all of the bezel are AppKit's.
+/// Draws the selected segment's label in the control's `selectedLabelInk`; every other segment, all
+/// of the bezel, and a disabled control or segment (dimmed as AppKit dims it) are AppKit's.
+///
+/// A window that isn't key: AppKit's docs don't say whether a custom `selectedSegmentBezelColor`
+/// gets an inactive fill there, and the code can't tell, so the label keeps its ink. If dogfood
+/// shows an inactive gray fill under it, fall back to super while `controlView.window?.isKeyWindow`
+/// is false.
 final class ThemedSegmentedCell: NSSegmentedCell {
     override func drawSegment(_ segment: Int, inFrame frame: NSRect, with controlView: NSView) {
         guard isSelected(forSegment: segment), image(forSegment: segment) == nil,
-              let label = label(forSegment: segment), !label.isEmpty,
-              let ink = (controlView as? ThemedSegmentedControl)?.selectedLabelInk
+              let control = controlView as? ThemedSegmentedControl, control.isEnabled, isEnabled(forSegment: segment),
+              let label = label(forSegment: segment), !label.isEmpty, let ink = control.selectedLabelInk
         else { return super.drawSegment(segment, inFrame: frame, with: controlView) }
+        let font = font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize(for: controlSize))
         let style = NSMutableParagraphStyle()
         style.alignment = .center
         style.lineBreakMode = .byTruncatingTail
-        let text = NSAttributedString(string: label, attributes: [
-            .font: font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize(for: controlSize)),
-            .foregroundColor: ink,
-            .paragraphStyle: style,
-        ])
-        let height = ceil(text.size().height)
-        text.draw(in: NSRect(x: frame.minX, y: frame.midY - height / 2, width: frame.width, height: height))
+        let text = NSAttributedString(string: label, attributes: [.font: font, .foregroundColor: ink, .paragraphStyle: style])
+        // Center the capitals on the segment, as AppKit centers its labels, not the line box
+        // (whose descender space would sit the text high).
+        let height = ceil(font.ascender - font.descender + font.leading)
+        let lineTop = controlView.isFlipped
+            ? frame.midY + font.capHeight / 2 - font.ascender
+            : frame.midY - font.capHeight / 2 + font.ascender
+        let originY = controlView.isFlipped ? lineTop : lineTop - height
+        text.draw(with: NSRect(x: frame.minX, y: originY, width: frame.width, height: height),
+                  options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
     }
 }
