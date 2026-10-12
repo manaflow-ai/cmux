@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { selectTextWithDriver, syntheticKey } from "../src/gallery/frame/playRunner";
+import { runPlay, selectTextWithDriver, syntheticKey } from "../src/gallery/frame/playRunner";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -142,5 +142,59 @@ describe("gallery shell keyboard emulation", () => {
       if (descriptor) Object.defineProperty(rangePrototype, "getClientRects", descriptor);
       else delete (rangePrototype as { getClientRects?: unknown }).getClientRects;
     }
+  });
+});
+
+describe("gallery play settle budget", () => {
+  // Headless WebKit on the CPU-only CI VM has no Long Animation Frames: the stage times frames by
+  // rAF, and one software-painted frame there takes 200-450 ms where Chromium's data shows no frame
+  // over 16.7 ms for the same step (new-tab switcher-keys, typed-address). Settling waits on those
+  // frames, so its latency measures the VM there as the frame timing does.
+  const slowFocus = async (frameSource: "long-animation-frame" | "raf") => {
+    const root = document.getElementById("root")!;
+    root.innerHTML = '<button id="slow">Slow</button>';
+    document.getElementById("slow")!.addEventListener("focus", () => {
+      const start = performance.now();
+      while (performance.now() - start < 60);
+    });
+    const restore = Object.fromEntries(
+      ["requestAnimationFrame", "PerformanceObserver", "innerWidth", "innerHeight"].map((key) => [key, scope[key]]),
+    );
+    Object.assign(scope, {
+      requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
+      innerWidth: 800,
+      innerHeight: 600,
+      PerformanceObserver: class {
+        static supportedEntryTypes = frameSource === "raf" ? [] : ["long-animation-frame"];
+        observe() {}
+        takeRecords() {
+          return [];
+        }
+        disconnect() {}
+      },
+    });
+    try {
+      const report = await runPlay((ctx) => ctx.focus({ selector: "#slow" }), {
+        checks: { settleMaxMs: { value: 20, reason: "A focus should settle within a frame here." } },
+      });
+      return report.steps[0]!;
+    } finally {
+      Object.assign(scope, restore);
+    }
+  };
+
+  test("a step over its budget fails where Long Animation Frames time the page", async () => {
+    const step = await slowFocus("long-animation-frame");
+    expect(step.frameSource).toBe("long-animation-frame");
+    expect(step.status).toBe("fail");
+    expect(step.problems.join("\n")).toMatch(/settle latency .* \(limit 20 ms\)/);
+  });
+
+  test("a step over its budget only warns, with the number, where rAF times a software renderer", async () => {
+    const step = await slowFocus("raf");
+    expect(step.frameSource).toBe("raf");
+    expect(step.settleMs).toBeGreaterThan(20);
+    expect(step.status).toBe("warn");
+    expect(step.problems.join("\n")).toMatch(/settle latency .* \(limit 20 ms; rAF timing, not a gate\)/);
   });
 });
