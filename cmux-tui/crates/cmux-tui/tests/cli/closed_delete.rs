@@ -420,10 +420,33 @@ fn terminal_move_to_another_workspace_or_screen_publishes_the_focus_change() {
     let screens = ids_where(&snapshot, "screens", "workspace_id", &alpha);
     let screen_a2 = screens.into_iter().find(|id| *id != screen_a).expect("no second screen");
     let pane_a2 = ids_where(&snapshot, "panes", "screen_id", &screen_a2).remove(0);
+    state_cli(&server, None, &["screen", &screen_a, "focus"]);
     move_terminal(&server, &fresh[1], &pane_a2);
     let changes = changes_through_tab_upsert(&rx, &fresh[1]);
     let tab = serde_json::json!(fresh[1]);
     assert!(leaf_tabs(&changes, &pane_a2).unwrap().as_array().unwrap().contains(&tab));
     assert!(!leaf_tabs(&changes, &pane_a).unwrap().as_array().unwrap().contains(&tab));
     assert_eq!(upsert_of(&changes, "screen", &screen_a2)["focused"], true, "{changes:?}");
+    assert_eq!(upsert_of(&changes, "screen", &screen_a)["focused"], false, "{changes:?}");
+
+    // A move of a pane's only tab (the pane closes) sends the same focus
+    // change: a split in gamma moves into beta while alpha has focus.
+    let before = ids_where(&state_cli_topology(&server), "panes", "screen_id", &screen_g);
+    state_cli(&server, None, &["pane", &before[0], "split", "--right"]);
+    let snapshot = state_cli_topology(&server);
+    let panes = ids_where(&snapshot, "panes", "screen_id", &screen_g);
+    let pane_g2 = panes.into_iter().find(|pane| !before.contains(pane)).expect("no split pane");
+    let lone = ids_where(&snapshot, "tabs", "pane_id", &pane_g2).remove(0);
+    // The split's own delta upserts the new tab first.
+    changes_through_tab_upsert(&rx, &lone);
+    state_cli(&server, None, &["workspace", &alpha, "focus"]);
+    move_terminal(&server, &lone, &pane_b);
+    let changes = changes_through_tab_upsert(&rx, &lone);
+    assert_eq!(upsert_of(&changes, "workspace", &alpha)["focused"], false, "{changes:?}");
+    assert_eq!(upsert_of(&changes, "workspace", &beta)["focused"], true, "{changes:?}");
+    assert_eq!(upsert_of(&changes, "screen", &screen_a2)["focused"], false, "{changes:?}");
+    assert_eq!(upsert_of(&changes, "screen", &screen_b)["focused"], true, "{changes:?}");
+    let tab = serde_json::json!(lone);
+    assert!(leaf_tabs(&changes, &pane_b).unwrap().as_array().unwrap().contains(&tab));
+    assert!(leaf_tabs(&changes, &pane_g2).is_none(), "{changes:?}");
 }
