@@ -75,8 +75,18 @@ def process_table():
     return rows
 
 
+def in_bundle(cmd: str, bundle: str) -> str | None:
+    """`cmd` relative to the bundle, or None. The app runs from the real
+    path (/private/tmp/...) while its daemons keep the path it handed them
+    (/tmp/...), so both spellings count."""
+    for root in (bundle, bundle.removeprefix("/private")):
+        if cmd.startswith(root + "/"):
+            return cmd[len(root):]
+    return None
+
+
 def kind_of(cmd: str, bundle: str) -> str:
-    rel = cmd[len(bundle):] if cmd.startswith(bundle) else cmd
+    rel = in_bundle(cmd, bundle) or cmd
     if " Helper" in rel:
         for flag, name in (("--type=renderer", "cef-renderer"), ("--type=gpu-process", "cef-gpu"),
                            ("--type=utility", "cef-utility"), ("--type=plugin", "cef-plugin")):
@@ -105,7 +115,7 @@ def owned(app_pid: int, bundle: str):
     WebKit processes the app is responsible for."""
     found = {}
     for pid, _ppid, cmd in process_table():
-        if cmd.startswith(bundle):
+        if in_bundle(cmd, bundle) is not None:
             found[pid] = (kind_of(cmd, bundle), cmd)
         elif _responsible is not None and "com.apple.WebKit." in cmd and _responsible(pid) == app_pid:
             found[pid] = (kind_of(cmd, bundle), cmd)
@@ -211,8 +221,23 @@ def close_workspace(app: App, workspace: str):
     return response
 
 
+def wait_gone(pid: int, seconds: float) -> bool:
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        time.sleep(0.5)  # test script: waiting for the app to quit
+    return False
+
+
 def launch(bundle: str):
-    """Starts the app with a scratch HOME, TMPDIR and config; returns (process, socket, scratch)."""
+    """Starts the app with a scratch HOME, TMPDIR and config; returns (pid, socket, scratch).
+
+    Through LaunchServices (`open`), as a user's launch: the app is then the
+    responsible process of its WebKit processes. A child of this script
+    would leave them attributed to the shell that ran it."""
     binary_dir = os.path.join(bundle, "Contents/MacOS")
     binary = os.path.join(binary_dir, sorted(os.listdir(binary_dir))[0])
     if any(cmd.startswith(binary) for _, _, cmd in process_table()):
@@ -226,17 +251,21 @@ def launch(bundle: str):
     os.makedirs(env["TMPDIR"], exist_ok=True)
     dirs = ["/tmp", env["TMPDIR"]]
     before = {os.path.join(d, n) for d in dirs for n in os.listdir(d) if n.endswith(".sock")}
-    process = subprocess.Popen([binary], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    argv = ["open", "-n", "-g"] + [arg for name, value in env.items() for arg in ("--env", f"{name}={value}")]
+    subprocess.run(argv + ["-a", bundle], check=True, timeout=60)
+    pid = None
     deadline = time.monotonic() + 90
     while time.monotonic() < deadline:
+        pid = pid or next((p for p, _, cmd in process_table() if cmd.startswith(binary)), None)
         fresh = [os.path.join(d, n) for d in dirs for n in os.listdir(d)
                  if n.endswith(".sock") and n.startswith("cmux") and os.path.join(d, n) not in before]
         for path in fresh:
             app = App(bundle, path)
-            if app.ping():
-                return process, app.socket, scratch
+            if pid and app.ping():
+                return pid, app.socket, scratch
         time.sleep(1)  # test script: waiting for the launched app's socket
-    process.kill()
+    if pid:
+        os.kill(pid, signal.SIGTERM)
     raise SystemExit("bench-memory: the launched app opened no socket within 90 s")
 
 
@@ -258,14 +287,14 @@ def main():
         raise SystemExit("bench-memory: macOS only (run it on a fleet or capture mini)")
 
     bundle = os.path.realpath(args.app)
-    process = scratch = None
+    launched = scratch = None
     if args.socket:
         if not args.app_pid:
             raise SystemExit("bench-memory: --socket needs --app-pid")
         socket_path, app_pid = args.socket, args.app_pid
     else:
-        process, socket_path, scratch = launch(bundle)
-        app_pid = process.pid
+        launched, socket_path, scratch = launch(bundle)
+        app_pid = launched
     app = App(bundle, socket_path)
     recipes = args.mix.split(",")
     counts = sorted(int(n) for n in args.workspaces.split(",") if n)
@@ -319,18 +348,20 @@ def main():
     finally:
         for workspace in opened:
             close_workspace(app, workspace)
-        if process is not None:
+        if launched is not None:
             app.run("quit")
-            try:
-                process.wait(timeout=20)
-            except subprocess.TimeoutExpired:
-                process.send_signal(signal.SIGTERM)
-                process.wait(timeout=10)
+            # A quit the app holds (a confirmation) and SIGTERM can both
+            # leave it running, and a live app respawns its daemons.
+            for sig in (signal.SIGTERM, signal.SIGKILL):
+                if wait_gone(launched, 20):
+                    break
+                os.kill(launched, sig)
+            wait_gone(launched, 10)
             # The app's daemons (cmux-tui, acpmux) detach and outlive it. In
             # launch mode they run from this bundle with this run's scratch
             # HOME, so end exactly those pids.
             for pid, (kind, cmd) in owned(app_pid, bundle).items():
-                if cmd.startswith(bundle):
+                if in_bundle(cmd, bundle) is not None:
                     try:
                         os.kill(pid, signal.SIGTERM)
                     except ProcessLookupError:
