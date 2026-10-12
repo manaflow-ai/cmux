@@ -90,7 +90,15 @@ final class ConversationStore: @unchecked Sendable {
             sentAt: Date(), clientID: params.clientID
         )
         try lock.withLock {
-            guard conversations[params.conversation] != nil else { throw RPCError(code: -32040, message: "No such conversation") }
+            guard var stored = conversations[params.conversation] else { throw RPCError(code: -32040, message: "No such conversation") }
+            // A new thread takes its name from its first message, so the list
+            // isn't a column of "Chief" rows.
+            if stored.info.id != "cv_chief", stored.info.title == Self.chief.name,
+               !stored.messages.contains(where: { $0.sender == Self.me.id })
+            {
+                stored.info.title = Self.title(from: params.text)
+                conversations[params.conversation] = stored
+            }
         }
         insert(message, unread: false)
         think(conversation: params.conversation, text: params.text)
@@ -287,6 +295,14 @@ final class ConversationStore: @unchecked Sendable {
         }
         return (kept.joined(separator: "\n") + (notes.isEmpty ? "" : "\n\n" + notes.joined(separator: "\n")))
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func title(from text: String) -> String {
+        let line = text.split(whereSeparator: \.isNewline).first.map(String.init) ?? text
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard trimmed.count > 32 else { return trimmed.isEmpty ? chief.name : trimmed }
+        let cut = trimmed.prefix(32)
+        return (cut.lastIndex(of: " ").map { String(cut[..<$0]) } ?? String(cut)) + "…"
     }
 
     /// Splits a reply on blank lines, keeping fenced code together.

@@ -38,3 +38,20 @@ import Testing
         #expect(result["x"]?.stringValue == "y")
     }
 }
+
+#if os(macOS)
+@testable import CNMHost
+
+@Suite struct ChiefTests {
+    @Test func bubblesSplitOnBlankLinesButKeepCodeTogether() {
+        let reply = "First thought.\n\nSecond one.\n\n```\nline 1\n\nline 2\n```"
+        #expect(ConversationStore.bubbles(from: reply) == ["First thought.", "Second one.", "```\nline 1\n\nline 2\n```"])
+    }
+
+    @Test func titlesComeFromTheFirstMessage() {
+        #expect(ConversationStore.title(from: "Fix the login bug") == "Fix the login bug")
+        #expect(ConversationStore.title(from: "Can you check on the demo-app agent and tell me what it did?") == "Can you check on the demo-app…")
+        #expect(ConversationStore.title(from: "   ") == "Chief")
+    }
+}
+#endif
