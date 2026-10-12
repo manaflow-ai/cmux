@@ -275,11 +275,9 @@ final class PaletteContentView: NSView {
             glass.applyTheme()
             topRule.layer?.backgroundColor = Palette.separator.cgColor
             bottomRule.layer?.backgroundColor = Palette.separator.cgColor
-            let shadow = NSShadow()
-            shadow.shadowColor = Palette.shadow.withAlphaComponent(0.22)
-            shadow.shadowBlurRadius = PaletteLayout.shadowRadius
-            shadow.shadowOffset = NSSize(width: 0, height: -PaletteLayout.shadowOffset)
-            stage.shadow = shadow
+            // The one popup elevation (POLISH: subtle shadows): its own, darker and wider, made the
+            // palette heavier than every other popup.
+            stage.shadow = PopupStyle.standard.shadow()
         }
         if let editor = searchBar.field.currentEditor() as? NSTextView { applyEditorColors(editor) }
     }

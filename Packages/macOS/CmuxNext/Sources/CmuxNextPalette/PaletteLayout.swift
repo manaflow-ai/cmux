@@ -23,8 +23,6 @@ enum PaletteLayout {
     /// Transparent margin around the panel so the shadow and the open
     /// animation are never clipped by the window.
     static var shadowMargin: CGFloat { Metrics.space6 * 2 }
-    static var shadowRadius: CGFloat { Metrics.space6 + Metrics.space4 }
-    static var shadowOffset: CGFloat { Metrics.space4 }
 
     static var windowSize: CGSize {
         CGSize(width: width + 2 * shadowMargin, height: height + 2 * shadowMargin)
