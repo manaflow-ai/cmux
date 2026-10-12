@@ -96,7 +96,7 @@ final class SidebarNoticeCardView: NSView {
                 let label = NSTextField(labelWithString: "• " + line)
                 label.lineBreakMode = .byTruncatingTail
                 label.maximumNumberOfLines = 1
-                label.toolTip = line
+                label.themedToolTip = line
                 content.addSubview(label)
                 return label
             }

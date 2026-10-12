@@ -38,7 +38,6 @@ nonisolated extension ActionSurfaceCatalog {
         "palette.markWorkspaceRead": [p(.workspaceRow, .identity, 111, folder: .options)],
         "palette.markWorkspaceUnread": [p(.workspaceRow, .identity, 112, folder: .options)],
         "palette.workspaceColor": [p(.workspaceRow, .identity, 104, folder: .appearance)],
-        "palette.workspaceCustomColor": [p(.workspaceRow, .identity, 105, folder: .appearance)],
         "palette.resetWorkspaceColor": [p(.workspaceRow, .identity, 105, folder: .appearance)],
         "reconnectWorkspace": [p(.workspaceRow, .connection, 401, folder: .options)],
         "disconnectWorkspace": [p(.workspaceRow, .connection, 402, folder: .options)],

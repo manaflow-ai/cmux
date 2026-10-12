@@ -24,6 +24,7 @@ enum AgentPaneHandshakeReply {
                     handshake.promptTicket = AgentPaneHandshake.PromptTicket(promptId: issued.promptId, ticket: issued.ticket)
                 }
                 handshake.harness = seed.harness
+                if seed.showsHarnesses { handshake.harnesses = true }
                 (handshake.adopt, handshake.pastTurns) = (seed.adopt, await AgentPanePastTurn.turns(of: seed.pastChat))
             }
             // The surface holds after the chat has a session (a reload

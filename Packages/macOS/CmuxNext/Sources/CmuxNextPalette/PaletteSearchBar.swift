@@ -74,7 +74,7 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
         magnifier.isHidden = showsChips
         breadcrumb.isHidden = style != .breadcrumb || scopeChips.isEmpty
         breadcrumbLabel.stringValue = ([rootTitle] + scopeChips.map(\.title)).joined(separator: " › ")
-        breadcrumb.toolTip = scopeChips.dropLast().last.map { PaletteStrings.backTo($0.title) } ?? PaletteStrings.backTo(rootTitle)
+        breadcrumb.themedToolTip = scopeChips.dropLast().last.map { PaletteStrings.backTo($0.title) } ?? PaletteStrings.backTo(rootTitle)
         keywordHint.update(title: hint)
         field.setAccessibilityLabel(scopeChips.last.map { PaletteStrings.keywordHint($0.title) } ?? placeholder)
         field.font = Typography.search

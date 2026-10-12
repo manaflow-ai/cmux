@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextIcons
 import SwiftUI
+import CmuxNextDesign
 
 /// Connection tabs and compact inbox triage controls, driven by host callbacks.
 struct FeedInboxHeader: View {
@@ -53,12 +54,12 @@ struct FeedInboxHeader: View {
                         .renderingMode(.template)
                 }
                 .menuStyle(.borderlessButton).menuIndicator(.hidden)
-                .frame(width: 16).help(FeedStrings.filterInbox)
+                .frame(width: 16).themedHelp(FeedStrings.filterInbox)
                 Button(action: markRead) { Icon(.actionConfirm, size: Self.glyphSide) }
-                    .buttonStyle(.plain).disabled(!hasUnread).help(FeedStrings.markAllRead)
+                    .buttonStyle(.plain).disabled(!hasUnread).themedHelp(FeedStrings.markAllRead)
                 if canRefresh {
                     Button(action: refresh) { Icon(.actionReload, size: Self.glyphSide) }
-                        .buttonStyle(.plain).help(FeedStrings.refresh)
+                        .buttonStyle(.plain).themedHelp(FeedStrings.refresh)
                 }
             }
             .font(.system(size: 12)).foregroundStyle(colors.secondary)
