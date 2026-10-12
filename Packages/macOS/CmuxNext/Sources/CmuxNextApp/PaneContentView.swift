@@ -30,6 +30,8 @@ final class PaneContentView: NSView, PaneContentChrome {
         didSet { if barPosition != oldValue { updateBand() } }
     }
     private var placementObservation: Task<Void, Never>?
+    /// The pane's buttons at the strip's trailing end (`PaneContentView+Toolbar`).
+    var toolbar: PaneToolbar? { didSet { installToolbar(replacing: oldValue) } }
     /// The acting agent's name tag (`PaneContentView+AgentTag`).
     let agentTag = AgentPresenceTagView()
     private var agentTagObservation: Task<Void, Never>?
@@ -122,7 +124,9 @@ final class PaneContentView: NSView, PaneContentChrome {
         let shown = shownStripHeight
         stripView.isHidden = shown <= 0
         if !isBandActive {
-            stripView.frame = NSRect(x: 0, y: onTop ? 0 : bounds.height - shown, width: bounds.width, height: shown)
+            let tools = toolbarWidth(shown: shown)
+            stripView.frame = NSRect(x: 0, y: onTop ? 0 : bounds.height - shown, width: bounds.width - tools, height: shown)
+            toolbar?.view.frame = NSRect(x: bounds.width - tools, y: stripView.frame.minY, width: tools, height: shown)
         }
         let hostFrame = isBandActive ? bounds : NSRect(x: 0, y: onTop ? stripHeight : 0, width: bounds.width, height: contentHeight)
         reportHeaderIfChanged()
