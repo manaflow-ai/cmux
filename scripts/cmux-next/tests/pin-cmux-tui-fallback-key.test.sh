@@ -2,8 +2,9 @@
 # pin-cmux-tui.sh fallback-key: fleet suite steps (run-swift-testing-suites.sh)
 # test a head whose own tree is not published against the newest published
 # tree when the head changes no tree input. Fleet steps check out the ref
-# shallowly with no origin/feat-cmux-next ref; after #19985 landed, every such
-# step still skipped the live-daemon suites (step 1d2d7a3f2e5c, 3f3a3dc51701).
+# shallowly from the repository URL, with no origin remote and no
+# origin/feat-cmux-next ref; after #19985 and #19987 landed every such step
+# still skipped the live-daemon suites (steps 1d2d7a3f2e5c, f6276fe17989).
 # No network: a stub curl serves the CDN and origin is a local repository.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
@@ -62,14 +63,17 @@ if [[ -n "\$out" ]]; then cp "$cdn/\$path" "\$out"; else cat "$cdn/\$path"; fi
 STUB
 chmod +x "$TMP/bin/curl"
 
-fallback() { # <commit>: a fleet-style checkout (depth 1, no branch refs) -> $out, $status
+fallback() { # <commit>: a fleet-style checkout -> $out, $status
+  # As the fleet worker makes it: git init, then a depth-1 fetch of the commit
+  # from the repository URL, so no origin remote and no branch refs.
   local dir="$TMP/checkout-$1"
   git_q init "$dir"
-  git_q -C "$dir" remote add origin "file://$src"
-  git_q -C "$dir" fetch --depth 1 origin "$1"
+  git_q -C "$dir" fetch --depth 1 "file://$src" "$1"
   git_q -C "$dir" checkout --detach FETCH_HEAD
   status=0
   out=$(cd "$dir" && env -u GITHUB_STEP_SUMMARY -u GITHUB_OUTPUT PATH="$TMP/bin:$PATH" \
+    CMUX_TUI_TREE_FALLBACK_REMOTE="file://$src" GIT_CONFIG_COUNT=1 \
+    GIT_CONFIG_KEY_0=protocol.file.allow GIT_CONFIG_VALUE_0=always \
     bash scripts/cmux-next/pin-cmux-tui.sh fallback-key 2>"$TMP/err") || status=$?
   err=$(cat "$TMP/err")
 }
