@@ -1,10 +1,26 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
 
-process.env.SKIP_ENV_VALIDATION = "1";
-process.env.NEXT_PUBLIC_STACK_PROJECT_ID = "00000000-0000-4000-8000-0000000000aa";
-process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY = "pck_test";
-process.env.STACK_SECRET_SERVER_KEY = "ssk_test";
-process.env.STACK_API_BASE_URL = "https://stack.test";
+const ENV_KEYS = [
+  "SKIP_ENV_VALIDATION",
+  "NEXT_PUBLIC_STACK_PROJECT_ID",
+  "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY",
+  "STACK_SECRET_SERVER_KEY",
+  "STACK_API_BASE_URL",
+] as const;
+const savedEnv = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
+Object.assign(process.env, {
+  SKIP_ENV_VALIDATION: "1",
+  NEXT_PUBLIC_STACK_PROJECT_ID: "00000000-0000-4000-8000-0000000000aa",
+  NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: "pck_test",
+  STACK_SECRET_SERVER_KEY: "ssk_test",
+  STACK_API_BASE_URL: "https://stack.test",
+});
+afterAll(() => {
+  for (const key of ENV_KEYS) {
+    if (savedEnv[key] === undefined) delete process.env[key];
+    else process.env[key] = savedEnv[key];
+  }
+});
 
 const { defaultTeamStackApp } = await import("../services/teams/stack");
 const { listReceivedInvitations } = await import("../services/teams/received");

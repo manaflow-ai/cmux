@@ -44,12 +44,12 @@ mock.module("../services/vms/workflows", () => ({
 
 // No pending Stack session revocations in these cases.
 mock.module("../services/vms/stackSessionRevocationStore", () => ({
+  deleteStackSessionRevocationsForUser: async () => {},
   databaseStackSessionRevocationStore: () => ({
-    enqueue: async () => {},
-    listDue: async () => [],
+    claimDue: async () => [],
     listOpen: async () => [],
     markRevoked: async () => {},
-    markFailed: async () => {},
+    recordFailure: async () => null,
   }),
 }));
 

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { StackServerApp } from "@hexclave/js";
 
 import {
@@ -48,12 +48,22 @@ describe("Stack throttle fetch guard", () => {
     const recorded: Recorded[] = [];
     globalThis.fetch = throttlingFetch(recorded);
     installStackThrottleFetchGuard(globalThis, PROJECT_ID);
-    const started = performance.now();
-    const failure = await app().getUser("00000000-0000-4000-8000-000000000002").then(
-      () => null,
-      (error: unknown) => error,
-    );
-    expect(performance.now() - started).toBeLessThan(500);
+    // The SDK logs "Rate limited while sending request ..." exactly when it
+    // enters its Retry-After wait; that branch must never run.
+    const logged: string[] = [];
+    const consoleLog = spyOn(console, "log").mockImplementation((...args: unknown[]) => {
+      logged.push(args.map(String).join(" "));
+    });
+    let failure: unknown;
+    try {
+      failure = await app().getUser("00000000-0000-4000-8000-000000000002").then(
+        () => null,
+        (error: unknown) => error,
+      );
+    } finally {
+      consoleLog.mockRestore();
+    }
+    expect(logged.filter((line) => line.includes("Rate limited"))).toEqual([]);
     expect(recorded.filter((call) => call.url.includes("/users/"))).toHaveLength(1);
     expect(hasAuthRateLimitSignal(failure)).toBe(true);
   });

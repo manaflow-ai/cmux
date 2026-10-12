@@ -416,7 +416,6 @@ describe("after sign-in native handoff", () => {
     const throttled = Object.assign(new Error("Stack Auth rate limited"), { status: 429 });
     for (const [language, title] of [["en", "Sign-in is busy"], ["ja", "サインインが混み合っています"]] as const) {
       getUserResponses = [throttled];
-      const createSession = mock(async () => ({ getTokens: async () => ({}) }));
       const request = signInRequest("cmux://auth-callback", "nonce-1");
       request.headers.set("accept-language", language);
       const response = await GET(request);
@@ -429,7 +428,6 @@ describe("after sign-in native handoff", () => {
       const retry = html.match(/<a href="([^"]+)">/)?.[1]?.replaceAll("&amp;", "&");
       expect(retry).toBe(`${request.nextUrl.pathname}${request.nextUrl.search}`);
       // Nothing ran against the old cookie session.
-      expect(createSession).not.toHaveBeenCalled();
       expect(promoteVerifiedAnonymousUser).not.toHaveBeenCalled();
       expect(claimVerifiedBilling).not.toHaveBeenCalled();
       expect(response.headers.get("location")).toBeNull();
