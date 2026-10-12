@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import Foundation
 import SwiftUI
 import Testing
@@ -76,6 +77,48 @@ extension AgentNotificationRegressionTests {
         #expect(posted.first?.title == "Claude Code")
         #expect(posted.first?.subtitle == "Error")
         #expect(posted.first?.body == "Provider exited 3")
+    }
+
+    @Test("Stopping or closing an agent session posts no error")
+    func stoppingOrClosingAnAgentSessionPostsNoError() async throws {
+        let agent = try FakeClaudeExecutable(script: """
+        while IFS= read -r line; do
+          printf '%s\\n' '{"type":"content_block_delta","delta":{"type":"text_delta","text":"Done."}}'
+          printf '%s\\n' '{"type":"result","subtype":"success","result":"Done."}'
+        done
+        """)
+        defer { agent.restore() }
+        let store = AgentSessionProcessStore()
+        defer { store.closeAll() }
+        var notices: [AgentSessionTurnNotifier.Notice] = []
+        var exits: [String] = []
+        let notifier = AgentSessionTurnNotifier(
+            surfaceID: UUID(), workspaceID: { UUID() }, workingDirectory: { nil },
+            deliver: { notices.append($0) }
+        )
+        store.eventSink = { event in
+            notifier.observe(event)
+            if event["type"] as? String == "provider.exit" { exits.append("\(event["status"] ?? "")") }
+        }
+        let executable = agent.project.appendingPathComponent("claude", isDirectory: false)
+        let plan = AgentSessionLaunchPlan(
+            provider: .claude, executableURL: executable, arguments: [], environment: ProcessInfo.processInfo.environment
+        )
+        // Stop (the panel's Stop button), then closing the panel (closeAll), each after a finished turn.
+        let closes: [(String) -> Void] = [{ _ = try? store.stop(sessionId: $0) }, { _ in store.closeAll() }]
+        for close in closes {
+            let started = try await store.start(plan: plan, workingDirectory: agent.project.path)
+            let before = (notices.count, exits.count)
+            try await store.writeLine(sessionId: started.sessionId, text: "Say done")
+            let deadline = ContinuousClock.now + .seconds(10)
+            while notices.count == before.0, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(20)) }
+            close(started.sessionId)
+            while exits.count == before.1, ContinuousClock.now < deadline + .seconds(10) {
+                try? await Task.sleep(for: .milliseconds(20))
+            }
+            #expect(exits.count == before.1 + 1, "the agent exited")
+        }
+        #expect(notices.map(\.category) == [.turnComplete, .turnComplete], "\(notices.map(\.body)); exits \(exits)")
     }
 
     @Test("An agent session reports a Claude turn while the agent keeps running")
