@@ -8,7 +8,8 @@ struct CmuxNativeApp: App {
     var body: some Scene {
         WindowGroup {
             RootView(app: app)
-                .preferredColorScheme(appearance == "light" ? .light : appearance == "dark" ? .dark : nil)
+                // Sign-in is always dark (like Claude/ChatGPT/Grok launch screens).
+                .preferredColorScheme(app.phase != .ready ? .dark : appearance == "light" ? .light : appearance == "dark" ? .dark : nil)
                 .task { await app.launch() }
         }
     }

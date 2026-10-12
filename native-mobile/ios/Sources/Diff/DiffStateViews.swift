@@ -90,7 +90,7 @@ struct DiffStatBar: View {
     var additions: Int
     var deletions: Int
 
-    static func blocks(additions: Int, deletions: Int) -> (add: Int, del: Int) {
+    nonisolated static func blocks(additions: Int, deletions: Int) -> (add: Int, del: Int) {
         let total = additions + deletions
         guard total > 0 else { return (0, 0) }
         var add = Int((Double(additions) / Double(total) * 5).rounded())

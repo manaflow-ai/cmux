@@ -49,12 +49,16 @@ final class TerminalSession {
         if client == nil {
             attach(cols: cols, rows: rows)
         } else {
-            Task { [weak self] in
-                guard let self, let client = self.client else { return }
-                _ = try? await client.request("resize-surface", [
-                    "surface": .number(Double(self.surfaceID)), "cols": .number(Double(cols)), "rows": .number(Double(rows)),
-                ])
-            }
+            resize(to: (cols, rows))
+        }
+    }
+
+    private func resize(to size: (cols: Int, rows: Int)) {
+        Task { [weak self] in
+            guard let self, let client = self.client else { return }
+            _ = try? await client.request("resize-surface", [
+                "surface": .number(Double(self.surfaceID)), "cols": .number(Double(size.cols)), "rows": .number(Double(size.rows)),
+            ])
         }
     }
 
@@ -105,6 +109,9 @@ final class TerminalSession {
         case "vt-state":
             applyReplay(payload, key: "data")
             phase = .live
+            // The daemon may ignore the attach size (no attach-initial-size):
+            // claim the phone's grid explicitly.
+            if let requestedSize, requestedSize != (cols, rows) { resize(to: requestedSize) }
         case "resized":
             applyReplay(payload, key: payload["replay"] != nil ? "replay" : "data")
         case "output":

@@ -92,11 +92,11 @@ final class GhosttySurfaceView: UIView {
 
     /// Cell size in points (nil before the surface exists).
     var cellSize: CGSize? {
-        guard let surface, let window else { return nil }
+        guard let surface, window != nil else { return nil }
         var metrics = ghostty_surface_grid_metrics_s()
         guard ghostty_surface_grid_metrics(surface, &metrics), metrics.cell_height > 0 else { return nil }
-        let scale = window.screen.scale
-        return CGSize(width: metrics.cell_width / scale, height: metrics.cell_height / scale)
+        // Grid metrics are in points (the content scale is already applied).
+        return CGSize(width: metrics.cell_width, height: metrics.cell_height)
     }
 
     /// How many cells fit a size in points.

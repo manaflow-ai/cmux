@@ -4,7 +4,7 @@ import Foundation
 /// headings, paragraphs, fenced code, block quotes, lists (with task
 /// boxes), rules, pipe tables, and inline code/bold/italic/strike/links.
 /// Raw HTML in the source is escaped, never executed.
-enum MarkdownHTML {
+enum FilePreviewMarkdown {
     static func page(markdown: String) -> String {
         document(body: render(markdown))
     }

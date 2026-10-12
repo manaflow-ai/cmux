@@ -79,9 +79,16 @@ struct DaemonTab: Decodable, Sendable, Hashable, Identifiable {
     var id: Int { surface }
     var isTerminal: Bool { kind == nil || kind == "pty" || kind == "remote-terminal" }
     var displayTitle: String {
+        // Shells title themselves `user@host:dir`; the folder says more.
+        if let title, !title.isEmpty, !Self.isPromptTitle(title) { return title }
+        if let short = shortCwd { return short == "~" ? "~" : String(short.split(separator: "/").last ?? Substring(short)) }
         if let title, !title.isEmpty { return title }
         if let name, !name.isEmpty { return name }
         return "Terminal \(surface)"
+    }
+
+    static func isPromptTitle(_ title: String) -> Bool {
+        title.range(of: #"^[\w.-]+@[\w.-]+"#, options: .regularExpression) != nil
     }
 
     /// `~/code/cmux` for a cwd under the home directory.

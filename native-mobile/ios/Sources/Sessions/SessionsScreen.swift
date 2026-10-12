@@ -88,8 +88,6 @@ struct SessionsScreen: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Theme.background)
         .refreshable { await connection.refresh() }
         .overlay {
             if connection.workspaces.isEmpty {

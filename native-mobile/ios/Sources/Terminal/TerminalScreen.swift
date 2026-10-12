@@ -62,6 +62,7 @@ struct TerminalScreen: View {
             }
         }
         .toolbarColorScheme(.dark, for: .navigationBar)
+        .toolbarVisibility(.hidden, for: .tabBar)
         .preferredColorScheme(.dark)
         .sheet(isPresented: $showFiles) {
             NavigationStack {

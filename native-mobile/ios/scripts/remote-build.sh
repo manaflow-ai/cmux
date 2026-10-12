@@ -11,9 +11,9 @@ rsync -az --delete --exclude .build --exclude 'node_modules' --exclude '*.xcuser
   "$ROOT/native-mobile/" "$HOST:$REMOTE/native-mobile/"
 rsync -az --delete "$ROOT/Packages/Shared/CmuxGhosttyKit/" "$HOST:$REMOTE/Packages/Shared/CmuxGhosttyKit/"
 case "$MODE" in
-  sim) DEST='generic/platform=iOS Simulator'; ACTION=build; EXTRA=(CODE_SIGNING_ALLOWED=NO) ;;
+  sim) DEST='generic/platform=iOS Simulator'; ACTION=build; EXTRA=(CODE_SIGNING_ALLOWED=NO ARCHS=arm64) ;;
   device) DEST='generic/platform=iOS'; ACTION=build; EXTRA=(-allowProvisioningUpdates) ;;
-  test) DEST="platform=iOS Simulator,name=${CMUX_NATIVE_SIM:-iPhone 17 Pro}"; ACTION=test; EXTRA=(CODE_SIGNING_ALLOWED=NO) ;;
+  test) DEST="platform=iOS Simulator,name=${CMUX_NATIVE_SIM:-iPhone 17 Pro}"; ACTION=test; EXTRA=(CODE_SIGNING_ALLOWED=NO ARCHS=arm64) ;;
 esac
 ssh "$HOST" "cd $REMOTE/native-mobile/ios && xcodebuild -project CmuxNative.xcodeproj -scheme CmuxNative \
   -destination '$DEST' -derivedDataPath ~/cmux-native/dd-ios ${EXTRA[*]} $ACTION 2>&1 \

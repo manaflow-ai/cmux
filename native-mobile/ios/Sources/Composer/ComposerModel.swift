@@ -63,7 +63,7 @@ final class ComposerModel {
                 }
             }
         }
-        var message = text.trimmingCharacters(in: .newlines)
+        var message = Self.plainPunctuation(text.trimmingCharacters(in: .newlines))
         if !paths.isEmpty {
             let quoted = paths.map { $0.contains(" ") ? "'\($0)'" : $0 }.joined(separator: " ")
             message = message.isEmpty ? quoted : message + " " + quoted
@@ -78,6 +78,15 @@ final class ComposerModel {
         attachments = []
         Haptics.tap()
         return true
+    }
+
+    /// iOS smart punctuation turns `--` into an em dash and quotes into
+    /// curly ones; a shell needs the ASCII originals.
+    static func plainPunctuation(_ text: String) -> String {
+        text.replacingOccurrences(of: "\u{2014}", with: "--")
+            .replacingOccurrences(of: "\u{2013}", with: "--")
+            .replacingOccurrences(of: "\u{201C}", with: "\"").replacingOccurrences(of: "\u{201D}", with: "\"")
+            .replacingOccurrences(of: "\u{2018}", with: "'").replacingOccurrences(of: "\u{2019}", with: "'")
     }
 
     static func thumbnail(for data: Data, maxPixel: CGFloat = 240) -> Data? {

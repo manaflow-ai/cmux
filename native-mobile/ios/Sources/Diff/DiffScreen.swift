@@ -44,14 +44,15 @@ struct DiffScreen: View {
         let services = services
         let path = path
         let scope = scope
+        let contextLoader: (@Sendable (String) async throws -> String)? = scope == .staged ? nil : { @Sendable relative in
+            let root = await services.repoRoot(cwd: cwd)
+            let data = try await services.read(path: DiffPaths.join(root, relative)).data
+            return String(decoding: data, as: UTF8.self)
+        }
         DiffView(
             loader: { try await services.gitDiffText(cwd: cwd, path: path, scope: scope) },
             title: path.map { ($0 as NSString).lastPathComponent } ?? scope.title,
-            contextLoader: scope == .staged ? nil : { relative in
-                let root = await services.repoRoot(cwd: cwd)
-                let data = try await services.read(path: DiffPaths.join(root, relative)).data
-                return String(decoding: data, as: UTF8.self)
-            },
+            contextLoader: contextLoader,
             onOpenFile: { relative in
                 Task {
                     let root = await services.repoRoot(cwd: cwd)
