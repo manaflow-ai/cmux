@@ -48,6 +48,8 @@ final class CloudService {
     @ObservationIgnored var move = CloudMoveSetup()
     /// What Retry does for each chat whose move stopped.
     @ObservationIgnored let moveRetries = CloudMoveRetries()
+    /// What Retry does for each machine chat whose Bring Back Local stopped, by its tab there.
+    @ObservationIgnored let bringBackRetries = CloudMoveRetries()
 
     init(machines: MachineRegistry, isDebugBuild: Bool) {
         self.machines = machines

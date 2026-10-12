@@ -306,7 +306,7 @@ struct CloudMoveTests {
 
     /// A Cloud machine whose link this test replaces: its daemon is started on the second
     /// daemon's socket, so the link process never runs.
-    private static func machine(_ services: AppServices, cli: URL, root: URL) -> CloudMachineSession {
+    static func machine(_ services: AppServices, cli: URL, root: URL) -> CloudMachineSession {
         let paths = CloudPaths(root: root.appendingPathComponent("cloud", isDirectory: true))
         let api = services.cloud.api
         let hub = CloudTunnelHub(api: api, paths: paths, binary: cli, deviceName: "cn-move-test")
@@ -315,7 +315,7 @@ struct CloudMoveTests {
     }
 
     /// Ends `daemon`'s connection and its daemon with its terminals, so no host outlives the test.
-    private static func end(_ daemon: DaemonService) async {
+    static func end(_ daemon: DaemonService) async {
         guard let connection = daemon.connection else { return }
         daemon.shutdownConnection()
         await connection.close()
