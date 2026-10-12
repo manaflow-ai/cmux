@@ -18,6 +18,7 @@ extension CanvasRootView {
             minimapAccessibilityHelp: minimapAccessibilityHelp,
             callbacks: callbacks,
             themeProvider: themeProvider,
+            themeChangeSignals: themeChangeSignals,
             minimapClock: ContinuousClock()
         )
     }

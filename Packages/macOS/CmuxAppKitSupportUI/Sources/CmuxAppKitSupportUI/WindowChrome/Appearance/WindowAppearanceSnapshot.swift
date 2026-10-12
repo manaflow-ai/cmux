@@ -346,11 +346,18 @@ public struct WindowAppearanceSnapshot {
     /// Whether content laid over the window root, such as canvas mode's
     /// scroll view, document and panes, should stay clear so the window
     /// backdrop shows through, as it does behind split mode's panes.
+    ///
+    /// This reads the same ``backdropPlan(glassEffectAvailable:windowBackgroundPolicy:)``
+    /// the window applies, so Reduce Transparency and window glass give
+    /// every layout mode the same answer.
     public func showsWindowBackdrop(
         glassEffectAvailable: Bool,
         windowBackgroundPolicy: WindowBackgroundPolicy
     ) -> Bool {
-        terminalBackgroundOpacity < 0.999
+        backdropPlan(
+            glassEffectAvailable: glassEffectAvailable,
+            windowBackgroundPolicy: windowBackgroundPolicy
+        ).hostingPhase != .opaqueWindowFill
     }
 
     private func opaqueWindowFillPlan(rootPolicy: WindowBackdropPolicy) -> WindowBackdropPlan {
