@@ -699,6 +699,11 @@ impl Surface {
         if !initial_color_delta.is_empty() {
             term.vt_write(&initial_color_delta);
         }
+        // After the replay, whose prompt marks would end transient records:
+        // the host's records are what the programs last reported.
+        if let Some(program_status) = snapshot.program_status.clone() {
+            terminal_metadata.restore_program_status(program_status);
+        }
         let initial_color_revision = term.color_revision();
         let initial_cursor_activity = term.cursor_activity().ok();
         let title = term.title().unwrap_or_default();

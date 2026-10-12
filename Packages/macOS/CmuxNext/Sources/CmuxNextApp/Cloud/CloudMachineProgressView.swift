@@ -61,6 +61,7 @@ final class CloudMachineProgressView: NSView {
         detailLabel.font = Typography.body
         detailLabel.alignment = .center
         detailLabel.isSelectable = true
+        detailLabel.focusRingType = .none
         detailLabel.maximumNumberOfLines = 8
         typingLabel.font = Typography.caption
         typingLabel.alignment = .center

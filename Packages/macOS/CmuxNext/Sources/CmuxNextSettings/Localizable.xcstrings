@@ -83690,6 +83690,530 @@
           }
         }
       }
+    },
+    "settings.palette.aliases": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command Aliases"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أسماء بديلة للأوامر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aliasi naredbi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kommandoaliasser"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Befehlsaliasse"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alias de comandos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alias de commandes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alias dei comandi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドのエイリアス"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឈ្មោះហៅក្រៅនៃពាក្យបញ្ជា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "명령 별칭"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kommandoaliaser"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aliasy poleceń"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apelidos de comandos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Псевдонимы команд"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ชื่อแทนคำสั่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komut Takma Adları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Псевдоніми команд"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bí danh lệnh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "命令别名"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "指令別名"
+          }
+        }
+      }
+    },
+    "settings.palette.aliases.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A word that names a command by its action id (\"vs\": \"splitRight\"). Typing the whole word in the command palette puts that command first."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كلمة تسمّي أمرًا بمعرّف إجرائه (\"vs\": \"splitRight\"). كتابة الكلمة كاملة في لوحة الأوامر تضع ذلك الأمر أولًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riječ koja imenuje naredbu po ID-u njene radnje (\"vs\": \"splitRight\"). Kucanje cijele riječi u paleti naredbi stavlja tu naredbu na prvo mjesto."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et ord, der navngiver en kommando ud fra dens handlings-id (\"vs\": \"splitRight\"). Når hele ordet skrives i kommandopaletten, kommer den kommando først."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Wort, das einen Befehl über seine Aktions-ID benennt (\"vs\": \"splitRight\"). Wird das ganze Wort in der Befehlspalette eingegeben, steht dieser Befehl ganz oben."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una palabra que nombra un comando por su ID de acción (\"vs\": \"splitRight\"). Al escribir la palabra completa en la paleta de comandos, ese comando aparece primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un mot qui désigne une commande par son identifiant d’action (\"vs\": \"splitRight\"). Taper le mot entier dans la palette de commandes place cette commande en premier."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una parola che indica un comando tramite il suo ID azione (\"vs\": \"splitRight\"). Digitando la parola intera nella palette dei comandi, quel comando appare per primo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクションIDでコマンドを指す単語です（\"vs\": \"splitRight\"）。コマンドパレットで単語全体を入力すると、そのコマンドが先頭に表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពាក្យដែលដាក់ឈ្មោះពាក្យបញ្ជាតាមលេខសម្គាល់សកម្មភាពរបស់វា (\"vs\": \"splitRight\")។ ការវាយពាក្យទាំងមូលក្នុងផ្ទាំងពាក្យបញ្ជា ដាក់ពាក្យបញ្ជានោះនៅខាងដើម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 ID로 명령을 가리키는 단어입니다(\"vs\": \"splitRight\"). 명령 팔레트에 단어 전체를 입력하면 그 명령이 맨 위에 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et ord som navngir en kommando etter handlings-ID-en (\"vs\": \"splitRight\"). Skriver du hele ordet i kommandopaletten, kommer den kommandoen først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Słowo, które nazywa polecenie przez identyfikator jego akcji (\"vs\": \"splitRight\"). Wpisanie całego słowa w palecie poleceń stawia to polecenie na początku."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma palavra que nomeia um comando pelo ID da ação (\"vs\": \"splitRight\"). Digitar a palavra inteira na paleta de comandos coloca esse comando em primeiro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Слово, которое называет команду по идентификатору её действия (\"vs\": \"splitRight\"). Если ввести слово целиком в палитре команд, эта команда окажется первой."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำที่ใช้เรียกคำสั่งตามรหัสการทำงาน (\"vs\": \"splitRight\") การพิมพ์คำนั้นเต็มคำในแผงคำสั่งจะทำให้คำสั่งนั้นขึ้นเป็นอันดับแรก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir komutu eylem kimliğiyle adlandıran sözcük (\"vs\": \"splitRight\"). Sözcüğün tamamını komut paletine yazmak o komutu en üste getirir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Слово, що називає команду за ідентифікатором її дії (\"vs\": \"splitRight\"). Якщо ввести слово повністю в палітрі команд, ця команда буде першою."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một từ đặt tên cho lệnh theo ID hành động của nó (\"vs\": \"splitRight\"). Gõ toàn bộ từ trong bảng lệnh sẽ đưa lệnh đó lên đầu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通过操作 ID 指代命令的词（\"vs\": \"splitRight\"）。在命令面板中输入完整的词会将该命令排在最前。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以動作 ID 指稱指令的詞（\"vs\": \"splitRight\"）。在指令面板中輸入完整的詞，會將該指令排在最前面。"
+          }
+        }
+      }
+    },
+    "settings.palette.pins": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pinned Commands"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الأوامر المثبتة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikačene naredbe"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fastgjorte kommandoer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angeheftete Befehle"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comandos fijados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commandes épinglées"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comandi fissati"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ピン留めしたコマンド"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពាក្យបញ្ជាដែលបានខ្ទាស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "고정된 명령"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Festede kommandoer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przypięte polecenia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comandos fixados"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закреплённые команды"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำสั่งที่ปักหมุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sabitlenmiş Komutlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закріплені команди"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lệnh đã ghim"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已固定的命令"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已釘選的指令"
+          }
+        }
+      }
+    },
+    "settings.palette.pins.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commands shown first when the command palette opens, in this order, by action id."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الأوامر التي تظهر أولًا عند فتح لوحة الأوامر، بهذا الترتيب، حسب معرّف الإجراء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Naredbe prikazane prve kada se otvori paleta naredbi, ovim redom, po ID-u radnje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kommandoer, der vises først, når kommandopaletten åbnes, i denne rækkefølge, efter handlings-id."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Befehle, die beim Öffnen der Befehlspalette zuerst erscheinen, in dieser Reihenfolge, nach Aktions-ID."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comandos que aparecen primero al abrir la paleta de comandos, en este orden, por ID de acción."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commandes affichées en premier à l’ouverture de la palette de commandes, dans cet ordre, par identifiant d’action."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comandi mostrati per primi all’apertura della palette dei comandi, in quest’ordine, per ID azione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドパレットを開いたときに最初に表示するコマンド（この順序、アクションIDで指定）。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពាក្យបញ្ជាដែលបង្ហាញមុនគេនៅពេលបើកផ្ទាំងពាក្យបញ្ជា តាមលំដាប់នេះ តាមលេខសម្គាល់សកម្មភាព។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "명령 팔레트를 열 때 이 순서대로 먼저 표시할 명령(작업 ID)."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kommandoer som vises først når kommandopaletten åpnes, i denne rekkefølgen, etter handlings-ID."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Polecenia wyświetlane jako pierwsze po otwarciu palety poleceń, w tej kolejności, według identyfikatora akcji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comandos mostrados primeiro quando a paleta de comandos abre, nesta ordem, por ID da ação."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Команды, которые показываются первыми при открытии палитры команд, в этом порядке, по идентификатору действия."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำสั่งที่แสดงก่อนเมื่อเปิดแผงคำสั่ง ตามลำดับนี้ ตามรหัสการทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komut paleti açıldığında ilk gösterilen komutlar, bu sırayla, eylem kimliğine göre."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Команди, які показуються першими під час відкриття палітри команд, у цьому порядку, за ідентифікатором дії."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các lệnh hiển thị đầu tiên khi mở bảng lệnh, theo thứ tự này, theo ID hành động."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开命令面板时最先显示的命令，按此顺序，以操作 ID 指定。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟指令面板時最先顯示的指令，依此順序，以動作 ID 指定。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

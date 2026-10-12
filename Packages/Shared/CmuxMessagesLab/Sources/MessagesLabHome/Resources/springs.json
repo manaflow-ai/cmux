@@ -1767,5 +1767,113 @@
     "send-typed-take1"
    ]
   }
+ },
+ "bubble.right.oneLineMac": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "px@2x",
+  "from": 1154.0,
+  "to": 1215.0,
+  "components": [
+   {
+    "delay": 0.0023,
+    "duration": 0.5395,
+    "bounce": 0.3178,
+    "delta": 61.0
+   }
+  ],
+  "frames": 29,
+  "droppedTorn": [],
+  "fit7": {
+   "date": "2026-10-12",
+   "os": "macOS 27 only (Springs.Bubble on macOS and Mac Catalyst); iOS keeps .oneLine",
+   "method": "cx-3cb bubble-refit: fit7.py s1 r:delay,w:delay,w:share,cy:delay,cy:dur,sc:delay,sc:depth = 0.7,-0.26,1.29,4.76,2.15,3.85,-2.26 (ms, %, ms, ms, %, ms, %) from the macOS 27 elements a 1-line draft used before (.oneLine where it existed, else the base), on the four 1-line lossless send references, the bubshift3 vertex shift per edge, model first frame 15.8 ms"
+  }
+ },
+ "bubble.width.oneLineMac": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "px@2x",
+  "from": 1052.0,
+  "to": 300.0,
+  "components": [
+   {
+    "delay": -0.0041,
+    "duration": 0.4317,
+    "bounce": 0.2347,
+    "delta": -383.6218
+   },
+   {
+    "delay": 0.0794,
+    "duration": 0.2204,
+    "bounce": 0.397,
+    "delta": -368.3782
+   }
+  ],
+  "frames": 30,
+  "droppedTorn": [],
+  "fit7": {
+   "date": "2026-10-12",
+   "os": "macOS 27 only (Springs.Bubble on macOS and Mac Catalyst); iOS keeps .oneLine",
+   "method": "cx-3cb bubble-refit: fit7.py s1 r:delay,w:delay,w:share,cy:delay,cy:dur,sc:delay,sc:depth = 0.7,-0.26,1.29,4.76,2.15,3.85,-2.26 (ms, %, ms, ms, %, ms, %) from the macOS 27 elements a 1-line draft used before (.oneLine where it existed, else the base), on the four 1-line lossless send references, the bubshift3 vertex shift per edge, model first frame 15.8 ms"
+  }
+ },
+ "bubble.centerY.oneLineMac": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "px@2x",
+  "from": 1997.0,
+  "to": 1904.0,
+  "components": [
+   {
+    "delay": 0.0521,
+    "duration": 0.5428,
+    "bounce": 0.2681,
+    "delta": -93.0
+   }
+  ],
+  "frames": 29,
+  "droppedTorn": [
+   4.6833,
+   4.7,
+   4.8
+  ],
+  "fit7": {
+   "date": "2026-10-12",
+   "os": "macOS 27 only (Springs.Bubble on macOS and Mac Catalyst); iOS keeps .oneLine",
+   "method": "cx-3cb bubble-refit: fit7.py s1 r:delay,w:delay,w:share,cy:delay,cy:dur,sc:delay,sc:depth = 0.7,-0.26,1.29,4.76,2.15,3.85,-2.26 (ms, %, ms, ms, %, ms, %) from the macOS 27 elements a 1-line draft used before (.oneLine where it existed, else the base), on the four 1-line lossless send references, the bubshift3 vertex shift per edge, model first frame 15.8 ms"
+  }
+ },
+ "bubble.scale.oneLineMac": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "scale",
+  "from": 1.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0181,
+    "duration": 0.4298,
+    "bounce": 0.4773,
+    "delta": -0.324008
+   },
+   {
+    "delay": 0.1009,
+    "duration": 0.5175,
+    "bounce": 0.082,
+    "delta": 0.324008
+   }
+  ],
+  "frames": 36,
+  "droppedTorn": [
+   4.7667,
+   4.7833,
+   4.8167
+  ],
+  "fit7": {
+   "date": "2026-10-12",
+   "os": "macOS 27 only (Springs.Bubble on macOS and Mac Catalyst); iOS keeps .oneLine",
+   "method": "cx-3cb bubble-refit: fit7.py s1 r:delay,w:delay,w:share,cy:delay,cy:dur,sc:delay,sc:depth = 0.7,-0.26,1.29,4.76,2.15,3.85,-2.26 (ms, %, ms, ms, %, ms, %) from the macOS 27 elements a 1-line draft used before (.oneLine where it existed, else the base), on the four 1-line lossless send references, the bubshift3 vertex shift per edge, model first frame 15.8 ms"
+  }
  }
 }

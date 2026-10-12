@@ -201,14 +201,20 @@ enum Springs {
     static var bubbleCenterY: SpringElement { osElement("bubble.centerY") }
     static var bubbleScale: SpringElement { osElement("bubble.scale") }
     /// The send morph's elements for one send (macOS 27): after a draft that shrinks the field, the
-    /// `.fieldShrink` fits (refit3, cx-3cb.6); after a 1-line draft, the `.oneLine` fits where they
-    /// exist (`bubble.width`, `bubble.right`: refit4, ANIMATIONS.md section 1); else the elements above.
+    /// `.fieldShrink` fits (refit3, cx-3cb.6); after a 1-line draft, on macOS and Mac Catalyst the
+    /// `.oneLineMac` fits (right, width, centerY, scale: fit7, cx-3cb bubble-refit), on iOS the `.oneLine`
+    /// fits where they exist (`bubble.width`, `bubble.right`: refit4, ANIMATIONS.md section 1); else the elements above.
     /// macOS 26: the elements above. (gpui and rawmath read the base elements for every send.)
     struct Bubble {
         var right, width, centerY, scale, opacity: SpringElement
         init(fieldShrinks: Bool) {
             func e(_ n: String, _ base: SpringElement) -> SpringElement {
                 guard !ComposeMetrics.macOS26 else { return base }
+                // macOS 27, 1-line draft: the `.oneLineMac` fit (four elements, fit7 on the four 1-line
+                // send references, ANIMATIONS.md section 1 "1-line seven-reference fit"). iOS keeps `.oneLine`.
+                #if os(macOS) || targetEnvironment(macCatalyst)
+                if !fieldShrinks, let mac = Springs.all[n + ".oneLineMac"] { return mac }
+                #endif
                 return Springs.all[n + (fieldShrinks ? ".fieldShrink" : ".oneLine")] ?? base
             }
             right = e("bubble.right", Springs.bubbleRight); width = e("bubble.width", Springs.bubbleWidth)

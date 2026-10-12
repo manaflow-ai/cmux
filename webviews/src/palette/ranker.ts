@@ -83,6 +83,14 @@ export interface PaletteRankRequest {
   keepsSectionOrder?: boolean;
   ranksPrefixFirst?: boolean;
   recentLimit?: number;
+  /** The user's aliases (cmux.json `palette.aliases`): action id to words. A query that is one of
+   *  a row's words puts that row first, over any match and any learned pick. */
+  aliases?: Record<string, readonly string[]>;
+  /** The user's pinned action ids (cmux.json `palette.pins`), shown first on the empty query in
+   *  this order, before Recent. */
+  pins?: readonly string[];
+  /** The section the pinned rows show in (Pinned). */
+  pinnedSectionIndex?: number | null;
   rowLimit?: number;
   highlightLimit?: number;
 }
@@ -765,6 +773,22 @@ export function rankPaletteEmpty(request: Omit<PaletteRankRequest, "operation">)
   const recentLimit = request.recentLimit ?? 5;
   const recent = new Set<number>();
   const sections: PaletteRankedSection[] = [];
+  // Pinned: the user's pins in their order, first. A pin is the user's own choice, so it shows
+  // even when the row is hidden, disabled or kept out of the empty query.
+  if (request.showsRecent && request.pins?.length) {
+    const positionByAction = new Map<string, number>();
+    entries.forEach((entry, index) => {
+      if (entry.actionID && !positionByAction.has(entry.actionID)) positionByAction.set(entry.actionID, index);
+    });
+    const rows = [...new Set(request.pins)]
+      .map((id) => positionByAction.get(id))
+      .filter((index): index is number => index !== undefined)
+      .map((index) => ({ index, score: 0, highlights: [] }));
+    if (rows.length) {
+      rows.forEach((row) => recent.add(row.index));
+      sections.push({ sectionIndex: request.pinnedSectionIndex ?? null, rows });
+    }
+  }
   if (request.showsRecent && recentLimit > 0 && store?.entries && Object.keys(store.entries).length > 0) {
     const positionByKey = new Map<string, number>();
     entries.forEach((entry, index) => {
@@ -781,7 +805,7 @@ export function rankPaletteEmpty(request: Omit<PaletteRankRequest, "operation">)
     });
     const rows = topFrecencyKeys(store, recentLimit * 3, now)
       .map((key) => positionByKey.get(key))
-      .filter((index): index is number => index !== undefined)
+      .filter((index): index is number => index !== undefined && !recent.has(index))
       .slice(0, recentLimit)
       .map((index) => ({ index, score: 0, highlights: [] }));
     if (rows.length) {
@@ -843,8 +867,10 @@ export function rankPalette(request: Omit<PaletteRankRequest, "operation">): Pal
     exactName: boolean;
     shortcut: boolean;
     lifted: boolean;
+    aliased: boolean;
     highlights: number[];
   }> = [];
+  const aliased = aliasedActions(request.aliases, query.raw);
   const rank = (allowsTypo: boolean) => {
     let strong = 0;
     entries.forEach((entry, index) => {
@@ -866,6 +892,7 @@ export function rankPalette(request: Omit<PaletteRankRequest, "operation">): Pal
         exactName: entry.demoted === true && titleIsQuery(entry.title, query.raw),
         shortcut: entry.hasShortcut === true,
         lifted: false,
+        aliased: entry.isEnabled !== false && entry.actionID != null && aliased.has(entry.actionID),
         highlights: match.highlights,
       });
     });
@@ -893,6 +920,30 @@ export function rankPalette(request: Omit<PaletteRankRequest, "operation">): Pal
     const lifted = candidates.map((key) => byKey.get(key)).find((item) => item !== undefined);
     if (lifted) lifted.lifted = true;
   }
+  // The user's alias names its row: the row is there even when the query matches none of its
+  // text (or the user hid it). One row per action, and only a row this page shows while typing.
+  if (aliased.size) {
+    const present = new Set(scored.map((item) => entries[item.index].actionID));
+    entries.forEach((entry, index) => {
+      const id = entry.actionID;
+      if (!id || !aliased.has(id) || present.has(id) || entry.isEnabled === false) return;
+      if (gated && entry.hidesWhenTyping) return;
+      if (gated && entry.queryPrefix != null && !query.raw.startsWith(entry.queryPrefix)) return;
+      present.add(id);
+      scored.push({
+        index,
+        score: 0,
+        tier: 0,
+        enabled: true,
+        demoted: entry.demoted === true,
+        exactName: false,
+        shortcut: entry.hasShortcut === true,
+        lifted: false,
+        aliased: true,
+        highlights: [],
+      });
+    });
+  }
   const exactNames = scored.filter((item) => item.exactName);
   if (exactNames.length === 1) {
     exactNames[0].tier += demotion;
@@ -908,6 +959,7 @@ export function rankPalette(request: Omit<PaletteRankRequest, "operation">): Pal
     scored.sort((left, right) => {
       const leftStarts = starts.has(left.index);
       const rightStarts = starts.has(right.index);
+      if (left.aliased !== right.aliased) return left.aliased ? -1 : 1;
       if (leftStarts !== rightStarts) return leftStarts ? -1 : 1;
       if (leftStarts) return left.index - right.index;
       return right.score - left.score || left.index - right.index;
@@ -920,6 +972,7 @@ export function rankPalette(request: Omit<PaletteRankRequest, "operation">): Pal
     scored.sort(
       (left, right) =>
         Number(right.enabled) - Number(left.enabled) ||
+        Number(right.aliased) - Number(left.aliased) ||
         Number(right.lifted) - Number(left.lifted) ||
         right.tier - left.tier ||
         Number(left.demoted) - Number(right.demoted) ||
@@ -945,6 +998,19 @@ export function rankPalette(request: Omit<PaletteRankRequest, "operation">): Pal
   });
   if (request.keepsSectionOrder) sectionOrder(order, request.sectionOrders ?? []);
   return order.map((sectionIndex) => ({ sectionIndex, rows: rowsBySection.get(sectionIndex) ?? [] }));
+}
+
+/** The action ids whose user alias is the whole query (case, surrounding and repeated space ignored). */
+function aliasedActions(aliases: PaletteRankRequest["aliases"], raw: string): Set<string> {
+  const ids = new Set<string>();
+  if (!aliases) return ids;
+  const normalize = (text: string) => text.trim().split(/\s+/u).join(" ").toLocaleLowerCase();
+  const query = normalize(raw);
+  if (!query) return ids;
+  for (const [id, words] of Object.entries(aliases)) {
+    if (words.some((word) => normalize(word) === query)) ids.add(id);
+  }
+  return ids;
 }
 
 /** Whether `title` (or a keyword) is the whole query, ignoring case, surrounding space and a trailing ellipsis. */
