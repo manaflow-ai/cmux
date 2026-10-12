@@ -40,7 +40,7 @@ extension BrowserProfileService {
     /// The URL a reopened copy starts on: the live page's, else the record's.
     func currentURL(of tab: TabModel) -> String {
         services.cache.existingBrowser(tab.id)?.tab.state.url?.absoluteString
-            ?? services.cache.browserTabs.startURL(for: tab)
+            ?? services.cache.browserTabs.lastURL(for: tab)
             ?? BrowserNewTabPage.blankURL
     }
 

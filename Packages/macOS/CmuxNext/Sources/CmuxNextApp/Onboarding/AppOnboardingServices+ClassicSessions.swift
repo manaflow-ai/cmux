@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextOnboarding
 import Foundation
@@ -106,13 +107,26 @@ extension AppOnboardingServices {
         }
     }
 
-    /// `daemon` once it has a connection, within 20 seconds.
+    /// `daemon` once it has a connection, within 20 seconds: woken by the
+    /// connection itself, never by polling.
     private func connected(_ daemon: DaemonService) async throws -> DaemonService {
-        let deadline = ContinuousClock.now + .seconds(20)
-        while daemon.connection == nil, ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(200))
+        if daemon.connection != nil { return daemon }
+        // concurrency-allow: the observation task exits on cancellation; this bounds an SSH connect
+        let ready = await withTaskGroup(of: Bool.self) { group -> Bool in
+            group.addTask {
+                for await ready in ObservationStream({ daemon.connection != nil }) where ready { return true }
+                return false
+            }
+            group.addTask {
+                // wakeup-allow: one-shot twenty-second SSH connect deadline
+                try? await Task.sleep(for: .seconds(20))
+                return false
+            }
+            defer { group.cancelAll() }
+            return await group.next() ?? false
         }
-        guard daemon.connection != nil else { throw DaemonError.notConnected }
+        try Task.checkCancellation()
+        guard ready, daemon.connection != nil else { throw DaemonError.notConnected }
         return daemon
     }
 

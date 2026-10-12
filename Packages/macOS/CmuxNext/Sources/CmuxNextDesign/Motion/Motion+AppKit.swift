@@ -185,15 +185,53 @@ extension Motion {
             layer.removeAnimation(forKey: keyPath)
             return nil
         }
+        let animation = springAnimation(token, keyPath, from: start, to: value)
+        add(animation, to: layer, keyPath: keyPath, trace: "layer.\(keyPath).\(token.rawValue)")
+        return animation
+    }
+
+    /// The `token` spring from `from` to `to` on `keyPath`, for a caller
+    /// that adds it under its own key (a layer whose model value AppKit
+    /// rewrites, as a sidebar space page's translation).
+    public static func springAnimation(_ token: MotionSpring, _ keyPath: String, from: Any, to: Any) -> CASpringAnimation {
         let spring = self.spring(token)
         let animation = CASpringAnimation(keyPath: keyPath)
         animation.mass = 1
         animation.stiffness = spring.stiffness
         animation.damping = spring.damping
         animation.duration = spring.settlingTime(within: 0.002)
-        animation.fromValue = start
+        animation.fromValue = from
+        animation.toValue = to
+        return animation
+    }
+
+    /// An animation that shows `keyPath` at `value` until it is replaced or
+    /// removed, whatever is written to the model meanwhile.
+    public static func hold(_ keyPath: String, at value: Any) -> CABasicAnimation {
+        let animation = CABasicAnimation(keyPath: keyPath)
+        animation.fromValue = value
         animation.toValue = value
-        add(animation, to: layer, keyPath: keyPath, trace: "layer.\(keyPath).\(token.rawValue)")
+        animation.fillMode = .forwards
+        animation.isRemovedOnCompletion = false
+        return animation
+    }
+
+    /// A `token` fade of `keyPath` from `from` to `to` that starts `delay`
+    /// seconds from now on `layer` and then holds `to` until removed. At a
+    /// zero duration (speed off) it changes at once when the delay ends.
+    public static func scheduledFade(_ token: MotionFade, _ keyPath: String, from: Any, to: Any, after delay: CFTimeInterval,
+                                     on layer: CALayer) -> CABasicAnimation {
+        let duration = self.duration(token)
+        let animation = CABasicAnimation(keyPath: keyPath)
+        animation.fromValue = duration > 0 ? from : to
+        animation.toValue = to
+        // A zero duration would run Core Animation's 0.25 s default; a
+        // millisecond holds `to` from the end of the wait.
+        animation.duration = duration > 0 ? duration : 0.001
+        animation.timingFunction = fadeCurve
+        animation.beginTime = layer.convertTime(CACurrentMediaTime(), from: nil) + delay
+        animation.fillMode = .forwards
+        animation.isRemovedOnCompletion = false
         return animation
     }
 

@@ -92,6 +92,8 @@ for run in range(opts.runs):
             failures.append(f"Cmd-{key.upper()} run {run} (no spare adopted: {opening or 'no opening'})")
         print(f"Cmd-{key.upper()} run {run}{' (cold)' if cold else ''}: spare={bool(opening.get('spare'))} {reply['frame_count']} frames every {reply['mean_interval_ms']:.1f} ms, "
               f"intermediate={reply['intermediate']:.0f} blank={reply['blank']:.0f} strip={out}/strip.png", flush=True)
+        if reply.get("spans"):
+            print("  marks: " + ", ".join(f"{span['name']} {span['ms']:+.0f} ms" for span in reply["spans"]), flush=True)
         for frame in bad:
             print(f"  {frame['file']} at {frame['ms']:+.0f} ms: outside differs {frame['outside_vs_before']:.3f} from before, "
                   f"{frame['outside_vs_final']:.3f} from final, blank={frame['blank']}", flush=True)

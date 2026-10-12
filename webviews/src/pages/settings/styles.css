@@ -749,6 +749,17 @@ mark {
   font-weight: 600;
 }
 
+/* A stored image or SVG icon draws as itself, with no disc behind it (cx-qno.2.3). */
+.host-avatar:has(> .host-avatar-image) {
+  background: none;
+}
+
+.host-avatar-image {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
 .host-form {
   display: flex;
   flex-direction: column;

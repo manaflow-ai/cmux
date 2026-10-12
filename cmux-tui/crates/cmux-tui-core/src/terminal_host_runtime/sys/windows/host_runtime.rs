@@ -216,6 +216,7 @@ pub(crate) mod adopt_launch {
             Box::new(ClosableMaster(slot)),
             child,
             &launch.seed,
+            None,
         )?;
         Ok((shared, PtyOwnershipLock))
     }

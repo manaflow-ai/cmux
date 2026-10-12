@@ -5868,6 +5868,7 @@
       "accepts" : [
         "neutral",
         "theme",
+        "art",
         "red",
         "green",
         "yellow",
@@ -5891,6 +5892,13 @@
             "text" : "Theme Color"
           },
           "value" : "theme"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.accent.art",
+            "text" : "Art Color"
+          },
+          "value" : "art"
         },
         {
           "title" : {
@@ -22642,7 +22650,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "16d5fb63f70e050b0e550a96f4dc8a9d7a2ca3e6fc0038d4ef5dec204383f6e7",
+  "schema_hash" : "b825644b0e9ae0121497ede633d9c60b4027cc245e0519e730673a8d14998426",
   "sections" : [
     {
       "id" : "general",

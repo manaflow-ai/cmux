@@ -356,6 +356,25 @@ class WorkflowTests(unittest.TestCase):
         for name in ("generate-nightly-deltas", "sign-release-notes"):
             self.assertIn("needs.publish-nightly.outputs.source != 'recovered'", jobs[name]["if"], name)
 
+    def test_an_ordinary_publication_publishes_its_release_notes(self):
+        # Without a status function in its `if`, GitHub skips a job when any job
+        # it needs, directly or through others, was skipped. An ordinary
+        # publication skips the recovery job, so the notes jobs never ran and
+        # every publish reopened the failure issue (cx-urd.28).
+        jobs = workflow()["jobs"]
+
+        def ancestors(name):
+            needs = jobs[name].get("needs", [])
+            found = set()
+            for need in [needs] if isinstance(needs, str) else needs:
+                found |= {need} | ancestors(need)
+            return found
+
+        for name in ("sign-release-notes", "publish-release-notes"):
+            self.assertIn("recover-nightly-next-notarization", ancestors(name), name)
+            self.assertTrue(jobs[name]["if"].startswith("!cancelled() && "), jobs[name]["if"])
+            self.assertIn("needs.publish-nightly.result == 'success'", jobs[name]["if"], name)
+
     def test_recovery_artifact_carries_what_publication_needs(self):
         job = workflow()["jobs"]["build-sign-notarize-nightly"]
         prepare = step(job, "Prepare pending notarization recovery artifact")["run"]

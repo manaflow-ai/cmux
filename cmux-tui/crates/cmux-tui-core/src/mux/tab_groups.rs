@@ -211,7 +211,7 @@ impl Mux {
         }
     }
 
-    fn tab_group_outcome(&self, group: &str) -> TabGroupOutcome {
+    pub(crate) fn tab_group_outcome(&self, group: &str) -> TabGroupOutcome {
         let presentation = self.presentation_snapshot();
         self.with_state(|state| {
             let record = presentation.tab_groups.groups.get(group).cloned();
@@ -680,15 +680,28 @@ impl Mux {
         let group_id = group.to_string();
         let (_, commit) = self.commit_tab_strip_change(request, None, move |_, state, edit| {
             let members = group_members(state, &edit.groups, &group_id);
-            anyhow::ensure!(
-                edit.groups.groups.remove(&group_id).is_some(),
-                crate::state::commit::state_not_found("tab_group", &group_id)
-            );
+            let record = edit
+                .groups
+                .groups
+                .remove(&group_id)
+                .ok_or_else(|| crate::state::commit::state_not_found("tab_group", &group_id))?;
             edit.groups.members.retain(|_, member| member != &group_id);
             let tabs = members
                 .iter()
                 .map(|surface| tab_public_id(state, *surface))
                 .collect::<anyhow::Result<Vec<_>>>()?;
+            let workspace = pane_by_public_id(state, &record.pane_id)
+                .and_then(|pane| state.screen_of(pane))
+                .map(|(workspace, _)| state.workspaces[workspace].public_id.to_string());
+            edit.ungrouped = Some(serde_json::json!({
+                "id": group_id,
+                "pane_id": record.pane_id,
+                "workspace_id": workspace,
+                "name": record.name,
+                "color": record.color,
+                "collapsed": record.collapsed,
+                "tab_ids": tabs,
+            }));
             edit.result = StripResult::Release { group: group_id, tabs };
             Ok(())
         })?;
