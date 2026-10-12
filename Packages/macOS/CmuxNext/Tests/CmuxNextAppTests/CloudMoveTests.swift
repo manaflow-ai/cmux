@@ -90,6 +90,19 @@ struct CloudMoveTests {
         }
     }
 
+    /// A sync that throws instead of answering (the CLI timed out, or didn't launch) keeps this
+    /// Mac's tab and the move retryable on the same machine; it never clears that Retry (cx-rppd.8).
+    @Test func aSyncThatThrowsKeepsTheMoveRetryableOnItsMachine() async throws {
+        try await Self.withMove("syncTimeout") { move in
+            let error = await move.run()
+            #expect(error != nil, "the move did not report that it stopped")
+            #expect(move.services.locateTab(move.tabID) != nil, "this Mac's tab closed though nothing moved")
+            #expect(move.calls().count == 1, "the chat moved after a failed sync: \(move.calls())")
+            let retry = move.services.cloud.moveRetries[move.key]
+            #expect(retry == .move(machineID: "vm-move"), "Retry does not run the move again on its machine: \(String(describing: retry))")
+        }
+    }
+
     // MARK: The harness
 
     /// One move's world: this Mac's daemon with a live chat tab, a Cloud machine on a second
@@ -258,10 +271,11 @@ struct CloudMoveTests {
 
     /// A stand-in `cmux`: records each call's arguments (unit-separated). Like the real sync,
     /// `link sync push` creates the synced folder (not in `tabFailed`, so the machine's terminal
-    /// can't start there); `link agent move` answers as `mode` says. A move that answers ok also
-    /// leaves what the machine daemon's own `agent-transfer-finish` would: the landed chat's
-    /// record (`agent-transfer-landed.json` next to that daemon's registry in `vmState`), without
-    /// which the daemon refuses a `registry:` tab naming the chat (cx-k21v).
+    /// can't start there; in `syncTimeout` it outlives the CLI timeout); `link agent move`
+    /// answers as `mode` says. A move that answers ok also leaves what the machine daemon's own
+    /// `agent-transfer-finish` would: the landed chat's record (`agent-transfer-landed.json` next
+    /// to that daemon's registry in `vmState`), without which the daemon refuses a `registry:` tab
+    /// naming the chat (cx-k21v).
     private static func standInCLI(in root: URL, log: URL, mode: String, vmState: URL) throws -> URL {
         let url = root.appendingPathComponent("cmux")
         let script = """
@@ -271,6 +285,7 @@ struct CloudMoveTests {
             printf '%s\\n' "${line#?}" >> '\(log.path)'
             case "$1 $2 $3" in
             "link sync push")
+                [ '\(mode)' = syncTimeout ] && exec sleep 30
                 for target in "$@"; do :; done
                 [ '\(mode)' = tabFailed ] || mkdir -p "$target"
                 echo '{"ok":true,"written":1,"unchanged":0,"deleted":0,"skipped":0,"bytes":4}' ;;
@@ -298,7 +313,7 @@ struct CloudMoveTests {
 
     /// A Cloud machine whose link this test replaces: its daemon is started on the second
     /// daemon's socket, so the link process never runs.
-    private static func machine(_ services: AppServices, cli: URL, root: URL) -> CloudMachineSession {
+    static func machine(_ services: AppServices, cli: URL, root: URL) -> CloudMachineSession {
         let paths = CloudPaths(root: root.appendingPathComponent("cloud", isDirectory: true))
         let api = services.cloud.api
         let hub = CloudTunnelHub(api: api, paths: paths, binary: cli, deviceName: "cn-move-test")
@@ -307,7 +322,7 @@ struct CloudMoveTests {
     }
 
     /// Ends `daemon`'s connection and its daemon with its terminals, so no host outlives the test.
-    private static func end(_ daemon: DaemonService) async {
+    static func end(_ daemon: DaemonService) async {
         guard let connection = daemon.connection else { return }
         daemon.shutdownConnection()
         await connection.close()
