@@ -57,6 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         })
         control.startWatchdog()
         DebugTimings.markLaunch("did_finish_launching_start")
+        AgentPaneWarmup.start()
         DebugTimings.install()
         defer { DebugTimings.markLaunch("did_finish_launching_end") }
         do {
