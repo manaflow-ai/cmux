@@ -34112,7 +34112,53 @@ struct CMUXCLI {
                 )
                 return false
             }
-        } else if !agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: launchCommand) {
+        } else if kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "omp",
+                  launchCommand == nil || ompLaunchCaptureIsUnavailable(launchCommand) {
+            // An OMP hook with no capture can only preserve a binding that is
+            // still owned by this session. A capture-less hook from another
+            // process must not leave its checkpoint available for restore, but
+            // the clear remains guarded by the binding's own checkpoint ID.
+            guard let normalizedSessionID = normalizedHookValue(sessionId) else {
+                return false
+            }
+            let currentBinding: [String: Any]?
+            do {
+                let payload = try client.sendV2(
+                    method: "surface.resume.get",
+                    params: [
+                        "workspace_id": workspaceId,
+                        "surface_id": surfaceId,
+                    ],
+                    responseTimeout: responseTimeout,
+                    deadline: deadline
+                )
+                currentBinding = payload["resume_binding"] as? [String: Any]
+            } catch {
+                // A failed read cannot establish ownership. Leave the binding
+                // untouched and avoid synthesizing a PATH-dependent command.
+                return false
+            }
+            guard let currentBinding else {
+                return false
+            }
+            let existingCheckpointID = normalizedHookValue(currentBinding["checkpoint_id"] as? String)
+            guard existingCheckpointID != normalizedSessionID else {
+                return false
+            }
+            _ = clearAgentSurfaceResumeBindingOutcome(
+                client: client,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                sessionId: existingCheckpointID,
+                responseTimeout: responseTimeout,
+                deadline: deadline
+            )
+            return false
+        } else if let launchCommand,
+                  !agentHookSessionHasDurableResumeEvidence(
+                      kind: kind,
+                      launchCommand: launchCommand
+                  ) {
             clearAgentSurfaceResumeBinding(
                 client: client,
                 workspaceId: workspaceId,
