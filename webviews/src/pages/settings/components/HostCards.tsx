@@ -2,14 +2,17 @@
 // (Experimental, behind appearance.experimentalControls), the
 // terminal facts (Terminal) and the settings file with its problems (Advanced). Data comes from
 // the host lists; writes run host ops or catalog actions, the palette's paths.
+import { useState } from "react";
 import { useSettingsState, useStore } from "../context";
 import { settingsFileName } from "../format";
 import { t } from "../strings";
 import { ActionRow } from "./ActionRow";
+import { ArtBrowser } from "./ArtBrowser";
 
 export function Backdrops() {
   const store = useStore();
   const { host, rows } = useSettingsState();
+  const [browsing, setBrowsing] = useState(false);
   const enabled = rows.get("appearance.experimentalControls")?.value === true;
   const backdrops = host?.backdrops ?? [];
   if (!enabled || backdrops.length === 0) return null;
@@ -56,7 +59,20 @@ export function Backdrops() {
           <span className="backdrop-title">{t("settingsWindow.backdropPicker.chooseImage")}</span>
           <span className="row-help">{t("settingsWindow.backdropPicker.dropHint")}</span>
         </button>
+        <button
+          type="button"
+          className="backdrop-tile"
+          aria-expanded={browsing}
+          onClick={() => setBrowsing((open) => !open)}
+        >
+          <span className="backdrop-thumb backdrop-none backdrop-choose" aria-hidden="true">
+            ⌕
+          </span>
+          <span className="backdrop-title">{t("settingsWindow.artBrowser.open")}</span>
+          <span className="row-help">{t("settingsWindow.artBrowser.help")}</span>
+        </button>
       </div>
+      {browsing && <ArtBrowser onClose={() => setBrowsing(false)} />}
       {groups.map((group) => (
         <div key={group.key || "other"} className="backdrop-group" data-collection={group.key || undefined}>
           {group.title && <h4 className="row-help backdrop-group-title">{group.title}</h4>}

@@ -80,6 +80,7 @@ final class WorkspaceLanes {
     func closeNewestCreate(in window: String, listed: (String) -> Bool) -> Bool {
         prune(window, listed: listed)
         guard let newest = creates[window]?.last(where: { !$0.closeWhenCreated }) else { return false }
+        PendingWorkspaceRows.shared.remove(newest.key)
         if !newest.started {
             drop(newest, from: window)
             newest.cancelled = true

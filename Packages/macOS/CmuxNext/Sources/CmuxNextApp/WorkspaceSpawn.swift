@@ -2,6 +2,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextDaemon
 import CmuxNextSettings
+import CmuxNextSidebar
 import Foundation
 
 /// What a new workspace's first terminal starts with. The keyboard, menu,
@@ -129,18 +130,30 @@ struct WorkspaceSpawner {
     let frame: CGRect?
 
     /// The key is fixed at the press, so a close pressed while this create
-    /// waits its turn or is in flight takes exactly this workspace.
+    /// waits its turn or is in flight takes exactly this workspace, and the
+    /// window shows its row from the press (`PendingWorkspaceRows`), at the
+    /// slot the setting gives against the workspace the window shows now.
     func create() async throws -> String {
         guard daemon.connection != nil else { throw DaemonError.notConnected }
         let key = WorkspaceKey.generate()
         let daemon = daemon, services = windows.services
+        let rule = spawn.slot == nil && spawn.placesBySetting ? NewWorkspacePlacements.rule(for: windowID, in: windows) : nil
+        if let windowID {
+            PendingWorkspaceRows.shared.add(.init(id: key.rawValue, window: windowID, machine: MachineID(daemon.machineID),
+                                                  title: spawn.name ?? "", slot: spawn.slot, byDefault: rule))
+        }
         WorkspaceLanes.shared.prune(windowID ?? "") { services.workspace(id: $0) != nil }
-        return try await WorkspaceLanes.shared.create(key, window: windowID, close: { id in
-            let terminals = services.workspace(id: id).map { WorkspaceClose.closing($0, on: daemon) } ?? []
-            _ = await daemon.failure("close-workspace") { connection in
-                try await WorkspaceClose.close(WorkspaceKey(rawValue: id), terminals: terminals, on: connection)
-            }
-        }) { try await create(key) }
+        do {
+            return try await WorkspaceLanes.shared.create(key, window: windowID, close: { id in
+                let terminals = services.workspace(id: id).map { WorkspaceClose.closing($0, on: daemon) } ?? []
+                _ = await daemon.failure("close-workspace") { connection in
+                    try await WorkspaceClose.close(WorkspaceKey(rawValue: id), terminals: terminals, on: connection)
+                }
+            }) { try await create(key, rule: rule) }
+        } catch {
+            PendingWorkspaceRows.shared.remove(key.rawValue)
+            throw error
+        }
     }
 
     /// The profile the workspace is born in: its window's, else the active
@@ -149,10 +162,9 @@ struct WorkspaceSpawner {
         windowID.flatMap { windows.states[$0]?.profileID } ?? windows.active?.state.profileID ?? .defaultProfile
     }
 
-    private func create(_ key: WorkspaceKey) async throws -> String {
+    private func create(_ key: WorkspaceKey, rule: NewWorkspaceDefaultSlot?) async throws -> String {
         guard let connection = daemon.connection else { throw DaemonError.notConnected }
         let services = windows.services
-        let rule = spawn.slot == nil && spawn.placesBySetting ? NewWorkspacePlacements.rule(for: windowID, in: windows) : nil
         NewWorkspacePlacements.expect(key.rawValue, in: windowID, slot: spawn.slot, byDefault: rule,
                                       then: windowID == nil ? nil : spawn.onListed, windows: windows)
         if let windowID { windows.claimNew(workspaceID: key.rawValue, window: windowID, frame: frame) }

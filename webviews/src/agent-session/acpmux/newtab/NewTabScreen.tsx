@@ -12,6 +12,7 @@ import { ClosedList } from "./ClosedList";
 import { OpenTabsList } from "./OpenTabsList";
 import { ArrowUpIcon } from "../ComposerPickers";
 import { newTabStart } from "./chipDefaults";
+import { useLastPick } from "../lastPick";
 import { useDeviceChats } from "./deviceChats";
 import { useRecentlyClosed } from "./recentlyClosed";
 import {
@@ -132,9 +133,10 @@ export function NewTabScreen(props: Props) {
   // A real pick names its folder; else the folder the chat really starts in (screenActions onAsk).
   const chatFolder = project && project !== props.cwd ? project : (props.startCwd ?? project ?? props.cwd);
   // The agent Enter asks and the chip's model (newTabStart): the chip's pick, else the last pick.
+  const remembered = useLastPick(chatFolder);
   const { harness, snapshot: chipSnapshot } = useMemo(
-    () => newTabStart(snapshot, agents, lastAgent, chatFolder),
-    [snapshot, agents, lastAgent, chatFolder],
+    () => newTabStart(snapshot, agents, lastAgent, chatFolder, remembered),
+    [snapshot, agents, lastAgent, chatFolder, remembered],
   );
   const rows = useMemo(
     () => (touched && !shell ? screenRows(text, { omnibar, home }) : []),

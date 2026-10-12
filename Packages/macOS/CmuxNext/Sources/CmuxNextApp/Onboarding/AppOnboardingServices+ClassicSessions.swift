@@ -23,7 +23,7 @@ extension AppOnboardingServices {
     /// SSH workspaces whose host does not connect, stay in classic.
     func importClassicSessions() async throws -> ClassicImportSummary {
         let importer = owner.classicSessions
-        let workspaces = try await Task.detached { try (importer ?? ClassicSessionImporter()).read() }.value
+        let workspaces = try await Task.detached { try (importer ?? ClassicSessionImporter()).readForImport() }.value
         let windows = services.windows
         let target = windows.targetWindow(preferring: windows.active?.state.id)
         let logger = services.daemon.logger

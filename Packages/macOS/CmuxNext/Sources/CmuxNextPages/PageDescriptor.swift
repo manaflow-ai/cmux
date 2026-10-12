@@ -138,7 +138,7 @@ public extension PageDescriptor {
                   // Agents > Computer Use card (ComputerUseSetup).
                   "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording"])
             .union(settingsSectionActions),
-        dynamicPrefixes: ["backdrop"], ownsSearchField: true)
+        dynamicPrefixes: ["backdrop", "museum"], ownsSearchField: true)
 
     /// The App Store page (react-pages.md 3). Install, update, Remove and allowing a scope pass the
     /// host's native sheet before they reach the owner (the app's ConfirmingPageProvider); the page

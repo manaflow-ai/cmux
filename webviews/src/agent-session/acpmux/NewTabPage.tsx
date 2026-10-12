@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AgentMark as BrandMark } from "../shared/AgentMark";
 import { agentBrand } from "../shared/agentBrand";
 import { agentDisplayName } from "./agents";
+import { seedLastPicks } from "./lastPick";
 import { ArrowUpIcon } from "./ComposerPickers";
 import type { AcpmuxSnapshot } from "./model";
 import { ProjectChooser, type Project } from "./ProjectChooser";
@@ -109,6 +110,8 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
   const value = handshake.newTab;
   if (value !== true && (typeof value !== "object" || value === null)) return undefined;
   const object = (typeof value === "object" ? value : {}) as Record<string, unknown>;
+  // The app's copy of the last picks: this page's own storage did not outlive the launch.
+  seedLastPicks(object.lastPicks);
   const keys = (typeof object.hotkeys === "object" && object.hotkeys !== null ? object.hotkeys : {}) as Record<
     string,
     unknown
