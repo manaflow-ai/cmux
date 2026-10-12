@@ -76,9 +76,23 @@ const KEYBOARD_MODES: &str = r"\033[>1u\033[?1h\033=\033[>4;2m";
 
 #[test]
 fn a_killed_program_leaves_no_keyboard_modes_at_the_prompt() {
-    let server = HeadlessServer::start("keyboard-reset-killed");
+    keys_at_the_prompt_are_plain("keyboard-reset-killed", KEYBOARD_MODES);
+}
+
+#[test]
+fn a_killed_full_screen_program_leaves_no_keyboard_modes_at_the_prompt() {
+    // Ghostty keeps a kitty flag stack per screen: these flags are on the
+    // primary screen's, under the alternate screen the program died on.
+    keys_at_the_prompt_are_plain(
+        "keyboard-reset-alt-screen",
+        &format!("{KEYBOARD_MODES}\\033[?1049h\\033[>1u"),
+    );
+}
+
+fn keys_at_the_prompt_are_plain(name: &str, modes: &str) {
+    let server = HeadlessServer::start(name);
     let terminal = terminal(&server);
-    run(&server, &terminal, &format!("sh -c 'printf \"{KEYBOARD_MODES}\"; kill -9 $$'\n"));
+    run(&server, &terminal, &format!("sh -c 'printf \"{modes}\"; kill -9 $$'\n"));
     run(&server, &terminal, "echo ready_$((2+3))\n");
     wait_for_screen(&server, &terminal, "ready_5");
 
