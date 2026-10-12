@@ -16,6 +16,7 @@ struct AppInstalledView: View {
             }
             .appStoreColumn()
             .padding(.vertical, Metrics.space5)
+            .thinScrollers()
         }
         .overlay {
             if model.installedApps.isEmpty {

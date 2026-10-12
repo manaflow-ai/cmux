@@ -44,6 +44,7 @@ struct TaskDetailView: View {
             }
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .thinScrollers()
         }
     }
 }

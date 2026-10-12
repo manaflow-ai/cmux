@@ -459,7 +459,7 @@ notification clear [--terminal <term_id>]
 notification ack --client <id> <notification-id>...
 git status [--path <path>|--workspace|--screen|--pane|--tab|--terminal <selector>]
 git diff [TARGET] [--scope uncommitted|unstaged|staged|committed|branch] [--patch]
-  [--max-patch-bytes <n>] [--max-files <n>] [<path>...]
+  [--max-patch-bytes <n>] [--max-files <n>] [--context-lines <n>] [<path>...]
 git files [TARGET] [--limit <n>] <query>...
 git list [TARGET] [--limit <n>]
 git checkpoint create [TARGET] [--untracked eligible | <untracked-path>...] [--exclude <path,...>]
@@ -469,7 +469,7 @@ git checkpoint get [TARGET] <checkpoint> | --key <idempotency-key>
 git checkpoint list [TARGET] [--cursor <cursor>] [--limit <n>] [--candidates]
 git checkpoint pin [TARGET] <checkpoint> --pin <pin-id> --reason <text>
 git checkpoint unpin [TARGET] <checkpoint> --pin <pin-id>
-git checkpoint diff [TARGET] <from> [<to>] [--only <path,...>] [--patch] [--max-patch-bytes <n>] [--max-files <n>]
+git checkpoint diff [TARGET] <from> [<to>] [--only <path,...>] [--patch] [--max-patch-bytes <n>] [--max-files <n>] [--context-lines <n>]
 git commit [TARGET] --message <text> [--all [--include-untracked]] [--amend] [--no-verify] [--expected-head <commit>] [<path>...]
 git push [TARGET] [--remote <name>] [--branch <name>] [--set-upstream | --no-set-upstream] [--expected-head <commit>]
 git worktree create [TARGET] [--name <name>] [--base <revision>]
@@ -565,7 +565,8 @@ a target the CLI sends the current directory. The session host runs git with
 no ambient `GIT_*` environment, no fsmonitor, external diff or textconv,
 literal pathspecs, a deadline and bounded output. `git diff` lists each file's
 status and line counts, adds patches only with `--patch` (each cut at
-`--max-patch-bytes`, 262144 by default, and marked `patch_truncated`), lists at
+`--max-patch-bytes`, 262144 by default, and marked `patch_truncated`; each
+hunk keeps `--context-lines` unchanged lines around it, 3 by default), lists at
 most `--max-files` (500) files with the rest counted in `files_omitted`, and
 counts at most 200 untracked files, reporting the rest as `untracked_skipped`.
 The base branch (`git status`'s `base`, the `branch` scope's merge base) is the

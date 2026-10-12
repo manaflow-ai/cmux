@@ -180,3 +180,41 @@ fn settings_error(code: &str, message: &str, data: Value) -> ResourceError {
     };
     ResourceError::new(code, message, details, false)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::schema_json;
+
+    /// `settings.schema` carries each row's one-line `summary` (the only
+    /// text a Settings row draws under its title) apart from the long
+    /// `help`, and the typed schema row reads the same line.
+    #[test]
+    fn settings_schema_rows_carry_the_summary_line() {
+        let wire = schema_json();
+        let rows = wire["rows"].as_array().expect("settings.schema lists rows");
+        let row = rows
+            .iter()
+            .find(|row| row["key"] == "appearance.backdropArt")
+            .expect("appearance.backdropArt is a schema row");
+        assert_eq!(row["summary"]["text"], "Painting behind the window", "{row}");
+        assert_eq!(row["summary"]["key"], "settings.appearance.backdropArt.summary", "{row}");
+        assert_ne!(row["summary"], row["help"], "the summary is not the help text");
+
+        let schema = cmux_config::Schema::embedded();
+        let typed = schema.row("appearance.backdropArt").and_then(|row| row.summary.as_ref());
+        assert_eq!(typed.map(|text| text.text.as_str()), Some("Painting behind the window"));
+        assert_eq!(
+            typed.and_then(|text| text.key.as_deref()),
+            Some("settings.appearance.backdropArt.summary")
+        );
+        for row in &schema.rows {
+            if let Some(summary) = &row.summary {
+                assert!(
+                    summary.text.chars().count() <= 60,
+                    "{}: a summary is one line of at most 60 characters",
+                    row.key
+                );
+            }
+        }
+    }
+}
