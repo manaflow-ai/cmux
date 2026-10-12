@@ -60,8 +60,14 @@ export type Dictation = {
   dismiss(): void;
 };
 
+/// What dictation drives a prompt with: the composer's Markdown field, or a plain field (the New
+/// Tab page's) that sends with `submit` (it is in no form).
+export type DictationField = Pick<MarkdownFieldHandle, "focus" | "text" | "writeText" | "focused" | "element"> & {
+  submit?(): void;
+};
+
 /// Dictation into the composer's prompt, which `prompt` holds once the composer mounts.
-export function useDictation(prompt: React.RefObject<MarkdownFieldHandle | null>, call: Call): Dictation {
+export function useDictation(prompt: React.RefObject<DictationField | null>, call: Call): Dictation {
   const t = useT();
   const [state, setState] = useState<DictationState>("idle");
   const [notice, setNotice] = useState<DictationUpdate | null>(null);
@@ -89,7 +95,7 @@ export function useDictation(prompt: React.RefObject<MarkdownFieldHandle | null>
       field.writeText(splice.value, splice.selectionStart, splice.selectionEnd);
       // Submit on the next task, once the composer's state holds the dictated text.
       if (update.state === "idle" && !update.cancelled && autoSend && splice.placed)
-        setTimeout(() => field.element()?.closest("form")?.requestSubmit(), 0);
+        setTimeout(() => (field.submit ? field.submit() : field.element()?.closest("form")?.requestSubmit()), 0);
     };
     const receive = (update: DictationUpdate) => {
       requested.current = false;
