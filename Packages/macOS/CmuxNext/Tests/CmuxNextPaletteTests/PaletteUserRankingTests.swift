@@ -27,7 +27,7 @@ struct PaletteUserRankingTests {
     @Test func pinsLeadTheEmptyPaletteAndAnAliasPutsItsCommandFirst() async throws {
         _ = NSApplication.shared
         let settings = Settings()
-        settings.value = PaletteRankSettings(aliases: ["splitRight": ["vs"]], pins: ["closeTab", "splitDown"])
+        settings.value = PaletteRankSettings(aliases: ["newWindow": ["vs"]], pins: ["closeTab", "splitDown"])
         var sources = PaletteSources()
         sources.rankSettings = { settings.value }
         let palette = PaletteController(registry: .standard(), sources: sources, frecencyPersistence: nil)
@@ -42,13 +42,13 @@ struct PaletteUserRankingTests {
 
         palette.model.send(.setQuery("vs"))
         await palette.model.settle()
-        #expect(palette.model.rows.first?.item.actionID == "splitRight")
+        #expect(palette.model.rows.first?.item.actionID == "newWindow")
 
         // The next open reads the setting again.
         palette.hide()
-        settings.value.pins = ["newWindow"]
+        settings.value.pins = ["closeWindow"]
         palette.show(.commands)
         await Self.waitForFirstSection(palette, "pinned")
-        #expect(Self.actions(palette.model.sections.first) == ["newWindow"])
+        #expect(Self.actions(palette.model.sections.first) == ["closeWindow"])
     }
 }
