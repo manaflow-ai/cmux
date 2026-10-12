@@ -25,3 +25,8 @@ extension ConversationMenuGlassTint {
     /// per 0.001 of tint blue, so keep all four digits).
     public static let longPressLightIOS26 = ConversationMenuGlassTint(red: 0.94, green: 0.94, blue: 0.938, alpha: 0.3)
 }
+
+extension ConversationMenuGlassTint {
+    /// The long-press menu in light mode on iOS 27.
+    public static let longPressLightIOS27 = ConversationMenuGlassTint.none
+}
