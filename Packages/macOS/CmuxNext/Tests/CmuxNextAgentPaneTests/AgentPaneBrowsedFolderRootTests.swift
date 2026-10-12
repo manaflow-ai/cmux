@@ -36,4 +36,22 @@ struct AgentPaneBrowsedFolderRootTests {
         #expect((reply["value"] as? [String: Any])?["cwd"] as? String == folder)
         #expect(await check(), "the picked folder's harnesses are refused (transport.path_outside_roots)")
     }
+
+    /// Picking the home folder in the Open panel opens no more than before: the home folder stays
+    /// the answer to the home question (`workspace.useFolder`), never a side effect of a pick.
+    @Test func pickingTheHomeFolderGrantsNothing() async throws {
+        let home = FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
+            .appendingPathComponent("nkyvn-home-\(UUID().uuidString)").path
+        let inside = home + "/src"
+        try FileManager.default.createDirectory(atPath: inside, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: home) }
+        let model = AgentPaneModel(host: NoHost())
+        model.transport.homeFolder = home
+        model.onBrowseProject = { home }
+        _ = await model.respond(to: .browseProject)
+        #expect(model.transport.addedRoots.isEmpty)
+        model.onBrowseProject = { inside }
+        _ = await model.respond(to: .browseProject)
+        #expect(model.transport.addedRoots == [inside])
+    }
 }
