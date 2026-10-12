@@ -9,9 +9,14 @@ import CmuxNextTerminal
 /// already in that config; resolving it again here is a no-op that keeps
 /// the tokens right for colors read any other way.
 enum ThemeBridge {
-    /// A theme's own accent by theme name (its `<theme>/accent` edit, else its file's
-    /// `# cmux-accent`); `ThemeCoordinator` sets it once the theme catalog exists.
-    static var accent: (String) -> ThemeRGB? = { _ in nil }
+    /// A theme's own accent by theme name: its `<theme>/accent` edit from launch, then (once
+    /// `ThemeCoordinator` adds the theme catalog) its file's `# cmux-accent`.
+    static var accent: (String) -> ThemeRGB? = edited
+
+    /// A theme's `<theme>/accent` edit.
+    static func edited(_ name: String) -> ThemeRGB? {
+        GhosttyRuntime.themeEdits.accent(for: name).flatMap { ThemeRGB(cssHex: $0) }
+    }
 
     static func start() {
         let runtime = GhosttyRuntime.shared
