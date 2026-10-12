@@ -113,7 +113,7 @@ export default historyPageEntry({
     },
     "network-error": { note: "The history owner is disconnected.", entries, error: "network" },
     "permission-error": {
-      note: "A refused remove leaves the timeline intact; this page has no visible error notice yet.",
+      note: "A refused remove announces the host error and leaves the timeline intact.",
       entries,
       error: "permission",
       query: { menuIndex: 1 },
@@ -121,6 +121,12 @@ export default historyPageEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".page-menu-item.destructive"));
         await ctx.click({ selector: ".page-menu-item.destructive" });
         await ctx.waitFor(() => !ctx.document.querySelector(".page-menu"));
+        await ctx.waitFor(
+          () =>
+            ctx.document.querySelector<HTMLElement>('[role="alert"].history-error')?.textContent ===
+            "history cannot be changed",
+        );
+        if (!ctx.document.querySelector(".history-row")) throw new Error("history rows disappeared after refusal");
       },
     },
     "not-found-error": { note: "The history owner reports a missing source.", entries, error: "not-found" },

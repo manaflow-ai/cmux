@@ -49,16 +49,23 @@ afterAll(() => {
 });
 
 test("a refused history removal announces the error and keeps the timeline", async () => {
-  const [{ createRoot }, { HistoryPage }, { UiProvider, languageDirection }, { createStrings }, tableModule, historyModule, storeModule] =
-    await Promise.all([
-      import("react-dom/client"),
-      import("../src/pages/history/HistoryPage"),
-      import("../src/ui/UiProvider"),
-      import("../src/pages/shared/i18n"),
-      import("../src/pages/history/generated/strings.json"),
-      import("../src/pages/history/mockProvider"),
-      import("../src/pages/history/store"),
-    ]);
+  const [
+    { createRoot },
+    { HistoryPage },
+    { UiProvider, languageDirection },
+    { createStrings },
+    tableModule,
+    historyModule,
+    storeModule,
+  ] = await Promise.all([
+    import("react-dom/client"),
+    import("../src/pages/history/HistoryPage"),
+    import("../src/ui/UiProvider"),
+    import("../src/pages/shared/i18n"),
+    import("../src/pages/history/generated/strings.json"),
+    import("../src/pages/history/mockProvider"),
+    import("../src/pages/history/store"),
+  ]);
   const { HistoryOps } = await import("../src/pages/history/types");
   class PermissionHistoryProvider extends historyModule.MockHistoryProvider {
     override async call<R>(op: string, params: unknown): Promise<R> {
@@ -82,7 +89,9 @@ test("a refused history removal announces the error and keeps the timeline", asy
 
   const row = host.querySelector<HTMLElement>(".history-row")!;
   await act(async () => {
-    row.dispatchEvent(new dom.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }));
+    row.dispatchEvent(
+      new dom.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }),
+    );
   });
   const menu = dom.window.document.querySelector<HTMLElement>('[role="menu"]')!;
   const remove = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
