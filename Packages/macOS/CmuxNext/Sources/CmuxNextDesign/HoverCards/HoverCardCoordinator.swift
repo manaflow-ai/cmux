@@ -258,8 +258,7 @@ public final class HoverCardCoordinator {
     private func hitTest() -> HoverCardHit? {
         guard appIsActive() else { return nil }
         let point = currentPointer()
-        let top = (WindowPlacement.noActivate ? Self.ownTopWindowNumber(at: point, excluding: panel?.windowNumber) : nil)
-            ?? windowNumberAt?(point) ?? Self.topWindowNumber(at: point, excluding: panel?.windowNumber)
+        let top = windowNumberAt?(point) ?? Self.topWindowNumber(at: point, excluding: panel?.windowNumber)
         for entry in sources.values {
             guard let source = entry.source, let window = source.hoverCardWindow, window.windowNumber == top,
                   let hit = source.hoverCardHit(at: point) else { continue }
@@ -273,30 +272,6 @@ public final class HoverCardCoordinator {
         let top = NSWindow.windowNumber(at: point, belowWindowWithWindowNumber: 0)
         guard let card, top == card else { return top }
         return NSWindow.windowNumber(at: point, belowWindowWithWindowNumber: card)
-    }
-
-    /// The front one of this app's windows under a screen point. A
-    /// no-activate run (a capture slot) sits under other apps' windows,
-    /// such as the Cua Driver's full-screen one, so the system's topmost
-    /// window there is never ours.
-    /// The window server's on-screen list (front to back), not AppKit's
-    /// `orderedWindows`, which does not follow the screen order there.
-    private static func ownTopWindowNumber(at point: CGPoint, excluding card: Int?) -> Int? {
-        guard let primary = NSScreen.screens.first else { return nil }
-        // Window server bounds have their origin at the primary screen's top left.
-        let flipped = CGPoint(x: point.x, y: primary.frame.maxY - point.y)
-        let pid = Int(ProcessInfo.processInfo.processIdentifier)
-        let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
-        for info in list {
-            guard (info[kCGWindowOwnerPID as String] as? NSNumber)?.intValue == pid,
-                  let number = (info[kCGWindowNumber as String] as? NSNumber)?.intValue, number != card,
-                  ((info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1) > 0,
-                  let bounds = (info[kCGWindowBounds as String] as? NSDictionary).flatMap({ CGRect(dictionaryRepresentation: $0) }),
-                  bounds.contains(flipped),
-                  NSApp?.window(withWindowNumber: number)?.ignoresMouseEvents != true else { continue }
-            return number
-        }
-        return nil
     }
 
     // MARK: Verification
