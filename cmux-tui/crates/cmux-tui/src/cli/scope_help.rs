@@ -42,9 +42,9 @@ USAGE
 The flags of the macOS `cmux notify`. The notification belongs to the caller's
 terminal unless --surface names another terminal or --workspace asks for a
 session-level row. --title defaults to \"Notification\". --reply asks for a
-banner with a Reply field: its text is typed into the notifying terminal,
-then Return. --desktop false posts no banner. --window and --id-format are
-accepted and ignored.
+banner with a Reply field when the notification belongs to a terminal: its
+text is typed into that terminal, then Return. --desktop false posts no
+banner. --window and --id-format are accepted and ignored.
 ";
 
 pub(super) const ROOM_HELP: &str = "\
