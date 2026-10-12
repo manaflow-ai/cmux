@@ -165,6 +165,8 @@ export class MockSettingsProvider {
           advanced: [{ id: "reloadConfiguration", title: "Reload Configuration", enabled: true }],
         })[String((params as { section: string }).section)] ?? [],
       "cmux.settings.backdrop.choose_image": () => ({ id: null }),
+      "cmux.settings.art.search": () => ({ results: [] }),
+      "cmux.settings.art.use": () => ({ id: "" }),
       "cmux.settings.folders.add": (params) => {
         const key = String((params as { key: string }).key);
         const current = Array.isArray(this.values.get(key)) ? (this.values.get(key) as string[]) : [];
@@ -233,6 +235,8 @@ export class MockSettingsProvider {
       "cmux.settings.file.reveal",
       "cmux.settings.folders.add",
       "cmux.settings.backdrop.choose_image",
+      "cmux.settings.art.search",
+      "cmux.settings.art.use",
       "cmux.settings.section.actions",
       "cmux.app.action.run",
       "cmux.app.clipboard.write",

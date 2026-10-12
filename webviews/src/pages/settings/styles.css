@@ -921,6 +921,21 @@ mark {
   border-style: dashed;
 }
 
+/* Browse More Art (cx-t2x.8). */
+.art-browser {
+  margin: 12px 0;
+}
+
+.art-browser-search {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.art-browser-search .field {
+  flex: 1;
+}
+
 .backdrop-title {
   overflow: hidden;
   font-size: 12px;

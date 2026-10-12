@@ -13,6 +13,21 @@ extension SettingsPageProvider {
         return ["id": .string(try await useBackdropImage(url))]
     }
 
+    /// `cmux.settings.art.search` (the works matching `query`) and `cmux.settings.art.use` (download
+    /// the work `key`, copy it into the backgrounds folder and set it).
+    func museumArt(_ op: String, params: JSONValue) async throws -> JSONValue {
+        guard let museumArt else { throw PageError(code: "cmux.page.unavailable", message: "no museum search") }
+        if op == "cmux.settings.art.search" {
+            return await museumArt.find(params["query"]?.stringValue ?? "")
+        }
+        guard let key = params["key"]?.stringValue else { throw PageError.invalidParams("key is required") }
+        guard let file = await museumArt.download(key: key) else {
+            throw PageError(code: "cmux.settings.art.download", message: "\(key) could not be downloaded")
+        }
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        return ["id": .string(try await useBackdropImage(file))]
+    }
+
     /// Copies `url` into the backgrounds folder and makes it the background. The person chose the
     /// file (picker or drop), so the write is theirs.
     @discardableResult
