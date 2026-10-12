@@ -3663,9 +3663,6 @@ mod chief;
 #[path = "cli/closed_delete.rs"]
 mod closed_delete;
 #[cfg(unix)]
-#[path = "cli/closed_reopen_screen.rs"]
-mod closed_reopen_screen;
-#[cfg(unix)]
 #[path = "cli/cloud_lease_gate.rs"]
 mod cloud_lease_gate;
 #[cfg(unix)]
