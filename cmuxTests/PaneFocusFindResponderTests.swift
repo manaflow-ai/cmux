@@ -408,3 +408,175 @@ struct PaneFocusFindResponderTests {
         return false
     }
 }
+
+/// Regression coverage for Cmd+F routing into the plain-text file preview
+/// (https://github.com/manaflow-ai/cmux/issues/6050): the app-level find
+/// dispatch must reach a focused FilePreviewPanel in text mode instead of
+/// being silently swallowed, exactly like the Markdown branch that already
+/// sits next to it in TabManager.
+@MainActor
+@Suite("File preview text find routing", .serialized)
+struct FilePreviewTextFindRoutingTests {
+    /// Cmd+F must reach a focused plain-text file preview: the shortcut
+    /// reports handled, the native find bar shows, and the window-level find
+    /// visibility state reflects it.
+    @Test
+    func startSearchReachesFocusedTextFilePreview() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        let window = try #require(mainWindow(for: windowId))
+        let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+        let workspace = try #require(manager.selectedWorkspace)
+        let firstPane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let fileURL = try temporaryTextFile(contents: "find me in the preview\n")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let panel = try #require(workspace.newFilePreviewSurface(
+            inPane: firstPane,
+            filePath: fileURL.path,
+            focus: true
+        ))
+        let (scrollView, textView) = mountTextPreviewEditor(
+            for: panel,
+            in: window,
+            content: "find me in the preview\n"
+        )
+        defer { scrollView.removeFromSuperview() }
+        window.makeKeyAndOrderFront(nil)
+        #expect(window.makeFirstResponder(textView))
+        #expect(workspace.focusedPanelId == panel.id)
+        #expect(manager.focusedTextFilePreviewPanel === panel)
+        #expect(!manager.isFindVisible)
+
+        #expect(
+            manager.startSearch(),
+            "Cmd+F must route to a focused plain-text file preview instead of being swallowed"
+        )
+        #expect(
+            scrollView.isFindBarVisible,
+            "Cmd+F must show the native find bar in the text preview"
+        )
+        #expect(
+            manager.isFindVisible,
+            "The window-level find visibility must track the text preview's real find bar state"
+        )
+
+        manager.hideFind()
+
+        #expect(!scrollView.isFindBarVisible)
+        #expect(!manager.isFindVisible)
+        #expect(
+            window.firstResponder === textView,
+            "Hiding the find bar must return keyboard focus to the text preview document"
+        )
+    }
+
+    /// Cmd+E (Use Selection for Find) must be enabled when the focused text
+    /// preview has a selection, matching the terminal affordance.
+    @Test
+    func selectionForFindIsAvailableForTextPreviewSelection() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        let window = try #require(mainWindow(for: windowId))
+        let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+        let workspace = try #require(manager.selectedWorkspace)
+        let firstPane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let fileURL = try temporaryTextFile(contents: "alpha beta gamma\n")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let panel = try #require(workspace.newFilePreviewSurface(
+            inPane: firstPane,
+            filePath: fileURL.path,
+            focus: true
+        ))
+        let (scrollView, textView) = mountTextPreviewEditor(
+            for: panel,
+            in: window,
+            content: "alpha beta gamma\n"
+        )
+        defer { scrollView.removeFromSuperview() }
+        window.makeKeyAndOrderFront(nil)
+        #expect(window.makeFirstResponder(textView))
+        #expect(manager.focusedTextFilePreviewPanel === panel)
+        #expect(!manager.canUseSelectionForFind)
+
+        textView.setSelectedRange(NSRange(location: 6, length: 4)) // "beta"
+
+        #expect(
+            manager.canUseSelectionForFind,
+            "Use Selection for Find must be enabled by a selection in the focused text preview"
+        )
+    }
+
+    /// Non-text previews (Quick Look, PDF, image, media) have no text find
+    /// surface; routing must fall through unchanged for them.
+    @Test
+    func findRoutingFallsThroughForNonTextFilePreview() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        let window = try #require(mainWindow(for: windowId))
+        let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+        let workspace = try #require(manager.selectedWorkspace)
+        let firstPane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("bin")
+        try Data([0x00, 0x01, 0x00, 0x02]).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let panel = try #require(workspace.newFilePreviewSurface(
+            inPane: firstPane,
+            filePath: fileURL.path,
+            focus: true
+        ))
+        defer { panel.close() }
+        try #require(panel.previewMode != .text)
+        #expect(manager.focusedTextFilePreviewPanel == nil)
+
+        #expect(
+            !manager.startSearch(),
+            "A non-text file preview must not claim the find shortcut"
+        )
+        #expect(!manager.canUseSelectionForFind)
+    }
+
+    private func temporaryTextFile(contents: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("txt")
+        try contents.write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
+    /// Mounts the panel's text editor the way FilePreviewTextEditor does:
+    /// the find bar is hosted by the text view's enclosing scroll view, so
+    /// tests must build that container rather than a bare text view.
+    private func mountTextPreviewEditor(
+        for panel: FilePreviewPanel,
+        in window: NSWindow,
+        content: String
+    ) -> (scrollView: NSScrollView, textView: SavingTextView) {
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 480, height: 320))
+        scrollView.hasVerticalScroller = true
+        let textView = SavingTextView.makeFilePreviewTextView()
+        textView.frame = NSRect(x: 0, y: 0, width: 480, height: 320)
+        textView.string = content
+        textView.panel = panel
+        scrollView.documentView = textView
+        panel.attachTextView(textView)
+        window.contentView?.addSubview(scrollView)
+        return (scrollView, textView)
+    }
+
+    private func mainWindow(for windowId: UUID) -> NSWindow? {
+        AppDelegate.shared?.windowForMainWindowId(windowId)
+    }
+
+    private func closeWindow(withId windowId: UUID) {
+        mainWindow(for: windowId)?.close()
+    }
+}
+
