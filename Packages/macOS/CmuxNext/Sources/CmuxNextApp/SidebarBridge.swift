@@ -278,12 +278,12 @@ final class SidebarBridge {
     /// A tab's name in the sidebar's tab rows, as its strip names it.
     typealias TabTitle = (TabModel) -> String
 
-    /// The strip's title rule (`TabTitleResolver`) for the sidebar's tab rows.
     /// The tabs that show the New Tab page, named "New Tab" and badged as a page.
     static func newTabPages(_ tabs: AgentTabStore, in store: DaemonStore?) -> Set<String> {
         RestoredNewTabPages.ids(in: store, tabs: tabs)
     }
 
+    /// The strip's title rule (`TabTitleResolver`) for the sidebar's tab rows.
     static func tabTitle(_ services: AppServices) -> TabTitle {
         let titles = TabTitleResolver(services: services)
         return { titles.title($0) }

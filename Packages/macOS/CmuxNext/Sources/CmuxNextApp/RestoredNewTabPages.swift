@@ -10,12 +10,14 @@ enum RestoredNewTabPages {
     /// Whether `tab` shows the New Tab page.
     static func shows(_ tab: TabModel, in tabs: AgentTabStore) -> Bool {
         let key = tabs.resolve(tab.id)
-        if tabs.newTabPages[key] != nil { return true }
+        // Observed: the strip and Home follow the pages this run opens and closes.
+        if tabs.pageTabs.ids.contains(key) || tabs.newTabPages[key] != nil { return true }
+        // Cheap lookups first: a restored chat leaves here, before the host checks walk the tree.
         guard let record = tab.agentSession, tabs.views[key] == nil, tabs.tabStores[key] == nil,
-              AgentPaneHostKind(record, localHost: tabs.localHost, chiefHost: tabs.chiefHost) == .local,
-              tabs.daemonForTab(key)?.isLocal != false,
               (tabs.sessions[key] ?? record.session) == nil, tabs.seeds[key] == nil, !tabs.linkedSessions.contains(key),
-              tabs.unsentDrafts.seed(for: key, session: nil) == nil else { return false }
+              tabs.unsentDrafts.seed(for: key, session: nil) == nil,
+              AgentPaneHostKind(record, localHost: tabs.localHost, chiefHost: tabs.chiefHost) != .remote,
+              tabs.daemonForTab(key)?.isLocal != false else { return false }
         // A first chat in flight in its workspace (New Agent Chat) is that chat, never the page.
         guard !tabs.firstChats.isEmpty else { return true }
         guard let (_, store) = tabs.lookup(key), let pane = store.pane(containing: tab.surface),
