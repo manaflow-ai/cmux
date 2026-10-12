@@ -154,9 +154,9 @@ extension TerminalController {
     nonisolated static let socketClientMaximumConcurrentJobs = 32
     /// Blocking `feed.push` connections that may wait for a decision outside
     /// the running slots (#16404). Each one parks a blocking-worker thread on
-    /// its decision semaphore, so this plus the running slots stays below
-    /// GCD's 64-thread limit for blocked work.
-    nonisolated static let socketClientMaximumParkedJobs = 24
+    /// its decision semaphore, so this plus the running slots stays well below
+    /// GCD's 64-thread limit and leaves threads for the rest of the app.
+    nonisolated static let socketClientMaximumParkedJobs = 16
     /// Connection jobs that may wait for a slot.
     nonisolated static let socketClientMaximumPendingJobs = 64
     /// Unauthenticated peers that may be read concurrently.
