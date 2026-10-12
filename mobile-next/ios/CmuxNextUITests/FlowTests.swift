@@ -551,6 +551,32 @@ final class FlowTests: XCTestCase {
         snap(app, "f0-codex")
     }
 
+    /// Background for 40 s, come back: the terminal still works.
+    func testBackgroundResume() throws {
+        let app = launchSignedIn()
+        pause(4)
+        app.buttons["shell.menu"].tap()
+        pause(1)
+        app.buttons["sidebar.terminals"].tap()
+        let newTerminal = app.buttons.matching(identifier: "terminals.new").element(boundBy: 0)
+        XCTAssertTrue(newTerminal.waitForExistence(timeout: 20))
+        newTerminal.tap()
+        pause(6)
+        app.buttons["terminal.keyboard"].tap()
+        pause(1)
+        app.typeText("echo before-background\n")
+        pause(2)
+        XCUIDevice.shared.press(.home)
+        pause(40)
+        app.activate()
+        pause(3)
+        snap(app, "g0-resumed")
+        if !app.keyboards.firstMatch.exists { app.buttons["terminal.keyboard"].tap(); pause(1) }
+        app.typeText("echo after-background-$((6*7))\n")
+        pause(4)
+        snap(app, "g1-typed")
+    }
+
     /// Forces TURN relay and checks the Mac connects through it.
     func testRelayConnection() throws {
         let app = launchSignedIn(arguments: ["-cnm-relay-only"])
