@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import postgres from "postgres";
 import { observePostgresJsQueryTiming, setCloudDbQueryObserver, type CloudDbQueryTiming } from "../db/queryTiming";
 import { recordVmRequestDbTiming, type VmRequestContext } from "../services/vms/requestContext";
 import { vmDbSpanAttributes } from "../services/vms/routeHelpers";
@@ -71,28 +70,32 @@ describe("postgres.js query timing", () => {
   });
 });
 
-// Against a real Postgres (CMUX_TEST_PG_URL): with a one-connection pool, a
-// query queued behind a 300 ms query reports that wait as its acquire wait.
-const pgUrl = process.env.CMUX_TEST_PG_URL;
-(pgUrl ? describe : describe.skip)("postgres.js query timing against a real pool", () => {
-  test("a queued query's acquire wait is the time it waited for the connection", async () => {
+// Against a real Postgres (the web-database-tests CI job sets CMUX_DB_TEST=1
+// and DATABASE_URL; locally, point DATABASE_URL at any scratch database).
+// Through cloudDb(), so the postgres.js wrapper that tags, cancels and times
+// queries (installPostgresJsQueryCancellation) is what is exercised: with a
+// one-connection pool, a query queued behind a 300 ms query reports that wait
+// as its acquire wait, and a query whose signal aborts is still cancelled.
+const runDbTests = process.env.CMUX_DB_TEST === "1";
+(runDbTests ? describe : describe.skip)("postgres.js query timing through cloudDb()", () => {
+  test("a queued query's acquire wait is the time it waited for the pooled connection", async () => {
+    process.env.CMUX_DB_POOL_MAX = "1";
+    const { cloudDb, closeCloudDbForTests } = await import("../db/client");
+    const { sql } = await import("drizzle-orm");
     const timings: Array<CloudDbQueryTiming & { label: string }> = [];
     let label = "";
     setCloudDbQueryObserver(() => {
       const current = label;
       return (timing) => timings.push({ ...timing, label: current });
     });
-    const sql = postgres(pgUrl!, { max: 1, prepare: false });
     try {
       label = "slow";
-      const slow = sql.unsafe("select pg_sleep(0.3)");
-      observePostgresJsQueryTiming(slow);
+      const slow = cloudDb().execute(sql`select pg_sleep(0.3)`);
       label = "queued";
-      const queued = sql.unsafe("select 1 as one");
-      observePostgresJsQueryTiming(queued);
+      const queued = cloudDb().execute(sql`select 1 as one`);
       await Promise.all([slow, queued]);
     } finally {
-      await sql.end();
+      await closeCloudDbForTests();
     }
     const queued = timings.find((timing) => timing.label === "queued");
     const slow = timings.find((timing) => timing.label === "slow");
@@ -101,5 +104,22 @@ const pgUrl = process.env.CMUX_TEST_PG_URL;
     // The queued query was sent only after the slow one released the connection.
     expect(queued!.acquireWaitMs).toBeGreaterThan(slow!.acquireWaitMs);
     expect(queued!.acquireWaitMs).toBeGreaterThanOrEqual(slow!.durationMs - 50);
+  });
+
+  test("the timing hook leaves query cancellation working", async () => {
+    const { cloudDb, closeCloudDbForTests } = await import("../db/client");
+    const { runWithCloudDbQuerySignal } = await import("../db/queryScope");
+    const { sql } = await import("drizzle-orm");
+    const timings: CloudDbQueryTiming[] = [];
+    setCloudDbQueryObserver(() => (timing) => timings.push(timing));
+    const controller = new AbortController();
+    try {
+      const running = runWithCloudDbQuerySignal(controller.signal, () => cloudDb().execute(sql`select pg_sleep(5)`));
+      setTimeout(() => controller.abort(), 100);
+      await expect(running).rejects.toThrow();
+    } finally {
+      await closeCloudDbForTests();
+    }
+    expect(timings.at(-1)?.failed).toBe(true);
   });
 });
