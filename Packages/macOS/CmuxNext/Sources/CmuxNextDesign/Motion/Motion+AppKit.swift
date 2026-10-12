@@ -225,8 +225,9 @@ extension Motion {
         let animation = CABasicAnimation(keyPath: keyPath)
         animation.fromValue = duration > 0 ? from : to
         animation.toValue = to
-        // A zero duration would run Core Animation's 0.25 s default.
-        animation.duration = duration > 0 ? duration : .leastNonzeroMagnitude
+        // A zero duration would run Core Animation's 0.25 s default; a
+        // millisecond holds `to` from the end of the wait.
+        animation.duration = duration > 0 ? duration : 0.001
         animation.timingFunction = fadeCurve
         animation.beginTime = layer.convertTime(CACurrentMediaTime(), from: nil) + delay
         animation.fillMode = .forwards

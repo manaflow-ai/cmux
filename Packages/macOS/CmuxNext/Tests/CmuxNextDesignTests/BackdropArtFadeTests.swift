@@ -36,6 +36,8 @@ struct BackdropArtFadeTests {
             try await Task.sleep(for: .milliseconds(10))
             fades = Self.opacityFades(under: view.layer)
         }
+        // At speed off the art appears at once (no fade to find).
+        if Motion.duration(.fadeIn) > 0 { try #require(!fades.isEmpty, "the art never faded in") }
         let duration = fades.first?.duration ?? 0
         #expect(duration == Motion.duration(.fadeIn), "the art fade ran \(duration) s")
     }
