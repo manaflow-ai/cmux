@@ -287,9 +287,10 @@ struct CloudMove {
     }
 
     /// A toast on the active window, with Retry when `retry` is set (Bring Back Local's too).
-    static func toast(_ services: AppServices, _ id: String, _ message: String, duration: Duration, retry: (@MainActor () -> Void)? = nil) {
+    static func toast(_ services: AppServices, _ id: String, _ message: String, duration: Duration, retry: (@MainActor () -> Void)? = nil,
+                      retryTitle: String = CloudMoveStrings.retry) {
         guard let window = services.windows.active?.window ?? NSApp.mainWindow else { return }
-        let action = retry == nil ? nil : CmuxToast.Action(title: CloudMoveStrings.retry)
+        let action = retry == nil ? nil : CmuxToast.Action(title: retryTitle)
         let handle = CmuxToastCenter.shared.show(CmuxToast(id: id, message: message, action: action, duration: duration), in: window)
         handle.onAction = { retry?() }
     }
