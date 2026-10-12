@@ -197,6 +197,8 @@ final class PaletteTableView: NSTableView {
     var onMouseMoved: ((NSPoint) -> Void)?
     var onMouseExited: (() -> Void)?
     var onClick: ((Int) -> Void)?
+    /// The press's following mouse events; nil reads the window's queue. Tests feed a press here.
+    var pressEvents: (() -> NSEvent?)?
     private var trackingArea: NSTrackingArea?
 
     override var acceptsFirstResponder: Bool { false }
@@ -226,7 +228,7 @@ final class PaletteTableView: NSTableView {
             self.onMouseMoved?(NSPoint(x: rect.midX, y: rect.midY))
         }, release: { index in
             self.onClick?(index)
-        })
+        }, next: pressEvents)
     }
 }
 

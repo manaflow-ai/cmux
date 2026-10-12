@@ -36,12 +36,18 @@ import Testing
                                   clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1)!
     }
 
+    /// Hands the press `events` in order, as the window's queue would during a drag.
+    private func feed(_ table: PaletteTableView, _ events: [NSEvent]) {
+        var queue = events
+        table.pressEvents = { queue.isEmpty ? nil : queue.removeFirst() }
+    }
+
     @Test func releaseRunsTheRowThePressEndsOn() {
         let (window, table) = table()
         var ran: [Int] = []
         table.onClick = { ran.append($0) }
-        window.postEvent(event(.leftMouseDragged, row: 1, in: table, window: window), atStart: false)
-        window.postEvent(event(.leftMouseUp, row: 1, in: table, window: window), atStart: false)
+        feed(table, [event(.leftMouseDragged, row: 1, in: table, window: window),
+                     event(.leftMouseUp, row: 1, in: table, window: window)])
         table.mouseDown(with: event(.leftMouseDown, row: 0, in: table, window: window))
         #expect(ran == [1])
     }
@@ -50,8 +56,8 @@ import Testing
         let (window, table) = table()
         var ran: [Int] = []
         table.onClick = { ran.append($0) }
-        window.postEvent(event(.leftMouseDragged, row: -1, in: table, window: window), atStart: false)
-        window.postEvent(event(.leftMouseUp, row: -1, in: table, window: window), atStart: false)
+        feed(table, [event(.leftMouseDragged, row: -1, in: table, window: window),
+                     event(.leftMouseUp, row: -1, in: table, window: window)])
         table.mouseDown(with: event(.leftMouseDown, row: 0, in: table, window: window))
         #expect(ran.isEmpty)
     }
