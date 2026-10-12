@@ -14,13 +14,19 @@ const runs = (page: Awaited<ReturnType<typeof renderPage>>, op: string) =>
   page.provider.log.filter((entry) => entry.op === op).map((entry) => entry.params);
 
 test("Change Background… shows the picker on Appearance: resting previews, leaving restores, a click keeps", async () => {
-  const page = await renderPage({ path: "/settings/appearance?focus=appearance.background" });
+  const page = await renderPage({
+    path: "/settings/appearance?focus=appearance.background",
+    mock: { values: { "appearance.background": "starryNight" } },
+  });
   const picker = page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
   expect(picker.querySelector("img")!.getAttribute("src")).toBe("backdrop/starryNight");
   // Its Opacity slider is in the picker, and the two rows are not repeated in Window Background.
   expect(picker.querySelector('[data-row-key="appearance.backgroundOpacity"]')).not.toBeNull();
   expect(page.container.querySelectorAll('[data-row-key="appearance.backgroundOpacity"]').length).toBe(1);
-  expect(page.container.querySelectorAll('[data-row-key="appearance.background"]').length).toBe(1);
+  // The picker is not a row: the row keys (↑/↓) step from the search field to its Opacity row.
+  expect(page.container.querySelector('[data-row-key="appearance.background"]')).toBeNull();
+  // Change Background… lands on the saved choice, not on the slider.
+  expect(document.activeElement?.getAttribute("aria-label")).toBe("The Starry Night");
 
   const tile = picker.querySelector<HTMLButtonElement>('[aria-label="The Starry Night"]')!;
   await act(async () => {

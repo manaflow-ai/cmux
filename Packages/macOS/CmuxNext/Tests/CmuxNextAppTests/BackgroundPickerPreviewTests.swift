@@ -79,17 +79,36 @@ import Testing
 }
 
 /// The entry point: a right-click on the window's background (the gaps between panes, an empty
-/// workspace) offers Change Background….
+/// workspace) offers Change Background…; one a pane or tab strip passed up without a menu does not.
 @MainActor @Suite struct ChangeBackgroundMenuTests {
     static func titles(_ menu: NSMenu?) -> [String] { menu?.items.map(\.title) ?? [] }
 
-    @Test func rightClickingTheWindowBackgroundOffersChangeBackground() throws {
+    static func rightClick(at x: CGFloat) throws -> NSEvent {
+        try #require(NSEvent.mouseEvent(with: .rightMouseDown, location: NSPoint(x: x, y: 350), modifierFlags: [],
+                                         timestamp: 0, windowNumber: 0, context: nil, eventNumber: 0,
+                                         clickCount: 1, pressure: 1))
+    }
+
+    /// The workspace content in a container, with a pane-like view over the left half of the layout.
+    static func make() -> WorkspaceContentView {
         let registry = ActionRegistry.standard()
-        let view = WorkspaceContentView(layoutView: NSView(), bar: TabStripView(model: TabStripModel()))
+        let layout = NSView()
+        let view = WorkspaceContentView(layoutView: layout, bar: TabStripView(model: TabStripModel()))
         view.backgroundMenu = { registry.makeContextMenu(for: .windowBackground) }
-        let event = try #require(NSEvent.mouseEvent(with: .rightMouseDown, location: NSPoint(x: 40, y: 40), modifierFlags: [],
-                                                     timestamp: 0, windowNumber: 0, context: nil, eventNumber: 0,
-                                                     clickCount: 1, pressure: 1))
-        #expect(Self.titles(view.menu(for: event)).contains("Change Background…"))
+        let container = NSView(frame: view.frame)
+        container.addSubview(view)
+        view.layout()
+        layout.addSubview(NSView(frame: NSRect(x: 0, y: 0, width: layout.bounds.width / 2, height: layout.bounds.height)))
+        return view
+    }
+
+    @Test func rightClickingTheWindowBackgroundOffersChangeBackground() throws {
+        let view = Self.make()
+        #expect(Self.titles(view.menu(for: try Self.rightClick(at: view.bounds.width - 40))).contains("Change Background…"))
+    }
+
+    @Test func aRightClickAPaneDidNotTakeOffersNoBackgroundMenu() throws {
+        let view = Self.make()
+        #expect(!Self.titles(view.menu(for: try Self.rightClick(at: 40))).contains("Change Background…"))
     }
 }
