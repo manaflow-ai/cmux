@@ -65,7 +65,9 @@ GATEKEEPER_ASSESS_ATTEMPTS="${CMUX_GATEKEEPER_ASSESS_ATTEMPTS:-80}"
 GATEKEEPER_ASSESS_DELAY_SECONDS="${CMUX_GATEKEEPER_ASSESS_DELAY_SECONDS:-15}"
 # notarytool wait's --timeout (for example 15m) for --finish and the synchronous
 # run; unset waits as long as Apple takes. A caller with a step timeout sets it
-# so a slow queue fails here instead of being killed mid-step.
+# so a slow queue ends here instead of being killed mid-step: a helper still in
+# Apple's queue then exits 75 (pending, nothing stapled); notarize-nightly-dmg.sh
+# goes on to the DMG, whose ticket covers the helper's unchanged slices.
 NOTARY_WAIT_TIMEOUT="${CMUX_COMPUTER_USE_NOTARY_WAIT_TIMEOUT:-}"
 
 assess_with_gatekeeper() {
@@ -226,6 +228,15 @@ finish_submission() {
     submit_status="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("status", "unknown"))' <<<"$wait_json")"
   else
     submit_status="unknown"
+  fi
+  if [ "$wait_status" -ne 0 ] && [ "$submit_status" = "unknown" ]; then
+    # A --timeout leaves no status: ask Apple whether it is still queued.
+    submit_status="$("$XCRUN_TOOL" notarytool info "$submit_id" "${NOTARY_AUTH_ARGS[@]}" --output-format json 2>/dev/null \
+      | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status", "unknown"))' 2>/dev/null || echo unknown)"
+  fi
+  if [ "$wait_status" -ne 0 ] && [ "$submit_status" = "In Progress" ]; then
+    echo "Computer Use helper submission $submit_id is still in Apple's queue after ${NOTARY_WAIT_TIMEOUT:-the wait}; it is not stapled" >&2
+    exit 75
   fi
   if [ "$wait_status" -ne 0 ] || [ "$submit_status" != "Accepted" ]; then
     echo "Computer Use helper notarization failed with status: $submit_status (wait exit $wait_status)" >&2
