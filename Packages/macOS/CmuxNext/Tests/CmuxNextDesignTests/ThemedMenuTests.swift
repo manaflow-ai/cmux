@@ -13,7 +13,7 @@ import Testing
         var input = ThemeInput(background: ThemeRGB(hex: 0x1C1B22), foreground: ThemeRGB(hex: 0xE8E4F0))
         input.accentColor = ThemeRGB(hex: 0xE5813A)
         let scope = ThemeScope(level: .room)
-        scope.setOverride(try #require(ThemeSpec("Menu Orange")), input: input, animated: false)
+        scope.setOverride(ThemeSpec("Menu Orange"), input: input, animated: false)
         return scope
     }
 
