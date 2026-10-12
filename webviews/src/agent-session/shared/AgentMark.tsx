@@ -4,6 +4,12 @@ import { AGENT_BRAND_SMALL_POINT_SIZE } from "./agentBrands.generated";
 
 export { agentBrand };
 
+/// The first of `candidates` that names a known mark (a profile's icon, then its family, then its
+/// id), else the last one given: an unknown icon falls back to its family's mark.
+export function knownMark(...candidates: (string | undefined)[]): string | undefined {
+  return candidates.find((candidate) => agentBrand(candidate)) ?? candidates.filter(Boolean).at(-1);
+}
+
 /// How marks color: each vendor's own colors (the default), or white on dark themes
 /// and black on light ones.
 export type AgentMarkStyle = "brand" | "mono";
@@ -63,11 +69,14 @@ export function AgentMark({
   size = 16,
   label,
   onDark,
+  reserve,
 }: {
   agent?: string;
   size?: number;
   label?: string;
   onDark?: boolean;
+  /** In a list: an unknown mark keeps its `size` slot (an empty box), so the names line up. */
+  reserve?: boolean;
 }) {
   const key = agentBrand(agent);
   const [scheme, style] = useSyncExternalStore(subscribe, appearance, () => "dark brand").split(" ");
@@ -84,7 +93,14 @@ export function AgentMark({
   const a11y = label ? { role: "img", "aria-label": label } : { "aria-hidden": true as const };
   // A mark nobody knows (a profile's own id, a file icon) draws nothing: a placeholder square read
   // as a broken image (Leo, 2026-10-12, the "Vercel AI Gateway" chip). The name beside it says who.
-  if (!spec) return null;
+  if (!spec)
+    return reserve ? (
+      <span
+        className="agent-mark agent-mark-empty"
+        style={{ display: "inline-block", flex: "none", width: size, height: size }}
+        aria-hidden="true"
+      />
+    ) : null;
   const tile = brand ? spec.tile : undefined;
   const fill = brand ? tone(spec.tone, dark) : dark ? "#fff" : "#000";
   const drawPath = (path: AgentBrandSpec["paths"][number], index: number, paint?: string) => {

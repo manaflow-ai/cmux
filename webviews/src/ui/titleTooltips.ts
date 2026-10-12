@@ -24,13 +24,34 @@ const TRUNCATED_MIN_MAX = 480;
 
 /// The tooltip's min and max width for an element `width` px wide in a `view` px window. A tooltip
 /// for text the element cuts off shows it in full, wrapping, up to the element's width (at least
-/// 480 px) and never narrower than the element's line; any other tooltip wraps at 320 px. Both stay
-/// inside the window's edges.
-export function tooltipWidth({ width, truncated, view }: { width: number; truncated: boolean; view: number }) {
+/// 480 px) and never narrower than the element's line, unless the full text (`text`, its width on
+/// one line) is shorter: then it is just the text's width. Any other tooltip wraps at 320 px. Both
+/// stay inside the window's edges.
+export function tooltipWidth({
+  width,
+  truncated,
+  view,
+  text,
+}: {
+  width: number;
+  truncated: boolean;
+  view: number;
+  text?: number;
+}) {
   const room = Math.max(0, view - 2 * EDGE);
   if (!truncated) return { min: 0, max: Math.min(MAX_WIDTH, room) };
   const line = Math.ceil(width);
-  return { min: Math.min(line, room), max: Math.min(Math.max(line, TRUNCATED_MIN_MAX), room) };
+  const min = text === undefined ? line : Math.min(line, Math.ceil(text));
+  return { min: Math.min(min, room), max: Math.min(Math.max(line, TRUNCATED_MIN_MAX), room) };
+}
+
+/// Whether `element` or anything inside it cuts its text off: a row can carry the title while its
+/// label clips (BranchBasePicker's rows).
+function clips(element: Element): boolean {
+  const cut = (node: Element) => node.scrollWidth > node.clientWidth + 1;
+  if (cut(element)) return true;
+  for (const child of element.querySelectorAll("*")) if (cut(child)) return true;
+  return false;
 }
 
 /// Where a `size` tooltip for `anchor` goes in a `view` window: below and centered, above when
@@ -90,14 +111,24 @@ export function installTooltips(doc: Document): () => void {
       tip.replaceChildren(hint, label);
     } else tip.replaceChildren(label);
     const anchor = target.getBoundingClientRect();
+    const truncated = clips(target);
+    tip.hidden = false;
+    let natural: number | undefined;
+    if (truncated) {
+      // The full text's width on one line, so a short title gets no wide empty box.
+      tip.style.minWidth = "0";
+      tip.style.maxWidth = "none";
+      // Zero means no layout to measure (a detached or unrendered page): keep the line's width.
+      natural = tip.getBoundingClientRect().width || undefined;
+    }
     const width = tooltipWidth({
       width: anchor.width,
-      truncated: target.scrollWidth > target.clientWidth,
+      truncated,
       view: doc.documentElement.clientWidth,
+      text: natural,
     });
     tip.style.minWidth = `${width.min}px`;
     tip.style.maxWidth = `${width.max}px`;
-    tip.hidden = false;
     const position = tooltipPosition(anchor, tip.getBoundingClientRect(), {
       width: doc.documentElement.clientWidth,
       height: doc.documentElement.clientHeight,

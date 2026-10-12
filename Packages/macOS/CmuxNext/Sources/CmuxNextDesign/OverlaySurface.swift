@@ -170,6 +170,15 @@ public final class OverlaySurfaceView: NSView {
 }
 
 extension NSView {
+    /// Paints this view, a system popover's content, with the solid popup
+    /// surface of `scope`'s theme, so no text under the popover's vibrancy
+    /// shows through. Call it each time the popover opens (it follows the
+    /// theme then).
+    public func fillWithPopupSurface(themeOf scope: NSView) {
+        wantsLayer = true
+        layer?.backgroundColor = scope.performWithTheme { Palette.popupSurface }.cgColor
+    }
+
     /// The material of the overlay surface this view sits in, or nil
     /// outside one. Content that only glass needs (a legibility veil)
     /// checks it in its color hook, which reruns when the material changes.

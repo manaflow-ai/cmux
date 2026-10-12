@@ -17,6 +17,7 @@ extension SidebarUpdateCardView {
         self.popover = popover
         (popover.contentViewController?.view as? SidebarPopoverIslandHost)?.adopt(highlights)
         popover.appearance = effectiveAppearance
+        popover.contentViewController?.view.fillWithPopupSurface(themeOf: self)
         // The page's own height: a zero first size would show nothing.
         popover.contentSize = NSSize(width: Self.popoverWidth, height: highlights.contentHeight)
         popover.show(relativeTo: bounds, of: self, preferredEdge: .maxX)

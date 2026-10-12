@@ -42,9 +42,9 @@ final class RefusalHUD {
     }
 }
 
-/// The glass pill and its label.
+/// The pill (the solid popup surface) and its label.
 final class RefusalHUDView: NSView {
-    private let surface = OverlaySurfaceView()
+    private let surface = OverlaySurfaceView(material: .opaque)
     private let label = NSTextField(labelWithString: "")
     private(set) var isShowing = false
     var text: String { label.stringValue }

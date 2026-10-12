@@ -6,6 +6,7 @@ import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
 import { type Project, ProjectChooser } from "../ProjectChooser";
 import { isAgentHome, projectLabel } from "../sessionList";
+import { tooltipProps } from "../shortcuts";
 import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
 import { ChatCards } from "./ChatCards";
 import { ClosedList } from "./ClosedList";
@@ -523,8 +524,8 @@ function ToolsRow({
           <button
             type="button"
             className="nt-tool"
-            // The shortcut in the tooltip: shown inline on hover it moved every later tool.
-            title={tool.shortcut ? `${toolTitle(t, tool)}  ${tool.shortcut}` : undefined}
+            // The shortcut in the tooltip (its hint): shown inline on hover it moved every later tool.
+            {...(tool.shortcut ? tooltipProps(toolTitle(t, tool), tool.shortcut) : {})}
             onClick={() => onRunAction?.(tool.id)}
           >
             <span className="nt-tool-icon" aria-hidden="true">
