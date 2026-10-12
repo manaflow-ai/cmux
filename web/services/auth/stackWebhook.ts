@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { applyHexclaveWebhookEvent, type HexclaveSyncDependencies } from "./hexclave/sync";
+import { HexclaveApiError } from "./hexclave/serverApi";
 import { parseHexclaveWebhook, type HexclaveWebhookEvent } from "./hexclave/webhookEvents";
 
 /**
@@ -90,7 +91,9 @@ const defaultLog: StackWebhookLog = (level, message, fields) => {
  *   and never processed.
  * - 200 ignored: verified, but a type this code does not know. Logged.
  * - 200 duplicate: this svix-id was already processed.
- * - 500: reconcile or revocation failed; Svix retries the same svix-id.
+ * - 503 + Retry-After: Hexclave throttled (429), failed (5xx) or timed out on
+ *   the reconcile read; Svix retries the same svix-id later.
+ * - 500: reconcile or revocation failed for any other reason; Svix retries.
  * - 200 processed: only after the mirror reflects Hexclave and revocations ran.
  */
 export async function handleStackWebhook(
@@ -154,10 +157,38 @@ async function processEvent(
     log("info", "stack_webhook_processed", { svixId, eventType: event.type, ...result });
     return json(200, { received: true, handled: event.type });
   } catch (error) {
-    log("error", "stack_webhook_sync_failed", { svixId, eventType: event.type, error: errorSummary(error) });
     await recordBestEffort(sync, log, { svixId, eventType: event.type, outcome: "failed" });
+    if (isTransientProviderFailure(error)) {
+      // Hexclave throttled, failed, or timed out on the reconcile read. Nothing
+      // is wrong with this delivery or with us: ask Svix to come back later.
+      log("warn", "stack_webhook_provider_unavailable", { svixId, eventType: event.type, error: errorSummary(error) });
+      return json(503, { error: "provider_unavailable", retryable: true }, {
+        "retry-after": String(PROVIDER_RETRY_AFTER_SECONDS),
+      });
+    }
+    log("error", "stack_webhook_sync_failed", { svixId, eventType: event.type, error: errorSummary(error) });
     return json(500, { error: "sync_failed" });
   }
+}
+
+/** Matches the Retry-After our own auth routes send on a Stack throttle. */
+const PROVIDER_RETRY_AFTER_SECONDS = 60;
+
+/**
+ * A Hexclave answer of 429 or 5xx, or a read that timed out or never
+ * connected. Schema failures and our own database or revocation failures are
+ * not transient provider failures and keep the 500.
+ */
+function isTransientProviderFailure(error: unknown): boolean {
+  if (error instanceof HexclaveApiError) {
+    const status = error.details.status;
+    return status === 429 || (status !== undefined && status >= 500);
+  }
+  if (!(error instanceof Error)) return false;
+  // AbortSignal.timeout rejects with a TimeoutError DOMException; undici
+  // rejects a failed connection with `TypeError: fetch failed`.
+  return error.name === "TimeoutError" ||
+    (error.name === "TypeError" && error.message === "fetch failed");
 }
 
 async function recordBestEffort(
@@ -191,6 +222,6 @@ function errorSummary(error: unknown): Record<string, unknown> {
   };
 }
 
-function json(status: number, body: Record<string, unknown>): Response {
-  return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+function json(status: number, body: Record<string, unknown>, headers: Record<string, string> = {}): Response {
+  return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
 }
