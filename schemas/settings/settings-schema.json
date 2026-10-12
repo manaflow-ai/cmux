@@ -5163,8 +5163,8 @@
           "Work" : ""
         }
       ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
       "consumers" : [
         "cmux-next"
       ],
@@ -5221,8 +5221,8 @@
           "2B7F0C3A-workspace"
         ]
       ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
       "consumers" : [
         "cmux-next"
       ],
@@ -22515,7 +22515,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "4f97c820f655e83a5d90b898e511bd201a9ea0d5fabf41f57e0eb7da955b4905",
+  "schema_hash" : "b76af01b0c129afec6406a271ac8e2d336de1f8a51e68ce971538d331d49e53d",
   "sections" : [
     {
       "id" : "general",
