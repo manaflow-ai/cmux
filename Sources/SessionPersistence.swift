@@ -41,6 +41,30 @@ enum SessionPersistencePolicy {
     static let maxScrollbackLinesPerTerminal: Int = 4000
     static let maxScrollbackCharactersPerTerminal: Int = 400_000
 
+    static func boundedWorkspaceRetention(
+        restorableWorkspaceCount: Int,
+        selectedRestorableWorkspaceIndex: Int?,
+        maximum: Int = maxWorkspacesPerWindow
+    ) -> SessionWorkspaceRetention {
+        let retainedCount = min(max(0, maximum), max(0, restorableWorkspaceCount))
+        var retainedIndices = Array(0..<retainedCount)
+        if let selectedRestorableWorkspaceIndex,
+           selectedRestorableWorkspaceIndex >= retainedCount,
+           selectedRestorableWorkspaceIndex < restorableWorkspaceCount,
+           !retainedIndices.isEmpty {
+            retainedIndices[retainedIndices.count - 1] = selectedRestorableWorkspaceIndex
+        }
+        return SessionWorkspaceRetention(
+            retainedIndices: retainedIndices,
+            selectedWorkspaceIndex: selectedRestorableWorkspaceIndex.flatMap {
+                retainedIndices.firstIndex(of: $0)
+            },
+            omittedWorkspaceCount: restorableWorkspaceCount > retainedCount
+                ? restorableWorkspaceCount - retainedCount
+                : nil
+        )
+    }
+
     static func sanitizedSidebarWidth(_ candidate: Double?, defaults: UserDefaults = .standard) -> Double {
         let resolvedMinimum = resolvedMinimumSidebarWidth(defaults: defaults)
         guard let candidate, candidate.isFinite else {
@@ -206,6 +230,12 @@ enum SessionPersistencePolicy {
         }
         return nil
     }
+}
+
+struct SessionWorkspaceRetention: Equatable, Sendable {
+    let retainedIndices: [Int]
+    let selectedWorkspaceIndex: Int?
+    let omittedWorkspaceCount: Int?
 }
 
 enum SessionRestorePolicy {
@@ -1960,6 +1990,9 @@ struct SessionTabManagerSnapshot: Codable, Sendable {
     var selectedWorkspaceIndex: Int?
     var workspaces: [SessionWorkspaceSnapshot]
     var workspaceGroups: [SessionWorkspaceGroupSnapshot]? = nil
+    /// Number of restorable workspaces omitted by the bounded snapshot.
+    /// Optional so snapshots written before the bound was reported decode unchanged.
+    var omittedWorkspaceCount: Int? = nil
 }
 
 struct SessionWindowSnapshot: Codable, Sendable {

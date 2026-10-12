@@ -671652,6 +671652,124 @@
           }
         }
       }
+    },
+    "dialog.sessionRestoreOmitted.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This session reached cmux’s workspace safety limit, so some workspaces were left out of the saved snapshot and will not be restored automatically."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بلغت هذه الجلسة حد الأمان لمساحات العمل في cmux، لذلك لم تُدرج بعض مساحات العمل في اللقطة المحفوظة ولن تتم استعادتها تلقائيًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Sitzung hat das Sicherheitslimit für Arbeitsbereiche von cmux erreicht. Daher wurden einige Arbeitsbereiche aus dem gespeicherten Schnappschuss ausgelassen und werden nicht automatisch wiederhergestellt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta sesión alcanzó el límite de seguridad de espacios de trabajo de cmux, por lo que algunos se excluyeron de la instantánea guardada y no se restaurarán automáticamente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette session a atteint la limite de sécurité des espaces de travail de cmux. Certains espaces de travail ont donc été exclus de l’instantané enregistré et ne seront pas restaurés automatiquement."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このセッションは cmux のワークスペース安全上限に達したため、一部のワークスペースが保存されたスナップショットから除外され、自動的には復元されません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 세션이 cmux 작업 공간 안전 한도에 도달하여 일부 작업 공간이 저장된 스냅샷에서 제외되었고 자동으로 복원되지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此会话已达到 cmux 的工作区安全上限，因此部分工作区未包含在已保存的快照中，也不会自动恢复。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此工作階段已達到 cmux 的工作區安全上限，因此部分工作區未包含在已儲存的快照中，也不會自動還原。"
+          }
+        }
+      }
+    },
+    "dialog.sessionRestoreOmitted.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some workspaces were not restored"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تتم استعادة بعض مساحات العمل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einige Arbeitsbereiche wurden nicht wiederhergestellt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se restauraron algunos espacios de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Certains espaces de travail n’ont pas été restaurés"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一部のワークスペースを復元できませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일부 작업 공간이 복원되지 않았습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "部分工作区未恢复"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "部分工作區未還原"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
