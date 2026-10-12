@@ -169,12 +169,7 @@ test("switching chats opens the new chat at latest instead of the old chat's scr
   try {
     await act(async () =>
       root.render(
-        <VirtualTranscript
-          rows={rowsA}
-          sessionId="session-a"
-          onToggleActivity={() => {}}
-          expanded={new Set()}
-        />,
+        <VirtualTranscript rows={rowsA} sessionId="session-a" onToggleActivity={() => {}} expanded={new Set()} />,
       ),
     );
     const resting = Math.round(scroller().scrollTop / 3);
@@ -184,12 +179,7 @@ test("switching chats opens the new chat at latest instead of the old chat's scr
 
     await act(async () =>
       root.render(
-        <VirtualTranscript
-          rows={rowsB}
-          sessionId="session-b"
-          onToggleActivity={() => {}}
-          expanded={new Set()}
-        />,
+        <VirtualTranscript rows={rowsB} sessionId="session-b" onToggleActivity={() => {}} expanded={new Set()} />,
       ),
     );
     const latest =
