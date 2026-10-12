@@ -40,10 +40,11 @@ async function mount() {
   const { ChatFindBar } = await import("../src/agent-session/acpmux/conversation/ChatFindBar");
   const { useChatFind } = await import("../src/agent-session/acpmux/conversation/chatFind");
   const { user } = await import("../src/gallery/fixtures/acpmux");
-  const rows = [user("retry retry retry")];
+  const rows = [user("retry retry retry", 1)];
   function Find() {
     const find = useChatFind(rows);
-    useEffect(() => find.show("retry"), [find.show]);
+    const { show } = find;
+    useEffect(() => show("retry"), [show]);
     return find.open ? <ChatFindBar find={find} /> : null;
   }
   root = createRoot(host);
@@ -70,14 +71,18 @@ for (const composition of [{ isComposing: true }, { keyCode: 229 }]) {
         ...key,
         ...composition,
       });
-      act(() => input.dispatchEvent(composing));
+      act(() => {
+        input.dispatchEvent(composing);
+      });
       expect(composing.defaultPrevented).toBe(false);
       expect(host.querySelector(".acpmux-find__count")?.textContent).toBe("1 of 3");
       expect(dom.window.document.activeElement).toBe(input);
 
       // After composition, the same key still performs its normal Find action.
       const regular = new dom.window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...key });
-      act(() => input.dispatchEvent(regular));
+      act(() => {
+        input.dispatchEvent(regular);
+      });
       expect(regular.defaultPrevented).toBe(true);
       if (count) expect(host.querySelector(".acpmux-find__count")?.textContent).toBe(count);
       else expect(host.querySelector(".acpmux-find")).toBeNull();
