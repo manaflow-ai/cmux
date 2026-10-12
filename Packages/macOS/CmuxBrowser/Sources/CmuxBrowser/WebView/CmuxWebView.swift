@@ -251,20 +251,41 @@ public final class CmuxWebView: CmuxUndoableWebView {
     })();
     """
     private final class PasteAsPlainTextFocusMessageHandler: NSObject, WKScriptMessageHandler {
-        func userContentController(
+        // WebKit invokes script-message handlers on the main thread, but it
+        // does not install Swift's MainActor executor token before entering
+        // the Objective-C callback. A default-isolated method therefore
+        // traps in `_checkExpectedExecutor` before it can schedule the
+        // state update (Sentry CMUXTERM-MACOS-3YKT).
+        /// Bridges WebKit's callback into the actor-isolated paste target state.
+        nonisolated func userContentController(
             _ userContentController: WKUserContentController,
             didReceive message: WKScriptMessage
         ) {
             guard let webView = message.webView as? CmuxWebView else {
                 return
             }
-            guard let body = message.body as? [String: Any],
-                  let canPaste = body["canPaste"] as? Bool else {
-                return
-            }
-            Task { @MainActor [weak webView] in
+            CmuxWebView.schedulePasteAsPlainTextTargetUpdate(from: message.body) { [weak webView] canPaste in
                 webView?.updatePasteAsPlainTextTargetAvailable(canPaste)
             }
+        }
+    }
+
+    /// Parses the tiny payload accepted from the isolated paste-focus script.
+    /// Keeping this validation separate makes the WebKit boundary testable
+    /// without constructing framework-owned ``WKScriptMessage`` instances.
+    nonisolated static func pasteAsPlainTextTargetAvailable(from body: Any) -> Bool? {
+        guard let body = body as? [String: Any] else { return nil }
+        return body["canPaste"] as? Bool
+    }
+
+    /// Validates a WebKit payload and schedules its state update on MainActor.
+    nonisolated static func schedulePasteAsPlainTextTargetUpdate(
+        from body: Any,
+        update: @escaping @MainActor @Sendable (Bool) -> Void
+    ) {
+        guard let canPaste = pasteAsPlainTextTargetAvailable(from: body) else { return }
+        Task { @MainActor in
+            update(canPaste)
         }
     }
 
@@ -331,6 +352,10 @@ public final class CmuxWebView: CmuxUndoableWebView {
     /// its restored-session history fallback instead of raw WKWebView history.
     public var onMouseBackButton: (() -> Void)?
     public var onMouseForwardButton: (() -> Void)?
+
+    /// Physical page input hands dialog presentation back to the user. Native
+    /// automation delivers directly to WebKit and bypasses these overrides.
+    public var onPhysicalUserInteraction: (() -> Void)?
     public var contextMenuLinkURLProvider: ((CmuxWebView, NSPoint, @escaping (URL?) -> Void) -> Void)?
     public var contextMenuDefaultBrowserOpener: ((URL) -> Bool)?
     public var contextMenuCanMoveTabToNewWorkspace: (() -> Bool)?
@@ -350,20 +375,21 @@ public final class CmuxWebView: CmuxUndoableWebView {
     }
     /// Guard against background panes stealing first responder (e.g. page autofocus).
     /// BrowserPanelView updates this as pane focus state changes.
-    public var allowsFirstResponderAcquisition: Bool = true
-    private var pointerFocusAllowanceDepth: Int = 0
+    // These flags are owned by the AppKit main thread. They are marked unsafe
+    // so the synchronous responder entry point can read them without asking
+    // Swift to hop through an executor that WebKit did not install.
+    public nonisolated(unsafe) var allowsFirstResponderAcquisition: Bool = true
+    private nonisolated(unsafe) var pointerFocusAllowanceDepth: Int = 0
     private var pasteAsPlainTextTargetAvailable = false
     private var lastPasteAsPlainTextPerformKeyEventTimestamp: TimeInterval?
     private let diffViewerDocumentState = DiffViewerNavigationDocumentState()
     private lazy var diffViewerNavigationKeyRouter: (any CmuxWebViewNavigationKeyRouting)? =
         host?.makeDiffViewerNavigationKeyRouter()
-    private var automationRenderFocusDepth = 0
+    private nonisolated(unsafe) var automationRenderFocusDepth = 0
 
-    public var allowsFirstResponderAcquisitionEffective: Bool {
+    public nonisolated var allowsFirstResponderAcquisitionEffective: Bool {
         allowsFirstResponderAcquisition || pointerFocusAllowanceDepth > 0 || automationRenderFocusDepth > 0
     }
-    public var debugPointerFocusAllowanceDepth: Int { pointerFocusAllowanceDepth }
-
     /// Uses the host's keyboard-layout-aware Cmd+Z / Cmd+Shift+Z check.
     public override func isWebContentUndoRedoCommandEquivalent(_ event: NSEvent) -> Bool {
         host?.isUndoRedoCommandEquivalent(event) == true
@@ -578,7 +604,8 @@ public final class CmuxWebView: CmuxUndoableWebView {
     /// render window, so WebKit treats the driven page as focused. The focus
     /// policy guards the user's windows and is bypassed only here; no
     /// first-responder notification is posted, because the user's focus does
-    /// not move.
+    /// not move. AppKit/WebKit can enter the override while making a responder
+    /// change without Swift's MainActor executor token.
     @discardableResult
     public func acquireAutomationRenderFocus(in window: NSWindow) -> Bool {
         automationRenderFocusDepth += 1
@@ -586,7 +613,7 @@ public final class CmuxWebView: CmuxUndoableWebView {
         return window.makeFirstResponder(self)
     }
 
-    public override func becomeFirstResponder() -> Bool {
+    public nonisolated override func becomeFirstResponder() -> Bool {
         if automationRenderFocusDepth > 0 {
             return super.becomeFirstResponder()
         }
@@ -892,6 +919,9 @@ public final class CmuxWebView: CmuxUndoableWebView {
     }
 
     public override func keyDown(with event: NSEvent) {
+        if !event.isBrowserAutomationKeyEvent, !browserNativeInputDeliveryOwner.isDispatchActive {
+            onPhysicalUserInteraction?()
+        }
 #if DEBUG
         let typingTimingStart = host?.typingTimingStart()
         var route = "super"
@@ -993,6 +1023,7 @@ public final class CmuxWebView: CmuxUndoableWebView {
     // NSView (WKWebView), not to sibling SwiftUI overlays. Notify the panel system so
     // bonsplit focus tracks which pane the user clicked in.
     public override func mouseDown(with event: NSEvent) {
+        if !browserNativeInputDeliveryOwner.isDispatchActive { onPhysicalUserInteraction?() }
         if diffViewerDocumentState.documentConfirmed {
             diffViewerDocumentState.invalidateFocusConfirmation()
         }
@@ -1021,6 +1052,7 @@ public final class CmuxWebView: CmuxUndoableWebView {
     // this and before willOpenMenu, so clearing here guarantees the menu can
     // only ever pair with a link captured by this exact click.
     public override func rightMouseDown(with event: NSEvent) {
+        if !browserNativeInputDeliveryOwner.isDispatchActive { onPhysicalUserInteraction?() }
         contextMenuCapturedLink = nil
         // A physical right click always gets its menu, even if an automated
         // right click earlier left a suppression pending (page prevented it).
@@ -1065,6 +1097,7 @@ public final class CmuxWebView: CmuxUndoableWebView {
     }
 
     public override func otherMouseDown(with event: NSEvent) {
+        if !browserNativeInputDeliveryOwner.isDispatchActive { onPhysicalUserInteraction?() }
         if event.buttonNumber == 2 {
             Self.recordMiddleClickIntent(for: self)
         }
@@ -1113,7 +1146,9 @@ public final class CmuxWebView: CmuxUndoableWebView {
     /// right-click (`url` is nil when the click was not on a link). The type
     /// and its lifecycle live in `CmuxWebView+ContextMenuLinkCapture.swift`;
     /// only the stored property has to live in the class body.
-    var contextMenuCapturedLink: ContextMenuCapturedLink?
+    // WebKit script delivery and AppKit menu tracking both run on the main
+    // thread; synchronous publication must not require an executor-token check.
+    nonisolated(unsafe) var contextMenuCapturedLink: ContextMenuCapturedLink?
     /// Uptime at which the current context menu opened, used to pair the menu
     /// with the contextmenu capture report from the same right-click.
     var lastContextMenuOpenUptime: TimeInterval?

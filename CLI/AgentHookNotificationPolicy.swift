@@ -207,6 +207,24 @@ enum AgentHookNotificationClassifier {
             || lowercasedMessage.contains(#""event_name":"user_prompt_submit""#)
     }
 
+    /// Returns true only for the provider's structured idle reminder marker.
+    /// Prose such as "waiting for input" remains a real attention request.
+    static func isStructuredIdleReminder(_ object: [String: Any]?) -> Bool {
+        guard let object else { return false }
+        let nestedObjects = [
+            object,
+            object["notification"] as? [String: Any],
+            object["data"] as? [String: Any],
+            object["extra"] as? [String: Any],
+        ].compactMap { $0 }
+        return nestedObjects.contains { candidate in
+            ["notification_type", "notificationType", "reason"].contains { key in
+                guard let value = candidate[key] as? String else { return false }
+                return value.caseInsensitiveCompare("idle_prompt") == .orderedSame
+            }
+        }
+    }
+
     static func isGrokGenericTurnCompletion(_ message: String) -> Bool {
         message.range(
             of: #"^turn complete(?:d)? in \d+(?:\.\d+)?s\.?$"#,

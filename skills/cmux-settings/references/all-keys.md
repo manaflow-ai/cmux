@@ -16,6 +16,7 @@ General app preferences from Settings > App.
 | `app.appIcon` | `"automatic"` or `"light"` or `"dark"` | `"automatic"` | Dock and app switcher icon style. |
 | `app.menuBarOnly` | boolean | `false` | Hide the Dock icon and app switcher entry while keeping cmux available from the menu bar. |
 | `app.newWorkspacePlacement` | `"top"` or `"afterCurrent"` or `"end"` | `"afterCurrent"` | Where new workspaces are inserted in the sidebar. |
+| `app.goToWorkspaceOrder` | `"sidebar"` or `"recent"` | `"sidebar"` | Order used by Go to Workspace (Cmd-P): sidebar order, or most recently focused workspaces. |
 | `app.workspaceInheritWorkingDirectory` | boolean | `true` | When true, new workspaces inherit the current workspace working directory. When false, new workspaces use Ghostty's working-directory setting instead. |
 | `app.minimalMode` | boolean | `false` | Hide the workspace title bar and move controls into the sidebar. |
 | `app.keepWorkspaceOpenWhenClosingLastSurface` | boolean | `false` | When true, closing the last surface keeps the workspace open. |
@@ -45,6 +46,14 @@ General app preferences from Settings > App.
 | `app.warnBeforeClosingWindow` | boolean | `true` | Show a confirmation before closing a window with a running process, or all of a window's workspaces at once. |
 | `app.hideTabCloseButton` | boolean | `false` | Hide tab close buttons in the pane tab bar. |
 | `app.tabBarVisibility` | `"always"` or `"multiple-tabs"` | `"always"` | Control when each pane's surface tab bar is shown. `"always"` shows it even when the pane has a single tab; `"multiple-tabs"` hides the bar until the pane has two or more tabs. Minimal mode (app.minimalMode) always shows it, because there the top tab bar is the titlebar row. |
+
+## surfaceTabBar
+
+Surface tab bar typography from Settings > Terminal.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `surfaceTabBar.fontSize` | number | `11.0` | Default surface tab bar font size in points. The legacy Ghostty key `surface-tab-bar-font-size` remains a fallback alias. |
 
 ## terminal
 
@@ -114,6 +123,7 @@ Sidebar content and metadata visibility from Settings > Sidebar.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
+| `sidebar.fontSize` | number | `12.5` | Sidebar font size in points. The legacy Ghostty key `sidebar-font-size` remains a fallback alias. |
 | `sidebar.hideAllDetails` | boolean | `false` | Hide all per-workspace detail rows. |
 | `sidebar.showWorkspaceDescription` | boolean | `true` | Show custom workspace descriptions in the sidebar. |
 | `sidebar.workspaceDescriptionColor` | colorHexOrNull | `null` | Override the workspace description text color in the sidebar. |
@@ -122,6 +132,7 @@ Sidebar content and metadata visibility from Settings > Sidebar.
 | `sidebar.pathLastSegmentOnly` | boolean | `false` | Truncate sidebar paths from the start, showing as much of the trailing path as fits with a leading …/. When false, full paths are abbreviated with ~/. |
 | `sidebar.showNotificationMessage` | boolean | `true` | Show the latest notification text in the sidebar. |
 | `sidebar.showBranchDirectory` | boolean | `true` | Show the workspace working directory. |
+| `sidebar.showCloudDeviceIcons` | boolean | `true` | Show Cloud machine and device icons beside remote workspace titles independently of Git branch and directory details. |
 | `sidebar.showPullRequests` | boolean | `true` | Show pull request metadata in the sidebar. |
 | `sidebar.makePullRequestsClickable` | boolean | `true` | Allow sidebar pull request metadata to open links when clicked. |
 | `sidebar.openPullRequestLinksInCmuxBrowser` | boolean | `true` | Open sidebar pull request links in the embedded cmux browser. |

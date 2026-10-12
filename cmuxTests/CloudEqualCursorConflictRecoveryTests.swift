@@ -144,4 +144,42 @@ struct CloudEqualCursorConflictRecoveryTests {
         #expect(provider.equalCursorConflict == nil)
         #expect(name(provider) == "Applied")
     }
+
+    @Test("An open that finds a fresh conflict runs the recovery read instead of failing (#19214)")
+    func openRunsRecoveryReadForArmedConflict() async throws {
+        let provider = makeProvider()
+        #expect(provider.installSnapshotIfNewer(try state(provider, "Applied")))
+        // The daemon answers every full read with the same snapshot, which
+        // disagrees with the delta-built graph at the installed cursor.
+        let fresh = try state(provider, "Daemon")
+        var reads: [Bool] = []
+        let opened = await CmuxTuiSurfaceProvider.refreshResolvingEqualCursorConflict(
+            refresh: { force in
+                reads.append(force)
+                return provider.installSnapshotIfNewer(fresh, requestVersion: 1)
+            },
+            conflictArmed: { provider.equalCursorConflict != nil }
+        )
+        #expect(opened)
+        #expect(reads == [false, true])
+        #expect(name(provider) == "Daemon")
+        #expect(provider.equalCursorConflict == nil)
+    }
+
+    @Test("A refresh that fails without a conflict is not retried")
+    func openDoesNotRetryOtherFailures() async throws {
+        let provider = makeProvider()
+        #expect(provider.installSnapshotIfNewer(try state(provider, "Applied")))
+        var reads: [Bool] = []
+        let opened = await CmuxTuiSurfaceProvider.refreshResolvingEqualCursorConflict(
+            refresh: { force in
+                reads.append(force)
+                return false
+            },
+            conflictArmed: { provider.equalCursorConflict != nil }
+        )
+        #expect(!opened)
+        #expect(reads == [false])
+        #expect(name(provider) == "Applied")
+    }
 }

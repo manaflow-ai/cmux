@@ -1,5 +1,6 @@
 import CMUXDebugLog
 import CmuxAuthRuntime
+import CmuxCloudResizeCore
 import CMUXMobileCore
 import CmuxSurfaceCatalogModel
 import Foundation
@@ -309,7 +310,10 @@ public struct VMSummary: Sendable {
         addressIPv6: String? = nil,
         cmuxTuiContract: String? = nil,
         createdBy: VMCreator? = nil,
-        agentUpdates: CloudAgentUpdates? = nil
+        agentUpdates: CloudAgentUpdates? = nil,
+        createAttach: VMCmuxRemoteEndpoint? = nil,
+        resourceReservation: CloudVMResourceReservation? = nil,
+        resourcePoolClaim: CloudVMResourceReservation? = nil
     ) {
         self.id = id
         self.provider = provider
@@ -327,6 +331,9 @@ public struct VMSummary: Sendable {
         self.cmuxTuiContract = cmuxTuiContract
         self.createdBy = createdBy
         self.agentUpdates = agentUpdates
+        self.createAttach = createAttach
+        self.resourceReservation = resourceReservation
+        self.resourcePoolClaim = resourcePoolClaim
     }
 
     public func withStatus(_ status: String) -> VMSummary {
@@ -346,7 +353,10 @@ public struct VMSummary: Sendable {
             addressIPv6: addressIPv6,
             cmuxTuiContract: cmuxTuiContract,
             createdBy: createdBy,
-            agentUpdates: agentUpdates
+            agentUpdates: agentUpdates,
+            createAttach: createAttach,
+            resourceReservation: resourceReservation,
+            resourcePoolClaim: resourcePoolClaim
         )
     }
 
@@ -382,6 +392,15 @@ public struct VMSummary: Sendable {
     public var cmuxTuiContract: String?
     /// Whether the machine keeps its image's coding agents or updates them on attach.
     public var agentUpdates: CloudAgentUpdates?
+    /// A create-only dial receipt from snapshot-v2. List and status responses leave this nil.
+    public var createAttach: VMCmuxRemoteEndpoint?
+    /// The machine's server-recorded compute reservation for shared-pool math.
+    /// This remains separate from live guest stats, which can be stale or absent.
+    public var resourceReservation: CloudVMResourceReservation?
+    /// The pool claim charged to `limits.used*`. Legacy rows may claim the
+    /// provider maximum until reconciliation records a measured reservation.
+    /// It is never used as the live grow-only shape.
+    public var resourcePoolClaim: CloudVMResourceReservation?
 
     /// The name to show people: the label when set, else the generated slug,
     /// else the machine id.
@@ -408,6 +427,9 @@ public struct VMPlanLimits: Sendable {
         freeAccessWindowDays: Int,
         freeAccessExpiresAt: Int64? = nil,
         memoryOptionsMb: [Int] = [],
+        maxDiskMb: Int? = nil,
+        maxMemoryMb: Int? = nil,
+        maxVcpus: Int? = nil,
         lockedMemoryOptionsMb: [Int]? = nil,
         memoryUpgradePlanId: String? = nil,
         memoryUpgradePlansByMb: [String: String]? = nil,
@@ -421,6 +443,9 @@ public struct VMPlanLimits: Sendable {
         self.freeAccessWindowDays = freeAccessWindowDays
         self.freeAccessExpiresAt = freeAccessExpiresAt
         self.memoryOptionsMb = memoryOptionsMb
+        self.maxDiskMb = maxDiskMb
+        self.maxMemoryMb = maxMemoryMb
+        self.maxVcpus = maxVcpus
         self.lockedMemoryOptionsMb = lockedMemoryOptionsMb
         self.memoryUpgradePlanId = memoryUpgradePlanId
         self.memoryUpgradePlansByMb = memoryUpgradePlansByMb
@@ -440,6 +465,12 @@ public struct VMPlanLimits: Sendable {
     public var freeAccessExpiresAt: Int64?
     /// Memory sizes the server accepts for new machines, in MB.
     public var memoryOptionsMb: [Int] = []
+    /// Maximum disk size accepted by the caller's current plan.
+    public var maxDiskMb: Int? = nil
+    /// Maximum memory size accepted by the caller's current plan.
+    public var maxMemoryMb: Int? = nil
+    /// Maximum vCPU count accepted by the caller's current plan.
+    public var maxVcpus: Int? = nil
     /// Ladder sizes the plan cannot start (`[65536]` on Pro, `[]` on
     /// Max); nil when the control plane predates the field and the client
     /// mirror decides.
@@ -971,6 +1002,24 @@ public struct VMCmuxRemoteEndpoint: Sendable {
     }
 
     public let daemonBuild: DaemonBuild?
+
+    public init(
+        route: String,
+        token: String,
+        expiresAtUnix: Int64,
+        session: String,
+        trustedCarrier: Bool,
+        networkAddresses: NetworkAddresses? = nil,
+        daemonBuild: DaemonBuild? = nil
+    ) {
+        self.route = route
+        self.token = token
+        self.expiresAtUnix = expiresAtUnix
+        self.session = session
+        self.trustedCarrier = trustedCarrier
+        self.networkAddresses = networkAddresses
+        self.daemonBuild = daemonBuild
+    }
 }
 
 public enum VMAttachEndpoint: Sendable {
@@ -1064,7 +1113,7 @@ public actor VMClient {
     ///   - operations: The recorder for Cloud operation diagnostics.
     ///   - telemetry: The request telemetry with the app's analytics sinks.
     ///   - isCloudEnabled: The app's Cloud availability decision, readable off the main actor.
-    ///   - isCloudAvailable: The rollout and managed-policy decision used by activation-only requests before the local marker is committed.
+    ///   - isCloudAvailable: The managed-policy decision used by activation-only requests before the local marker is committed.
     /// - Returns: The read coordinator the client shares with its callers.
     @MainActor
     @discardableResult
@@ -1104,16 +1153,18 @@ public actor VMClient {
         )
     }
 
-    /// Revoke every Freestyle peer for this Mac during native sign-out.
+    /// Deletes this build's own tunnels during native sign-out. Other builds
+    /// on this Mac keep their tunnels: each signs out on its own, and removing
+    /// the whole Mac is an explicit action on its device page.
     @MainActor
-    public static func revokeCloudAccess(
-        deviceID: String,
+    public static func revokeTunnelRoles(
+        _ roles: [CloudTunnelRole],
         accessToken: String?,
         refreshToken: String?
     ) async {
         guard let shared else { return }
-        await shared.revokeCloudAccess(
-            deviceID: deviceID,
+        await shared.revokeTunnelRoles(
+            roles,
             accessToken: accessToken,
             refreshToken: refreshToken
         )
@@ -1490,6 +1541,52 @@ public actor VMClient {
         return VMMachineKind(rawValue: raw.lowercased())
     }
 
+    /// Decodes the optional snapshot-v2 dial receipt carried by `POST /api/vm`.
+    /// Older control planes omit it and continue through the existing attach path.
+    static func decodeCreateAttach(_ raw: Any?) -> VMCmuxRemoteEndpoint? {
+        guard let object = raw as? [String: Any],
+              object["transport"] as? String == "cmux-remote",
+              let route = object["route"] as? String,
+              !route.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              IPNetworkPrefix.routeHost(route) != nil,
+              let session = object["session"] as? String,
+              !session.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return nil }
+        let buildObject = object["daemonBuild"] as? [String: Any]
+            ?? object["daemon_build"] as? [String: Any]
+        let build = buildObject.map {
+            VMCmuxRemoteEndpoint.DaemonBuild(
+                commit: $0["commit"] as? String,
+                remoteProtocol: ($0["remoteProtocol"] as? Int)
+                    ?? ($0["remote_protocol"] as? Int)
+                    ?? ($0["remoteProtocol"] as? Double).map(Int.init)
+                    ?? ($0["remote_protocol"] as? Double).map(Int.init),
+                version: $0["version"] as? String
+            )
+        }
+        let addresses = (object["networkAddresses"] ?? object["network_addresses"]) as? [String: Any]
+        let networkAddresses: VMCmuxRemoteEndpoint.NetworkAddresses?
+        if let addresses, addresses["ipv4"] is String || addresses["ipv6"] is String {
+            networkAddresses = .init(ipv4: addresses["ipv4"] as? String, ipv6: addresses["ipv6"] as? String)
+        } else {
+            networkAddresses = nil
+        }
+        let expiresAtUnix = Self.decodeInt64(object["expiresAtUnix"])
+            ?? Self.decodeInt64(object["expires_at_unix"])
+            ?? 0
+        return VMCmuxRemoteEndpoint(
+            route: route,
+            token: object["token"] as? String ?? "",
+            expiresAtUnix: expiresAtUnix,
+            session: session,
+            trustedCarrier: (object["trustedCarrier"] as? Bool)
+                ?? (object["trusted_carrier"] as? Bool)
+                ?? false,
+            networkAddresses: networkAddresses,
+            daemonBuild: build
+        )
+    }
+
     /// `limits.imageKinds: [{kind, image}]`; malformed entries are skipped.
     static func decodeImageKinds(_ raw: Any?) -> [VMImageKindOption] {
         guard let items = raw as? [[String: Any]] else { return [] }
@@ -1519,6 +1616,29 @@ public actor VMClient {
     static func decodePositiveIntMap(_ raw: Any?) -> [String: Int]? {
         guard let object = raw as? [String: Any] else { return nil }
         return object.compactMapValues { decodeIntArray([$0]).first }
+    }
+
+    /// A positive integer plan ceiling; malformed or absent values are nil so
+    /// older control planes remain readable and the server remains authoritative.
+    static func decodePositiveInt(_ raw: Any?) -> Int? {
+        decodeIntArray([raw as Any]).first
+    }
+
+    private static func decodeInt64(_ raw: Any?) -> Int64? {
+        if let value = raw as? Int64 { return value }
+        if let value = raw as? Int { return Int64(value) }
+        if let value = raw as? NSNumber { return value.int64Value }
+        if let value = raw as? Double, value.isFinite { return Int64(value) }
+        return nil
+    }
+
+    /// `vms[].resources` carries the server's pool claim. Malformed values are
+    /// ignored so live stats remain the fallback for older APIs.
+    static func decodeResourceReservation(_ raw: Any?) -> CloudVMResourceReservation? {
+        guard let object = raw as? [String: Any],
+              let vcpus = decodePositiveInt(object["vcpus"]),
+              let memoryMb = decodePositiveInt(object["memoryMb"]) else { return nil }
+        return CloudVMResourceReservation(vcpus: vcpus, memoryMb: memoryMb, diskMb: decodePositiveInt(object["diskMb"]))
     }
 
     /// JSON numbers arrive as Int64 or Double depending on magnitude; `null`/absent → nil.
@@ -1610,6 +1730,16 @@ public actor VMClient {
             }
             summary.cmuxTuiContract = (obj["cmuxTuiContract"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             summary.agentUpdates = CloudAgentUpdates(wireValue: obj["agentUpdates"])
+            summary.createAttach = Self.decodeCreateAttach(obj["attach"])
+            // The create route returns both names. Keep the explicit
+            // reservation as the resize shape and the pool claim for aggregate
+            // limits, while accepting the older single-field response.
+            summary.resourceReservation = Self.decodeResourceReservation(
+                obj["resourceReservation"] ?? obj["resource_reservation"] ?? obj["resources"]
+            )
+            summary.resourcePoolClaim = Self.decodeResourceReservation(
+                obj["resources"] ?? obj["resourcePoolClaim"] ?? obj["resource_pool_claim"]
+            )
             machineCache.record(hasAnyMachine: true)
             return summary
         }
@@ -1716,10 +1846,13 @@ public actor VMClient {
         }
     }
 
-    public func destroy(id: String) async throws {
+    /// Deletes one machine. `teamID` names the owning team (nil: the selected
+    /// team). The server finds the machine only under the team it is asked
+    /// for, so a machine of another team answers 404 to the selected team.
+    public func destroy(id: String, teamID: String? = nil) async throws {
         return try await withOperation(.delete, foreground: true) {
             let encodedID = try pathSegment(id, fieldName: "vm id")
-            let (data, http) = try await request("DELETE", path: "/api/vm/\(encodedID)")
+            let (data, http) = try await request("DELETE", path: "/api/vm/\(encodedID)", teamID: teamID)
             try ensureOK(http, data: data)
             // Whether any machine remains is only known after the next list; a tunnel start
             // meanwhile asks the control plane, not a marker that may describe this machine.
@@ -2080,38 +2213,29 @@ public actor VMClient {
         }
     }
 
-    /// Unenroll this Mac. The server deletes the provider-side tunnel, so any
-    /// config still on disk stops working immediately.
-    public func revokeCloudAccess(deviceID: String) async throws {
+    /// Unenroll this build's tunnels. The server deletes each provider-side
+    /// tunnel, so its config on disk stops working immediately. Other builds
+    /// on this Mac keep theirs. Every role is attempted; the first failure is
+    /// thrown after the rest were sent.
+    /// - Returns: False when this build had no tunnel to revoke.
+    @discardableResult
+    public func revokeTunnelRoles(_ roles: [CloudTunnelRole]) async throws -> Bool {
         return try await withOperation(.tunnel, foreground: true) {
-            let revocation = Self.cloudAccessRevocationRequest(deviceID: deviceID)
-            let (data, http) = try await request(
-                "DELETE",
-                path: revocation.path,
-                jsonBody: revocation.body,
-                allowedUnderManagedPolicy: true
-            )
-            try ensureOK(http, data: data)
+            var firstFailure: Error?
+            for role in roles {
+                let revocation = Self.tunnelRoleRevocationRequest(role)
+                do {
+                    let (data, http) = try await request(
+                        "DELETE", path: revocation.path, jsonBody: revocation.body, allowedUnderManagedPolicy: true
+                    )
+                    try ensureOK(http, data: data)
+                } catch {
+                    firstFailure = firstFailure ?? error
+                }
+            }
+            if let firstFailure { throw firstFailure }
+            return !roles.isEmpty
         }
-    }
-
-    public struct CloudAccessRevocationRequest: Sendable {
-        public let path: String
-        public let deviceID: String
-
-        public var body: [String: Any] { ["deviceId": deviceID] }
-
-        public init(
-            path: String,
-            deviceID: String
-        ) {
-            self.path = path
-            self.deviceID = deviceID
-        }
-    }
-
-    public nonisolated static func cloudAccessRevocationRequest(deviceID: String) -> CloudAccessRevocationRequest {
-        CloudAccessRevocationRequest(path: "/api/vm/tunnel", deviceID: deviceID)
     }
 
     public nonisolated static func decodeTunnelEndpoint(
@@ -2322,8 +2446,8 @@ public actor VMClient {
         }
     }
 
-    private func revokeCloudAccess(
-        deviceID: String,
+    private func revokeTunnelRoles(
+        _ roles: [CloudTunnelRole],
         accessToken: String?,
         refreshToken: String?
     ) async {
@@ -2335,16 +2459,20 @@ public actor VMClient {
             return
         }
         url.path = (url.path.hasSuffix("/") ? String(url.path.dropLast()) : url.path) + "/api/vm/tunnel"
-        url.queryItems = [URLQueryItem(name: "deviceId", value: deviceID)]
-        guard let resolved = url.url else { return }
-        var request = URLRequest(url: resolved)
-        request.httpMethod = "DELETE"
-        request.timeoutInterval = 8
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        request.setValue(refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
-        do {
-            _ = try await session.data(for: request)
-        } catch {
+        for role in roles {
+            url.queryItems = Self.tunnelRoleRevocationRequest(role).queryItems
+            guard let resolved = url.url else { continue }
+            var request = URLRequest(url: resolved)
+            request.httpMethod = "DELETE"
+            request.timeoutInterval = 8
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+            request.setValue(refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
+            do {
+                _ = try await session.data(for: request)
+            } catch {
+                // Best effort, like the other sign-out tails: the stale-tunnel
+                // reaper removes a tunnel this request could not reach.
+            }
         }
     }
 

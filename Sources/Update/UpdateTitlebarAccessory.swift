@@ -832,6 +832,7 @@ struct TitlebarControlButton<Content: View>: View {
         .accessibilityElement(children: .ignore)
         .accessibilityIdentifier(accessibilityIdentifier)
         .accessibilityLabel(accessibilityLabel)
+        .windowHintTarget(accessibilityLabel, isEnabled: isEnabled)
         .overlay {
             if let rightClickAction {
                 TitlebarControlRightClickView(onRightMouseDown: rightClickAction)
@@ -1992,7 +1993,8 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
                   let context = prepareOriginatingAction() else { return }
             _ = appDelegate.performNewWorkspaceAction(
                 tabManager: context.tabManager,
-                debugSource: "titlebar.accessoryNewWorkspace"
+                debugSource: "titlebar.accessoryNewWorkspace",
+                skipConfiguredAction: true
             )
         }
         let focusHistoryBack = {
@@ -2014,7 +2016,9 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         )
         hostingView = NonDraggableHostingView(
             rootView: AnyView(
-                rootView.environment(\.settingsRuntime, settingsRuntime)
+                rootView
+                    .environment(\.settingsRuntime, settingsRuntime)
+                    .cmuxAccentColorEnvironment()
             )
         )
 
@@ -2266,6 +2270,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
                     openPhoneForwardingSettings(in: NSApp.windows.first { ObjectIdentifier($0) == windowIdentifier })
                 }
             )
+            .cmuxAccentColorEnvironment()
         )
         hostingController.view.wantsLayer = true
         hostingController.view.layer?.backgroundColor = .clear
@@ -3150,6 +3155,7 @@ final class UpdateTitlebarAccessoryController {
                     openPhoneForwardingSettings(in: NSApp.windows.first { ObjectIdentifier($0) == windowIdentifier })
                 }
             )
+            .cmuxAccentColorEnvironment()
         )
 
         contentView.layoutSubtreeIfNeeded()

@@ -17,6 +17,7 @@ import CFNetwork
 import SQLite3
 import CryptoKit
 import Darwin
+import os
 import CmuxTerminal
 #if canImport(CommonCrypto)
 import CommonCrypto
@@ -666,7 +667,7 @@ final class BrowserAvailabilityMonitor {
                 object: nil,
                 queue: .main
             ) { [weak self] _ in
-                MainActor.assumeIsolated {
+                Task { @MainActor [weak self] in
                     self?.reevaluate(notificationCenter: notificationCenter)
                 }
             }
@@ -1393,7 +1394,7 @@ final class BrowserHistoryStore: ObservableObject {
 
     private typealias SuggestionCandidate = BrowserHistorySuggestionCandidate
 
-    private struct ScoredSuggestion {
+    private struct ScoredSuggestion: Sendable {
         let entry: Entry
         let score: Double
     }
@@ -1556,8 +1557,64 @@ final class BrowserHistoryStore: ObservableObject {
         let queryTokens = suggestionEngine.tokenize(query: q)
         let now = Date()
 
-        let matched = suggestionCandidates().compactMap { candidate -> ScoredSuggestion? in
-            guard let score = suggestionEngine.score(candidate: candidate, query: q, queryTokens: queryTokens, now: now) else {
+        return Self.rankSuggestions(
+            candidates: suggestionCandidates(),
+            engine: suggestionEngine,
+            query: q,
+            queryTokens: queryTokens,
+            now: now,
+            limit: limit
+        )
+    }
+
+    /// Scores a history snapshot away from the main actor for omnibar typing.
+    ///
+    /// The store remains the main-actor owner of mutable history, but URL
+    /// parsing, candidate construction, substring scoring, and ranking operate
+    /// on a detached snapshot so a large history cannot delay keyboard events.
+    /// Callers must discard the result when their query or focus state changes.
+    func suggestionsAsync(for input: String, limit: Int = 10) async -> [Entry] {
+        loadIfNeeded()
+        guard limit > 0 else { return [] }
+
+        let q = input.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !q.isEmpty else { return [] }
+        let entriesSnapshot = entries
+        let engine = suggestionEngine
+        let queryTokens = engine.tokenize(query: q)
+        let now = Date()
+
+        let task = Task.detached(priority: .userInitiated) {
+            guard !Task.isCancelled else { return [Entry]() }
+            let candidates = entriesSnapshot.map(engine.candidate(for:))
+            guard !Task.isCancelled else { return [Entry]() }
+            return Self.rankSuggestions(
+                candidates: candidates,
+                engine: engine,
+                query: q,
+                queryTokens: queryTokens,
+                now: now,
+                limit: limit
+            )
+        }
+        return await withTaskCancellationHandler {
+            let result = await task.value
+            return Task.isCancelled ? [] : result
+        } onCancel: {
+            task.cancel()
+        }
+    }
+
+    private nonisolated static func rankSuggestions(
+        candidates: [SuggestionCandidate],
+        engine: BrowserHistorySuggestionEngine,
+        query: String,
+        queryTokens: [String],
+        now: Date,
+        limit: Int
+    ) -> [Entry] {
+        let matched = candidates.compactMap { candidate -> ScoredSuggestion? in
+            guard let score = engine.score(candidate: candidate, query: query, queryTokens: queryTokens, now: now) else {
                 return nil
             }
             return ScoredSuggestion(entry: candidate.entry, score: score)
@@ -2041,45 +2098,6 @@ final class BrowserPanel: Panel, ObservableObject {
     })()
     """
 
-    static let dialogTelemetryHookBootstrapScriptSource = """
-    (() => {
-      if (window.__cmuxDialogHooksInstalled) return true;
-      window.__cmuxDialogHooksInstalled = true;
-
-      window.__cmuxDialogQueue = window.__cmuxDialogQueue || [];
-      window.__cmuxDialogDefaults = window.__cmuxDialogDefaults || { confirm: false, prompt: null };
-      const __pushDialog = (type, message, defaultText) => {
-        window.__cmuxDialogQueue.push({
-          type,
-          message: String(message || ''),
-          default_text: defaultText == null ? null : String(defaultText),
-          timestamp_ms: Date.now()
-        });
-        if (window.__cmuxDialogQueue.length > 128) {
-          window.__cmuxDialogQueue.splice(0, window.__cmuxDialogQueue.length - 128);
-        }
-      };
-
-      window.alert = function(message) {
-        __pushDialog('alert', message, null);
-      };
-      window.confirm = function(message) {
-        __pushDialog('confirm', message, null);
-        return !!window.__cmuxDialogDefaults.confirm;
-      };
-      window.prompt = function(message, defaultValue) {
-        __pushDialog('prompt', message, defaultValue == null ? null : defaultValue);
-        const v = window.__cmuxDialogDefaults.prompt;
-        if (v === null || v === undefined) {
-          return defaultValue == null ? '' : String(defaultValue);
-        }
-        return String(v);
-      };
-
-      return true;
-    })()
-    """
-
     let id: UUID
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .browser
@@ -2111,7 +2129,15 @@ final class BrowserPanel: Panel, ObservableObject {
     var browserViewportHostRestorationTask: Task<Void, Never>?
     var browserViewportHostRestorationPending = false
     var websiteDataStore: WKWebsiteDataStore
-    let preservesExplicitEphemeralWebsiteDataStore: Bool
+    private(set) var preservesExplicitEphemeralWebsiteDataStore: Bool
+    /// The native-session exchange running before a trusted app page loads.
+    private(set) var appSessionBootstrapTask: Task<Void, Never>?
+    private var appSessionBootstrapNavigationStarted: ((WKNavigation?) -> Void)?
+    /// Set when sign-out emptied an app-session store, so the next trusted app
+    /// page exchanges the native session again instead of loading signed out.
+    private var appSessionStoreNeedsBootstrap = false
+    /// Replaces the signed-in exchange in tests; production uses the app's auth graph.
+    var appSessionRequestProvider: (@MainActor (URL) async -> BrowserAppSessionRequestOutcome)?
     var browserAutomationUserScripts: [WKUserScript] = []
     var browserAutomationInitScriptCount = 0
     var browserAutomationStyleScriptCount = 0
@@ -2124,6 +2150,20 @@ final class BrowserPanel: Panel, ObservableObject {
     var mobileBrowserStreamPreviousViewport: BrowserViewport?
     var mobileBrowserStreamPreviousViewportWasCaptured = false
     var mobileBrowserStreamViewport: MobileBrowserViewport?
+    /// Automation keeps its dialogs until answered, even after its command
+    /// returns. Physical input hands subsequent dialogs back to the native UI.
+    enum BrowserDialogOwner {
+        case user
+        case automation
+    }
+
+    private(set) var browserDialogOwner: BrowserDialogOwner = .user
+    var browserDialogsOwnedByCLI: Bool { browserDialogOwner == .automation }
+
+    /// Transfers ownership of subsequent dialogs without presenting existing CLI requests.
+    func takeBrowserDialogOwnership(_ owner: BrowserDialogOwner) {
+        browserDialogOwner = owner
+    }
     let mobileBrowserDialogBroker: MobileBrowserDialogBroker
 
     /// Monotonic identity for the current WKWebView instance.
@@ -2903,7 +2943,12 @@ final class BrowserPanel: Panel, ObservableObject {
         )
     }
 
-    var hasPendingRemoteNavigation: Bool { pendingRemoteNavigation != nil }
+    /// A navigation waiting on something other than WebKit: a remote proxy
+    /// endpoint or the native app-session exchange. Heal, restore and
+    /// automation must not restart it.
+    var hasPendingRemoteNavigation: Bool {
+        pendingRemoteNavigation != nil || appSessionBootstrapTask != nil
+    }
 
     @discardableResult
     func reactivateDiscardedWebViewWithoutNavigation(reason: String) -> Bool {
@@ -3151,7 +3196,7 @@ final class BrowserPanel: Panel, ObservableObject {
             BrowserSameDocumentNavigationMessageHandler.userScript
         )
         configuration.userContentController.addUserScript(BrowserDocumentReadyMessageHandler.userScript)
-        // Keep browser console/error/dialog telemetry active from document start on every navigation.
+        // Keep browser console/error telemetry active from document start on every navigation.
         // Main frame only — injecting into cross-origin iframes causes CAPTCHA providers
         // (reCAPTCHA, hCaptcha, Cloudflare Turnstile) to detect the overridden console.*
         // methods and __cmux* globals as environment tampering, failing the challenge.
@@ -3234,11 +3279,16 @@ final class BrowserPanel: Panel, ObservableObject {
             let hover = BrowserLinkHoverURL.isEnabled() ? BrowserLinkHoverURL(url: url) : nil
             WindowBrowserSlotView.hosting(webView)?.setLinkHoverURL(hover?.displayString, from: .keyboardFocus)
         }
+        webView.onPhysicalUserInteraction = { [weak self] in
+            self?.takeBrowserDialogOwnership(.user)
+        }
         webView.onMouseBackButton = { [weak self] in
-            self?.goBack()
+            guard let self else { return }
+            self.goBack(dialogOwner: self.browserDialogOwner)
         }
         webView.onMouseForwardButton = { [weak self] in
-            self?.goForward()
+            guard let self else { return }
+            self.goForward(dialogOwner: self.browserDialogOwner)
         }
         webView.onContextMenuDownloadStateChanged = { [weak self] downloading in
             if downloading {
@@ -3313,212 +3363,198 @@ final class BrowserPanel: Panel, ObservableObject {
             navigationDelegate?.recordSubframeDownloadIntent($0)
         }
         navigationDelegate.didRenderPDFDocument = { [weak self] url, isMainFrame in
-            MainActor.assumeIsolated { self?.noteRenderedPDFDocument(url, isMainFrame: isMainFrame) }
+            guard let self, self.webViewInstanceID == boundWebViewInstanceID else { return }
+            self.noteRenderedPDFDocument(url, isMainFrame: isMainFrame)
         }
         navigationDelegate.didClearPDFDocument = { [weak self] in
-            MainActor.assumeIsolated { self?.clearRenderedPDFDocument() }
+            guard let self, self.webViewInstanceID == boundWebViewInstanceID else { return }
+            self.clearRenderedPDFDocument()
         }
         navigationDelegate.didStartProvisionalNavigation = { [weak self] webView, navigation in
-            MainActor.assumeIsolated {
-                guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
-                (webView as? CmuxWebView)?.diffViewerNavigationDidStart(navigation)
-                self.automationNavigationCoordinator.didStart(
-                    instanceID: boundWebViewInstanceID,
-                    navigationID: navigation.map { ObjectIdentifier($0) },
-                    targetURL: Self.remoteProxyDisplayURL(for: self.navigationDelegate?.lastAttemptedURL)
-                        ?? self.navigationDelegate?.lastAttemptedURL
-                )
-                self.cloudAccess.didStart(url: self.navigationDelegate?.lastAttemptedURL, navigationID: navigation.map(ObjectIdentifier.init))
-                self.isMainFrameProvisionalNavigationActive = true
-                self.refreshBackgroundAppearance()
-                self.applyMuteState(to: webView, reason: "navigationStart")
-            }
+            guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+            (webView as? CmuxWebView)?.diffViewerNavigationDidStart(navigation)
+            self.automationNavigationCoordinator.didStart(
+                instanceID: boundWebViewInstanceID,
+                navigationID: navigation.map { ObjectIdentifier($0) },
+                targetURL: Self.remoteProxyDisplayURL(for: self.navigationDelegate?.lastAttemptedURL)
+                    ?? self.navigationDelegate?.lastAttemptedURL
+            )
+            self.cloudAccess.didStart(url: self.navigationDelegate?.lastAttemptedURL, navigationID: navigation.map(ObjectIdentifier.init))
+            self.isMainFrameProvisionalNavigationActive = true
+            self.refreshBackgroundAppearance()
+            self.applyMuteState(to: webView, reason: "navigationStart")
         }
         navigationDelegate.didCommit = { [weak self] webView, navigation in
-            MainActor.assumeIsolated {
-                guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
-                self.designModeController.webViewWillNavigate()
-                (webView as? CmuxWebView)?.diffViewerNavigationDidCommit(navigation)
-                WindowBrowserSlotView.hosting(webView)?.clearLinkHoverURLs()
-                self.isMainFrameProvisionalNavigationActive = false
-                self.automationDocumentReadiness.didCommit(instanceID: boundWebViewInstanceID)
-                self.automationNavigationCoordinator.didCommit(
-                    instanceID: boundWebViewInstanceID,
-                    navigationID: navigation.map { ObjectIdentifier($0) }
-                )
-                let leavingCloudRoute = self.retainsCloudResourceForDuplication
-                    && webView.url.map {
-                        ["http", "https"].contains($0.scheme?.lowercased() ?? "")
-                            && !self.cloudAccess.owns($0)
-                    } == true
-                if leavingCloudRoute {
-                    if let url = webView.url, self.rebindCloudRouteIfNeeded(to: url) == false {
-                        self.leaveCloudResourceForLocalNavigation()
-                    }
-                } else {
-                    self.cloudAccess.didCommit(url: webView.url, navigationID: navigation.map(ObjectIdentifier.init))
+            guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+            self.cancelPendingJavaScriptDialogs()
+            self.designModeController.webViewWillNavigate()
+            (webView as? CmuxWebView)?.diffViewerNavigationDidCommit(navigation)
+            WindowBrowserSlotView.hosting(webView)?.clearLinkHoverURLs()
+            self.isMainFrameProvisionalNavigationActive = false
+            self.automationDocumentReadiness.didCommit(instanceID: boundWebViewInstanceID)
+            NotificationCenter.default.post(
+                name: .browserMainFrameDidCommit,
+                object: self,
+                userInfo: ["surfaceId": self.id]
+            )
+            self.automationNavigationCoordinator.didCommit(
+                instanceID: boundWebViewInstanceID,
+                navigationID: navigation.map { ObjectIdentifier($0) }
+            )
+            let leavingCloudRoute = self.retainsCloudResourceForDuplication
+                && webView.url.map {
+                    ["http", "https"].contains($0.scheme?.lowercased() ?? "")
+                        && !self.cloudAccess.owns($0)
+                } == true
+            if leavingCloudRoute {
+                if let url = webView.url, self.rebindCloudRouteIfNeeded(to: url) == false {
+                    self.leaveCloudResourceForLocalNavigation()
                 }
-                // An about:blank placeholder leaves the restore-stall detector armed.
-                if !Self.isAboutBlankURL(webView.url) {
-                    self.hasCommittedDocumentSinceWebViewReplacement = true
-                }
-                // Reset playback tracking only once the new top-level document has replaced
-                // the old one. Resetting earlier (on provisional
-                // start) would drop a still-playing page's frames if the
-                // navigation then fails or is canceled, letting a playing pane be
-                // discarded. didCommit does not fire for same-document (pushState)
-                // navigations, so a persisting SPA video keeps its frame id.
-                self.resetMediaPlaybackTracking()
-                self.publishCommittedURL(from: webView)
-                self.applyMuteState(to: webView, reason: "navigationCommit")
-                self.noteDocumentCommittedForPageRestoration(from: webView)
+            } else {
+                self.cloudAccess.didCommit(url: webView.url, navigationID: navigation.map(ObjectIdentifier.init))
             }
+            // An about:blank placeholder leaves the restore-stall detector armed.
+            if !Self.isAboutBlankURL(webView.url) {
+                self.hasCommittedDocumentSinceWebViewReplacement = true
+            }
+            // Reset playback tracking only once the new top-level document has replaced
+            // the old one. Resetting earlier (on provisional
+            // start) would drop a still-playing page's frames if the
+            // navigation then fails or is canceled, letting a playing pane be
+            // discarded. didCommit does not fire for same-document (pushState)
+            // navigations, so a persisting SPA video keeps its frame id.
+            self.resetMediaPlaybackTracking()
+            self.publishCommittedURL(from: webView)
+            self.applyMuteState(to: webView, reason: "navigationCommit")
+            self.noteDocumentCommittedForPageRestoration(from: webView)
         }
         navigationDelegate.didFinish = { [weak self] webView in
-            MainActor.assumeIsolated {
-                guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
-                if self.navigationDelegate?.activeErrorPageDisplayURL == nil {
-                    self.cloudAccess.didFinish(url: webView.url)
-                }
-                self.isMainFrameProvisionalNavigationActive = false
-                self.publishCommittedURL(from: webView)
-                self.applyMuteState(to: webView, reason: "navigationFinish")
-                if self.navigationDelegate?.activeErrorPageDisplayURL == nil {
-                    self.realignRestoredSessionHistoryToLiveCurrentIfPossible()
-                    boundHistoryStore.recordVisit(url: webView.url, title: webView.title)
-                    self.refreshFavicon(from: webView)
-                }
-                self.applyCurrentAppWebTheme(to: webView)
-                // Keep find-in-page open through load completion and refresh matches for the new DOM.
-                self.restoreFindStateAfterNavigation(replaySearch: true)
-                self.focusPendingContentAfterAttachment()
-                self.notePageRestorationLoadFinished(webView)
+            guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+            if self.navigationDelegate?.activeErrorPageDisplayURL == nil {
+                self.cloudAccess.didFinish(url: webView.url)
             }
+            self.isMainFrameProvisionalNavigationActive = false
+            self.publishCommittedURL(from: webView)
+            self.applyMuteState(to: webView, reason: "navigationFinish")
+            if self.navigationDelegate?.activeErrorPageDisplayURL == nil {
+                self.realignRestoredSessionHistoryToLiveCurrentIfPossible()
+                boundHistoryStore.recordVisit(url: webView.url, title: webView.title)
+                self.refreshFavicon(from: webView)
+            }
+            self.applyCurrentAppWebTheme(to: webView)
+            // Keep find-in-page open through load completion and refresh matches for the new DOM.
+            self.restoreFindStateAfterNavigation(replaySearch: true)
+            self.focusPendingContentAfterAttachment()
+            self.notePageRestorationLoadFinished(webView)
         }
         navigationDelegate.didFailNavigation = { [weak self] failedWebView, failedURL, failureMessage, failedNavigation in
-            MainActor.assumeIsolated {
-                guard let self, self.isCurrentWebView(failedWebView, instanceID: boundWebViewInstanceID) else { return }
-                self.cloudAccess.didFail(url: URL(string: failedURL), message: failureMessage, navigationID: failedNavigation.map(ObjectIdentifier.init))
-                self.automationNavigationCoordinator.didFail(
-                    instanceID: boundWebViewInstanceID,
-                    navigationID: failedNavigation.map { ObjectIdentifier($0) },
-                    message: failureMessage
-                )
-                self.isMainFrameProvisionalNavigationActive = false
-                if let url = URL(string: failedURL) {
-                    self.currentURL = Self.remoteProxyDisplayURL(for: url) ?? url
-                }
-                // Clear stale title/favicon from the previous page so the tab
-                // shows the failed URL instead of the old page's branding.
-                self.pageTitle = failedURL.isEmpty ? "" : failedURL
-                self.faviconPNGData = nil
-                self.lastFaviconURLString = nil
-                self.applyMuteState(to: failedWebView, reason: "navigationFail")
-                if self.isDiscardRestoreBookkeepingNavigation(failedNavigation) {
-                    self.noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: "navigation_failed")
-                }
-                // Keep find-in-page open and clear stale counters on failed loads.
-                self.restoreFindStateAfterNavigation(replaySearch: false)
+            guard let self, self.isCurrentWebView(failedWebView, instanceID: boundWebViewInstanceID) else { return }
+            self.cloudAccess.didFail(url: URL(string: failedURL), message: failureMessage, navigationID: failedNavigation.map(ObjectIdentifier.init))
+            self.automationNavigationCoordinator.didFail(
+                instanceID: boundWebViewInstanceID,
+                navigationID: failedNavigation.map { ObjectIdentifier($0) },
+                message: failureMessage
+            )
+            self.isMainFrameProvisionalNavigationActive = false
+            if let url = URL(string: failedURL) {
+                self.currentURL = Self.remoteProxyDisplayURL(for: url) ?? url
             }
+            // Clear stale title/favicon from the previous page so the tab
+            // shows the failed URL instead of the old page's branding.
+            self.pageTitle = failedURL.isEmpty ? "" : failedURL
+            self.faviconPNGData = nil
+            self.lastFaviconURLString = nil
+            self.applyMuteState(to: failedWebView, reason: "navigationFail")
+            if self.isDiscardRestoreBookkeepingNavigation(failedNavigation) {
+                self.noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: "navigation_failed")
+            }
+            // Keep find-in-page open and clear stale counters on failed loads.
+            self.restoreFindStateAfterNavigation(replaySearch: false)
         }
         navigationDelegate.didCancelNavigationPolicy = { [weak self] webView, cancellationKind in
-            MainActor.assumeIsolated {
-                guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
-                switch cancellationKind {
-                case let .terminal(restoreAttemptID): self.noteDiscardedWebViewRestoreNavigationTerminallyCancelled(restoreAttemptID: restoreAttemptID)
-                }
+            guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+            switch cancellationKind {
+            case let .terminal(restoreAttemptID): self.noteDiscardedWebViewRestoreNavigationTerminallyCancelled(restoreAttemptID: restoreAttemptID)
             }
         }
         navigationDelegate.willReplaceNavigationForUserAgentPolicy = {
             [weak self] webView, replacedNavigation in
-            MainActor.assumeIsolated {
-                guard let self,
-                      self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else {
-                    return
-                }
-                self.automationNavigationCoordinator.willReplaceNavigation(
-                    instanceID: boundWebViewInstanceID,
-                    navigationID: replacedNavigation.map { ObjectIdentifier($0) }
-                )
+            guard let self,
+                  self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else {
+                return
             }
+            self.automationNavigationCoordinator.willReplaceNavigation(
+                instanceID: boundWebViewInstanceID,
+                navigationID: replacedNavigation.map { ObjectIdentifier($0) }
+            )
         }
         navigationDelegate.didReplaceNavigationForUserAgentPolicy = {
             [weak self] webView, replacedNavigation, replacementNavigation in
-            MainActor.assumeIsolated {
-                guard let self,
-                      self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else {
-                    return
-                }
-                self.automationNavigationCoordinator.didReplaceNavigation(
-                    instanceID: boundWebViewInstanceID,
-                    replacedNavigationID: replacedNavigation.map { ObjectIdentifier($0) },
-                    replacementNavigationID: replacementNavigation.map { ObjectIdentifier($0) }
-                )
+            guard let self,
+                  self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else {
+                return
             }
+            self.automationNavigationCoordinator.didReplaceNavigation(
+                instanceID: boundWebViewInstanceID,
+                replacedNavigationID: replacedNavigation.map { ObjectIdentifier($0) },
+                replacementNavigationID: replacementNavigation.map { ObjectIdentifier($0) }
+            )
         }
         navigationDelegate.didCancelProvisionalNavigation = { [weak self] webView, cancelledNavigation in
-            MainActor.assumeIsolated {
-                guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
-                (webView as? CmuxWebView)?.diffViewerNavigationDidCancel(cancelledNavigation)
-                self.cloudAccess.didCancel(navigationID: cancelledNavigation.map(ObjectIdentifier.init))
-                self.automationNavigationCoordinator.didCancel(
-                    instanceID: boundWebViewInstanceID,
-                    navigationID: cancelledNavigation.map { ObjectIdentifier($0) }
-                )
-                let isRestoreBookkeepingNavigation = self.isDiscardRestoreBookkeepingNavigation(cancelledNavigation)
-                self.isMainFrameProvisionalNavigationActive = false
-                if isRestoreBookkeepingNavigation {
-                    self.navigationDelegate?.clearAttemptedRequest()
-                }
-                self.refreshBackgroundAppearance()
-                if isRestoreBookkeepingNavigation {
-                    self.noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: "navigation_cancelled")
-                }
+            guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+            (webView as? CmuxWebView)?.diffViewerNavigationDidCancel(cancelledNavigation)
+            self.cloudAccess.didCancel(navigationID: cancelledNavigation.map(ObjectIdentifier.init))
+            self.automationNavigationCoordinator.didCancel(
+                instanceID: boundWebViewInstanceID,
+                navigationID: cancelledNavigation.map { ObjectIdentifier($0) }
+            )
+            let isRestoreBookkeepingNavigation = self.isDiscardRestoreBookkeepingNavigation(cancelledNavigation)
+            self.isMainFrameProvisionalNavigationActive = false
+            if isRestoreBookkeepingNavigation {
+                self.navigationDelegate?.clearAttemptedRequest()
+            }
+            self.refreshBackgroundAppearance()
+            if isRestoreBookkeepingNavigation {
+                self.noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: "navigation_cancelled")
             }
         }
         navigationDelegate.didChooseMainFrameDownloadPolicy = { [weak self] webView, navigation in
-            MainActor.assumeIsolated {
-                guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
-                self.failTrustedLocalFileNavigation()
-                (webView as? CmuxWebView)?.clearTrustedInternalNavigationGrants()
-                self.automationNavigationCoordinator.didChooseDownloadPolicy(
-                    instanceID: boundWebViewInstanceID,
-                    navigationID: navigation.map { ObjectIdentifier($0) }
-                )
-            }
+            guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+            self.failTrustedLocalFileNavigation()
+            (webView as? CmuxWebView)?.clearTrustedInternalNavigationGrants()
+            self.automationNavigationCoordinator.didChooseDownloadPolicy(
+                instanceID: boundWebViewInstanceID,
+                navigationID: navigation.map { ObjectIdentifier($0) }
+            )
         }
         navigationDelegate.didInterruptProvisionalNavigationByPolicy = { [weak self] webView, navigation in
-            MainActor.assumeIsolated {
-                guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else {
-                    return false
-                }
-                let isDownload = self.automationNavigationCoordinator.didInterruptByPolicyChange(
-                    instanceID: boundWebViewInstanceID,
-                    navigationID: navigation.map { ObjectIdentifier($0) }
-                )
-                guard isDownload else { return false }
-                self.isMainFrameProvisionalNavigationActive = false
-                self.refreshBackgroundAppearance()
-                return true
+            guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else {
+                return false
             }
+            let isDownload = self.automationNavigationCoordinator.didInterruptByPolicyChange(
+                instanceID: boundWebViewInstanceID,
+                navigationID: navigation.map { ObjectIdentifier($0) }
+            )
+            guard isDownload else { return false }
+            self.isMainFrameProvisionalNavigationActive = false
+            self.refreshBackgroundAppearance()
+            return true
         }
         navigationDelegate.didBecomeDownload = { [weak self] webView, isMainFrame, restoreAttemptID in
-            MainActor.assumeIsolated {
-                guard isMainFrame,
-                      let self,
-                      self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else {
-                    return
-                }
-                self.failTrustedLocalFileNavigation()
-                (webView as? CmuxWebView)?.clearTrustedInternalNavigationGrants()
-                guard let restoreAttemptID,
-                      restoreAttemptID == self.currentDiscardRestoreAttemptID else {
-                    return
-                }
-                // A main-frame download is a terminal outcome with no document commit; never restart it on the next reveal.
-                self.hasCommittedDocumentSinceWebViewReplacement = true
-                self.noteDiscardedWebViewRestoreNavigationCommitted(reason: "navigation_download")
+            guard isMainFrame,
+                  let self,
+                  self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else {
+                return
             }
+            self.failTrustedLocalFileNavigation()
+            (webView as? CmuxWebView)?.clearTrustedInternalNavigationGrants()
+            guard let restoreAttemptID,
+                  restoreAttemptID == self.currentDiscardRestoreAttemptID else {
+                return
+            }
+            // A main-frame download is a terminal outcome with no document commit; never restart it on the next reveal.
+            self.hasCommittedDocumentSinceWebViewReplacement = true
+            self.noteDiscardedWebViewRestoreNavigationCommitted(reason: "navigation_download")
         }
     }
 
@@ -3686,6 +3722,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassRemoteProxy
         self.browserThemeMode = BrowserThemeSettings.mode()
         self.shouldPreloadInitialNavigationInBackground = preloadInitialNavigationInBackground
+        self.browserDialogOwner = preloadInitialNavigationInBackground ? .automation : .user
         self.chromeState = BrowserChromeState(visibility: chromeVisibility)
         self.usesTransparentBackground = transparentBackground
         let websiteDataStore = explicitWebsiteDataStore ?? (
@@ -3839,6 +3876,7 @@ final class BrowserPanel: Panel, ObservableObject {
         dlDelegate.replAttachment = {
             BrowserReplTabAttachments.shared.attachment(for: panelID)
         }
+        dlDelegate.refreshScriptedDownloadRouting()
         dlDelegate.savePanelParentWindow = { [weak self] in
             self.flatMap { browserInteractiveModalHostWindow(for: $0.webView) }
         }
@@ -3983,6 +4021,13 @@ final class BrowserPanel: Panel, ObservableObject {
                 return window
             }
             return browserFallbackInteractiveModalHostWindow()
+        }
+
+        // A tab duplicated from an app-session panel shares its store; Dock
+        // panels never pass through a workspace's registration, so register
+        // here so sign-out resets every panel showing those cookies.
+        if preservesExplicitEphemeralWebsiteDataStore {
+            AppDelegate.shared?.auth?.browserAppSession.register(self)
         }
 
         if let initialRequest {
@@ -4241,6 +4286,7 @@ final class BrowserPanel: Panel, ObservableObject {
     func setRemoteWorkspaceStatus(_ status: BrowserRemoteWorkspaceStatus?) {
         guard remoteWorkspaceStatus != status else { return }
         remoteWorkspaceStatus = status
+        resumePendingRemoteNavigationIfNeeded()
     }
 
     private func applyProxyConfigurationIfAvailable() {
@@ -4250,7 +4296,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         if cloudBrowserMachineID != nil {
             if let endpoint = cloudBrowserProxyEndpoint, let address = cloudAccess.model?.target.host {
-                webView.configuration.websiteDataStore.proxyConfigurations = [CloudBrowserRouting.configuration(endpoint: endpoint, address: address)]
+                webView.configuration.websiteDataStore.proxyConfigurations = [CloudBrowserRouting.configuration(endpoint: endpoint, address: address, remoteNetwork: cloudAccess.model?.usesRemoteNetwork == true)]
             }
             return
         }
@@ -4426,7 +4472,13 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     var explicitEphemeralWebsiteDataStoreForSibling: WKWebsiteDataStore? {
-        preservesExplicitEphemeralWebsiteDataStore ? websiteDataStore : nil
+        // A store emptied by sign-out must not be copied: the sibling would
+        // skip the session exchange and show cmux app pages signed out.
+        guard preservesExplicitEphemeralWebsiteDataStore,
+              !appSessionStoreNeedsBootstrap else {
+            return nil
+        }
+        return websiteDataStore
     }
 
     func reattachToWorkspace(
@@ -4436,6 +4488,10 @@ final class BrowserPanel: Panel, ObservableObject {
         proxyEndpoint: BrowserProxyEndpoint?,
         remoteStatus: BrowserRemoteWorkspaceStatus?
     ) {
+        // A late exchange must not replace the reattached context. A store
+        // swap restores the page itself; otherwise it is requested again below.
+        let appSessionDestinationURL = appSessionBootstrapTask != nil ? currentURL : nil
+        cancelAppSessionBootstrap()
         workspaceId = newWorkspaceId
         usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassesRemoteWorkspaceProxy
         let targetStore = cloudBrowserMachineID != nil ? websiteDataStore : preservesExplicitEphemeralWebsiteDataStore
@@ -4457,6 +4513,9 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         applyProxyConfigurationIfAvailable()
         resumePendingRemoteNavigationIfNeeded()
+        if let appSessionDestinationURL, !needsStoreSwap {
+            navigate(to: appSessionDestinationURL)
+        }
     }
 
     @discardableResult
@@ -4471,6 +4530,9 @@ final class BrowserPanel: Panel, ObservableObject {
             BrowserProfileStore.shared.noteUsed(resolvedProfileID)
             return false
         }
+        // The restore below requests a pending app page again from
+        // `currentURL`, which runs a fresh exchange in the new profile.
+        cancelAppSessionBootstrap()
 
         let previousWebView = webView
         let wasRenderable = shouldRenderWebView
@@ -4779,8 +4841,8 @@ final class BrowserPanel: Panel, ObservableObject {
         // URL changes
         let urlObserver = webView.observe(\.url, options: [.new]) { [weak self] webView, change in
             let observedURL = change.newValue ?? webView.url
-            MainActor.assumeIsolated {
-                guard let self, isCurrentObservedWebView(self, webView) else { return }
+            Task { @MainActor [weak self, weak webView] in
+                guard let self, let webView, isCurrentObservedWebView(self, webView) else { return }
                 guard !self.isMainFrameProvisionalNavigationActive else { return }
                 self.designModeController.webViewURLDidChange(to: observedURL)
                 self.currentURL = self.cloudAccess.displayURL(observedURL) ?? Self.remoteProxyDisplayURL(for: observedURL) ?? observedURL
@@ -5012,10 +5074,14 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func restorableDisplayURLForCurrentErrorPage(liveURL: URL?) -> URL? {
+        // An SSH loopback service commits on an ephemeral local listener. The
+        // omnibar, its edit buffer, reload and session history all read the
+        // live URL here, so they show the service origin instead of that port.
         Self.restorableDisplayURL(
-            liveURL: liveURL,
+            liveURL: liveURL.map { cloudAccess.displayURL($0) ?? $0 },
             currentURL: currentURL,
             activeErrorPageDisplayURL: navigationDelegate?.activeErrorPageDisplayURL
+                .map { cloudAccess.displayURL($0) ?? $0 }
         )
     }
 
@@ -5159,6 +5225,7 @@ final class BrowserPanel: Panel, ObservableObject {
         cloudAccess.leave()
         cancelHiddenWebViewDiscard()
         isClosingWebViewLifecycle = true
+        cancelAppSessionBootstrap()
         trustedLocalFileURL = nil
         pendingTrustedLocalFileURL = nil
         automationNavigationCoordinator.invalidate()
@@ -5590,13 +5657,20 @@ final class BrowserPanel: Panel, ObservableObject {
         recordTypedNavigation: Bool = false,
         onNavigationStarted: ((WKNavigation?) -> Void)? = nil
     ) -> WKNavigation? {
+        var url = url
         var leaveCloudRouteAfterValidation = false
-        if cloudAccess.model != nil && cloudAccess.owns(url) {
-            if cloudAccess.model?.isReady != true { return nil }
+        if let model = cloudAccess.model, cloudAccess.owns(url) {
+            if !model.isReady { return nil }
             prepareCloudBrowserNavigation()
+            // A forwarded route serves the remote service on a local listener.
+            // Never load the remote address itself: on SSH it is this Mac's loopback.
+            if model.route == .loopback {
+                guard let forwarded = model.url(for: url) else { return nil }
+                url = forwarded
+            }
         } else if ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
                   let provider = privateAddressRouteProvider(for: url) {
-            provider.configureBrowser(self, url: url)
+            provider.configureBrowser(self, url: provider.sshServiceURL(forForwardListener: url) ?? url)
             return nil
         } else {
             leaveCloudRouteAfterValidation = retainsCloudResourceForDuplication
@@ -5670,6 +5744,9 @@ final class BrowserPanel: Panel, ObservableObject {
             navigationDelegate?.blockURLAllowlistNavigation(url, in: webView)
             return nil
         }
+        if cloudAccess.model != nil, cloudAccess.owns(url) {
+            cloudAccess.rememberNavigationRequest(request)
+        }
         if trustedInternalNavigation {
             if url.isFileURL {
                 beginTrustedLocalFileNavigation(url)
@@ -5677,19 +5754,27 @@ final class BrowserPanel: Panel, ObservableObject {
                 clearTrustedLocalFileDocumentIfNeeded(for: url)
             }
         }
-        if cloudBrowserMachineID == nil, usesRemoteWorkspaceProxy, remoteProxyEndpoint == nil {
-            pendingRemoteNavigation?.onNavigationStarted?(nil)
-            pendingRemoteNavigation = PendingRemoteNavigation(
-                request: request,
-                recordTypedNavigation: recordTypedNavigation,
-                preserveRestoredSessionHistory: preserveRestoredSessionHistory,
-                onNavigationStarted: onNavigationStarted
-            )
-            hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
-            currentURL = Self.remoteProxyDisplayURL(for: url) ?? url
-            navigationDelegate?.recordAttemptedRequest(request)
-            refreshBackgroundAppearance()
-            shouldRenderWebView = true
+        let routesThroughSSHTui = owningWorkspaceRoutesThroughSSHTui
+        if routesThroughSSHTui, let serviceURL = sshLoopbackServiceURL(for: url) {
+            // Every entry point (history, restore, heal, page links) lands here.
+            // A loopback URL belongs to the SSH host: hand it to that machine's
+            // forward, or wait for the machine, never this Mac's same-port service.
+            if let provider = privateAddressRouteProvider(for: serviceURL) {
+                onNavigationStarted?(nil)
+                provider.configureBrowser(self, url: serviceURL, request: request)
+            } else {
+                var serviceRequest = request
+                serviceRequest.url = serviceURL
+                queueRemoteNavigation(serviceRequest, recordTypedNavigation: recordTypedNavigation,
+                                      preserveRestoredSessionHistory: preserveRestoredSessionHistory,
+                                      onNavigationStarted: onNavigationStarted)
+            }
+            return nil
+        }
+        if cloudBrowserMachineID == nil, usesRemoteWorkspaceProxy, remoteProxyEndpoint == nil, !routesThroughSSHTui {
+            queueRemoteNavigation(request, recordTypedNavigation: recordTypedNavigation,
+                                  preserveRestoredSessionHistory: preserveRestoredSessionHistory,
+                                  onNavigationStarted: onNavigationStarted)
             return nil
         }
         return performNavigation(
@@ -5701,11 +5786,38 @@ final class BrowserPanel: Panel, ObservableObject {
         )
     }
 
+    private func queueRemoteNavigation(
+        _ request: URLRequest,
+        recordTypedNavigation: Bool,
+        preserveRestoredSessionHistory: Bool,
+        onNavigationStarted: ((WKNavigation?) -> Void)?
+    ) {
+        pendingRemoteNavigation?.onNavigationStarted?(nil)
+        pendingRemoteNavigation = PendingRemoteNavigation(
+            request: request,
+            recordTypedNavigation: recordTypedNavigation,
+            preserveRestoredSessionHistory: preserveRestoredSessionHistory,
+            onNavigationStarted: onNavigationStarted
+        )
+        hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
+        if let url = request.url { currentURL = Self.remoteProxyDisplayURL(for: url) ?? url }
+        navigationDelegate?.recordAttemptedRequest(request)
+        refreshBackgroundAppearance()
+        shouldRenderWebView = true
+    }
+
     private func resumePendingRemoteNavigationIfNeeded() {
         // Resume on endpoint arrival, or directly once the pane turned local
         // (a stranded queue pins the hidden pane as non-discardable forever).
-        guard remoteProxyEndpoint != nil || !usesRemoteWorkspaceProxy,
-              let navigation = pendingRemoteNavigation else {
+        guard let navigation = pendingRemoteNavigation else { return }
+        if remoteProxyEndpoint == nil, usesRemoteWorkspaceProxy {
+            // Managed SSH has no workspace proxy: a waiting loopback URL resumes
+            // on its machine's forward once that machine is registered.
+            guard let url = navigation.request.url, owningWorkspaceRoutesThroughSSHTui,
+                  let provider = privateAddressRouteProvider(for: url) else { return }
+            pendingRemoteNavigation = nil
+            navigation.onNavigationStarted?(nil)
+            provider.configureBrowser(self, url: url, request: navigation.request)
             return
         }
         guard let originalURL = navigation.request.url else {
@@ -5730,8 +5842,21 @@ final class BrowserPanel: Panel, ObservableObject {
         originalURL: URL,
         recordTypedNavigation: Bool,
         preserveRestoredSessionHistory: Bool,
-        onNavigationStarted: ((WKNavigation?) -> Void)? = nil
+        onNavigationStarted: ((WKNavigation?) -> Void)? = nil,
+        skipsAppSessionBootstrap: Bool = false
     ) -> WKNavigation? {
+        // A newer navigation supersedes an exchange that has not loaded yet.
+        cancelAppSessionBootstrap()
+        if !skipsAppSessionBootstrap,
+           beginAppSessionBootstrapIfNeeded(
+               request: request,
+               originalURL: originalURL,
+               recordTypedNavigation: recordTypedNavigation,
+               preserveRestoredSessionHistory: preserveRestoredSessionHistory,
+               onNavigationStarted: onNavigationStarted
+           ) {
+            return nil
+        }
         cancelHiddenWebViewDiscard()
         if hasRecoverableWebContentTermination {
             _ = replaceWebViewPreservingState(
@@ -5795,7 +5920,133 @@ final class BrowserPanel: Panel, ObservableObject {
         return startedNavigation
     }
 
+    /// Trusted cmux app pages (`/app-pricing`, `/app-pro-welcome`) read the
+    /// plan from Stack cookies, which only a store prepared by
+    /// ``BrowserAppSessionController`` holds. Every direct entrypoint (Upgrade,
+    /// Pro welcome, restore, typed URL) lands here, so the exchange runs before
+    /// WebKit loads the document and a signed-in app never shows the page
+    /// signed out. Without a signed-in app the page loads unchanged.
+    private func beginAppSessionBootstrapIfNeeded(
+        request: URLRequest,
+        originalURL: URL,
+        recordTypedNavigation: Bool,
+        preserveRestoredSessionHistory: Bool,
+        onNavigationStarted: ((WKNavigation?) -> Void)?
+    ) -> Bool {
+        guard !isClosingWebViewLifecycle,
+              cloudBrowserMachineID == nil,
+              cloudAccess.model == nil,
+              !usesRemoteWorkspaceProxy,
+              !preservesExplicitEphemeralWebsiteDataStore || appSessionStoreNeedsBootstrap,
+              (request.httpMethod ?? "GET").uppercased() == "GET",
+              Self.isNativeAppSessionSurface(originalURL),
+              let requestSession = appSessionRequestProvider ?? Self.signedInAppSessionRequest() else {
+            return false
+        }
+
+        hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
+        currentURL = originalURL
+        navigationDelegate?.recordAttemptedRequest(request, displayURL: originalURL)
+        refreshBackgroundAppearance()
+        shouldRenderWebView = true
+        appSessionBootstrapNavigationStarted = onNavigationStarted
+        appSessionBootstrapTask = Task { @MainActor [weak self] in
+            let outcome = await requestSession(originalURL)
+            guard let self, !Task.isCancelled else { return }
+            self.appSessionBootstrapTask = nil
+            self.appSessionBootstrapNavigationStarted = nil
+            if case let .navigation(navigation) = outcome {
+                self.adoptAppSessionStore(
+                    navigation.websiteDataStore,
+                    preservingRestoredSessionHistory: preserveRestoredSessionHistory
+                )
+            }
+            self.performNavigation(
+                request: request,
+                originalURL: originalURL,
+                recordTypedNavigation: recordTypedNavigation,
+                preserveRestoredSessionHistory: preserveRestoredSessionHistory,
+                onNavigationStarted: onNavigationStarted,
+                skipsAppSessionBootstrap: true
+            )
+        }
+        return true
+    }
+
+    private func cancelAppSessionBootstrap() {
+        guard let task = appSessionBootstrapTask else { return }
+        task.cancel()
+        appSessionBootstrapTask = nil
+        let navigationStarted = appSessionBootstrapNavigationStarted
+        appSessionBootstrapNavigationStarted = nil
+        navigationStarted?(nil)
+    }
+
+    /// Moves the panel into the controller-owned store that received the
+    /// session cookies. The store is registered so sign-out clears it.
+    private func adoptAppSessionStore(
+        _ store: WKWebsiteDataStore,
+        preservingRestoredSessionHistory: Bool
+    ) {
+        guard store !== WKWebsiteDataStore.default(), store.identifier == nil else { return }
+        let restoredHistory = restoredSessionHistory
+        closeAllPopupControllers()
+        websiteDataStore = store
+        preservesExplicitEphemeralWebsiteDataStore = true
+        appSessionStoreNeedsBootstrap = false
+        historyStore = BrowserHistoryStore(fileURL: nil)
+        resetForWorkspaceContextChange(
+            reason: "appSessionBootstrap",
+            forceWebViewReplacement: true
+        )
+        if preservingRestoredSessionHistory {
+            restoredSessionHistory = restoredHistory
+            refreshNavigationAvailability()
+        }
+        AppDelegate.shared?.auth?.browserAppSession.register(self)
+    }
+
+    static func isNativeAppSessionSurface(_ url: URL?) -> Bool {
+        BrowserAppTheme.supportsAppSurface(
+            url: url,
+            trustedOrigin: AuthEnvironment.appSessionHandoffOrigin
+        )
+    }
+
+    /// A page prewarmed in the profile store has no session cookies, so a
+    /// signed-in app must load trusted app pages through the exchange instead.
+    static func requiresAppSessionBootstrap(_ url: URL?) -> Bool {
+        isNativeAppSessionSurface(url) && signedInAppSessionRequest() != nil
+    }
+
+    private static func signedInAppSessionRequest() -> (@MainActor (URL) async -> BrowserAppSessionRequestOutcome)? {
+        guard let auth = AppDelegate.shared?.auth,
+              auth.coordinator.isAuthenticated else {
+            return nil
+        }
+        let appSession = auth.browserAppSession
+        return { url in
+            var outcome = await appSession.request(destinationURL: url)
+            if outcome.shouldRetry {
+                outcome = await appSession.request(destinationURL: url)
+            }
+            if case let .navigation(navigation) = outcome,
+               !appSession.isCurrent(
+                   generation: navigation.generation,
+                   authSessionGeneration: navigation.authSessionGeneration
+               ) {
+                return .cancelled
+            }
+            return outcome
+        }
+    }
+
     private func remoteProxyPreparedRequest(from request: URLRequest, logScope: String) -> URLRequest {
+        if let url = request.url, let rewritten = cloudAccess.rewrittenLoopbackURL(url) {
+            var prepared = request
+            prepared.url = rewritten
+            return prepared
+        }
         guard cloudBrowserMachineID == nil, remoteProxyEndpoint != nil else { return request }
         guard let url = request.url else { return request }
         guard let rewrittenURL = Self.remoteProxyLoopbackAliasURL(for: url) else { return request }
@@ -5850,7 +6101,8 @@ final class BrowserPanel: Panel, ObservableObject {
     /// - If input looks like a URL, navigate to it
     /// - Otherwise, perform a web search
     @discardableResult
-    func navigateSmart(_ input: String) -> WKNavigation? {
+    func navigateSmart(_ input: String, dialogOwner: BrowserDialogOwner = .user) -> WKNavigation? {
+        takeBrowserDialogOwnership(dialogOwner)
         guard let navigation = resolveSmartNavigation(from: input) else { return nil }
         return navigate(
             to: navigation.url,
@@ -6108,7 +6360,7 @@ extension BrowserPanel: BrowserHiddenWebViewDiscardManagerDelegate {
             isClosing: isClosingWebViewLifecycle,
             isVisibleInUI: isWebViewVisibleInUI,
             shouldRenderWebView: shouldRenderWebView,
-            hasPendingRemoteNavigation: pendingRemoteNavigation != nil,
+            hasPendingRemoteNavigation: hasPendingRemoteNavigation,
             hasCurrentURL: (
                 currentURL
                     ?? pendingWebContentRecoveryURL
@@ -6127,6 +6379,7 @@ extension BrowserPanel: BrowserHiddenWebViewDiscardManagerDelegate {
             isDesignModeActive: designModeController.protectsFromDiscard,
             // A REPL session driving this tab needs its live web view.
             isVisualAutomationCaptureActive: activeVisualAutomationCaptureCount > 0
+                || !mobileBrowserDialogBroker.pendingDialogs.isEmpty
                 || BrowserReplTabAttachments.shared.attachment(for: id) != nil,
             isMobileBrowserStreamActive: !mobileBrowserStreamSignalHandlers.isEmpty,
             hasPopups: !popupControllers.isEmpty,
@@ -6288,7 +6541,9 @@ extension BrowserPanel {
         // deletion callback completes. If WebKit drops that callback, the live
         // panel is still isolated from the previous account immediately.
         closeAllPopupControllers()
+        cancelAppSessionBootstrap()
         websiteDataStore = WKWebsiteDataStore.nonPersistent()
+        appSessionStoreNeedsBootstrap = preservesExplicitEphemeralWebsiteDataStore
         resetForWorkspaceContextChange(
             reason: "appSessionSignOut",
             forceWebViewReplacement: true
@@ -6382,8 +6637,10 @@ extension BrowserPanel {
     }
 
     /// Go back in history
-    func goBack() {
+    func goBack(dialogOwner: BrowserDialogOwner = .user) {
+        takeBrowserDialogOwnership(dialogOwner)
         guard canGoBack else { return }
+        cancelAppSessionBootstrap()
         reactivateDiscardedWebViewWithoutNavigation(reason: "goBack")
         cancelInFlightNavigationBeforeHistoryTraversal()
         if usesRestoredSessionHistory {
@@ -6420,8 +6677,10 @@ extension BrowserPanel {
     }
 
     /// Go forward in history
-    func goForward() {
+    func goForward(dialogOwner: BrowserDialogOwner = .user) {
+        takeBrowserDialogOwnership(dialogOwner)
         guard canGoForward else { return }
+        cancelAppSessionBootstrap()
         reactivateDiscardedWebViewWithoutNavigation(reason: "goForward")
         cancelInFlightNavigationBeforeHistoryTraversal()
         if usesRestoredSessionHistory {
@@ -6594,11 +6853,14 @@ extension BrowserPanel {
 
     /// Reload the current page
     @discardableResult
-    func reload() -> WKNavigation? {
+    func reload(dialogOwner: BrowserDialogOwner = .user) -> WKNavigation? {
+        takeBrowserDialogOwnership(dialogOwner)
         if cloudAccess.model?.usesBrowserProxy == true, cloudAccess.error != nil || cloudAccess.model?.isReady != true {
             cloudAccess.retry()
             return nil
         }
+        // The pending exchange is already loading the intended page.
+        if appSessionBootstrapTask != nil { return nil }
         if prepareForReload(reason: "reload", mode: .soft) {
             return nil
         }
@@ -6607,11 +6869,13 @@ extension BrowserPanel {
     }
 
     /// Reload the current page, bypassing WebKit's cache.
-    func hardReload() {
+    func hardReload(dialogOwner: BrowserDialogOwner = .user) {
+        takeBrowserDialogOwnership(dialogOwner)
         if cloudAccess.model?.usesBrowserProxy == true, cloudAccess.error != nil || cloudAccess.model?.isReady != true {
             cloudAccess.retry()
             return
         }
+        if appSessionBootstrapTask != nil { return }
         if prepareForReload(reason: "hardReload", mode: .hard) {
             return
         }
@@ -6622,6 +6886,7 @@ extension BrowserPanel {
     /// Stop loading
     func stopLoading() {
         cloudAccess.didCancel()
+        cancelAppSessionBootstrap()
         // Fail closed: a reveal must never blank-shell-heal over an explicit Stop.
         userStoppedLoadSinceWebViewReplacement = true
         webView.stopLoading()
@@ -7314,7 +7579,7 @@ extension BrowserPanel {
             timeoutTimer = nil
         }
         let timer = Timer(timeInterval: timeout, repeats: false) { _ in
-            MainActor.assumeIsolated {
+            Task { @MainActor in
                 finish(.failure(BrowserScreenshotError.automationTimedOut))
             }
         }
@@ -8476,6 +8741,10 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
     private var activeDownloads: [ObjectIdentifier: DownloadState] = [:]
     private var suggestedFilenameOverrides: [ObjectIdentifier: String] = [:]
     private let activeDownloadsLock = NSLock()
+    // CmuxWebView reads this flag synchronously from a WebKit callback. Keep
+    // the callback independent of Swift's MainActor executor while publishing
+    // the actor-owned REPL decision as one atomic snapshot.
+    private let scriptedDownloadRoutingState = OSAllocatedUnfairLock(initialState: false)
     var onDownloadStarted: ((String, String) -> Void)?
     var onDownloadReadyToSave: ((String, String) -> Void)?
     var onDownloadSaved: ((String, URL, Bool, String) -> Void)?
@@ -8487,10 +8756,16 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
     /// temporary directory and are reported to the session.
     var replAttachment: (@MainActor () -> BrowserReplTabAttachment?)?
 
+    @MainActor
+    func refreshScriptedDownloadRouting() {
+        let routed = replAttachment?()?.routesToSessions(.download) == true
+        scriptedDownloadRoutingState.withLock { $0 = routed }
+    }
+
     /// Scripted `data:` downloads of a tab whose downloads go to a REPL
     /// session come here as WebKit downloads, so the session sees them.
     var routesScriptedDownloadsThroughWebKit: Bool {
-        MainActor.assumeIsolated { replAttachment?()?.routesToSessions(.download) == true }
+        scriptedDownloadRoutingState.withLock { $0 }
     }
 
     static let tempDir: URL = {

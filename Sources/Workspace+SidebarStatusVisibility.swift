@@ -74,8 +74,12 @@ extension Workspace {
     func mostUrgentPanelStatusEntry(forKey key: String) -> SidebarStatusEntry? {
         var winner: (rank: Int, entry: SidebarStatusEntry)?
         for (panelId, entries) in agentStatusEntriesByPanelId where panels[panelId] != nil {
-            guard let entry = entries[key], panelOwnsAgentStatus(key: key, panelId: panelId) else { continue }
-            let rank = Self.sidebarStatusUrgencyRank(agentLifecycleStatesByPanelId[panelId]?[key])
+            guard let entry = entries[key],
+                  panelOwnsAgentStatus(key: key, panelId: panelId)
+                    || key == Self.programStatusKey else { continue }
+            let rank = key == Self.programStatusKey
+                ? programStatusUrgencyByPanelId[panelId, default: 0]
+                : Self.sidebarStatusUrgencyRank(agentLifecycleStatesByPanelId[panelId]?[key])
             if let current = winner, (current.rank, current.entry.timestamp) >= (rank, entry.timestamp) {
                 continue
             }

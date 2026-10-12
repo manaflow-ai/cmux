@@ -5,7 +5,7 @@ import Testing
 struct ShortcutActionNumberedDigitTests {
     @Test func onlyNumberedSelectionActionsUseDigitMatching() {
         for action in ShortcutAction.allCases {
-            let expected = action == .selectSurfaceByNumber || action == .selectWorkspaceByNumber
+            let expected = [.selectSurfaceByNumber, .selectWorkspaceByNumber, .focusPaneByNumber].contains(action)
             #expect(
                 action.usesNumberedDigitMatching == expected,
                 "\(action) usesNumberedDigitMatching should be \(expected)"

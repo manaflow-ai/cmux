@@ -94,6 +94,21 @@ public struct SessionSnapshotFileLocation: Sendable, Equatable {
         return directory.appendingPathComponent("\(baseName).schema-v\(schemaVersion).json", isDirectory: false)
     }
 
+    /// The side file that keeps an unusable snapshot next to the file it was
+    /// found in (`session-<id>.json` becomes `session-<id>.unusable.json`, or
+    /// `session-<id>.unusable-<ms>.json` when an earlier copy already exists).
+    ///
+    /// - Parameters:
+    ///   - fileURL: The snapshot file that could not be restored.
+    ///   - millis: Disambiguates a second, different unusable copy.
+    /// - Returns: The side file location.
+    public static func unusableSideFileURL(for fileURL: URL, millis: Int64? = nil) -> URL {
+        let directory = fileURL.deletingLastPathComponent()
+        let baseName = fileURL.deletingPathExtension().lastPathComponent
+        let suffix = millis.map { ".unusable-\($0)" } ?? ".unusable"
+        return directory.appendingPathComponent("\(baseName)\(suffix).json", isDirectory: false)
+    }
+
     /// `<appSupport>/cmux/`, the folder holding every install's snapshot
     /// files and the shared `session-history/` archive.
     public var cmuxDirectoryURL: URL {

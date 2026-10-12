@@ -7,12 +7,11 @@ public import AppKit
 /// web view underneath, which is already loading the restored page. The page
 /// snapshot is deliberately silent; a transient restore badge obscures the
 /// content and makes a routine background memory operation feel like an alert.
-@MainActor
 public final class BrowserPageSnapshotOverlayView: NSView {
     private let imageView = NSImageView()
 
-    public override var isFlipped: Bool { true }
-    public override var isOpaque: Bool { false }
+    public nonisolated override var isFlipped: Bool { true }
+    public nonisolated override var isOpaque: Bool { false }
 
     /// - Parameter snapshot: The page as it looked before the discard.
     public init(snapshot: BrowserPageSnapshotImage?) {
@@ -45,7 +44,7 @@ public final class BrowserPageSnapshotOverlayView: NSView {
     /// Whether the overlay carries a page snapshot, not just the badge.
     public var showsSnapshot: Bool { imageView.image != nil }
 
-    public override func hitTest(_ point: NSPoint) -> NSView? {
+    public nonisolated override func hitTest(_ point: NSPoint) -> NSView? {
         nil
     }
 

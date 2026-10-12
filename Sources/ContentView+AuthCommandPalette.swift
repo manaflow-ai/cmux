@@ -107,6 +107,7 @@ extension ContentView {
     static let commandPaletteCloudPortsCommandId = "palette.cloud.ports"
     static let commandPaletteCloudToolsCommandId = "palette.cloud.tools"
     static let commandPaletteCloudHandoffCommandId = "palette.cloud.handoff"
+    static let commandPaletteCloudNewWorkspaceCommandId = "palette.cloud.newWorkspace"
     static let commandPaletteCloudNewMachineCommandId = "palette.cloud.newMachine"
 
     /// Returns Cloud VM commands when the Cloud feature and account are ready.
@@ -128,6 +129,12 @@ extension ContentView {
         }
         let subtitle = constant(String(localized: "command.cloudVM.subtitle", defaultValue: "Cloud"))
         return [
+            CommandPaletteCommandContribution(
+                commandId: commandPaletteCloudNewWorkspaceCommandId,
+                title: constant(String(localized: "command.newCloudWorkspace.title", defaultValue: "New Cloud Workspace")),
+                subtitle: subtitle,
+                keywords: ["cloud", "workspace", "new", "create", "machine", "remote"]
+            ),
             CommandPaletteCommandContribution(
                 commandId: commandPaletteCloudNewMachineCommandId,
                 title: constant(String(localized: "command.cloudVM.newMachine.title", defaultValue: "New Cloud Machine…")),
@@ -249,6 +256,13 @@ extension ContentView {
                 tabManager: tabManager,
                 preferredWindow: commandWindow,
                 debugSource: "palette.cloud.newMachine"
+            )
+        }
+        registry.register(commandId: Self.commandPaletteCloudNewWorkspaceCommandId) {
+            _ = AppDelegate.shared?.performNewCloudWorkspaceOnResolvedMachineAction(
+                tabManager: tabManager,
+                preferredWindow: commandWindow,
+                debugSource: "palette.cloud.newWorkspace"
             )
         }
         registry.register(commandId: Self.commandPaletteCloudForkCommandId) {

@@ -61,6 +61,15 @@ XCBUILD_FILE_SYSTEM_MODE=checksum-only
 # does not honor -file-prefix-map.
 FILE_PATH_ROOT=/private/tmp/cmux-test-source
 
+# The ghostty pin the checkout builds against (its gitlink, so no submodule
+# checkout is needed). Xcode keeps its processed copy of the prebuilt
+# GhosttyKit.xcframework in DerivedData, so a seed or kept build from another
+# pin compiles against that pin's headers: after #19443's bump every main pull
+# request that adopted an older nightly seed failed with "cannot find
+# ghostty_surface_set_link_filter". Read before `canonical-*` enters the
+# canonical root, which holds no checkout at fingerprint time.
+GHOSTTY_PIN="$(git rev-parse HEAD:ghostty 2>/dev/null || echo none)"
+
 fingerprint() {
   local derived_data="$1"
   # Canonical only when both paths are fixed: the source at the canonical
@@ -75,6 +84,7 @@ fingerprint() {
       xcodebuild -version
       printf 'derived-data=%s\n' "${derived_data##*/}"
       printf 'file-system=%s\n' "$XCBUILD_FILE_SYSTEM_MODE"
+      printf 'ghostty=%s\n' "$GHOSTTY_PIN"
       # The default root adds nothing, so every existing seed and cache key
       # stays the same. Another root (an owned Mac's second compile slot)
       # compiles different absolute paths into every entry, so it gets keys
@@ -90,6 +100,7 @@ fingerprint() {
     printf 'workspace=%s\n' "$PWD"
     printf 'derived-data=%s\n' "$derived_data"
     printf 'file-system=%s\n' "$XCBUILD_FILE_SYSTEM_MODE"
+    printf 'ghostty=%s\n' "$GHOSTTY_PIN"
   } | shasum -a 256 | cut -c1-32
 }
 
@@ -250,6 +261,13 @@ build() {
     'SWIFT_INSTALL_MODULE=$(CMUX_CI_INSTALL_MODULE_$(TARGET_NAME):default=YES)'
     CMUX_CI_INSTALL_MODULE_cmuxTests=NO
   )
+  # Xcode's explicit-module dependency graph can survive a clean DerivedData
+  # rebuild when a reused CAS entry is incomplete. Admission recovery sets
+  # this only after seeing that diagnostic, so normal builds keep the faster
+  # explicit-module path while the recovery build avoids the broken graph.
+  if [ "${CMUX_CI_DISABLE_EXPLICIT_MODULES:-}" = 1 ]; then
+    cache_setting+=(SWIFT_ENABLE_EXPLICIT_MODULES=NO)
+  fi
   # Before Xcode 26.6 the app target has the same defect: under the cache the
   # driver rewrites cmux_DEV-*-ChainedBridgingHeader.h and the bridging PCH
   # (identical bytes, newer mtime) on every build, so a body-only edit to one
@@ -259,6 +277,9 @@ build() {
   # with the cache on (1 task, run 36081880621), so it keeps the cache there.
   if xcode_older_than 26 6; then
     cache_setting+=(CMUX_CI_COMPILATION_CACHE_cmux=NO)
+  fi
+  if [ "${CMUX_CI_DISABLE_COMPILATION_CACHE:-}" = 1 ]; then
+    cache_setting+=(COMPILATION_CACHE_ENABLE_CACHING=NO)
   fi
   # Owned minis carry the fleet-cas node installed by glaeda. Its settings
   # select the node's fixed CAS and Unix socket; Blacksmith and unprovisioned
@@ -290,6 +311,9 @@ build() {
         esac
       done <<< "$fleet_settings"
     fi
+  fi
+  if [ "${CMUX_CI_DISABLE_COMPILATION_CACHE:-}" = 1 ]; then
+    fleet_cache_setting=()
   fi
   # xcodebuild runs under the resolve's fixed environment (see resolve()), but
   # the app's script phases still need the caller's: PATH for cargo, rustup,

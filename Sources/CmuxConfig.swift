@@ -74,9 +74,12 @@ struct CmuxConfigFile: Codable, Sendable {
     var commands: [CmuxCommandDefinition]
     var vault: CmuxVaultConfigDefinition?
     var workspaceGroups: CmuxConfigWorkspaceGroupsDefinition?
+    /// Brokers a user declares for remote-tmux transports, named so the control socket can only
+    /// pick something already written down here. See ``CmuxRemoteTmuxConfigDefinition``.
+    var remoteTmux: CmuxRemoteTmuxConfigDefinition?
 
     private enum CodingKeys: String, CodingKey {
-        case packs, actions, settingPresets, ui, notifications, agentChat, newWorkspaceCommand, surfaceTabBarButtons, commands, vault, workspaceGroups
+        case packs, actions, settingPresets, ui, notifications, agentChat, newWorkspaceCommand, surfaceTabBarButtons, commands, vault, workspaceGroups, remoteTmux
     }
 
     init(
@@ -90,7 +93,8 @@ struct CmuxConfigFile: Codable, Sendable {
         surfaceTabBarButtons: [CmuxSurfaceTabBarButton]? = nil,
         commands: [CmuxCommandDefinition] = [],
         vault: CmuxVaultConfigDefinition? = nil,
-        workspaceGroups: CmuxConfigWorkspaceGroupsDefinition? = nil
+        workspaceGroups: CmuxConfigWorkspaceGroupsDefinition? = nil,
+        remoteTmux: CmuxRemoteTmuxConfigDefinition? = nil
     ) {
         self.packs = packs
         self.actions = actions
@@ -103,6 +107,7 @@ struct CmuxConfigFile: Codable, Sendable {
         self.commands = commands
         self.vault = vault
         self.workspaceGroups = workspaceGroups
+        self.remoteTmux = remoteTmux
     }
 
     init(from decoder: Decoder) throws {
@@ -159,6 +164,10 @@ struct CmuxConfigFile: Codable, Sendable {
         workspaceGroups = try container.decodeIfPresent(
             CmuxConfigWorkspaceGroupsDefinition.self,
             forKey: .workspaceGroups
+        )
+        remoteTmux = try container.decodeIfPresent(
+            CmuxRemoteTmuxConfigDefinition.self,
+            forKey: .remoteTmux
         )
     }
 
@@ -2294,6 +2303,29 @@ final class CmuxConfigStore: ObservableObject {
         newWorkspaceCommandName = configuredNewWorkspaceCommandName
         newWorkspaceContextMenuItems = resolvedNewWorkspaceContextMenuItems.items
         newWorkspaceContextMenuIsConfigured = configuredNewWorkspaceContextMenu != nil
+        // Global config ONLY, unlike every other section here, because a broker entry names an
+        // executable cmux launches. A project-local `cmux.json` is a file you can acquire by
+        // cloning a repository, and this store publishes to one process-wide snapshot the socket
+        // boundary trusts — so honoring a local section would let a checked-in file pick the binary
+        // that carries a remote connection, with no prompt anywhere on that path. Project commands
+        // get a trust prompt before they run; this seam has no equivalent, so it takes the setting
+        // only from the file the user owns.
+        let remoteTmuxDefinition = globalConfig?.remoteTmux
+        let remoteTmuxBrokers: RemoteTmuxBrokerRegistry
+        let remoteTmuxBrokerRejections: [String: String]
+        if let remoteTmuxDefinition {
+            let resolved = RemoteTmuxBrokerRegistry.make(from: remoteTmuxDefinition)
+            remoteTmuxBrokers = resolved.registry
+            remoteTmuxBrokerRejections = resolved.rejected
+        } else {
+            remoteTmuxBrokers = RemoteTmuxBrokerRegistry()
+            remoteTmuxBrokerRejections = [:]
+        }
+        // Socket-only state does not invalidate SwiftUI through this config store.
+        // Publish for the parsing path, which cannot reach this actor mid-parse.
+        RemoteTmuxBrokerSnapshot.shared.update(
+            registry: remoteTmuxBrokers, rejections: remoteTmuxBrokerRejections
+        )
         agentChat = CmuxAgentChatConfiguration.resolved(
             local: localConfig?.agentChat, global: globalConfig?.agentChat,
             localSourcePath: localConfig?.agentChat == nil ? nil : localPath, globalSourcePath: globalConfig?.agentChat == nil ? nil : globalConfigPath

@@ -115,7 +115,7 @@ describe("app pricing page", () => {
     expect(html).toContain("plan%253Dpro");
     expect(html).toContain("plan%253Dteam");
     expect(html).toContain("plan%253Dmax");
-    expect(html).not.toMatch(/plan=max[^"]*interval=/);
+    expect(html).toMatch(/plan=max[^"]*interval=year/);
     expect(html).toContain("/mo");
     expect(html).toContain("/user/mo");
     expect(html).toContain("$50");
@@ -244,15 +244,13 @@ describe("app pricing page", () => {
     expect(html).toContain("$60/user/mo");
     expect(html).not.toContain("$480/year");
     expect(html).not.toContain("$576/user/year");
-    // Max ignores the annual selector: still $200 /mo, never billed yearly.
+    // Max follows the annual selector just like Pro.
     expect(html).toContain("$200");
-    expect(html).toContain("$200 /mo");
-    expect(html).not.toContain("$200/mo, billed yearly");
-    expect(html).not.toMatch(/plan=max[^"]*interval=/);
+    expect(html).toContain("$160");
+    expect(html).toContain("Yearly");
+    expect(html).toMatch(/plan=max[^"]*interval=year/);
     expect(html).toContain("plan%253Dpro");
     expect(html).toContain("plan%253Dteam");
-    expect(html).not.toContain('role="radiogroup"');
-    expect(html).not.toContain('<button type="button" role="radio" aria-checked="true"');
     expect(html).not.toContain("appearance=dark&amp;interval=month");
     expect(html).toContain('data-cmux-app-theme="true"');
     expect(html).toContain("--ghostty-background:#112233");
@@ -261,21 +259,22 @@ describe("app pricing page", () => {
     expect(html).toContain("--cmux-product-blue-on-background:#0091ff");
     expect(html).toContain("--cmux-product-blue-on-foreground:#006CBF");
     expect(html).toContain('data-testid="pricing-controls"');
-    expect(html).not.toContain("Save 20%");
     expect(html).toContain('href="/enterprise?cmux_external_browser=1"');
   });
 
-  test("does not advertise annual savings", async () => {
+  test("defaults the Pro card to yearly billing", async () => {
     const element = await AppPricingPage({
       searchParams: Promise.resolve({
         cmux_app: "1",
         cmux_scheme: "cmux-dev-test",
-        interval: "month",
       }),
     });
     const html = (await renderSettled(element));
 
-    expect(html).not.toContain("Save 20%");
+    expect(html).not.toMatch(/billed yearly, save/);
+    expect(html).toContain("$40");
+    expect(html).toMatch(/interval(=|%3D|%253D)year/);
+    expect(html).not.toMatch(/plan%253D(go|team)[^"]*interval%253Dyear/);
   });
 
   test("removes external purchase links in App Store distribution mode", async () => {

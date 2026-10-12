@@ -385,6 +385,7 @@ describe("coderouter raw trace batch", () => {
             $exception_fingerprint: "coderouter.rds:codex",
             $exception_level: "error",
             $exception_list: [{ type: "Error", value: "message redacted" }],
+            operation: "coderouter.background",
           },
         },
       ],
@@ -404,6 +405,8 @@ describe("coderouter raw trace batch", () => {
     expect(exception.properties.$exception_list).toEqual([
       { type: "Error", value: "message redacted" },
     ]);
+    // The cross-product server exception label survives the allow-list.
+    expect(exception.properties.operation).toBe("coderouter.background");
   });
 
   test("is a no-op when disabled or unconfigured", async () => {

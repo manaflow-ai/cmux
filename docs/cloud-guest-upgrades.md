@@ -27,7 +27,7 @@ missing, and an in-place upgrade plus a one-row backfill restored them
 
 | Change | Reaches running machines? | How |
 | --- | --- | --- |
-| `cmux-tui` binary and `cmux-tui-hook` | Yes | `web/scripts/upgrade-fleet-cmux-tui.ts` (below) |
+| `cmux-tui` binary, `cmux-tui-hook`, and the state-mount helper | Yes | `web/scripts/upgrade-fleet-cmux-tui.ts` (below) |
 | Coding-agent hook entries | Yes | Same run: the pinned install command re-runs `cmux-tui agent hook install` |
 | `cmux-devbox-boot`, systemd units, the daemon's argv and environment | No | Bake only. The supervisor that is running keeps its own copy |
 | Baked packages, agent pins, desktop, `/etc/cmux/*` | No (agent pins: only on machines opted into `agentUpdates: "latest"`) | Bake only; opted-in machines update their coding agents on attach (`web/services/vms/guestAgentUpdates.ts`) |
@@ -126,7 +126,11 @@ The target is the cmux-tui build the default image bakes (the manifest's
 What the guest script (`web/scripts/cloud-vm/cmux-tui-upgrade.sh`) does per
 machine: it runs detached as root from its own run directory
 (`/var/lib/cmux-tui-upgrade/run-<time>-<commit>/`, with `result` and `log`),
-and holds a per-machine lock, so a second run reports `SKIP busy`.
+and holds a per-machine lock, so a second run reports `SKIP busy`. Before it
+touches the daemon it atomically installs the current state-mount helper and
+runs its `ensure` path, so a running machine receives the bounded state-image
+growth fix even when its daemon is crash-looping. If the daemon upgrade needs
+to roll back, the previous helper is restored with the binary.
 
 - `SKIP no-trusted-carrier`: the supervisor starts a pre-carrier daemon. A new
   binary would not make it attachable; the machine is image-only (below).

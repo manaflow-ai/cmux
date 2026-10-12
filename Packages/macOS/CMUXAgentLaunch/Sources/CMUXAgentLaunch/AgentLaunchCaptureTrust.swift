@@ -54,6 +54,19 @@ public enum AgentLaunchCaptureTrust {
         return wrapperLaunchersByKind[normalizedKind]?.contains(normalizedLauncher) == true
     }
 
+    /// Whether an OMP capture pins its executable independently of the restore PATH.
+    ///
+    /// - Parameter launch: The current or previously persisted launch capture.
+    /// - Returns: `true` for a non-rejected capture with an absolute executable,
+    ///   including an executable-only record whose argv is empty.
+    public static func ompLaunchHasDurableResumeEvidence(_ launch: AgentLaunchCommand?) -> Bool {
+        guard let launch, !launch.isRejectedCapture else { return false }
+        let executable = [launch.executablePath, launch.arguments.first]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+        return executable?.hasPrefix("/") == true
+    }
+
     /// True when a captured argv describes a shell dispatcher (`sh -c …`,
     /// `zsh -lc …`) rather than an agent launch. This happens when the
     /// launch-capture PID fallback resolves to the hook's own dispatch shell

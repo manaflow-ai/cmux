@@ -85,7 +85,7 @@ jobs:
           # tests/test_runner_label_policy.py fails if a workflow reads a
           # runner variable this list leaves out. The background lane carries
           # its fallback because test_ci_self_hosted_guard.sh requires it on
-          # every read; `macos-15` is an approved label either way.
+          # every read.
           # CI_PR_POOL_ORDER is the one list that may also name owned pools.
           CMUX_CI_RUNNER_VARIABLES: |
             CI_LIGHT_LANE_RUNNER=${{ vars.CI_LIGHT_LANE_RUNNER }}
@@ -102,7 +102,7 @@ jobs:
             MACOS_RUNNER_15=${{ vars.MACOS_RUNNER_15 }}
             MACOS_RUNNER_26=${{ vars.MACOS_RUNNER_26 }}
             MACOS_RUNNER_26_LARGE=${{ vars.MACOS_RUNNER_26_LARGE }}
-            MACOS_RUNNER_BACKGROUND=${{ vars.MACOS_RUNNER_BACKGROUND || 'macos-15' }}
+            MACOS_RUNNER_BACKGROUND=${{ vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}
             MACOS_RUNNER_DISPLAY=${{ vars.MACOS_RUNNER_DISPLAY }}
             MACOS_RUNNER_DUAL_XCODE=${{ vars.MACOS_RUNNER_DUAL_XCODE }}
             MACOS_RUNNER_IOS=${{ vars.MACOS_RUNNER_IOS }}

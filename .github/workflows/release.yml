@@ -111,8 +111,10 @@ jobs:
     # v0.64.22 took 40 minutes before the Cloud tunnel extension, its Go engine
     # build and the universal diff sidecar joined this job, and the helper's
     # Gatekeeper propagation wait alone can now take twenty minutes, so 60 left
-    # no headroom. Keep at least 25 percent above the measured duration.
-    timeout-minutes: 90
+    # no headroom. Keep at least 25 percent above the measured duration. The thin
+    # arm64 and x86_64 variants add two more helper and DMG notarizations, which
+    # run serially after the universal one.
+    timeout-minutes: 150
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -497,6 +499,62 @@ jobs:
           binary="$sysext/Contents/MacOS/$executable"
           ./scripts/verify-tunnel-extension-engine.sh "$binary"
 
+      - name: Cut thin stable variants
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          set -euo pipefail
+          # Stable ships thin arm64 and x86_64 DMGs, cut from the stripped
+          # universal app the way nightly does, next to the universal
+          # cmux-macos.dmg that the website and Homebrew links keep pointing at.
+          universal="build-universal/Build/Products/Release/cmux.app"
+          for arch in arm64 x86_64; do
+            app="variants/$arch/cmux.app"
+            rm -rf "variants/$arch"
+            mkdir -p "variants/$arch"
+            ditto "$universal" "$app"
+            ./scripts/thin-app-bundle.sh "variants/$arch/cmux.app" "$arch"
+            for binary in \
+              "$app/Contents/MacOS/cmux" \
+              "$app/Contents/Resources/bin/cmux" \
+              "$app/Contents/Resources/bin/ghostty" \
+              "$app/Contents/Resources/bin/cmux-tui" \
+              "$app/Contents/Resources/bin/cmux-diff-sidecar" \
+              "$app/Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua"
+            do
+              archs="$(lipo -archs "$binary")"
+              echo "$binary: $archs"
+              [ "$archs" = "$arch" ]
+            done
+            # No fat Mach-O may survive thinning anywhere in the bundle.
+            fat="$(find "$app" -type f -exec sh -c 'file -b "$1" | grep -q "Mach-O universal" && echo "$1"' _ {} \;)"
+            if [ -n "$fat" ]; then
+              echo "Fat Mach-O files remain after thinning:" >&2
+              echo "$fat" >&2
+              exit 1
+            fi
+            ./scripts/verify-diff-sidecar-artifact.sh "$app/Contents/Resources/bin/cmux-diff-sidecar" --archs "$arch"
+          done
+
+      # Thinning re-cut the Computer Use helper, so each variant submits its own.
+      - name: Start thin Computer Use helper notarizations
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        env:
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          set -euo pipefail
+          for arch in arm64 x86_64; do
+            state="$RUNNER_TEMP/cmux-computer-use-notarization-$arch.state"
+            rm -f "$state"
+            ./scripts/ci/notarize-computer-use-helper.sh \
+              --start "$state" \
+              "variants/$arch/cmux.app" \
+              cmux.release.entitlements \
+              "$APPLE_SIGNING_IDENTITY"
+          done
+
       - name: Codesign app
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         env:
@@ -506,24 +564,36 @@ jobs:
             echo "Missing APPLE_SIGNING_IDENTITY secret" >&2
             exit 1
           fi
-          APP_PATH="build-universal/Build/Products/Release/cmux.app"
-          CMUX_SIGN_MODE=all-except-computer-use \
-            ./scripts/sign-cmux-bundle.sh \
-            "$APP_PATH" \
-            cmux.release.entitlements \
-            "$APPLE_SIGNING_IDENTITY"
+          for APP_PATH in \
+            "build-universal/Build/Products/Release/cmux.app" \
+            "variants/arm64/cmux.app" \
+            "variants/x86_64/cmux.app"
+          do
+            CMUX_SIGN_MODE=all-except-computer-use \
+              ./scripts/sign-cmux-bundle.sh \
+              "$APP_PATH" \
+              cmux.release.entitlements \
+              "$APPLE_SIGNING_IDENTITY"
+          done
 
       - name: Verify bundled Mach-O load commands
         if: steps.guard_release_assets.outputs.skip_all != 'true'
-        run: ./scripts/verify-bundle-load-commands.sh "build-universal/Build/Products/Release/cmux.app"
+        run: |
+          set -euo pipefail
+          for app in "build-universal/Build/Products/Release/cmux.app" "variants/arm64/cmux.app" "variants/x86_64/cmux.app"; do
+            ./scripts/verify-bundle-load-commands.sh "$app"
+          done
 
       - name: Verify signed app SSH daemon contract
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
-          python3 scripts/verify_remote_daemon_release.py \
-            --manifest remote-daemon-assets/cmuxd-remote-manifest.json \
-            --assets-dir remote-daemon-assets \
-            --app "build-universal/Build/Products/Release/cmux.app" --verify-cli
+          set -euo pipefail
+          for app in "build-universal/Build/Products/Release/cmux.app" "variants/arm64/cmux.app" "variants/x86_64/cmux.app"; do
+            python3 scripts/verify_remote_daemon_release.py \
+              --manifest remote-daemon-assets/cmuxd-remote-manifest.json \
+              --assets-dir remote-daemon-assets \
+              --app "$app" --verify-cli
+          done
 
       - name: Smoke launch signed app before notarization
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -531,9 +601,10 @@ jobs:
           set -euo pipefail
           # Catch macOS policy failures before the Apple ticket wait and DMG
           # work. Direct execution is isolated from the runner's Dock state.
-          CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 \
-            ./scripts/smoke-launch-macos-app.sh \
-            "build-universal/Build/Products/Release/cmux.app"
+          for app in "build-universal/Build/Products/Release/cmux.app" "variants/arm64/cmux.app" "variants/x86_64/cmux.app"; do
+            CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 \
+              ./scripts/smoke-launch-macos-app.sh "$app"
+          done
 
       - name: Smoke bundled CLI against the signed app
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -542,8 +613,10 @@ jobs:
           # Launch-only smoke proves the process lives; this drives the shipped
           # app through the CLI inside the same bundle (version, help, SSH
           # daemon manifest, ping, capabilities, workspace create/list/close).
-          ./scripts/smoke-signed-app-cli.sh \
-            "build-universal/Build/Products/Release/cmux.app"
+          # The thin x86_64 variant skips when the runner has no Rosetta.
+          for app in "build-universal/Build/Products/Release/cmux.app" "variants/arm64/cmux.app" "variants/x86_64/cmux.app"; do
+            ./scripts/smoke-signed-app-cli.sh "$app"
+          done
 
       - name: Notarize app
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -589,7 +662,23 @@ jobs:
             --no-code-sign \
             "$APP_PATH" \
             ./
-          mv ./cmux*.dmg "$DMG_RELEASE"
+          # create-dmg emits an LZFSE (ULFO) image. Re-encode to LZMA (ULMO), as
+          # nightly does: about a quarter smaller, and macOS 14+ mounts it.
+          CREATED_DMGS=()
+          while IFS= read -r -d '' dmg; do CREATED_DMGS+=("$dmg"); done \
+            < <(find . -maxdepth 1 -name 'cmux*.dmg' ! -name "$DMG_RELEASE" -print0)
+          if [ "${#CREATED_DMGS[@]}" -ne 1 ]; then
+            echo "Expected exactly one create-dmg image, found ${#CREATED_DMGS[@]}" >&2
+            exit 1
+          fi
+          CREATED_DMG="${CREATED_DMGS[0]}"
+          hdiutil convert "$CREATED_DMG" -quiet -format ULMO -ov -o "$DMG_RELEASE"
+          rm -f "$CREATED_DMG"
+          DMG_FORMAT="$(hdiutil imageinfo "$DMG_RELEASE" | awk -F': *' '/^Format:/ {print $2; exit}')"
+          if [ "$DMG_FORMAT" != "ULMO" ]; then
+            echo "Expected ULMO (LZMA) DMG after conversion, got: ${DMG_FORMAT:-unknown}" >&2
+            exit 1
+          fi
           /usr/bin/codesign --force --timestamp --keychain build.keychain \
             --sign "$APPLE_SIGNING_IDENTITY" \
             "$DMG_RELEASE"
@@ -605,11 +694,34 @@ jobs:
           xcrun stapler staple "$DMG_RELEASE"
           xcrun stapler validate "$DMG_RELEASE"
 
+      # The same packaging nightly uses for its thin variants: finish the helper
+      # ticket, create-dmg, ULMO, sign, notarize, staple the app and the DMG,
+      # then smoke the app mounted from the final image.
+      - name: Notarize thin stable DMGs
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        env:
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          CMUX_CHANNEL: stable
+        run: |
+          set -euo pipefail
+          for arch in arm64 x86_64; do
+            CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE="$RUNNER_TEMP/cmux-computer-use-notarization-$arch.state" \
+              ./scripts/ci/notarize-nightly-dmg.sh \
+              "variants/$arch/cmux.app" \
+              "cmux-macos-$arch.dmg" \
+              "$RUNNER_TEMP/cmux-macos-$arch-verified.dmg"
+          done
+
       - name: Gate distribution with syspolicy_check
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
           set -euo pipefail
-          syspolicy_check distribution "build-universal/Build/Products/Release/cmux.app"
+          for app in "build-universal/Build/Products/Release/cmux.app" "variants/arm64/cmux.app" "variants/x86_64/cmux.app"; do
+            syspolicy_check distribution "$app"
+          done
 
       - name: Upload dSYMs to Sentry
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -634,14 +746,28 @@ jobs:
             echo "Missing SPARKLE_PRIVATE_KEY secret" >&2
             exit 1
           fi
-          ./scripts/sparkle_generate_appcast.sh cmux-macos.dmg "$GITHUB_REF_NAME" appcast.xml
+          set -euo pipefail
+          ./scripts/sparkle_generate_appcast.sh cmux-macos.dmg "$GITHUB_REF_NAME" appcast-universal.xml
+          ./scripts/sparkle_generate_appcast.sh cmux-macos-arm64.dmg "$GITHUB_REF_NAME" appcast-arm64.xml
+          ./scripts/sparkle_generate_appcast.sh cmux-macos-x86_64.dmg "$GITHUB_REF_NAME" appcast-x86_64.xml
+          # Thin installs read appcast-<arch>.xml (the updater rewrites the
+          # legacy feed URL at runtime). Older installs read appcast.xml, which
+          # carries all three items in the order that moves each one onto its
+          # architecture in a single update; see the script for the contract.
+          python3 scripts/ci/compose_stable_appcast.py --universal appcast-universal.xml --arm64 appcast-arm64.xml --x86_64 appcast-x86_64.xml --out appcast.xml
           # macOS /bin/bash 3.2 can report "unbound variable" from a script with
           # an EXIT trap and still exit 0; dry run 34227505375 (2026-09-08)
-          # uploaded a DMG with no appcast that way. The feed must exist, carry
-          # an EdDSA signature and point at this DMG before anything uploads it.
+          # uploaded a DMG with no appcast that way. Every feed must exist, carry
+          # an EdDSA signature and point at its DMG before anything uploads it.
           test -s appcast.xml
           grep -q 'sparkle:edSignature' appcast.xml
           grep -q 'cmux-macos.dmg' appcast.xml
+          test -s appcast-arm64.xml
+          grep -q 'sparkle:edSignature' appcast-arm64.xml
+          grep -q 'cmux-macos-arm64.dmg' appcast-arm64.xml
+          test -s appcast-x86_64.xml
+          grep -q 'sparkle:edSignature' appcast-x86_64.xml
+          grep -q 'cmux-macos-x86_64.dmg' appcast-x86_64.xml
 
       - name: Upload build artifacts (dry-run)
         if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'workflow_dispatch'
@@ -650,7 +776,11 @@ jobs:
           name: cmux-release-dry-run
           path: |
             cmux-macos.dmg
+            cmux-macos-arm64.dmg
+            cmux-macos-x86_64.dmg
             appcast.xml
+            appcast-arm64.xml
+            appcast-x86_64.xml
             remote-daemon-assets/cmuxd-remote-*
           if-no-files-found: error
 
@@ -662,8 +792,48 @@ jobs:
           python3 scripts/ci/publish-release-assets.py \
             --repo "$GITHUB_REPOSITORY" --tag "$GITHUB_REF_NAME" \
             --immutable cmux-macos.dmg \
+            --immutable cmux-macos-arm64.dmg \
+            --immutable cmux-macos-x86_64.dmg \
             --immutable 'remote-daemon-assets/cmuxd-remote-*' \
+            --feed appcast-arm64.xml \
+            --feed appcast-x86_64.xml \
             --feed appcast.xml
+
+      # Thin installs read releases/latest/download/appcast-<arch>.xml, so only
+      # the highest stable version may become latest. A backport tag (for
+      # example v0.62.1 after v0.63.1) is published without taking it over.
+      - name: Decide whether this release is latest
+        id: latest_release
+        if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          published="$(gh release list --exclude-drafts --exclude-pre-releases --json tagName -q '.[].tagName')"
+          highest="$(printf '%s\n%s\n' "$published" "$GITHUB_REF_NAME" | sed '/^$/d' | sort -V | tail -1)"
+          if [ "$highest" = "$GITHUB_REF_NAME" ]; then
+            echo "make_latest=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "$GITHUB_REF_NAME is older than $highest; publishing without marking it latest"
+            echo "make_latest=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # publish-release-assets.py stages a missing release as a draft
+      # prerelease. GitHub refuses make_latest on a prerelease, and the publish
+      # action adopts an existing draft without clearing the flag, so clear it
+      # on every draft for this tag (reruns leave earlier drafts behind).
+      # Drafts stay hidden; only the next step publishes.
+      - name: Clear prerelease on staged drafts
+        if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq ".[] | select(.draft and .prerelease and .tag_name == \"$GITHUB_REF_NAME\") | .id" |
+          while read -r release_id; do
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" -F prerelease=false --jq '"cleared prerelease on draft \(.id)"'
+          done
 
       # Keep a new stable release hidden until its entire asset set is verified.
       - name: Publish verified release
@@ -674,6 +844,7 @@ jobs:
           generate_release_notes: true
           prerelease: false
           draft: false
+          make_latest: ${{ steps.latest_release.outputs.make_latest }}
 
       - name: Upload release appcast to R2
         if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
@@ -698,7 +869,18 @@ jobs:
 
           # Upload after GitHub Release publish so the appcast never references
           # a DMG that doesn't exist yet. R2 PutObject is atomic, so the appcast
-          # is either the old version or the new one, never missing.
+          # is either the old version or the new one, never missing. The
+          # per-architecture feeds go first: the legacy feed moves installs onto
+          # thin builds that then read them.
+          for arch in arm64 x86_64; do
+            python3 scripts/ci/upload-r2-object.py \
+              --file "appcast-$arch.xml" \
+              --endpoint-url "$R2_ENDPOINT" \
+              --bucket cmux-binaries \
+              --key stable/appcast-$arch.xml \
+              --content-type "application/xml" \
+              --cache-control "no-cache, no-store, must-revalidate"
+          done
           python3 scripts/ci/upload-r2-object.py \
             --file appcast.xml \
             --endpoint-url "$R2_ENDPOINT" \

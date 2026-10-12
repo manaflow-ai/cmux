@@ -156,6 +156,12 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     private let settingsCatalog = SettingCatalog()
     let agentSessionAutoResumeDefaults: UserDefaults
     @ObservationIgnored let restorableAgentIndexProvider: @MainActor () -> RestorableAgentSessionIndex?
+    /// The foreground process of a Dock terminal, as libghostty reports it.
+    @ObservationIgnored let foregroundProcessIDProvider: @MainActor (TerminalPanel) -> Int?
+    /// Reads a process's argv and environment for snapshot-time recognition.
+    @ObservationIgnored let processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
+    /// The last `claude attach` viewer observation per Dock terminal.
+    @ObservationIgnored var claudeBackgroundViewerObservationsByPanelId: [UUID: ClaudeBackgroundViewerObservation] = [:]
 
     /// Weak registry of every live Dock store. Lets control-surface routing
     /// resolve a Dock surface/pane by querying only the workspaces that actually
@@ -318,7 +324,13 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         fileContentChangeCoordinator: FileContentChangeCoordinator? = nil,
         terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver = TerminalWorkingDirectoryResolver(),
         closedItemHistoryStore: ClosedItemHistoryStore? = nil,
-        restorableAgentIndexProvider: (@MainActor () -> RestorableAgentSessionIndex?)? = nil
+        restorableAgentIndexProvider: (@MainActor () -> RestorableAgentSessionIndex?)? = nil,
+        foregroundProcessIDProvider: @escaping @MainActor (TerminalPanel) -> Int? = {
+            $0.surface.foregroundProcessID()
+        },
+        processArgumentsProvider: @escaping (Int) -> CmuxTopProcessArguments? = {
+            CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
+        }
     ) {
         let tabDragTransferRegistry = tabDragTransferRegistry ?? TabDragTransferRegistry()
         self.workspaceId = workspaceId
@@ -332,6 +344,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             terminalTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.settings = settings
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
+        self.foregroundProcessIDProvider = foregroundProcessIDProvider
+        self.processArgumentsProvider = processArgumentsProvider
         self.restorableAgentIndexProvider = restorableAgentIndexProvider ?? {
             SharedLiveAgentIndex.shared.currentIndexForOwnershipSensitiveRestore()
         }

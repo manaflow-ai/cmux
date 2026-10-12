@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxCloudResizeCore
 import CmuxCloudMachines
 import CmuxSurfaceCatalogModel
 import AppKit
@@ -149,6 +150,33 @@ final class MachinesPanelViewModel: ObservableObject {
     /// these on every local recompute without another round trip.
     var lastLimits: VMPlanLimits?
     var memoryOptionsMb: [Int] { lastLimits?.memoryOptionsMb ?? [] }
+    var maxDiskMb: Int? { lastLimits?.maxDiskMb }
+    var maxMemoryMb: Int? { lastLimits?.maxMemoryMb }
+    var maxVcpus: Int? { lastLimits?.maxVcpus }
+    var resourcePool: CloudVMResourcePool? { lastLimits?.resourcePool }
+    /// Conservative resize ceilings for control planes that predate the
+    /// explicit max* fields. The accepted memory ladder is the best fallback
+    /// because it already reflects Go, Pro, Team, and Max.
+    var resizeFallbackMaxMemoryMb: Int {
+        let productCeiling: Int
+        switch lastLimits?.planId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "max": productCeiling = 64 * 1_024
+        case "go": productCeiling = 4 * 1_024
+        case "free": productCeiling = 8 * 1_024
+        default: productCeiling = 16 * 1_024
+        }
+        // A pre-ceiling server may still send the complete ladder. Keep the
+        // fallback bounded by the product tier so Pro never exposes Max-only
+        // 12/16-vCPU targets while maxMemoryMb is absent.
+        return min(memoryOptionsMb.max() ?? productCeiling, productCeiling)
+    }
+    var resizeFallbackMaxDiskGiB: Int {
+        switch lastLimits?.planId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "max": return 256
+        case "go": return 16
+        default: return 128
+        }
+    }
     var lockedMemoryOptionsMb: [Int]? { lastLimits?.lockedMemoryOptionsMb }
     var memoryUpgradePlanId: String? { lastLimits?.memoryUpgradePlanId }
     var memoryUpgradePlansByMb: [String: String]? { lastLimits?.memoryUpgradePlansByMb }

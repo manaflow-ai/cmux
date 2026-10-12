@@ -312,6 +312,12 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
                 super.delegate = newValue
             }
         }
+
+        /// macOS 27's NSTextView initializer reads its own `delegate`. Only
+        /// reads after construction belong to the code under test.
+        func resetDelegateReadCount() {
+            delegateReadCount = 0
+        }
     }
 
     private final class FieldEditorProbeTextView: NSTextView {
@@ -327,6 +333,12 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             set {
                 super.delegate = newValue
             }
+        }
+
+        /// macOS 27's NSTextView initializer reads its own `delegate`. Only
+        /// reads after construction belong to the code under test.
+        func resetDelegateReadCount() {
+            delegateReadCount = 0
         }
 
         override var isFieldEditor: Bool {
@@ -991,6 +1003,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         window.contentView = container
 
         let textView = DelegateProbeTextView(frame: NSRect(x: 0, y: 0, width: 100, height: 40))
+        textView.resetDelegateReadCount()
         container.addSubview(textView)
 
         window.makeKeyAndOrderFront(nil)
@@ -1028,6 +1041,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         webView.addSubview(descendant)
 
         let fieldEditor = FieldEditorProbeTextView(frame: NSRect(x: 0, y: 0, width: 100, height: 20))
+        fieldEditor.resetDelegateReadCount()
 
         window.makeKeyAndOrderFront(nil)
         defer {
@@ -5664,6 +5678,39 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         let notWeb = try XCTUnwrap(URL(string: "ssh://example.com/repo"))
         XCTAssertEqual(handler.sidebarLinkDestination(for: web, prefersEmbeddedBrowser: true), .systemBrowser)
         XCTAssertEqual(handler.sidebarLinkDestination(for: notWeb, prefersEmbeddedBrowser: true), .embeddedBrowser)
+    }
+
+    // MARK: - Markdown panel links
+
+    /// Markdown links open in the cmux browser when no browser link setting
+    /// sends them out.
+    func testMarkdownLinkWithNoSettingsOpensInCmuxBrowser() throws {
+        let handler = BrowserExternalNavigationHandler(defaults: defaults)
+        let url = try XCTUnwrap(URL(string: "https://example.com/docs"))
+        XCTAssertEqual(handler.markdownLinkDestination(for: url), .embeddedBrowser)
+    }
+
+    /// An external-open rule sends a Markdown link to the system browser (#18844).
+    func testMarkdownLinkMatchingAnExternalRuleGoesToTheSystemBrowser() throws {
+        defaults.set("billing.example.com", forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        let handler = BrowserExternalNavigationHandler(defaults: defaults)
+        let matching = try XCTUnwrap(URL(string: "https://billing.example.com/invoices"))
+        let other = try XCTUnwrap(URL(string: "https://docs.example.com/"))
+        XCTAssertEqual(handler.markdownLinkDestination(for: matching), .systemBrowser)
+        XCTAssertEqual(handler.markdownLinkDestination(for: other), .embeddedBrowser)
+    }
+
+    /// A host outside the embedded-browser host list sends a Markdown link to the
+    /// system browser, as it does for a terminal link (#18844).
+    func testMarkdownLinkFollowsEmbeddedBrowserHostList() throws {
+        defaults.set("*.example.com\nlocalhost", forKey: BrowserLinkOpenSettings.browserHostWhitelistKey)
+        let handler = BrowserExternalNavigationHandler(defaults: defaults)
+        let listed = try XCTUnwrap(URL(string: "https://docs.example.com/guide"))
+        let local = try XCTUnwrap(URL(string: "http://localhost:3000/"))
+        let unlisted = try XCTUnwrap(URL(string: "https://github.com/manaflow-ai/cmux"))
+        XCTAssertEqual(handler.markdownLinkDestination(for: listed), .embeddedBrowser)
+        XCTAssertEqual(handler.markdownLinkDestination(for: local), .embeddedBrowser)
+        XCTAssertEqual(handler.markdownLinkDestination(for: unlisted), .systemBrowser)
     }
 
     func testExternalOpenPatternsDefaultToEmpty() {

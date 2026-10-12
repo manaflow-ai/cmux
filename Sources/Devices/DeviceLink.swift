@@ -82,7 +82,7 @@ final class DeviceLink {
     /// (re)connect, since changes while the link was down sent no event.
     var onNotificationFeedChange: (@MainActor () -> Void)?
 
-    private let runtime: DeviceLinkRuntime
+    private var runtime: DeviceLinkRuntime
     private let authorization: any DeviceLinkAuthorizationSource
     private let routeSelector: DeviceRouteSelector
     private let clock: any Clock<Duration>
@@ -142,6 +142,21 @@ final class DeviceLink {
         transition(applyPolicy(.directoryRevisionAdvanced))
         onChange?()
     }
+
+    /// A team switch replaced this Mac's team-scoped runtime (its own endpoint
+    /// and tokens). Nothing dialed or in flight under the old runtime
+    /// survives: the generation advances, then the link redials with the new
+    /// one. The row, its mirror and its provider stay as they are.
+    func replaceRuntime(_ next: DeviceLinkRuntime) {
+        runtime = next
+        tearDownClient(notify: phase == .connected)
+        policy = DeviceLinkReconnectPolicy()
+        phase = .idle
+        reevaluate(unblock: true)
+    }
+
+    /// The automatic (iroh) client this link dials with now.
+    var automaticClient: DeviceIrxClient? { runtime.automaticClient }
 
     func stop() {
         transition(applyPolicy(.stopped))

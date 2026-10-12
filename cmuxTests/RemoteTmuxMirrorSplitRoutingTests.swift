@@ -240,7 +240,18 @@ import Testing
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
             workspace = try #require(manager.selectedWorkspace)
             sourcePanelId = try #require(workspace.focusedPanelId)
+            // createMainWindow copies the size of the current main window, and
+            // earlier tests in the host can leave 320-point windows behind.
+            // Split admission (#15392) then correctly refuses the local split
+            // with .noSpace, so give the window and its split container a
+            // realistic size first (same fix as #15434).
+            let window = try #require(appDelegate.mainWindow(for: windowId))
+            window.setContentSize(Self.contentSize)
+            window.contentView?.layoutSubtreeIfNeeded()
+            workspace.bonsplitController.setContainerFrame(CGRect(origin: .zero, size: Self.contentSize))
         }
+
+        private static let contentSize = CGSize(width: 1_000, height: 700)
 
         func tearDown() {
             workspace.isRemoteTmuxMirror = false
