@@ -16831,6 +16831,14 @@
             },
             "default": "info"
           },
+          "desktop": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "false: the app shows no desktop banner for it (cmux notify --desktop false); the sidebar marker still shows. Default true."
+          },
           "terminal_id": {
             "required": false,
             "type": {

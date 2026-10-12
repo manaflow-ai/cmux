@@ -6,7 +6,12 @@
 #       SRC: a `git archive` of the pinned MessagesLab commit with appkit-native, catalyst,
 #       appkit-port, tools/diff-harness, tools/interactions/vdisplay.m, shared/conversation.json and
 #       shared/assets (the vendor.tsv pin, see sync-messageslab.sh).
-#       Builds MessagesLabAppKitNative with swiftc as home-messageslab-harness.sh's oracle does.
+#       Builds MessagesLabAppKitNative with swiftc as home-messageslab-harness.sh's oracle does, plus
+#       MESSAGESLAB_SELFTEST (upstream's SELFTEST=1 build.sh): its link-preview fallback step serves a
+#       local page and LinkGuard.testOrigin lets that one 127.0.0.1 origin through. A release build has
+#       no such exception, so this build is gate-only: it goes to its own mktemp directory, never to a
+#       DerivedData or product an app build uses, and is not shipped. The run fails when the link
+#       fallback step skipped its page.
 #       Default: `--selftest` on a private 2x virtual display (every step but the "key: " ones; the
 #       window never becomes key). Pass when every step passes.
 #       --key: `--selftest-key`, only the "key: " steps (the field's caret needs a key window). The
@@ -24,7 +29,7 @@ files=( "$src"/appkit-native/Sources/*.swift )
 while IFS= read -r f; do files+=( "$src/catalyst/Sources/$f" ); done \
   < <(sed -n 's|.*path: \.\./catalyst/Sources/\([A-Za-z0-9_]*\.swift\).*|\1|p' "$src/appkit-native/project.yml")
 files+=( "$src"/appkit-port/Sources/Shim/{UIKitNames,RoundedRect,LayerViews}.swift "$src"/tools/diff-harness/{Harness,LiveProbes}.swift )
-xcrun swiftc -swift-version 5 -Onone -D APPKIT_NATIVE -target arm64-apple-macos26.0 -lsqlite3 -module-name MessagesLabAppKitNative \
+xcrun swiftc -swift-version 5 -Onone -D APPKIT_NATIVE -D MESSAGESLAB_SELFTEST -target arm64-apple-macos26.0 -lsqlite3 -module-name MessagesLabAppKitNative \
   -o "$app/Contents/MacOS/MessagesLabAppKitNative" "${files[@]}" > "$out/build.log" 2>&1 || { grep -m10 'error:' "$out/build.log"; exit 3; }
 cp "$src/catalyst/springs.json" "$src/shared/conversation.json" "$app/Contents/Resources/" || exit 3
 cp -R "$src/shared/assets" "$app/Contents/Resources/assets" && cp -R "$src/catalyst/Fixtures/real" "$app/Contents/Resources/real" || exit 3
@@ -84,5 +89,17 @@ d = json.load(open(sys.argv[1])); steps = d["steps"]
 print("selftest" + (" (key)" if sys.argv[2] == "--key" else ""), len(steps) - d["failed"], "/", len(steps))
 for s in steps:
     if not s["pass"]: print("  FAIL", s["step"], "->", s["error"])
-sys.exit(0 if steps and d["failed"] == 0 else 1)
+m = d.get("measures") or {}
+link = [s for s in steps if s["step"].startswith("link fallback:")]
+# A normal run must have the link step (a renamed step would otherwise pass unchecked); a key run has none.
+full = bool(link) or sys.argv[2] == "--key"
+if not full:
+    print("link fallback: step missing (renamed upstream?)")
+if link:
+    # The self-test build serves a local page (fallbackPageRequests); a release-like build skips it.
+    full = "fallbackSkipped" not in m and int(m.get("fallbackPageRequests") or 0) > 0
+    print("link fallback:", "pass" if link[0]["pass"] else "FAIL", "| full form (local page served):", full,
+          "| page requests:", m.get("fallbackPageRequests"), "| skipped:", m.get("fallbackSkipped"),
+          "| fallback log:", len(m.get("fallbackLog") or []))
+sys.exit(0 if steps and d["failed"] == 0 and full else 1)
 PY
