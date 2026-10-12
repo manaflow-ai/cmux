@@ -286,6 +286,21 @@ class PublicationTests(unittest.TestCase):
         self.assertIn("draft: false", text[finalize:])
         self.assertIn("prerelease: false", text[finalize:])
 
+    def test_stable_release_clears_staged_prerelease_before_finalizing(self):
+        # publish-release-assets.py stages a missing release as a draft
+        # prerelease. GitHub refuses make_latest on a prerelease, and the
+        # publish action does not clear the flag on the draft it adopts, so
+        # v0.65.1 failed with "Latest release cannot be draft or prerelease".
+        text = (ROOT / ".github/workflows/release.yml").read_text()
+        upload = text.index("- name: Upload release asset")
+        clear = text.index("- name: Clear prerelease on staged drafts")
+        finalize = text.index("- name: Publish verified release")
+        self.assertLess(upload, clear)
+        self.assertLess(clear, finalize)
+        step = text[clear:finalize]
+        self.assertIn(".draft", step)
+        self.assertIn("prerelease=false", step)
+
 
 class TransportTests(unittest.TestCase):
     def setUp(self):
