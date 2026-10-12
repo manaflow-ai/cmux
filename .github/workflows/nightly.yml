@@ -3967,9 +3967,11 @@ jobs:
   # nightly-next) holds only the Ed25519 content key; this job never sees the
   # Sparkle key or R2 credentials. publish-release-notes uploads the result
   # with release-next's scoped R2 token after the appcasts are live.
+  # !cancelled(): an ordinary publication skips recover-nightly-next-notarization,
+  # and GitHub skips a job with no status check below any skipped job (cx-urd.28).
   sign-release-notes:
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly]
-    if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.no_publish != 'true' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.source != 'recovered'
+    if: "!cancelled() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.no_publish != 'true' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.source != 'recovered'"
     environment: content-signing
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
@@ -4044,7 +4046,7 @@ jobs:
 
   publish-release-notes:
     needs: [decide, publish-nightly, sign-release-notes, resolve-nightly-cmux-tui-client]
-    if: needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.sign-release-notes.result == 'success'
+    if: "!cancelled() && needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.sign-release-notes.result == 'success'"
     environment: ${{ needs.decide.outputs.environment }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
