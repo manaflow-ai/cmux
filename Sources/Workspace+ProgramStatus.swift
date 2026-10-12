@@ -64,18 +64,54 @@ extension Workspace {
         return store
     }
 
-    /// Adopts the records a moved terminal carried from its previous owner.
+    /// Adopts the records a moved terminal carried from its previous owner and
+    /// publishes them under this workspace, pairing the source's `removed` event.
     func restoreProgramStatusStore(_ store: ProgramStatusRecordStore?, panelId: UUID) {
         guard let store, panels[panelId] != nil else { return }
         programStatusStoresByPanelId[panelId] = store
         projectProgramStatus(panelId: panelId)
+        guard !store.records.isEmpty else { return }
+        CmuxEventBus.shared.publishProgramStatusChanged(
+            workspaceId: id,
+            surfaceId: panelId,
+            event: .adopted,
+            store: store
+        )
     }
 
+    /// Drops every terminal's records for a sidebar reset. Each terminal that
+    /// had records publishes an empty `clear`, matching a bare OSC 7501 clear.
+    func resetProgramStatus() {
+        let clearedPanelIds = programStatusStoresByPanelId
+            .filter { !$0.value.records.isEmpty }
+            .keys
+            .sorted { $0.uuidString < $1.uuidString }
+        programStatusStoresByPanelId.removeAll()
+        programStatusUrgencyByPanelId.removeAll()
+        for panelId in clearedPanelIds {
+            CmuxEventBus.shared.publishProgramStatusChanged(
+                workspaceId: id,
+                surfaceId: panelId,
+                event: .clear,
+                store: ProgramStatusRecordStore()
+            )
+        }
+    }
+
+    /// Drops a closed or detached terminal's records. Consumers saw those
+    /// records under this workspace, so a non-empty store publishes `removed`.
     func clearProgramStatusPanel(panelId: UUID) {
-        programStatusStoresByPanelId.removeValue(forKey: panelId)
+        let removedStore = programStatusStoresByPanelId.removeValue(forKey: panelId)
         programStatusUrgencyByPanelId.removeValue(forKey: panelId)
         removePanelStatusEntry(key: Self.programStatusKey, panelId: panelId)
         refreshProgramStatusWorkspaceEntry()
+        guard let removedStore, !removedStore.records.isEmpty else { return }
+        CmuxEventBus.shared.publishProgramStatusChanged(
+            workspaceId: id,
+            surfaceId: panelId,
+            event: .removed,
+            store: ProgramStatusRecordStore()
+        )
     }
 
     private func projectProgramStatus(panelId: UUID) {

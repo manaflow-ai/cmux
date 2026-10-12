@@ -103,6 +103,10 @@ public enum ProgramStatusChange: String, Equatable, Sendable {
     case promptStart = "prompt_start"
     case transientDrop = "transient_drop"
     case dismissed
+    /// The terminal closed or left this workspace; its records are gone here.
+    case removed
+    /// A terminal moved into this workspace with the records it already had.
+    case adopted
 }
 
 /// The safe, protocol-level fields exported for one program-status record.
