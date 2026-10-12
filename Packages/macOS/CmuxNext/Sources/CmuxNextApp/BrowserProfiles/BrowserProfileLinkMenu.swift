@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextIcons
 
 /// "Open Link in Browser Profile ▸" in a page's or a terminal's context
 /// menu: one item per profile, each running `browserProfile.openLink` (the
@@ -14,21 +15,47 @@ enum BrowserProfileLinkMenu {
         let profiles = services.browserProfiles.ordered
         guard let link, link.scheme == "http" || link.scheme == "https", profiles.count > 1, let title = services.registry.descriptor(for: "browserProfile.openLink")?.title else { return [] }
         let submenu = NSMenu()
-        for record in profiles {
-            let item = NSMenuItem(title: record.icon.map { "\($0)  \(record.name)" } ?? record.name, action: nil, keyEquivalent: "")
-            let target = ActionMenuClosure { [weak services] in
-                services?.registry.perform("browserProfile.openLink", invocation: ActionInvocation(
-                    target: target,
-                    arguments: ["browserProfile": .string(record.id), "url": .string(link.absoluteString)]))
-            }
-            item.target = target
-            item.action = #selector(ActionMenuClosure.run)
-            item.representedObject = target
+        for item in profileItems(profiles, run: { [weak services] record in
+            services?.registry.perform("browserProfile.openLink", invocation: ActionInvocation(
+                target: target,
+                arguments: ["browserProfile": .string(record.id), "url": .string(link.absoluteString)]))
+        }) {
             submenu.addItem(item)
         }
         let parent = NSMenuItem(title: title.hasSuffix("…") ? String(title.dropLast()) : title, action: nil, keyEquivalent: "")
         parent.submenu = submenu
         return [parent, .separator()]
+    }
+
+    /// One item per profile, titled by its name. Its icon (an emoji or an SF Symbol name) is the
+    /// item's image and a profile without one gets an empty image of the same size, so every name
+    /// starts in the same column.
+    static func profileItems(_ profiles: [BrowserProfileRecord],
+                             run: @escaping @MainActor (BrowserProfileRecord) -> Void) -> [NSMenuItem] {
+        profiles.map { record in
+            let item = NSMenuItem(title: record.name, action: #selector(ActionMenuClosure.run), keyEquivalent: "")
+            let target = ActionMenuClosure { run(record) }
+            item.target = target
+            item.representedObject = target
+            item.image = iconImage(record.icon)
+            return item
+        }
+    }
+
+    /// `icon` in a 16 pt square: a symbol as the menu tints it, an emoji centered in its own
+    /// colors, or the empty square.
+    private static func iconImage(_ icon: String?) -> NSImage {
+        let size = NSSize(width: 16, height: 16)
+        guard let icon, !icon.isEmpty else { return NSImage(size: size) }
+        if NSImage(systemSymbolName: icon, accessibilityDescription: nil) != nil {
+            return NSImage.icon(symbol: icon, size: size.width)
+        }
+        return NSImage(size: size, flipped: false) { rect in
+            let text = NSAttributedString(string: icon, attributes: [.font: NSFont.systemFont(ofSize: 13)])
+            let drawn = text.size()
+            text.draw(at: NSPoint(x: rect.midX - drawn.width / 2, y: rect.midY - drawn.height / 2))
+            return true
+        }
     }
 }
 
