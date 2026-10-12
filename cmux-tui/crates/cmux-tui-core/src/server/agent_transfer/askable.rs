@@ -10,8 +10,8 @@
 //!
 //! Each receive acpmux answered here is recorded with those ids (never a
 //! client's: they come from the manifest this daemon forwarded and acpmux
-//! took): the 32 most recent (16 receives and 16 settled ones), each for
-//! 24 h, in [`ASKABLE_FILE`] next to the session's registry, trusted only as
+//! took): the 40 most recent receives acpmux answered here (aborted ones
+//! included), each for 24 h, in [`ASKABLE_FILE`] next to the session's registry, trusted only as
 //! this daemon writes it (`state_file.rs`). Only a receive-abort reads it,
 //! and only for a receive this daemon no longer holds in memory; a write or
 //! finish of such a receive stays refused. An in-memory session keeps them
@@ -23,13 +23,14 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 
 use super::state_file::{self, now_ms, read_trusted, save};
-use super::{MAX_RECEIVES, MAX_SETTLED, Moved, is_plain_id, lock};
+use super::{MAX_CALLS, MAX_RECEIVES, MAX_SETTLED, Moved, is_plain_id, lock};
 use crate::mux::Mux;
 
 /// The askable receives file in the session state directory.
 pub(super) const ASKABLE_FILE: &str = "agent-transfer-receives.json";
-/// Receives remembered (the oldest goes first).
-const MAX_ASKABLE: usize = MAX_RECEIVES + MAX_SETTLED;
+/// Receives remembered (the oldest goes first): every live and settled one,
+/// and the calls that may be making more.
+const MAX_ASKABLE: usize = MAX_RECEIVES + MAX_SETTLED + MAX_CALLS;
 
 #[derive(Clone, Serialize, Deserialize)]
 struct AskableReceive {
@@ -101,7 +102,7 @@ impl Mux {
     }
 
     /// The move and chat of receive `receive_id`, when this daemon recorded
-    /// it (within the last 24 h, the 32 most recent).
+    /// it (within the last 24 h, the 40 most recent).
     pub(super) fn askable_receive(&self, receive_id: &str) -> Option<Moved> {
         let directory = self.session_state_directory();
         let mut receives = lock(&self.agent_transfers.askable.receives);

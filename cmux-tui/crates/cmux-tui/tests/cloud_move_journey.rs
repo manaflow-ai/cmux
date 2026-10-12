@@ -237,10 +237,17 @@ fn begin_and_receive(from: &Machine, surface: u64, to: &Machine, cwd: &Path) -> 
 /// Stops the machine's daemon and starts it again on the same state (its
 /// acpmux keeps running, as it does when only the daemon restarts).
 fn restart_daemon(machine: &Machine) {
+    let pid = |machine: &Machine| {
+        let identity = machine.rpc(json!({"id": 1, "cmd": "identify"}));
+        identity["data"]["pid"].clone()
+    };
+    let before = pid(machine);
+    assert!(before.is_u64(), "no daemon pid: {before}");
     let stopped = machine.server("stop").output().unwrap();
     assert!(stopped.status.success(), "stop: {}", String::from_utf8_lossy(&stopped.stderr));
     let ensure = machine.server("ensure").output().unwrap();
     assert!(ensure.status.success(), "ensure: {}", String::from_utf8_lossy(&ensure.stderr));
+    assert_ne!(pid(machine), before, "the daemon did not restart");
 }
 
 /// cx-rppd.7: the pump settles a move whose finish answer it lost by asking

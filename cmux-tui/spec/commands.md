@@ -8208,7 +8208,7 @@ settled receive stay `agent_transfer.unknown_receive`.
 Every receive acpmux answered here stays askable the same way after it was
 dropped and after a daemon restart: the daemon records its move and chat ids
 (from the receive's manifest) in `agent-transfer-receives.json` next to the
-session's registry, the 32 most recent for 24 h each, owner-only and read
+session's registry, the 40 most recent for 24 h each, owner-only and read
 only when it is this user's regular file (an in-memory session keeps them in
 memory). A receive-abort of a receive the daemon no longer holds sends the
 recorded forget again; acpmux's forget mark is on disk, so the answer is

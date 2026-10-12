@@ -29,9 +29,11 @@
 //!   files and refuses that move from then on. A receive its finish ended
 //!   (settled) can still be asked, so a pump that lost the finish answer
 //!   learns whether the chat landed (`landed`) before it commits or aborts
-//!   the source. Every receive acpmux answered here stays askable after
-//!   this daemon restarts (`askable.rs`), so a move is never left
-//!   unresolved by a restart between its finish and the pump's question.
+//!   the source. A receive acpmux answered here stays askable after it was
+//!   dropped and after this daemon restarts (`askable.rs`: the 40 most
+//!   recent, 24 h each, on disk when the session has a state folder), so a
+//!   restart between a finish and the pump's question does not leave the
+//!   move unresolved.
 //!
 //! Machine kind: receive and finish read `agent-session-start`'s host gate
 //! at each call and refuse on a team VM and on a Cloud VM of unknown kind

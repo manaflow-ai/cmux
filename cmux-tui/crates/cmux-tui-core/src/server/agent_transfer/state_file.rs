@@ -1,5 +1,5 @@
 //! The small records `agent-transfer-v1` keeps next to the session's registry
-//! so they outlive a daemon restart (`landed.rs`, `asked.rs`).
+//! so they outlive a daemon restart (`landed.rs`, `askable.rs`).
 //!
 //! A file is trusted only as this daemon writes it: a regular file owned by
 //! this user, within [`MAX_FILE_BYTES`], opened without following a symlink
