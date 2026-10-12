@@ -385,7 +385,8 @@ final class ChatLayout: UICollectionViewLayout {
 /// times, so recycled and newly visible cells join the motion in progress.
 final class MotionLedger {
     /// `bubble`: the bubble's own drawing without the connector (a long text's tiled body, else the bitmap).
-    enum Target: Hashable { case cell, content, typing, receiptOld, receiptNew, connector, connectorLine, fillGradient, bubble }
+    /// `typingDisc(i)`: the typing bubble's tail disc i (RowDraw.typingDiscs; 0 large, 1 small).
+    enum Target: Hashable { case cell, content, typing, typingDisc(Int), receiptOld, receiptNew, connector, connectorLine, fillGradient, bubble }
     struct Entry {
         var id: Int
         var target: Target
@@ -470,6 +471,9 @@ final class RowCell: UICollectionViewCell {
     private(set) var connectorHeight: CGFloat = 0
     let typingContainer = CALayer()
     var dots: [CALayer] = []
+    /// The typing bubble's tail discs (RowDraw.typingDiscs): on macOS beside the scaled bubble in the
+    /// row's content (they move on their own, Springs.typingDiscFrom); on iOS in the bubble's container.
+    let typingDiscs = [CALayer(), CALayer()]
     let receiptOld = CALayer()
     /// Long text rows: tiles and the three-slice bubble (TiledBubble.swift).
     var tiled: TiledBody?
@@ -530,9 +534,12 @@ final class RowCell: UICollectionViewCell {
         }
     }
 
+    /// The content layer's own group-opacity setting (setTyping turns it on for the typing row).
+    private var contentGroupOpacity = true
     override init(frame: CGRect) {
         super.init(frame: frame)
         RowCell.created += 1
+        contentGroupOpacity = contentView.layer.allowsGroupOpacity
         // Accessibility is set once here, not per configure.
         isAccessibilityElement = true
         accessibilityTraits = .staticText
@@ -576,6 +583,12 @@ final class RowCell: UICollectionViewCell {
             hi.frame = d.bounds
             dots.append(d)
         }
+        for (l, r) in zip(typingDiscs, RowDraw.typingDiscs) {
+            l.actions = noActions
+            l.frame = r
+            l.cornerRadius = r.width / 2
+            l.isHidden = true
+        }
         typingContainer.isHidden = true
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -599,7 +612,7 @@ final class RowCell: UICollectionViewCell {
         contentView.layer.removeAllAnimations()
         // fillGradient is a sublayer of fillContainer (removeAllAnimations does not recurse): a reused cell kept
         // the previous row's gradient counter-springs (ledger .fillGradient) while `applied` restarted empty.
-        for l in [fillContainer, fillGradient, bitmap, connector, connectorLine, typingContainer, receiptOld] { l.removeAllAnimations() }
+        for l in [fillContainer, fillGradient, bitmap, connector, connectorLine, typingContainer, receiptOld] + typingDiscs { l.removeAllAnimations() }
         badge?.removeAllAnimations(); badgeGlyph?.removeAllAnimations()
         // A tiled body's container gets only a received thread reply's fade (ledger .bubble: its curve and hold).
         if let c = tiled?.container { for k in c.animationKeys() ?? [] where k.contains(".opacity.") || k.hasPrefix("hold.") { c.removeAnimation(forKey: k) } }
@@ -658,16 +671,17 @@ final class RowCell: UICollectionViewCell {
         CATransaction.setDisableActions(true)
         // Long text: no bubble-sized bitmap (TiledBubble.swift, shared/LONG-MESSAGES.md).
         configureBadge(spec)
-        if TiledBubble.applies(spec) { markdownOverlay?.detach(); TiledBubble.configure(self, spec); CATransaction.commit(); return }
-        tiled?.detach(self)
-        let span = RowDraw.drawSpan(spec)
-        let size = CGSize(width: span.upperBound - span.lowerBound, height: spec.height + 2 * RowDraw.margin)
-        let bitmapFrame = CGRect(origin: CGPoint(x: span.lowerBound, y: 0), size: size)
+        // Before the long-text return: a reused cell that showed the typing bubble hides it (and its discs).
         if case .typing = spec.kind {
             setTyping(true, spec)
         } else {
             setTyping(false, spec)
         }
+        if TiledBubble.applies(spec) { markdownOverlay?.detach(); TiledBubble.configure(self, spec); CATransaction.commit(); return }
+        tiled?.detach(self)
+        let span = RowDraw.drawSpan(spec)
+        let size = CGSize(width: span.upperBound - span.lowerBound, height: spec.height + 2 * RowDraw.margin)
+        let bitmapFrame = CGRect(origin: CGPoint(x: span.lowerBound, y: 0), size: size)
         configureFill(spec)
         // A visible row never shows empty contents (dogfood: "the message
         // disappears and reappears"; appkit-native --flash-check). The frame
@@ -689,6 +703,7 @@ final class RowCell: UICollectionViewCell {
             bitmap.frame = bitmapFrame
             bitmap.contents = img
             unstretch(bitmapFrame.size)
+            tintTypingDiscs()
         } else if RowCell.synchronousBitmaps || (!deferred && !(repaint && showingThisRow) && !(RowCell.reflow != nil && showingThisRow && Images.ready(spec))
                                                     && ((RowCell.transitionDepth > 0 && !RowCell.inPaging)
                                                         || (RowCell.mainDrawBudgetLeft() && Images.ready(spec)))) {
@@ -703,6 +718,7 @@ final class RowCell: UICollectionViewCell {
             bitmap.frame = bitmapFrame
             bitmap.contents = img
             unstretch(bitmapFrame.size)
+            tintTypingDiscs()
         } else {
             // Palette change: the previous bitmap stays. Over the main-thread
             // budget (a fling faster than the prefetch, about 70,000 pt/s in
@@ -715,6 +731,7 @@ final class RowCell: UICollectionViewCell {
                 MediaPlaceholder.clear(bitmap)
                 bitmap.frame = bitmapFrame
                 bitmap.contents = nil
+                tintTypingDiscs()
             } else if showingThisRow {
                 // The same row is on screen with its previous bitmap and its spec changed: a new
                 // width (live resize, the sidebar divider: every visible row at once) or a palette
@@ -739,6 +756,7 @@ final class RowCell: UICollectionViewCell {
                 bitmap.contents = nil
                 // Media: the blurred thumbnail at the final size until the bitmap lands.
                 MediaPlaceholder.show(bitmap, spec)
+                tintTypingDiscs()
             }
             dropWant()
             if !queued {
@@ -753,6 +771,7 @@ final class RowCell: UICollectionViewCell {
                 self.bitmap.frame = bitmapFrame
                 self.bitmap.contents = img
                 self.unstretch(bitmapFrame.size)
+                self.tintTypingDiscs()
                 CATransaction.commit()
             }
             }
@@ -782,6 +801,7 @@ final class RowCell: UICollectionViewCell {
         bitmap.frame = CGRect(x: span.lowerBound, y: 0, width: span.upperBound - span.lowerBound, height: spec.height + 2 * RowDraw.margin)
         bitmap.contents = img
         unstretch(bitmap.frame.size)
+        tintTypingDiscs()
         CustomRows.host?.configure(self, spec)
     }
 
@@ -843,8 +863,20 @@ final class RowCell: UICollectionViewCell {
         bitmap.contentsCenter = CGRect(x: ix, y: iy, width: 1 - 2 * ix, height: 1 - 2 * iy)
     }
 
+    /// The discs take the bubble's colour when the bubble's bitmap goes on screen (after a palette change the
+    /// previous bitmap stays until the new one lands: the discs change with it, not before).
+    private func tintTypingDiscs() {
+        guard case .typing? = spec?.kind else { return }
+        let c = Fixture.incoming.cgColor
+        for d in typingDiscs { d.backgroundColor = c }
+    }
+
     private func setTyping(_ on: Bool, _ spec: RowSpec) {
         typingContainer.isHidden = !on
+        typingDiscs.forEach { $0.isHidden = !on }
+        // The typing bubble fades in on the row's content (bubble, dots and discs as one layer group: the
+        // large disc overlaps the bubble). Other rows keep the layer's own setting.
+        contentView.layer.allowsGroupOpacity = on || contentGroupOpacity
         guard on else { return }
         if typingContainer.superlayer == nil { contentView.layer.addSublayer(typingContainer) }
         // macOS: scale about RowDraw.typingAnchor (Messages' growth point, near the bubble's upper
@@ -870,6 +902,20 @@ final class RowCell: UICollectionViewCell {
             typingContainer.insertSublayer(bitmap, at: 0)
         }
         dots.forEach { if $0.superlayer == nil { typingContainer.addSublayer($0) } }
+#if os(iOS) && !targetEnvironment(macCatalyst)
+        let discParent = typingContainer
+#else
+        let discParent = contentView.layer
+#endif
+        // Below the bubble (macOS: in the content, under the bubble's container; iOS: above its bitmap, under the dots).
+        for d in typingDiscs where d.superlayer !== discParent {
+            d.removeFromSuperlayer()
+#if os(iOS) && !targetEnvironment(macCatalyst)
+            discParent.insertSublayer(d, above: bitmap)
+#else
+            discParent.insertSublayer(d, below: typingContainer)
+#endif
+        }
     }
 
     // MARK: My tapback badge
