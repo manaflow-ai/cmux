@@ -2215,19 +2215,26 @@ public actor VMClient {
 
     /// Unenroll this build's tunnels. The server deletes each provider-side
     /// tunnel, so its config on disk stops working immediately. Other builds
-    /// on this Mac keep theirs.
-    public func revokeTunnelRoles(_ roles: [CloudTunnelRole]) async throws {
+    /// on this Mac keep theirs. Every role is attempted; the first failure is
+    /// thrown after the rest were sent.
+    /// - Returns: False when this build had no tunnel to revoke.
+    @discardableResult
+    public func revokeTunnelRoles(_ roles: [CloudTunnelRole]) async throws -> Bool {
         return try await withOperation(.tunnel, foreground: true) {
+            var firstFailure: Error?
             for role in roles {
                 let revocation = Self.tunnelRoleRevocationRequest(role)
-                let (data, http) = try await request(
-                    "DELETE",
-                    path: revocation.path,
-                    jsonBody: revocation.body,
-                    allowedUnderManagedPolicy: true
-                )
-                try ensureOK(http, data: data)
+                do {
+                    let (data, http) = try await request(
+                        "DELETE", path: revocation.path, jsonBody: revocation.body, allowedUnderManagedPolicy: true
+                    )
+                    try ensureOK(http, data: data)
+                } catch {
+                    firstFailure = firstFailure ?? error
+                }
             }
+            if let firstFailure { throw firstFailure }
+            return !roles.isEmpty
         }
     }
 

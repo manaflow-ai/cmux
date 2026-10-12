@@ -36,8 +36,12 @@ extension CmuxTuiSurfaceProvider {
     /// panes the loss ended are rebuilt by the next refresh's reprojection.
     /// A revoked sign-in stays: listing machines does not need the Mac's
     /// network enrollment, so it cannot prove that the sign-in works again.
+    ///
+    /// An owner mismatch stays too: the machine can still be listed while the
+    /// credential this Mac holds for it names another owner, so clearing it
+    /// on every listing would only cycle the card.
     func noteAccessConfirmed() {
-        guard let accessLoss, accessLoss.isMachineScoped else { return }
+        guard let accessLoss, accessLoss == .forbidden || accessLoss == .notFound else { return }
         self.accessLoss = nil
         materializedPanels.subtract(accessLostPanelIDs)
         accessLostPanelIDs.removeAll()

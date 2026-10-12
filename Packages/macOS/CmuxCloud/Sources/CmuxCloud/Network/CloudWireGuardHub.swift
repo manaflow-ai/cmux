@@ -520,7 +520,7 @@ public actor CloudWireGuardHub {
         } else {
             enrollment = try await configuration.enroll()
         }
-        startEnrolled = true
+        if generation == startGeneration { startEnrolled = true } // A cancelled start's late enroll must not leak.
         try Task.checkCancellation()
         guard generation == startGeneration else { throw CancellationError() }
         removeSocketFile()
