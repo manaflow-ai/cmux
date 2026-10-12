@@ -286,6 +286,18 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     var widthFrameScheduler: ((@escaping () -> Void) -> Void)?
     /// A width pass ran in this display frame (cleared by the next frame's tick).
     private var widthPassInFrame = false
+    /// Main-thread seconds of this display frame's width passes (cleared by the next frame's tick).
+    private var widthPassCostInFrame: CFTimeInterval = 0
+    /// A later width change in a frame still runs its pass at once while the frame's passes (with
+    /// the layout, restore and bitmap reflow each caused) took less than this; only a frame whose passes cost more defers the next one to the next tick.
+    /// Live resize of the Instinct window (cx-3cb resize-pace, drained takes 2026-10-12, main
+    /// 6d8ebb8): a pass took about 0.4 ms there, yet each deferred change showed the new window
+    /// width with the rows of the old one for a frame (4-5 frames per 2 s drag in which the
+    /// outgoing bubbles did not follow the edge; Messages 0). A long pass (a divider drag over the
+    /// 1M store) still defers, as before.
+    static var widthPassFrameBudget: CFTimeInterval = 0.002
+    /// The start of a live width pass in this layout (its cost is added once the layout ends).
+    private var passStart: CFTimeInterval?
     /// A width change came after this frame's width pass: its width is in `bounds`, its pass
     /// waits for the next frame's tick.
     private var widthPassPending = false
@@ -316,14 +328,18 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             // seen). The first width change of a frame runs the pass now; a later one in the
             // same frame only records its width, and the next frame's tick runs one pass at the
             // last width (`widthTick`).
-            if widthChanged, !captureMode, widthFrameScheduler != nil, widthPassInFrame {
+            if widthChanged, !captureMode, widthFrameScheduler != nil, widthPassInFrame,
+               widthPassCostInFrame >= MessagesWindowView.widthPassFrameBudget {
                 MessagesWindowView.widthPassesDeferred += 1
                 widthPassPending = true
             } else {
+                passStart = CACurrentMediaTime()
                 widthPass(changed: widthChanged)
-                if widthChanged, !captureMode, let schedule = widthFrameScheduler, !widthPassInFrame {
-                    widthPassInFrame = true
-                    schedule { [weak self] in self?.widthTick() }
+                if widthChanged, !captureMode, let schedule = widthFrameScheduler {
+                    if !widthPassInFrame {
+                        widthPassInFrame = true
+                        schedule { [weak self] in self?.widthTick() }
+                    }
                 }
             }
         }
@@ -332,6 +348,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         layout.invalidateLayout()
         restore(anchor)
         RowCell.flushReflow()
+        // The frame's pass cost: the pass and the layout, restore and bitmap reflow it caused.
+        if let t0 = passStart { widthPassCostInFrame += CACurrentMediaTime() - t0; passStart = nil }
         // The fills follow the new height (cells made later get it in decorate).
         let span = fillSpan
         for case let cell as RowCell in collection.visibleCells { cell.fillSpan = span }
@@ -343,10 +361,12 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     /// the current width (the last one recorded), and this frame counts as having had its pass.
     private func widthTick() {
         widthPassInFrame = false
+        widthPassCostInFrame = 0
         guard widthPassPending else { return }
         widthPassPending = false
         guard rowsWidth != bounds.width, let schedule = widthFrameScheduler else { return }
         let anchor = visibleAnchor()
+        let t0 = CACurrentMediaTime()
         widthPass(changed: true)
         widthPassInFrame = true
         schedule { [weak self] in self?.widthTick() }
@@ -355,6 +375,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         layout.invalidateLayout()
         restore(anchor)
         RowCell.flushReflow()
+        widthPassCostInFrame = CACurrentMediaTime() - t0
         onWidthPass()
     }
     /// After a width pass that ran at a display frame's tick (outside the host's layout): the

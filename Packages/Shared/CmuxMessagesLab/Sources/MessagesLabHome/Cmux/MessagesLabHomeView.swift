@@ -329,6 +329,12 @@ public final class MessagesLabHomeView: NSView {
         return rows.sorted { $0.frame.maxY > $1.frame.maxY }
     }
 
+    /// Automation (DEBUG socket): MessagesLab's width pass counters (every window view): passes run and
+    /// passes deferred to the next display frame (WindowView's resize pacing).
+    public var debugWidthPasses: (passes: Int, deferred: Int) {
+        (MessagesWindowView.widthPasses, MessagesWindowView.widthPassesDeferred)
+    }
+
     /// The window view's origin in window points (bottom-left origin), for automation.
     public var debugHostOrigin: CGPoint { controller.host.convert(CGPoint.zero, to: nil) }
 

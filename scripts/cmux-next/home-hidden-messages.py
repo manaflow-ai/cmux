@@ -29,7 +29,7 @@ Exit 0 when every check passes, 1 otherwise.
 import argparse, json, os, socket, subprocess, sys, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from home_pixels import check_rows  # noqa: E402
+from home_pixels import SKIPPED, check_rows  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -238,4 +238,6 @@ finally:
                        env=dict(os.environ, ACPMUX_HOME=acp, ACPMUX_SOCKET=f"{acp}/acpmux.sock"))
 
 print(f"{len(failures)} failed: {failures}" if failures else "all checks passed", flush=True)
+if SKIPPED:
+    print(f"{len(SKIPPED)} proof(s) skipped (not passed): {SKIPPED}", flush=True)
 sys.exit(1 if failures else 0)
