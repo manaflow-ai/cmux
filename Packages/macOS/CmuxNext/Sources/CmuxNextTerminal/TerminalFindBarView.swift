@@ -149,6 +149,7 @@ final class TerminalFindBarView: NSView {
             icon.contentTintColor = Palette.textSecondary
             countLabel.textColor = Palette.textSecondary
             field.textColor = Palette.textPrimary
+            field.applyThemedPlaceholder(Self.placeholder)
             for button in buttons { button.contentTintColor = Palette.textSecondary }
             glass?.applyTheme()
         }
