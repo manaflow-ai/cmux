@@ -46,6 +46,8 @@ class SidebarItemRowView: NSView {
     let title = NSTextField(labelWithString: "")
     let badge = UnreadBadgeView()
     let avatarView = SidebarAvatarView()
+    /// The workspace item's status: the shared indicator (`info.activity`).
+    let activity: StatusIndicatorView = { let view = StatusIndicatorView(); view.tracksWindowOcclusion = true; return view }()
     /// Set only by the hover owner (`PointerHover`, cx-3wu5): the pointer
     /// now over the row's frame now. Leaving also ends a press.
     private(set) var isHovered = false {
@@ -72,7 +74,7 @@ class SidebarItemRowView: NSView {
         icon.imageScaling = .scaleProportionallyDown
         title.lineBreakMode = .byTruncatingTail
         title.maximumNumberOfLines = 1
-        [icon, title, badge, avatarView].forEach(addSubview)
+        [icon, title, badge, avatarView, activity].forEach(addSubview)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         // Keyboard focus is the fill's next tonal step (`fill`), never the system's blue ring.
@@ -106,19 +108,8 @@ class SidebarItemRowView: NSView {
         title.stringValue = style == .favorite ? info.caption ?? info.title : info.title
         title.isHidden = style.isIconOnly
         title.alignment = style == .favorite ? .center : .natural
-        // Icons and tiles have no room for a count: unread items show a dot
-        // at the glyph's top trailing corner (the rail, like the Codex app's).
-        let unread: UnreadState
-        if info.unreadDot {
-            unread = .dot
-        } else if style == .favorite {
-            unread = (info.badge ?? 0) > 0 ? UnreadState.dot : UnreadState.none
-        } else if style.isIconOnly {
-            unread = isRailButton && (info.badge ?? 0) > 0 ? UnreadState.dot : UnreadState.none
-        } else {
-            unread = info.badge.map(UnreadState.count) ?? UnreadState.none
-        }
-        badge.configure(unread)
+        badge.configure(unreadState)
+        activity.configure(info.activity, style: info.activityStyle)
         // VoiceOver hears the count even where no badge draws (icons).
         setAccessibilityValue(info.unreadDot ? Strings.unreadDot : info.badge.map { String($0) })
         // An icon names itself (and its shortcut) in its tooltip; a tile's
@@ -182,6 +173,7 @@ class SidebarItemRowView: NSView {
         super.layout()
         let b = bounds
         if style == .favorite { return layoutFavorite(b) }
+        defer { layoutActivity(in: b) }
         let inset = SidebarStyle.horizontalInset
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -230,7 +222,7 @@ class SidebarItemRowView: NSView {
         badge.frame = NSRect(x: badgeX, y: (b.height - badgeHeight) / 2, width: badgeWidth, height: badgeHeight)
         let th = ceil(title.intrinsicContentSize.height)
         let textX = iconFrame.maxX + (style == .chip ? Metrics.space2 : Metrics.space3)
-        title.frame = NSRect(x: textX, y: (b.height - th) / 2, width: max(0, badgeX - Metrics.space2 - textX), height: th)
+        title.frame = NSRect(x: textX, y: (b.height - th) / 2, width: max(0, activityLeading(before: badgeX) - Metrics.space2 - textX), height: th)
     }
 
     /// A large tile: the glyph well centered over a one-line caption, the
@@ -255,6 +247,7 @@ class SidebarItemRowView: NSView {
         title.frame = NSRect(x: 0, y: wellFrame.maxY + Metrics.space1, width: b.width, height: th)
         let dot = SidebarStyle.dotSize
         badge.frame = NSRect(x: wellFrame.maxX - dot / 2 - 1, y: wellFrame.minY - dot / 2 + 1, width: dot, height: dot)
+        layoutActivity(onGlyph: wellFrame)
     }
 
     /// The item's registry icon at `side` points; without one, its SF Symbol at the matching text size.
