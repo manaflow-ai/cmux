@@ -109,7 +109,7 @@ Data owners today:
 | page | Swift app | `BrowserProfiles/<profile>/History.sqlite` (`BrowserVisitLog`, `HistorySQLite`), 90 days, 100k visits |
 | location | Swift app (`LocationTrailService`, client view state) | daemon personal projection `history.trail` |
 | closed | daemon (`closed.list`, `closed.reopen`, `state-resources-v1`) | daemon; Swift in-memory fallback trackers for old daemons |
-| command | daemon journal `shell.command.finished` (`terminal-command-journal-v1`) | Swift folds in memory (`TerminalCommandFold`) |
+| command | daemon registry rows (`list-terminal-commands`, `terminal-command-history-v1`), deletable, with a retention | Swift mirrors the rows (`TerminalCommandMirror`) |
 | agent | daemon journal `agent.session.*`, `agent.turn.*` (`session-journal-v1`) | Swift folds in memory (`AgentSessionFold`) |
 | hidden | Swift writes projection `history.hidden` | daemon projection |
 

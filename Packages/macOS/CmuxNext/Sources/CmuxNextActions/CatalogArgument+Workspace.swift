@@ -8,6 +8,12 @@ nonisolated extension CatalogArgument {
                        kind: .target(.machine))
     }
 
+    /// The machine an action moves work to; without one the action picks or starts one.
+    static var optionalMachine: ActionArgument {
+        ActionArgument(name: "machine", title: String(localized: "argument.machine", defaultValue: "Machine", table: "WorkspaceActions", bundle: .module),
+                       kind: .target(.machine), isRequired: false)
+    }
+
     /// The workspace another one merges into.
     static var intoWorkspace: ActionArgument {
         ActionArgument(name: "into", title: String(localized: "argument.into", defaultValue: "Into Workspace", table: "WorkspaceActions", bundle: .module),

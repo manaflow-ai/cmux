@@ -13,6 +13,10 @@ enum OnboardingStrings {
     static var findBrowsers: String { String(localized: "onboarding.import.findBrowsers", defaultValue: "Find Browsers", bundle: .module) }
     /// Where the browser list goes before Find Browsers ran (as short as "Looking for browsers…").
     static var notSearched: String { String(localized: "onboarding.import.notSearched", defaultValue: "Not looked for yet.", bundle: .module) }
+    /// The way in from the files a browser exports (cx-d0d.65), under the list.
+    static var importFromFiles: String {
+        String(localized: "onboarding.import.fromFiles", defaultValue: "Import from Another Browser…", bundle: .module)
+    }
     static var noBrowsers: String { String(localized: "onboarding.import.none", defaultValue: "No other browsers found on this Mac.", bundle: .module) }
     static var fullDiskAccessSubtitle: String { String(localized: "onboarding.import.fda.subtitle", defaultValue: "Needs Full Disk Access", bundle: .module) }
     static var openSystemSettings: String { String(localized: "onboarding.button.openSystemSettings", defaultValue: "Open System Settings", bundle: .module) }

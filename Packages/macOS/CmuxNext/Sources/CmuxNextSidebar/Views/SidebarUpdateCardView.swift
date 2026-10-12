@@ -93,13 +93,19 @@ final class SidebarUpdateCardView: NSView {
     override var wantsUpdateLayer: Bool { true }
     override var mouseDownCanMoveWindow: Bool { false }
 
-    /// Shows `card`, or hides the view (and its popover) for nil.
+    /// Shows `card`, or hides the view (and its popover) for nil. The
+    /// highlights page is made when a card first shows, so it has loaded
+    /// and measured before the first hover, and closed when the card goes.
     func configure(_ card: SidebarUpdateCard?) {
         guard card != self.card else { return }
         self.card = card
         isHidden = card == nil
         guard let card else {
+            // The card went away: its page goes too (a web page per window
+            // kept loaded with no staged update, cx-asynu).
             hideNotes()
+            highlights?.close()
+            highlights = nil
             return
         }
         if highlights == nil { highlights = surfaces?.island(.ready) }

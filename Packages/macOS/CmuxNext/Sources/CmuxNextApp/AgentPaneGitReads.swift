@@ -195,6 +195,8 @@ extension AgentPaneGitWrite {
             var params: [String: JSONValue] = ["path": .string(cwd)]
             if let name { params["name"] = .string(name) }
             return params
+        case .worktreeApply:
+            return ["path": .string(cwd)]
         }
     }
 }

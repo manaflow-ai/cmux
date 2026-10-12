@@ -18,6 +18,10 @@ import Foundation
 /// the page names, which the model takes only when a chat may start there
 /// (the check a picked folder gets).
 ///
+/// `git.worktree.apply` with `{session_id, idempotency_key}` (cx-lyqio.4) is
+/// a worktree chat's Apply: like a push it runs in the folder of the pane's
+/// own session, and brings that worktree's work to its main checkout.
+///
 /// The page offers only what its buttons do: no paths, amend, no-verify,
 /// remote or branch. The key is the page's, one per user action, so a
 /// retry of the same action replays its first result instead of committing
@@ -31,9 +35,11 @@ public nonisolated enum AgentPaneGitWrite: Equatable, Sendable {
     case push(sessionId: String, expectedHead: String?, key: String)
     /// A new chat's own worktree of `cwd`, the chat's folder (cx-lyqio.2).
     case worktree(cwd: String, name: String?, key: String)
+    /// The chat's worktree work, onto its main checkout (cx-lyqio.4).
+    case worktreeApply(sessionId: String, key: String)
 
     /// The page methods that carry a write.
-    public static let methods: Set<String> = ["git.commit", "git.push", "git.worktree.create"]
+    public static let methods: Set<String> = ["git.commit", "git.push", "git.worktree.create", "git.worktree.apply"]
 
     /// The session host's limit on a worktree name.
     static let maximumNameCharacters = 100
@@ -47,13 +53,14 @@ public nonisolated enum AgentPaneGitWrite: Equatable, Sendable {
         case .commit: "git.commit"
         case .push: "git.push"
         case .worktree: "git.worktree.create"
+        case .worktreeApply: "git.worktree.apply"
         }
     }
 
     /// The page's idempotency key for this user action.
     public var key: String {
         switch self {
-        case .commit(_, _, _, _, _, let key), .push(_, _, let key), .worktree(_, _, let key): key
+        case .commit(_, _, _, _, _, let key), .push(_, _, let key), .worktree(_, _, let key), .worktreeApply(_, let key): key
         }
     }
 
@@ -61,7 +68,7 @@ public nonisolated enum AgentPaneGitWrite: Equatable, Sendable {
     /// new chat's worktree.
     public var sessionId: String? {
         switch self {
-        case .commit(let sessionId, _, _, _, _, _), .push(let sessionId, _, _): sessionId
+        case .commit(let sessionId, _, _, _, _, _), .push(let sessionId, _, _), .worktreeApply(let sessionId, _): sessionId
         case .worktree: nil
         }
     }
@@ -110,6 +117,8 @@ public nonisolated enum AgentPaneGitWrite: Equatable, Sendable {
             self = .commit(sessionId: sessionId, message: message, all: all, includeUntracked: untracked, expectedHead: expectedHead, key: key)
         case "git.push":
             self = .push(sessionId: sessionId, expectedHead: expectedHead, key: key)
+        case "git.worktree.apply":
+            self = .worktreeApply(sessionId: sessionId, key: key)
         default:
             return nil
         }
