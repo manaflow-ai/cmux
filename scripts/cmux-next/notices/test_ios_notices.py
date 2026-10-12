@@ -439,6 +439,7 @@ class LinkSetCheckTests(unittest.TestCase):
 
     def test_a_new_pin_drops_the_old_app_link(self) -> None:
         committed = self.committed()
+        committed["app_link"] = app_link_record()  # an app_link to drop, also between app-link runs
         pin = dict(ios.ghostty_kit_pin(), sha256="0" * 64)
         merged = ios.merge_link_set(self.generated(), committed, pin)
         self.assertNotIn("app_link", merged)
