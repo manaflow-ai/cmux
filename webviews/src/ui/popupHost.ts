@@ -85,7 +85,7 @@ export function nativePopupHost(
   };
 }
 
-const ROWS = '[role="menuitem"],[role="menuitemradio"],[role="menuitemcheckbox"],[role="option"],[role="separator"]';
+const ROWS = '[role="menuitem"],[role="menuitemradio"],[role="menuitemcheckbox"],[role="option"],[role="separator"],hr';
 /** Room kept from the page's edge, as Base UI's collision padding. */
 const EDGE = 5;
 
@@ -108,18 +108,17 @@ export function popupItems(
   }
   const rows = [...popup.querySelectorAll(kind === "list" ? '[role="option"]' : ROWS)];
   let highlighted: string | null = null;
+  let focused: string | null = null;
   const items = rows.map((row, index): PopupItem => {
     const id = String(index);
-    if (row.getAttribute("role") === "separator") return { id, label: "", separator: true };
+    if (row.getAttribute("role") === "separator" || row.tagName === "HR") return { id, label: "", separator: true };
     const selected = row.getAttribute("aria-selected") === "true";
     // The highlight: a class the surface names (aria-selected is then the value), a list's
-    // aria-selected, or a menu's data-highlighted or focused row.
-    const lit = active
-      ? row.matches(active)
-      : kind === "list"
-        ? selected
-        : row.hasAttribute("data-highlighted") || row === row.ownerDocument.activeElement;
+    // aria-selected, or a menu's data-highlighted row, else its focused one (a row a hover in the
+    // host focused keeps focus while the arrows move data-highlighted).
+    const lit = active ? row.matches(active) : kind === "list" ? selected : row.hasAttribute("data-highlighted");
     if (lit) highlighted = id;
+    if (kind === "menu" && !active && row === row.ownerDocument.activeElement) focused = id;
     const copy = row.cloneNode(true) as Element;
     copy.querySelectorAll('.ui-menu-shortcut,.ui-menu-check,[aria-hidden="true"]').forEach((node) => node.remove());
     const shortcut = row.querySelector(".ui-menu-shortcut")?.textContent?.trim();
@@ -128,10 +127,13 @@ export function popupItems(
       label: (copy.textContent ?? "").replace(/\s+/g, " ").trim(),
       ...(shortcut ? { shortcut } : {}),
       checked: row.getAttribute("aria-checked") === "true" || ((kind === "menu" || !!active) && selected),
-      disabled: row.getAttribute("aria-disabled") === "true" || row.hasAttribute("data-disabled"),
+      disabled:
+        row.getAttribute("aria-disabled") === "true" ||
+        row.hasAttribute("data-disabled") ||
+        row.hasAttribute("disabled"),
     };
   });
-  return { items, rows, highlighted };
+  return { items, rows, highlighted: highlighted ?? focused };
 }
 
 /**
@@ -300,6 +302,7 @@ export function useEscapingPopup(
           "aria-selected",
           "aria-disabled",
           "data-disabled",
+          "disabled",
           ...(active ? ["class"] : []),
         ],
       });
@@ -315,9 +318,11 @@ export function useEscapingPopup(
           const target = row(event.id);
           // The page's own hover handlers: Base UI's mouse move, a list's pointer move, a
           // context menu's pointer enter (React's comes from pointerover).
+          // A move, not a still pointer: WebKit's Base UI lists ignore a mouse move with no movement.
+          const moved = { bubbles: true, movementX: 1, movementY: 1 };
           target?.dispatchEvent(new PointerEvent("pointerover", { bubbles: true }));
-          target?.dispatchEvent(new PointerEvent("pointermove", { bubbles: true }));
-          target?.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+          target?.dispatchEvent(new PointerEvent("pointermove", moved));
+          target?.dispatchEvent(new MouseEvent("mousemove", moved));
           if (kind === "menu") target?.focus({ preventScroll: true });
         } else if (kind !== "tooltip") {
           // A list's field takes Escape where the focus is; a menu, itself. A tooltip closes with
