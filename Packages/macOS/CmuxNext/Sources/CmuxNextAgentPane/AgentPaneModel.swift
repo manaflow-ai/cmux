@@ -135,9 +135,10 @@ public final class AgentPaneModel {
     /// Diff Colors (`diff.colors`) as the page last got it: "theme", "muted" or "standard".
     @ObservationIgnored public internal(set) var diffColors = "theme"
     @ObservationIgnored public var onComposerSetting: (@MainActor ([String], Bool) async throws -> Void)?
-    /// The chat's tool cards (``AgentPaneToolCard``), and the App's answer to a click on one: the card's id and the button's.
+    /// The chat's tool cards (``AgentPaneToolCard``), and the App's answer to a click on one: the card's id, the button's
+    /// and what the person typed in the card's field, if the button sends it.
     @ObservationIgnored public internal(set) var toolCards: [AgentPaneToolCard] = []
-    @ObservationIgnored public var onToolCard: (@MainActor (_ card: String, _ action: String) -> Void)?
+    @ObservationIgnored public var onToolCard: (@MainActor (_ card: String, _ action: String, _ value: AgentPaneToolCard.Entered?) -> Void)?
 
     @ObservationIgnored let host: any AgentPaneHostProviding
     /// The page's host is another machine's (cx-k21v): it never becomes this Mac's prewarmed spare.
@@ -306,7 +307,7 @@ public final class AgentPaneModel {
         case .reply(let reply): return await respond(to: reply)
         case .saveFile(let save): return await saveFile(save)
         case .composerSetting(let path, let show): return await setComposer(path, show)
-        case .toolCard(let card, let action): return AgentPaneToolCard.respond(card: card, action: action, in: self)
+        case .toolCard(let card, let action, let value): return AgentPaneToolCard.respond(card: card, action: action, value: value, in: self)
         case .unsupported(let method): return Self.unsupported(method)
         }
     }

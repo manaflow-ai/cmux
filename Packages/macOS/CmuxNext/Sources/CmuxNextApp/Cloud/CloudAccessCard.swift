@@ -1,10 +1,15 @@
 import CmuxNextAgentPane
 import Foundation
 
-/// One file ask of a moved chat as its card shows it (``CloudAccessAsks``), with what answering it
-/// names: the ledger's chat (host and session), its machine and the work root its folder is under.
+/// One file or secret ask of a moved chat as its card shows it (``CloudAccessAsks``), with what
+/// answering it names: the ledger's chat (host and session), its machine and the work root its folder is under.
 struct CloudAccessAsk: Equatable {
-    var ask: CloudAccessCLI.FileAsk
+    enum Asked: Equatable {
+        case file(CloudAccessCLI.FileAsk)
+        case secret(CloudAccessCLI.SecretAsk)
+    }
+
+    var asked: Asked
     /// The chat's ledger key (``CloudMovedChats``); the ask's own session matched it.
     var host: String
     var session: String
@@ -15,13 +20,29 @@ struct CloudAccessAsk: Equatable {
     /// Set when the person's answer failed: the card says why and offers only Dismiss.
     var failure: String?
 
-    var card: String { (failure == nil ? "cloud-access-" : "cloud-access-failed-") + ask.requestID }
+    var requestID: String {
+        switch asked {
+        case .file(let ask): ask.requestID
+        case .secret(let ask): ask.requestID
+        }
+    }
+
+    /// What the card names as asked for: the path, or the secret's name.
+    var label: String {
+        switch asked {
+        case .file(let ask): CloudAccessCard.middle(ask.path)
+        case .secret(let ask): ask.name
+        }
+    }
+
+    var card: String { (failure == nil ? "cloud-access-" : "cloud-access-failed-") + requestID }
 }
 
-/// A file ask's card: its text (every path the machine named, middle-truncated) and its buttons.
+/// An ask's card: its text (every path the machine named, middle-truncated) and its buttons. A
+/// secret's card has a password field and Share once, which sends what the person typed.
 enum CloudAccessCard {
     enum Action: String {
-        case allow, always, deny, dismiss
+        case allow, always, share, deny, dismiss
     }
 
     /// The longest path or reason a card shows, in Unicode scalars.
@@ -32,7 +53,11 @@ enum CloudAccessCard {
             let actions = [AgentPaneToolCard.Action(id: Action.dismiss.rawValue, title: CloudMoveAskStrings.dismiss)]
             return AgentPaneToolCard(id: shown.card, state: .failed, text: failure, actions: actions)
         }
-        let ask = shown.ask
+        let ask: CloudAccessCLI.FileAsk
+        switch shown.asked {
+        case .file(let file): ask = file
+        case .secret(let secret): return secretCard(secret, shown)
+        }
         let shareable = ask.shareable && ask.target != nil
         var text = shareable ? CloudAccessStrings.ask(shown.machineName, middle(ask.path)) : CloudAccessStrings.unshareable(shown.machineName, middle(ask.path))
         if shareable, let target = ask.target, target != ask.path { text += " " + CloudAccessStrings.leadsTo(middle(target)) }
@@ -44,15 +69,48 @@ enum CloudAccessCard {
             actions.append(.init(id: Action.always.rawValue, title: CloudAccessStrings.always(middle(URL(fileURLWithPath: folder).lastPathComponent, 60)),
                                  hint: CloudAccessStrings.alwaysHint(middle(folder))))
         }
-        if let reason = ask.reason?.trimmingCharacters(in: .whitespacesAndNewlines), !reason.isEmpty {
-            text += " " + CloudAccessStrings.reason(prefix(reason))
-        }
+        text += reasonText(ask.reason)
         actions.append(.init(id: Action.deny.rawValue, title: CloudAccessStrings.deny))
         return AgentPaneToolCard(id: shown.card, state: .ask, text: text, actions: actions)
     }
 
-    /// The answer `action` gives `ask`, nil when its card doesn't offer it. Only the person's click
-    /// picks one; `exists` and `shareable` only decide which buttons show.
+    /// A secret ask's card: the machine and the secret's name, the agent's reason, a password field,
+    /// Share once (which sends the field) and Deny.
+    private static func secretCard(_ ask: CloudAccessCLI.SecretAsk, _ shown: CloudAccessAsk) -> AgentPaneToolCard {
+        let text = CloudAccessStrings.secretAsk(shown.machineName, ask.name) + reasonText(ask.reason)
+        let input = AgentPaneToolCard.Input(placeholder: CloudAccessStrings.secretPlaceholder, secure: true, maximumBytes: maximumSecretBytes)
+        return AgentPaneToolCard(id: shown.card, state: .ask, text: text,
+                                 actions: [.init(id: Action.share.rawValue, title: CloudAccessStrings.shareOnce, submitsInput: true),
+                                           .init(id: Action.deny.rawValue, title: CloudAccessStrings.deny)],
+                                 input: input)
+    }
+
+    /// The largest secret the machine takes (cmux-tui `MAX_SECRET_BYTES`).
+    static let maximumSecretBytes = 64 * 1024
+
+    private static func reasonText(_ reason: String?) -> String {
+        guard let reason = reason?.trimmingCharacters(in: .whitespacesAndNewlines), !reason.isEmpty else { return "" }
+        return " " + CloudAccessStrings.reason(prefix(reason))
+    }
+
+    /// The answer `action` gives `shown`, nil when its card doesn't offer it. Only the person's click
+    /// picks one; `exists` and `shareable` only decide which buttons show. Share once takes what the
+    /// person typed (`value`); nothing else does.
+    static func how(_ action: Action, _ shown: CloudAccessAsk, value: AgentPaneToolCard.Entered?) -> CloudAccessCLI.How? {
+        switch shown.asked {
+        case .file(let ask): return value == nil ? how(action, ask) : nil
+        case .secret(let ask):
+            switch action {
+            case .share:
+                guard let value, !value.text.isEmpty, value.text.utf8.count <= maximumSecretBytes else { return nil }
+                return .shareSecret(name: ask.name, value: value)
+            case .deny: return value == nil ? .deny : nil
+            case .allow, .always, .dismiss: return nil
+            }
+        }
+    }
+
+    /// The answer `action` gives file ask `ask`, nil when its card doesn't offer it.
     static func how(_ action: Action, _ ask: CloudAccessCLI.FileAsk) -> CloudAccessCLI.How? {
         switch action {
         case .allow:
@@ -63,14 +121,14 @@ enum CloudAccessCard {
             return .always(path: ask.path, target: target, folder: folder)
         case .deny:
             return .deny
-        case .dismiss:
+        case .share, .dismiss:
             return nil
         }
     }
 
-    /// The failed answer's text for `ask`: `grant_refused` (this Mac won't share it), else a plain failure.
-    static func failure(_ code: String?, _ ask: CloudAccessCLI.FileAsk) -> String {
-        code == "grant_refused" ? CloudAccessStrings.grantRefused(middle(ask.path)) : CloudAccessStrings.answerFailed(middle(ask.path))
+    /// The failed answer's text for `shown`: `grant_refused` (this Mac won't share it), else a plain failure.
+    static func failure(_ code: String?, _ shown: CloudAccessAsk) -> String {
+        code == "grant_refused" ? CloudAccessStrings.grantRefused(shown.label) : CloudAccessStrings.answerFailed(shown.label)
     }
 
     /// `text` with its middle cut to at most `limit` Unicode scalars.

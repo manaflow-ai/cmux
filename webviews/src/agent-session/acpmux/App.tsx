@@ -4108,7 +4108,12 @@ function AcpmuxPane() {
         <div className="acpmux-permission">
           <ToolCards
             cards={toolCards}
-            onAnswer={(id, action) => void callNative("chat.toolCard.respond", { id, action }).catch(() => undefined)}
+            onAnswer={(id, action, value) =>
+              void callNative(
+                "chat.toolCard.respond",
+                value === undefined ? { id, action } : { id, action, value },
+              ).catch(() => undefined)
+            }
           />
           {trustAsk.ask && (
             <TrustAsk
