@@ -3,9 +3,11 @@
 
 Like a Mac menu, a page's menu with no room in its window goes past the window's edge (the native
 host, WebPopupHost) instead of clipping. The check: the window shrinks to 600x400, a new agent
-chat opens (Cmd-I), and two surfaces open from its composer: the folder menu (Location) and the
-commands list (typing "/"). Each must go past the window's edge, with every row in the host's
-panel, the panel's frame as tall as its rows and on its screen.
+chat opens (Cmd-I), and the composer's folder menu (Location) opens. It must go past the window's
+edge, with every row in the host's panel, the panel's frame as tall as its rows and on its screen.
+The commands list ("/") and the file list ("@query") open the same way with --surface, in a chat
+whose agent is running (they list what the agent sent); test/popup-escape.test.ts covers the
+commands list in the browser.
 
 The folder menu lists this Mac's projects: the Mac needs a dozen or so, e.g. git repositories
 under ~/Projects made before the app starts (the app scans them once at launch):
@@ -21,11 +23,11 @@ import argparse, json, os, socket, sys, time
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True, help="the tagged app's debug socket")
 parser.add_argument("--surface", action="append",
-                    help='a composer menu to open, by its label, or "/" for the commands list '
-                         '(repeatable; default: Location, then /)')
+                    help='a composer menu to open, by its label; "/" for the commands list; "@query" for '
+                         'the file list (repeatable; default: Location)')
 parser.add_argument("--out", default="/tmp")
 opts = parser.parse_args()
-opts.surface = opts.surface or ["Location", "/"]
+opts.surface = opts.surface or ["Location"]
 ROWS = []
 
 
@@ -66,7 +68,8 @@ def row(check, expected, observed, ok):
 
 def check_surface(label):
     """Opens one surface from the composer and checks every row shows whole."""
-    name = "the commands list" if label == "/" else f"the {label} menu"
+    name = ("the commands list" if label.startswith("/") else "the file list" if label.startswith("@")
+            else f"the {label} menu")
     rpc("debug.agent_pane", {"action": "close_menus"})
     reply = rpc("debug.agent_pane", {"action": "open_menu", "label": label}) or {}
     print("open_menu:", json.dumps(reply), flush=True)
@@ -75,7 +78,7 @@ def check_surface(label):
     row(f"{name} opened", "rows", json.dumps(menu), rows > 0)
     popups = (rpc("debug.page_popup") or {}).get("popups") or []
     print("page_popup:", json.dumps(popups), flush=True)
-    slug = "commands" if label == "/" else label.lower().replace(" ", "-")
+    slug = "commands" if label.startswith("/") else "files" if label.startswith("@") else label.lower().replace(" ", "-")
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"page-popup-escape-{slug}.png")})
     # At 600x400 each surface fits on no side the page may use: it must go past the window.
     row(f"{name} went past the window's edge", "escaped", json.dumps(menu), bool(menu.get("escaped")))
