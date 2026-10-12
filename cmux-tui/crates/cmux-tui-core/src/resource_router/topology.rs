@@ -101,7 +101,6 @@ pub(super) fn dispatch(
         ResourceOperation::WorkspaceCreate => create_workspace(mux, request),
         ResourceOperation::WorkspaceRename => rename_workspace(mux, request),
         ResourceOperation::WorkspaceMove => move_workspace(mux, request),
-        ResourceOperation::TabCreateBrowser => create_browser_tab(mux, request),
         operation => dispatch_exact_topology_mutation(mux, operation, request),
     }
 }
@@ -296,20 +295,6 @@ fn create_workspace(
         commit.revision,
         commit.replayed,
     )
-}
-
-/// `tab.create_browser`. A daemon-rendered tab (no `frontend_browser_id`) is
-/// refused before any receipt while no provider could ever start it.
-fn create_browser_tab(
-    mux: &Arc<Mux>,
-    request: ParsedResourceRequest,
-) -> Result<Value, ResourceError> {
-    if !request.fields.contains_key("frontend_browser_id")
-        && let Some(error) = mux.browser_engine_unavailable("tab.create_browser")
-    {
-        return Err(error);
-    }
-    dispatch_exact_topology_mutation(mux, ResourceOperation::TabCreateBrowser, request)
 }
 
 fn dispatch_exact_topology_mutation(

@@ -443,14 +443,10 @@ fn browser_effect(mux: &Arc<Mux>, request: ParsedResourceRequest) -> Result<Valu
         if request.envelope.operation != ResourceOperation::BrowserClose
             && surface.browser_source().is_none()
         {
-            let operation = super::operation_name(request.envelope.operation);
-            if surface.browser_status().is_none_or(|status| status == BrowserStatus::Starting)
-                && !mux.is_frontend_browser_surface(&surface)
-                && let Some(error) = mux.browser_engine_unavailable(&operation)
-            {
-                return Err(error);
-            }
-            return Err(browser_not_ready_error(&surface, operation));
+            return Err(browser_not_ready_error(
+                &surface,
+                super::operation_name(request.envelope.operation),
+            ));
         }
         Ok(json!({"browser_id":browser_id,"fields":fields}))
     })?;
@@ -1056,7 +1052,7 @@ fn resolve_browser_surface(
     Ok((browser_id, surface))
 }
 
-fn browser_surface_for_id(
+pub(super) fn browser_surface_for_id(
     mux: &Mux,
     browser_id: &BrowserPublicId,
 ) -> Option<(crate::SurfaceId, Arc<Surface>)> {

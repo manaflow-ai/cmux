@@ -23,7 +23,6 @@ fn parsed_request(operation: &str, fields: Value, key: &str) -> ParsedResourceRe
 #[test]
 fn a_browser_projection_reads_no_full_topology() {
     let mux = Mux::new_for_test("targeted-browser-read", SurfaceOptions::default());
-    mux.attach_test_browser_provider(1);
     let mut created = Vec::new();
     for index in 0..3 {
         let value = crate::resource_router::topology::dispatch(

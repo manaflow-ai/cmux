@@ -42,7 +42,6 @@ fn session() -> ResourceSelectors {
 /// Returns the create result and the workspace counts before and after it.
 fn close_a_page_then_create(close: &str) -> (anyhow::Result<Value>, usize, usize) {
     let mux = Mux::new_for_test(format!("closed-page-{close}"), SurfaceOptions::default());
-    mux.attach_test_browser_provider(1);
     let mut browsers = Vec::new();
     for (index, url) in ["file:///tmp/README.md", "file:///tmp/app.ts"].into_iter().enumerate() {
         let created = topology::dispatch(

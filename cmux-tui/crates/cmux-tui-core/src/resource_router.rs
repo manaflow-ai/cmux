@@ -4,6 +4,7 @@
 //! embedded as the one validation source so transport handlers cannot drift.
 
 mod auxiliary;
+mod browser_engine;
 mod config;
 mod content;
 mod credential;
@@ -243,6 +244,7 @@ fn dispatch_resource_request(
     request: ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     let operation = request.envelope.operation;
+    browser_engine::refuse_without_provider(mux, &request)?;
     match operation_owner(operation) {
         OperationOwner::Session => session::dispatch(mux, request),
         OperationOwner::Content => content::dispatch(mux, request),

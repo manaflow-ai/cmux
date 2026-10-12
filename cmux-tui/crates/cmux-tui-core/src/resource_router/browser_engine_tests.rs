@@ -43,7 +43,7 @@ fn kill_surfaces(mux: &Mux) {
 fn browser_create_without_a_provider_fails_fast_with_engine_unavailable() {
     let mux = Mux::new_for_test("browser-engine-create", SurfaceOptions::default());
     let before = mux.surface_count();
-    let error = topology::dispatch(
+    let error = dispatch_resource_request(
         &mux,
         request("tab.create_browser", json!({"url":"https://example.com"}), "create-1"),
     )
@@ -57,14 +57,14 @@ fn browser_navigate_without_a_provider_fails_fast_with_engine_unavailable() {
     let mux = Mux::new_for_test("browser-engine-navigate", SurfaceOptions::default());
     // A tab made while a provider was attached, which then went away.
     mux.attach_test_browser_provider(1);
-    let created = topology::dispatch(
+    let created = dispatch_resource_request(
         &mux,
         request("tab.create_browser", json!({"url":"about:blank"}), "create-1"),
     )
     .unwrap();
     assert!(mux.unregister_browser_provider(1));
     let browser = created["value"]["browser_id"].as_str().unwrap().to_string();
-    let error = content::dispatch(
+    let error = dispatch_resource_request(
         &mux,
         request(
             "browser.navigate",
@@ -81,7 +81,7 @@ fn browser_navigate_without_a_provider_fails_fast_with_engine_unavailable() {
 fn browser_create_with_a_provider_still_waits_for_its_target() {
     let mux = Mux::new_for_test("browser-engine-provider", SurfaceOptions::default());
     mux.attach_test_browser_provider(1);
-    let created = topology::dispatch(
+    let created = dispatch_resource_request(
         &mux,
         request("tab.create_browser", json!({"url":"about:blank"}), "create-1"),
     )
