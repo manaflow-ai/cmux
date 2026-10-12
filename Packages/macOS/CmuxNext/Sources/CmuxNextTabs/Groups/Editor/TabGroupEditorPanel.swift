@@ -139,6 +139,7 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         glass.applyTheme()
         glass.performWithTheme {
             nameField.textColor = Palette.textPrimary
+            nameField.applyThemedPlaceholder(Strings.editorNamePlaceholder)
             field.layer?.backgroundColor = Palette.hoverFill.cgColor
         }
         styleFieldEditor()

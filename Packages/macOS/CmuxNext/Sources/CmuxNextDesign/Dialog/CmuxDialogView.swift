@@ -241,18 +241,14 @@ public final class CmuxDialogView: NSView {
     private func fieldViews(_ field: CmuxDialogField, width: CGFloat) -> [NSView] {
         switch field {
         case .text(let id, let caption, let initial, let placeholder, let secure):
-            let input = secure ? NSSecureTextField(string: initial) : NSTextField(string: initial)
-            input.placeholderString = placeholder
-            input.focusRingType = .none
+            let input: NSTextField = secure ? ThemedSecureTextField(string: initial) : ThemedTextField(string: initial)
             input.font = Typography.body
+            input.placeholderString = placeholder
             input.delegate = self
             input.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.field.\(id)")
             input.setAccessibilityLabel(caption ?? placeholder ?? spec.title)
-            input.translatesAutoresizingMaskIntoConstraints = false
-            input.widthAnchor.constraint(equalToConstant: width).isActive = true
-            input.heightAnchor.constraint(equalToConstant: CmuxDialogMetrics.fieldHeight).isActive = true
             register(input, id: id)
-            return captioned(caption, input, width: width)
+            return captioned(caption, fieldBox(input, width: width), width: width)
         case .choice(let id, let caption, let options, let selected):
             let popup = ThemedPopUpButton(frame: .zero, pullsDown: false)
             for option in options {
@@ -280,6 +276,42 @@ public final class CmuxDialogView: NSView {
             preview.lineBreakMode = .byTruncatingTail
             return [preview]
         }
+    }
+
+    /// A text field on the theme's field fill (`Palette.chromeBackground`, a hairline of
+    /// `Palette.separator`) instead of AppKit's bezel, which draws the system's colors whatever
+    /// the room's theme.
+    private func fieldBox(_ input: NSTextField, width: CGFloat) -> NSView {
+        input.isBezeled = false
+        input.isBordered = false
+        input.drawsBackground = false
+        input.usesSingleLineMode = true
+        input.cell?.isScrollable = true
+        input.cell?.wraps = false
+        input.translatesAutoresizingMaskIntoConstraints = false
+        let box = ThemeChangeView()
+        box.wantsLayer = true
+        box.layer?.cornerRadius = Metrics.itemCornerRadius
+        box.layer?.cornerCurve = .continuous
+        box.layer?.borderWidth = Metrics.dividerThickness
+        box.translatesAutoresizingMaskIntoConstraints = false
+        box.addSubview(input)
+        box.onThemeChange = { [weak box] in
+            guard let box else { return }
+            box.performWithTheme {
+                box.layer?.backgroundColor = Palette.chromeBackground.cgColor
+                box.layer?.borderColor = Palette.separator.cgColor
+            }
+        }
+        box.onThemeChange?()
+        NSLayoutConstraint.activate([
+            box.widthAnchor.constraint(equalToConstant: width),
+            box.heightAnchor.constraint(equalToConstant: CmuxDialogMetrics.fieldHeight),
+            input.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: Metrics.space2),
+            input.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -Metrics.space2),
+            input.centerYAnchor.constraint(equalTo: box.centerYAnchor),
+        ])
+        return box
     }
 
     private func register(_ control: NSControl, id: String) {
