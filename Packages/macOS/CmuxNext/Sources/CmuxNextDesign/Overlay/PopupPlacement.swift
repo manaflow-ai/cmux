@@ -3,7 +3,8 @@ public import AppKit
 /// Where a page's menu goes once it has no room in its web view (cx-6k6cg): like a Mac menu, on
 /// the screen past the window's edge. Below the anchor when it fits on the screen, else above,
 /// else on the side with more room, shortened so its rows scroll. Screen coordinates (y up).
-public nonisolated enum PopupPlacement {
+public nonisolated struct PopupPlacement {
+    public nonisolated init() {}
     public enum Side: String, Sendable { case below, above }
 
     /// The popup's frame on `screen` (its visible frame) for content of `size` at `anchor`.
