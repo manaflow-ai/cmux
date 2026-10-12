@@ -7808,7 +7808,7 @@
      },
      "presence": "required",
      "nullable": false,
-     "description": "Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors."
+     "description": "Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors."
     },
     "collapsed": {
      "type": {
@@ -7900,7 +7900,7 @@
      },
      "presence": "required",
      "nullable": false,
-     "description": "Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors."
+     "description": "Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors."
     },
     "collapsed": {
      "type": {
@@ -8082,7 +8082,7 @@
      },
      "presence": "required",
      "nullable": false,
-     "description": "Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors."
+     "description": "Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors."
     },
     "updated_at_ms": {
      "type": {

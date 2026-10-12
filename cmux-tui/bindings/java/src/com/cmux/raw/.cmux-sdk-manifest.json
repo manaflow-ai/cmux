@@ -1742,7 +1742,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "e72ccac64186ccb550a3dd33743fdecd47bd06e2d202d64c47cd55eec1729f32",
+      "sha256": "a28f26079dc3302f5fb4e46bf3f3d2620cf5b4559c1489698d317165224abe88",
       "size": 6222
     },
     {
@@ -2042,8 +2042,8 @@
     },
     {
       "path": "SavedTabGroupRecord.java",
-      "sha256": "4432236448383572c2eba1159093ef1540ca5b13ee738dc033de80cb6033e54b",
-      "size": 6576
+      "sha256": "4022b0d9d136ffa7dd22afff1710ab28d9d8dc69bdc2ae0f1025788bc367cd24",
+      "size": 6597
     },
     {
       "path": "Screen.java",
@@ -2522,13 +2522,13 @@
     },
     {
       "path": "TabGroupRecord.java",
-      "sha256": "ba46d898c423af2cb4a5a07f8a24865f60cd1b29be5dec81bd0f5eedbc569f72",
-      "size": 5657
+      "sha256": "907c15babfeaba2769ac1284c28f8c26ae68bb94789920fae9399e5fe16f787d",
+      "size": 5678
     },
     {
       "path": "TabGroupRun.java",
-      "sha256": "5dc82451f2ec1b94b0d908ef8c11a930ab132b984da1f67118ed48b6e8edf273",
-      "size": 8251
+      "sha256": "d5994139c6ff7dec0fbb307aecb6cd5a1e41cdd56c51bb20c300f23374cab0e2",
+      "size": 8272
     },
     {
       "path": "TabKind.java",
@@ -2962,7 +2962,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "d7197176d6626400cd73cde71531657da3412e0ecfceb822df0e6b1bfb7fe9eb",
+  "ir_sha256": "2a0c7150bfd53de3d63c4aa438c3f1be1fdfda063c9a28418ffed3cd7975f5be",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2
