@@ -183,7 +183,7 @@ struct CoderouterSetupWorkspaceCoordinator {
         let selectedWorkspace = manager?.selectedWorkspace
         let selectedWorkspaceIsLocal = manager.map { manager in
             !manager.isFinalizedForWindowClose
-                && selectedWorkspace.map { isLocal($0) } == true
+                && selectedWorkspace.map { Self.isLocal($0) } == true
         } == true
         let setup = Self.persistedLocalWorkspace(using: persistence)
 
@@ -228,12 +228,12 @@ struct CoderouterSetupWorkspaceCoordinator {
                   let workspace = manager.tabs.first(where: { $0.id == workspaceID }) else {
                 return false
             }
-            return isLocal(workspace)
+            return Self.isLocal(workspace)
         }),
         let manager = AppDelegate.shared?.tabManagerFor(tabId: workspaceID),
         !manager.isFinalizedForWindowClose,
         let workspace = manager.tabs.first(where: { $0.id == workspaceID }),
-        isLocal(workspace) else {
+        Self.isLocal(workspace) else {
             return nil
         }
         return (workspace, manager)
