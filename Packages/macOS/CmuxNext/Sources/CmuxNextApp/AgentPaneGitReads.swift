@@ -197,6 +197,10 @@ extension AgentPaneGitWrite {
             return params
         case .worktreeApply:
             return ["path": .string(cwd)]
+        case .worktreeRemove(_, let discard, _):
+            var params: [String: JSONValue] = ["path": .string(cwd)]
+            if discard { params["discard"] = .bool(true) }
+            return params
         }
     }
 }

@@ -99,6 +99,7 @@ export function ChatHeaderTools({
   readStatus,
   statusKey,
   onApplyWorktree,
+  onRemoveWorktree,
 }: {
   /// Terminal and Browser run their split with the quick action's mode: the App opens it, or for
   /// `toggle` closes the split this button opened when it is still there.
@@ -253,7 +254,7 @@ export function ChatHeaderTools({
   );
   return (
     <div className="acpmux-header-tools" onPointerEnter={onPointerEnter}>
-      {worktree && <WorktreePill worktree={worktree} onApply={onApplyWorktree} />}
+      {worktree && <WorktreePill worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />}
       {pullRequest && <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />}
       {onCustomize && buttons ? (
         // Only the buttons: the summary's and the menu's popups are portaled, and a right-click
