@@ -366,7 +366,19 @@ function BrowseEntryView({ address, states }: { address: Address; states: readon
         <Controls
           env={env}
           onChange={(next) =>
-            go({ ...address, search: { ...next, view: search.view, compare: search.compare, tune: search.tune } }, true)
+            go(
+              {
+                ...address,
+                search: {
+                  ...next,
+                  view: search.view,
+                  compare: search.compare,
+                  tune: search.tune,
+                  browse: search.browse,
+                },
+              },
+              true,
+            )
           }
         />
       </header>
@@ -374,6 +386,8 @@ function BrowseEntryView({ address, states }: { address: Address; states: readon
         entries={readyEntries(states)}
         env={env}
         tune={search.tune}
+        browse={search.browse}
+        onBrowseChange={(browse, replace = true) => go({ ...address, search: { ...search, browse } }, replace)}
         onOpen={(target, targetVariant) =>
           go({ entry: target.id, variant: targetVariant, search: { ...search, view: "variant" } })
         }
@@ -439,7 +453,16 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
             env={env}
             onChange={(next) =>
               go(
-                { ...address, search: { ...next, view: search.view, compare: search.compare, tune: search.tune } },
+                {
+                  ...address,
+                  search: {
+                    ...next,
+                    view: search.view,
+                    compare: search.compare,
+                    tune: search.tune,
+                    browse: search.browse,
+                  },
+                },
                 true,
               )
             }

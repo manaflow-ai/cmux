@@ -16,6 +16,7 @@ import { readEnv, writeEnv, type GalleryEnv } from "../env";
 import { readTunes, writeTunes } from "../../experiments/tunable";
 import { readyEntries } from "../entryStore";
 import { entryStore } from "../registry";
+import { DEFAULT_BROWSE, readBrowse, writeBrowse, type BrowseState } from "./browseModel";
 
 export const VIEWS = ["variant", "variants", "locales", "themes", "compare", "browse"] as const;
 export type View = (typeof VIEWS)[number];
@@ -23,7 +24,7 @@ export type View = (typeof VIEWS)[number];
  * The controls, the view, the compare view's state (compare.ts; written only in that view), and
  * the edited tunables (experiments/tunable.ts; web only, so not in env.ts's shared contract).
  */
-export type ShellSearch = GalleryEnv & { view: View; compare: CompareState; tune: string };
+export type ShellSearch = GalleryEnv & { view: View; compare: CompareState; tune: string; browse: BrowseState };
 
 /** Search params as flat strings, the way the stage frames and the matrix read them. */
 function parseSearch(text: string): Record<string, unknown> {
@@ -35,7 +36,9 @@ function stringifySearch(search: Record<string, unknown>): string {
     Object.entries(search).flatMap(([key, value]) =>
       key === "compare" && value && typeof value === "object"
         ? [...writeCompare(value as CompareState)]
-        : [[key, typeof value === "string" ? value : String(value)]],
+        : key === "browse"
+          ? []
+          : [[key, typeof value === "string" ? value : String(value)]],
     ),
   );
   const params = writeEnv(readEnv(new URLSearchParams(flat)));
@@ -45,6 +48,7 @@ function stringifySearch(search: Record<string, unknown>): string {
   if (view === "compare") writeCompare(readCompare(new URLSearchParams(flat)), params);
   const tune = writeTunes(readTunes(flat.tune ?? ""));
   if (tune) params.set("tune", tune);
+  writeBrowse((search.browse as BrowseState | undefined) ?? DEFAULT_BROWSE, params);
   const text = params.toString();
   return text ? `?${text}` : "";
 }
@@ -59,7 +63,13 @@ export function validateShellSearch(raw: Record<string, unknown>): ShellSearch {
     raw.compare && typeof raw.compare === "object"
       ? readCompare(writeCompare(raw.compare as CompareState))
       : readCompare(params);
-  return { ...readEnv(params), view, compare, tune: writeTunes(readTunes(strings.tune ?? "")) };
+  return {
+    ...readEnv(params),
+    view,
+    compare,
+    tune: writeTunes(readTunes(strings.tune ?? "")),
+    browse: readBrowse(params),
+  };
 }
 
 /** The entry's first variant, once every entry file has loaded or failed (each loads on its own). */
