@@ -71,8 +71,10 @@ folder, owned by this user, mode `0700`; also the `/tmp/cmux-tui-<uid>`
 fallback). `stop`, `status` and `ensure` use a registration only when its
 socket is their state directory's own socket (its `link-<12 hex>.sock`
 name; the folder depends on the `TMPDIR` of the process that started the
-link, so a CLI caller with another `TMPDIR` still finds the app's link), so
-a link of another state folder is never reported or stopped.
+link, so a CLI caller with another `TMPDIR` still finds the app's link, and
+that folder must be this user's private folder), so a link of another state
+folder, or a socket in an open or foreign folder, is never reported or
+stopped.
 
 `ensure` runs `init` first when the state directory has no config (then
 `--install` is required; `--port 0` binds any free UDP port). When a link of

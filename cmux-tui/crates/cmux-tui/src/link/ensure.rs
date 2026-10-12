@@ -169,10 +169,15 @@ pub(super) fn live(state: &LinkState) -> Option<registration::Registration> {
 /// Whether `socket` is `state`'s own link socket. The socket's name comes
 /// from the state directory (`link-<12 hex>.sock`); its folder comes from
 /// the runtime base (`TMPDIR`) of the process that started the link, which
-/// a CLI caller may not share with the app, so only the name is compared.
-/// `read_live` has already checked that the registered pid serves it.
+/// a CLI caller may not share with the app, so only the name is compared,
+/// and the folder must be this user's private folder (a real folder, owned
+/// by this user, that no one else may open): a registration that names a
+/// socket in an open or foreign folder is not used. `read_live` has
+/// already checked that the registered pid serves it.
 fn owns(state: &LinkState, socket: &Path) -> bool {
-    socket.file_name().is_some() && socket.file_name() == state.socket_path().file_name()
+    socket.file_name().is_some()
+        && socket.file_name() == state.socket_path().file_name()
+        && socket.parent().is_some_and(|folder| super::state::check_socket_dir(folder).is_ok())
 }
 
 /// `<state>/link.ensure.lock`, held by `ensure` and `stop` while they run,
