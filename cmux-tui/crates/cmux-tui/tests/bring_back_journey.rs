@@ -69,6 +69,18 @@ fn chat_with_history_draft_and_queue(acpmux: &mut Acpmux, cwd: &Path) -> String 
 
 /// `cmux link agent move` of tab `surface` of the VM to the Mac, in `cwd`.
 fn move_back(vm: &Machine, mac: &Machine, surface: u64, cwd: &Path, state: &Path) -> (bool, Value) {
+    move_back_with(vm, mac, surface, cwd, state, &[])
+}
+
+/// `move_back` with `extra` flags.
+fn move_back_with(
+    vm: &Machine,
+    mac: &Machine,
+    surface: u64,
+    cwd: &Path,
+    state: &Path,
+    extra: &[&str],
+) -> (bool, Value) {
     run_json(
         Command::new(bin())
             .args(["link", "agent", "move", "--from-socket"])
@@ -79,7 +91,8 @@ fn move_back(vm: &Machine, mac: &Machine, surface: u64, cwd: &Path, state: &Path
             .arg(cwd)
             .arg("--interrupt")
             .arg("--state-dir")
-            .arg(state),
+            .arg(state)
+            .args(extra),
     )
 }
 
@@ -205,4 +218,75 @@ fn bring_back_journey_returns_a_vm_edit_a_commit_and_a_chat_to_the_mac() {
     let events = vm_acpmux.events(&session);
     assert!(events.iter().any(|e| e["kind"] == "transferred"), "no transferred record");
     assert_eq!(count(&events, "user_message", USER_TEXT, QUEUED), 0, "ran on the VM too");
+}
+
+/// cx-rppd.10: "Ask first, then bring back". The Mac's guard refuses a VM
+/// chat that approves on its own (`transfer.policy`) or runs in a mode that
+/// does not ask (`transfer.mode`), and the chat stays on the VM unchanged.
+/// The same move with `--ask-first` narrows the chat on the VM first (an
+/// asking policy, an asking mode) and then brings it back, still under the
+/// Mac's unchanged guard.
+#[test]
+fn bring_back_ask_first_narrows_a_refused_vm_chat_then_brings_it_back() {
+    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() % 1_000_000_000;
+    let root = PathBuf::from("/tmp").join(format!("cba-{}-{stamp}", std::process::id()));
+    fs::create_dir_all(&root).unwrap();
+    let root = fs::canonicalize(&root).unwrap();
+    let _cleanup = Cleanup(root.clone());
+
+    let mac = Machine::start(&root, "mac", Vec::new());
+    let vm = Machine::start(
+        &root,
+        "vm",
+        vec![
+            ("CMUX_TEST_CLOUD_ETC", cloud_etc(&root).to_string_lossy().into_owned()),
+            ("CMUX_VM_ID", "vm-bring-back-ask-first".to_owned()),
+            ("CMUX_CODEROUTER_URL", "http://127.0.0.1:9".to_owned()),
+        ],
+    );
+    let repo = repo_at(&mac.home());
+    let synced = vm.home().join("work/app");
+    fs::create_dir_all(&synced).unwrap();
+    let mut mac_acpmux = mac.acpmux();
+    mac_acpmux.call("acp.trust.set", json!({"cwd": repo, "level": "trusted"}));
+    let mut vm_acpmux = vm.acpmux();
+    let pump = root.join("pump");
+
+    // A chat that approves everything, and one in a mode that does not ask.
+    let created = vm_acpmux.call(
+        "session/new",
+        json!({"cwd": synced, "mcpServers": [], "_meta": {"acpmux": {"harness": "fake-approve"}}}),
+    );
+    let approving = created["sessionId"].as_str().unwrap().to_owned();
+    vm_acpmux.call("session/prompt", prompt(&approving, "hi", "p-ask-first-approving"));
+    let created = vm_acpmux.call("session/new", json!({"cwd": synced, "mcpServers": []}));
+    let strict = created["sessionId"].as_str().unwrap().to_owned();
+    // The agent leaves the asking mode on its own (only the person's app may
+    // pick a mode that does not ask).
+    vm_acpmux.call("session/prompt", prompt(&strict, "set-mode: strict", "p-ask-first-strict"));
+    wait_until(20, "the strict mode", || {
+        vm_acpmux.summary(&strict).filter(|s| s["currentModeId"] == json!("strict")).map(|_| ())
+    });
+
+    for (session, refusal) in [(&approving, "transfer.policy"), (&strict, "transfer.mode")] {
+        let tab = bound_agent_tab(&vm, session);
+        // Refused as it is, and kept on the VM, open.
+        let (ok, refused) = move_back(&vm, &mac, tab, &repo, &pump);
+        assert!(!ok, "{session} moved back as it was: {refused}");
+        let why = refused["error"].as_str().unwrap_or_default();
+        assert!(why.contains(refusal), "{refused}");
+        let kept = vm_acpmux.summary(session).expect("the refused chat is on the VM");
+        assert_ne!(kept["status"], "closed", "{kept}");
+
+        // Ask first, then bring back.
+        let (ok, moved) = move_back_with(&vm, &mac, tab, &repo, &pump, &["--ask-first"]);
+        assert!(ok && moved["ok"] == json!(true), "ask first, then bring back: {moved}");
+        assert_eq!(moved["session_id"], json!(session), "{moved}");
+        let here = mac_acpmux.summary(session).expect("the chat is on the Mac");
+        assert_eq!(here["cwd"], json!(fs::canonicalize(&repo).unwrap()), "{here}");
+        assert!(matches!(here["policy"].as_str(), None | Some("ask")), "{here}");
+        assert_eq!(here["currentModeId"], json!("normal"), "{here}");
+        let left = vm_acpmux.summary(session);
+        assert!(left.as_ref().is_none_or(|s| s["status"] == "closed"), "still open: {left:?}");
+    }
 }

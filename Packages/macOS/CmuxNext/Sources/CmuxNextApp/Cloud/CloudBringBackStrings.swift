@@ -26,17 +26,36 @@ enum CloudBringBackStrings {
         String(format: String(localized: "cloud.bringBack.syncFailed", defaultValue: "Couldn't copy the folder back from %1$@: %2$@", table: "Cloud", bundle: .module),
                machine, detail)
     }
-    /// The Mac's guard refused the chat for its permission policy (`transfer.policy`).
+    /// The Mac's guard refused the chat for its permission policy (`transfer.policy`); the toast
+    /// offers ``askFirst``.
     static var policyBlocks: String {
+        String(localized: "cloud.bringBack.policyAsksFirst",
+               defaultValue: "This chat approves actions without asking. A chat coming back from Cloud must ask first.",
+               table: "Cloud", bundle: .module)
+    }
+    /// The Mac's guard refused the chat for its mode (`transfer.mode`); the toast offers ``askFirst``.
+    static var modeBlocks: String {
+        String(localized: "cloud.bringBack.modeAsksFirst",
+               defaultValue: "This chat's mode acts without asking. A chat coming back from Cloud must ask first.",
+               table: "Cloud", bundle: .module)
+    }
+    /// "Ask first, then bring back" ran and the guard still refused the policy: it can't be narrowed
+    /// on Cloud, so the person changes it in the chat.
+    static var policyStillBlocks: String {
         String(localized: "cloud.bringBack.policyBlocks",
                defaultValue: "This chat approves actions without asking. A chat coming back from Cloud must ask first: set it to ask in the chat, then Retry.",
                table: "Cloud", bundle: .module)
     }
-    /// The Mac's guard refused the chat for its mode (`transfer.mode`).
-    static var modeBlocks: String {
+    /// "Ask first, then bring back" ran and the guard still refused the mode.
+    static var modeStillBlocks: String {
         String(localized: "cloud.bringBack.modeBlocks",
                defaultValue: "This chat's mode acts without asking. A chat coming back from Cloud must ask first: pick an asking mode in the chat, then Retry.",
                table: "Cloud", bundle: .module)
+    }
+    /// The toast action after a policy or mode refusal: narrow the chat on Cloud to an asking policy
+    /// and mode, then bring it back (cx-rppd.10).
+    static var askFirst: String {
+        String(localized: "cloud.bringBack.askFirst", defaultValue: "Ask first, then bring back", table: "Cloud", bundle: .module)
     }
     /// The Mac's guard refused the chat's agent (`transfer.family`).
     static var familyBlocks: String {
