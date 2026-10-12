@@ -81,7 +81,7 @@ final class BrowserTabService {
     var writeBackDelay: Duration = .milliseconds(500)
     // wakeup-allow: one-shot debounce of browser record write-back (injected for tests)
     var sleep: BrowserRecordWriter.Sleep = { try await ContinuousClock().sleep(for: $0) }
-    private var writers: [String: BrowserRecordWriter] = [:]
+    private(set) var writers: [String: BrowserRecordWriter] = [:]
     private(set) var historyWriters: [String: BrowserHistoryWriter] = [:]
     /// Stored-history reads in flight, by tab id (cancelled with the page).
     private var historyFetches: [String: Task<Void, Never>] = [:]
