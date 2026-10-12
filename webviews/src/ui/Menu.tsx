@@ -13,7 +13,7 @@ import {
 } from "react";
 import { Menu as BaseMenu } from "@base-ui/react/menu";
 import { useOverlayPosition, usePopupHost, usePortalContainer } from "./UiProvider";
-import { useEscapingMenu } from "./popupHost";
+import { useEscapingMenu, type AnchorBox } from "./popupHost";
 import { cx } from "./cx";
 import { UI_ANCHOR_GAP } from "./anchor";
 import { isMousePress, trackPressRelease } from "./pressRelease";
@@ -246,10 +246,10 @@ export function MenuPopup({
   );
 }
 
-/** The element a menu opened from: its `anchor` when that is an element, else its open trigger. */
-function anchorElement(anchor: MenuPopupProps["anchor"], popup: HTMLElement | null): Element | null {
+/** What a menu opened from: its `anchor` (an element or a virtual anchor), else its open trigger. */
+function anchorElement(anchor: MenuPopupProps["anchor"], popup: HTMLElement | null): AnchorBox | null {
   const resolved = typeof anchor === "function" ? anchor() : anchor && "current" in anchor ? anchor.current : anchor;
-  if (resolved instanceof Element) return resolved;
+  if (resolved && "getBoundingClientRect" in resolved) return resolved;
   if (resolved) return null;
   const triggers = popup?.ownerDocument.querySelectorAll("[aria-haspopup][data-popup-open]") ?? [];
   return triggers.length ? triggers[triggers.length - 1] : null;

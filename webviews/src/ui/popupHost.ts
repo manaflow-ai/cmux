@@ -26,6 +26,9 @@ export interface PopupModel {
   width: number;
 }
 
+/** What a menu opened from: an element or a virtual anchor. */
+export type AnchorBox = { getBoundingClientRect(): { left: number; top: number; right: number; bottom: number } };
+
 export type PopupEvent = { type: "pick"; id: string } | { type: "highlight"; id: string } | { type: "dismiss" };
 
 export interface PopupHost {
@@ -99,7 +102,12 @@ export function naturalHeight(popup: HTMLElement): number {
 }
 
 /** Whether the menu fits above or below `anchor` in the page (its natural height, every row). */
-export function fitsInPage(anchor: DOMRect, height: number, gap: number, viewportHeight: number): boolean {
+export function fitsInPage(
+  anchor: { top: number; bottom: number },
+  height: number,
+  gap: number,
+  viewportHeight: number,
+): boolean {
   const below = viewportHeight - anchor.bottom - gap - EDGE;
   const above = anchor.top - gap - EDGE;
   return height <= Math.max(below, above);
@@ -112,7 +120,7 @@ export function fitsInPage(anchor: DOMRect, height: number, gap: number, viewpor
 export function useEscapingMenu(
   host: PopupHost | null,
   element: HTMLElement | null,
-  anchor: () => Element | null,
+  anchor: () => AnchorBox | null,
   { side, align, gap }: { side: "bottom" | "top"; align: "start" | "end"; gap: number },
 ) {
   const anchorRef = useRef(anchor);
