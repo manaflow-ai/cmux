@@ -132,11 +132,12 @@ struct CmuxToastSurfaceTests {
         (handles + [fourth]).forEach { $0.dismiss() }
     }
 
+    /// The toasts shown over `window`: they live in its overlay panel, a child window.
     private static func toastViews(in window: NSWindow) -> [CmuxToastView] {
         func walk(_ view: NSView) -> [CmuxToastView] {
             (view as? CmuxToastView).map { [$0] } ?? view.subviews.flatMap(walk)
         }
-        return (window.contentView?.superview ?? window.contentView).map(walk) ?? []
+        return WindowOverlayHost.host(for: window).panel.contentView.map(walk) ?? []
     }
 }
 
