@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   type ComponentProps,
+  type KeyboardEvent,
   type PointerEvent,
   type ReactNode,
   type RefObject,
@@ -187,6 +188,8 @@ export interface MenuPopupProps {
    * field (a picker's search) returns focus there.
    */
   finalFocus?: boolean | RefObject<HTMLElement | null>;
+  /** Keys the menu takes beyond Base UI's own (a mode menu's number keys). */
+  onKeyDown?: (event: KeyboardEvent<HTMLDivElement>) => void;
   children: ReactNode;
 }
 
@@ -203,6 +206,7 @@ export function MenuPopup({
   align = "start",
   anchor,
   finalFocus,
+  onKeyDown,
   children,
 }: MenuPopupProps) {
   const container = usePortalContainer();
@@ -221,6 +225,7 @@ export function MenuPopup({
           aria-label={label}
           className={cx("ui-popup ui-menu", className)}
           finalFocus={finalFocus}
+          onKeyDown={onKeyDown}
         >
           <PopupSurface value={className}>{children}</PopupSurface>
         </BaseMenu.Popup>
