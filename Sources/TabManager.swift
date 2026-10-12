@@ -1413,6 +1413,7 @@ class TabManager: ObservableObject {
         return withExtendedLifetime((capturedTabs, sourceWorkspace)) {
             let inheritanceEnabled = inheritWorkingDirectory
                 && settings.value(for: settingsCatalog.app.workspaceInheritWorkingDirectory)
+                && ghosttyWorkingDirectoryInheritance().window
             let inheritedWorkingDirectory = inheritanceEnabled
                 ? preferredWorkingDirectoryForNewTab(workspace: sourceWorkspace)
                 : nil
@@ -2002,7 +2003,8 @@ class TabManager: ObservableObject {
     }
 
     func implicitWorkingDirectoryForNewWorkspace(from sourceWorkspace: Workspace?) -> String? {
-        guard settings.value(for: settingsCatalog.app.workspaceInheritWorkingDirectory) else {
+        guard settings.value(for: settingsCatalog.app.workspaceInheritWorkingDirectory),
+              ghosttyWorkingDirectoryInheritance().window else {
             return nil
         }
         return preferredWorkingDirectoryForNewTab(workspace: sourceWorkspace)

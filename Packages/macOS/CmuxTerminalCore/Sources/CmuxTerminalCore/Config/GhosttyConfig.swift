@@ -1059,10 +1059,11 @@ public struct GhosttyConfig {
         CGFloat(CmuxGhosttyConfigSettingEditor().clampedSurfaceTabBarFontSize(Double(value)))
     }
 
+    /// Ghostty's boolean spellings; an empty value resets to the default.
     private static func parseBool(_ value: String) -> Bool? {
         switch value {
-        case "true": true
-        case "false": false
+        case "", "true", "t", "1": true
+        case "false", "f", "0": false
         default: nil
         }
     }

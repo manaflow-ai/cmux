@@ -27,7 +27,8 @@ extension TabManager {
             from: surfaceId,
             orientation: direction.orientation,
             insertFirst: direction.insertFirst,
-            focus: focus
+            focus: focus,
+            honorsGhosttySplitInheritance: true
         )
         if let panel = outcome.panel {
             workspace.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: panel.id)
@@ -56,7 +57,8 @@ extension TabManager {
             from: surfaceId,
             orientation: .horizontal,
             focus: focus,
-            autoLayout: true
+            autoLayout: true,
+            honorsGhosttySplitInheritance: true
         )
     }
 
