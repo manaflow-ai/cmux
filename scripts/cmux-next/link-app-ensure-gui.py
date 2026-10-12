@@ -15,12 +15,14 @@ Checks (each a PASS/FAIL line, all in $NX_ARTIFACTS/link.json):
 4. with the Cloud app server running, a link stopped behind the app is started again by the
    app's own ensure (`debug.cloud.link_ensure` on the debug socket, DEBUG builds only), and the app's `apps-link-changed`
    passes on its verified connection and tells at least one app server;
-5. the link outlives the app (quit by exact pid), then `link stop` ends it and removes
-   `link.json`.
+5. the link outlives the app (quit by exact pid);
+6. a session end without the app's sign-out (`debug.cloud.end_session`) stops the link and
+   archives its install; the next launch signs in and starts it again;
+7. a sign-out while an ensure runs leaves no link.
 The app is started by its executable from this job and ended by exact pid; it never touches
 the user's cmux. The tag's daemons end through TagTeardown.
 """
-import json, os, plistlib, socket, stat, subprocess, sys, time
+import json, os, plistlib, shutil, socket, stat, subprocess, sys, threading, time
 
 APP = os.environ["NX_APP"]
 TAG = os.environ["NX_APP_TAG"]
@@ -94,8 +96,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown
 
 TAG_ROOT = os.path.expanduser(f"~/Library/Application Support/cmux/tags/{TAG}")
+MOVED_ASIDE = None
 if os.path.isdir(TAG_ROOT) and not os.path.islink(TAG_ROOT):
-    os.rename(TAG_ROOT, TAG_ROOT + ".old-" + str(int(time.time())))
+    MOVED_ASIDE = TAG_ROOT + ".old-" + str(int(time.time()))
+    os.rename(TAG_ROOT, MOVED_ASIDE)
 TUI = os.path.join(TAG_ROOT, "tui")
 LINK_STATE = os.path.join(TUI, "link")
 REGISTRATION = os.path.join(TUI, "link.json")
@@ -117,8 +121,20 @@ def link(*args):
 
 with open(os.path.join(APP, "Contents/Info.plist"), "rb") as f:
     BINARY = os.path.join(APP, "Contents/MacOS", plistlib.load(f)["CFBundleExecutable"])
-if os.path.exists(SOCKET):
-    os.unlink(SOCKET)
+
+
+def remove_own_socket(path):
+    """Removes a stale debug socket only when it is a socket of this user."""
+    try:
+        info = os.lstat(path)
+    except FileNotFoundError:
+        return
+    if stat.S_ISSOCK(info.st_mode) and info.st_uid == os.getuid():
+        os.unlink(path)
+    else:
+        sys.exit(f"refusing to remove {path}: not a socket of this user")
+
+
 config = os.path.join(OUT, "cmux.json")
 with open(config, "w") as f:
     f.write("{}\n")
@@ -134,17 +150,46 @@ env.update({"CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
 TEARDOWN = TagTeardown(APP, acpmux_home=HOME_ACP, acpmux_socket=ACP_SOCKET, log=say)
 TEARDOWN.install()
 app_log = open(os.path.join(OUT, "app.log"), "a")
-app = subprocess.Popen([BINARY], env=env, stdout=app_log, stderr=app_log, stdin=subprocess.DEVNULL)
-say("started app pid", app.pid)
-failed = False
-try:
+APP_PROC = None
+
+
+def launch(label):
+    """Starts the app by its executable and waits until it is up and signed in."""
+    global APP_PROC
+    remove_own_socket(SOCKET)
+    APP_PROC = subprocess.Popen([BINARY], env=env, stdout=app_log, stderr=app_log, stdin=subprocess.DEVNULL)
+    say("started app pid", APP_PROC.pid, label)
     up = wait(lambda: "error" not in (rpc("debug.focus", timeout=5) or {"error": 1}), 120, 2)
-    record("tagged app up", up, SOCKET)
     auth = wait(lambda: (lambda s: s if isinstance(s, dict) and s.get("signed_in") else None)(rpc("auth.status")), 120, 2) or {}
-    signed = (auth.get("email") or "").lower() == ACCOUNT.lower() and bool(ACCOUNT)
+    signed = bool(ACCOUNT) and (auth.get("email") or "").lower() == ACCOUNT.lower()
+    return bool(up), signed, auth
+
+
+def quit_app():
+    """Ends the app this script started, by its exact pid."""
+    global APP_PROC
+    if APP_PROC is None:
+        return
+    APP_PROC.terminate()
+    try:
+        APP_PROC.wait(timeout=30)
+    except subprocess.TimeoutExpired:
+        APP_PROC.kill()
+        APP_PROC.wait()
+    say("app ended", APP_PROC.pid)
+    APP_PROC = None
+
+
+def signed_out():
+    return wait(lambda: (lambda s: isinstance(s, dict) and s.get("signed_in") is False)(rpc("auth.status")), 60, 1)
+
+
+pid = None
+try:
+    up, signed, auth = launch("first")
+    record("tagged app up", up, SOCKET)
     record("signed in as the agent account only", signed, f"backend {auth.get('backend')}")
     if not (up and signed):
-        failed = True
         sys.exit(1)
     registered = wait(lambda: os.path.exists(REGISTRATION), 90, 1)
     record("the app started its link: tag registration appears", registered, REGISTRATION)
@@ -156,11 +201,10 @@ try:
     release_after = fingerprint(RELEASE)
     record("the release link registration did not change", release_after == release_before,
            f"exists before {release_before['exists']} after {release_after['exists']}")
-    # The app's real apps-link-changed call (round 2 item 7): the Cloud app
-    # server runs (a machine list starts it), the link stops behind the
-    # app's back, and the app's own ensure starts it again and tells the
-    # daemon on its verified connection. The daemon answers how many app
-    # servers it told: the Cloud server must be one of them.
+    # The app's real apps-link-changed call: the Cloud app server runs (a
+    # machine list starts it), the link stops behind the app's back, and the
+    # app's own ensure starts it again and tells the daemon on its verified
+    # connection, which answers how many app servers it told.
     listed = rpc("cloud.machines")
     record("the Cloud app server answers the machine list", isinstance(listed, dict) and "error" not in listed,
            json.dumps(listed)[:200])
@@ -174,20 +218,48 @@ try:
     record("the restarted link runs", status.get("running") is True and status.get("pid") == report.get("pid"),
            json.dumps({k: status.get(k) for k in ("running", "pid")}))
     pid = status.get("pid")
+    quit_app()
+    after_quit = link("status")
+    record("the link outlives the app", pid is not None and after_quit.get("running") is True and after_quit.get("pid") == pid,
+           json.dumps({k: after_quit.get(k) for k in ("running", "pid")}))
+
+    # A session end without the app's sign-out stops the link.
+    up, signed, _ = launch("second")
+    record("the app comes back signed in", up and signed, "")
+    ended = rpc("debug.cloud.end_session", timeout=60)
+    gone = signed_out()
+    stopped_link = wait(lambda: link("status").get("running") is False, 60, 1)
+    record("a session end without sign-out stops the link and archives its install",
+           bool(gone) and bool(stopped_link) and not os.path.exists(os.path.join(LINK_STATE, "config.json")),
+           f"end_session {json.dumps(ended)[:120]}; signed out {bool(gone)}; config left {os.path.exists(os.path.join(LINK_STATE, 'config.json'))}")
+    quit_app()
+
+    # A sign-out while an ensure runs leaves no link.
+    up, signed, _ = launch("third")
+    record("the next launch signs in and starts the link again", up and signed and wait(lambda: link("status").get("running") is True, 90, 1),
+           json.dumps({k: link("status").get(k) for k in ("running", "pid")}))
+    link("stop")
+    racing = {}
+
+    def ensure_now():
+        racing["report"] = rpc("debug.cloud.link_ensure", timeout=90)
+
+    ensure_thread = threading.Thread(target=ensure_now)
+    ensure_thread.start()
+    signout = rpc("action.run", {"action": "palette.auth.signOut"}, timeout=90)
+    ensure_thread.join(120)
+    gone = signed_out()
+    settled = wait(lambda: link("status").get("running") is False, 30, 1)
+    record("a sign-out during an ensure leaves no link", bool(gone) and bool(settled),
+           f"sign-out {json.dumps(signout)[:120]}; ensure {json.dumps(racing.get('report'))[:200]}; link {json.dumps(link('status'))[:120]}")
 finally:
-    app.terminate()
-    try:
-        app.wait(timeout=30)
-    except subprocess.TimeoutExpired:
-        app.kill()
-        app.wait()
-    say("app ended", app.pid)
-    if not failed:
-        after_quit = link("status")
-        record("the link outlives the app", after_quit.get("running") is True and after_quit.get("pid") == pid,
-               json.dumps({k: after_quit.get(k) for k in ("running", "pid")}))
-    stopped = link("stop")
-    record("link stop ends it and removes link.json", not os.path.exists(REGISTRATION) and link("status").get("running") is False,
-           json.dumps(stopped))
-    TEARDOWN.end()
-sys.exit(0 if all(s["ok"] for s in STEPS) else 1)
+    for step in (quit_app,
+                 lambda: record("link stop at the end leaves no link.json",
+                                link("stop") is not None and not os.path.exists(REGISTRATION), ""),
+                 TEARDOWN.end,
+                 lambda: shutil.rmtree(MOVED_ASIDE) if MOVED_ASIDE and os.path.isdir(MOVED_ASIDE) else None):
+        try:
+            step()
+        except Exception as error:  # each cleanup step runs, whatever the one before did
+            say("cleanup step failed:", error)
+sys.exit(0 if STEPS and all(s["ok"] for s in STEPS) else 1)
