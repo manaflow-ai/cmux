@@ -17,7 +17,9 @@ const revealOnSelect = (node: HTMLTableRowElement | null) => node?.scrollIntoVie
 
 /** A plain key: no Cmd, Ctrl or Option (those belong to the app's key dispatcher). */
 function plain(event: KeyboardEvent): boolean {
-  return !event.metaKey && !event.ctrlKey && !event.altKey;
+  // Let an IME keep composition Enter and candidate-navigation arrows. WebKit can report only
+  // keyCode 229 for the composition commit, so checking isComposing alone is insufficient.
+  return !event.metaKey && !event.ctrlKey && !event.altKey && !event.nativeEvent.isComposing && event.keyCode !== 229;
 }
 
 const ICONS = {
