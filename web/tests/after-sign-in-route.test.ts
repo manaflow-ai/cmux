@@ -21,6 +21,8 @@ type TestStackAuthUser = {
 let handoffCookie: string | undefined;
 let rawRefreshCookie: string;
 let rawAccessCookie: string;
+let refreshCookieName = "stack-refresh-test-project";
+let accessCookieName = "stack-access";
 let getUserResponses: Array<TestStackAuthUser | null> = [];
 let promotionShouldFail = false;
 const claimVerifiedBilling = mock(async () => undefined);
@@ -51,8 +53,8 @@ const GET = makeAfterSignInHandler({
       return undefined;
     },
     getAll: () => [
-      { name: "stack-refresh-test-project", value: rawRefreshCookie },
-      { name: "stack-access", value: rawAccessCookie },
+      { name: refreshCookieName, value: rawRefreshCookie },
+      { name: accessCookieName, value: rawAccessCookie },
     ],
   }),
 });
@@ -94,6 +96,8 @@ describe("after sign-in native handoff", () => {
     handoffCookie = undefined;
     rawRefreshCookie = "refresh-token";
     rawAccessCookie = "access-token";
+    refreshCookieName = "stack-refresh-test-project";
+    accessCookieName = "stack-access";
     getUserResponses = [];
     promotionShouldFail = false;
     getUser.mockClear();
@@ -165,6 +169,25 @@ describe("after sign-in native handoff", () => {
     expect(setCookie).toContain(`${HANDOFF_COOKIE}=;`);
     expect(setCookie).toContain("Max-Age=0");
     expect(setCookie).toContain("Path=/handler/after-sign-in");
+  });
+
+  test("reads Hexclave cookie aliases for native handoffs", async () => {
+    handoffCookie = "handoff-nonce";
+    refreshCookieName = "__Host-hexclave-refresh-test-project--default";
+    accessCookieName = "hexclave-access";
+    const nativeReturnTo = "cmux://auth-callback?cmux_auth_state=state-hexclave";
+
+    const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce"));
+
+    expect(response.status).toBe(307);
+    const location = response.headers.get("location");
+    expect(location).toBeTruthy();
+    const callbackURL = new URL(location!);
+    expect(callbackURL.searchParams.get("cmux_auth_state")).toBe("state-hexclave");
+    expect(callbackURL.searchParams.get("stack_refresh")).toBe("refresh-token");
+    expect(callbackURL.searchParams.get("stack_access")).toBe(
+      JSON.stringify(["refresh-token", "access-token"]),
+    );
   });
 
   test("redirects verified release-candidate handoffs directly to cmux-rc", async () => {

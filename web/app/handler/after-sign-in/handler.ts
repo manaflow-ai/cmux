@@ -91,6 +91,23 @@ function findStackCookie(
   return undefined;
 }
 
+/**
+ * Stack Auth was renamed to Hexclave, but existing browser sessions can use
+ * either cookie prefix while the migration is in flight. Native handoffs
+ * must be able to read both forms so a successful browser sign-in does not
+ * lose its token pair before it reaches the desktop app.
+ */
+function findAuthCookie(
+  cookieStore: { getAll: () => { name: string; value: string }[] },
+  baseNames: readonly string[],
+): string | undefined {
+  for (const baseName of baseNames) {
+    const value = findStackCookie(cookieStore, baseName);
+    if (value) return value;
+  }
+  return undefined;
+}
+
 function decodeCookieValue(value: string | undefined): string | undefined {
   if (!value) return undefined;
   if (!value.includes("%")) return value;
@@ -362,9 +379,14 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
     const localizedMessages = await afterSignInMessages(request);
 
     const stackCookies = await dependencies.getCookieStore();
-    const refreshBaseName = `stack-refresh-${projectId}`;
-    const rawRefreshCookie = findStackCookie(stackCookies, refreshBaseName);
-    const rawAccessCookie = findStackCookie(stackCookies, "stack-access");
+    const rawRefreshCookie = findAuthCookie(stackCookies, [
+      `hexclave-refresh-${projectId}`,
+      `stack-refresh-${projectId}`,
+    ]);
+    const rawAccessCookie = findAuthCookie(stackCookies, [
+      "hexclave-access",
+      "stack-access",
+    ]);
     const parsedAccess = decodeAccessCookie(rawAccessCookie);
     const parsedRefresh = decodeRefreshCookie(rawRefreshCookie);
 
