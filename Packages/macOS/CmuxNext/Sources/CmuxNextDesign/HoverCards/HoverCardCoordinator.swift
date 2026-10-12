@@ -279,10 +279,24 @@ public final class HoverCardCoordinator {
     /// no-activate run (a capture slot) sits under other apps' windows,
     /// such as the Cua Driver's full-screen one, so the system's topmost
     /// window there is never ours.
+    /// The window server's on-screen list (front to back), not AppKit's
+    /// `orderedWindows`, which does not follow the screen order there.
     private static func ownTopWindowNumber(at point: CGPoint, excluding card: Int?) -> Int? {
-        NSApp?.orderedWindows.first {
-            $0.isVisible && !$0.ignoresMouseEvents && $0.windowNumber != card && $0.frame.contains(point)
-        }?.windowNumber
+        guard let primary = NSScreen.screens.first else { return nil }
+        // Window server bounds have their origin at the primary screen's top left.
+        let flipped = CGPoint(x: point.x, y: primary.frame.maxY - point.y)
+        let pid = Int(ProcessInfo.processInfo.processIdentifier)
+        let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
+        for info in list {
+            guard (info[kCGWindowOwnerPID as String] as? NSNumber)?.intValue == pid,
+                  let number = (info[kCGWindowNumber as String] as? NSNumber)?.intValue, number != card,
+                  ((info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1) > 0,
+                  let bounds = (info[kCGWindowBounds as String] as? NSDictionary).flatMap({ CGRect(dictionaryRepresentation: $0) }),
+                  bounds.contains(flipped),
+                  NSApp?.window(withWindowNumber: number)?.ignoresMouseEvents != true else { continue }
+            return number
+        }
+        return nil
     }
 
     // MARK: Verification
