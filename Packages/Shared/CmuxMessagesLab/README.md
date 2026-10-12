@@ -78,7 +78,6 @@ and render-server field animation, blurred header and native scrolling.
 | FlightRecorder | the app's policy and log folder (`HomeFlightRecorder`), window captures behind their own opt-in, the pane's optional window (attached from `ChatController.windowChanged`, observers replaced), FlashCheck/LiveProbes/Bench/LiveRecord helpers from `HomeFlightRecorder` |
 | Layout | `MessagesLabLocalization`'s default is the package bundle (`Bundle(for:)` of a class in a linked package is the app's); the image placeholder and code-text strings carry all 21 app languages in Localizable.xcstrings |
 | TranscriptAccess (pinned at bd65bbf) | MessagesLab 30495be's accessibility fix only: one element per visible message id, kept on `TranscriptSelection.axElements` and reused (an element made per call was freed, and VoiceOver and AX clients saw an empty Messages list); the rest of the newer file (selection menu, speech, search) is not rolled in |
-| NativeScroll (3508ff9, paceClipMove) | crash program: the frames since the last clip move convert through `CrashGuard.int` (a zero frame interval or a first move gave infinity, which `Int()` traps on); same 2...4 frame test |
 | SwipeReply, TranscriptAccess (own pins) | crash program (plans/cmux-next/crash-elimination.md): no force unwraps, `try!`, `as!` or IUOs. From eb1ed28 the rest of the crash program is upstream (586d5f0 CrashGuard/CrashSafeGraphics, ef7da0a the decided hunks), and so are the per-view widths, the 434 pt text column, the scroller's own right edge and the macOS 14 gates (60e79ec LabGlass) |
 
 ## Updating
