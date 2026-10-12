@@ -20,6 +20,10 @@ struct DiffViewerGitTests {
             ["head": "0123456789abcdef0123456789abcdef01234567", "root": .string(repository)]
         }
 
+        func diff(_ repository: String, scope: AgentPaneGitScope) async throws(AgentPaneGitFailure) -> JSONValue {
+            ["files": [], "scope": .string(scope.rawValue)]
+        }
+
         func write(_ request: AgentPaneGitWrite, in repository: String) async throws(AgentPaneGitFailure) -> JSONValue {
             writes.append((request, repository))
             return ["committed": true]
@@ -43,6 +47,9 @@ struct DiffViewerGitTests {
         let provider = DiffPageProvider(ready: Task { DiffTabReady(grant: grant, config: [:]) }, sidecar: nil, languages: nil, git: git)
         let clicked = PageCallContext(page: "cmux.diff", userGesture: true)
 
+        // The page learns the ops from its config, and reads without a gesture.
+        let config = try await provider.call("cmux.diff.config", params: [:], context: PageCallContext(page: "cmux.diff"))
+        #expect(config["ops"]?.arrayValue?.contains("cmux.diff.git.commit") == true)
         let status = try await provider.call("cmux.diff.git.status", params: ["path": "/etc"], context: PageCallContext(page: "cmux.diff"))
         #expect(status["root"]?.stringValue == Self.repository)
 

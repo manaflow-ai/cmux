@@ -7,6 +7,8 @@ import Foundation
 protocol DiffGitRunning: AnyObject {
     /// The session host's `git.status` of `repository`.
     func status(_ repository: String) async throws(AgentPaneGitFailure) -> JSONValue
+    /// The session host's `git.diff` of `repository` in `scope`, without patches (the files).
+    func diff(_ repository: String, scope: AgentPaneGitScope) async throws(AgentPaneGitFailure) -> JSONValue
     /// The session host's commit or push in `repository`, under the request's key.
     func write(_ request: AgentPaneGitWrite, in repository: String) async throws(AgentPaneGitFailure) -> JSONValue
     /// `git add` / `git restore --staged` (or one hunk) in `repository`; nil on success, else
@@ -15,6 +17,7 @@ protocol DiffGitRunning: AnyObject {
 }
 
 /// The diff tab's Stage, Commit and Push (cx-ueuc8): `cmux.diff.git.status {}`,
+/// `cmux.diff.git.diff {scope}` (the files only, for Commit's "Include new files"),
 /// `cmux.diff.git.commit` and `cmux.diff.git.push` with the changes view's params (no
 /// `session_id`), and `cmux.diff.git.stage`, `.unstage`, `.stageHunk`, `.unstageHunk` with
 /// `{paths, hunk?}`. Each runs in the tab's own repository, the one its grant covers: a `cwd`
@@ -22,7 +25,7 @@ protocol DiffGitRunning: AnyObject {
 /// Writes need a real click or key in the page (``PageCallContext/userGesture``).
 extension DiffPageProvider {
     static let gitOps: Set<String> = [
-        "cmux.diff.git.status", "cmux.diff.git.commit", "cmux.diff.git.push",
+        "cmux.diff.git.status", "cmux.diff.git.diff", "cmux.diff.git.commit", "cmux.diff.git.push",
         "cmux.diff.git.stage", "cmux.diff.git.unstage", "cmux.diff.git.stageHunk", "cmux.diff.git.unstageHunk",
     ]
     /// The session the writes name: the diff tab has no chat, and the session host keys only on
@@ -35,9 +38,10 @@ extension DiffPageProvider {
         guard let git else { throw PageError.unknownOp(op) }
         let repository = try await gitRepository()
         let method = "git." + op.dropFirst("cmux.diff.git.".count)
-        if method == "git.status" {
+        if method == "git.status" || method == "git.diff" {
+            let scope = params["scope"]?.stringValue.flatMap(AgentPaneGitScope.init(rawValue:)) ?? .uncommitted
             do {
-                return try await git.status(repository)
+                return method == "git.status" ? try await git.status(repository) : try await git.diff(repository, scope: scope)
             } catch {
                 throw Self.pageError(error)
             }
@@ -67,6 +71,13 @@ extension DiffPageProvider {
             throw PageError(code: "git.failed", message: message)
         }
         return ["ok": true]
+    }
+
+    /// `config` listing the git ops, when this tab serves them.
+    func withGit(_ config: JSONValue) -> JSONValue {
+        guard git != nil, case .object(var members) = config, members["pick"] == nil else { return config }
+        members["ops"] = .array((members["ops"]?.arrayValue ?? []) + Self.gitOps.sorted().map(JSONValue.string))
+        return .object(members)
     }
 
     /// The repository the tab's grant covers.
@@ -102,6 +113,10 @@ final class DiffAgentGit: DiffGitRunning {
 
     func status(_ repository: String) async throws(AgentPaneGitFailure) -> JSONValue {
         try Self.parse(try await link.read(.status(cwd: repository)))
+    }
+
+    func diff(_ repository: String, scope: AgentPaneGitScope) async throws(AgentPaneGitFailure) -> JSONValue {
+        try Self.parse(try await link.read(.diff(cwd: repository, scope: scope, includePatch: false)))
     }
 
     func write(_ request: AgentPaneGitWrite, in repository: String) async throws(AgentPaneGitFailure) -> JSONValue {
