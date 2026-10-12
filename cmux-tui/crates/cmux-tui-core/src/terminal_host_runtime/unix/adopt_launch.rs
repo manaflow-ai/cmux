@@ -13,15 +13,23 @@
 
 use std::os::fd::{FromRawFd, OwnedFd};
 
+use crate::program_status::ProgramStatusSnapshot;
+use crate::terminal_host_runtime::shared::program_status_codec;
+
 use super::adopted_child::AdoptedChild;
 use super::pty_custody::PtyCustody;
 use super::pty_lock::PtyOwnershipLock;
 use super::*;
 
 /// The launch fields of `Launch` plus the PTY and session to adopt, the
-/// reused incarnation and a seed blob of VT replay. The seed may use the
-/// full blob budget on top of the `Launch` budget.
-const MAX_LAUNCH_ADOPT_PAYLOAD: usize = MAX_LAUNCH_PAYLOAD + size_of::<u32>() + MAX_BLOB;
+/// reused incarnation, a seed blob of VT replay and the owner's OSC 7501
+/// records. The seed may use the full blob budget on top of the `Launch`
+/// budget; the records have their own.
+const MAX_LAUNCH_ADOPT_PAYLOAD: usize =
+    MAX_LAUNCH_PAYLOAD + size_of::<u32>() + MAX_BLOB + MAX_ADOPT_PROGRAM_STATUS_BYTES;
+/// Records past this budget are not seeded (only `next_seq` is), as a
+/// Snapshot past its frame budget carries none.
+const MAX_ADOPT_PROGRAM_STATUS_BYTES: usize = 64 * 1024;
 const ADOPT_PTY_FD_FLAG: &str = "--adopt-pty-fd";
 /// The descriptor the owner passes the master at.
 const ADOPTED_PTY_FD: libc::c_int = 3;
@@ -33,6 +41,7 @@ pub(crate) struct AdoptSpec {
     child_pid: u32,
     session_id: u32,
     seed: Vec<u8>,
+    program_status: Option<ProgramStatusSnapshot>,
 }
 
 #[derive(Debug)]
@@ -42,6 +51,9 @@ struct HostLaunchAdopt {
     session_id: u32,
     incarnation: HostIncarnation,
     seed: Vec<u8>,
+    /// Optional trailing section (cx-6so.36.10): the records the dead host's
+    /// owner kept, so a later daemon adopts them from this host.
+    program_status: Option<ProgramStatusSnapshot>,
 }
 
 impl HostLaunchAdopt {
@@ -74,6 +86,17 @@ impl HostLaunchAdopt {
             "terminal-host adopt launch payload is too large"
         );
         put_blob(&mut output, &self.seed)?;
+        if let Some(program_status) = &self.program_status {
+            let mut tail = Vec::new();
+            program_status_codec::put_program_status(&mut tail, program_status)?;
+            if tail.len() > MAX_ADOPT_PROGRAM_STATUS_BYTES {
+                tail.clear();
+                let next_seq = program_status.next_seq;
+                let empty = ProgramStatusSnapshot { records: Vec::new(), next_seq };
+                program_status_codec::put_program_status(&mut tail, &empty)?;
+            }
+            output.extend_from_slice(&tail);
+        }
         Ok(output)
     }
 
@@ -98,6 +121,10 @@ impl HostLaunchAdopt {
         let incarnation = HostIncarnation::from_hex(&encode_hex(&incarnation_bytes))
             .ok_or_else(|| anyhow::anyhow!("adopted incarnation is not a canonical UUIDv4"))?;
         let seed = decoder.blob()?.to_vec();
+        let program_status = decoder
+            .has_remaining()
+            .then(|| program_status_codec::program_status(&mut decoder))
+            .transpose()?;
         decoder.finish()?;
         anyhow::ensure!(child_pid != 0 && session_id != 0, "adopted session is unnamed");
         let launch = HostLaunch {
@@ -115,7 +142,7 @@ impl HostLaunchAdopt {
             kitty_graphics_limits,
             seed: Vec::new(),
         };
-        Ok(Self { launch, child_pid, session_id, incarnation, seed })
+        Ok(Self { launch, child_pid, session_id, incarnation, seed, program_status })
     }
 }
 
@@ -178,6 +205,7 @@ pub(crate) fn decode(
         child_pid: adopt.child_pid,
         session_id: adopt.session_id,
         seed: adopt.seed,
+        program_status: adopt.program_status,
     };
     Ok((adopt.launch, Some(spec)))
 }
@@ -219,7 +247,8 @@ fn spawn_adopted_runtime(
     let cell_pixels = (launch.cell_pixels.0.max(1), launch.cell_pixels.1.max(1));
     master.resize(pty_size(launch.cols, launch.rows, cell_pixels)?)?;
     crate::debug_spans::mark("host.pty_adopted");
-    start_host_runtime(launch, bootstrapped, master, HostChild::Adopted(child), &spec.seed)
+    let child = HostChild::Adopted(child);
+    start_host_runtime(launch, bootstrapped, master, child, &spec.seed, spec.program_status)
 }
 
 /// What a replacement host adopts and how it presents the terminal.
@@ -326,6 +355,16 @@ pub fn launch_terminal_host_adopting(
     root: &Path,
     adoption: TerminalHostAdoption<'_>,
 ) -> anyhow::Result<HostAttachment> {
+    launch_terminal_host_adopting_with_program_status(root, adoption, None)
+}
+
+/// [`launch_terminal_host_adopting`] whose host also starts with the
+/// owner's OSC 7501 records (cx-6so.36.10).
+pub(crate) fn launch_terminal_host_adopting_with_program_status(
+    root: &Path,
+    adoption: TerminalHostAdoption<'_>,
+    program_status: Option<ProgramStatusSnapshot>,
+) -> anyhow::Result<HostAttachment> {
     let terminal_id = TerminalId::from_hex(&adoption.identity.terminal_id)
         .ok_or_else(|| anyhow::anyhow!("terminal id is not a canonical UUIDv4"))?;
     let incarnation = HostIncarnation::from_hex(&adoption.identity.incarnation)
@@ -360,6 +399,7 @@ pub fn launch_terminal_host_adopting(
         session_id: adoption.custody.session_id,
         incarnation,
         seed: adoption.seed.to_vec(),
+        program_status,
     };
     let payload = launch.encode()?;
     let (process, (mut stdin, mut stdout)) =
@@ -458,6 +498,7 @@ mod tests {
             session_id: 4242,
             incarnation: HostIncarnation::random().unwrap(),
             seed,
+            program_status: None,
         }
     }
 

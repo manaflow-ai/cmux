@@ -11,7 +11,8 @@
 //! When the reconnect loop proves the host dead and the host left no exit
 //! record, the owner starts a replacement host on the held master
 //! (`launch_terminal_host_adopting`): same terminal id, incarnation and
-//! owner token, seeded with the owner's replica of the screen. The terminal
+//! owner token, seeded with the owner's replica of the screen and its
+//! OSC 7501 program status records. The terminal
 //! keeps its tab, surface and shell; the reconnect loop installs the new
 //! host like any reconnect. Without custody, a live shell or a replaceable
 //! state, the dead host is handled as before (a host loss).
@@ -198,8 +199,17 @@ fn replace_host(
         seed: &seed,
         host_binary: None,
     };
+    // The owner's OSC 7501 records, so a daemon that later adopts the
+    // replacement keeps them (cx-6so.36.10).
+    let records =
+        pty.terminal_metadata.lock().unwrap_or_else(PoisonError::into_inner).program_status();
+    let program_status = records.lock().unwrap_or_else(PoisonError::into_inner).snapshot();
     let mut attachment =
-        match crate::terminal_host_runtime::launch_terminal_host_adopting(root, adoption) {
+        match crate::terminal_host_runtime::launch_terminal_host_adopting_with_program_status(
+            root,
+            adoption,
+            Some(program_status),
+        ) {
             Ok(attachment) => attachment,
             Err(error) => {
                 eprintln!(
