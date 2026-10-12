@@ -156,6 +156,13 @@ impl Hub {
         )))
     }
 
+    /// Records that `session`'s agent refused its `session/load`, with the error's `data`, where
+    /// codex-acp says why (its message is "Internal error").
+    pub(super) fn note_load_failed(&self, session: &Session, e: &RpcError) {
+        let failed = json!({"error": e.message, "data": e.data});
+        self.append(session, "mux", "resume_failed", failed);
+    }
+
     /// Why `session`'s agent refused its `session/load`, if it did: the error's message and its
     /// `data` (where codex-acp puts the reason), as one text.
     fn load_error(&self, session: &Session) -> Option<String> {
