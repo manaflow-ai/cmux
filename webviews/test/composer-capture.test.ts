@@ -1,5 +1,6 @@
 // Attach Screenshot… and Attach Window… in the composer's + menu (cx-ncc.71, Codex desktop app
-// parity): the host captures with macOS screencapture and the page attaches the image as a chip.
+// parity): the host captures with macOS screencapture and the page attaches the image as a chip;
+// either way, focus returns to the prompt.
 // The composer gallery's plays answer the host call in Chromium.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
