@@ -121,6 +121,12 @@ public struct Palette {
     /// Glyphs on `highlight`.
     public static var highlightText: NSColor { color(\.highlightText, opaque: true, dynamic: PaletteDynamic.highlightText) }
 
+    /// The theme's accent as a solid fill (``ThemeTokens/accent``): the primary text by default,
+    /// the theme's own hue with `appearance.accent`. A themed menu's highlighted row (`NSMenu.themeRows(in:)`).
+    public static var accentFill: NSColor { color(\.accent, opaque: true, dynamic: PaletteDynamic.accentFill) }
+    /// Glyphs and labels on `accentFill`, at least 4.5:1 (``ThemeTokens/onAccent``).
+    public static var onAccent: NSColor { color(\.onAccent, opaque: true, dynamic: PaletteDynamic.onAccent) }
+
     /// The app accent. Deliberately neutral so any control that reads the
     /// accent stays in the theme's grays.
     public static var accent: NSColor { focusRing }
