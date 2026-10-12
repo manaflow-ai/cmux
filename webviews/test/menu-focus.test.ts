@@ -173,10 +173,16 @@ await requireBrowserLane("menu-focus.test.ts", async () => {
             await trigger.focus();
             await page.keyboard.press("ArrowDown");
             await page.locator('[role="menu"]').first().waitFor({ state: "visible" });
+            // WebKit highlights the first item before the popup takes focus: read once both have.
             await page
-              .waitForFunction(() => document.querySelector('[role="menu"] [data-highlighted]') !== null, null, {
-                timeout: 5_000,
-              })
+              .waitForFunction(
+                () => {
+                  const menu = document.querySelector('[role="menu"]');
+                  return !!menu?.querySelector("[data-highlighted]") && menu.contains(document.activeElement);
+                },
+                null,
+                { timeout: 5_000 },
+              )
               .catch(() => undefined);
             const byKeyboard = await openMenu(page);
             expect({ byMouse, byKeyboard }).toEqual({
