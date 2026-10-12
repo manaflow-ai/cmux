@@ -363,6 +363,8 @@ impl Mux {
             control_clients: crate::server::ClientRegistry::new(),
             #[cfg(unix)]
             agent_transfers: Default::default(),
+            #[cfg(unix)]
+            access_requests: Default::default(),
             activity: Default::default(),
             idle_close: Mutex::new(idle_close::IdleCloseTracker::default()),
             idle_close_waker: Mutex::new(None),

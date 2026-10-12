@@ -37,6 +37,9 @@ impl Mac {
         fs::write(home.join("notes/todo.txt"), "asked once\n").unwrap();
         fs::write(home.join("notes/plan.txt"), "asked always\n").unwrap();
         fs::write(home.join("private/deny.txt"), "never sent\n").unwrap();
+        fs::write(home.join("private/elsewhere.txt"), "led elsewhere\n").unwrap();
+        std::os::unix::fs::symlink("../private/elsewhere.txt", home.join("notes/shortcut.txt"))
+            .unwrap();
         fs::write(home.join(".ssh/id_ed25519"), "fake-private-key\n").unwrap();
         Self { home, state: root.join("mac-state") }
     }
@@ -133,11 +136,13 @@ fn an_access_request_outside_any_grant_waits_for_the_person_and_one_inside_is_an
     let always = ask(&vm, CHAT, &home.join("notes/plan.txt"), "60");
     let denied = ask(&vm, CHAT, &home.join("private/deny.txt"), "60");
     let key = ask(&vm, CHAT, &home.join(".ssh/id_ed25519"), "60");
+    let climbing = ask(&vm, CHAT, &home.join("notes/../.ssh/id_ed25519"), "60");
+    let shortcut = ask(&vm, CHAT, &home.join("notes/shortcut.txt"), "60");
     // A chat this Mac did not move: it gives up waiting on its own.
     let other = ask(&vm, OTHER_CHAT, &home.join("notes/todo.txt"), "5");
-    let requests = wait_until(30, "six requests on the machine", || {
+    let requests = wait_until(30, "eight requests on the machine", || {
         let requests = pending(&vm);
-        (requests.len() == 6).then_some(requests)
+        (requests.len() == 8).then_some(requests)
     });
     let other_id = requests.iter().find(|r| r["session"] == OTHER_CHAT).unwrap()["request_id"]
         .as_str()
@@ -157,14 +162,17 @@ fn an_access_request_outside_any_grant_waits_for_the_person_and_one_inside_is_an
             (a["path"].as_str().unwrap().to_owned(), a["outcome"].as_str().unwrap().to_owned())
         })
         .collect();
-    assert_eq!(outcomes.len(), 2, "{triaged}");
+    assert_eq!(outcomes.len(), 3, "{triaged}");
     assert!(outcomes.contains(&(designs.join("a.txt").display().to_string(), "delivered".into())));
     assert!(
         outcomes.contains(&(home.join(".ssh/id_ed25519").display().to_string(), "denied".into()))
     );
+    // `..` is judged as written: it climbs into ~/.ssh.
+    let climbing_path = home.join("notes/../.ssh/id_ed25519").display().to_string();
+    assert!(outcomes.contains(&(climbing_path, "denied".into())), "{triaged}");
     let asked: Vec<&str> =
         triaged["ask"].as_array().unwrap().iter().map(|a| a["path"].as_str().unwrap()).collect();
-    assert_eq!(asked.len(), 3, "{triaged}");
+    assert_eq!(asked.len(), 4, "{triaged}");
     let notes = home.join("notes");
     let plan_ask = triaged["ask"]
         .as_array()
@@ -174,6 +182,17 @@ fn an_access_request_outside_any_grant_waits_for_the_person_and_one_inside_is_an
         .unwrap()
         .clone();
     assert_eq!(plan_ask["always_folder"], json!(notes.to_str().unwrap()), "{triaged}");
+    // The card shows where a symlink leads, not only the name asked for.
+    let elsewhere = home.join("private/elsewhere.txt");
+    let shortcut_ask = triaged["ask"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["path"] == json!(home.join("notes/shortcut.txt").to_str().unwrap()))
+        .unwrap()
+        .clone();
+    assert_eq!(shortcut_ask["target"], json!(elsewhere.to_str().unwrap()), "{triaged}");
+    assert_eq!(shortcut_ask["always_folder"], json!(home.join("private").to_str().unwrap()));
 
     let (ok, answer) = answered(in_grant);
     assert!(ok, "{answer}");
@@ -183,14 +202,18 @@ fn an_access_request_outside_any_grant_waits_for_the_person_and_one_inside_is_an
     let (ok, answer) = answered(key);
     assert!(!ok, "{answer}");
     assert_eq!(answer["error_code"], "access_denied", "{answer}");
+    let (ok, answer) = answered(climbing);
+    assert!(!ok, "{answer}");
+    assert_eq!(answer["error_code"], "access_denied", "{answer}");
 
     let todo = home.join("notes/todo.txt");
     let plan = home.join("notes/plan.txt");
     let deny = home.join("private/deny.txt");
     let requests = pending(&vm);
+    let shortcut_path = home.join("notes/shortcut.txt");
     let pending_ids: Vec<String> =
-        [&todo, &plan, &deny].iter().map(|path| id_for(&requests, path)).collect();
-    let answer_args = |request: &str, how: &str, path: Option<&Path>| -> (bool, Value) {
+        [&todo, &plan, &deny, &shortcut_path].iter().map(|path| id_for(&requests, path)).collect();
+    let answer_args = |request: &str, how: &str, shown: &[&Path]| -> (bool, Value) {
         let mut args = vec![
             "answer",
             "--socket",
@@ -205,21 +228,34 @@ fn an_access_request_outside_any_grant_waits_for_the_person_and_one_inside_is_an
             work,
             how,
         ];
-        let path = path.map(|path| path.to_str().unwrap().to_owned());
-        if let Some(path) = &path {
-            args.push(path);
+        // What the card showed: the path, where it leads, the folder.
+        let flags = ["", "--target", "--folder"];
+        for (flag, path) in flags.iter().zip(shown) {
+            if !flag.is_empty() {
+                args.push(flag);
+            }
+            args.push(path.to_str().unwrap());
         }
         mac.access(&args)
     };
     // The person's answer names the path they saw; another path is refused.
-    let (ok, changed) = answer_args(&pending_ids[2], "--allow", Some(&todo));
+    let (ok, changed) = answer_args(&pending_ids[2], "--allow", &[&todo, &todo]);
     assert!(!ok, "{changed}");
     assert_eq!(changed["error_code"], "request_changed", "{changed}");
-    let (ok, allowed) = answer_args(&pending_ids[0], "--allow", Some(&todo));
+    // An answer that names where a symlink led before is refused too.
+    let (ok, changed) = answer_args(&pending_ids[3], "--allow", &[&shortcut_path, &shortcut_path]);
+    assert!(!ok, "{changed}");
+    assert_eq!(changed["error_code"], "request_changed", "{changed}");
+    let (ok, allowed) = answer_args(&pending_ids[3], "--allow", &[&shortcut_path, &elsewhere]);
     assert!(ok, "{allowed}");
-    let (ok, always_answer) = answer_args(&pending_ids[1], "--always", Some(&plan));
+    let (ok, allowed) = answer_args(&pending_ids[0], "--allow", &[&todo, &todo]);
+    assert!(ok, "{allowed}");
+    let (ok, wrong_folder) = answer_args(&pending_ids[1], "--always", &[&plan, &plan, &home]);
+    assert!(!ok, "{wrong_folder}");
+    assert_eq!(wrong_folder["error_code"], "request_changed", "{wrong_folder}");
+    let (ok, always_answer) = answer_args(&pending_ids[1], "--always", &[&plan, &plan, &notes]);
     assert!(ok, "{always_answer}");
-    let (ok, deny_answer) = answer_args(&pending_ids[2], "--deny", None);
+    let (ok, deny_answer) = answer_args(&pending_ids[2], "--deny", &[]);
     assert!(ok, "{deny_answer}");
 
     let (ok, answer) = answered(once);
@@ -227,6 +263,9 @@ fn an_access_request_outside_any_grant_waits_for_the_person_and_one_inside_is_an
     let at = PathBuf::from(answer["path"].as_str().unwrap());
     assert!(at.starts_with(format!("{work}/local/requests/")), "{answer}");
     assert_eq!(fs::read_to_string(&at).unwrap(), "asked once\n");
+    let (ok, answer) = answered(shortcut);
+    assert!(ok, "{answer}");
+    assert_eq!(fs::read_to_string(answer["path"].as_str().unwrap()).unwrap(), "led elsewhere\n");
     let (ok, answer) = answered(always);
     assert!(ok, "{answer}");
     assert_eq!(fs::read_to_string(answer["path"].as_str().unwrap()).unwrap(), "asked always\n");
