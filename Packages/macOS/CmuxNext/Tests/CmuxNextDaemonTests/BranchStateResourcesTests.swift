@@ -30,6 +30,39 @@ struct BranchStateResourcesTests {
         }
     }
 
+    /// `history.closed.maxGroups` and `maxAgeDays` (reopen-closed.md S1b):
+    /// the prune a mirror over a limit asks for deletes the oldest groups
+    /// in the daemon, and the store follows.
+    @Test func closedRetentionDeletesTheOldestGroups() async throws {
+        try await BranchDaemonHarness.with(sessionEvents: true) { h in
+            let store = h.store
+            await Self.until(store) { store.servesStateResources }
+            let (key, pane, _) = try await h.workspaceWithTerminal("retention")
+            for _ in 0..<3 {
+                let created = try await h.connection.newTab(in: pane, options: SpawnOptions(cwd: h.root.path, workspace: key))
+                try await h.connection.closeTab(created.surface)
+                try await Task.sleep(for: .milliseconds(5))
+            }
+            await Self.until(store) { store.closedItems.count == 3 }
+            let items = await store.closedItems.sorted { $0.closedAtMs > $1.closedAtMs }
+            let now = items[0].closedAtMs
+            #expect(ClosedRetention(maxGroups: 0, maxAgeDays: 0).prune(items, nowMs: now) == nil)
+            #expect(ClosedRetention(maxGroups: 3, maxAgeDays: 1).prune(items, nowMs: now) == nil)
+
+            let byCount = try #require(ClosedRetention(maxGroups: 2, maxAgeDays: 0).prune(items, nowMs: now))
+            try await h.connection.state.pruneClosed(byCount)
+            await Self.until(store) { store.closedItems.count == 2 }
+            #expect(await Set(store.closedItems.map(\.id)) == Set(items.prefix(2).map(\.id)))
+
+            // A day after the newest close, everything older than it is over a one-day limit.
+            let kept = Array(items.prefix(2))
+            let byAge = try #require(ClosedRetention(maxGroups: 0, maxAgeDays: 1).prune(kept, nowMs: now + 86_400_000))
+            try await h.connection.state.pruneClosed(byAge)
+            await Self.until(store) { store.closedItems.count == 1 }
+            #expect(await store.closedItems.map(\.id) == [items[0].id])
+        }
+    }
+
     @Test func ephemeralStatusScreenAndTabStateReachTheRecords() async throws {
         try await BranchDaemonHarness.with(sessionEvents: true) { h in
             let store = h.store
