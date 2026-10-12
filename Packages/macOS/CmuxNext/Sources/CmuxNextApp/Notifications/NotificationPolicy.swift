@@ -43,6 +43,8 @@ enum NotificationPolicy {
         var minuteOfDay = 12 * 60
         /// Seconds since the last keystroke in the notifying pane, if any.
         var typedAgo: Double?
+        /// The poster allows a banner (false for `notify --desktop false`).
+        var bannerAllowed = true
     }
 
     struct Decision: Hashable, Sendable {
@@ -72,7 +74,7 @@ enum NotificationPolicy {
         }
         let quiet = prefs.quietHours?.contains(minuteOfDay: arrival.minuteOfDay) ?? false
         if arrival.workspaceMuted { decision.attention = false }
-        if !arrival.workspaceMuted && !quiet && prefs.postsDesktop(for: arrival.source) {
+        if arrival.bannerAllowed && !arrival.workspaceMuted && !quiet && prefs.postsDesktop(for: arrival.source) {
             switch prefs.desktop {
             case .always: decision.desktop = true
             case .unlessFocused: decision.desktop = !arrival.paneIsViewed

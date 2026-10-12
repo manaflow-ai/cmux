@@ -224,6 +224,7 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             "level": notification.level.as_str(),
             "surface": notification.surface,
             "source": notification.source.as_str(),
+            "desktop": notification.desktop,
         }),
         MuxEvent::GraphicsStatus(status) => match status {
             GraphicsStatus::KittyImageBudgetWorkerStartFailed { error } => json!({

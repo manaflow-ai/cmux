@@ -171,6 +171,7 @@ impl Mux {
             level: notification.level,
             surface: notification.surface,
             source: notification.source,
+            desktop: notification.desktop,
         }));
         if ring {
             self.emit(MuxEvent::TreeChanged);

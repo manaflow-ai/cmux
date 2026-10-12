@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "aafcd987f9b6f4bea884b8f2f605457a177e0bbafd9c6b73f7e68a20c86e8ad4";
+pub const ir_sha256 = "7f287af0cf834f78d9747ad2018b58a3fbfc60523c0b452b9307b59df2a61b1f";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -9143,6 +9143,7 @@ pub const MachineUsageChangedEvent = struct {
 
 pub const NotificationEvent = struct {
     body: []const u8,
+    desktop: ?bool = null,
     event: []const u8,
     level: NotificationLevel,
     notification: Id,
@@ -9151,6 +9152,7 @@ pub const NotificationEvent = struct {
     title: []const u8,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "desktop",
         "source",
     };
 };

@@ -23427,6 +23427,16 @@
       "nullable": false,
       "since": 12,
       "capability": "notification-source-v1"
+     },
+     "desktop": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "notification-desktop-v1"
      }
     },
     "additional_properties": false

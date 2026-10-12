@@ -210,6 +210,7 @@ final class NotificationCenterService {
             return
         }
         var arrival = NotificationPolicy.Arrival(source: source)
+        arrival.bannerAllowed = notification.desktop
         arrival.appActive = NSApp.isActive
         if let located {
             arrival.workspaceMuted = preferences.mutedWorkspaces.contains(located.workspace.id)

@@ -128,6 +128,8 @@ pub(super) fn advertised_capabilities(
         SCREEN_METADATA_CAPABILITY,
         SCREEN_GROUPS_CAPABILITY,
         NOTIFICATION_SOURCE_CAPABILITY,
+        // `desktop` on `notification.create` and the `notification` event.
+        "notification-desktop-v1",
         TERMINAL_SHELL_ARGS_CAPABILITY,
         TERMINAL_FRONTEND_SHELL_INTEGRATION_CAPABILITY,
         SCREEN_TERMINAL_ENV_CAPABILITY,
