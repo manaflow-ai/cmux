@@ -155,6 +155,7 @@
     "git.status",
     "git.worktree.apply",
     "git.worktree.create",
+    "git.worktree.remove",
     "github.issue.comment",
     "home.search",
     "inbox.archive",

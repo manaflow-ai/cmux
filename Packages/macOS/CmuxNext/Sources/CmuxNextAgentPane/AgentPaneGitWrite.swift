@@ -18,6 +18,14 @@ import Foundation
 /// the page names, which the model takes only when a chat may start there
 /// (the check a picked folder gets).
 ///
+/// `git.worktree.apply` with `{session_id, idempotency_key}` (cx-lyqio.4) is
+/// a worktree chat's Apply: like a push it runs in the folder of the pane's
+/// own session, and brings that worktree's work to its main checkout.
+/// `git.worktree.remove` with `{session_id, discard?, idempotency_key}`
+/// (cx-lyqio.5) is its Remove, in the same folder: the worktree and the
+/// branch New Worktree made go, and `discard` (the page's "Remove anyway")
+/// lets work found nowhere else go with them.
+///
 /// The page offers only what its buttons do: no paths, amend, no-verify,
 /// remote or branch. The key is the page's, one per user action, so a
 /// retry of the same action replays its first result instead of committing
@@ -31,9 +39,14 @@ public nonisolated enum AgentPaneGitWrite: Equatable, Sendable {
     case push(sessionId: String, expectedHead: String?, key: String)
     /// A new chat's own worktree of `cwd`, the chat's folder (cx-lyqio.2).
     case worktree(cwd: String, name: String?, key: String)
+    /// The chat's worktree work, onto its main checkout (cx-lyqio.4).
+    case worktreeApply(sessionId: String, key: String)
+    /// The chat's worktree removed; `discard` removes work found nowhere
+    /// else too (cx-lyqio.5).
+    case worktreeRemove(sessionId: String, discard: Bool, key: String)
 
     /// The page methods that carry a write.
-    public static let methods: Set<String> = ["git.commit", "git.push", "git.worktree.create"]
+    public static let methods: Set<String> = ["git.commit", "git.push", "git.worktree.create", "git.worktree.apply", "git.worktree.remove"]
 
     /// The session host's limit on a worktree name.
     static let maximumNameCharacters = 100
@@ -47,13 +60,16 @@ public nonisolated enum AgentPaneGitWrite: Equatable, Sendable {
         case .commit: "git.commit"
         case .push: "git.push"
         case .worktree: "git.worktree.create"
+        case .worktreeApply: "git.worktree.apply"
+        case .worktreeRemove: "git.worktree.remove"
         }
     }
 
     /// The page's idempotency key for this user action.
     public var key: String {
         switch self {
-        case .commit(_, _, _, _, _, let key), .push(_, _, let key), .worktree(_, _, let key): key
+        case .commit(_, _, _, _, _, let key), .push(_, _, let key), .worktree(_, _, let key), .worktreeApply(_, let key),
+             .worktreeRemove(_, _, let key): key
         }
     }
 
@@ -61,7 +77,8 @@ public nonisolated enum AgentPaneGitWrite: Equatable, Sendable {
     /// new chat's worktree.
     public var sessionId: String? {
         switch self {
-        case .commit(let sessionId, _, _, _, _, _), .push(let sessionId, _, _): sessionId
+        case .commit(let sessionId, _, _, _, _, _), .push(let sessionId, _, _), .worktreeApply(let sessionId, _),
+             .worktreeRemove(let sessionId, _, _): sessionId
         case .worktree: nil
         }
     }
@@ -81,7 +98,7 @@ public nonisolated enum AgentPaneGitWrite: Equatable, Sendable {
     /// Nil unless `params` name a valid key and, for a commit, a message of 1 byte to 64 KiB with a visible character. An
     /// `expected_head` must be a hexadecimal commit id; booleans default to
     /// false and anything else of the wrong type refuses.
-    init?(method: String, params: [String: Any]?) {
+    public init?(method: String, params: [String: Any]?) {
         guard let params, let key = params["idempotency_key"] as? String, Self.isKey(key) else { return nil }
         if method == "git.worktree.create" {
             guard let cwd = params["cwd"] as? String, cwd.hasPrefix("/"), !cwd.contains("\0") else { return nil }
@@ -110,6 +127,11 @@ public nonisolated enum AgentPaneGitWrite: Equatable, Sendable {
             self = .commit(sessionId: sessionId, message: message, all: all, includeUntracked: untracked, expectedHead: expectedHead, key: key)
         case "git.push":
             self = .push(sessionId: sessionId, expectedHead: expectedHead, key: key)
+        case "git.worktree.apply":
+            self = .worktreeApply(sessionId: sessionId, key: key)
+        case "git.worktree.remove":
+            guard let discard = Self.flag(params["discard"]) else { return nil }
+            self = .worktreeRemove(sessionId: sessionId, discard: discard, key: key)
         default:
             return nil
         }

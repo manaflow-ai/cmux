@@ -38,7 +38,7 @@ on:
         default: false
         type: boolean
       target_set:
-        description: "Binary targets to build: all, macos (both macOS targets) or macos-arm64"
+        description: "Binary targets to build: all, macos (both macOS targets), macos-arm64 or macos-x86_64"
         required: false
         default: all
         type: string
@@ -203,6 +203,11 @@ jobs:
               selected = [
                   target for target in targets
                   if target["target"] == "aarch64-apple-darwin"
+              ]
+          elif target_set == "macos-x86_64":
+              selected = [
+                  target for target in targets
+                  if target["target"] == "x86_64-apple-darwin"
               ]
           else:
               raise SystemExit(f"unsupported target_set: {target_set!r}")

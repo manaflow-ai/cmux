@@ -254,7 +254,7 @@ public final class CmuxDialogView: NSView {
             register(input, id: id)
             return captioned(caption, input, width: width)
         case .choice(let id, let caption, let options, let selected):
-            let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+            let popup = ThemedPopUpButton(frame: .zero, pullsDown: false)
             for option in options {
                 popup.addItem(withTitle: option.label)
                 popup.lastItem?.representedObject = option.value

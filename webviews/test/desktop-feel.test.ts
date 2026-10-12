@@ -205,7 +205,7 @@ const fenced = "code block text";
         await page.evaluate(() => document.getSelection()?.removeAllRanges());
         await page.mouse.dblclick(word.x + word.width / 2, word.y + word.height / 2);
         expect(await page.evaluate(selectedText)).toContain("value_");
-        if (name === "webkit") expect(await dragAcross(page, word)).toContain("value");
+        if (name === "webkit") expect(await dragAcross(page, word, 0.08)).toContain("value");
 
         const filePath = await rectOf(page, () => document.querySelector(".file-header-path .file-header-name"));
         expect(await dragAcross(page, filePath)).toContain(".ts");

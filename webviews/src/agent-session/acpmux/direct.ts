@@ -366,9 +366,14 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   current: number | undefined;
   /// The newest event reduced so far.
   private latest = 0;
+  /// The rows in order as of the last ``sorted()``, and each one's index there: a snapshot of a
+  /// long chat whose rows only changed in place copies this instead of sorting every row again.
+  private ordered: AcpmuxRow[] | undefined;
+  private orderedIndex = new Map<string, number>();
 
   override set(id: string, row: AcpmuxRow): this {
-    if (!this.order.has(id)) {
+    const known = this.order.has(id);
+    if (!known) {
       if (this.current !== undefined) {
         this.order.set(id, this.current);
         this.latest = Math.max(this.latest, this.current);
@@ -377,7 +382,38 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
         this.local.add(id);
       }
     } else if (this.current !== undefined) this.latest = Math.max(this.latest, this.current);
+    if (this.ordered) this.keepOrdered(id, row, known);
     return super.set(id, row);
+  }
+
+  /// Updates the kept order for `row`: in its slot when only its content changed, at the end when it
+  /// sorts after every row, otherwise ``sorted()`` sorts again.
+  private keepOrdered(id: string, row: AcpmuxRow, known: boolean): void {
+    const ordered = this.ordered!;
+    const index = this.orderedIndex.get(id);
+    if (known && index !== undefined && (ordered[index]!.at === row.at || this.ownsSlot(index))) {
+      ordered[index] = row;
+      return;
+    }
+    const last = ordered.at(-1);
+    const order = this.order.get(id) ?? 0;
+    const lastOrder = last ? (this.order.get(last.id) ?? 0) : -Infinity;
+    if (!known && (order > lastOrder || (order === lastOrder && row.at >= last!.at))) {
+      this.orderedIndex.set(id, ordered.length);
+      ordered.push(row);
+      return;
+    }
+    this.ordered = undefined;
+  }
+
+  /// Whether the row at `index` of the kept order sorts by its event alone, so a change of its
+  /// time (the tie-break, which a streamed delta moves) cannot move it.
+  private ownsSlot(index: number): boolean {
+    const ordered = this.ordered!;
+    const order = this.order.get(ordered[index]!.id);
+    const before = ordered[index - 1];
+    const after = ordered[index + 1];
+    return (!before || this.order.get(before.id) !== order) && (!after || this.order.get(after.id) !== order);
   }
 
   /// An event was reduced (it may have made no row).
@@ -386,12 +422,16 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   }
 
   override delete(id: string): boolean {
+    // Every text delta drops the typing row, which is usually gone already.
+    if (!this.has(id)) return false;
+    this.ordered = undefined;
     this.order.delete(id);
     this.local.delete(id);
     return super.delete(id);
   }
 
   override clear(): void {
+    this.ordered = undefined;
     this.order.clear();
     this.local.clear();
     this.latest = 0;
@@ -409,13 +449,20 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// Moves the rows made without an event after every event, keeping their order: what a lag
   /// rebuild replayed happened before them.
   placeLocalLast(): void {
+    this.ordered = undefined;
     const local = [...this.local].sort((a, b) => (this.order.get(a) ?? 0) - (this.order.get(b) ?? 0));
     local.forEach((id, index) => this.order.set(id, this.latest + 0.5 + (index + 1) * 1e-6));
   }
 
   /// The rows in event order (wall-clock time breaks a tie).
   sorted(): AcpmuxRow[] {
-    return [...this.values()].sort((a, b) => (this.order.get(a.id) ?? 0) - (this.order.get(b.id) ?? 0) || a.at - b.at);
+    if (!this.ordered) {
+      this.ordered = [...this.values()].sort(
+        (a, b) => (this.order.get(a.id) ?? 0) - (this.order.get(b.id) ?? 0) || a.at - b.at,
+      );
+      this.orderedIndex = new Map(this.ordered.map((row, index) => [row.id, index]));
+    }
+    return this.ordered.slice();
   }
 }
 
@@ -514,6 +561,9 @@ export class AcpmuxDirectClient {
   private messageRows = new Map<string, string[]>();
   /// The activity row each tool call lives in, so a late update lands where the call began.
   private toolRows = new Map<string, string>();
+  /// TodoWrite calls a drawn checklist stands for (cx-ncc.80): acpmux sends each one's plan just
+  /// before it, so the call and its updates draw no tool row.
+  private planCalls = new Set<string>();
   /// Subagents and their records, which draw as group rows (subagents/subagentFold.ts).
   private subagents = new SubagentFold();
   private readonly listener: Listener;
@@ -666,7 +716,7 @@ export class AcpmuxDirectClient {
           onLost();
         } else this.scheduleReconnect();
       };
-      socket.onmessage = (message) => this.receive(String(message.data));
+      socket.onmessage = (message) => acpmuxPerf.timed("client.receive", () => this.receive(String(message.data)));
     });
     try {
       const initialized = await this.request("initialize", {
@@ -761,6 +811,8 @@ export class AcpmuxDirectClient {
     this.supersededMessageIds.clear();
     this.messageRows.clear();
     this.toolRows.clear();
+    this.planCalls.clear();
+    this.planRow = undefined;
     this.subagents = new SubagentFold();
     this.pendingPermission = undefined;
     this.groupedPermissions.clear();
@@ -1254,6 +1306,7 @@ export class AcpmuxDirectClient {
     this.supersededMessageIds.clear();
     this.messageRows.clear();
     this.toolRows.clear();
+    this.planCalls.clear();
     this.subagents = new SubagentFold();
     this.pendingPermission = undefined;
     const through = this.replayThrough ?? Number.POSITIVE_INFINITY;
@@ -1305,8 +1358,10 @@ export class AcpmuxDirectClient {
       }
     } else if (event.kind === "queue_removed" || event.kind === "dequeued")
       this.queue = this.queue.filter((entry) => entry.id !== String(msg.promptId ?? ""));
-    else if (event.kind === "permission_request") this.applyPermission({ ...msg, sessionId: event.sessionId });
-    else if (event.kind === "permission_decision") {
+    else if (event.kind === "permission_request") {
+      this.markAwaitingPermission(msg.request?.toolCall?.toolCallId);
+      this.applyPermission({ ...msg, sessionId: event.sessionId });
+    } else if (event.kind === "permission_decision") {
       if (msg.permissionId) this.groupedPermissions.delete(String(msg.permissionId));
       else this.groupedPermissions.clear();
       if (!msg.permissionId || this.pendingPermission?.permissionId === msg.permissionId)
@@ -1481,6 +1536,9 @@ export class AcpmuxDirectClient {
       this.streamingActivity = id;
     } else if (event.kind === "tool_call" || event.kind === "tool_call_update") {
       const callId = String(update.toolCallId ?? `tool-${event.seq}`);
+      const tool = update._meta?.claude?.tool ?? update.title;
+      if (event.kind === "tool_call" && tool === "TodoWrite" && this.planRow) this.planCalls.add(callId);
+      if (this.planCalls.has(callId)) return;
       // An update to a call already shown stays in its fold; a new call ends the text segment.
       const known = this.toolRows.get(callId);
       const knownRow = known && this.rows.has(known) ? known : undefined;
@@ -1511,6 +1569,11 @@ export class AcpmuxDirectClient {
         this.planRow = undefined;
         return;
       }
+      // A new checklist ends the text and tool fold before it, as the call it stands for would.
+      if (!existing) {
+        this.endAssistantSegment();
+        this.streamingActivity = undefined;
+      }
       const id = existing ? existing.id : `plan-${event.seq}`;
       this.planRow = id;
       this.rows.set(id, {
@@ -1521,6 +1584,20 @@ export class AcpmuxDirectClient {
         ...(plan.length > 0 ? { plan } : { text: text || JSON.stringify(update.entries ?? update.content ?? "") }),
       });
     }
+  }
+
+  /// A call that asks before it runs waits on its permission ("pending") until an update moves it
+  /// on: Claude sends a proposed edit, diff included, before it asks, and it is not an edit yet.
+  private markAwaitingPermission(callId: unknown): void {
+    const id = callId == null ? undefined : this.toolRows.get(String(callId));
+    const row = id ? this.rows.get(id) : undefined;
+    if (!row) return;
+    const items = (row.items ?? []).map((item) =>
+      item.tool?.id === String(callId) && item.tool.status === "in_progress"
+        ? { ...item, tool: { ...item.tool, status: "pending" } }
+        : item,
+    );
+    this.rows.set(row.id, { ...row, version: row.version + 1, items });
   }
 
   /// The tool calls and time since the turn's user message. A prompt still sending (queued
@@ -1546,6 +1623,10 @@ export class AcpmuxDirectClient {
   }
 
   private emit(connection = "connected"): void {
+    acpmuxPerf.timed("client.emit", () => this.emitNow(connection));
+  }
+
+  private emitNow(connection: string): void {
     // This snapshot carries every event so far, so a snapshot waiting for the frame has nothing left.
     this.frameSnapshot = undefined;
     const summary = this.summary;

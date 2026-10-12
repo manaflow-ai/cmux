@@ -211,7 +211,7 @@ struct CloudMoveTests {
         let workRoot = root.appendingPathComponent("vm-home/work", isDirectory: true)
         try FileManager.default.createDirectory(at: workRoot, withIntermediateDirectories: true)
         let log = root.appendingPathComponent("cli.log")
-        let cli = try standInCLI(in: root, log: log, mode: mode)
+        let cli = try standInCLI(in: root, log: log, mode: mode, vmState: root.appendingPathComponent("vm-state"))
 
         let environment: @Sendable () -> [String: String] = {
             ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"]
@@ -272,8 +272,11 @@ struct CloudMoveTests {
     /// A stand-in `cmux`: records each call's arguments (unit-separated). Like the real sync,
     /// `link sync push` creates the synced folder (not in `tabFailed`, so the machine's terminal
     /// can't start there; in `syncTimeout` it outlives the CLI timeout); `link agent move`
-    /// answers as `mode` says.
-    private static func standInCLI(in root: URL, log: URL, mode: String) throws -> URL {
+    /// answers as `mode` says. A move that answers ok also leaves what the machine daemon's own
+    /// `agent-transfer-finish` would: the landed chat's record (`agent-transfer-landed.json` next
+    /// to that daemon's registry in `vmState`), without which the daemon refuses a `registry:` tab
+    /// naming the chat (cx-k21v).
+    private static func standInCLI(in root: URL, log: URL, mode: String, vmState: URL) throws -> URL {
         let url = root.appendingPathComponent("cmux")
         let script = """
             #!/bin/sh
@@ -293,7 +296,11 @@ struct CloudMoveTests {
                 badAnswer) echo 'thread main panicked'; exit 101 ;;
                 timeout) exec sleep 30 ;;
                 teamMachine) echo '{"ok":false,"error":"a team machine","error_code":"agent_session.team_vm_blocked"}'; exit 1 ;;
-                *) echo '{"ok":true,"session_id":"chat-on-vm","transfer_id":"tr-1","bytes":42,"resolved":false}' ;;
+                *)
+                    registry=$(find '\(vmState.path)' -name workspace-registry.sqlite3 -print | head -n 1)
+                    [ -n "$registry" ] || exit 70
+                    printf '[{"session":"chat-on-vm","landed_at_ms":%s000}]' "$(date +%s)" > "$(dirname "$registry")/agent-transfer-landed.json"
+                    echo '{"ok":true,"session_id":"chat-on-vm","transfer_id":"tr-1","bytes":42,"resolved":false}' ;;
                 esac ;;
             *) exit 64 ;;
             esac

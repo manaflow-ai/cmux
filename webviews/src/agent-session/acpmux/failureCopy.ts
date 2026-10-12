@@ -53,8 +53,9 @@ export function failureKind(message: string | undefined, route?: FailureRoute): 
   // Capacity and network first: their messages often mention authentication or keys in passing.
   if (RATE.test(message)) return "rate-limited";
   if (UNREACHABLE.test(message)) return "unreachable";
-  if (INVALID_KEY.test(message)) return "invalid-key";
   const via = failureVia(message, route);
+  // A signed-out Claude CLI says "Invalid API key · Please run /login": its way out is the login.
+  if (INVALID_KEY.test(message) && !(SUBSCRIPTION.test(message) && !via)) return "invalid-key";
   if (AUTH.test(message) && via) return "proxy-auth";
   if (SUBSCRIPTION.test(message)) return "subscription-login";
   if (AUTH.test(message)) return "auth";

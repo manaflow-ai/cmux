@@ -31,7 +31,7 @@ export function clamp(value: number, range: NumberRange | undefined): number {
   return Math.min(range.max, Math.max(range.min, value));
 }
 
-/** The unit beside a number field ("pt", "s", "min", "%", or nothing for counts). */
+/** The unit beside a number field ("pt", "s", "min", "days", "%", or nothing for counts). */
 export function unitLabel(range: NumberRange | undefined): string {
   switch (range?.unit) {
     case "points":
@@ -40,6 +40,13 @@ export function unitLabel(range: NumberRange | undefined): string {
       return unitSuffix("settingsPage.seconds");
     case "minutes":
       return unitSuffix("settingsPage.minutes");
+    case "days":
+      // The plural day unit of the page's locale ("days", "日"), from Intl.
+      return (
+        new Intl.NumberFormat(locale(), { style: "unit", unit: "day", unitDisplay: "long" })
+          .formatToParts(2)
+          .find((part) => part.type === "unit")?.value ?? ""
+      );
     case "fraction":
       return (
         new Intl.NumberFormat(locale(), { style: "percent" })

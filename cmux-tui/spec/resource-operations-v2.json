@@ -8515,6 +8515,47 @@
       },
       "extra": false
     },
+    "GitWorktreeRemoveResult": {
+      "kind": "object",
+      "fields": {
+        "root": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The removed worktree's folder."
+        },
+        "main_root": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The main checkout, which stays."
+        },
+        "branch": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The worktree's branch; absent for a detached HEAD."
+        },
+        "branch_deleted": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "The branch was deleted with it: git.worktree.create made it, and it got no new commits git could not find elsewhere (or discard)."
+        }
+      },
+      "extra": false
+    },
     "SidebarItemRef": {
       "kind": "object",
       "fields": {
@@ -15763,6 +15804,71 @@
         "The user's checkout, index and uncommitted changes are untouched. git worktree add runs in the user's environment, so their post-checkout hook and filters run; it never prompts and is stopped after 120 s.",
         "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict. A retry after a lost reply or a timeout finds the worktree the first attempt made; a failing post-checkout hook does not undo the worktree, so it is reported as made.",
         "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, base_not_found, name_taken, path_exists, no_home, timed_out, repository_changed, store_failed or git_failed; extra.message explains it and extra.output carries what git printed (at most 16 KiB)."
+      ]
+    },
+    "git.worktree.remove": {
+      "class": "mutation",
+      "risk": "execute",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "discard": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Remove it even with uncommitted changes or commits on no other branch or remote. Default: false."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "GitWorktreeRemoveResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Run it in a linked worktree; the main checkout and other worktrees are never touched. git worktree remove runs from the main checkout in the user's environment, never prompts and is stopped after 120 s. The folder goes with its ignored files. The branch goes too when git.worktree.create made it (cmux/<name> with a recorded base), with its settings; any other branch stays.",
+        "Without discard it is refused, changing nothing, while the worktree has uncommitted changes (tracked or untracked files) or commits on no other branch and no remote, on a detached HEAD or on the branch that goes. It is checked again right before the folder and the branch go; a branch that got new commits meanwhile stays (branch_deleted false). With discard that work is lost.",
+        "A replayed key returns the first result with replayed true while the request still names the same repository; once the folder is gone, a request naming it finds no repository. The same key with other arguments is idempotency.conflict. A retry after a timeout finishes what the first attempt started.",
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, not_a_worktree, uncommitted_changes (extra.files lists up to 20 paths, extra.count all of them), unpushed_commits (extra.branch, absent for a detached HEAD, and extra.count), timed_out, repository_changed, store_failed or git_failed; extra.message explains it and extra.output carries what git printed (at most 16 KiB)."
       ]
     },
     "history.backups.purge": {
@@ -25262,6 +25368,35 @@
             },
             "description": "An ephemeral workspace is closed by the daemon at its next start."
           },
+          "cwd": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "description": "The first terminal's folder. Needs initial_content terminal."
+          },
+          "argv": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string"
+              },
+              "min_items": 1
+            },
+            "description": "The first terminal's exact executable and arguments, instead of the login shell. Needs initial_content terminal; not with shell."
+          },
+          "shell": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "Script the first terminal runs with the server platform default shell and -lc. Needs initial_content terminal; not with argv."
+          },
           "correlation_key": {
             "required": false,
             "type": {
@@ -25283,7 +25418,10 @@
         },
         "extra": false,
         "constraints": [
-          "initial_content is explicit. terminal returns CreatedTerminalPath; empty returns CreatedWorkspaceOnly."
+          "initial_content is explicit. terminal returns CreatedTerminalPath; empty returns CreatedWorkspaceOnly.",
+          "cwd, argv and shell launch the first terminal, so they need initial_content terminal.",
+          "At most one of argv or shell is present; argv[0] is non-empty.",
+          "A command in argv or shell needs the workspace:execute app scope, as workspace.run does."
         ]
       },
       "result": {

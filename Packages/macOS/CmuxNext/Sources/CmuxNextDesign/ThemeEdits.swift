@@ -6,8 +6,10 @@ import Foundation
 /// name, so the edits follow the theme wherever it applies (the app, a space, a workspace, a terminal).
 public nonisolated struct ThemeEdits: Hashable, Sendable {
     /// The tokens an edit can set: the terminal's background, foreground, cursor and selection,
-    /// and the 16 ANSI palette colors ("0" to "15").
+    /// the 16 ANSI palette colors ("0" to "15"), and the app accent for this theme ("accent", over
+    /// `appearance.accent`; not a Ghostty color, so it has no config line).
     public static let tokens: [String] = ["background", "foreground", "cursor", "selection"] + (0..<16).map(String.init)
+        + ["accent"]
 
     /// Theme name to token to `#rrggbb`.
     public private(set) var colors: [String: [String: String]]
@@ -31,6 +33,9 @@ public nonisolated struct ThemeEdits: Hashable, Sendable {
         text.count == 7 && text.first == "#" && text.dropFirst().allSatisfy { $0.isASCII && $0.isHexDigit }
     }
 
+    /// `theme`'s accent edit, `#rrggbb`; nil without one.
+    public func accent(for theme: String) -> String? { colors[theme]?["accent"] }
+
     /// The Ghostty config lines for `theme`'s edits, loaded after its `theme =` line, in a stable
     /// order (named tokens, then the palette by index).
     public func configLines(for theme: String) -> [String] {
@@ -42,6 +47,7 @@ public nonisolated struct ThemeEdits: Hashable, Sendable {
             case "foreground": return "foreground = \(color)"
             case "cursor": return "cursor-color = \(color)"
             case "selection": return "selection-background = \(color)"
+            case "accent": return nil
             default: return "palette = \(token)=\(color)"
             }
         }

@@ -148,7 +148,7 @@ struct CloudBringBackTests {
         let workRoot = root.appendingPathComponent("vm-home/work", isDirectory: true)
         try FileManager.default.createDirectory(at: workRoot, withIntermediateDirectories: true)
         let log = root.appendingPathComponent("cli.log")
-        let cli = try standInCLI(in: root, log: log, mode: mode)
+        let cli = try standInCLI(in: root, log: log, mode: mode, vmState: root.appendingPathComponent("vm-state"))
 
         let environment: @Sendable () -> [String: String] = {
             ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"]
@@ -216,9 +216,10 @@ struct CloudBringBackTests {
     }
 
     /// A stand-in `cmux` (calls recorded unit-separated): `link sync push` makes the synced folder
-    /// and `link agent move` moves the chat to the machine; then `link sync pull` and the move back
-    /// answer as `mode` says.
-    private static func standInCLI(in root: URL, log: URL, mode: String) throws -> URL {
+    /// and `link agent move` moves the chat to the machine, leaving the landed chat's record as the
+    /// machine daemon's `agent-transfer-finish` would (see ``CloudMoveTests``); then `link sync
+    /// pull` and the move back answer as `mode` says.
+    private static func standInCLI(in root: URL, log: URL, mode: String, vmState: URL) throws -> URL {
         let url = root.appendingPathComponent("cmux")
         let pulled = root.appendingPathComponent("pulled").path
         let script = """
@@ -239,6 +240,9 @@ struct CloudBringBackTests {
                 esac ;;
             "link agent move")
                 if [ ! -f '\(pulled)' ]; then
+                    registry=$(find '\(vmState.path)' -name workspace-registry.sqlite3 -print | head -n 1)
+                    [ -n "$registry" ] || exit 70
+                    printf '[{"session":"chat-on-vm","landed_at_ms":%s000}]' "$(date +%s)" > "$(dirname "$registry")/agent-transfer-landed.json"
                     echo '{"ok":true,"session_id":"chat-on-vm","transfer_id":"tr-1","bytes":42,"resolved":false}'
                 elif [ '\(mode)' = policy ]; then
                     echo '{"ok":false,"error":"the machine did not take the chat: acpmux refused the request: transfer.policy: approve-all","error_code":"agent_transfer.refused"}'

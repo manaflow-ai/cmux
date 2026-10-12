@@ -17,7 +17,10 @@
 //!   folder are kept per receive in memory.
 //! - `agent-transfer-write {receive_id, path, offset, data}`: one page.
 //! - `agent-transfer-finish {receive_id, name?}`: imports the chat in the
-//!   receive's own folder (`cwd` is never taken here). While the call runs
+//!   receive's own folder (`cwd` is never taken here). The session id
+//!   acpmux answers is remembered as landed here (`landed.rs`), so
+//!   `new-conversation-tab` may file it under this store's `registry:`
+//!   host. While the call runs
 //!   (from the moment acpmux is reached until it returns, on every path) a
 //!   receive-abort of it answers that the landing cannot be told yet.
 //! - `agent-transfer-receive-abort {receive_id}`: forgets the receive and has
@@ -78,6 +81,7 @@ use crate::state::conversation_tabs_store::ConversationTabRecord;
 
 mod bundle;
 use bundle::{is_bundle_path, page_data_len, page_of, scrub_bundle};
+mod landed;
 
 pub const AGENT_TRANSFER_CAPABILITY: &str = "agent-transfer-v1";
 
@@ -128,6 +132,8 @@ pub(crate) struct AgentTransfers {
     /// Receives a finish ended: only a receive-abort still names them.
     settled: Mutex<HashMap<String, Settled>>,
     moves: Mutex<HashMap<String, Move>>,
+    /// Chats a finish here landed (`landed.rs`).
+    landed: landed::Landed,
     calls: AtomicUsize,
 }
 
@@ -826,7 +832,12 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
                 transfers.settle(&receive_id);
             }
             drop(finishing);
-            Ok(json!({"session": finished?}))
+            let session = finished?;
+            // acpmux's own answer, never a client's id: this machine's chat now.
+            if let Some(landed) = session["sessionId"].as_str() {
+                mux.remember_landed_agent_session(landed);
+            }
+            Ok(json!({"session": session}))
         }
         Prepared::Begin { session, interrupt } => {
             let source_session = session.clone();
@@ -848,6 +859,8 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             };
             let entry = Move { files, touched: Instant::now() };
             lock(&transfers.moves).insert(transfer_id.clone(), entry);
+            // The chat is leaving this machine: no new tab of it may name it.
+            mux.forget_landed_agent_session(&source_session);
             Ok(json!({"transfer_id": transfer_id, "source_session": source_session,
                        "manifest": manifest}))
         }
@@ -875,6 +888,7 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             let params = json!({"sessionId": session, "transferId": transfer_id, "to": to});
             call("_acpmux/transfer_commit", params, CALL_TIMEOUT)?;
             lock(&transfers.moves).remove(&transfer_id);
+            mux.forget_landed_agent_session(&session);
             Ok(json!({"committed": true}))
         }
         Prepared::Abort { session, transfer_id } => {

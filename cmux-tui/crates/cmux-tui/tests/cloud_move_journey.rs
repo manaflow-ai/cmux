@@ -274,18 +274,39 @@ fn chat_with_history_draft_and_queue(acpmux: &mut Acpmux, cwd: &Path) -> String 
     session
 }
 
-/// An agent tab of `machine`'s store bound to acpmux chat `session`.
+/// A Mac chat tab of `machine`'s store bound to acpmux chat `session`, as the
+/// app files a chat of its own acpmux (`install:` host). A `registry:` tab is
+/// a machine's own chat and binds only through agent-session-start (cx-k21v).
 fn bound_agent_tab(machine: &Machine, session: &str) -> u64 {
-    let identity = machine.rpc(json!({"id": 1, "cmd": "identify"}));
-    let store = identity["data"]["session_id"].as_str().unwrap().to_owned();
     assert_eq!(machine.rpc(json!({"id": 2, "cmd": "new-workspace"}))["ok"], true);
     let tab = machine.rpc(json!({"id": 3, "cmd": "new-conversation-tab",
-        "agent_session": {"host": format!("registry:{store}"), "session": session}}));
+        "agent_session": {"host": "install:cloud-move-journey", "session": session}}));
     assert_eq!(tab["ok"], true, "{tab}");
     let surface = tab["data"]["surface"].as_u64().unwrap();
     let source = machine.rpc(json!({"id": 4, "cmd": "agent-transfer-source", "surface": surface}));
     assert_eq!(source["data"]["session"], json!(session), "{source}");
     surface
+}
+
+/// The store id a `registry:` host names: `identify`'s `session_id`.
+fn store_id(machine: &Machine) -> String {
+    let identity = machine.rpc(json!({"id": 1, "cmd": "identify"}));
+    identity["data"]["session_id"].as_str().unwrap().to_owned()
+}
+
+/// Move to Cloud's show on the machine the chat landed on: a tab of its own
+/// store (`registry:` host) that names the moved session, created with
+/// `new-conversation-tab`, whose `agent-transfer-source` names that session.
+fn moved_chat_tab(machine: &Machine, session: &str) {
+    let store = store_id(machine);
+    assert_eq!(machine.rpc(json!({"id": 2, "cmd": "new-workspace"}))["ok"], true);
+    let tab = machine.rpc(json!({"id": 3, "cmd": "new-conversation-tab",
+        "agent_session": {"host": format!("registry:{store}"), "session": session,
+                          "harness": "fake"}}));
+    assert_eq!(tab["ok"], true, "{tab}");
+    let surface = tab["data"]["surface"].as_u64().unwrap();
+    let source = machine.rpc(json!({"id": 4, "cmd": "agent-transfer-source", "surface": surface}));
+    assert_eq!(source["data"]["session"], json!(session), "{source}");
 }
 
 /// The VM's Cloud records, as a Cloud image bake and a machine bind leave them.
@@ -397,6 +418,15 @@ fn cloud_move_journey_moves_a_dirty_folder_and_its_chat_to_a_personal_cloud_vm()
     let there = vm_acpmux.summary(&session).expect("the chat is on the VM");
     assert_eq!(there["cwd"], json!(fs::canonicalize(&synced).unwrap()), "{there}");
     assert_eq!(there["queued"].as_u64(), Some(0), "{there}");
+
+    // 3b. The app's last step: the moved chat opens in a tab of the VM's
+    // own store (`registry:<store id>`), which the VM daemon allows because
+    // its own finish landed that chat.
+    moved_chat_tab(&vm, &session);
+    let foreign = vm.rpc(json!({"id": 5, "cmd": "new-conversation-tab",
+        "agent_session": {"host": format!("registry:{}", store_id(&vm)),
+                          "session": "fake-session-not-landed-here"}}));
+    assert_eq!(foreign["error_code"], "conversation_tab.machine_mismatch", "{foreign}");
 
     // 4. On the Mac: the chat moved away, and its queued prompt never ran here.
     let left = mac_acpmux.summary(&session);

@@ -268,7 +268,7 @@ impl Mux {
                         source_pane,
                         target_pane,
                         index,
-                        json!({"tab":tab_id}),
+                        |_| Ok(json!({"tab":tab_id})),
                     );
                 }
                 let topology = registry.resource_topology_snapshot()?;

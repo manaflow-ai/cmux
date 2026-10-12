@@ -52,8 +52,20 @@ import {
   pendingSessionID,
   validDiffSource,
 } from "./diff-viewer/session";
-import { type DiffViewerLayout, initialAppState, itemCollapsedFileKey, reducer } from "./diff-viewer/state";
+import {
+  type DiffViewerLayout,
+  initialAppState,
+  itemCollapsedFileKey,
+  drawnDiffOptions,
+  reducer,
+  splitFits,
+} from "./diff-viewer/state";
 import { FileHeader } from "./diff-viewer/FileHeader";
+import { diffGitSource, diffStageAction } from "./diff-viewer/git";
+import { diffFingerprintReader, useDiffFreshness } from "./diff-viewer/freshness";
+import { diffPageClient, type DiffPageConfig } from "./diff/page";
+import { GitToolbarButtons, GitWriteBar } from "./agent-session/acpmux/changes/GitActions";
+import { useGitWrite } from "./agent-session/acpmux/changes/useGitWrite";
 import { FilesSidebar, FilesSidebarBackdrop, filteredFileTreeSource } from "./diff-viewer/FilesSidebar";
 import { LoadingLayer } from "./diff-viewer/Loading";
 import { DiffPill, Toolbar } from "./diff-viewer/Toolbar";
@@ -115,6 +127,17 @@ export function App({ config, initialStatus }: ConfigProps) {
   const activeSessionRef = useRef<ActiveDiffSession | null>(null);
   const adoptedSessionRef = useRef<AdoptedDiffSession | null>(null);
   const viewerContainerRef = useRef<HTMLDivElement | null>(null);
+  const viewerRef = useRef<HTMLElement | null>(null);
+  // The viewer's width, which decides whether a split diff fits.
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!viewer || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) =>
+      dispatch({ type: "set-viewer-width", width: Math.round(entry?.contentRect.width ?? 0) }),
+    );
+    observer.observe(viewer);
+    return () => observer.disconnect();
+  }, []);
   useDiffLanguageChanges(dispatch);
   const workerPoolOptions = createDiffWorkerPoolOptions();
   const highlighterOptions = workerHighlighterOptions(state.options, appearance, state.languages);
@@ -152,12 +175,15 @@ export function App({ config, initialStatus }: ConfigProps) {
   // every mounted file whenever the viewer re-rendered (a tree selection
   // change, a Viewed toggle).
   const gutterClick = useSyncedRef(comments.onGutterUtilityClick);
+  // A split preference draws unified while the viewer is too narrow for two readable sides.
+  const fits = splitFits(state.viewerWidth);
+  const drawnOptions = useMemo(() => drawnDiffOptions(state.options, fits), [state.options, fits]);
   const renderedCodeViewOptions = useMemo(() => {
-    const options = codeViewOptions(state.options, appearance);
+    const options = codeViewOptions(drawnOptions, appearance);
     options.onGutterUtilityClick = ((range: SelectedLineRange, context: { item: DiffItem }) =>
       gutterClick.current(range, context)) as any;
     return options;
-  }, [appearance, gutterClick, state.options]);
+  }, [appearance, gutterClick, drawnOptions]);
   const closeActiveSession = useCallback(() => {
     const activeSession = activeSessionRef.current;
     if (!transport) {
@@ -557,6 +583,33 @@ export function App({ config, initialStatus }: ConfigProps) {
     setActivePatchURL(undefined);
     void closeActiveSession();
   };
+  // Stage, Commit and Push (cx-ueuc8): the changes view's, over the host's git ops. A commit or a
+  // stage changes the diff, so it reloads; a push changes only the branch.
+  const gitSource = useMemo(() => diffGitSource(diffPageClient(), (config as DiffPageConfig).ops), [config]);
+  const [commitOpen, setCommitOpen] = useState(false);
+  const commitOpenRef = useSyncedRef(commitOpen);
+  const refreshRef = useSyncedRef(refresh);
+  const git = useGitWrite(gitSource, (op) => {
+    if (op === "commit") setCommitOpen(false);
+    if (op !== "push") refreshRef.current();
+  });
+  const stageAction = diffStageAction(gitSource, resolvedSessionSource ?? activeSessionSource, {
+    staged: () => refreshRef.current(),
+    failed: (message) => dispatch({ type: "set-copy-feedback", message }),
+  });
+  // An agent's edit after load (cx-9ce.34): coming back refreshes, unless a comment draft or the
+  // commit form would be lost; then the bar says the files changed.
+  const shownSource = resolvedSessionSource ?? activeSessionSource;
+  const readFingerprint = useMemo(
+    () => diffFingerprintReader(diffPageClient(), (config as DiffPageConfig).ops, shownSource),
+    [config, shownSource],
+  );
+  const filesChanged = useDiffFreshness(
+    readFingerprint,
+    state.renderGeneration,
+    () => latestState.current.draft == null && !commitOpenRef.current,
+    () => refreshRef.current(),
+  );
 
   return (
     <div
@@ -609,29 +662,56 @@ export function App({ config, initialStatus }: ConfigProps) {
           return repo ? (branchSourceByRepoRef.current.get(repo) ?? null) : null;
         })()}
         pill={
-          <DiffPill
-            dispatch={dispatch}
-            externalURL={
-              typeof payload.externalURL === "string" && payload.externalURL.length > 0 ? payload.externalURL : null
-            }
-            label={label}
-            onCopyGitApply={async () => {
-              try {
-                const message = await copyGitApplyCommand(activePatchURL, label, copyFallbackRef.current);
-                dispatch({ type: "set-copy-feedback", message });
-              } catch {
-                dispatch({ type: "set-copy-feedback", message: label("copyFailedGitApplyCommand") });
+          <>
+            {git.available ? (
+              <span className="diff-git diff-git-tools">
+                <GitToolbarButtons
+                  git={git}
+                  formOpen={commitOpen}
+                  onToggleForm={() => setCommitOpen((open) => !open)}
+                />
+              </span>
+            ) : null}
+            <DiffPill
+              dispatch={dispatch}
+              externalURL={
+                typeof payload.externalURL === "string" && payload.externalURL.length > 0 ? payload.externalURL : null
               }
-            }}
-            onReload={refresh}
-            onSetLayout={setLayout}
-            onSetOption={setOption}
-            state={state}
-          />
+              label={label}
+              onCopyGitApply={async () => {
+                try {
+                  const message = await copyGitApplyCommand(activePatchURL, label, copyFallbackRef.current);
+                  dispatch({ type: "set-copy-feedback", message });
+                } catch {
+                  dispatch({ type: "set-copy-feedback", message: label("copyFailedGitApplyCommand") });
+                }
+              }}
+              onReload={refresh}
+              onSetLayout={setLayout}
+              onSetOption={setOption}
+              state={state}
+            />
+          </>
         }
         state={state}
         visibleItems={visibleItems}
       />
+      <div className="diff-git diff-git-bar">
+        {filesChanged && (
+          <output className="diff-files-changed">
+            <span>{label("filesChangedSinceLoad")}</span>
+            <button type="button" className="file-review-load" onClick={refresh}>
+              {label("refresh")}
+            </button>
+          </output>
+        )}
+        <GitWriteBar
+          git={git}
+          formOpen={commitOpen}
+          onCloseForm={() => setCommitOpen(false)}
+          reloadKey={state.renderGeneration}
+        />
+      </div>
       <section id="content" style={{ "--cmux-diff-files-width": `${state.filesWidth}px` } as React.CSSProperties}>
         <FilesSidebarBackdrop label={label} onClose={() => closeFileSearch(dispatch)} open={state.fileSearchOpen} />
         {/* Covers the strip a closing panel uncovers until the diff widens (files-panel-motion.ts). */}
@@ -652,7 +732,7 @@ export function App({ config, initialStatus }: ConfigProps) {
           dispatch={dispatch}
           state={state}
         />
-        <main id="viewer" aria-label={label("diffViewer")}>
+        <main id="viewer" ref={viewerRef} aria-label={label("diffViewer")}>
           {state.findOpen ? (
             <FindBar controller={find} label={label} query={state.findQuery} requestToken={state.findRequest} />
           ) : null}
@@ -679,6 +759,7 @@ export function App({ config, initialStatus }: ConfigProps) {
                     onLoadDiff={() => dispatch({ type: "expand-item", itemId: item.id })}
                     onToggleCollapsed={() => toggleItemCollapsed(item.id)}
                     onToggleViewed={() => toggleViewed(item.id)}
+                    stage={stageAction}
                     viewedState={viewedStateOf(item as DiffItem)}
                   />
                 )}

@@ -107,6 +107,7 @@ USAGE
     [--set-upstream | --no-set-upstream] [--expected-head <commit>]
   cmux git worktree create [TARGET] [--name <name>] [--base <revision>]
   cmux git worktree apply [TARGET]
+  cmux git worktree remove [TARGET] [--discard]
 
 TARGET
   --path <path>          A file or folder in the repository
@@ -170,6 +171,11 @@ recorded base (commits, edits and new files; not submodules) to the main checkou
 as uncommitted changes. HEAD and the index stay; it is refused when the main
 checkout has changes of its own (or untracked files) at those paths, or when the
 work does not apply cleanly there.
+
+worktree remove, run in such a worktree, removes it (with its ignored files) and
+the cmux/<name> branch worktree create made. It is refused while the worktree has
+uncommitted changes or commits on no other branch or remote, unless --discard.
+The main checkout is never removed.
 ";
 
 /// Levenshtein distance, for "did you mean" scope suggestions.

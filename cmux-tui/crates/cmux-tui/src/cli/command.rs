@@ -24,6 +24,7 @@ mod plan;
 mod screen;
 mod server_ensure;
 mod state;
+mod workspace;
 
 pub(super) use plan::{RequestPlan, Resolve, ResponseView, WireOperation, ZoomStep};
 use screen::{parse_screen, parse_screen_strings};
@@ -597,20 +598,7 @@ fn parse_workspace(
             request(ResourceOperation::WorkspacePlacementList, selectors, flags, Map::new())
         }
         ["list"] => state::workspace_list(selectors, flags),
-        ["create"] => {
-            let mut params = Map::new();
-            if let Some(name) = flags.take("name") {
-                params.insert("name".into(), Value::String(name));
-            }
-            params.insert(
-                "initial_content".into(),
-                Value::String(if flags.boolean("empty") { "empty" } else { "terminal" }.into()),
-            );
-            if flags.boolean("ephemeral") {
-                params.insert("ephemeral".into(), Value::Bool(true));
-            }
-            request(ResourceOperation::WorkspaceCreate, selectors, flags, params)
-        }
+        ["create"] => workspace::workspace_create(selectors, flags, argv),
         [selector, "show"] => {
             selectors.insert("workspace", "ws", selector)?;
             request(ResourceOperation::WorkspaceGet, selectors, flags, Map::new())

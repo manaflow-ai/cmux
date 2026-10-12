@@ -119,7 +119,8 @@ body {
      the implicit `auto` track sizes to content max-width, letting #content
      (and its files sidebar) overflow the window and clip on the right. */
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr);
+  /* The toolbar, the commit form and write status (.diff-git-bar, empty without git), the diff. */
+  grid-template-rows: auto auto minmax(0, 1fr);
   overflow: hidden;
   overscroll-behavior: contain;
   contain: strict;
@@ -532,13 +533,13 @@ body {
 }
 .base-picker-group-header {
   padding: 8px 8px 4px;
-  font-size: 11px;
+  font-size: var(--text-caption);
   font-weight: 400;
   color: color-mix(in lab, var(--cmux-diff-fg) 52%, var(--cmux-diff-bg));
 }
 .base-picker-more {
   padding: 5px 8px 7px;
-  font-size: 11px;
+  font-size: var(--text-caption);
   color: color-mix(in lab, var(--cmux-diff-fg) 48%, var(--cmux-diff-bg));
   cursor: default;
   user-select: none;
@@ -1048,7 +1049,7 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
     margin: 0;
     padding: 0;
     border: 0;
-    background: color-mix(in srgb, #000 38%, transparent);
+    background: var(--cmux-scrim, color-mix(in srgb, #000 38%, transparent));
     -webkit-backdrop-filter: blur(2px);
     backdrop-filter: blur(2px);
     cursor: default;
@@ -1503,7 +1504,8 @@ body[data-loading="true"] #status::before {
   border-color: color-mix(in lab, var(--cmux-diff-accent) 60%, transparent);
   color: var(--cmux-diff-accent);
 }
-.file-review-load {
+.file-review-load,
+.file-review-stage {
   padding: 1px 8px;
   border: 1px solid var(--cmux-diff-border);
   border-radius: 5px;
@@ -1512,8 +1514,44 @@ body[data-loading="true"] #status::before {
   font: inherit;
   cursor: pointer;
 }
-.file-review-load:hover {
+.file-review-load:hover,
+.file-review-stage:hover {
   background: var(--cmux-diff-hover-bg);
+}
+/* Stage, Commit and Push reuse the changes view's git.css (cx-ueuc8): its tokens, from the viewer's. */
+.diff-git {
+  --agent-text: var(--cmux-diff-fg);
+  --agent-muted: color-mix(in srgb, var(--cmux-diff-fg) 62%, var(--cmux-diff-solid-bg));
+  --agent-page-bg: var(--cmux-diff-solid-bg);
+  --agent-border: var(--cmux-diff-border);
+  --agent-surface-elevated: var(--cmux-diff-solid-bg);
+  --agent-control: color-mix(in srgb, var(--cmux-diff-fg) 8%, var(--cmux-diff-solid-bg));
+  --agent-control-hover: var(--cmux-diff-hover-bg);
+  --agent-input-bg: var(--cmux-diff-solid-bg);
+  --agent-accent: var(--cmux-diff-accent);
+  --agent-danger: var(--cmux-diff-deletion-fg);
+  --acpmux-motion-hover: 80ms;
+  --acpmux-motion-ease: ease-out;
+  --acpmux-step-pressed: color-mix(in srgb, var(--agent-text) 16%, transparent);
+}
+.diff-git-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.diff-git-bar {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.diff-files-changed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--cmux-diff-border);
+  color: var(--cmux-diff-fg);
+  font-size: var(--text-detail);
 }
 .file-review-viewed {
   display: inline-flex;
@@ -1879,6 +1917,13 @@ svg[data-icon-fill] {
   background: color-mix(in srgb, var(--cmux-diff-fg) 5%, var(--cmux-diff-solid-bg));
   color: var(--cmux-diff-fg);
 }
+/* Unavailable here (split in a narrow viewer): its tooltip says why, and hover does not light it. */
+.diff-pill-button[aria-disabled="true"],
+.diff-pill-button[aria-disabled="true"]:hover {
+  background: transparent;
+  color: color-mix(in srgb, var(--cmux-diff-fg) 30%, var(--cmux-diff-solid-bg));
+  cursor: default;
+}
 /* The 20 px stroke glyphs at 19 px: about 14 px of ink, as in the classic pill. */
 .diff-pill-button svg {
   width: 19px;
@@ -1963,7 +2008,7 @@ svg[data-icon-fill] {
 
 /* The base picker popover uses the toolbar menu surface. */
 .base-picker-popover {
-  border-radius: 12px;
+  border-radius: 8px;
   background: color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg));
   box-shadow: 0 16px 34px color-mix(in lab, #000 30%, transparent);
 }
@@ -1972,15 +2017,14 @@ svg[data-icon-fill] {
   border-bottom: 0;
 }
 .base-picker-input {
-  font-size: 13px;
+  font-size: var(--text-body);
 }
 .base-picker-input:focus,
 .base-picker-input:focus-visible {
   outline: none;
 }
 .base-picker-row {
-  min-height: 30px;
-  border-radius: 7px;
+  border-radius: 6px;
 }
 /* File header row (FileHeader in App.tsx), slotted into Pierre's opaque sticky
    header: language icon, dim directory + bright file name, collapse caret,

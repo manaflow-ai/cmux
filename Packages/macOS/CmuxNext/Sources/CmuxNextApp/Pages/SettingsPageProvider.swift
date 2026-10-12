@@ -68,7 +68,7 @@ final class SettingsPageProvider: PageProvider {
             "palette": .array(colors.palette.map { $0.map { .string(AppTheme.hex($0)) } ?? .null }),
         ]
         for (key, color) in [("selectionBackground", colors.selectionBackground), ("selectionForeground", colors.selectionForeground),
-                             ("cursorColor", colors.cursorColor), ("cursorText", colors.cursorText)] {
+                             ("cursorColor", colors.cursorColor), ("cursorText", colors.cursorText), ("accent", colors.accent)] {
             if let color { object[key] = .string(AppTheme.hex(color)) }
         }
         return .object(object)

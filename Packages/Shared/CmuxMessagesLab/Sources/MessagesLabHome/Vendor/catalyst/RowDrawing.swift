@@ -143,17 +143,19 @@ enum RowDraw {
             .reduce(0) { $0 + TextDraw.width($1.0, font: $1.1, kern: captionKern) }
     }
 
-    /// The typing bubble without its dots (dots are layers that animate).
+    /// The typing bubble without its dots and tail discs (layers that animate).
     static let typingBubble = CGRect(x: 20, y: margin + 4, width: 44, height: 27.5)
     /// The point the typing bubble grows from (row coordinates): Messages' fitted scale centre,
     /// 19.1 pt left of and 8.7 pt above the bubble's centre (tools/evidence/ANIMATIONS.md section 6).
     static var typingAnchor: CGPoint { CGPoint(x: typingBubble.midX - 19.07, y: typingBubble.midY - 8.71) }
+    /// The bubble's two tail discs (row coordinates), large then small: layers of their own
+    /// (RowCell.typingDiscs; on macOS they move apart from the bubble as it appears).
+    static let typingDiscs = [CGRect(x: 20.5, y: typingBubble.maxY - 7, width: 9, height: 9),
+                              CGRect(x: 16.5, y: typingBubble.maxY + 1, width: 5, height: 5)]
     static func drawTypingBubble(_ ctx: CGContext, top: CGFloat) {
         let b = CGRect(x: 20, y: top, width: 44, height: 27.5)
         Fixture.incoming.setFill()
         UIBezierPath(roundedRect: b, cornerRadius: b.height / 2).fill()
-        UIBezierPath(ovalIn: CGRect(x: 20.5, y: b.maxY - 7, width: 9, height: 9)).fill()
-        UIBezierPath(ovalIn: CGRect(x: 16.5, y: b.maxY + 1, width: 5, height: 5)).fill()
     }
     static func typingDotCenter(_ i: Int) -> CGPoint {
         let b = typingBubble

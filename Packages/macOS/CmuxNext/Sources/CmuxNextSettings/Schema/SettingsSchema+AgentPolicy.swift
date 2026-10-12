@@ -168,6 +168,7 @@ extension SettingsSchema {
         "agents.chats.enabled": .privacy,
         "picker.pinned": .userOnly,
         "history.terminalCommands": .privacy,
+        "history.commandRetentionDays": .privacy,
         "feed.mirrorNotifications.agents": .privacy,
         "feed.mirrorNotifications.terminal": .privacy,
         // An agent must not turn on sending its own prompts to the phone (cx-aocz).

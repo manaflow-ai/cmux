@@ -449,36 +449,94 @@ Example:
 | --- | --- |
 | name | `set-terminal-command-history` |
 | status | implemented |
-| since | protocol 12, capability `terminal-command-journal-v1` |
+| since | protocol 12, capability `terminal-command-history-v1` |
 
-Turns terminal command history on or off for this daemon. Off by default, and
-off again after every daemon start (the setting is never persisted), so a
-client that wants history turns it on after each connect. Trusted local
-(Unix-classified) connections only.
+Turns terminal command history on or off for this daemon and sets how long
+commands are kept. The switch is off by default and off again after every
+daemon start (it is never persisted), so a client that wants history turns it
+on after each connect. Trusted local (Unix-classified) connections only.
 
 While on, the daemon tracks OSC 133 shell-integration marks in each terminal's
 output (`A` prompt start, `B` input start, `C` command start, `D[;exit]`
-command end) and appends one `shell.command.finished` journal record per
-finished command, from the reserved producer `cmux_shell` (class observation,
-sensitivity sensitive, subject the terminal and its ancestors):
-`{command, cwd, exit_code, started_at_ms, duration_ms}`. `command` is the text
-of the newest block of cells Ghostty marks as input (after `B`, until `C`),
-read at `C`: the semantics are assigned byte by byte while the output is
-parsed, so typeahead, prompt redraws and reflow do not change it. It is
-trimmed, without control characters and cut at 1 KiB; null on the alternate
-screen or when no input cell is found. `cwd` is the local path of the OSC 7
-directory at `C` (null when it names another host); times are decimal
-strings. A `D` without a `C` (an empty Enter) records nothing; an `A` while a
-command runs ends it with a null `exit_code`. A terminal records at most 10
-commands a second; one daemon worker appends them in order from a queue of
-256 (more drop with a diagnostic). While off, marks are dropped and the
-screen is never read. Only the daemon writes `cmux_shell` records:
-`session.journal.append` refuses that producer and it cannot be installed
-or replaced as a plugin. The switch is one daemon-wide value that any
-trusted local client sets (not per client), and turning it off keeps the
-records already written.
+command end) and stores one row per finished command in the session's
+workspace registry: `{id, terminal_id, command, cwd, exit_code,
+started_at_ms, duration_ms}`. `command` is the text of the newest block of
+cells Ghostty marks as input (after `B`, until `C`), read at `C`: the
+semantics are assigned byte by byte while the output is parsed, so typeahead,
+prompt redraws and reflow do not change it. It is trimmed, without control
+characters and cut at 1 KiB; null on the alternate screen or when no input
+cell is found. `cwd` is the local path of the OSC 7 directory at `C` (null
+when it names another host). A `D` without a `C` (an empty Enter) records
+nothing; an `A` while a command runs ends it with a null `exit_code`. A
+terminal records at most 10 commands a second; one daemon worker stores them
+in order from a queue of 256 (more drop with a diagnostic). While off, marks
+are dropped and the screen is never read.
 
-Params: `{enabled: bool}`. Result: `{enabled: bool}`.
+Command rows are never session journal records: the journal is append-only,
+and a command line can hold a secret that a user must be able to delete.
+`cmux_shell` stays a reserved journal producer id (development builds used
+it): `session.journal.append` refuses it and it cannot be installed as a
+plugin.
+
+`retention_days` (1 to 3650, default 30) is persisted in the registry. A
+row expires when `retention_days` have passed since its command started.
+Lists hide expired rows at once; one daemon worker deletes them when the
+daemon starts, on every store and retention change, and at the oldest row's
+expiry time (it waits for that one deadline; no polling). The same worker is
+the only writer of command rows: it stores queued commands and runs client
+deletes in queue order. After it deletes rows it checkpoints the WAL without
+waiting for readers, and tries again a minute later while a reader blocks
+it. The registry connection runs with SQLite `secure_delete`, so deleted
+rows are zeroed. The switch is one daemon-wide value that any trusted local
+client sets (not per client); turning it off keeps the stored rows
+(`delete-terminal-commands` removes them).
+
+Params: `{enabled: bool, retention_days?: u32}` (without `retention_days`
+the stored value is kept). Result: `{enabled: bool, retention_days: u32}`.
+
+### list-terminal-commands
+
+| Field | Value |
+| --- | --- |
+| name | `list-terminal-commands` |
+| status | implemented |
+| since | protocol 12, capability `terminal-command-history-v1` |
+
+Returns stored terminal commands, whether recording is on or off. Expired
+rows are never returned (the worker deletes them at their expiry time).
+Trusted local connections only.
+
+Params: `{after_id?: decimal string, limit?: 1..1000}` (default limit 1000).
+Result: `{commands: [{id, terminal_id, command, cwd, exit_code,
+started_at_ms, duration_ms}], truncated, deletions: decimal string,
+registry_id, retention_days}`. `commands` holds the newest `limit` unexpired
+rows with an id above `after_id`, oldest first; `truncated` is true when
+older rows above `after_id` were left out (a reader that appends after its
+last id then has a gap and reads again from the start). Ids, times and
+`deletions` are decimal strings. Ids are never reused within a registry.
+`deletions` counts client deletes that removed rows (expiry does not count:
+a reader drops rows older than `retention_days` itself). A reader that saw
+another `deletions` or `registry_id` reads again from the start instead of
+appending after its last id.
+
+### delete-terminal-commands
+
+| Field | Value |
+| --- | --- |
+| name | `delete-terminal-commands` |
+| status | implemented |
+| since | protocol 12, capability `terminal-command-history-v1` |
+
+Deletes stored terminal commands. Trusted local connections only.
+
+Params: exactly one of `{ids: [decimal string]}` (1 to 1000), `{started_since_ms:
+decimal string}` (commands that started at or after that time) or
+`{all: true}`. Result: `{deleted: u64}`.
+
+The delete runs on the command history worker after every command queued
+before it, so a command that finished just before the delete is deleted
+too. Rows are zeroed (`secure_delete`); the worker then checkpoints the WAL
+(see `set-terminal-command-history`).
 
 ### server-stats
 
@@ -1786,7 +1844,7 @@ runs the session, or `chief:` and the 8 lowercase hex digit id of the Chief
 home whose own acpmux runs it on the app's machine (a Chief subagent; the app
 attaches the tab to that home's acpmux), or `registry:` and this store's
 `identify.session_id` (the session daemon's own machine runs it; the chat
-starts with `agent-session-start`), `session` the acpmux session id or absent for a new chat,
+starts with `agent-session-start`; see below for `session`), `session` the acpmux session id or absent for a new chat,
 `harness` the agent kind, optional; `host_name` the host machine's display
 name, 1 to 255 bytes without control characters, optional), or, with
 `page-tabs-v1`, one of the app's own pages (`page`: its id, 1 to 64
@@ -1814,6 +1872,25 @@ echoes it in the result and emits nothing. The key
 names the source and the target (`pane` or `workspace`); the same key with
 another one fails with `idempotency.conflict`. Concurrent requests with one
 key create one tab. The CLI has no verb for it.
+
+A session never leaves its machine: a `registry:` tab created with a
+`session` fails with `error_code:"conversation_tab.machine_mismatch"`, and
+`bind-conversation-tab-session` refuses every `registry:` tab the same way,
+since that machine's `agent-session-start` binds its chats. The one
+exception is a chat this daemon itself landed through `agent-transfer-finish`:
+a `registry:` tab whose `host` is this store's own and whose `session` is the
+session id acpmux's finish answered (never an id a client sent) is created,
+so Move to Cloud opens the moved chat on the machine it landed on. The
+daemon keeps the 16 most recent landed chats, each for 24 h, in the
+owner-only `agent-transfer-landed.json` next to its registry, rewritten
+atomically, so a retried open after a daemon restart still works (an
+in-memory session keeps them in memory only). The file counts only as a
+regular file owned by the daemon's user, opened without following a
+symlink, and a record dated more than a minute ahead is ignored. A chat this
+daemon begins (or commits) moving away again with `agent-transfer-begin` is
+forgotten, so it never opens here again unless it lands here again. Any
+other session, another store's `registry:` host, and every bind stay
+refused.
 
 Closing the tab deletes its frontend and source records in the close's
 commit (closing any frontend browser tab deletes its frontend record and
@@ -8134,7 +8211,9 @@ settled receive stay `agent_transfer.unknown_receive`.
 
 `{id, cmd:"agent-transfer-finish", receive_id, name?}` imports the chat in the
 receive's own folder (sent as `cwd`; the client cannot name another) and
-answers `{session}` (acpmux's session summary). Its queue then runs here. A
+answers `{session}` (acpmux's session summary). Its queue then runs here, and
+the summary's `sessionId` is remembered as landed here (see
+`new-conversation-tab`). A
 finish that fails for good (anything but a timeout, an unreachable or busy
 acpmux, or `transfer.incomplete`) also forgets the receive.
 

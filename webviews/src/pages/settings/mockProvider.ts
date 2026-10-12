@@ -48,6 +48,8 @@ export type MockOptions = {
   failing?: Partial<Record<string, string>>;
   /** The loaded settings file's path (the host lists' `settings_file`). */
   settingsFile?: string;
+  /** The theme file the mock picker returns for `cmux.settings.theme.import`. */
+  importable?: GhosttyTheme;
 };
 
 export const mockDomains: Domains = {
@@ -107,6 +109,7 @@ export class MockSettingsProvider {
     this.failing = options.failing ?? {};
     this.connected = options.connected ?? true;
     if (options.settingsFile !== undefined) this.host = { ...this.host, settings_file: options.settingsFile };
+    this.importable = options.importable ?? null;
   }
 
   /** Registers every op and stream on `session` (the provider side). */

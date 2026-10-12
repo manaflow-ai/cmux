@@ -21,6 +21,8 @@ final class ThemeCatalog {
     private(set) var colors: [String: ThemeFileColors] = [:]
     @ObservationIgnored private var known: Set<String> = []
     @ObservationIgnored private var loading: Task<Void, Never>?
+    /// Called after each read of the colors (a theme file's `# cmux-accent` is in them).
+    @ObservationIgnored var onRead: (() -> Void)?
 
     func load() {
         guard loading == nil else { return }
@@ -59,6 +61,7 @@ final class ThemeCatalog {
         }.value
         strips = read.strips
         colors = read.colors
+        onRead?()
     }
 
     /// Whether Ghostty accepts `text` as a theme spec: a spec whose every
