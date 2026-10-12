@@ -68,7 +68,8 @@ impl Surface {
             let shown = records.take_shown_change(!self.is_dead());
             (records.take_change(), shown, records.take_alerts())
         };
-        // Exit hides a running program's records with no new report.
+        // A publish after the terminal died (reconnect) can hide its
+        // running records with no new report: send that shown change too.
         if !progress_changed && !status_changed && shown_changed.is_none() {
             return;
         }

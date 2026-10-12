@@ -102,7 +102,7 @@ fn a_remote_tab_shows_its_programs_progress_then_its_wait() {
     surface.write_bytes(b"\r").unwrap();
     let cleared =
         wait_for_tab(&mut app, &mut terminal, &mux_events, &app_events, "no mark", |tab| {
-            !tab.contains('!')
+            !tab.is_empty() && !tab.contains('!')
         });
     assert!(!cleared.contains('%'), "{cleared:?}");
 
