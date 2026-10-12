@@ -9,8 +9,10 @@ export type TurnActions = {
   /// Fork the session through the turn whose summary event is `throughSeq`; absent when
   /// acpmux does not serve forks.
   fork?: (throughSeq: number) => void;
-  /// The only turn `fork` goes through (`latestForkSeq`): the latest completed turn.
+  /// The latest completed turn (`latestForkSeq`), the only one `fork` goes through unless `forkAny`.
   forkSeq?: number;
+  /// Every completed turn forks (`forksAnyTurn`): acpmux forks a Claude chat through any of them (cx-yqiv).
+  forkAny?: boolean;
   /// Edit and resend (cx-ncc.60): the prompts that edit in place, each with the turn its edit forks
   /// through (`editableTurns`), and the send that forks there and sends the edited text.
   edit?: {

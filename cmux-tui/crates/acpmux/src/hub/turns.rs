@@ -535,6 +535,10 @@ impl Hub {
                 Some(_) => {}
             }
         }
+        // The agent's notifications before this answer (the reply text, the
+        // preview) are applied before the turn settles, so every record below
+        // and the chat activity it sends see them.
+        Self::drain_inbound(session).await;
         match &result {
             Ok(v) => {
                 self.note_reply_refusal(session);
@@ -634,6 +638,21 @@ impl Hub {
             self.set_status(session, SessionStatus::Disconnected);
         }
         self.save_meta(session);
+    }
+
+    /// Waits until the inbound loop handled every agent message queued before
+    /// now. Bounded: a loop that is gone (closed channel) or stuck never holds
+    /// a turn's settlement past the bound.
+    async fn drain_inbound(session: &Session) {
+        let (done, handled) = tokio::sync::oneshot::channel();
+        let queued = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            session.inbound_tx.send(crate::agent::Inbound::Barrier(done)),
+        )
+        .await;
+        if matches!(queued, Ok(Ok(()))) {
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(5), handled).await;
+        }
     }
 
     /// Keep the outcome of the last turn on the session (`lastTurn` in the
