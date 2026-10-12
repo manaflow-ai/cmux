@@ -109,6 +109,15 @@ impl LinkState {
         write_private(&self.config_path(), &text)
     }
 
+    /// Removes the WireGuard key, so the next `init` makes a new one (a
+    /// new install never keeps another install's key).
+    pub(super) fn forget_key(&self) -> io::Result<()> {
+        match std::fs::remove_file(self.key_path()) {
+            Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
+            _ => Ok(()),
+        }
+    }
+
     pub(super) fn private_key(&self) -> io::Result<Zeroizing<[u8; 32]>> {
         let text = Zeroizing::new(std::fs::read_to_string(self.key_path())?);
         let bytes = Zeroizing::new(

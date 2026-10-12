@@ -106,7 +106,12 @@ fn query_status(socket: &Path) -> Option<Value> {
     (value["ok"] == json!(true)).then_some(value)
 }
 
-fn init_or_check(state: &LinkState, flags: &Flags) -> anyhow::Result<()> {
+/// Runs `init` when the state directory has none; otherwise checks
+/// `--install` and `--port` against the config. With `handoff` (the app,
+/// which owns this link), another install or port replaces the config: the
+/// running link stops, the WireGuard key is made new (a new install never
+/// keeps the old install's key); true when a running link was stopped.
+fn init_or_check(state: &LinkState, flags: &Flags, handoff: bool) -> anyhow::Result<bool> {
     let port = match flags.get("--port") {
         Some(text) => Some(text.parse::<u16>().map_err(|_| anyhow!("--port needs a UDP port"))?),
         None => None,
@@ -116,26 +121,35 @@ fn init_or_check(state: &LinkState, flags: &Flags) -> anyhow::Result<()> {
             .get("--install")
             .ok_or_else(|| anyhow!("this state directory has no link yet: give --install ID"))?;
         state.init(&LinkConfig { install: install.clone(), port: port.unwrap_or(DEFAULT_PORT) })?;
-        return Ok(());
+        return Ok(false);
     }
     let config = state.config()?;
-    if let Some(install) = flags.get("--install")
-        && *install != config.install
-    {
-        bail!("install_mismatch: this link belongs to install {}", config.install);
+    let install = flags.get("--install").filter(|install| **install != config.install);
+    let other_port = port.filter(|port| *port != config.port);
+    if install.is_none() && other_port.is_none() {
+        return Ok(false);
     }
-    if let Some(port) = port
-        && port != config.port
-    {
+    if !handoff {
+        if install.is_some() {
+            bail!("install_mismatch: this link belongs to install {}", config.install);
+        }
         bail!("port_mismatch: this link uses UDP port {}", config.port);
     }
-    Ok(())
+    let stopped = stop_live(state)?;
+    let fresh = LinkConfig {
+        install: install.cloned().unwrap_or(config.install),
+        port: other_port.unwrap_or(config.port),
+    };
+    if install.is_some() {
+        state.forget_key()?;
+    }
+    state.init(&fresh)?;
+    Ok(stopped)
 }
 
 pub(super) fn run_ensure(flags: &Flags, handoff: bool) -> anyhow::Result<()> {
     let state = super::state(flags)?;
-    init_or_check(&state, flags)?;
-    let mut restarted = false;
+    let mut restarted = init_or_check(&state, flags, handoff)?;
     if let Some(live) = registration::read_live(&state.registration_dir()) {
         let status = query_status(&live.socket);
         let same_build = status.as_ref().is_some_and(|s| s["build"] == json!(build()));
