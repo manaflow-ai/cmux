@@ -44,10 +44,6 @@ public enum SendMenuGeometry {
     /// `sendMenuListItemTextColor` in light mode as it reaches the screen:
     /// gray 12 on iOS 26.5 and 13 on 27.0, measured in screenshots
     /// (ChatKit reports 0.06 white, which would draw as 15).
-    /// White tint on the menu's glass in dark mode, so it reads as
-    /// Messages' popover glass (30,30,30 over black on iOS 26.5).
-    public static let darkPanelTint: CGFloat = 0.06
-
     public static func labelWhite(iOS27: Bool) -> CGFloat { iOS27 ? 13.0 / 255 : 12.0 / 255 }
 
     /// Label frame inside a row: SF 24 regular's 28.67 pt line box, centered

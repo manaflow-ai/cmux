@@ -217,6 +217,15 @@ enum ConversationTheme {
             : UIColor(red: 180 / 255, green: 184 / 255, blue: 191 / 255, alpha: 1)
     }
 
+    /// Messages' menus (the long-press menu, the "+" send menu) are UIKit
+    /// context menus and popovers, whose glass reads lighter in dark mode
+    /// than a plain regular glass: 30,30,30 over black where ours read 16,
+    /// and 31,30,33 over the long-press dim where ours read 17,19,22 (iOS
+    /// 26.5). A faint white tint matches both (fitted); light mode needs none.
+    static let systemMenuGlassTint = UIColor { traits in
+        traits.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.06) : .clear
+    }
+
     /// How the composer's placeholder and microphone blend into the field:
     /// Messages composites both with plus-darker in light mode and
     /// plus-lighter in dark mode, so the gray ink reads against whatever the

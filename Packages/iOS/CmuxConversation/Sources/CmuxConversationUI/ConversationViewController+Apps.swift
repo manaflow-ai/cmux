@@ -27,7 +27,7 @@ final class AppsMenuOverlay: UIView {
     /// Groups the menu with the glass it grows out of, so the shapes blend
     /// as one (`UIGlassContainerEffect` on iOS 26 and later).
     private let glassContainer: UIVisualEffectView
-    private let panel = makeGlassView(cornerRadius: ConversationTheme.plusButtonSize / 2)
+    private let panel = makeGlassView(cornerRadius: ConversationTheme.plusButtonSize / 2, tint: ConversationTheme.systemMenuGlassTint)
     /// The rows at their open size, scaled to the panel's current size
     /// (horizontal and vertical scale on separate springs).
     private let contentX = UIView()
@@ -116,7 +116,6 @@ final class AppsMenuOverlay: UIView {
     }
 
     func present() {
-        applyPanelTint()
         let insets = superview?.safeAreaInsets ?? .zero
         var iOS27 = false
         if #available(iOS 27, *) { iOS27 = true }
@@ -139,24 +138,6 @@ final class AppsMenuOverlay: UIView {
         state = .closed
         apply(.closed, frame: anchor)
         animate(to: .open, frame: openFrame, springs: .present)
-    }
-
-    /// Messages' send menu is a UIKit popover, whose glass reads lighter in
-    /// dark mode than a plain regular glass: 30,30,30 over black where ours
-    /// read 16 (iOS 26.5). A faint white tint matches it (fitted: 0.06 reads
-    /// 30, and its 70% labels 209); light mode needs none.
-    private func applyPanelTint() {
-        guard #available(iOS 26.0, *), let glass = panel.effect as? UIGlassEffect else { return }
-        let tint: UIColor? = traitCollection.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: G.darkPanelTint) : nil
-        guard glass.tintColor != tint else { return }
-        let effect = UIGlassEffect(style: .regular)
-        effect.tintColor = tint
-        panel.effect = effect
-    }
-
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-        if traitCollection.userInterfaceStyle != previousTraitCollection?.userInterfaceStyle { applyPanelTint() }
     }
 
     /// Folds the menu back into the "+" circle, then runs `completion`.
