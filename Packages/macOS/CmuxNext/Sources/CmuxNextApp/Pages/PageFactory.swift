@@ -155,6 +155,11 @@ struct PageFactory {
         }
         let museumArt = MuseumArtSession()
         provider.museumArt = museumArt
+        provider.workspaceBackgrounds = SettingsWorkspaceBackgrounds(
+            title: { [weak services] id in services?.workspace(id: id)?.displayName },
+            value: { [weak services] id in services?.themes.workspaceBackground(id) },
+            set: { [weak services] value, id in services?.themes.setWorkspaceBackground(value, for: id) },
+            preview: { [weak services] value, id in services?.themes.previewWorkspaceBackground(value, for: id) })
         let native = AppPageNativeProvider(services: services, page: .settings)
         let routes = [PageRoute(prefix: "cmux.settings.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
         // `appearance.surfaces.settings` colors the page, as it colored the Swift Settings view.

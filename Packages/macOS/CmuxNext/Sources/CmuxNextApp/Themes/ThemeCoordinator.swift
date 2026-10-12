@@ -36,12 +36,18 @@ final class ThemeCoordinator {
     /// like its handler (`ThemeHandlers`), for picker previews.
     var previewTarget: (@MainActor (ActionID, ActionTargetRef?) -> ThemePreview.Target?)?
     private var observation: Task<Void, Never>?
+    /// Each workspace's own background (`ThemeCoordinator+Backgrounds`).
+    let workspaceBackgrounds: WorkspaceBackgroundStore
+    /// A workspace background the picker shows without saving it; the inner nil follows the app's.
+    var backgroundPreview: (workspace: String, value: String?)?
     /// The scopes whose theme this coordinator set.
     private let themed = NSHashTable<ThemeScope>.weakObjects()
 
-    init(services: AppServices, terminalThemes: TerminalThemeStore) {
+    init(services: AppServices, terminalThemes: TerminalThemeStore, workspaceBackgrounds: WorkspaceBackgroundStore? = nil) {
         self.services = services
         self.terminalThemes = terminalThemes
+        self.workspaceBackgrounds = workspaceBackgrounds
+            ?? .forApplication(bundleIdentifier: services.environment.launch.bundleID)
         resolver.onChange = { [weak self] in
             self?.apply(forceSurfaces: true)
             self?.applyChromeTheme()
@@ -115,6 +121,8 @@ final class ThemeCoordinator {
         let store = services.machines.local.store
         let terminalThemes = terminalThemes
         let local = services.machines.local
+        let workspaceBackgrounds = self.workspaceBackgrounds
+        Task { await workspaceBackgrounds.load() }
         Task { [weak self] in
             await terminalThemes.load()
             // Once per launch, after the home daemon's first tree: drop the
@@ -128,6 +136,7 @@ final class ThemeCoordinator {
             for await _ in ObservationStream({ () -> [String?] in
                 store.profiles.map(\.theme) + store.personal.workspaces.map(\.theme)
                     + [String(describing: store.personal.terminalThemes), String(describing: terminalThemes.themes),
+                       String(describing: workspaceBackgrounds.backgrounds),
                        String(store.identity?.supports(DaemonCapabilities.shared.personalTerminals) ?? false)]
             }) {
                 self?.migrateTerminalThemes()
@@ -146,6 +155,7 @@ final class ThemeCoordinator {
     /// A workspace content was created or shown in `controller`'s window.
     func contentDidShow(_ content: WorkspaceContentController) {
         setTheme(of: content.themeScope, to: workspaceTheme(content.workspace.id))
+        applyWorkspaceBackground(content)
     }
 
     /// A terminal surface was created for a tab.

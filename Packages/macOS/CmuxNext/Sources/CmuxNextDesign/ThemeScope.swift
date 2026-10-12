@@ -22,13 +22,17 @@ public final class ThemeScope {
 
     /// Art is inherited independently of color themes, so every window
     /// follows the app's one selection even with room or terminal themes.
-    public var backdropSelection: BackdropSelection? { selectedBackdropSelection ?? parent?.backdropSelection }
+    public var backdropSelection: BackdropSelection? {
+        pinsNoBackdrop ? nil : selectedBackdropSelection ?? parent?.backdropSelection
+    }
     public var backdropArt: BackdropArt? {
         if case .art(let art) = backdropSelection { return art }
         return nil
     }
     public var appearanceTuning: AppearanceTuning { selectedAppearanceTuning ?? parent?.appearanceTuning ?? .identity }
     private var selectedBackdropSelection: BackdropSelection?
+    /// Plain glass here even when an ancestor has art (``pinBackdrop(_:)``).
+    private var pinsNoBackdrop = false
     private var selectedAppearanceTuning: AppearanceTuning?
     /// The user's per-surface backgrounds (`appearance.surfaces`), inherited
     /// like art: one app-wide setting, read by every surface's owner through
@@ -50,6 +54,21 @@ public final class ThemeScope {
         selectedBackdropSelection = selection
         // Settings pick the art before the first window: start decoding it now, so that window
         // finds it ready.
+        BackdropImageStore.shared.prewarm(selection)
+        repaintBackdropArt()
+    }
+
+    /// Gives this scope its own background over its ancestors' (a workspace's own pick, cx-t2x.5):
+    /// `.none` is plain glass even under art, `.inherit` follows the ancestors again.
+    public func pinBackdrop(_ pin: BackdropPin) {
+        let (selection, none): (BackdropSelection?, Bool) = switch pin {
+        case .inherit: (nil, false)
+        case .none: (nil, true)
+        case .selection(let selection): (selection, false)
+        }
+        guard selectedBackdropSelection != selection || pinsNoBackdrop != none else { return }
+        selectedBackdropSelection = selection
+        pinsNoBackdrop = none
         BackdropImageStore.shared.prewarm(selection)
         repaintBackdropArt()
     }
