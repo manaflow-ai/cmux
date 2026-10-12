@@ -68,8 +68,12 @@ public actor CloudMachineLinkManager {
     private var ownerTeams: [String: String] = [:]
     private var links: [String: CloudMachineLink] = [:]
     private var connecting: [String: Task<CloudMachineLink.Connected, Error>] = [:]
-    private var browserProxies: [String: CloudBrowserProxyProcess] = [:]
-    private var browserProxyStarts: [String: Task<CloudBrowserProxyEndpoint, Error>] = [:]
+    private struct BrowserProxyKey: Hashable {
+        let machineID: String
+        let remoteNetwork: Bool
+    }
+    private var browserProxies: [BrowserProxyKey: CloudBrowserProxyProcess] = [:]
+    private var browserProxyStarts: [BrowserProxyKey: Task<CloudBrowserProxyEndpoint, Error>] = [:]
     private var lastFailure: [String: (at: Date, error: String)] = [:]
     private var machineStatuses: [String: String] = [:]
     private var localStatusChanges: [String: Date] = [:]
@@ -421,27 +425,28 @@ public actor CloudMachineLinkManager {
     }
 
     /// One authenticated browser carrier per machine, sharing the app's userspace WireGuard hub.
-    public func browserProxy(machineID: String) async throws -> CloudBrowserProxyEndpoint {
+    public func browserProxy(machineID: String, remoteNetwork: Bool = false) async throws -> CloudBrowserProxyEndpoint {
+        let key = BrowserProxyKey(machineID: machineID, remoteNetwork: remoteNetwork)
         try Task.checkCancellation()
         guard isCloudEnabled(), privateRoutes[machineID] != nil else {
             throw ManagerError.privateRouteRequired(machineID)
         }
-        if let starting = browserProxyStarts[machineID] { return try await browserProxyResult(starting) }
+        if let starting = browserProxyStarts[key] { return try await browserProxyResult(starting) }
         let addresses = privateAddresses(for: machineID)
-        if let existing = browserProxies[machineID] {
+        if let existing = browserProxies[key] {
             let endpoint = await existing.readyEndpoint
-            if browserProxies[machineID] !== existing { return try await browserProxy(machineID: machineID) }
+            if browserProxies[key] !== existing { return try await browserProxy(machineID: machineID, remoteNetwork: remoteNetwork) }
             if existing.addresses == addresses, let endpoint { return endpoint }
-            browserProxies[machineID] = nil
+            browserProxies[key] = nil
             await existing.stop()
-            return try await browserProxy(machineID: machineID)
+            return try await browserProxy(machineID: machineID, remoteNetwork: remoteNetwork)
         }
         guard let clientURL, let hub else { throw ManagerError.wireGuardHubMissing }
-        guard resolvedClientCapabilities(clientURL: clientURL).contains("browser-proxy") else {
+        guard resolvedClientCapabilities(clientURL: clientURL).contains(remoteNetwork ? "cloud-browser-network" : "browser-proxy") else {
             throw ManagerError.retryLater(String(localized: "cloud.browser.clientUpdateRequired", defaultValue: "Update cmux to connect to this Cloud page."))
         }
         let proxy = CloudBrowserProxyProcess(addresses: addresses)
-        browserProxies[machineID] = proxy
+        browserProxies[key] = proxy
         let task = Task<CloudBrowserProxyEndpoint, Error> {
             let knownFingerprint = self.paths.deviceFingerprint(for: machineID)
             let carrier: Bool
@@ -483,17 +488,17 @@ public actor CloudMachineLinkManager {
             let arguments = CloudTuiCommandLine.browserProxyArguments(
                 route: route, addresses: addresses, stateDir: self.paths.stateDir.path,
                 wireGuardHubSocket: claim.ready.socketPath,
-                carrier: carrier
+                carrier: carrier, remoteNetwork: remoteNetwork
             )
             return try await proxy.start(client: clientURL, arguments: arguments) { await hub.release(claim.lease) }
         }
-        browserProxyStarts[machineID] = task
+        browserProxyStarts[key] = task
         Task { [weak self] in
             let result = await task.result
-            await self?.browserProxyStartFinished(machineID: machineID, proxy: proxy, result: result)
+            await self?.browserProxyStartFinished(key: key, proxy: proxy, result: result)
         }
         let endpoint = try await browserProxyResult(task)
-        guard browserProxies[machineID] === proxy else { throw CancellationError() }
+        guard browserProxies[key] === proxy else { throw CancellationError() }
         return endpoint
     }
 
@@ -505,11 +510,11 @@ public actor CloudMachineLinkManager {
         return try value.get()
     }
 
-    private func browserProxyStartFinished(machineID: String, proxy: CloudBrowserProxyProcess, result: Result<CloudBrowserProxyEndpoint, Error>) async {
-        guard browserProxies[machineID] === proxy else { return }
-        browserProxyStarts[machineID] = nil
+    private func browserProxyStartFinished(key: BrowserProxyKey, proxy: CloudBrowserProxyProcess, result: Result<CloudBrowserProxyEndpoint, Error>) async {
+        guard browserProxies[key] === proxy else { return }
+        browserProxyStarts[key] = nil
         if case .failure = result {
-            browserProxies[machineID] = nil
+            browserProxies[key] = nil
             await proxy.stop()
         }
     }
@@ -562,11 +567,13 @@ public actor CloudMachineLinkManager {
     }
 
     public func disconnect(machineID: String) async {
-        let startingProxy = browserProxyStarts.removeValue(forKey: machineID)
-        startingProxy?.cancel()
-        let proxy = browserProxies.removeValue(forKey: machineID)
-        await proxy?.stop()
-        _ = await startingProxy?.result
+        for key in Set(browserProxies.keys).union(browserProxyStarts.keys) where key.machineID == machineID {
+            let startingProxy = browserProxyStarts.removeValue(forKey: key)
+            startingProxy?.cancel()
+            let proxy = browserProxies.removeValue(forKey: key)
+            await proxy?.stop()
+            _ = await startingProxy?.result
+        }
         connecting[machineID]?.cancel()
         connecting[machineID] = nil
         // An in-flight drain notices the removed link on its next run; dropping the
@@ -580,7 +587,7 @@ public actor CloudMachineLinkManager {
 
     public func disconnectAll() async {
         for task in connecting.values { task.cancel() }
-        for id in Set(links.keys).union(browserProxies.keys).union(browserProxyStarts.keys) {
+        for id in Set(links.keys).union(browserProxies.keys.map(\.machineID)).union(browserProxyStarts.keys.map(\.machineID)) {
             await disconnect(machineID: id)
         }
         for task in connecting.values { task.cancel() }

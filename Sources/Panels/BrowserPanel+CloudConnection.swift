@@ -128,6 +128,18 @@ extension BrowserPanel {
             )
             return
         }
+        if let loopbackURL = provider.cloudLoopbackBrowserURL(for: known) {
+            let restoredURL = cloudRestoreURL(on: loopbackURL)
+            let configured = provider.configureBrowser(self, url: restoredURL, resourceID: resource)
+            if configured { pendingCloudRestoreURL = nil }
+            return
+        }
+        if let browserURL = provider.cloudBrowserOriginURL(for: known, restoring: self) {
+            let restoredURL = cloudRestoreURL(on: browserURL)
+            let configured = provider.configureBrowser(self, url: restoredURL, resourceID: resource)
+            if configured { pendingCloudRestoreURL = nil }
+            return
+        }
         switch CloudPortRoutePlan.plan(resource: known, privateAddress: provider.info.privateAddress) {
         case .privateDirect(let raw):
             if let url = URL(string: raw) {
@@ -193,7 +205,13 @@ extension BrowserPanel {
     }
 
     func cloudRestoreURL(on target: URL) -> URL {
-        Self.cloudRestoredURL(
+        if let resource = cloudResourceForDuplication,
+           resource.machine.cloudMachineID != nil, resource.kind == .browser, !resource.key.hasPrefix("port:"),
+           let preferred = pendingCloudRestoreURL ?? currentURLForTabDuplication,
+           ["http", "https"].contains(preferred.scheme?.lowercased() ?? "") {
+            return preferred
+        }
+        return Self.cloudRestoredURL(
             pendingCloudRestoreURL ?? currentURLForTabDuplication,
             on: target,
             isDisplay: cloudResourceForDuplication?.kind == .display
@@ -206,6 +224,15 @@ extension BrowserPanel {
     /// a loopback URL routes only to the machine that owns this browser.
     func privateAddressRouteProvider(for url: URL) -> CmuxTuiSurfaceProvider? {
         let catalog = SurfaceCatalog.shared
+        if let resource = cloudResourceForDuplication,
+           resource.machine.cloudMachineID != nil,
+           resource.kind == .browser, !resource.key.hasPrefix("port:") {
+            return catalog.provider(for: resource.machine) as? CmuxTuiSurfaceProvider
+        }
+        if RemoteLoopbackProxyAlias.isLoopbackHost(url.host ?? ""),
+           let owner = privateAddressRouteOwner, owner.cloudMachineID != nil {
+            return catalog.provider(for: owner) as? CmuxTuiSurfaceProvider
+        }
         let addresses = catalog.machines.compactMapValues(\.privateAddress)
         let machine = PrivateAddressRouteSelector<SurfaceMachineID>().machine(
             forHost: Self.privateAddressRouteHost(url.host),
@@ -309,8 +336,8 @@ extension BrowserPanel {
               let address = cloudAccess.model?.target.host else { return }
         guard endpoint != cloudBrowserProxyEndpoint else { return }
         cloudBrowserProxyEndpoint = endpoint
-        websiteDataStore.proxyConfigurations = [CloudBrowserRouting.configuration(endpoint: endpoint, address: address)]
-        CloudBrowserRouting.installWebSocketBridge(endpoint: endpoint, address: address, on: webView)
+        websiteDataStore.proxyConfigurations = [CloudBrowserRouting.configuration(endpoint: endpoint, address: address, remoteNetwork: cloudAccess.model?.usesRemoteNetwork == true)]
+        CloudBrowserRouting.installWebSocketBridge(endpoint: endpoint, address: address, on: webView, remoteNetwork: cloudAccess.model?.usesRemoteNetwork == true)
         if webView.configuration.websiteDataStore !== websiteDataStore {
             replaceWebViewPreservingState(from: webView, websiteDataStore: websiteDataStore,
                                          reason: "cloud_browser_route", restoreAfterReplacement: false)

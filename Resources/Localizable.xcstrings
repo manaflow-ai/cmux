@@ -305098,160 +305098,6 @@
         }
       }
     },
-    "settings.app.showCloudDeviceIcons": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud- und Gerätesymbole in der Seitenleiste anzeigen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher les icônes Cloud et des appareils dans la barre latérale"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إظهار أيقونات Cloud والأجهزة في الشريط الجانبي"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar iconos de Cloud y dispositivos en la barra lateral"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在側邊欄顯示 Cloud 和裝置圖示"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在侧边栏显示 Cloud 和设备图标"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사이드바에 Cloud 및 기기 아이콘 표시"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サイドバーに Cloud とデバイスのアイコンを表示"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prikaži Cloud i ikone uređaja u bočnoj traci"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra le icone Cloud e dei dispositivi nella barra laterale"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis Cloud- og enhetsikoner i sidepanelet"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Cloud and Device Icons in Sidebar"
-          }
-        }
-      }
-    },
-    "settings.app.showCloudDeviceIcons.subtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Das Cloud-Computer- oder Gerätesymbol unabhängig von Git-Branch- und Verzeichnisdetails anzeigen."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher l’icône de l’ordinateur Cloud ou de l’appareil indépendamment des détails de branche Git et de répertoire."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إظهار أيقونة كمبيوتر Cloud أو الجهاز بشكل مستقل عن تفاصيل فرع Git والدليل."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Muestra el icono del equipo de Cloud o del dispositivo independientemente de los detalles de la rama de Git y del directorio."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "獨立於 Git 分支和目錄詳細資訊，顯示 Cloud 電腦或裝置圖示。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "独立于 Git 分支和目录详细信息显示 Cloud 电脑或设备图标。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Git 브랜치 및 디렉터리 세부 정보와 관계없이 Cloud 컴퓨터 또는 기기 아이콘을 표시합니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Git ブランチやディレクトリの詳細とは別に、Cloud コンピュータまたはデバイスのアイコンを表示します。"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prikaži ikonu Cloud računara ili uređaja nezavisno od detalja Git grane i direktorija."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra l’icona del computer Cloud o del dispositivo indipendentemente dai dettagli del branch Git e della directory."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis Cloud-maskin- eller enhetsikonet uavhengig av detaljer om Git-gren og katalog."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Display the cloud machine or device icon independently of Git branch and directory details."
-          }
-        }
-      }
-    },
     "settings.app.showPullRequests": {
       "extractionState": "manual",
       "localizations": {
@@ -539753,6 +539599,65 @@
         }
       }
     },
+    "cloud.browser.creationUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud browsers are unavailable on this machine. Refresh the machine and retry."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Browser sind auf dieser Maschine nicht verfügbar. Aktualisiere die Maschine und versuche es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les navigateurs Cloud ne sont pas disponibles sur cette machine. Actualisez la machine, puis réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متصفحات Cloud غير متاحة على هذا الجهاز. حدّث الجهاز ثم حاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los navegadores de Cloud no están disponibles en esta máquina. Actualiza la máquina y vuelve a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此機器無法使用 Cloud 瀏覽器。請重新整理機器後再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此机器无法使用 Cloud 浏览器。请刷新机器后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 머신에서는 Cloud 브라우저를 사용할 수 없습니다. 머신을 새로 고친 후 다시 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンでは Cloud ブラウザを利用できません。マシンを更新してからもう一度お試しください。"
+          }
+        }
+      }
+    },
     "cloud.display.numberedTitle": {
       "extractionState": "manual",
       "localizations": {
@@ -647366,252 +647271,156 @@
         }
       }
     },
-    "globalSearch.kind.agentSession": {
+    "settings.app.showCloudDeviceIcons": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent Session"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントセッション"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "에이전트 세션"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "جلسة الوكيل"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "代理工作階段"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "代理会话"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agent-Sitzung"
+            "value": "Cloud- und Gerätesymbole in der Seitenleiste anzeigen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Session d'agent"
+            "value": "Afficher les icônes Cloud et des appareils dans la barre latérale"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار أيقونات Cloud والأجهزة في الشريط الجانبي"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sesión de agente"
+            "value": "Mostrar iconos de Cloud y dispositivos en la barra lateral"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在側邊欄顯示 Cloud 和裝置圖示"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在侧边栏显示 Cloud 和设备图标"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바에 Cloud 및 기기 아이콘 표시"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーに Cloud とデバイスのアイコンを表示"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sesija agenta"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agentsession"
+            "value": "Prikaži Cloud i ikone uređaja u bočnoj traci"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sessione dell'agente"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "សម័យភ្នាក់ងារ"
+            "value": "Mostra le icone Cloud e dei dispositivi nella barra laterale"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agentøkt"
+            "value": "Vis Cloud- og enhetsikoner i sidepanelet"
           }
         },
-        "pl": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sesja agenta"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sessão do agente"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сеанс агента"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เซสชันเอเจนต์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ajan oturumu"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сеанс агента"
+            "value": "Show Cloud and Device Icons in Sidebar"
           }
         }
       }
     },
-    "globalSearch.agent.claude": {
+    "settings.app.showCloudDeviceIcons.subtitle": {
       "extractionState": "manual",
       "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude"
+            "value": "Das Cloud-Computer- oder Gerätesymbol unabhängig von Git-Branch- und Verzeichnisdetails anzeigen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude"
+            "value": "Afficher l’icône de l’ordinateur Cloud ou de l’appareil indépendamment des détails de branche Git et de répertoire."
           }
         },
-        "it": {
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude"
+            "value": "إظهار أيقونة كمبيوتر Cloud أو الجهاز بشكل مستقل عن تفاصيل فرع Git والدليل."
           }
         },
-        "ja": {
+        "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude"
+            "value": "Muestra el icono del equipo de Cloud o del dispositivo independientemente de los detalles de la rama de Git y del directorio."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude"
+            "value": "獨立於 Git 分支和目錄詳細資訊，顯示 Cloud 電腦或裝置圖示。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "独立于 Git 分支和目录详细信息显示 Cloud 电脑或设备图标。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git 브랜치 및 디렉터리 세부 정보와 관계없이 Cloud 컴퓨터 또는 기기 아이콘을 표시합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git ブランチやディレクトリの詳細とは別に、Cloud コンピュータまたはデバイスのアイコンを表示します。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži ikonu Cloud računara ili uređaja nezavisno od detalja Git grane i direktorija."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra l’icona del computer Cloud o del dispositivo indipendentemente dai dettagli del branch Git e della directory."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis Cloud-maskin- eller enhetsikonet uavhengig av detaljer om Git-gren og katalog."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Display the cloud machine or device icon independently of Git branch and directory details."
           }
         }
       }
@@ -648116,179 +647925,311 @@
         }
       }
     },
-    "sidebar.workspace.titleWithHost": {
+    "globalSearch.kind.agentSession": {
       "extractionState": "manual",
       "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ · %2$@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ · %2$@"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ · %2$@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ · %2$@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ · %2$@"
+            "value": "Agent Session"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ · %2$@"
+            "value": "エージェントセッション"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ · %2$@"
+            "value": "에이전트 세션"
           }
         },
-        "zh-Hans": {
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ · %2$@"
+            "value": "جلسة الوكيل"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ · %2$@"
+            "value": "代理工作階段"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理会话"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Sitzung"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session d'agent"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesión de agente"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesija agenta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentsession"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessione dell'agente"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សម័យភ្នាក់ងារ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentøkt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesja agenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessão do agente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сеанс агента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เซสชันเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan oturumu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сеанс агента"
           }
         }
       }
     },
-    "ssh.tui.browserForward.ended": {
+    "globalSearch.agent.claude": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The SSH port forward ended before it was ready. Reload to reconnect."
-          }
-        },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "انتهت إعادة توجيه منفذ SSH قبل أن تصبح جاهزة. أعد التحميل لإعادة الاتصال."
+            "value": "Claude"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die SSH-Portweiterleitung wurde beendet, bevor sie bereit war. Neu laden, um die Verbindung wiederherzustellen."
+            "value": "Claude"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El reenvío de puerto SSH terminó antes de estar listo. Recarga para volver a conectar."
+            "value": "Claude"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La redirection de port SSH s’est arrêtée avant d’être prête. Rechargez pour vous reconnecter."
+            "value": "Claude"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH ポート転送が準備完了前に終了しました。再読み込みして再接続してください。"
+            "value": "Claude"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH 포트 포워딩이 준비되기 전에 종료되었습니다. 다시 연결하려면 새로고침하세요."
+            "value": "Claude"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH 端口转发在就绪前已结束。请重新加载以重新连接。"
+            "value": "Claude"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH 連接埠轉送在就緒前已結束。請重新載入以重新連線。"
+            "value": "Claude"
           }
         }
       }
     },
-    "ssh.tui.browserForward.httpsUnsupported": {
+    "settings.betaFeatures.clickByHint": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "HTTPS services on an SSH host can't open in the browser yet. Use http:// instead."
-          }
-        },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا يمكن فتح خدمات HTTPS على مضيف SSH في المتصفح بعد. استخدم http:// بدلاً من ذلك."
+            "value": "النقر عبر التلميح"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "HTTPS-Dienste auf einem SSH-Host können noch nicht im Browser geöffnet werden. Verwende stattdessen http://."
+            "value": "Per Hinweis klicken"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Click by Hint"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los servicios HTTPS de un host SSH aún no se pueden abrir en el navegador. Usa http:// en su lugar."
+            "value": "Clic por indicación"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les services HTTPS d’un hôte SSH ne peuvent pas encore s’ouvrir dans le navigateur. Utilisez http:// à la place."
+            "value": "Cliquer par repère"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH ホスト上の HTTPS サービスはまだブラウザで開けません。代わりに http:// を使用してください。"
+            "value": "ヒントでクリック"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH 호스트의 HTTPS 서비스는 아직 브라우저에서 열 수 없습니다. 대신 http://를 사용하세요."
+            "value": "힌트로 클릭"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH 主机上的 HTTPS 服务暂时无法在浏览器中打开。请改用 http://。"
+            "value": "按提示点击"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH 主機上的 HTTPS 服務暫時無法在瀏覽器中開啟。請改用 http://。"
+            "value": "依提示點按"
           }
         }
       }
@@ -649364,183 +649305,6 @@
         }
       }
     },
-    "cloudTree.devices.empty": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No devices yet"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لا توجد أجهزة بعد"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Noch keine Geräte"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aún no hay dispositivos"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aucun appareil pour le moment"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "デバイスはまだありません"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "아직 기기가 없습니다"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "尚无设备"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "尚無裝置"
-          }
-        }
-      }
-    },
-    "rightSidebar.openAsPane.unavailableTooltip": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ can’t open as a pane"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لا يمكن فتح %@ كجزء"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ kann nicht als Teilfenster geöffnet werden"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ no se puede abrir como panel"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ ne peut pas s’ouvrir en tant que volet"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@はペインで開けません"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@은(는) 분할 창으로 열 수 없습니다"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 无法以窗格打开"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 無法開啟為窗格"
-          }
-        }
-      }
-    },
-    "settings.betaFeatures.clickByHint": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "النقر عبر التلميح"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Per Hinweis klicken"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Click by Hint"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Clic por indicación"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cliquer par repère"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ヒントでクリック"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "힌트로 클릭"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "按提示点击"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "依提示點按"
-          }
-        }
-      }
-    },
     "remoteSession.parked.sshAuthenticationFailed": {
       "extractionState": "manual",
       "localizations": {
@@ -649662,6 +649426,301 @@
           "stringUnit": {
             "state": "translated",
             "value": "Не вдалося автентифікуватися через SSH. Автоматичне повторне підключення призупинено; натисніть «Підключитися знову», щоб спробувати ще раз."
+          }
+        }
+      }
+    },
+    "sidebar.workspace.titleWithHost": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        }
+      }
+    },
+    "cloudTree.devices.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No devices yet"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد أجهزة بعد"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch keine Geräte"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún no hay dispositivos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun appareil pour le moment"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバイスはまだありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 기기가 없습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚无设备"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚無裝置"
+          }
+        }
+      }
+    },
+    "rightSidebar.openAsPane.unavailableTooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ can’t open as a pane"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن فتح %@ كجزء"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kann nicht als Teilfenster geöffnet werden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ no se puede abrir como panel"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ne peut pas s’ouvrir en tant que volet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@はペインで開けません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@은(는) 분할 창으로 열 수 없습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 无法以窗格打开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 無法開啟為窗格"
+          }
+        }
+      }
+    },
+    "ssh.tui.browserForward.ended": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH port forward ended before it was ready. Reload to reconnect."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتهت إعادة توجيه منفذ SSH قبل أن تصبح جاهزة. أعد التحميل لإعادة الاتصال."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die SSH-Portweiterleitung wurde beendet, bevor sie bereit war. Neu laden, um die Verbindung wiederherzustellen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El reenvío de puerto SSH terminó antes de estar listo. Recarga para volver a conectar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La redirection de port SSH s’est arrêtée avant d’être prête. Rechargez pour vous reconnecter."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ポート転送が準備完了前に終了しました。再読み込みして再接続してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 포트 포워딩이 준비되기 전에 종료되었습니다. 다시 연결하려면 새로고침하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 端口转发在就绪前已结束。请重新加载以重新连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 連接埠轉送在就緒前已結束。請重新載入以重新連線。"
+          }
+        }
+      }
+    },
+    "ssh.tui.browserForward.httpsUnsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTPS services on an SSH host can't open in the browser yet. Use http:// instead."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن فتح خدمات HTTPS على مضيف SSH في المتصفح بعد. استخدم http:// بدلاً من ذلك."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTPS-Dienste auf einem SSH-Host können noch nicht im Browser geöffnet werden. Verwende stattdessen http://."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los servicios HTTPS de un host SSH aún no se pueden abrir en el navegador. Usa http:// en su lugar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les services HTTPS d’un hôte SSH ne peuvent pas encore s’ouvrir dans le navigateur. Utilisez http:// à la place."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ホスト上の HTTPS サービスはまだブラウザで開けません。代わりに http:// を使用してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 호스트의 HTTPS 서비스는 아직 브라우저에서 열 수 없습니다. 대신 http://를 사용하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 主机上的 HTTPS 服务暂时无法在浏览器中打开。请改用 http://。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 主機上的 HTTPS 服務暫時無法在瀏覽器中開啟。請改用 http://。"
           }
         }
       }

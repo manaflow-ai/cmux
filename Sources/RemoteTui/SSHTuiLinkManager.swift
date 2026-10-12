@@ -133,7 +133,7 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
     /// The SSH carrier always forwards over loopback, so metadata never moves its route.
     func setPrivateAddresses(_ addresses: [String], for machineID: String) {}
 
-    func browserProxy(machineID: String) async throws -> CloudBrowserProxyEndpoint {
+    func browserProxy(machineID: String, remoteNetwork: Bool = false) async throws -> CloudBrowserProxyEndpoint {
         guard machineID == connection.id else { throw CancellationError() }
         _ = try await connected(machineID: machineID)
         if let browser, let ready = await browser.readyEndpoint { return ready }
