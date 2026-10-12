@@ -99,7 +99,9 @@ const MACHINE_HOST_PREFIX: &str = "registry:";
 /// A session for a `registry:` tab from anywhere but that machine's own
 /// `agent-session-start` (cx-k21v): a session never leaves its machine, so
 /// another machine's chat (a Mac's acpmux session or an outside chat it
-/// resumes) is never bound into a tab of this one.
+/// resumes) is never bound into a tab of this one. The one exception: a chat
+/// this daemon itself landed through `agent-transfer-finish`, which is this
+/// machine's own chat now ([`landed_here`]).
 #[derive(Debug)]
 pub(crate) struct MachineMismatch;
 
@@ -123,7 +125,17 @@ pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
     error.downcast_ref::<MachineMismatch>().map(|_| MachineMismatch::CODE.to_string())
 }
 
+/// True when `session` is a chat this daemon landed through a guarded
+/// `agent-transfer-finish` (the id acpmux's finish answered) and `host` is
+/// this store's own: Move to Cloud opens the moved chat that way.
+fn landed_here(mux: &Mux, host: &str, session: &str) -> bool {
+    // This store's host, as agent-session-start names it.
+    let own = format!("{MACHINE_HOST_PREFIX}{}", mux.registry_identity().0);
+    host == own && mux.landed_agent_session(session)
+}
+
 fn record_of(
+    mux: &Mux,
     conversation: Option<String>,
     owner: Option<String>,
     agent_session: Option<AgentSessionParams>,
@@ -137,8 +149,12 @@ fn record_of(
         }
         (None, None, Some(AgentSessionParams { host, session, harness, host_name }), None) => {
             // A machine's own tab is created without a session; only that
-            // machine's agent-session-start binds one.
-            if host.starts_with(MACHINE_HOST_PREFIX) && session.is_some() {
+            // machine's agent-session-start binds one, or it names a chat
+            // this daemon landed.
+            if host.starts_with(MACHINE_HOST_PREFIX)
+                && let Some(session) = &session
+                && !landed_here(mux, &host, session)
+            {
                 return Err(MachineMismatch.into());
             }
             Ok(ConversationTabRecord::AgentSession { host, session, harness, host_name })
@@ -182,7 +198,7 @@ pub(super) fn create(
         _ => anyhow::bail!("bad request: origin and mutation_id are sent together"),
     };
     let size = paired_surface_size("new-conversation-tab", cols, rows)?;
-    let record = record_of(conversation, owner, agent_session, page, route)?;
+    let record = record_of(mux, conversation, owner, agent_session, page, route)?;
     let outcome =
         mux.new_conversation_tab_as(&actor, target, record.clone(), mutation.as_ref(), size)?;
     let identity = outcome.surface.resource_identity();

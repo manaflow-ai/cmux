@@ -22,6 +22,7 @@ import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
 import "../../../markdown-task-checkbox.css";
 import { TaskCheckbox } from "../../../ui/TaskCheckbox";
 import { githubReferences } from "../../../githubReferences";
+import { acpmuxPerf } from "../perf";
 
 export type Align = "left" | "center" | "right" | null;
 
@@ -734,7 +735,7 @@ export function Markdown({
 }: MarkdownProps) {
   const parser = useRef<IncrementalMarkdown | null>(null);
   parser.current ??= new IncrementalMarkdown();
-  const blocks = parser.current.update(children, { streaming });
+  const blocks = acpmuxPerf.timed("markdown.parse", () => parser.current!.update(children, { streaming }));
   // Blocks there at the first render (history, a row scrolled into view) never animate.
   const atMount = useRef<Set<string> | null>(null);
   atMount.current ??= new Set(blocks.map((entry) => entry.key));

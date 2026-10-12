@@ -113,6 +113,8 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
       "cmux.settings.harnesses.run",
       "cmux.settings.theme.set",
       "cmux.settings.theme.colors",
+      "cmux.settings.theme.save",
+      "cmux.settings.theme.import",
       "cmux.settings.theme.accepts",
       "cmux.settings.file.reveal",
       "cmux.settings.folders.add",

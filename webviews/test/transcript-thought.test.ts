@@ -36,7 +36,7 @@ await requireBrowserLane("transcript-thought.test.ts", async () => {
     // dependency optimizer and reload its context while the real fixture is compiling; doing it
     // here keeps the measured plays from timing out on a cold runner.
     const warm = await browser.newPage({ viewport: { width: 760, height: 560 } });
-    await warm.goto(stageURL("mention-picker"));
+    await warm.goto(stageURL("thought-row"));
     for (;;) {
       try {
         await warm.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 0 });

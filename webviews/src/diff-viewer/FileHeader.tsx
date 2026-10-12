@@ -24,6 +24,7 @@ export function FileHeader({
   onLoadDiff,
   onToggleCollapsed,
   onToggleViewed,
+  stage,
   viewedState,
 }: {
   item: DiffItem;
@@ -33,6 +34,8 @@ export function FileHeader({
   onLoadDiff: () => void;
   onToggleCollapsed: () => void;
   onToggleViewed: () => void;
+  /** Stage or Unstage the file (cx-ueuc8), where the viewer's source can; a button and a menu row. */
+  stage?: { label: string; run: (path: string) => void };
   viewedState: ViewedFileState;
 }) {
   const fileDiff = item.fileDiff ?? {};
@@ -102,6 +105,18 @@ export function FileHeader({
           -{stats.deleted}
         </span>
       </span>
+      {stage ? (
+        <button
+          type="button"
+          className="file-review-stage"
+          onClick={(event) => {
+            event.stopPropagation();
+            stage.run(path);
+          }}
+        >
+          {stage.label}
+        </button>
+      ) : null}
       <FileReviewControls
         item={item}
         label={label}
@@ -112,6 +127,9 @@ export function FileHeader({
       <FileMenuButton
         label={label("fileActions").replace("{file}", baseName)}
         items={[
+          ...(stage
+            ? [{ id: "stage", icon: "check" as const, label: stage.label, onChoose: () => stage.run(path) }]
+            : []),
           {
             id: "viewed",
             icon: viewedState === "viewed" ? "eyeClosed" : "eye",

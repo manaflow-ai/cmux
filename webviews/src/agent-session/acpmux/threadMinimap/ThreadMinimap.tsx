@@ -23,6 +23,7 @@ import {
   turnScrollTop,
   visibleTurns,
   type MinimapTurn,
+  type MinimapTurns,
 } from "./model";
 
 /// The narrowest gutter (the space left of the rows) the column draws in; narrower panes hide it.
@@ -51,7 +52,12 @@ export function ThreadMinimap({
 }) {
   const t = useT();
   const bookmarks = useBookmarks();
-  const turns = useMemo(() => minimapTurns(rows, sessionId), [rows, sessionId]);
+  const lastTurns = useRef<MinimapTurns | undefined>(undefined);
+  const turns = useMemo(() => {
+    const next = minimapTurns(rows, sessionId, lastTurns.current);
+    lastTurns.current = next;
+    return next.turns;
+  }, [rows, sessionId]);
   /// The tick under the pointer or keyboard focus.
   const [hovered, setHovered] = useState<number | undefined>(undefined);
   const [shown, setShown] = useState(false);

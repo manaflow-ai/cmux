@@ -69,6 +69,9 @@ export type ChatFind = {
   focusRequest: number;
 };
 
+/** What a find bar (ChatFindBar) reads: the chat's find, or another view's (the changes view). */
+export type FindBarState = Omit<ChatFind, "matches"> & { matches: readonly unknown[] };
+
 /** The find state of a transcript of `rows`. */
 export function useChatFind(rows: readonly AcpmuxRow[]): ChatFind {
   const [open, setOpen] = useState(false);

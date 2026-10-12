@@ -40,11 +40,11 @@ pub fn resolve(
         (None, Some(slug)) => user_home.join(".acpmux/tags").join(slug),
         (None, None) => user_home.join(".acpmux"),
     };
-    let socket = environment
-        .get("ACPMUX_SOCKET")
-        .filter(|s| !s.is_empty())
-        .cloned()
-        .unwrap_or_else(|| default_socket_path(&home, uid));
+    let socket = socket_path(
+        environment.get("ACPMUX_SOCKET").map(String::as_str).filter(|s| !s.is_empty()),
+        &home,
+        uid,
+    );
     let home_text = home.to_string_lossy().into_owned();
     Some(Environment {
         executable,
@@ -88,6 +88,35 @@ pub fn executable_candidates(
         .collect()
 }
 
+/// The longest Unix socket path every host can bind: macOS's `sun_path` less
+/// its NUL (Linux allows 107). One limit, so every platform resolves alike.
+pub const MAX_SOCKET_PATH_BYTES: usize = 103;
+
+/// The acpmux daemon socket every host and client resolves (acpmux
+/// `config::socket_path()`, cmux-tui `acp.rs`, AcpmuxEnvironment.swift, the
+/// brain host's `acpmuxSocketPath`, the Chief's `socket_path`; the shared
+/// cases are tests/cases/environment.json). `configured` (`ACPMUX_SOCKET`)
+/// when set, except an absolute path past [`MAX_SOCKET_PATH_BYTES`] (a long
+/// TMPDIR), which maps to `/tmp/acpmux-<uid>/<fnv1a64(path)>.sock`; else
+/// [`default_socket_path`] for `home`.
+pub fn socket_path(configured: Option<&str>, home: &Path, uid: u32) -> String {
+    match configured {
+        Some(configured)
+            if configured.starts_with('/') && configured.len() > MAX_SOCKET_PATH_BYTES =>
+        {
+            short_alias(configured, uid)
+        }
+        Some(configured) => configured.to_owned(),
+        None => default_socket_path(home, uid),
+    }
+}
+
+/// `/tmp/acpmux-<uid>/<fnv1a64(key)>.sock`, the per-user directory acpmux
+/// creates 0700 before it binds there.
+fn short_alias(key: &str, uid: u32) -> String {
+    format!("/tmp/acpmux-{uid}/{:016x}.sock", fnv1a64(key))
+}
+
 /// acpmux `config::socket_path()` without its directory check:
 /// `<home>/acpmux.sock`, or `/tmp/acpmux-<uid>/<fnv1a64(home)>.sock` when that
 /// is 96 bytes or longer.
@@ -96,7 +125,7 @@ pub fn default_socket_path(home: &Path, uid: u32) -> String {
     if preferred.len() < 96 {
         return preferred;
     }
-    format!("/tmp/acpmux-{uid}/{:016x}.sock", fnv1a64(&home.to_string_lossy()))
+    short_alias(&home.to_string_lossy(), uid)
 }
 
 pub fn fnv1a64(text: &str) -> u64 {
