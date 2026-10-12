@@ -62,6 +62,8 @@ public final class ConversationViewController: UIViewController {
 
     private(set) var rows: [ConversationRow] = []
     private(set) var rowIndex = ConversationRowIndex()
+    /// Rows per message from the last build passes (see `ConversationRowMemo`).
+    private let rowMemo = ConversationRowMemo()
     /// `rows.map(\.id)`, kept so each update does not walk the old row models.
     private var rowIDs: [String] = []
     /// Height and leading spacing of each row, aligned with `rows` (NaN = not
@@ -568,7 +570,7 @@ public final class ConversationViewController: UIViewController {
     }
 
     func rebuild(change: ConversationStoreChange) {
-        rebuild(change: change, measured: nil, splice: nil)
+        rebuild(change: change, measured: nil, splice: nil, generation: nil)
     }
 
     /// `measured` carries rows a measure-ahead built from the store as it
@@ -576,13 +578,15 @@ public final class ConversationViewController: UIViewController {
     /// every row of the transcript again.
     /// `splice` describes `measured` when it was built from the page alone
     /// (see `ConversationRowBuilder.rowsAfterPrepend`).
-    private func rebuild(change: ConversationStoreChange, measured: [ConversationRow]?, splice: ConversationPrependRows?) {
+    /// `generation` is the row memo pass `measured` came from.
+    private func rebuild(change: ConversationStoreChange, measured: [ConversationRow]?, splice: ConversationPrependRows?, generation: Int?) {
         rebuildSerial &+= 1
         if store.hasLoadedNewest, initialSpinner.isAnimating {
             initialSpinner.stopAnimating()
             initialSpinner.isHidden = true
         }
         var splice = splice
+        var generation = generation
         let newRows: [ConversationRow]
         if let measured {
             newRows = measured
@@ -592,10 +596,11 @@ public final class ConversationViewController: UIViewController {
             newRows = built.rows
             splice = built
         } else {
-            newRows = ConversationRowBuilder.rows(store: store)
+            newRows = ConversationRowBuilder.rows(store: store, memo: rowMemo)
+            generation = rowMemo.generation
         }
-        if measured == nil, change == .prepended, measureAhead(newRows, splice: splice) { return }
-        apply(newRows, change: change, splice: splice)
+        if measured == nil, change == .prepended, measureAhead(newRows, splice: splice, generation: generation) { return }
+        apply(newRows, change: change, splice: splice, generation: generation)
         updateCatchUp()
         if let info = store.info, header.window != nil, !hasConfiguredHeader {
             hasConfiguredHeader = true
@@ -613,7 +618,7 @@ public final class ConversationViewController: UIViewController {
     /// A landed page's rows are measured off the main thread before they
     /// are applied, so the frame that shows them only places them. Returns
     /// whether the rows wait for that (the measured rows rebuild again).
-    private func measureAhead(_ newRows: [ConversationRow], splice: ConversationPrependRows?) -> Bool {
+    private func measureAhead(_ newRows: [ConversationRow], splice: ConversationPrependRows?, generation: Int?) -> Bool {
         let width = collectionView.bounds.width
         let margin = layoutMargin
         guard hasPositionedInitially, width > 0 else { return false }
@@ -646,7 +651,7 @@ public final class ConversationViewController: UIViewController {
             self.layoutCache.adopt(measured.items, width: width, margin: margin)
             guard generation == self.measureGeneration else { return }
             let current = serial == self.rebuildSerial
-            self.rebuild(change: .prepended, measured: current ? newRows : nil, splice: current ? splice : nil)
+            self.rebuild(change: .prepended, measured: current ? newRows : nil, splice: current ? splice : nil, generation: current ? generation : nil)
         }
         return true
     }
@@ -719,7 +724,8 @@ public final class ConversationViewController: UIViewController {
         var metrics: [RowMetrics]?
     }
 
-    private func diff(_ newRows: [ConversationRow]) -> RowDiff {
+    /// `unchanged`: rows known to be the ones on screen (no comparison needed).
+    private func diff(_ newRows: [ConversationRow], unchanged: Set<String>) -> RowDiff {
         let oldIDs = rowIDs
         let newIDs = newRows.map(\.id)
         var newIndex: [String: Int] = [:]
@@ -739,7 +745,7 @@ public final class ConversationViewController: UIViewController {
         let structural = commonOld == commonNew || moved != nil
         var updated: [IndexPath] = []
         if structural {
-            for id in commonNew {
+            for id in commonNew where !unchanged.contains(id) {
                 guard let o = oldIndex[id], let n = newIndex[id], rows[o] != newRows[n] else { continue }
                 updated.append(IndexPath(item: n, section: 0))
             }
@@ -816,7 +822,7 @@ public final class ConversationViewController: UIViewController {
         )
     }
 
-    private func apply(_ newRows: [ConversationRow], change: ConversationStoreChange, splice: ConversationPrependRows? = nil) {
+    private func apply(_ newRows: [ConversationRow], change: ConversationStoreChange, splice: ConversationPrependRows? = nil, generation: Int? = nil) {
         let oldIDs = rowIDs
         prefetchedRange = 0..<0
 
@@ -827,6 +833,7 @@ public final class ConversationViewController: UIViewController {
             for (index, row) in newRows.enumerated() { positions[row.id] = index }
             rowIndex = ConversationRowIndex(positions)
             rowIDs = newRows.map(\.id)
+            rowMemo.appliedGeneration = generation ?? -1
             invalidateRowMetrics()
             collectionView.reloadData()
             collectionView.layoutIfNeeded()
@@ -840,7 +847,16 @@ public final class ConversationViewController: UIViewController {
             return
         }
 
-        let diff = splice.flatMap { prependDiff(newRows, splice: $0) } ?? diff(newRows)
+        // Rows a memo pass copied from the pass on screen need no comparison.
+        let unchanged = generation == rowMemo.generation ? rowMemo.unchangedRowIDs : []
+        let diff = splice.flatMap { prependDiff(newRows, splice: $0) } ?? diff(newRows, unchanged: unchanged)
+        if let splice {
+            // Rows built outside a memo pass replace what the memo holds.
+            for row in newRows[..<splice.reused.lowerBound] { ConversationRowBuilder.messageRowID(of: row).map(rowMemo.forget) }
+            for index in splice.rebuilt { ConversationRowBuilder.messageRowID(of: newRows[index]).map(rowMemo.forget) }
+        } else {
+            rowMemo.appliedGeneration = generation ?? -1
+        }
         let newIDs = diff.newIDs
         let deleted = diff.deleted
         let inserted = diff.inserted

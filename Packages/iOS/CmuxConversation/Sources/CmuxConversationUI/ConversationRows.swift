@@ -83,6 +83,62 @@ struct MessageRowModel: Hashable {
     var translation: ConversationTranslationCaption? = nil
 }
 
+/// The rows each message produced last time, with what they were built
+/// from: a rebuild over a long transcript (a typing indicator, a message
+/// arriving) copies the rows of every message whose inputs are unchanged
+/// instead of building them again, and tells the diff which rows are the
+/// ones already shown.
+@MainActor
+final class ConversationRowMemo {
+    struct Inputs: Equatable {
+        var message: ConversationMessage
+        var entry: ConversationRunPlan.Entry
+        var translation: String?
+        var caption: ConversationTranslationCaption?
+        var quoted: ConversationMessage?
+    }
+
+    /// A class, so a hit only bumps its generation in place.
+    fileprivate final class Entry {
+        let inputs: Inputs
+        let rows: [ConversationRow]
+        var generation: Int
+
+        init(inputs: Inputs, rows: [ConversationRow], generation: Int) {
+            self.inputs = inputs
+            self.rows = rows
+            self.generation = generation
+        }
+    }
+
+    fileprivate var context: ConversationInfo?
+    fileprivate var contextMeID: String?
+    fileprivate var entries: [String: Entry] = [:]
+    /// Build passes so far; the rows on screen came from `appliedGeneration`.
+    fileprivate(set) var generation = 0
+    var appliedGeneration = -1
+    /// Ids of rows the last pass copied from the pass on screen.
+    fileprivate(set) var unchangedRowIDs: Set<String> = []
+
+    /// Forgets a message's rows (they were built outside a pass, so the
+    /// copy here may not be what is on screen).
+    func forget(messageRowID: String) {
+        entries[messageRowID] = nil
+    }
+
+    fileprivate func beginPass(info: ConversationInfo, meID: String?, messageCount: Int) {
+        generation += 1
+        unchangedRowIDs.removeAll(keepingCapacity: true)
+        if context != info || contextMeID != meID {
+            context = info
+            contextMeID = meID
+            entries.removeAll()
+        } else if entries.count > 2 * messageCount + 64 {
+            entries = entries.filter { $0.value.generation >= generation - 1 }
+        }
+    }
+}
+
 /// Row positions by identity. A page landing above the transcript moves
 /// every row down by the same amount; that move is kept as one offset, so
 /// the landing updates the page's entries instead of every row's.
@@ -133,9 +189,11 @@ enum ConversationRowBuilder {
 
     static func rows(
         store: ConversationStore,
-        hidesLoadingRow: Bool = false
+        hidesLoadingRow: Bool = false,
+        memo: ConversationRowMemo? = nil
     ) -> [ConversationRow] {
         guard let info = store.info else { return [] }
+        memo?.beginPass(info: info, meID: store.meID, messageCount: store.messages.count)
         var rows: [ConversationRow] = []
         rows.reserveCapacity(store.messages.count * 2 + 3)
         appendLeadingRows(store: store, hidesLoadingRow: hidesLoadingRow, into: &rows)
@@ -144,7 +202,7 @@ enum ConversationRowBuilder {
         let plan = ConversationRunPlan(messages: messages, meID: context.meID, typingParticipantIDs: context.typingIDs)
         var typingPlaced = context.typingIDs.isEmpty
         for (index, original) in messages.enumerated() {
-            appendRows(for: original, entry: plan.entries[index], context: context, typingPlaced: &typingPlaced, into: &rows)
+            appendRows(for: original, entry: plan.entries[index], context: context, memo: memo, typingPlaced: &typingPlaced, into: &rows)
         }
         // The Focus notice ends the transcript, above typing and Send Later rows.
         if let silenced = info.silencedRecipient {
@@ -244,6 +302,32 @@ enum ConversationRowBuilder {
             // older history exists; reaching it is what loads the next page.
             rows.append(.loadingOlder)
         }
+    }
+
+    /// Appends the rows of one message, copied from `memo` when they were
+    /// built from the same inputs before (polls and scheduled messages read
+    /// more of the store and are always built).
+    private static func appendRows(for original: ConversationMessage, entry: ConversationRunPlan.Entry, context: Context, memo: ConversationRowMemo?, typingPlaced: inout Bool, into rows: inout [ConversationRow]) {
+        guard let memo, !original.isScheduled, original.poll == nil else {
+            appendRows(for: original, entry: entry, context: context, typingPlaced: &typingPlaced, into: &rows)
+            return
+        }
+        let presentation = context.translations.presentation(for: original)
+        let inputs = ConversationRowMemo.Inputs(
+            message: original, entry: entry, translation: presentation?.text, caption: presentation?.caption,
+            quoted: original.replyToID.flatMap { context.store.message(id: $0) }
+        )
+        if let cached = memo.entries[original.rowID], cached.inputs == inputs {
+            rows.append(contentsOf: cached.rows)
+            if cached.generation == memo.appliedGeneration {
+                for row in cached.rows { memo.unchangedRowIDs.insert(row.id) }
+            }
+            cached.generation = memo.generation
+            return
+        }
+        let start = rows.count
+        appendRows(for: original, entry: entry, context: context, typingPlaced: &typingPlaced, into: &rows)
+        memo.entries[original.rowID] = ConversationRowMemo.Entry(inputs: inputs, rows: Array(rows[start...]), generation: memo.generation)
     }
 
     private static func appendRows(for original: ConversationMessage, entry: ConversationRunPlan.Entry, context: Context, typingPlaced: inout Bool, into rows: inout [ConversationRow]) {
