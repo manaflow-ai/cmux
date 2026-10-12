@@ -20,9 +20,6 @@
 .acpmux-edited::after{box-shadow:inset 0 0 0 1px var(--agent-border-strong,var(--agent-border))}
 .acpmux-edited-icon{background:var(--agent-page-bg);color:var(--agent-text);box-shadow:inset 0 0 0 1px var(--agent-border)}
 .acpmux-edited-sub{display:flex;align-items:center;gap:8px;min-width:0;line-height:18px;font-size:12px}
-.acpmux-edited-link{display:inline-flex;align-items:center;gap:3px;min-width:0;height:18px;padding:0;border:0;background:none;color:var(--agent-muted);font:inherit;cursor:pointer}
-.acpmux-edited-link:hover{color:var(--agent-text);text-decoration:underline}
-.acpmux-edited-link:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px;border-radius:3px}
 .acpmux-review-changes{background:transparent;box-shadow:inset 0 0 0 1px var(--agent-border-strong,var(--agent-border))}
 .acpmux-review-changes:hover{background:color-mix(in srgb,var(--agent-text) 8%,transparent)}
 .acpmux-edited-dir{display:flex;min-width:0;overflow:hidden}
