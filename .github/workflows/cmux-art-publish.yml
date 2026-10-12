@@ -1,0 +1,76 @@
+name: cmux art publish
+
+# Publishes cmux-next's backdrop art (cx-t2x.7) to files.cmux.com so the app can download the
+# works that do not ship in it. art/manifest.json records each work's SHA-256; every
+# art/full/<id>.avif is uploaded once as (bucket cmux-binaries, public under https://files.cmux.com/):
+#   cmux-art/<sha256>.avif   immutable, content-addressed (write-once)
+# A changed image gets a new hash and so a new object; nothing published is overwritten.
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "art/**"
+      - ".github/workflows/cmux-art-publish.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-art-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next'
+    name: publish the backdrop art to files.cmux.com
+    environment: artifacts
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Check every image against the manifest
+        run: |
+          set -euo pipefail
+          python3 -I - <<'EOF'
+          import hashlib, json, pathlib, re, sys
+          works = json.loads(pathlib.Path("art/manifest.json").read_text())["works"]
+          bad = []
+          for work in works:
+              if not re.fullmatch(r"[a-z0-9-]+", work["id"]) or not re.fullmatch(r"[0-9a-f]{64}", work["sha256"]):
+                  bad.append(f"{work['id']}: malformed id or sha256")
+                  continue
+              data = pathlib.Path(f"art/full/{work['id']}.avif").read_bytes()
+              if hashlib.sha256(data).hexdigest() != work["sha256"]:
+                  bad.append(f"{work['id']}: art/full does not match the manifest's sha256")
+          print("\n".join(bad) or f"{len(works)} images match the manifest")
+          sys.exit(1 if bad else 0)
+          EOF
+
+      - name: Upload to R2 (write-once, by hash)
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        run: |
+          set -euo pipefail
+          python3 -I -c 'import json; [print(w["id"], w["sha256"]) for w in json.load(open("art/manifest.json"))["works"]]' |
+            while read -r id sha; do
+              python3 scripts/ci/upload-r2-object.py --write-once --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries \
+                --cache-control "public, max-age=31536000, immutable" --file "art/full/$id.avif" \
+                --key "cmux-art/$sha.avif" --content-type image/avif
+            done
+
+      - name: Verify a sample through the public URL
+        run: |
+          set -euo pipefail
+          python3 -I -c 'import json; [print(w["sha256"]) for w in json.load(open("art/manifest.json"))["works"][::40]]' |
+            while read -r sha; do
+              got="$(curl -fsS --retry 3 --max-time 60 "https://files.cmux.com/cmux-art/$sha.avif?verify=$GITHUB_RUN_ID" | sha256sum | cut -d' ' -f1)"
+              [[ "$got" == "$sha" ]] || { echo "::error::cmux-art/$sha.avif served $got"; exit 1; }
+            done
+          echo "published https://files.cmux.com/cmux-art/" | tee -a "$GITHUB_STEP_SUMMARY"

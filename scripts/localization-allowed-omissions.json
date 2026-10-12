@@ -5279,5 +5279,418 @@
       "de": "Same spelling as the English color or UI word in this locale; a translated entry is still required.",
       "fr": "Same spelling as the English color or UI word in this locale; a translated entry is still required."
     }
+  },
+  "backdrop.label": {
+    "class": "format",
+    "source": "%1$@ — %2$@"
+  },
+  "backdrop.collection.dore": {
+    "source": "Doré",
+    "identityLocales": {
+      "de": {
+        "reason": "Doré is the artist's name.",
+        "values": [
+          "Doré"
+        ]
+      },
+      "es": {
+        "reason": "Doré is the artist's name.",
+        "values": [
+          "Doré"
+        ]
+      },
+      "fr": {
+        "reason": "Doré is the artist's name.",
+        "values": [
+          "Doré"
+        ]
+      }
+    }
+  },
+  "backdrop.caravaggio-medusa.title": {
+    "source": "Medusa",
+    "identityLocales": {
+      "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Medusa"
+        ]
+      },
+      "es": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Medusa"
+        ]
+      }
+    }
+  },
+  "backdrop.munch-madonna.title": {
+    "source": "Madonna",
+    "identityLocales": {
+      "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madonna"
+        ]
+      },
+      "es": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madonna"
+        ]
+      }
+    }
+  },
+  "backdrop.klimt-judith.title": {
+    "source": "Judith I",
+    "identityLocales": {
+      "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Judith I"
+        ]
+      },
+      "es": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Judith I"
+        ]
+      },
+      "fr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Judith I"
+        ]
+      }
+    }
+  },
+  "backdrop.millais-ophelia.title": {
+    "source": "Ophelia",
+    "identityLocales": {
+      "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Ophelia"
+        ]
+      }
+    }
+  },
+  "backdrop.gerome-botsaris.title": {
+    "source": "Markos Botsaris",
+    "identityLocales": {
+      "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Markos Botsaris"
+        ]
+      },
+      "es": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Markos Botsaris"
+        ]
+      },
+      "fr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Markos Botsaris"
+        ]
+      }
+    }
+  },
+  "backdrop.gerome-pollice-verso.title": {
+    "source": "Pollice Verso",
+    "identityLocales": {
+      "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Pollice Verso"
+        ]
+      },
+      "fr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Pollice Verso"
+        ]
+      }
+    }
+  },
+  "backdrop.rothaug-melpomene.title": {
+    "source": "Melpomene",
+    "identityLocales": {
+      "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Melpomene"
+        ]
+      }
+    }
+  },
+  "backdrop.velazquez-las-meninas.title": {
+    "source": "Las Meninas",
+    "identityLocales": {
+      "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Las Meninas"
+        ]
+      }
+    }
+  },
+  "backdrop.matejko-stanczyk.title": {
+    "source": "Stańczyk",
+    "identityLocales": {
+      "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Stańczyk"
+        ]
+      },
+      "es": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Stańczyk"
+        ]
+      },
+      "fr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Stańczyk"
+        ]
+      }
+    }
+  },
+  "backdrop.sargent-madame-x.title": {
+    "source": "Madame X",
+    "identityLocales": {
+      "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame X"
+        ]
+      },
+      "es": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame X"
+        ]
+      },
+      "fr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame X"
+        ]
+      }
+    }
+  },
+  "backdrop.vigee-lebrun-madame-grand.title": {
+    "source": "Madame Grand",
+    "identityLocales": {
+      "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame Grand"
+        ]
+      },
+      "es": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame Grand"
+        ]
+      },
+      "fr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame Grand"
+        ]
+      }
+    }
+  },
+  "backdrop.wood-american-gothic.title": {
+    "source": "American Gothic",
+    "identityLocales": {
+      "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "American Gothic"
+        ]
+      },
+      "fr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "American Gothic"
+        ]
+      }
+    }
+  },
+  "backdrop.steinlen-chat-noir.title": {
+    "source": "Tournée du Chat Noir",
+    "identityLocales": {
+      "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Tournée du Chat Noir"
+        ]
+      },
+      "es": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Tournée du Chat Noir"
+        ]
+      },
+      "fr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Tournée du Chat Noir"
+        ]
+      }
+    }
+  },
+  "backdrop.botticelli-primavera.title": {
+    "source": "Primavera",
+    "identityLocales": {
+      "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Primavera"
+        ]
+      }
+    }
+  },
+  "backdrop.klimt-adele.title": {
+    "source": "Adele Bloch-Bauer I",
+    "identityLocales": {
+      "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Adele Bloch-Bauer I"
+        ]
+      },
+      "es": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Adele Bloch-Bauer I"
+        ]
+      },
+      "fr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Adele Bloch-Bauer I"
+        ]
+      }
+    }
+  },
+  "backdrop.mucha-job.title": {
+    "source": "Job",
+    "identityLocales": {
+      "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Job"
+        ]
+      },
+      "es": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Job"
+        ]
+      },
+      "fr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Job"
+        ]
+      }
+    }
+  },
+  "backdrop.klimt-mada-primavesi.title": {
+    "source": "Mäda Primavesi",
+    "identityLocales": {
+      "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Mäda Primavesi"
+        ]
+      },
+      "es": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Mäda Primavesi"
+        ]
+      },
+      "fr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Mäda Primavesi"
+        ]
+      }
+    }
+  },
+  "backdrop.schiele-moa.title": {
+    "source": "Moa",
+    "identityLocales": {
+      "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Moa"
+        ]
+      },
+      "es": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Moa"
+        ]
+      },
+      "fr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Moa"
+        ]
+      }
+    }
+  },
+  "backdrop.kandinsky-composition-viii.title": {
+    "source": "Composition VIII",
+    "identityLocales": {
+      "fr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Composition VIII"
+        ]
+      }
+    }
+  },
+  "backdrop.grimshaw-blackman-street.title": {
+    "source": "Blackman Street, London",
+    "identityLocales": {
+      "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Blackman Street, London"
+        ]
+      }
+    }
+  },
+  "backdrop.waterhouse-ophelia.title": {
+    "source": "Ophelia",
+    "identityLocales": {
+      "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Ophelia"
+        ]
+      }
+    }
+  },
+  "backdrop.laurence-mckinley.title": {
+    "source": "Mt. McKinley",
+    "identityLocales": {
+      "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Mt. McKinley"
+        ]
+      }
+    }
   }
 }

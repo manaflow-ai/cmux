@@ -14,11 +14,9 @@ nonisolated enum AppearanceSettingsSchema {
         let ghostty = SettingsText.keyed("settings.source.ghostty", "Ghostty")
         let appTheme = SettingsText.keyed("settings.group.appTheme", "App Theme")
         let tuning = SettingsText.keyed("settings.group.appearanceTuning", "Appearance Tuning")
-        let artChoices = BackdropArt.allCases.map { SettingChoice($0.rawValue, $0.title) }
-        // The background picker lists figure drawings first.
-        let backgroundChoices = [BackdropArtCollection.figureDrawings, .paintings].flatMap { collection in
-            BackdropArt.allCases.filter { $0.collection == collection }.map { SettingChoice($0.rawValue, $0.title) }
-        } + [SettingChoice(BackdropSelection.desktopID, SettingsText.keyed("settings.choice.desktopWallpaper", "Desktop Wallpaper"))]
+        let artChoices = BackdropArt.allCases.map { SettingChoice($0.rawValue, $0.label) }
+        // The background picker lists art by collection, Dark Art first.
+        let backgroundChoices = BackdropCatalog.bundled.map { SettingChoice($0.id, $0.title) } + [SettingChoice(BackdropSelection.desktopID, SettingsText.keyed("settings.choice.desktopWallpaper", "Desktop Wallpaper"))]
         return [
             SettingDescriptor(
                 AppThemeSetting().configPath, section: .appearance, group: appTheme,
@@ -75,10 +73,10 @@ nonisolated enum AppearanceSettingsSchema {
                 BackdropSelectionSetting().configPath, section: .appearance, group: window,
                 title: SettingsText.keyed("settings.appearance.background", "Background"),
                 help: SettingsText.keyed("settings.appearance.background.help",
-                                        "Choose a public-domain figure drawing or painting, your desktop wallpaper, or a macOS system wallpaper behind the window material."),
+                                        "Choose a public-domain painting, your desktop wallpaper, or a macOS system wallpaper behind the window material."),
                 kind: .choice([SettingChoice("none", SettingsText.keyed("settings.choice.none", "None"))] + backgroundChoices),
                 default: .string(BackdropSelectionSetting.defaultSelection?.id ?? "none"),
-                keywords: ["painting", "art", "wallpaper", "backdrop", "desktop", "attribution", "drawing", "figure", "sketch"]
+                keywords: ["painting", "art", "wallpaper", "backdrop", "desktop", "attribution", "museum", "dark", "doré"]
             ),
             SettingDescriptor(
                 ExperimentalAppearanceSetting().configPath, section: .appearance, group: window,

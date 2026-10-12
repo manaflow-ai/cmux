@@ -850,6 +850,11 @@ mark {
   margin-top: 8px;
 }
 
+.backdrop-group-title {
+  margin: 12px 0 0;
+  font-weight: 600;
+}
+
 .backdrop-tile {
   display: flex;
   flex-direction: column;
