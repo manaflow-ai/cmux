@@ -1,14 +1,7 @@
 // ↑ in an empty agent chat prompt brings back the chat's earlier prompts, newest first, and ↓ steps
 // forward to an empty prompt (Codex and Claude Code parity). A prompt being typed stays. The
 // composer gallery's history-recall play presses the keys in the real prompt in Chromium.
-import {
-  afterAll,
-  beforeAll,
-  describe,
-  expect,
-  setDefaultTimeout,
-  test,
-} from "bun:test";
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
@@ -18,9 +11,7 @@ await requireBrowserLane("composer-history.test.ts", async () => {
   try {
     await (await chromium.launch({ headless: true })).close();
   } catch {
-    console.warn(
-      "composer-history: skipping (run `bunx playwright install chromium`)",
-    );
+    console.warn("composer-history: skipping (run `bunx playwright install chromium`)");
     describe.skip("composer history recall", () => test("chromium", () => {}));
     return;
   }
@@ -50,11 +41,7 @@ await requireBrowserLane("composer-history.test.ts", async () => {
     await warm.goto(stageURL("history-recall"));
     for (;;) {
       try {
-        await warm.waitForFunction(
-          () => document.documentElement.dataset.galleryReady,
-          undefined,
-          { timeout: 0 },
-        );
+        await warm.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 0 });
         break;
       } catch (error) {
         if (!/context was destroyed|navigat/i.test(String(error))) throw error;
@@ -76,15 +63,10 @@ await requireBrowserLane("composer-history.test.ts", async () => {
       const ready = document.documentElement.dataset.galleryReady;
       return ready === "1" || ready === "error";
     });
-    await page.waitForFunction(() =>
-      Boolean(document.documentElement.dataset.galleryPlay),
-    );
+    await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay));
     const result = await page.evaluate(() => ({
       play: document.documentElement.dataset.galleryPlay,
-      report: JSON.stringify(
-        (window as unknown as { cmuxGalleryPlayReport?: unknown })
-          .cmuxGalleryPlayReport,
-      ),
+      report: JSON.stringify((window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport),
     }));
     await page.close();
     return result;
