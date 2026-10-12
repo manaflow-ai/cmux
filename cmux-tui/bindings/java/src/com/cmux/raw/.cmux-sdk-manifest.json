@@ -1617,8 +1617,8 @@
     },
     {
       "path": "NotificationEvent.java",
-      "sha256": "02166d9e02ff07939c2b2948bcbf6af0165ae264d144176a77f2f2798942ef04",
-      "size": 6374
+      "sha256": "6b443cdc02462fb8f595f6eda8d8ddbd7995f65bb46ace73dcaa4305de401dcb",
+      "size": 6951
     },
     {
       "path": "NotificationLevel.java",
@@ -1752,7 +1752,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "69c91e33569b19e82dbf748a6ae9a02d138b3467cadedb9458bae1380cf4d033",
+      "sha256": "1886e60e81642b65ceb2c9cc973e9ef7671ac5fc20992e20d61db4b581c17d80",
       "size": 6222
     },
     {
@@ -2987,7 +2987,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "7f287af0cf834f78d9747ad2018b58a3fbfc60523c0b452b9307b59df2a61b1f",
+  "ir_sha256": "a300256e1e0fd9c2432f9aa6ffd961902417a086784524dbd574888a0e0c88cd",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

@@ -1191,9 +1191,9 @@ fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan
 /// The target is the caller's own terminal (`CMUX_TUI_TERMINAL_ID`, injected
 /// into every daemon PTY) unless `--surface` names another terminal of this
 /// session or `--workspace` asks for a session-level row; a machine cannot
-/// address anything outside its own session. `--reply` is refused: the reply
-/// channel would type into a terminal, and that channel does not cross the
-/// machine boundary. `--window` and `--id-format` are accepted for signature
+/// address anything outside its own session. `--reply` asks the app for a
+/// banner that takes a typed reply for the target terminal (only it).
+/// `--window` and `--id-format` are accepted for signature
 /// parity. `--desktop false` asks the app for no banner; like the local flag
 /// it is not validated with `--clear`.
 fn parse_notify(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
@@ -1201,11 +1201,7 @@ fn parse_notify(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
         return usage("notify takes flags only");
     }
     let selectors = Selectors::default();
-    if flags.boolean("reply") {
-        return Err(UsageError::new(
-            "--reply is not available on a machine: replies would type into a terminal across the link",
-        ));
-    }
+    let reply = flags.boolean("reply");
     let _ = flags.take("window");
     let _ = flags.take("id-format");
     let desktop = flags.take("desktop");
@@ -1260,6 +1256,9 @@ fn parse_notify(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
             .map_err(|_| UsageError::new("--desktop must be true|false"))?
     {
         params.insert("desktop".into(), Value::Bool(false));
+    }
+    if reply {
+        params.insert("reply".into(), Value::Bool(true));
     }
     let title = flags.take("title").unwrap_or_else(|| "Notification".into());
     if title.is_empty() {
@@ -3494,11 +3493,10 @@ mod tests {
             protocol(&["notify", "--clear", "--surface", TERMINAL, "--desktop", "maybe"]);
         assert_eq!(clear_ignores_desktop.operation.name().unwrap(), "notification.clear");
 
-        assert!(
-            parse(&strings(&["notify", "--reply", "--title", "x"]), super::super::Surface::CmuxTui)
-                .is_err(),
-            "no reply channel across the link"
-        );
+        let reply = protocol(&["notify", "--workspace", "current", "--reply", "--title", "x"]);
+        assert_eq!(reply.params["reply"], true, "a reply banner, for the caller's terminal only");
+        let no_reply = protocol(&["notify", "--workspace", "current", "--title", "x"]);
+        assert!(no_reply.params.get("reply").is_none());
         // `--desktop false` is a plain `desktop` field (the e2e test reads it
         // on the event), never classic's `effects` object.
         for parity in [
