@@ -43,6 +43,9 @@ final class CloudTuiManualMirrorSession {
     private var creationAttachment: CloudCreationAttachment?
     private let resolveLegacySurfaceID: (@MainActor () async throws -> UInt64)?
     private var diagnosticReplayReceived = false
+    #if DEBUG
+    private var debugFirstFrameLogged = false
+    #endif
     private var diagnosticDeadline: Task<Void, Never>?
     private(set) var diagnosticFailure: CloudDiagnosticFailure?
     private var diagnosticReference: String?
@@ -408,6 +411,9 @@ final class CloudTuiManualMirrorSession {
                 self.transitionToDisconnected(error: nil)
             }
         }
+        #if DEBUG
+        cmuxDebugLog("cloud.split.attach.start terminal=\(terminalID) creationAttachment=\(creationAttachment != nil ? 1 : 0)")
+        #endif
         self.socketPath = socketPath
         tearDownConnection()
         attachAttempts += 1
@@ -437,6 +443,9 @@ final class CloudTuiManualMirrorSession {
                 connection.close()
                 return
             }
+            #if DEBUG
+            cmuxDebugLog("cloud.split.attach.connected terminal=\(self.terminalID)")
+            #endif
             self.connection = connection
             self.startEventTask(connection)
             // Identify first so optional fields are gated by the daemon's
@@ -638,6 +647,16 @@ final class CloudTuiManualMirrorSession {
 
     private func handle(frame: CloudTuiManualIOFrame) {
         watchdog.noteFrame()
+        #if DEBUG
+        if !debugFirstFrameLogged {
+            switch frame {
+            case .snapshot, .output:
+                debugFirstFrameLogged = true
+                cmuxDebugLog("cloud.split.attach.firstFrame terminal=\(terminalID)")
+            default: break
+            }
+        }
+        #endif
         switch frame {
         case let .snapshot(surfaceID, columns, rows, bytes, colors, pending):
             // This dedicated connection has only one pending attachment. The
@@ -840,6 +859,9 @@ final class CloudTuiManualMirrorSession {
     ) {
         guard !imagePaste.receive(requestID: requestID, ok: ok, accepted: accepted, error: error), let kind = pendingRequests.removeValue(forKey: requestID) else { return }
         defer { scheduleFidelityCheck() }
+        #if DEBUG
+        cmuxDebugLog("cloud.split.attach.answer terminal=\(terminalID) kind=\(String(describing: kind)) ok=\(ok)")
+        #endif
         manualMirrorLogger.info("answer terminal=\(self.terminalID, privacy: .private(mask: .hash)) surface=\(self.remoteSurfaceID) request=\(String(describing: kind), privacy: .public) ok=\(ok) outcome=\(outcome ?? "none", privacy: .private) error=\(error ?? "none", privacy: .private)")
         switch kind {
         case .identify:
