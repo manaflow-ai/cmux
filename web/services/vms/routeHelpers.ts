@@ -30,6 +30,7 @@ import {
   isVmNotFoundError,
   isVmOperationUnsupportedError,
   vmWorkflowErrorCause,
+  type VmActiveLimitMachine,
   type VmCreateInProgressError,
   type VmResourcePoolExceededError,
   type VmModelPlaneError,
@@ -601,6 +602,20 @@ export async function vmMemoryRequiresPlanResponse(input: {
 }
 
 /**
+ * " Counted now: a, b (provisioning). Paused machines do not count." for the
+ * active-limit message, or "" when the refusal carries no names. Machine lists
+ * show paused machines beside the counted ones, so the message names the
+ * counted set rather than leaving a person to guess.
+ */
+function countedMachinesSentence(machines: readonly VmActiveLimitMachine[] | undefined): string {
+  if (!machines?.length) return "";
+  const names = machines.map((machine) =>
+    machine.status === "provisioning" ? `${machine.name} (provisioning)` : machine.name
+  );
+  return ` Counted now: ${names.join(", ")}. Paused machines do not count.`;
+}
+
+/**
  * One response for every provisioning verb that hits the active-VM limit. On a free plan the
  * limit is the paywall moment: the message sells the upgrade (Pro removes the cap and bills by
  * usage) and `upgradeRequired`/`upgradeUrl` let clients render a real upgrade prompt instead of
@@ -612,18 +627,22 @@ export async function vmActiveLimitExceededResponse(input: {
   readonly retryAction: string;
   readonly phase?: VmLifecyclePhase;
   readonly locale?: Locale;
+  /** The machines the limit counted; named in the message so a person can tell which ones hold the slots. */
+  readonly activeMachines?: readonly VmActiveLimitMachine[];
 }): Promise<Response> {
   const paid = isPaidVmPlan(input.planId);
   if (input.planId === "go") return goLimitResponse("active", input.locale ?? "en");
   const plural = input.limit === 1 ? "" : "s";
+  const counted = countedMachinesSentence(input.activeMachines);
+  const countedDetails = input.activeMachines?.length ? { activeMachines: input.activeMachines } : {};
   if (paid) {
     return vmErrorResponse({
       error: "vm_active_limit_exceeded",
       status: 402,
-      message: `This plan allows ${input.limit} active Cloud VM${plural} at a time.`,
+      message: `This plan allows ${input.limit} active Cloud VM${plural} at a time.${counted}`,
       action: input.retryAction,
       extra: { limit: input.limit },
-      details: { limit: input.limit },
+      details: { limit: input.limit, ...countedDetails },
       ...(input.phase ? { phase: input.phase } : {}),
     });
   }
@@ -643,11 +662,11 @@ export async function vmActiveLimitExceededResponse(input: {
   return vmErrorResponse({
     error: "vm_active_limit_exceeded",
     status: 402,
-    message: `The free plan includes ${input.limit} Cloud VM${plural}.`,
+    message: `The free plan includes ${input.limit} Cloud VM${plural}.${counted}`,
     action: `Upgrade to cmux Pro at ${VM_UPGRADE_URL} for more active machines, ` +
       "or free a slot with `cmux vm rm <id>`.",
     extra: { limit: input.limit, upgradeRequired: true, upgradeUrl: VM_UPGRADE_URL },
-    details: { limit: input.limit, upgradeRequired: true },
+    details: { limit: input.limit, upgradeRequired: true, ...countedDetails },
     ...(input.phase ? { phase: input.phase } : {}),
   });
 }
@@ -812,6 +831,7 @@ export function vmCreateLikeErrorResponders(input: {
       vmActiveLimitExceededResponse({
         locale: context.locale,
         limit: error.limit,
+        activeMachines: error.activeMachines,
         planId: input.planId,
         retryAction: input.retryAction,
       }),
