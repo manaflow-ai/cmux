@@ -116,7 +116,7 @@ test("Staged unstages instead, and a refusal shows inline", async () => {
     expect(menuItem("Stage")).toBeUndefined();
     await act(async () => menuItem("Unstage")!.click());
     await settle();
-    const notice = view.container.querySelector('.acpmux-diff-notice[role="alert"]');
+    const notice = view.container.querySelector('.acpmux-diff-notice[role="alert"] .acpmux-diff-notice-text');
     expect(notice?.textContent).toBe("That folder is outside this chat's folders.");
     expect(view.reads).toEqual(["staged"]);
   } finally {
@@ -227,7 +227,7 @@ test("Staged unstages one hunk, and a refusal shows inline", async () => {
     await act(async () => view.button("Unstage hunk at a.txt line 1")!.click());
     await settle();
     expect(asked).toEqual([[["a.txt"], ["-one", "+two", " keep"], true]]);
-    const notice = view.container.querySelector('.acpmux-diff-notice[role="alert"]');
+    const notice = view.container.querySelector('.acpmux-diff-notice[role="alert"] .acpmux-diff-notice-text');
     expect(notice?.textContent).toBe("That change is no longer in the file. Refresh and try again.");
   } finally {
     await act(async () => view.root.unmount());
