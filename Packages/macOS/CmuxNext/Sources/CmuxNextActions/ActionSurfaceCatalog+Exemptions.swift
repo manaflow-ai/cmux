@@ -68,7 +68,7 @@ nonisolated extension ActionSurfaceCatalog {
         "terminal.keep", "clearScreenKeepScrollback", "resetTerminal", "reconnectPane", "resumeCommandSet",
         "agentPaneZoomIn", "agentPaneZoomOut", "agentPaneZoomReset",
         "resumeCommandClear", "palette.terminalOpenDirectory", "browserReload",
-        "browserHardReload", "browser.openInChromium", "browser.openInWebKit", "splitBrowserRight", "splitBrowserDown",
+        "browserHardReload", "browser.openInChromium", "browser.openInWebKit", "browser.resetPinnedTab", "splitBrowserRight", "splitBrowserDown",
         "palette.browserOpenDefault", "palette.browserClearHistory", 
         "browserScreenshotPage", "browserTheme", 
         "browser.pageInfo.deleteSiteData", "browser.pageInfo.setPermission", "browser.pageInfo.resetPermissions",
