@@ -1,6 +1,6 @@
 // The model picker's order (cx-jqkx): the agent's default, then each family's newest models, then
 // every older version, newest first. The picker shows the first two sections and folds the older
-// versions under one "Older models" row, so a new release is always in view.
+// versions under one More models row, so a new release is always in view.
 import { isDefaultChoice } from "./defaultChoice";
 import { classify } from "./modelTaxonomy";
 

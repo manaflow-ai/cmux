@@ -54,7 +54,7 @@ struct BookmarkManagerView: View {
             .menuStyle(.borderlessButton)
             .fixedSize()
             .accessibilityIdentifier("cmux.bookmarks.manager.menu")
-            .help(BookmarkStrings.more)
+            .themedHelp(BookmarkStrings.more)
             .accessibilityLabel(BookmarkStrings.more)
         }
         .padding(.horizontal, Metrics.space6)

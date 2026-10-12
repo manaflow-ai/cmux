@@ -15,7 +15,7 @@ final class HelperPanelCloseButton: NSButton {
         isBordered = false
         focusRingType = .none
         contentTintColor = Palette.textTertiary
-        toolTip = OnboardingStrings.computerUseHelperClose
+        themedToolTip = OnboardingStrings.computerUseHelperClose
         hover.refresh(animated: false)
     }
 

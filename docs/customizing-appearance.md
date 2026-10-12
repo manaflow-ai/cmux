@@ -202,8 +202,7 @@ place or the other.
   schema that you want to keep.
 - Color a workspace from the CLI with a palette choice:
   `cmux workspace set-color --color blue --target ws_…` (grey, blue, red,
-  yellow, green, pink, purple, cyan, orange). Custom hex colors are set from
-  the picker (`workspace custom-color` opens it).
+  yellow, green, pink, purple, cyan, orange).
 - `notifications.paneFlashColor` recolors the unread pane ring and pane flash.
   `notifications.unreadPaneRing` and `notifications.paneFlash` turn them off.
 

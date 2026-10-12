@@ -27,7 +27,7 @@ public nonisolated struct AgentPageOps {
     /// Op suffix to the old bridge method that ``AgentPaneRequest`` parses.
     static let methods: [String: String] = {
         var methods = Dictionary(uniqueKeysWithValues: [
-            "pane.checkpointAvailability", "pane.framePacing", "pane.painted", "pane.renderRate", "pane.saveLog", "pane.saveFile", "pane.showContextUsage",
+            "pane.checkpointAvailability", "pane.framePacing", "pane.painted", "pane.renderRate", "pane.saveLog", "pane.saveFile", "pane.showContextUsage", "pane.showDictation",
             "pane.edit", "tab.open", "tab.typeAhead", "tab.jump", "tab.setDefaultKind",
             "newTab.remember", "newTab.setTemplate", "newTab.inputReady", "newTab.touched", "newTab.context", "shortcut.edit", "action.run", "file.open", "browser.open",
             "project.list", "project.browse", "workspace.chooseFolder", "workspace.useFolder", "chat.folder.choose", "app.action", "chats.open", "chats.openInTerminal", "chats.page",
