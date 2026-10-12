@@ -17268,7 +17268,7 @@
               "kind": "primitive",
               "name": "boolean"
             },
-            "description": "Also close pinned tabs and screens. Default false: every selector but `this` and `selection` skips them."
+            "description": "Also close pinned tabs, screens and workspaces. Default false: every selector but `this` and `selection` skips them."
           },
           "end_terminals": {
             "required": false,

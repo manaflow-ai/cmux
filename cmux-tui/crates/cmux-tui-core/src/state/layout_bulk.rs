@@ -14,7 +14,7 @@
 //! panes, the workspace's screens, the session's workspaces. `selection`
 //! names the objects (any container), for a client that knows a scope the
 //! daemon does not, such as the workspaces of the current space in sidebar
-//! order. Pinned tabs and screens are skipped by every selector but `this`
+//! order. Pinned tabs, screens and workspaces are skipped by every selector but `this`
 //! and `selection`, unless `include_pinned`. The home workspace anchors a
 //! selector but never closes; an object with no tab has nothing to close.
 //! A call with nothing to close commits nothing, writes no group and keeps
@@ -137,7 +137,10 @@ fn items(state: &State, presentation: &PresentationSnapshot, level: BulkLevel) -
                     .iter()
                     .flat_map(|screen| screen_tabs(state, screen))
                     .collect(),
-                pinned: false,
+                pinned: presentation
+                    .workspaces
+                    .get(&workspace.key)
+                    .is_some_and(|record| record.pinned),
                 closable: !home,
             });
             continue;

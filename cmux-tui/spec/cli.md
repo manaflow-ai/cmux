@@ -546,7 +546,7 @@ ends the session-owned process and removes all of its placements.
 `--to-right`, `--to-left` or `--all` (panes: `--others` or `--all`) send one
 `layout.bulk` close: the selected object's siblings in its pane, screen,
 workspace or session close in one commit as one closed-history group, which
-`closed reopen` restores whole. Pinned tabs and screens stay unless
+`closed reopen` restores whole. Pinned tabs, screens and workspaces stay unless
 `--include-pinned`; the home workspace never closes; `--end-terminals` ends
 the terminals the close leaves without a view.
 `client <selector> metadata set` leaves an omitted field unchanged and clears

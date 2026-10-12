@@ -486,7 +486,7 @@ touch it.
   panes, screens and workspaces close in the same plan and join it. Anchored selectors work in the
   anchor's container in its order; without `anchor` the request's selectors name it (`cmux tab
   current close --others`). `selection` is for scopes the daemon does not know (the workspaces of the
-  current space in sidebar order). Pinned tabs and screens are skipped except by `this` and
+  current space in sidebar order). Pinned tabs, screens and workspaces are skipped except by `this` and
   `selection`; the home workspace never closes; pane `to_right`/`to_left` are refused. CLI:
   `cmux tab|pane|screen|workspace <selector> close --others|--to-right|--to-left|--all
   [--include-pinned] [--end-terminals]`; MCP: `layout_bulk` (destructive). Apps: no scope, as for
