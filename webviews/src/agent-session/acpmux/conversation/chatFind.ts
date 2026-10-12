@@ -94,7 +94,10 @@ export function useChatFind(rows: readonly AcpmuxRow[]): ChatFind {
     setOpen(false);
     const target = opener.current;
     opener.current = null;
-    if (target?.isConnected) target.focus({ preventScroll: true });
+    // Only from the bar itself (or nowhere), so Hide Find from a menu leaves the composer alone.
+    const focused = document.activeElement;
+    const fromBar = !focused || focused === document.body || focused.closest(".acpmux-find");
+    if (fromBar && target?.isConnected) target.focus({ preventScroll: true });
   }, []);
   const setQuery = useCallback((next: string) => {
     setQueryState(next);

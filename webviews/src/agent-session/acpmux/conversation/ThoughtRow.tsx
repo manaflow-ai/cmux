@@ -64,7 +64,16 @@ const firstLine = (text: string) =>
       .find(Boolean) ?? ""
   )
     .replace(/^(?:#{1,6}\s+|[-*+]\s+|>\s*)/, "")
-    .replace(/(\*\*|__)(.+?)\1/g, "$2")
-    .replace(/(\*|_)(\S(?:.*?\S)?)\1/g, "$2")
-    .replace(/`([^`]+)`/g, "$1")
+    // A line wrapped in bold, then code spans, then emphasis only where it opens and closes a
+    // word, so `run_tests.sh`, `src/foo_bar` and `a*b*c` keep their marks.
+    .replace(/^(\*\*|__)(.+)\1$/, "$2")
+    .split(/(`[^`]+`)/)
+    .map((part) =>
+      part.startsWith("`") && part.endsWith("`") && part.length > 1
+        ? part.slice(1, -1)
+        : part
+            .replace(/(?<![\w*])(\*\*|__)(\S(?:.*?\S)?)\1(?![\w*])/g, "$2")
+            .replace(/(?<![\w*])(\*|_)(\S(?:.*?\S)?)\1(?![\w*])/g, "$2"),
+    )
+    .join("")
     .trim();
