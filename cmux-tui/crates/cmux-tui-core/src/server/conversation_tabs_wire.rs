@@ -129,7 +129,9 @@ pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
 /// `agent-transfer-finish` (the id acpmux's finish answered) and `host` is
 /// this store's own: Move to Cloud opens the moved chat that way.
 fn landed_here(mux: &Mux, host: &str, session: &str) -> bool {
-    host == super::agent_session_attach::store_host(mux) && mux.landed_agent_session(session)
+    // This store's host, as agent-session-start names it.
+    let own = format!("{MACHINE_HOST_PREFIX}{}", mux.registry_identity().0);
+    host == own && mux.landed_agent_session(session)
 }
 
 fn record_of(

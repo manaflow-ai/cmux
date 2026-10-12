@@ -72,7 +72,6 @@ use agent_session_link::{AcpmuxLink, Inbound, LinkError};
 pub use agent_session_start::{
     AGENT_SESSION_START_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
 };
-pub(super) use agent_session_start::store_host;
 
 pub const AGENT_SESSION_ATTACH_CAPABILITY: &str = "agent-session-attach-v1";
 
