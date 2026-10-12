@@ -187,7 +187,7 @@ def test_goto_split_from_loaded_browser(client: cmux) -> tuple[bool, str]:
 
 def test_goto_split_roundtrip_loaded_browser(client: cmux) -> tuple[bool, str]:
     """
-    Round-trip: terminal → browser (Cmd+Opt+Right) → terminal (Cmd+Opt+Left)
+    Round-trip: terminal → browser (Ctrl+Cmd+L) → terminal (Ctrl+Cmd+H)
     with a loaded page and webview focused.
     """
     ws_id = client.new_workspace()
@@ -220,12 +220,12 @@ def test_goto_split_roundtrip_loaded_browser(client: cmux) -> tuple[bool, str]:
             client.focus_pane(terminal_pane_id)
             _wait_focused(client, terminal_pane_id)
 
-            # Cmd+Option+Right to move to browser; poll for the focus change.
-            client.simulate_shortcut("cmd+opt+right")
+            # Ctrl+Cmd+L to move to browser; poll for the focus change.
+            client.simulate_shortcut("ctrl+cmd+l")
             mid_focused = _wait_focused(client, browser_pane_id)
             if mid_focused != browser_pane_id:
                 return False, (
-                    f"Cmd+Option+Right from terminal didn't reach browser. "
+                    f"Ctrl+Cmd+L from terminal didn't reach browser. "
                     f"Expected {browser_pane_id}, got {mid_focused}"
                 )
 
