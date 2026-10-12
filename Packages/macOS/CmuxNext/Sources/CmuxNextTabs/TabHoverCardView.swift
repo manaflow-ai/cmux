@@ -15,7 +15,7 @@ final class TabHoverCardView: NSView {
     static var cardWidth: CGFloat { thumbnailSize.width + 2 * padding }
 
     private let titleLabel = NSTextField(wrappingLabelWithString: "")
-    private let subtitleLabel = NSTextField(wrappingLabelWithString: "")
+    let subtitleLabel = NSTextField(wrappingLabelWithString: "")
     private let thumbnail = NSView()
     /// CPU and memory of the hovered tab (tab cards only).
     let resources = ResourceSummaryView()
