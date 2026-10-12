@@ -503,15 +503,15 @@ work unchanged inside a machine: `--title` (default `Notification`, at most
 `--clear`, `--surface`, `--workspace`, `--json`, `--desktop true|false`
 (`false`: the app shows no banner; the sidebar marker still shows), and
 `--reply` (the banner takes a typed reply, which the app pastes into the
-notifying terminal and submits with Return); `--window`
+target terminal and submits with Return); `--window`
 and `--id-format` are accepted and ignored. The target defaults to the caller's own terminal
 (`CMUX_TUI_TERMINAL_ID`, which the daemon injects into every PTY); `--surface
 current` says the same, `--surface <term_id>` names another terminal of this
 session, and `--workspace` alone posts a session-level row with no terminal.
 A machine can only address its own session. `--clear` removes the retained
 rows for that target on the machine (`notification.clear`), so every attached
-client drops them. A reply goes only to the terminal that posted the
-notification, as text the user typed into its banner, over the same link the
+client drops them. A reply goes only to the notification's target
+terminal, while that notification is still unread, as text the user typed into its banner, over the same link the
 app's terminal input uses. Every row is bounded because each
 one is pushed to every attached client.
 

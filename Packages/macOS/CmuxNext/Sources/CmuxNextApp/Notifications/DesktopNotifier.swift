@@ -151,7 +151,8 @@ final class DesktopNotifier: NSObject {
         let action = UNTextInputNotificationAction(
             identifier: replyAction,
             title: String(localized: "notifications.reply.action", defaultValue: "Reply", bundle: .module),
-            options: [],
+            // A reply ends in Return in a terminal: the Mac must be unlocked to send one.
+            options: [.authenticationRequired],
             textInputButtonTitle: String(localized: "notifications.reply.send", defaultValue: "Send", bundle: .module),
             textInputPlaceholder: String(localized: "notifications.reply.placeholder", defaultValue: "Reply to the terminal…", bundle: .module)
         )

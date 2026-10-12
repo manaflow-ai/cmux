@@ -1192,7 +1192,7 @@ fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan
 /// into every daemon PTY) unless `--surface` names another terminal of this
 /// session or `--workspace` asks for a session-level row; a machine cannot
 /// address anything outside its own session. `--reply` asks the app for a
-/// banner that takes a typed reply for the notifying terminal (only it).
+/// banner that takes a typed reply for the target terminal (only it).
 /// `--window` and `--id-format` are accepted for signature
 /// parity. `--desktop false` asks the app for no banner; like the local flag
 /// it is not validated with `--clear`.

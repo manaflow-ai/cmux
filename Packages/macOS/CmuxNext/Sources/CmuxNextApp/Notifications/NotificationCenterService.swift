@@ -84,8 +84,8 @@ final class NotificationCenterService {
             self?.open(surface: surface.map(SurfaceID.init(rawValue:)))
             self?.webNotificationClicks.run(bannerID: id)
         }
-        desktop.onReply = { [weak self] _, surface, text in
-            self?.reply(surface: surface.map(SurfaceID.init(rawValue:)), text: text)
+        desktop.onReply = { [weak self] id, surface, text in
+            self?.reply(banner: id, surface: surface.map(SurfaceID.init(rawValue:)), text: text)
         }
         let store = services.daemon.store
         lastSeen = store.notifications.map(\.notification.rawValue).max() ?? 0
@@ -163,9 +163,16 @@ final class NotificationCenterService {
     /// pasted, then Return as its own key, as the old app sent it (a full-screen
     /// agent editor reads a pasted newline as a line break, not a submit). The
     /// reply answered the notification, so its tab is read.
-    func reply(surface: SurfaceID?, text: String) {
+    /// Only while the banner's notification is still the tab's unread one: a
+    /// banner left in Notification Center from an earlier launch, or one a newer
+    /// notification replaced, must not type into whatever runs there now.
+    func reply(banner: String, surface: SurfaceID?, text: String) {
         guard let services, let surface, !text.isEmpty, let located = locate(surface: surface, in: services.daemon.store),
-              located.tab.kind == .pty else { return }
+              located.tab.kind == .pty, let marker = located.tab.notification, marker.unread,
+              banner == "cmux-notification-\(marker.notification.rawValue)" else {
+            note("reply refused: \(banner) is not the tab's unread notification")
+            return
+        }
         let target = located.tab.surface
         // The tab's own machine: a Cloud terminal's input goes over its link.
         services.daemon(for: located.pane).send("notification-reply") { connection in
