@@ -105,6 +105,11 @@
       "vcpuMessage": "Ваши ВМ уже используют {used} из {pool} vCPU. Этой ВМ нужно {requested} vCPU.",
       "upgradeAction": "Приостановите или удалите ВМ либо перейдите на Max.",
       "action": "Приостановите или удалите ВМ."
+    },
+    "activeLimit": {
+      "counted": "Сейчас учитываются: {machines}. Приостановленные машины не учитываются.",
+      "provisioning": "{name} (подготавливается)",
+      "separator": ", "
     }
   },
   "billingRecovery": {

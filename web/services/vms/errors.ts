@@ -177,10 +177,20 @@ export class VmImageConfigError extends Data.TaggedError("VmImageConfigError")<{
   readonly reason: string;
 }> {}
 
+/** One machine the active-VM limit counted, so the refusal can name it. */
+export interface VmActiveLimitMachine {
+  /** Provider machine id, or the row id while provisioning has none yet. */
+  readonly id: string;
+  readonly name: string;
+  readonly status: "provisioning" | "running";
+}
+
 export class VmLimitExceededError extends Data.TaggedError("VmLimitExceededError")<{
   readonly kind: "active_vms";
   readonly billingTeamId: string;
   readonly limit: number;
+  /** The machines the count saw, oldest first; capped, so it can be shorter than the count. */
+  readonly activeMachines?: readonly VmActiveLimitMachine[];
 }> {}
 
 /**
