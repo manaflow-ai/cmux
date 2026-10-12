@@ -1,5 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample keybindings), not shipped UI.
 import { keybindingsPageEntry } from "../../gallery/format";
+import type { Play } from "../../gallery/play";
 import type { Binding } from "./types";
 
 const bindings: Binding[] = [
@@ -97,6 +98,61 @@ const many = Array.from({ length: 42 }, (_, index): Binding => ({
   conflicts: index % 3 === 0 ? [9] : [],
 }));
 
+const readOnlyBindings = bindings.filter(
+  (binding) => binding.source === "ghostty" || binding.source === "ghostty-fallback" || binding.removed,
+);
+
+const searchKeyboard: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".keys-row"));
+  await ctx.focus({ selector: ".keys-search" });
+  await ctx.type("open");
+  await ctx.waitFor(() => (ctx.find({ selector: ".keys-search" }) as HTMLInputElement).value === "open");
+
+  // Escape clears the query while keeping the search field as the keyboard surface.
+  await ctx.press("Escape");
+  await ctx.waitFor(() => {
+    const search = ctx.find({ selector: ".keys-search" }) as HTMLInputElement;
+    return search.value === "" && ctx.document.activeElement === search;
+  });
+
+  const selectedTitle = () =>
+    ctx.document.querySelector<HTMLElement>(".keys-row.selected .keys-command-title")?.textContent;
+  await ctx.press("ArrowDown");
+  await ctx.waitFor(() => selectedTitle() === "Close Tab");
+  await ctx.press("ArrowDown");
+  await ctx.waitFor(() => selectedTitle() === "Go to File");
+  await ctx.press("ArrowUp");
+  await ctx.waitFor(() => selectedTitle() === "Close Tab");
+  // Move back to an editable row so Return exercises the row recording path.
+  await ctx.press("ArrowDown");
+  await ctx.waitFor(() => selectedTitle() === "Go to File");
+  await ctx.press("Enter");
+  await ctx.waitFor(() => {
+    const search = ctx.find({ selector: ".keys-search" }) as HTMLInputElement;
+    const row = ctx.document.querySelector<HTMLElement>(".keys-row.recording");
+    return (
+      row?.querySelector(".keys-command-title")?.textContent === "Go to File" && ctx.document.activeElement === search
+    );
+  });
+};
+
+const searchReadOnly: Play = async (ctx) => {
+  const search = { selector: ".keys-search" } as const;
+  await ctx.waitFor(() => ctx.document.querySelector(".keys-row"));
+  await ctx.focus(search);
+  await ctx.press("ArrowDown");
+  await ctx.waitFor(
+    () =>
+      ctx.document.querySelector<HTMLElement>(".keys-row.selected .keys-command-title")?.textContent === "Close Tab",
+  );
+  await ctx.press("Enter");
+  await ctx.waitFor(() => {
+    const field = ctx.find(search) as HTMLInputElement;
+    const row = ctx.document.querySelector<HTMLElement>(".keys-row.selected");
+    return ctx.document.activeElement === field && row !== null && !row.classList.contains("recording");
+  });
+};
+
 export default keybindingsPageEntry({
   id: "pages.keybindings",
   title: "Keyboard Shortcuts",
@@ -110,9 +166,17 @@ export default keybindingsPageEntry({
     normal: { note: "Defaults, user overrides, conflicts, removed rows and Ghostty rows.", bindings },
     "read-only": {
       note: "Ghostty and removed defaults are visible but cannot be edited.",
-      bindings: bindings.filter(
-        (binding) => binding.source === "ghostty" || binding.source === "ghostty-fallback" || binding.removed,
-      ),
+      bindings: readOnlyBindings,
+    },
+    "search-keyboard": {
+      note: "Search Escape clears the query, arrows move selection, and Return records an editable row.",
+      bindings,
+      play: searchKeyboard,
+    },
+    "search-readonly": {
+      note: "Return does not start recording when search selection lands on a Ghostty or removed row.",
+      bindings: readOnlyBindings,
+      play: searchReadOnly,
     },
     "many-bindings": {
       note: "A long shortcut table with scrolling and long command names.",
