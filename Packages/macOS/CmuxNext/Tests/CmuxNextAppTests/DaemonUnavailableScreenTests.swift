@@ -48,7 +48,10 @@ struct DaemonUnavailableScreenTests {
         let board = NSPasteboard(name: NSPasteboard.Name("cmux-tests-\(UUID().uuidString)"))
         defer { board.releaseGlobally() }
         view.pasteboard = board
-        try #require(buttons(in: view).first { !$0.isHidden }).performClick(nil)
+        // The button's own target and action: a click outside a window may never dispatch.
+        let button = try #require(buttons(in: view).first { !$0.isHidden })
+        let action = try #require(button.action)
+        _ = (try #require(button.target) as AnyObject).perform(action, with: button)
         #expect(board.string(forType: .string) == String(describing: error))
     }
 }
