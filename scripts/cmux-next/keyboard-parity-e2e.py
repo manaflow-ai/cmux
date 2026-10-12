@@ -82,10 +82,12 @@ def wait(check, seconds, step=0.25):
 
 # The web page: a local server this script starts (and stops). Setup opens /a, then types /b in the
 # address bar, so /a is a history entry to go back to (Chromium skips entries a script left without
-# a user gesture). Both are no-store, so Back, Forward and Reload each fetch again, and the
-# server's request log shows which page loaded.
-PAGES = {"/a": b"<!doctype html><title>a</title><p>page a</p>",
-         "/b": b"<!doctype html><title>b</title><p>page b</p><input id=q>"}
+# a user gesture). Each page reports `pageshow` (/shown/a, /shown/b), which also fires when
+# Back or Forward restores it from the back/forward cache without a request, so the server's
+# request log shows which page showed.
+SHOWN = b"<script>addEventListener('pageshow',()=>fetch('/shown'+location.pathname+'?'+Date.now()))</script>"
+PAGES = {"/a": b"<!doctype html><title>a</title><p>page a</p>" + SHOWN,
+         "/b": b"<!doctype html><title>b</title><p>page b</p><input id=q>" + SHOWN}
 REQUESTS = []
 
 
@@ -96,7 +98,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/html")
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
-        self.wfile.write(PAGES.get(self.path, b"<!doctype html><title>x</title>"))
+        self.wfile.write(PAGES.get(self.path.split("?")[0], b""))
 
     def log_message(self, *args):
         pass
@@ -108,8 +110,8 @@ PAGE_URL = f"http://127.0.0.1:{SERVER.server_address[1]}/a"
 
 
 def fetched(path, since):
-    """`path` was requested after the first `since` requests."""
-    return path in REQUESTS[since:]
+    """`path` was requested after the first `since` requests (the query string aside)."""
+    return path in [r.split("?")[0] for r in REQUESTS[since:]]
 
 
 def state():
@@ -192,6 +194,15 @@ def new_workspace():
     return made[0] if made else None
 
 
+SETUP_WHY = []
+
+
+def why(reason):
+    """Records why a setup step failed, for the FAIL row."""
+    SETUP_WHY.append(reason)
+    return None
+
+
 def setup(focus):
     """Puts the keyboard in `focus` in a fresh workspace; returns the cell's context or None."""
     if focus == "terminal":
@@ -202,6 +213,7 @@ def setup(focus):
         return {"workspace": made[0] if made else None} if ok else None
     workspace = new_workspace()
     if not workspace:
+        why(f"no new workspace (windows {state().get('windows')})")
         return None
     if focus == "newtab":
         ok = wait(lambda: (rpc("debug.new_tab", {"action": "field"}) or {}).get("focused") is True, 8)
@@ -212,14 +224,16 @@ def setup(focus):
     elif focus == "page":
         since = len(REQUESTS)
         run("openBrowser", {"url": PAGE_URL})
-        ok = wait(lambda: fetched("/a", since) or None, 15)
+        ok = wait(lambda: fetched("/shown/a", since) or None, 15) or why("no /a")
         run("focusLocation")
-        ok = ok and wait(lambda: "addressBar" in str(state().get("target")) or None, 5)
+        ok = ok and (wait(lambda: "addressBar" in str(state().get("target")) or None, 5)
+                     or why(f"no address bar: {state().get('target')}"))
         if ok:
             cua("type_text", {"text": PAGE_URL[:-1] + "b"})
             cua("hotkey", {"keys": ["return"]})
-        ok = ok and wait(lambda: fetched("/b", since) or None, 10)
-        ok = ok and wait(lambda: state().get("resolved") == "browserPage" or None, 8)
+        ok = ok and (wait(lambda: fetched("/shown/b", since) or None, 10) or why(f"no /b: {REQUESTS[since:]}"))
+        ok = ok and (wait(lambda: state().get("resolved") == "browserPage" or None, 8)
+                     or why(f"page not focused: {state().get('resolved')}"))
     elif focus == "settings":
         before = state()["tab_ids"]
         run("openSettings")
@@ -294,17 +308,17 @@ def chat_search(pre, post, ctx):
 
 
 def page_back(pre, post, ctx):
-    ok = wait(lambda: fetched("/a", ctx["requests"]) or None, 5)
+    ok = wait(lambda: fetched("/shown/a", ctx["requests"]) or None, 5)
     return bool(ok), f"loads after the key: {REQUESTS[ctx['requests']:]}"
 
 
 def page_forward(pre, post, ctx):
-    ok = wait(lambda: fetched("/b", ctx["requests"]) or None, 5)
+    ok = wait(lambda: fetched("/shown/b", ctx["requests"]) or None, 5)
     return bool(ok), f"loads after the key: {REQUESTS[ctx['requests']:]}"
 
 
 def page_reload(pre, post, ctx):
-    ok = wait(lambda: fetched("/b", ctx["requests"]) or None, 5)
+    ok = wait(lambda: fetched("/shown/b", ctx["requests"]) or None, 5)
     return bool(ok), f"loads after the key: {REQUESTS[ctx['requests']:]}"
 
 
@@ -382,7 +396,7 @@ def prepare(name, focus, ctx):
         since = len(REQUESTS)
         run("browserBack" if focus == "page" else "focusHistoryBack")
         if focus == "page":
-            wait(lambda: fetched("/a", since) or None, 5)
+            wait(lambda: fetched("/shown/a", since) or None, 5)
         time.sleep(0.5)  # test harness: the focus move settles
     elif name == "Esc":
         run("commandPalette")
@@ -433,7 +447,7 @@ def main():
             ctx = setup(focus) or setup(focus)
             if ctx is None:
                 results[(name, focus)] = (False, label)
-                print(f"FAIL | {focus:8} | {name:11} | {label} | setup failed (focus {state().get('resolved')})", flush=True)
+                print(f"FAIL | {focus:8} | {name:11} | {label} | setup failed (focus {state().get('resolved')}; {' / '.join(SETUP_WHY[-2:])})", flush=True)
                 continue
             prepare(name, focus, ctx)
             routed = decision(key, modifiers)
