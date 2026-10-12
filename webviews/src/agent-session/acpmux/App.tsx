@@ -11,7 +11,7 @@ import React, {
 } from "react";
 import { flushSync } from "react-dom";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
-import { QueryClientProvider, useQueryClient } from "@tanstack/react-query";
+import { QueryClientProvider, useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { applyAgentTheme } from "../shared/theme";
 import {
   layoutConversation,
@@ -2344,7 +2344,10 @@ function AcpmuxPane() {
     () => ({ harness: snapshot.summary?.harness, configOptions: snapshot.summary?.configOptions }),
     [snapshot.summary?.harness, snapshot.summary?.configOptions],
   );
-  const pickerCatalog = usePickerCatalog(snapshot.catalog, pickerSession).catalog;
+  const pickerState = usePickerCatalog(snapshot.catalog, pickerSession);
+  const pickerCatalog = pickerState.catalog;
+  // The first open after a launch: acpmux has not listed its harnesses yet, so none is missing yet.
+  const harnessesChecking = useIsFetching({ queryKey: ["acpmux", "harnesses"] }) > 0 && snapshot.catalog.length === 0;
   // Integrate a harness (cx-uj5g8): the Harnesses page, in place of what the pane shows.
   const [harnessesOpen, setHarnessesOpen] = useState(false);
   // Another chat in this pane (the sidebar, a link) shows that chat, not the page.
@@ -4450,6 +4453,8 @@ function AcpmuxPane() {
               acpmux={snapshot.catalog}
               {...(harnessFolder ? { cwd: harnessFolder } : {})}
               callNative={callNative}
+              checking={harnessesChecking}
+              refreshCatalog={pickerState.refresh}
               onClose={() => setHarnessesOpen(false)}
               onStart={() => {
                 setHarnessesOpen(false);

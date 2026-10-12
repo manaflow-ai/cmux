@@ -1,25 +1,56 @@
 // l10n-allow-file: gallery fixtures name harnesses and commands as acpmux reports them.
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import type { AcpmuxSnapshot } from "../model";
 import { buildPickerCatalog, BUNDLED_MODEL_CATALOG } from "../modelCatalogData";
 import { HarnessesScreen } from "./HarnessesScreen";
 
-type Props = { acpmux: AcpmuxSnapshot["catalog"]; signedOut: string[] };
+type Props = {
+  acpmux: AcpmuxSnapshot["catalog"];
+  signedOut: string[];
+  /// acpmux has not listed its harnesses yet.
+  checking?: boolean;
+  /// An install command run in place keeps running, or fails.
+  install?: "running" | "fails";
+  /// The update `harness.health` offers.
+  update?: string;
+};
 
-/// The page in a pane, with a host that answers `harness.health` and records what the page asks.
-function GalleryHarnesses({ acpmux, signedOut }: Props) {
+/// The page in a pane, with a host that answers `harness.health` and `shell.*` and records what the
+/// page asks.
+function GalleryHarnesses({ acpmux, signedOut, checking, install, update }: Props) {
   const [asked, setAsked] = useState<string>();
   const [closed, setClosed] = useState(false);
-  const native = (method: string, params: Record<string, unknown> = {}) => {
-    if (method === "harness.health")
-      return Promise.resolve({
-        health: { id: params.id, auth: signedOut.includes(String(params.id)) ? "signedOut" : "signedIn" },
-      });
-    setAsked(`${method} ${JSON.stringify(params)}`);
-    return Promise.resolve({});
-  };
+  const reads = useRef(0);
+  const native = useMemo(
+    () =>
+      (method: string, params: Record<string, unknown> = {}) => {
+        if (method === "harness.health")
+          return Promise.resolve({
+            health: {
+              id: params.id,
+              auth: signedOut.includes(String(params.id)) ? "signedOut" : "signedIn",
+              ...(update ? { update: { command: update, elevated: false } } : {}),
+            },
+          });
+        if (method === "shell.run") return Promise.resolve({ id: "install" });
+        if (method === "shell.read") {
+          reads.current += 1;
+          if (reads.current === 1) return Promise.resolve({ output: "added 12 packages in 4s\n", next: 1 });
+          if (install === "fails")
+            return Promise.resolve({
+              output: "npm error code EACCES\nnpm error permission denied, mkdir '/usr/local/lib/node_modules'\n",
+              next: 2,
+              exit: { code: 243 },
+            });
+          return new Promise<never>(() => {});
+        }
+        setAsked(`${method} ${JSON.stringify(params)}`);
+        return Promise.resolve({});
+      },
+    [signedOut, install, update],
+  );
   return (
     <div
       className="acpmux-shell acpmux-harnesses-gallery flex h-full"
@@ -33,6 +64,7 @@ function GalleryHarnesses({ acpmux, signedOut }: Props) {
         cwd="/Users/you/src/cmux"
         callNative={native}
         onClose={() => setClosed(true)}
+        {...(checking ? { checking } : {})}
       />
     </div>
   );
@@ -54,6 +86,15 @@ const signIn: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('[data-harness-status="signIn"] button') !== null);
   await ctx.click({ selector: '[data-harness-status="signIn"] button' });
   await asked(ctx, 'tab.open {"kind":"terminal","text":"codex login"');
+};
+
+const installOpenCode: Play = async (ctx) => {
+  await ctx.click({ selector: '[data-harness-row="opencode"] button' });
+  await ctx.waitFor(
+    () =>
+      ctx.document.querySelector('[data-harness-row="opencode"][data-harness-status="installing"]') !== null ||
+      ctx.document.querySelector('[data-harness-row="opencode"][data-harness-status="failed"]') !== null,
+  );
 };
 
 const custom: Play = async (ctx) => {
@@ -93,6 +134,37 @@ export default componentEntry<Props>({
     "nothing-installed": {
       note: "No agent CLI on this Mac: every harness offers Install…, and Custom harness… stays.",
       props: { acpmux: [], signedOut: [] },
+    },
+    checking: {
+      note: "The first open after a launch, before acpmux lists its harnesses: Checking…, never Not installed.",
+      props: { acpmux: [], signedOut: [], checking: true },
+    },
+    installing: {
+      note: "Install runs OpenCode's install command in place; the row shows its last output line.",
+      props: { acpmux: thisMac, signedOut: [], install: "running" },
+      play: installOpenCode,
+    },
+    "install-failed": {
+      note: "The install failed: the row says why and offers one fix, the setup guide.",
+      props: { acpmux: thisMac, signedOut: [], install: "fails" },
+      play: installOpenCode,
+    },
+    "update-offered": {
+      note: "acpmux cannot run OpenCode: the row shows the first line of why and one fix, Update.",
+      props: {
+        acpmux: [
+          ...thisMac,
+          {
+            id: "opencode",
+            name: "OpenCode",
+            family: "opencode",
+            models: [],
+            unavailable: "opencode 0.3.1 is too old: acpmux needs 0.4 or later\nrun opencode upgrade",
+          },
+        ],
+        signedOut: [],
+        update: "npm install -g opencode-ai@latest",
+      },
     },
   },
 });

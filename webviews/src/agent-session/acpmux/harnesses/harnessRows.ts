@@ -5,7 +5,15 @@ import type { HarnessHealth } from "../HarnessHealthNotice";
 import type { AcpmuxSnapshot } from "../model";
 import type { PickerCatalog } from "../modelCatalogData";
 
-export type HarnessStatus = "ready" | "signIn" | "unavailable" | "notInstalled";
+export type HarnessStatus = "ready" | "signIn" | "unavailable" | "notInstalled" | "checking";
+
+/// The command that installs a harness's CLI, run in place by Install (the rest open their setup
+/// page). Keyed by the acpmux harness id.
+export const INSTALL_COMMANDS: Readonly<Record<string, string>> = {
+  claude: "npm install -g @anthropic-ai/claude-code",
+  codex: "npm install -g @openai/codex",
+  opencode: "npm install -g opencode-ai",
+};
 
 export type HarnessRow = {
   /** The id acpmux runs it under (`chat.new`'s harness, `harness.health`'s id). */
@@ -20,12 +28,16 @@ export type HarnessRow = {
   login?: string;
   /** Its install and setup page. */
   docsUrl?: string;
+  /** The command that installs it, run in place. */
+  install?: string;
 };
 
 export function harnessRows(
   catalog: PickerCatalog,
   acpmux: AcpmuxSnapshot["catalog"],
   health: Readonly<Record<string, HarnessHealth | undefined>>,
+  /** acpmux has not answered yet: a harness it has not listed is not known to be missing. */
+  checking = false,
 ): HarnessRow[] {
   const rows = catalog.harnesses
     // A routing entry (a terminal harness) is not something to connect.
@@ -36,7 +48,9 @@ export function harnessRows(
       const login =
         acpmux.find((candidate) => candidate.id === harness)?.auth?.login || checked?.login?.trim() || undefined;
       const status: HarnessStatus = !entry.installed
-        ? "notInstalled"
+        ? checking
+          ? "checking"
+          : "notInstalled"
         : checked?.auth === "signedOut" && login
           ? "signIn"
           : entry.unavailable
@@ -50,10 +64,11 @@ export function harnessRows(
         ...(status === "unavailable" && entry.unavailable ? { detail: entry.unavailable } : {}),
         ...(login ? { login } : {}),
         ...(entry.docsUrl ? { docsUrl: entry.docsUrl } : {}),
+        ...(INSTALL_COMMANDS[harness] ? { install: INSTALL_COMMANDS[harness] } : {}),
       };
     });
   return [
-    ...rows.filter((row) => row.status !== "notInstalled"),
-    ...rows.filter((row) => row.status === "notInstalled"),
+    ...rows.filter((row) => row.status !== "notInstalled" && row.status !== "checking"),
+    ...rows.filter((row) => row.status === "notInstalled" || row.status === "checking"),
   ];
 }
