@@ -44,6 +44,15 @@ pub(crate) struct ShellMarks {
     running: bool,
 }
 
+impl ShellMarks {
+    /// For a parser that joins a stream midway (a hosted mirror after a
+    /// daemon restart or a resync): a command may be running, so nothing is
+    /// reset until the shell says one finished (133;D).
+    pub(crate) fn joined_midway() -> Self {
+        Self { running: true }
+    }
+}
+
 /// Write `data` to `term`, resetting a dead program's modes right before
 /// each prompt mark the shell prints at its prompt. Returns the bytes the
 /// terminal parsed, resets included, for mirrors and attach taps.

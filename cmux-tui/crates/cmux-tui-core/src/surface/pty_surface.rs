@@ -293,8 +293,7 @@ impl PtySurface {
     /// the final render frame ordered after the byte taps and before detach.
     pub(super) fn publish_final_frame(&self) {
         let mut term = self.term.lock().unwrap();
-        self.drop_exited_modes(&mut term);
-        let generation = self.render_generation.load(Ordering::Acquire);
+        let generation = self.drop_exited_modes(&mut term);
         let _ = self.build_producer_frame(term, generation);
     }
 
@@ -308,8 +307,7 @@ impl PtySurface {
         if self.dead.swap(true, Ordering::AcqRel) {
             return;
         }
-        self.drop_exited_modes(&mut term);
-        let generation = self.render_generation.load(Ordering::Acquire);
+        let generation = self.drop_exited_modes(&mut term);
         let _ = self.build_frame_locked(&mut term, generation, true);
         self.taps.lock().unwrap().clear();
         self.render.lock().unwrap().taps.clear();
@@ -323,10 +321,16 @@ impl PtySurface {
     }
 
     /// The exited child's modes off, so its retained tab selects and
-    /// pastes like plain text instead of capturing the mouse.
-    fn drop_exited_modes(&self, term: &mut Terminal) {
-        term.vt_write(crate::prompt_mode_reset::EXIT_RESET);
+    /// pastes like plain text instead of capturing the mouse. Published as
+    /// output: byte taps get the same reset and the returned generation
+    /// renders it.
+    fn drop_exited_modes(&self, term: &mut Terminal) -> u64 {
+        let reset = term.vt_write_with_normalized(crate::prompt_mode_reset::EXIT_RESET);
+        self.broadcast_attach_output(&reset);
         self.mouse_encoders.lock().unwrap().sync_from_terminal(term);
+        let generation = self.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
+        self.stream_progress.notify();
+        generation
     }
 
     pub(super) fn mark_output_dirty(&self) {
