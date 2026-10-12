@@ -47,7 +47,7 @@ public struct SidebarMapping {
                                 iconAsset: (String) -> SidebarFavicon? = { _ in nil },
                                 groupIconAsset: ((String) -> SidebarFavicon?)? = nil) -> [SidebarRowSection] {
         // A personal group's icon lives on the home daemon, whichever machine's section shows it.
-        let groupIconAsset = groupIconAsset ?? iconAsset
+        func groupImage(_ icon: String) -> SidebarFavicon? { groupIconAsset.map { $0(icon) } ?? iconAsset(icon) }
         var nodes: [SidebarNode] = []
         for section in daemonSections {
             // The home workspace (`kind` "home") is what the Home item in the
@@ -66,7 +66,7 @@ public struct SidebarMapping {
                     custom: group.color.flatMap { $0.hasPrefix("#") ? GroupTint(wire: $0)?.wire : nil },
                     isCollapsed: group.collapsed || collapsedGroups.contains(group.id.rawValue),
                     isPinned: group.pinned,
-                    icon: group.icon.flatMap { groupIconAsset($0).map(WorkspaceIcon.favicon) ?? WorkspaceIcon.parse($0) },
+                    icon: group.icon.flatMap { groupImage($0).map(WorkspaceIcon.favicon) ?? WorkspaceIcon.parse($0) },
                     workspaces: rows
                 )))
             } else {
