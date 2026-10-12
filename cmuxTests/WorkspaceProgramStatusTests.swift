@@ -304,6 +304,37 @@ struct WorkspaceProgramStatusTests {
         #expect(records.first?["kind"] as? String == "question")
     }
 
+    @Test func sidebarResetPublishesClearForReportingPanes() throws {
+        let workspace = Workspace()
+        let reportingPanelId = try #require(workspace.focusedPanelId)
+        _ = try #require(
+            workspace.newTerminalSplit(from: reportingPanelId, orientation: .horizontal, focus: false)
+        )
+        workspace.applyProgramStatus(
+            ProgramStatusReport(state: .working, id: "build", app: "cargo"),
+            panelId: reportingPanelId
+        )
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+
+        workspace.resetSidebarContext(reason: "test")
+        CmuxEventBus.shared.flushEventLogForTesting()
+
+        let events = CmuxEventBus.shared.retainedSnapshot().filter {
+            $0["name"] as? String == "program_status.changed"
+        }
+        #expect(events.count == 1)
+        let cleared = try #require(events.first)
+        #expect(cleared["workspace_id"] as? String == workspace.id.uuidString)
+        #expect(cleared["surface_id"] as? String == reportingPanelId.uuidString)
+        let payload = try #require(cleared["payload"] as? [String: Any])
+        #expect(payload["event"] as? String == "clear")
+        #expect(payload["id"] is NSNull)
+        let records = try #require(payload["records"] as? [[String: Any]])
+        #expect(records.isEmpty)
+        #expect(workspace.programStatusStoresByPanelId.isEmpty)
+    }
+
     @Test func sanitizesInvisibleFormattingAndCapsDisplay() {
         let workspace = Workspace()
         let value = workspace.sanitizedProgramStatusText("hello\u{202E}world")
