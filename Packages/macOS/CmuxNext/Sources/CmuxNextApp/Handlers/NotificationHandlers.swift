@@ -31,7 +31,7 @@ enum NotificationHandlers {
         registry.bind("jumpToLastPrompt", run: { _ in
             _ = try context.requireConnection()
             let store = context.daemon.store
-            let prompted = context.allTabs.compactMap { located in store.lastPromptBySurface[located.tab.surface].map { (located, $0) } }
+            let prompted = context.allTabs.compactMap { located in store.agents.lastPromptBySurface[located.tab.surface].map { (located, $0) } }
             guard let last = prompted.max(by: { $0.1 < $1.1 })?.0 else { throw ActionFailure(message: MiscHandlerStrings.noPrompt) }
             guard ActionRunScope.viewChangeAllowed() else { return }
             context.services.revealTab(last.tab.id)

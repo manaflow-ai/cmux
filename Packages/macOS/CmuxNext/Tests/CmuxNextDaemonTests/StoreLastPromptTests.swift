@@ -25,30 +25,30 @@ struct StoreLastPromptTests {
 
     @Test func promptedTurnsAreRecordedPerTab() {
         let store = store()
-        #expect(store.lastPromptBySurface[1] == nil)
+        #expect(store.agents.lastPromptBySurface[1] == nil)
 
         // A hook agent works only after UserPromptSubmit; a plugin agent starts working.
         report(store, 1, .working, "hook", at: 100)
         report(store, 2, .working, "plugin", at: 200)
-        #expect(store.lastPromptBySurface[1] == 100)
-        #expect(store.lastPromptBySurface[2] == 200)
+        #expect(store.agents.lastPromptBySurface[1] == 100)
+        #expect(store.agents.lastPromptBySurface[2] == 200)
 
         // An approval resumes the same turn, and a repeated report is not a new prompt.
         report(store, 2, .blocked, "plugin", at: 250)
         report(store, 2, .working, "plugin", at: 300)
         report(store, 2, .working, "plugin", at: 320)
-        #expect(store.lastPromptBySurface[2] == 200)
+        #expect(store.agents.lastPromptBySurface[2] == 200)
 
         // The next turn on each is a new prompt.
         report(store, 1, .idle, "hook", at: 400)
         report(store, 1, .working, "hook", at: 500)
         report(store, 2, .idle, "plugin", at: 600)
         report(store, 2, .working, "plugin", at: 700)
-        #expect(store.lastPromptBySurface[1] == 500)
-        #expect(store.lastPromptBySurface[2] == 700)
+        #expect(store.agents.lastPromptBySurface[1] == 500)
+        #expect(store.agents.lastPromptBySurface[2] == 700)
 
         // A reconnect re-seeds the agents with the roster's own times: the newest prompt stays.
         store.apply(agents: [AgentStatus(surface: 1, state: .working, source: "hook", agent: "claude", updatedAtMs: 450)])
-        #expect(store.lastPromptBySurface[1] == 500)
+        #expect(store.agents.lastPromptBySurface[1] == 500)
     }
 }
