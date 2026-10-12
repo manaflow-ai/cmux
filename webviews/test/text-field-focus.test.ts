@@ -207,10 +207,7 @@ await requireBrowserLane("text-field-focus.test.ts", async () => {
               width: "760",
               height: "640",
             });
-            // The first stage pays the dev server's cold dependency optimize (beside another dev
-            // server file in CI, run-webviews-tests.sh): past goto's default 30 s, inside the 120 s
-            // the stage gets to mount.
-            await page.goto(`${base}/gallery/frame.html?${params}`, { timeout: 120_000 });
+            await page.goto(`${base}/gallery/frame.html?${params}`);
             await page.waitForFunction(
               () => ["1", "error"].includes(document.documentElement.dataset.galleryReady ?? ""),
               null,
