@@ -85,8 +85,10 @@ enum CloudAccessCard {
                                  input: input)
     }
 
-    /// The largest secret the machine takes (cmux-tui `MAX_SECRET_BYTES`).
-    static let maximumSecretBytes = 64 * 1024
+    /// The largest secret this card takes: 16 KiB, a macOS pipe's smallest buffer, since
+    /// ``ProcessRunner`` writes stdin whole before the CLI starts and a larger write would block
+    /// (the machine itself takes up to 64 KiB, cmux-tui `MAX_SECRET_BYTES`).
+    static let maximumSecretBytes = 16 * 1024
 
     private static func reasonText(_ reason: String?) -> String {
         guard let reason = reason?.trimmingCharacters(in: .whitespacesAndNewlines), !reason.isEmpty else { return "" }

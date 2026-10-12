@@ -138,9 +138,8 @@ extension AgentPaneToolCard {
             return AgentPaneModel.unsupported("chat.toolCard.respond")
         }
         if button.submitsInput {
-            guard let input = shown.input, let value, value.text.utf8.count <= input.maximumBytes else {
-                return AgentPaneReply.failure(code: "input_required", message: "Enter a value first")
-            }
+            guard let input = shown.input, let value else { return AgentPaneReply.failure(code: "input_required", message: "Enter a value first") }
+            guard value.text.utf8.count <= input.maximumBytes else { return AgentPaneReply.failure(code: "input_too_long", message: "The value is too long") }
         } else if value != nil {
             return AgentPaneModel.unsupported("chat.toolCard.respond")
         }

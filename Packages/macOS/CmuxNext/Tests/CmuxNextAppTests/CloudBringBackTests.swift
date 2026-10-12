@@ -105,7 +105,10 @@ struct CloudBringBackTests {
             #expect(await trip.answer(id, "share", gesture: false, value: secret)["ok"] as? Bool != true)
             #expect(await trip.answer(id, "share", gesture: true)["ok"] as? Bool != true, "Share once went without a value")
             #expect(await trip.answer(id, "deny", gesture: true, value: secret)["ok"] as? Bool != true, "Deny took a value")
+            // Past 16 KiB a secret is refused here: the CLI's stdin is written whole before it starts.
+            #expect(await trip.answer(id, "share", gesture: true, value: String(repeating: "x", count: 16 * 1024 + 1))["ok"] as? Bool != true)
             #expect(answers().isEmpty, "a click without a gesture or a value answered: \(answers())")
+            #expect(await trip.toolCards(waiting: false)?.first.flatMap { CloudMoveTests.text($0, "id") } == id, "a refused click took the card")
             #expect(await trip.answer(id, "share", gesture: true, value: secret)["ok"] as? Bool == true)
             try await trip.waitUntil { !answers().isEmpty }
             #expect(answers() == [["link", "access", "answer", "--socket", trip.vmSocket, "--machine", "vm-move", "--session", "chat-on-vm",

@@ -37,7 +37,8 @@ nonisolated struct CloudAccessCLI: Sendable {
     enum How: Sendable, Equatable {
         case allow(path: String, target: String)
         case always(path: String, target: String, folder: String)
-        /// What the person typed for secret `name`: it goes to `answer` on stdin only.
+        /// What the person typed for secret `name`: it goes to `answer` on stdin only. Swift can't
+        /// wipe a `String`, so the copies here and in the stdin `Data` are freed, not zeroed.
         case shareSecret(name: String, value: AgentPaneToolCard.Entered)
         case deny
     }

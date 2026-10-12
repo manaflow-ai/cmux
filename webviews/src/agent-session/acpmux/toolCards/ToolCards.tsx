@@ -32,8 +32,10 @@ function ToolCardRow({
   const [value, setValue] = useState("");
   const input = card.state === "ask" ? card.input : undefined;
   const submit = input ? card.actions.find((action) => action.submitsInput) : undefined;
+  // The host takes at most `maxBytes` UTF-8 bytes; `maxLength` counts UTF-16 units, so check bytes here.
+  const fits = !input || new TextEncoder().encode(value).length <= input.maxBytes;
   const send = (action: string, submitsInput: boolean | undefined) => {
-    if (submitsInput && !value) return;
+    if (submitsInput && (!value || !fits)) return;
     const typed = submitsInput ? value : undefined;
     if (input) setValue("");
     onAnswer(card.id, action, typed);
@@ -72,7 +74,7 @@ function ToolCardRow({
           type={action.submitsInput && input ? "submit" : "button"}
           className="acpmux-trust-ask-action"
           title={action.hint}
-          disabled={action.submitsInput === true && (!input || !value)}
+          disabled={action.submitsInput === true && (!input || !value || !fits)}
           onClick={action.submitsInput && input ? undefined : () => send(action.id, action.submitsInput)}
         >
           {action.title}
