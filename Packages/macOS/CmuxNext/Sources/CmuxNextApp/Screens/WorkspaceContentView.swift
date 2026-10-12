@@ -11,6 +11,9 @@ final class WorkspaceContentView: NSView {
     let layoutView: NSView
     let bar: TabStripView
     private(set) var emptyView: NSView?
+    /// The menu of a right-click that no pane or control took: the window's background
+    /// (Change Background…, cx-t2x.4).
+    var backgroundMenu: (@MainActor () -> NSMenu?)?
     var showsBar = false {
         didSet {
             guard oldValue != showsBar else { return }
@@ -68,6 +71,10 @@ final class WorkspaceContentView: NSView {
             layoutView.isHidden = false
             bar.isHidden = !showsBar
         }
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        backgroundMenu?() ?? super.menu(for: event)
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {

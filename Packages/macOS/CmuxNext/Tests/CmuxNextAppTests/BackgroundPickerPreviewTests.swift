@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextPages
+import CmuxNextTabs
 @testable import CmuxNextSettings
 import Foundation
 import Testing
@@ -74,5 +75,26 @@ import Testing
         await settle { harness.settings.snapshot.backdropSelection?.id == Self.work }
         #expect(harness.selection == Self.work)
         #expect(harness.file.contains(Self.work))
+    }
+}
+
+/// The entry point: a right-click on the window's background (the gaps between panes, an empty
+/// workspace) or the sidebar's empty space offers Change Background….
+@MainActor @Suite struct ChangeBackgroundMenuTests {
+    static func titles(_ menu: NSMenu?) -> [String] { menu?.items.map(\.title) ?? [] }
+
+    @Test func rightClickingTheWindowBackgroundOffersChangeBackground() throws {
+        let registry = ActionRegistry.standard()
+        let view = WorkspaceContentView(layoutView: NSView(), bar: TabStripView(model: TabStripModel()))
+        view.backgroundMenu = { registry.makeContextMenu(for: .windowBackground) }
+        let event = try #require(NSEvent.mouseEvent(with: .rightMouseDown, location: NSPoint(x: 40, y: 40), modifierFlags: [],
+                                                     timestamp: 0, windowNumber: 0, context: nil, eventNumber: 0,
+                                                     clickCount: 1, pressure: 1))
+        #expect(Self.titles(view.menu(for: event)).contains("Change Background…"))
+    }
+
+    @Test func theSidebarsEmptySpaceOffersChangeBackground() {
+        let menu = ActionRegistry.standard().makeContextMenu(for: .sidebarBackground)
+        #expect(Self.titles(menu).contains("Change Background…"))
     }
 }
