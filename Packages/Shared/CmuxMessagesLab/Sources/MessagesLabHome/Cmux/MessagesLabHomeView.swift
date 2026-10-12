@@ -300,29 +300,31 @@ public final class MessagesLabHomeView: NSView {
 
     /// Automation (DEBUG socket): the visible rows as drawn, in window coordinates (AppKit: origin
     /// at the bottom left), top to bottom. A message part gives its bubble body (RowDraw.bodyRect in
-    /// the row's content, which RowCell.snapRow moves onto the window's device pixels); a thread
-    /// preview and any other row give the row's content box.
-    public func debugRowFrames() -> [(kind: String, key: String, outgoing: Bool, frame: CGRect)] {
+    /// the row's content, which RowCell.snapRow moves onto the window's device pixels) and its drawn
+    /// balloon (RowDraw.balloon: an outgoing text balloon lies a little inside the body on macOS 27);
+    /// a thread preview and any other row give the row's content box (both).
+    public func debugRowFrames() -> [(kind: String, key: String, outgoing: Bool, frame: CGRect, balloon: CGRect)] {
         guard let demo = controller.demo, controller.host.window != nil, let hostLayer = controller.host.layer else { return [] }
-        var rows: [(kind: String, key: String, outgoing: Bool, frame: CGRect)] = []
+        var rows: [(kind: String, key: String, outgoing: Bool, frame: CGRect, balloon: CGRect)] = []
         for case let cell as RowCell in demo.collection.visibleCells where !cell.isHidden {
             guard let spec = cell.spec else { continue }
             let content = cell.contentView.layer
-            let kind: String, outgoing: Bool, rect: CGRect
+            let kind: String, outgoing: Bool, rect: CGRect, drawn: CGRect
             switch spec.kind {
             case let .part(p):
                 kind = { if case .text = p.part { return "text" }; return "part" }()
                 outgoing = p.outgoing
                 rect = RowDraw.bodyRect(spec)
+                drawn = RowDraw.balloon(rect, row: p)
             case .threadPreview(let pv):
                 kind = "preview"; outgoing = pv.outgoing
-                rect = CGRect(origin: .zero, size: content.bounds.size)
+                rect = CGRect(origin: .zero, size: content.bounds.size); drawn = rect
             default:
                 kind = "other"; outgoing = false
-                rect = CGRect(origin: .zero, size: content.bounds.size)
+                rect = CGRect(origin: .zero, size: content.bounds.size); drawn = rect
             }
-            let inHost = content.convert(rect, to: hostLayer)
-            rows.append((kind, spec.key, outgoing, controller.host.convert(inHost, to: nil)))
+            func inWindow(_ r: CGRect) -> CGRect { controller.host.convert(content.convert(r, to: hostLayer), to: nil) }
+            rows.append((kind, spec.key, outgoing, inWindow(rect), inWindow(drawn)))
         }
         return rows.sorted { $0.frame.maxY > $1.frame.maxY }
     }

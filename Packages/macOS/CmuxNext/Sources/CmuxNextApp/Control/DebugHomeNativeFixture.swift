@@ -90,7 +90,9 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             let rows: [JSONValue] = view.debugRowFrames().map { r in
                 .object(["kind": .string(r.kind), "key": .string(r.key), "outgoing": .bool(r.outgoing),
                          "x": .number(Double(r.frame.minX)), "y": .number(Double(r.frame.minY)),
-                         "width": .number(Double(r.frame.width)), "height": .number(Double(r.frame.height))])
+                         "width": .number(Double(r.frame.width)), "height": .number(Double(r.frame.height)),
+                         "balloon": .object(["x": .number(Double(r.balloon.minX)), "y": .number(Double(r.balloon.minY)),
+                                             "width": .number(Double(r.balloon.width)), "height": .number(Double(r.balloon.height))])])
             }
             return .object(["ok": .bool(!rows.isEmpty), "rows": .array(rows), "windowWidth": .number(Double(size.width)),
                             "windowHeight": .number(Double(size.height)), "hostX": .number(Double(o.x)), "hostY": .number(Double(o.y))])

@@ -91,9 +91,9 @@ extension HomeNativeTranscriptView {
     public var debugHostOrigin: CGPoint { transcript.debugHostOrigin }
     /// The typing bubble's body in window coordinates (bottom-left origin), nil when none shows.
     public func debugTypingBubbleFrame() -> CGRect? { transcript.debugTypingBubbleFrame() }
-    /// The visible rows as drawn (a part: its bubble body; a preview or other row: its content box),
+    /// The visible rows as drawn (a part: its bubble body and drawn balloon; a preview or other row: its content box),
     /// window coordinates (bottom-left origin), top to bottom.
-    public func debugRowFrames() -> [(kind: String, key: String, outgoing: Bool, frame: CGRect)] { transcript.debugRowFrames() }
+    public func debugRowFrames() -> [(kind: String, key: String, outgoing: Bool, frame: CGRect, balloon: CGRect)] { transcript.debugRowFrames() }
     /// The text of the newest `limit` messages this view shows, oldest first.
     public func debugMessageTexts(limit: Int = 10) -> [String] { transcript.debugMessageTexts(limit: limit) }
     /// Clicks the newest thread's "N Replies" or preview (the click's path); the open thread's root.

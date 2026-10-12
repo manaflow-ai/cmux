@@ -248,17 +248,18 @@ final class TiledBody {
             cell.fillGradient.isHidden = true
             fill.backgroundColor = Fixture.incoming.cgColor
         }
-        let x0 = floor((body.minX - BubbleSlices.pad) * s) / s
-        let phase = body.minX - BubbleSlices.pad - x0
+        let outline = RowDraw.balloon(body, row: p) // an outgoing text balloon is drawn inside its frame
+        let x0 = floor((outline.minX - BubbleSlices.pad) * s) / s
+        let phase = outline.minX - BubbleSlices.pad - x0
         // a slice image that could not be allocated leaves the bubble outline undrawn.
-        if let img = BubbleSlices.image(bodyWidth: body.width, phase: phase, outgoing: p.outgoing, tail: p.tail, scale: s) {
+        if let img = BubbleSlices.image(bodyWidth: outline.width, phase: phase, outgoing: p.outgoing, tail: p.tail, scale: s) {
             let ih = CGFloat(img.height) / s
             shape.contents = img
             shape.contentsScale = s
             // The middle pixel row stretches (the image is symmetric, so the flip does not matter).
             shape.contentsCenter = CGRect(x: 0, y: 0.5 - 0.5 / CGFloat(img.height), width: 1, height: 1 / CGFloat(img.height))
-            shape.frame = CGRect(x: x0, y: body.minY - BubbleSlices.vpad, width: CGFloat(img.width) / s,
-                                 height: body.height + ih - 2 * BubbleSlices.cap)
+            shape.frame = CGRect(x: x0, y: outline.minY - BubbleSlices.vpad, width: CGFloat(img.width) / s,
+                                 height: outline.height + ih - 2 * BubbleSlices.cap)
         } else {
             shape.contents = nil
         }
