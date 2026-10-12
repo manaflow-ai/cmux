@@ -658,6 +658,17 @@ export function enrollVmTunnel(input: {
       return { tunnel: created.tunnel, row, flags: { created: true, rotated: created.rotated } };
     }));
     const teamNetworks = yield* reconcileTunnelTeamNetworks({ providers, tunnel: enrolled.tunnel, provider: input.provider, homeNetworkId: network.providerNetworkId, teamIds: teamNetworkCandidates(input), detachStale: input.teamIdsComplete === true });
+    // A revoke can win while the networks reconcile outside the lease. Never hand
+    // back a config for a tunnel it deleted: the client enrolls again, and that
+    // enrollment answers from the current grant (a new tunnel or `vm_access_revoked`).
+    const current = yield* repo.findTunnel({
+      userId: input.userId,
+      deviceFingerprint: input.deviceFingerprint,
+      tunnelPurpose: input.tunnelPurpose,
+    });
+    if (current?.id !== enrolled.row.id) {
+      return yield* Effect.fail(new VmTunnelNotFoundError({ deviceFingerprint: input.deviceFingerprint }));
+    }
     return describeTunnel(enrolled.tunnel, enrolled.row, network, enrolled.flags, teamNetworks);
   });
 }

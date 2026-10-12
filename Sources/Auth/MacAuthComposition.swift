@@ -476,13 +476,14 @@ enum UnsolicitedAuthCallbackApprovalPrompt {
 /// sign-out tail.
 @MainActor
 private final class SignOutTunnelRoles {
-    var roles: [CloudTunnelRole] = []
+    /// Nil until sign-out begins; an empty capture means this build had no
+    /// tunnel, and must not be refilled from disk after teardown.
+    var roles: [CloudTunnelRole]?
 
     /// The captured roles, or the ones still on disk when sign-out began on a
     /// path that did not capture them. Clears the capture.
     func take() -> [CloudTunnelRole] {
-        let captured = roles.isEmpty ? VMTunnelManager.storedRoles() : roles
-        roles = []
-        return captured
+        defer { roles = nil }
+        return roles ?? VMTunnelManager.storedRoles()
     }
 }
