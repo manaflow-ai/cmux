@@ -109,7 +109,9 @@ export function NewTabScreen(props: Props) {
   const composing = useRef(false);
   const inputReported = useRef(false);
   const inputReadyReported = useRef<string | undefined>(undefined);
-  const { onInputReady } = props;
+  // The App hands a new callback on each render; the field must not take the keyboard again for it.
+  const onInputReady = useRef(props.onInputReady);
+  onInputReady.current = props.onInputReady;
   const focusOnShow = props.focusField !== false;
   const touch = () => {
     if (inputReported.current) return;
@@ -177,7 +179,8 @@ export function NewTabScreen(props: Props) {
   }, []);
 
   // The field takes the keyboard when the screen appears (in the commit, so an adopted spare's
-  // field has focus before the next key) and on Cmd-L (FOCUS_LOCATION_EVENT).
+  // field has focus before the next key) and on Cmd-L (FOCUS_LOCATION_EVENT); only then, so an
+  // update or a click into the field never moves its caret or restarts its blink.
   useLayoutEffect(() => {
     const focus = () => {
       field.current?.focus();
@@ -186,12 +189,12 @@ export function NewTabScreen(props: Props) {
     if (focusOnShow) focus();
     if (inputToken && inputReadyReported.current !== inputToken) {
       inputReadyReported.current = inputToken;
-      onInputReady?.(inputToken);
+      onInputReady.current?.(inputToken);
     }
     const view = field.current?.ownerDocument.defaultView;
     view?.addEventListener(FOCUS_LOCATION_EVENT, focus);
     return () => view?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
-  }, [inputToken, onInputReady, focusOnShow]);
+  }, [inputToken, focusOnShow]);
 
   const activate = (row: ScreenRow) => {
     switch (row.type) {

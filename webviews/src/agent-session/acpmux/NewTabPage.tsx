@@ -316,18 +316,22 @@ export function NewTabPage({
   const placeholder = NEW_TAB_LABELS.placeholder[kind](t, kind === "agent" ? agent : folder);
 
   // The field takes the keyboard when the page appears, as a browser's new tab does, and
-  // again on Cmd-L (the host's FOCUS_LOCATION_EVENT), wherever focus moved on the page.
+  // again on Cmd-L (the host's FOCUS_LOCATION_EVENT), wherever focus moved on the page; only
+  // then, so an update (the App hands a new callback on each render) or a click into the field
+  // never moves its caret or restarts its blink.
+  const inputReady = useRef(onInputReady);
+  inputReady.current = onInputReady;
   useEffect(() => {
     const focus = () => {
       field.current?.focus();
       field.current?.select();
     };
     focus();
-    if (inputToken) onInputReady?.(inputToken);
+    if (inputToken) inputReady.current?.(inputToken);
     const host = field.current?.ownerDocument.defaultView;
     host?.addEventListener(FOCUS_LOCATION_EVENT, focus);
     return () => host?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
-  }, [inputToken, onInputReady]);
+  }, [inputToken]);
   const choose = (next: TabKind) => {
     setKind(next);
     setBeforePrefix(undefined);
