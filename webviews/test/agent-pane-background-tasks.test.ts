@@ -72,6 +72,9 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
     ["mux", "user_message", { text: "Stop the dev server" }],
     ["mux", "turn_started", {}],
     ended("bg1", "npm run dev", "stopped", { reason: "Stopped by the agent" }),
+    // A shell whose Bash row the chat never loaded (an older page, or one Claude moved to the
+    // background itself) is known only from how it ended.
+    ended("bg3", "pytest -x", "completed", { summary: "Tests passed" }),
     ["in", "agent_message_chunk", say("Dev server stopped.")],
     ["mux", "turn_result", { status: "completed" }],
   ];
@@ -192,6 +195,7 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
     expect(rows).toEqual([
       ["npm run dev", "Stopped"],
       ["cargo watch -x test", "Running"],
+      ["pytest -x", "Completed"],
     ]);
     await page.close();
   });
