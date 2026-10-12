@@ -5001,9 +5001,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// mirror-owned pane surface. If the workspace is later kept open while the
     /// mirror detaches, that container remains in the bonsplit tree with a
     /// permanently closed TerminalSurface. Remove it before the workspace is
-    /// presented as a local tab, and provide a fresh shell when nothing usable
-    /// remains. This closes the stale blank-tab path without touching live
-    /// panels (for example a user-created browser split).
+    /// presented as a local tab. The caller owns replacement creation after
+    /// detach, so this repair only removes stale containers and never creates a
+    /// second replacement alongside the caller's one.
     private func repairRetiredRemoteTmuxContainerPanelsAfterDetach() {
         let retiredPanelIDs = panels.values.compactMap { panel -> UUID? in
             guard let terminalPanel = panel as? TerminalPanel,
