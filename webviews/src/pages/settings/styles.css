@@ -43,14 +43,18 @@ html {
   background: var(--cmux-surface-background, transparent);
 }
 
-/* One scroller (cx-jh7kq): the content column. The document never scrolls, so a wheel at the
-   content's end goes nowhere and the page never slides up under the window. */
 html,
 body {
   margin: 0;
   height: 100%;
-  overflow: hidden;
   color: var(--text);
+}
+
+/* One scroller (cx-jh7kq): the content column. The Settings page's document never scrolls, so a
+   wheel at the content's end goes nowhere and the page never slides up under the window. Pages
+   that only borrow this stylesheet (gallery frames) keep their own scrolling. */
+:is(html, body):has(.settings) {
+  overflow: hidden;
 }
 
 body {

@@ -25,7 +25,7 @@ await requireBrowserLane("settings-scroll.test.ts", async () => {
     ["webkit", webkit],
   ] as [string, BrowserType][]) {
     try {
-      await (await engine[1].launch({ headless: true })).close();
+      await (await engine[1].launch({ headless: true, timeout: 30_000 })).close();
       engines.push(engine);
     } catch {
       console.warn(`settings-scroll: skipping ${engine[0]} (run \`bunx playwright install ${engine[0]}\`)`);
@@ -46,7 +46,8 @@ await requireBrowserLane("settings-scroll.test.ts", async () => {
     server = spawn(
       path.join(webviews, "node_modules/.bin/vp"),
       ["dev", "--config", "vite.config.settings-page.mjs", "--port", String(port), "--strictPort"],
-      { cwd: webviews, stdio: ["ignore", "pipe", "pipe"] },
+      // Its own process group: vp starts vite as a child, and the whole group stops in afterAll.
+      { cwd: webviews, stdio: ["ignore", "ignore", "ignore"], detached: true },
     );
     base = `http://127.0.0.1:${port}`;
     const deadline = Date.now() + 60_000;
@@ -62,7 +63,7 @@ await requireBrowserLane("settings-scroll.test.ts", async () => {
   });
 
   afterAll(() => {
-    server?.kill("SIGTERM");
+    if (server?.pid) process.kill(-server.pid, "SIGTERM");
   });
 
   /** The page's scroll state: the document's, and every element that scrolls a row. */
@@ -182,6 +183,7 @@ await requireBrowserLane("settings-scroll.test.ts", async () => {
           const place = await page.evaluate((selector) => {
             const popup = document.querySelector(".ui-select-popup");
             if (!popup) return null;
+            // Base UI keeps an open pop-up mounted; gone would mean the scroll closed it.
             const box = popup.getBoundingClientRect();
             const anchor = document.querySelector(selector)!.getBoundingClientRect();
             const content = document.querySelector(".content")!.getBoundingClientRect();
@@ -192,6 +194,7 @@ await requireBrowserLane("settings-scroll.test.ts", async () => {
               gap: Math.min(Math.abs(box.top - anchor.bottom), Math.abs(anchor.top - box.bottom)),
             };
           }, control);
+          if (!place) problems.push(`wheel ${delta}: the pop-up closed`);
           if (state.documentScrolls) problems.push(`wheel ${delta}: document ${state.documentHeight}px`);
           // Shown, it is on screen; with its anchor scrolled away it may wait hidden.
           if (place?.shown && !place.onScreen)
@@ -203,13 +206,16 @@ await requireBrowserLane("settings-scroll.test.ts", async () => {
         expect(problems).toEqual([]);
       });
 
-      test("opening a font list pushes no row down", async () => {
+      test("opening a font list pushes no row down; its button closes it again", async () => {
         await open(page, "appearance");
         await watchRows(page);
-        await page.click('[data-row-key="terminal.fontFamily"] .domain-button');
+        const button = '[data-row-key="terminal.fontFamily"] .domain-button';
+        await page.click(button);
         await page.waitForSelector(".domain-option");
         expect((await rowsSince(page)).moved).toEqual([]);
-        await page.keyboard.press("Escape");
+        await page.click(button);
+        await page.waitForSelector(".domain-option", { state: "detached" });
+        expect(await page.getAttribute(button, "aria-expanded")).toBe("false");
       });
 
       test("the content's edges fade instead of clipping", async () => {
