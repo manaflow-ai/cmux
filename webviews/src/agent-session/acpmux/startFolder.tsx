@@ -61,7 +61,7 @@ export async function newWorktree(
   callNative: Native,
   cwd: string,
   use: (cwd: string) => void,
-): Promise<{ root: string; branch?: string }> {
+): Promise<{ root: string; branch?: string; ask?: FolderAsk }> {
   let reply: { value?: { root?: unknown; branch?: unknown } } | undefined;
   try {
     reply = (await callNative("git.worktree.create", { cwd, idempotency_key: crypto.randomUUID() })) as typeof reply;
