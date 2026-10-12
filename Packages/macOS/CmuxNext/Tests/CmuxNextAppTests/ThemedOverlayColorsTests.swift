@@ -67,7 +67,34 @@ import Testing
         }
     }
 
+    @Test func buttonsAndPickersDrawTheThemeBezel() throws {
+        let scope = try Self.purpleRoom()
+        let sidebar = HomeChiefSidebar(muxHome: FileManager.default.temporaryDirectory, source: UnreachableEngine())
+        let restart = TerminalRestartButton()
+        let placeholder = RemoteTerminalPlaceholderView(frame: .zero)
+        let dialog = CmuxDialogView(spec: CmuxDialogSpec(title: "Move Tab", fields: [
+            .choice(id: "window", label: nil, options: [.init(label: "Window A", value: "a")], selected: "a"),
+        ], buttons: [.ok()]))
+        for view in [sidebar, restart, placeholder, dialog] as [NSView] { scope.root(view) }
+
+        let buttons = [sidebar, restart, placeholder, dialog].flatMap(Self.pushButtons(in:))
+        #expect(buttons.count >= 7)
+        let fill = scope.perform { Palette.selectionFill }
+        for button in buttons {
+            let bezel = try #require(button.bezelColor, "\(button.title)")
+            #expect(Self.same(bezel, fill), "\(button.title)")
+        }
+    }
+
     // MARK: Helpers
+
+    /// Every bordered push button and pop-up under `view`, `view` included.
+    static func pushButtons(in view: NSView) -> [NSButton] {
+        var found: [NSButton] = []
+        if let button = view as? NSButton, button.isBordered, button.bezelStyle == .push { found.append(button) }
+        for subview in view.subviews { found += pushButtons(in: subview) }
+        return found
+    }
 
     /// Every read-only text field under `view`.
     static func labels(in view: NSView) -> [NSTextField] {
